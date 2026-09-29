@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import { findTicketById, getTicketByKey, type Ticket } from '../store/tickets.js';
+import { findTicketById, getTicketsByKey, type Ticket } from '../store/tickets.js';
 import { getProjectBySlug } from '../store/projects.js';
 
 /**
@@ -17,6 +17,12 @@ import { getProjectBySlug } from '../store/projects.js';
  * and still be unadopted. Failing to resolve a ticket the user can plainly see
  * is worse than the rare ambiguity the fallback re-admits. The numeric ROW ID
  * form gets no such fallback — see below.
+ *
+ * A key can be held by more than one row even within one project (a reused or
+ * re-created key). Resolution then prefers the NON-ARCHIVED row: an archived row
+ * is the stale namesake, and picking it silently hid the live ticket (NDL-95).
+ * If two LIVE rows still collide the key genuinely is ambiguous, so this refuses
+ * with an explicit error naming the candidates rather than silently picking one.
  */
 export function resolveTicketByKey(
   store: Store,
@@ -25,8 +31,9 @@ export function resolveTicketByKey(
 ): Ticket | undefined {
   const projectId = projectSlug ? getProjectBySlug(store, projectSlug)?.id : undefined;
   const scoped =
-    projectId !== undefined ? getTicketByKey(store, key, { projectId }) : undefined;
-  const byKey = scoped ?? getTicketByKey(store, key);
+    projectId !== undefined ? getTicketsByKey(store, key, { projectId }) : [];
+  const matches = scoped.length > 0 ? scoped : getTicketsByKey(store, key);
+  const byKey = selectNamesake(matches, key);
   if (byKey) return byKey;
   // The environment hands agent sessions `KARST_TICKET_ID` (a row id) while
   // every verb takes a KEY, so a bare number is accepted as an id — but only
@@ -42,4 +49,24 @@ export function resolveTicketByKey(
   // sparse and project-prefixed); ids may not.
   if (projectId !== undefined) return findTicketById(store, id, { projectId });
   return findTicketById(store, id);
+}
+
+/**
+ * Pick the one ticket a key names out of its namesakes (already ordered
+ * active-first, id-ascending). A live row outranks an archived one; two live
+ * rows are ambiguous and refused. Returns undefined only for an empty set.
+ */
+function selectNamesake(matches: Ticket[], key: string): Ticket | undefined {
+  if (matches.length === 0) return undefined;
+  const live = matches.filter((t) => t.archivedAt === null);
+  const candidates = live.length > 0 ? live : matches;
+  if (candidates.length > 1) {
+    const ids = candidates.map((t) => `#${t.id}`).join(', ');
+    const kind = live.length > 0 ? 'non-archived' : 'archived';
+    throw new Error(
+      `ambiguous ticket key '${key}': ${candidates.length} ${kind} tickets match (${ids}) — ` +
+        `pass --manifest to scope by project, or use a numeric id`,
+    );
+  }
+  return candidates[0];
 }

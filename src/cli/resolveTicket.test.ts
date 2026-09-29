@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket } from '../store/tickets.js';
+import { archiveTicket, createTicket } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 
@@ -62,5 +62,52 @@ describe('resolveTicketByKey', () => {
     });
 
     expect(resolveTicketByKey(store, String(first.id), 'beta')?.id).toBe(numericKey.id);
+  });
+
+  // NDL-95: a reused/re-created key used to resolve to whichever row came first
+  // (the lowest id), so `context --ticket TEST-TASK` returned the archived ticket
+  // and hid the live one. Active wins.
+  it('prefers a non-archived namesake over the archived one, unscoped', () => {
+    const stale = createTicket(store, { key: 'TEST-TASK', title: 'stale' });
+    archiveTicket(store, stale.id);
+    const live = createTicket(store, { key: 'TEST-TASK', title: 'live' });
+
+    expect(resolveTicketByKey(store, 'TEST-TASK', undefined)?.id).toBe(live.id);
+  });
+
+  it('prefers a non-archived namesake over the archived one, within the scoped project', () => {
+    const beta = upsertProject(store, { slug: 'beta' });
+    const stale = createTicket(store, { key: 'DUP-1', title: 'stale', projectId: beta.id });
+    archiveTicket(store, stale.id);
+    const live = createTicket(store, { key: 'DUP-1', title: 'live', projectId: beta.id });
+
+    expect(resolveTicketByKey(store, 'DUP-1', 'beta')?.id).toBe(live.id);
+  });
+
+  it('still resolves the sole archived namesake when no active one holds the key', () => {
+    const stale = createTicket(store, { key: 'GONE-1', title: 'archived only' });
+    archiveTicket(store, stale.id);
+
+    expect(resolveTicketByKey(store, 'GONE-1', undefined)?.id).toBe(stale.id);
+  });
+
+  // Two live tickets with one key cannot be disambiguated by activity, so the
+  // resolver refuses rather than silently picking the older row.
+  it('throws an explicit ambiguity error when two non-archived tickets share a key, unscoped', () => {
+    const first = createTicket(store, { key: 'AMB-1', title: 'first' });
+    const second = createTicket(store, { key: 'AMB-1', title: 'second' });
+
+    expect(() => resolveTicketByKey(store, 'AMB-1', undefined)).toThrow(/ambiguous/i);
+    expect(() => resolveTicketByKey(store, 'AMB-1', undefined)).toThrow(
+      new RegExp(`#${first.id}.*#${second.id}`),
+    );
+  });
+
+  it('throws an explicit ambiguity error within the scoped project', () => {
+    const beta = upsertProject(store, { slug: 'beta' });
+    createTicket(store, { key: 'AMB-2', title: 'first', projectId: beta.id });
+    createTicket(store, { key: 'AMB-2', title: 'second', projectId: beta.id });
+
+    expect(() => resolveTicketByKey(store, 'AMB-2', 'beta')).toThrow(/ambiguous/i);
   });
 });

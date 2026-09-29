@@ -12,6 +12,7 @@ import {
   createTicket,
   getTicket,
   getTicketByKey,
+  getTicketsByKey,
   generateTicketKey,
   ticketLabel,
   updateTicketCore,
@@ -110,6 +111,23 @@ describe('ticket + stage persistence', () => {
     const t = createTicket(store, { key: 'FIND-1', title: 'findable' });
     expect(getTicketByKey(store, 'FIND-1')?.id).toBe(t.id);
     expect(getTicketByKey(store, 'NOPE')).toBeUndefined();
+  });
+
+  it('getTicketByKey prefers a non-archived namesake over the archived row', () => {
+    const stale = createTicket(store, { key: 'DUP-1', title: 'stale' });
+    archiveTicket(store, stale.id);
+    const live = createTicket(store, { key: 'DUP-1', title: 'live' });
+
+    expect(getTicketByKey(store, 'DUP-1')?.id).toBe(live.id);
+  });
+
+  it('getTicketsByKey returns every namesake, active first then by id', () => {
+    const live = createTicket(store, { key: 'MANY-1', title: 'live' });
+    const stale = createTicket(store, { key: 'MANY-1', title: 'stale' });
+    archiveTicket(store, stale.id);
+
+    expect(getTicketsByKey(store, 'MANY-1').map((t) => t.id)).toEqual([live.id, stale.id]);
+    expect(getTicketsByKey(store, 'NOPE-1')).toEqual([]);
   });
 
   it('generateTicketKey returns a non-empty key unclaimed by any ticket', () => {

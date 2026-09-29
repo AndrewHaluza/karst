@@ -194,10 +194,16 @@ describe('runCli — phase marker', () => {
     expect(marksFor(1)).toHaveLength(0);
   });
 
-  it('falls back to an unscoped lookup without --manifest, as the stage marker does', () => {
-    const out = runCli(['phase', 'research', '--db', dbPath, '--ticket', 'K-1']);
-    expect(out.trim()).toBe('research');
-    expect(marksFor(1)).toHaveLength(1);
+  it('refuses an ambiguous unscoped key rather than marking whichever row is older', () => {
+    // Two LIVE tickets hold K-1 (one per project) and no --manifest disambiguates
+    // them, so the phase marker must not guess: silently picking the older row
+    // marked the wrong board (NDL-95). The single-match fallback still resolves
+    // an unadopted ticket; only a true collision is refused.
+    expect(() => runCli(['phase', 'research', '--db', dbPath, '--ticket', 'K-1'])).toThrow(
+      /ambiguous/i,
+    );
+    expect(marksFor(1)).toHaveLength(0);
+    expect(marksFor(2)).toHaveLength(0);
   });
 
   it('carries the stage’s attempt at the moment the mark landed', () => {

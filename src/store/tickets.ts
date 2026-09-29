@@ -314,17 +314,41 @@ export function findTicketById(
  * whenever the caller has one: two projects may legitimately carry the same key
  * (both tracking `PROJ-1`), and an unscoped lookup would return whichever was
  * created first.
+ *
+ * When a key is nonetheless held by more than one row (a reused/re-created key,
+ * or a legacy unadopted row plus a scoped one), the NON-ARCHIVED row wins — an
+ * archived row is the stale namesake, and returning it silently hid the live
+ * ticket from `karst context`. `getTicketsByKey` is the window into the full
+ * collision; callers that must refuse true ambiguity (two live namesakes) build
+ * on it rather than on this single-row convenience.
  */
 export function getTicketByKey(
   store: Store,
   key: string,
   scope: ProjectScope = {},
 ): Ticket | undefined {
+  return getTicketsByKey(store, key, scope)[0];
+}
+
+/**
+ * Every ticket whose key matches, ordered active-first and then by id ascending.
+ *
+ * The order is the resolution policy in one place: a live ticket outranks an
+ * archived namesake, and among equals the oldest row (lowest id) is the stable
+ * tiebreak, so resolution never depends on SQLite's unspecified row order.
+ */
+export function getTicketsByKey(
+  store: Store,
+  key: string,
+  scope: ProjectScope = {},
+): Ticket[] {
   const { sql, params } = scopeClause(scope);
-  const row = store.db
-    .prepare(`SELECT * FROM tickets ${whereClause('key = ?', sql)} LIMIT 1`)
-    .get(key, ...params) as TicketRow | undefined;
-  return row ? rowToTicket(row) : undefined;
+  const rows = store.db
+    .prepare(
+      `SELECT * FROM tickets ${whereClause('key = ?', sql)} ORDER BY (archived_at IS NOT NULL) ASC, id ASC`,
+    )
+    .all(key, ...params) as TicketRow[];
+  return rows.map(rowToTicket);
 }
 
 /**
