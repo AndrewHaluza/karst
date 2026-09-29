@@ -1,10 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import {
   validateAgentPresets,
+  validateActiveAgentPreset,
   validateDefaultAgentPreset,
+  assertExclusiveActivePreset,
+  assertActiveAgentPresetReference,
   assertAgentPresetReferences,
+  deprecatedPresetKeyWarnings,
 } from './agentPresets.js';
 import { ManifestError } from '../error.js';
+import { fullPreset } from '../fixtures.js';
 
 describe('validateAgentPresets', () => {
   it('returns undefined when absent', () => {
@@ -14,12 +19,12 @@ describe('validateAgentPresets', () => {
   it('parses a valid map', () => {
     expect(
       validateAgentPresets({
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-        deep: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+        deep: fullPreset('claude', 'claude-opus-5', 'high'),
       }),
     ).toEqual({
-      fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-      deep: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+      fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+      deep: fullPreset('claude', 'claude-opus-5', 'high'),
     });
   });
 
@@ -71,7 +76,7 @@ describe('validateDefaultAgentPreset', () => {
 });
 
 describe('assertAgentPresetReferences', () => {
-  const presets = { fast: { provider: 'opencode' as const, model: 'm' } };
+  const presets = { fast: fullPreset('opencode', 'm') };
 
   it('accepts an unset default and no process preset', () => {
     expect(() => assertAgentPresetReferences(presets, undefined, undefined)).not.toThrow();
@@ -117,5 +122,115 @@ describe('assertAgentPresetReferences', () => {
     expect(() =>
       assertAgentPresetReferences(undefined, undefined, { review: { preset: 'constructor' } }),
     ).toThrow(/processes\.review\.preset "constructor" names no agent preset/);
+  });
+});
+
+describe('validateAgentPresets — per-capability form', () => {
+  it('keeps a sparse slots map and its label as authored', () => {
+    expect(
+      validateAgentPresets({
+        smart: {
+          label: 'Smart',
+          slots: { review: { provider: 'claude', model: 'sonnet-5' } },
+        },
+      }),
+    ).toEqual({
+      smart: {
+        label: 'Smart',
+        slots: { review: { provider: 'claude', model: 'sonnet-5' } },
+      },
+    });
+  });
+
+  it('refuses a capability outside PRESET_CAPABILITIES', () => {
+    expect(() =>
+      validateAgentPresets({ fast: { slots: { research: { provider: 'claude', model: 'm' } } } }),
+    ).toThrow(/agentPresets\.fast\.slots has unknown capability "research"/);
+  });
+
+  it('refuses a slot with an unknown provider, naming the capability', () => {
+    expect(() =>
+      validateAgentPresets({ fast: { slots: { graphFast: { provider: 'gpt', model: 'm' } } } }),
+    ).toThrow(/agentPresets\.fast\.slots\.graphFast\.provider must be one of/);
+  });
+
+  it('refuses a preset mixing the legacy flat block with slots', () => {
+    expect(() =>
+      validateAgentPresets({
+        fast: {
+          provider: 'claude',
+          model: 'm',
+          slots: { review: { provider: 'claude', model: 'm' } },
+        },
+      }),
+    ).toThrow(/declares both the legacy flat/);
+  });
+
+  it('refuses a preset that declares neither slots nor a legacy block', () => {
+    expect(() => validateAgentPresets({ fast: {} })).toThrow(/must define `slots:`/);
+  });
+});
+
+describe('validateActiveAgentPreset', () => {
+  it('blank normalizes to undefined', () => {
+    expect(validateActiveAgentPreset('  ')).toBeUndefined();
+  });
+  it('refuses a non-string', () => {
+    expect(() => validateActiveAgentPreset(1)).toThrow(/activeAgentPreset must be a string/);
+  });
+  it('keeps a name verbatim', () => {
+    expect(validateActiveAgentPreset('smart')).toBe('smart');
+  });
+});
+
+describe('assertExclusiveActivePreset', () => {
+  it('accepts either spelling alone', () => {
+    expect(() => assertExclusiveActivePreset('fast', undefined)).not.toThrow();
+    expect(() => assertExclusiveActivePreset(undefined, 'fast')).not.toThrow();
+    expect(() => assertExclusiveActivePreset(undefined, undefined)).not.toThrow();
+  });
+
+  it('refuses both spellings at once', () => {
+    expect(() => assertExclusiveActivePreset('fast', 'fast')).toThrow(
+      /declares both `activeAgentPreset:` and the legacy `defaultAgentPreset:`/,
+    );
+  });
+});
+
+describe('assertActiveAgentPresetReference', () => {
+  it('accepts a name that defines a preset', () => {
+    expect(() => assertActiveAgentPresetReference({ fast: fullPreset('claude', 'm') }, 'fast'))
+      .not.toThrow();
+  });
+
+  it('refuses a dangling name, naming activeAgentPreset', () => {
+    expect(() => assertActiveAgentPresetReference(undefined, 'nope')).toThrow(
+      /activeAgentPreset "nope" names no agent preset/,
+    );
+  });
+
+  it('refuses a name that only resolves to an inherited Object member', () => {
+    expect(() => assertActiveAgentPresetReference(undefined, 'toString')).toThrow(
+      /activeAgentPreset "toString" names no agent preset/,
+    );
+  });
+});
+
+describe('deprecatedPresetKeyWarnings', () => {
+  it('warns once per process key, naming the capability row to set instead', () => {
+    expect(deprecatedPresetKeyWarnings({ review: { preset: 'fast' } })).toEqual([
+      expect.stringMatching(/`processes\.review\.preset` is deprecated/),
+    ]);
+    expect(deprecatedPresetKeyWarnings({ review: { preset: 'fast' } })[0]).toMatch(
+      /`review` slot under `agentPresets`/,
+    );
+  });
+
+  it('aggregates across processes and stays silent without the key', () => {
+    expect(
+      deprecatedPresetKeyWarnings({ review: { preset: 'fast' }, uatFix: { preset: 'fast' } }),
+    ).toHaveLength(2);
+    expect(deprecatedPresetKeyWarnings({ review: {} })).toEqual([]);
+    expect(deprecatedPresetKeyWarnings(undefined)).toEqual([]);
   });
 });

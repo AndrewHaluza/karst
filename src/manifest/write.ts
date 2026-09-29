@@ -191,6 +191,11 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // dumper) when cleared. Without this line Save silently drops the whole
     // block — the failure mode the round-trip test exists to catch.
     agentPresets: manifest.agentPresets,
+    // The active preset has TWO spellings and exactly one may reach the file
+    // (a manifest carrying both is refused at load), so each is written from
+    // its own field: a legacy-keyed file keeps its legacy key until the writer
+    // renames it on a Presets-tab save (§6).
+    activeAgentPreset: manifest.activeAgentPreset,
     defaultAgentPreset: manifest.defaultAgentPreset,
     // Without this line Save silently drops the whole block — the failure mode
     // the writeManifest round-trip test exists to catch.

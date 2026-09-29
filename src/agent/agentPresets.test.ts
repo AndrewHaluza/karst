@@ -4,14 +4,14 @@ import {
   resolveAgentPreset,
   resolveAgentDefaults,
 } from './agentPresets.js';
-import { manifest, repo } from '../manifest/fixtures.js';
+import { fullPreset, manifest, repo } from '../manifest/fixtures.js';
 import type { Manifest } from '../manifest/types.js';
 
 function m(over: Partial<Manifest> = {}): Manifest {
   return manifest({ extention: repo() }, {
     agentPresets: {
-      fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-      deep: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+      fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+      deep: fullPreset('claude', 'claude-opus-5', 'high'),
     },
     defaultAgentPreset: 'fast',
     agentProvider: 'codex',
@@ -34,11 +34,7 @@ describe('effectiveAgentPresetName', () => {
 
 describe('resolveAgentPreset', () => {
   it('returns the named preset', () => {
-    expect(resolveAgentPreset(m(), 'deep')).toEqual({
-      provider: 'claude',
-      model: 'claude-opus-5',
-      effort: 'high',
-    });
+    expect(resolveAgentPreset(m(), 'deep')).toEqual(fullPreset('claude', 'claude-opus-5', 'high'));
   });
   it('degrades a dangling name to undefined', () => {
     expect(resolveAgentPreset(m(), 'nope')).toBeUndefined();

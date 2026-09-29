@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resolveLaunchIdentity, resolveTicketProvider } from './launchIdentity.js';
 import type { ModelCatalog } from './modelCatalog.js';
-import { manifest, repo } from '../manifest/fixtures.js';
+import { fullPreset, manifest, repo } from '../manifest/fixtures.js';
 import type { Manifest } from '../manifest/types.js';
 
 /** The bundled opencode catalog is empty, so a preset's opencode model needs an explicit catalog. */
@@ -26,8 +26,8 @@ function m(over: Partial<Manifest> = {}): Manifest {
     { extention: repo() },
     {
       agentPresets: {
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-        deep: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+        deep: fullPreset('claude', 'claude-opus-5', 'high'),
       },
       defaultAgentPreset: 'fast',
       agentProvider: 'codex',

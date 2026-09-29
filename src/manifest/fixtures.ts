@@ -15,9 +15,10 @@
  * Every builder returns a fresh object and never mutates its arguments.
  */
 
-import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES } from './types.js';
+import { DEFAULT_FIX_STALL_TIMEOUT_MINUTES, PRESET_CAPABILITIES } from './types.js';
 import type {
   AgentPreset,
+  AgentProvider,
   ApproachDef,
   BindVar,
   DependsOn,
@@ -103,12 +104,29 @@ export function manifest(
   };
 }
 
+/**
+ * A preset with a slot on EVERY capability — the shape a legacy flat
+ * `{provider, model, effort?}` preset normalizes to at load (§6), and what a
+ * fixture means when it wants "this one bundle applies globally".
+ */
+export function fullPreset(
+  provider: AgentProvider,
+  model: string,
+  effort?: string,
+): AgentPreset {
+  const slots: AgentPreset['slots'] = {};
+  for (const capability of PRESET_CAPABILITIES) {
+    slots[capability] = effort === undefined ? { provider, model } : { provider, model, effort };
+  }
+  return { slots };
+}
+
 /** An agentPresets block; one entry so a reference test has something to name. */
 export function agentPresets(
   over: Record<string, AgentPreset> = {},
 ): Record<string, AgentPreset> {
   return {
-    fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+    fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
     ...over,
   };
 }

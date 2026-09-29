@@ -5,7 +5,7 @@ import { openProcessRun, listProcessRuns } from '../store/processRuns.js';
 import { resolveProcessAssignment, DEFAULT_PROCESS_AGENT_NAMES } from './processAssignment.js';
 import { PROCESS_KEY_BY_ROLE } from '../manifest/validate/processAssignments.js';
 import type { Manifest } from '../manifest/types.js';
-import { manifest as buildManifest } from '../manifest/fixtures.js';
+import { fullPreset, manifest as buildManifest } from '../manifest/fixtures.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 
 const BASE: Manifest = buildManifest(
@@ -350,7 +350,7 @@ describe('resolveProcessAssignment', () => {
     const manifest: Manifest = {
       ...BASE,
       agentPresets: {
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
       },
       processes: { review: { preset: 'fast', model: 'opencode-go/mimo-v2.5' } },
     };
@@ -362,7 +362,7 @@ describe('resolveProcessAssignment', () => {
   it('a ticket preset applies to every process role when the role names none', () => {
     const manifest: Manifest = {
       ...BASE,
-      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+      agentPresets: { deep: fullPreset('claude', 'claude-opus-5') },
       processes: { review: {} },
     };
     const snap = resolveProcessAssignment(manifest, 'review', { preset: 'deep' });
@@ -374,8 +374,8 @@ describe('resolveProcessAssignment', () => {
     const manifest: Manifest = {
       ...BASE,
       agentPresets: {
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-        deep: { provider: 'claude', model: 'claude-opus-5' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+        deep: fullPreset('claude', 'claude-opus-5'),
       },
       processes: { review: { preset: 'fast' } },
     };
@@ -386,7 +386,7 @@ describe('resolveProcessAssignment', () => {
   it('a ticket preset does not override an explicit ticket provider/model', () => {
     const manifest: Manifest = {
       ...BASE,
-      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+      agentPresets: { deep: fullPreset('claude', 'claude-opus-5') },
     };
     const snap = resolveProcessAssignment(manifest, 'review', {
       preset: 'deep',
@@ -402,7 +402,7 @@ describe('resolveProcessAssignment', () => {
   it('drops a preset model when the ticket explicitly picks a different provider', () => {
     const manifest: Manifest = {
       ...BASE,
-      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+      agentPresets: { deep: fullPreset('claude', 'claude-opus-5') },
     };
     const snap = resolveProcessAssignment(manifest, 'review', { preset: 'deep', provider: 'codex' });
     expect(snap?.provider).toBe('codex');

@@ -26,7 +26,7 @@ import { attemptKey } from '../../model/inside/rounds.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
-import { manifest, repo } from '../../manifest/fixtures.js';
+import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
 import { resolveAgentDefaults } from '../../agent/agentPresets.js';
 
 describe('buildDashboardState', () => {
@@ -405,7 +405,7 @@ describe('buildDashboardState', () => {
     updateTicketFields(store, t.id, { agentPreset: 'fast' });
     const m = manifest({ extention: repo() }, {
       agentPresets: {
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
       },
       defaultAgentPreset: 'fast',
       defaultModel: 'claude-sonnet-5',

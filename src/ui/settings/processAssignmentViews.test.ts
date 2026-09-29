@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bundledModelCatalog } from '../../agent/modelCatalog.js';
 import type { Manifest } from '../../manifest/types.js';
-import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import { fullPreset, manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import { buildProcessAssignmentView, buildProcessAssignmentViews } from './processAssignmentViews.js';
 
 const BASE: Manifest = buildManifest(
@@ -194,8 +194,8 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
     const m: Manifest = {
       ...BASE,
       agentPresets: {
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-        deep: { provider: 'claude', model: 'claude-opus-5' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+        deep: fullPreset('claude', 'claude-opus-5'),
       },
       defaultAgentPreset: 'fast',
       processes: { review: { preset: 'deep' } },
@@ -209,7 +209,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
   it('an omitted row inherits the default preset', () => {
     const m: Manifest = {
       ...BASE,
-      agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
       defaultAgentPreset: 'fast',
       processes: { review: {} },
     };
@@ -225,7 +225,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
   it('shows the explicit core and drops the preset model when a row picks a different core', () => {
     const m: Manifest = {
       ...BASE,
-      agentPresets: { deep: { provider: 'claude', model: 'claude-opus-5' } },
+      agentPresets: { deep: fullPreset('claude', 'claude-opus-5') },
       defaultModel: 'gpt-5.6-sol',
       processes: { review: { preset: 'deep', provider: 'codex' } },
     };

@@ -6,7 +6,7 @@ import { load as yamlLoad } from 'js-yaml';
 import { writeManifest } from './write.js';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
 import { validateManifest } from './schema.js';
-import { review as reviewFixture } from './fixtures.js';
+import { fullPreset, review as reviewFixture } from './fixtures.js';
 import type { Manifest } from './types.js';
 import { mergeSection } from '../ui/settings/sections.js';
 
@@ -303,7 +303,7 @@ describe('writeManifest', () => {
         },
         agentProvider: 'codex',
         defaultModel: 'claude-opus-4-8',
-        agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+        agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
         defaultAgentPreset: 'fast',
         resilience: { retries: 2, backoffMs: 2000, fallbackModels: [] },
         // Same reason: absent defaultEffort would round-trip regardless of the
@@ -726,14 +726,14 @@ processes:
           portRange: [4000, 4999],
           baselineBranch: 'develop',
           repositories: { extention: { repoPath: '/repo', hasMigrations: false } },
-          agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+          agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
           defaultAgentPreset: 'fast',
           processes: { review: { preset: 'fast' } },
         }),
       );
       const reloaded = loadManifest(path);
       expect(reloaded.agentPresets).toEqual({
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
       });
       expect(reloaded.defaultAgentPreset).toBe('fast');
       expect(reloaded.processes?.review?.preset).toBe('fast');

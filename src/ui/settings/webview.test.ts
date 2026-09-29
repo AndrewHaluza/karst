@@ -900,8 +900,8 @@ describe('settings tab-scoped save', () => {
       ['agents', { processes: { wibble: {} } as never }],
       // Preset faults live on General — and ^agents? must not swallow them just
       // because they start with the same four letters.
-      ['general', { agentPresets: { fast: { provider: 'nope' as never, model: 'x' } } }],
-      ['general', { agentPresets: { '': { provider: 'codex', model: 'x' } } }],
+      ['general', { agentPresets: { fast: { provider: 'nope', model: 'x' } } as never }],
+      ['general', { agentPresets: { '': { provider: 'codex', model: 'x' } } as never }],
       ['general', { defaultAgentPreset: 'ghost' }],
       ['general', { defaultEffort: 7 as never }],
     ];

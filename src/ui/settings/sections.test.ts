@@ -7,7 +7,7 @@ import {
   mergeSection,
 } from './sections.js';
 import type { Manifest } from '../../manifest/types.js';
-import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
+import { fullPreset, manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 
 const BASE: Manifest = buildManifest(
   { api: runnableRepo({ ports: [slot('port', 'PORT', 3000)] }, { repoPath: '../api', signals: [] }) },
@@ -125,13 +125,13 @@ describe('settings sections — mergeSection', () => {
   it('a general save takes the draft agentPresets and carries defaultAgentPreset', () => {
     const base: Manifest = {
       ...BASE,
-      agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
       defaultAgentPreset: 'fast',
     };
     const incoming: Manifest = {
       ...base,
       host: '0.0.0.0',
-      agentPresets: { deep: { provider: 'claude', model: 'claude-sonnet-5' } },
+      agentPresets: { deep: fullPreset('claude', 'claude-sonnet-5') },
     };
     const merged = mergeSection(base, incoming, 'general');
 

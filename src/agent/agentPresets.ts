@@ -9,18 +9,27 @@
  * byte-identical to `manifest.agentProvider` / `manifest.defaultModel` /
  * `manifest.defaultEffort`.
  *
- * A preset is a (core, model) PAIR, so its model and effort apply ONLY when the
- * effective core is the preset's own core. When an operator explicitly picks a
- * different core, the preset's model must NOT travel with it: a catalog-unknown
- * id (a preview/custom model) is accepted by the compatibility guard for ANY
- * provider, so without this gate a preset model would silently launch on the
- * wrong core. Callers pass the explicit core via `explicitProvider`; omitting it
- * asks for the pure settings default (the ticket form's "Inherit" label).
+ * A preset slot is a (core, model) PAIR, so its model and effort apply ONLY
+ * when the effective core is the slot's own core. When an operator explicitly
+ * picks a different core, the slot's model must NOT travel with it: a
+ * catalog-unknown id (a preview/custom model) is accepted by the compatibility
+ * guard for ANY provider, so without this gate a slot model would silently
+ * launch on the wrong core. Callers pass the explicit core via
+ * `explicitProvider`; omitting it asks for the pure settings default (the
+ * ticket form's "Inherit" label).
+ *
+ * A preset is a SPARSE capability → slot matrix (`AgentPreset.slots`), so the
+ * caller also says WHICH capability's slot it wants; an absent slot is Inherit.
  *
  * vscode-free and catalog-free.
  */
 
-import type { AgentPreset, AgentProvider, Manifest } from '../manifest/types.js';
+import type {
+  AgentPreset,
+  AgentProvider,
+  Manifest,
+  PresetCapability,
+} from '../manifest/types.js';
 import { resolveProvider } from './provider.js';
 
 export type { AgentPreset } from '../manifest/types.js';
@@ -43,6 +52,14 @@ export interface ResolveAgentDefaultsOptions {
    * defaults. Absent/blank → the preset (or legacy) core.
    */
   explicitProvider?: AgentProvider | null;
+  /**
+   * Which capability's slot to read. A preset is a sparse capability → slot
+   * matrix, so "the preset's core" only exists per capability; absent →
+   * `implementation`, the capability the legacy flat preset was equivalent to
+   * (it normalizes to a slot on every capability, so any row reads the same
+   * value). Callers pass their own row as each launch path is wired.
+   */
+  capability?: PresetCapability;
 }
 
 function firstNonBlank(...vals: (string | null | undefined)[]): string | undefined {
@@ -62,7 +79,15 @@ export function effectiveAgentPresetName(
   ticketPreset?: string | null,
   rolePreset?: string | null,
 ): string | undefined {
-  return firstNonBlank(rolePreset, ticketPreset, manifest.defaultAgentPreset);
+  // `defaultAgentPreset` is the deprecated alias of `activeAgentPreset` (§6):
+  // the two spellings name one active preset, so a legacy-keyed file selects
+  // exactly the same preset a new-keyed one would.
+  return firstNonBlank(
+    rolePreset,
+    ticketPreset,
+    manifest.activeAgentPreset,
+    manifest.defaultAgentPreset,
+  );
 }
 
 /**
@@ -94,14 +119,17 @@ export function resolveAgentDefaults(
     manifest,
     effectiveAgentPresetName(manifest, opts.ticketPreset, opts.rolePreset),
   );
+  // Sparse: a preset declares a slot only for the capabilities it overrides;
+  // an absent slot is Inherit, which is exactly "no preset" at this layer.
+  const slot = preset?.slots[opts.capability ?? 'implementation'];
   const provider = resolveProvider(
     opts.explicitProvider ?? null,
-    preset?.provider ?? manifest.agentProvider,
+    slot?.provider ?? manifest.agentProvider,
   );
-  const presetApplies = preset !== undefined && provider === preset.provider;
+  const presetApplies = slot !== undefined && provider === slot.provider;
   return {
     provider,
-    model: presetApplies ? preset.model : manifest.defaultModel,
-    effort: presetApplies ? (preset.effort ?? manifest.defaultEffort) : manifest.defaultEffort,
+    model: presetApplies ? slot.model : manifest.defaultModel,
+    effort: presetApplies ? (slot.effort ?? manifest.defaultEffort) : manifest.defaultEffort,
   };
 }

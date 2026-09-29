@@ -16,7 +16,7 @@ import type { InsideProgressEvent } from '../../model/inside/progress.js';
 import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
-import { manifest, repo } from '../../manifest/fixtures.js';
+import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
 
 function seedWorktree(
   store: Store,
@@ -1630,7 +1630,7 @@ setTimeout(() => {
           ticketId: id,
           manifest: manifest({ frontend: repo() }, {
             agentPresets: {
-              fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
+              fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
             },
             defaultAgentPreset: 'fast',
             defaultModel: 'claude-sonnet-5',
