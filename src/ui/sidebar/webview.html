@@ -194,6 +194,12 @@
     transform:translateY(-50%);background:var(--k-surface);border-radius:var(--k-radius-sm);
     padding-left:var(--k-space-2);opacity:0;pointer-events:none}
   .row:hover .rowacts{opacity:1;pointer-events:auto}
+  /* On a row that carries a sub-tree collapse control, the hover strip starts
+     one control-width further left. Both live in the row's right-edge slot —
+     the strip is absolute, `.subchev` is in flow — so without the shift the
+     strip's solid surface and hit area cover the chevron on hover, leaving the
+     collapse control unclickable with a pointer (NDL-86). */
+  .row:has(.subchev) .rowacts{right:calc(var(--k-space-3) + var(--k-hit-min))}
   .row:hover .stage{opacity:0}
   /* An expanded row's actions live in the mini-dashboard toolbar below, so the
      collapsed hover strip is suppressed and the stage stays the right anchor —
