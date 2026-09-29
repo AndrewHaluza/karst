@@ -14,6 +14,7 @@ import {
   mergeSection,
 } from './sections.js';
 import { validateManifest } from '../../manifest/schema.js';
+import { validateAgentPresets } from '../../manifest/validate/agentPresets.js';
 import type { GateDef, Manifest } from '../../manifest/types.js';
 import {
   manifest as buildManifest,
@@ -897,6 +898,12 @@ describe('settings tab-scoped save', () => {
       ['approaches', { approaches: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] }],
       ['agents', { agents: 'nope' as never }],
       ['agents', { processes: { wibble: {} } as never }],
+      // Preset faults live on General — and ^agents? must not swallow them just
+      // because they start with the same four letters.
+      ['general', { agentPresets: { fast: { provider: 'nope' as never, model: 'x' } } }],
+      ['general', { agentPresets: { '': { provider: 'codex', model: 'x' } } }],
+      ['general', { defaultAgentPreset: 'ghost' }],
+      ['general', { defaultEffort: 7 as never }],
     ];
     for (const [expected, patch] of broken) {
       let message = '';
@@ -1599,6 +1606,10 @@ describe('debug logging toggle (General tab)', () => {
       function mountAgentPicker() {}
       function renderPresetOptions() {}
       function renderAgentPresetOptions() {}
+      function renderAgentPresetProviderOptions() {}
+      function renderAgentPresetList() {}
+      function resetPresetForm() {}
+      let editingPresetName = null;
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
@@ -1649,6 +1660,10 @@ describe('close-done-terminals toggle (General tab)', () => {
       function mountAgentPicker() {}
       function renderPresetOptions() {}
       function renderAgentPresetOptions() {}
+      function renderAgentPresetProviderOptions() {}
+      function renderAgentPresetList() {}
+      function resetPresetForm() {}
+      let editingPresetName = null;
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
@@ -1674,6 +1689,388 @@ describe('close-done-terminals toggle (General tab)', () => {
     const result = runInNewContext(source, {}) as { on: boolean; off: boolean };
     expect(result.on).toBe(true);
     expect(result.off).toBe(false);
+  });
+});
+
+// ---- Agent presets (General tab) -----------------------------------------
+
+/** One top-level `const NAME = …;` line, lifted verbatim from the page's script. */
+function constLine(name: string): string {
+  const line = HTML.split('\n').find((l) => l.trimStart().startsWith(`const ${name} = `));
+  if (!line) throw new Error(`const ${name} not found in webview.html`);
+  return line.trim();
+}
+
+interface FakeElement {
+  value: string;
+  textContent: string;
+  innerHTML: string;
+  options: unknown[];
+  attrs: Record<string, string>;
+  classList: { add: (c: string) => void; remove: (c: string) => void; contains: (c: string) => boolean };
+  setAttribute: (k: string, v: string) => void;
+  removeAttribute: (k: string) => void;
+  focus: () => void;
+}
+
+function fakeElement(): FakeElement {
+  const attrs: Record<string, string> = {};
+  const classes = new Set<string>();
+  return {
+    value: '',
+    textContent: '',
+    innerHTML: '',
+    options: [],
+    attrs,
+    classList: {
+      add: (c) => { classes.add(c); },
+      remove: (c) => { classes.delete(c); },
+      contains: (c) => classes.has(c),
+    },
+    setAttribute: (k, v) => { attrs[k] = v; },
+    removeAttribute: (k) => { delete attrs[k]; },
+    focus: () => {},
+  };
+}
+
+/** The preset editor lifted out of the page: real functions, fake elements. */
+const PRESET_EDITOR_SOURCE = `
+  ${constLine('KNOWN_AGENT_PROVIDERS')}
+  ${constLine('AGENT_PRESET_MODEL_ID')}
+  ${constLine('MAX_AGENT_PRESETS')}
+  ${constLine('PRESET_FORM_FIELDS')}
+  let editingPresetName = null;
+  ${functionSource('validateAgentPresetsDraft')}
+  ${functionSource('agentPresetReferences')}
+  ${functionSource('joinPresetRefs')}
+  ${functionSource('showPresetListError')}
+  ${functionSource('showPresetFormError')}
+  ${functionSource('renderAgentPresetList')}
+  ${functionSource('resetPresetForm')}
+  ${functionSource('editAgentPreset')}
+  ${functionSource('saveAgentPreset')}
+  ${functionSource('deleteAgentPreset')}
+  ${functionSource('commitAgentPresets')}
+  ({ saveAgentPreset, deleteAgentPreset, editAgentPreset, renderAgentPresetList,
+     resetPresetForm, validateAgentPresetsDraft, agentPresetReferences,
+     editingPresetName: () => editingPresetName });
+`;
+
+interface PresetApi {
+  saveAgentPreset: () => unknown;
+  deleteAgentPreset: (name: string) => unknown;
+  editAgentPreset: (name: string) => void;
+  renderAgentPresetList: () => void;
+  resetPresetForm: () => void;
+  validateAgentPresetsDraft: (presets: unknown) => string | null;
+  agentPresetReferences: (name: string) => string[];
+  editingPresetName: () => string | null;
+}
+
+function presetEnv(
+  opts: {
+    draft?: Record<string, unknown>;
+    lastSaved?: Record<string, unknown>;
+    views?: Record<string, { roleLabel: string }>;
+  } = {},
+): {
+  api: PresetApi;
+  draft: Record<string, any>;
+  el: (id: string) => FakeElement;
+  dirtyCalls: () => number;
+} {
+  const elements: Record<string, FakeElement> = {};
+  let dirtyCalls = 0;
+  const el = (id: string) => {
+    if (!elements[id]) elements[id] = fakeElement();
+    return elements[id];
+  };
+  // The draft object is mutated in place by the editor, so the test holds the
+  // same reference the sandbox sees.
+  const draft: Record<string, any> = (opts.draft ?? {}) as Record<string, any>;
+  const sandbox: Record<string, unknown> = {
+    draft,
+    lastSaved: opts.lastSaved ?? {},
+    processAssignmentViews: opts.views ?? {},
+    markDirty: () => { dirtyCalls += 1; },
+    // The default-preset select is re-rendered after every mutation; the list
+    // and the form are the surface under test here.
+    renderAgentPresetOptions: () => {},
+    el,
+    esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
+    AGENT_PROVIDER_LABELS: {
+      claude: 'Claude Code',
+      codex: 'Codex',
+      antigravity: 'Antigravity CLI',
+      opencode: 'OpenCode',
+    },
+  };
+  const api = runInNewContext(PRESET_EDITOR_SOURCE, sandbox) as unknown as PresetApi;
+  return { api, draft, el, dirtyCalls: () => dirtyCalls };
+}
+
+describe('settings agent presets (General tab)', () => {
+  const FAST = { provider: 'codex', model: 'gpt-5.1-codex' };
+
+  it('renders the list and the one editor form inside the General section', () => {
+    const section = HTML.slice(HTML.indexOf('id="section-general"'), HTML.indexOf('<!-- Git -->'));
+    for (const id of [
+      'id="agentPresetList"',
+      'id="presetListError"',
+      'id="f-presetName"',
+      'id="f-presetProvider"',
+      'id="f-presetModel"',
+      'id="f-presetEffort"',
+      'id="presetFormError"',
+      'id="savePresetBtn"',
+      'id="cancelPresetBtn"',
+    ]) {
+      expect(section, id).toContain(id);
+    }
+    // UI-R24/R25: every control has an accessible name, and both fault lines
+    // are live regions so a refusal is announced, not just drawn.
+    expect(section).toContain('aria-labelledby="presetNameLabel"');
+    expect(section).toContain('aria-labelledby="presetProviderLabel"');
+    expect(section).toContain('aria-labelledby="presetModelLabel"');
+    expect(section).toContain('aria-labelledby="presetEffortLabel"');
+    expect(section).toMatch(/id="presetFormError" role="alert"/);
+    expect(section).toMatch(/id="presetListError" role="alert"/);
+    // Both actions are wired through the page's own seams.
+    expect(HTML).toContain(`el('savePresetBtn').addEventListener('click', saveAgentPreset)`);
+    expect(HTML).toContain(`el('cancelPresetBtn').addEventListener('click', resetPresetForm)`);
+    expect(HTML).toContain('if (t.dataset.editPreset)');
+    expect(HTML).toContain('if (t.dataset.removePreset)');
+  });
+
+  it('adds a preset to the draft and marks the tab dirty — Save writes it', () => {
+    const env = presetEnv();
+    env.el('f-presetName').value = 'fast';
+    env.el('f-presetProvider').value = 'codex';
+    env.el('f-presetModel').value = 'gpt-5.1-codex';
+    env.el('f-presetEffort').value = '';
+    env.api.saveAgentPreset();
+
+    // A blank effort is OMITTED, never written as '' (the host refuses '' but
+    // accepts absent).
+    expect(env.draft).toEqual({ agentPresets: { fast: FAST } });
+    expect(env.dirtyCalls()).toBe(1);
+    expect(env.el('presetFormError').classList.contains('hidden')).toBe(true);
+
+    env.el('f-presetName').value = 'deep';
+    env.el('f-presetEffort').value = 'high';
+    env.api.saveAgentPreset();
+    expect(env.draft).toEqual({
+      agentPresets: { fast: FAST, deep: { ...FAST, effort: 'high' } },
+    });
+    expect(env.dirtyCalls()).toBe(2);
+  });
+
+  it('refuses a blank, duplicate or oversized name without touching the draft', () => {
+    const env = presetEnv({ draft: { agentPresets: { fast: FAST } } });
+    const before = JSON.stringify(env.draft);
+
+    env.el('f-presetName').value = '   ';
+    env.el('f-presetProvider').value = 'codex';
+    env.el('f-presetModel').value = 'x';
+    env.api.saveAgentPreset();
+    expect(env.el('presetFormError').textContent).toContain('empty preset name');
+
+    env.el('f-presetName').value = 'fast';
+    env.api.saveAgentPreset();
+    expect(env.el('presetFormError').textContent).toContain('already exists');
+
+    env.el('f-presetName').value = 'n'.repeat(513);
+    env.api.saveAgentPreset();
+    expect(env.el('presetFormError').textContent).toContain('512 characters or fewer');
+
+    expect(JSON.stringify(env.draft)).toBe(before);
+    expect(env.dirtyCalls()).toBe(0);
+    expect(env.el('f-presetName').attrs['aria-invalid']).toBe('true');
+  });
+
+  it('refuses a core or model the host would refuse, with the host wording', () => {
+    const env = presetEnv();
+    env.el('f-presetName').value = 'fast';
+    env.el('f-presetModel').value = 'x';
+
+    env.el('f-presetProvider').value = 'nope';
+    env.api.saveAgentPreset();
+    expect(env.el('presetFormError').textContent)
+      .toBe('agentPresets.fast.provider must be one of: claude, codex, antigravity, opencode');
+    expect(env.el('f-presetProvider').attrs['aria-invalid']).toBe('true');
+
+    env.el('f-presetProvider').value = 'codex';
+    env.el('f-presetModel').value = 'has spaces';
+    env.api.saveAgentPreset();
+    expect(env.el('presetFormError').textContent)
+      .toBe('agentPresets.fast.model is not a valid model id');
+    expect(env.el('f-presetModel').attrs['aria-invalid']).toBe('true');
+    expect(env.draft).toEqual({});
+  });
+
+  it('refuses a 51st preset', () => {
+    const presets: Record<string, unknown> = {};
+    for (let i = 0; i < 50; i += 1) presets[`p${i}`] = FAST;
+    const env = presetEnv({ draft: { agentPresets: presets } });
+    env.el('f-presetName').value = 'oneMore';
+    env.el('f-presetProvider').value = 'codex';
+    env.el('f-presetModel').value = 'x';
+    env.api.saveAgentPreset();
+
+    expect(env.el('presetFormError').textContent)
+      .toBe('agentPresets accepts at most 50 presets');
+    expect(Object.keys((env.draft.agentPresets as Record<string, unknown>)).length)
+      .toBe(50);
+    expect(env.dirtyCalls()).toBe(0);
+  });
+
+  it('drops the key when the last preset goes — absent means no presets', () => {
+    const env = presetEnv({ draft: { agentPresets: { fast: FAST } } });
+    env.api.deleteAgentPreset('fast');
+
+    expect('agentPresets' in env.draft).toBe(false);
+    expect(env.dirtyCalls()).toBe(1);
+    expect(env.el('presetListError').classList.contains('hidden')).toBe(true);
+  });
+
+  it('refuses to delete a preset the manifest still references, and names where', () => {
+    // The reference is checked in BOTH the draft and the baseline: a General
+    // Save writes the file's process rows, an Agents Save writes the draft's —
+    // either one keeps the reference alive after this tab's Save.
+    const env = presetEnv({
+      draft: {
+        agentPresets: { fast: FAST },
+        defaultAgentPreset: 'fast',
+        processes: { review: { preset: 'fast' } },
+      },
+      lastSaved: { processes: { uatTester: { preset: 'fast' } } },
+      views: {
+        uatTester: { roleLabel: 'UAT Tester' },
+        review: { roleLabel: 'Review' },
+      },
+    });
+    expect(env.api.agentPresetReferences('fast')).toEqual([
+      'the Default agent preset',
+      'the "Review" process assignment',
+      'the "UAT Tester" process assignment',
+    ]);
+
+    env.api.deleteAgentPreset('fast');
+    expect(env.el('presetListError').textContent).toBe(
+      'Cannot delete "fast" — still used by the Default agent preset, '
+      + 'the "Review" process assignment and the "UAT Tester" process assignment. Change that first.',
+    );
+    expect(env.draft).toHaveProperty('agentPresets.fast');
+    expect(env.dirtyCalls()).toBe(0);
+  });
+
+  it('loads a preset into the form for editing, and renames only when unreferenced', () => {
+    const env = presetEnv({
+      draft: {
+        agentPresets: { fast: FAST },
+        processes: { review: { preset: 'fast' } },
+      },
+      views: { review: { roleLabel: 'Review' } },
+    });
+    env.api.editAgentPreset('fast');
+    expect(env.api.editingPresetName()).toBe('fast');
+    expect(env.el('f-presetName').value).toBe('fast');
+    expect(env.el('f-presetProvider').value).toBe('codex');
+    expect(env.el('f-presetModel').value).toBe('gpt-5.1-codex');
+    expect(env.el('savePresetBtn').textContent).toBe('Save preset');
+
+    env.el('f-presetName').value = 'quick';
+    env.api.saveAgentPreset();
+    expect(env.el('presetFormError').textContent).toContain('Cannot rename "fast"');
+    expect(env.draft).toHaveProperty('agentPresets.fast');
+
+    // Clear the referrer the way the Agents tab would, then the rename lands
+    // and the old key is gone.
+    env.draft.processes = {};
+    env.api.saveAgentPreset();
+    expect(env.draft.agentPresets).toEqual({ quick: FAST });
+    expect(env.api.editingPresetName()).toBeNull();
+    expect(env.el('savePresetBtn').textContent).toBe('+ Add preset');
+  });
+
+  it('renders the map as sorted rows with Edit/Delete, escaping the name', () => {
+    const env = presetEnv({ draft: { agentPresets: { zeta: FAST, 'a"b': { ...FAST, effort: 'high' } } } });
+    env.api.renderAgentPresetList();
+
+    const html = env.el('agentPresetList').innerHTML;
+    expect(html.indexOf('data-edit-preset="a&quot;b"')).toBeLessThan(
+      html.indexOf('data-edit-preset="zeta"'),
+    );
+    expect(html).toContain('data-remove-preset="zeta"');
+    expect(html).toContain('Codex · gpt-5.1-codex · high');
+    expect(html).not.toContain('data-edit-preset="a"b"');
+  });
+
+  it('offers an empty-state line rather than an empty box', () => {
+    const env = presetEnv();
+    env.api.renderAgentPresetList();
+    expect(env.el('agentPresetList').innerHTML).toContain('No presets yet.');
+  });
+
+  // UI-R34: the webview cannot import TypeScript, so its validator is a mirror.
+  // The mirror is only worth having if it refuses exactly what the host refuses
+  // — same faults, same wording — or a valid row could be refused at Save (or
+  // an invalid one slip through to a banner the form cannot map to a field).
+  it('validates a preset map exactly like the host validator (UI-R34)', () => {
+    const { api } = presetEnv();
+    // The host wraps its fault in "Invalid karst.yml: …"; the page unwraps it
+    // before anything is shown or mapped to a tab, so the comparison is made on
+    // the detail both sides actually speak.
+    const faultDetail = runInNewContext(`(${functionSource('manifestFaultDetail')})`, {}) as
+      (msg: string) => string;
+    const fifty = Object.fromEntries(
+      Array.from({ length: 50 }, (_, i) => [`p${i}`, FAST]),
+    );
+    const fiftyOne = Object.fromEntries(
+      Array.from({ length: 51 }, (_, i) => [`p${i}`, FAST]),
+    );
+    const cases: unknown[] = [
+      undefined,
+      {},
+      [],
+      'fast',
+      { fast: 'nope' },
+      { '': FAST },
+      { fast: { model: 'x' } },
+      { fast: { provider: 'nope', model: 'x' } },
+      { fast: { provider: 'codex' } },
+      { fast: { provider: 'codex', model: 'has spaces' } },
+      { fast: { provider: 'codex', model: 'x', effort: '' } },
+      { fast: { provider: 'codex', model: 'x', nope: 1 } },
+      { fast: { provider: 'codex', model: 'x', effort: 'high' } },
+      { fast: { provider: 'claude', model: 'claude-sonnet-5' }, deep: { ...FAST } },
+      fifty,
+      fiftyOne,
+    ];
+    for (const raw of cases) {
+      let host: string | null = null;
+      try {
+        validateAgentPresets(raw);
+      } catch (e) {
+        host = faultDetail((e as Error).message);
+      }
+      const label = JSON.stringify(raw)?.slice(0, 70) ?? String(raw);
+      expect(api.validateAgentPresetsDraft(raw), label).toBe(host);
+    }
+  });
+
+  it('offers every manifest core to the form through the shared vocabulary', () => {
+    const section = HTML.slice(HTML.indexOf('id="section-general"'), HTML.indexOf('<!-- Git -->'));
+    expect(section).toContain('id="f-presetProvider"');
+    // The select's vocabulary is the mirror the picker already renders — a
+    // second list of cores would drift the first time a core is added.
+    const source = functionSource('renderAgentPresetProviderOptions');
+    expect(source).toContain('KNOWN_AGENT_PROVIDERS');
+    expect(source).toContain('AGENT_PROVIDER_LABELS');
+    // Built once (like the Git tab's preset list) so a state push cannot reset
+    // a core the user has already picked in the form.
+    expect(source).toContain('sel.options.length');
   });
 });
 
