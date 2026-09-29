@@ -338,12 +338,48 @@ export function runningGraphRunIdsForProject(db: GraphDb, projectId: number): nu
   return rows.map((r) => r.id);
 }
 
+/**
+ * Tickets that ran a graph, are parked at one of `stageKeys`, and have NO
+ * graph run left in an active status — the graph→stage-driver handoff
+ * selection. Scoped to one project, unpaused, and unblocked at the current
+ * stage (the same exclusions the activation sweep applies).
+ */
+export function ticketIdsAwaitingGraphDrive(
+  db: GraphDb,
+  scope: {
+    projectId: number;
+    stageKeys: readonly string[];
+    activeStatuses: readonly string[];
+  },
+): number[] {
+  const stagePlaceholders = scope.stageKeys.map(() => '?').join(', ');
+  const activePlaceholders = scope.activeStatuses.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT t.id AS id
+         FROM tickets t
+         JOIN approach_graph_runs r ON r.ticket_id = t.id
+         LEFT JOIN stages s ON s.ticket_id = t.id AND s.stage_key = t.stage_current
+        WHERE t.project_id = ?
+          AND t.paused_at IS NULL
+          AND t.stage_current IN (${stagePlaceholders})
+          AND s.blocked_kind IS NULL
+          AND NOT EXISTS (
+                SELECT 1 FROM approach_graph_runs a
+                 WHERE a.ticket_id = t.id AND a.status IN (${activePlaceholders})
+              )
+        ORDER BY t.id`,
+    )
+    .all(scope.projectId, ...scope.stageKeys, ...scope.activeStatuses) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
 /** The diagnostic reference a graph run resolves to: its stage attempt and the
  *  owning ticket/project slugs. */
 export function graphRunDiagnosticRef(
   db: GraphDb,
   id: number,
-): { stageAttempt: number; ticket: string; project: string | null } | undefined {
+): { stageAttempt: number; ticket: string | null; project: string | null } | undefined {
   return db
     .prepare(
       `SELECT g.stage_attempt AS stageAttempt, t.key AS ticket, p.slug AS project
@@ -352,7 +388,9 @@ export function graphRunDiagnosticRef(
          LEFT JOIN projects p ON p.id = t.project_id
         WHERE g.id = ?`,
     )
-    .get(id) as { stageAttempt: number; ticket: string; project: string | null } | undefined;
+    .get(id) as
+    | { stageAttempt: number; ticket: string | null; project: string | null }
+    | undefined;
 }
 
 /** Remove a graph run's planner/node run rows and the run itself (leaf-first). */

@@ -89,11 +89,13 @@ import {
   claimNodeRunIntegrating,
   completeNodeRunIntegration,
   nodeRunBaseHeads,
+  nodeRunIntegrationRef,
+  nodeRunStatus,
   releaseProcessSlot,
   setNodeRunTerminalFields,
 } from '../../../store/graph/nodeRuns.js';
 import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
-import { markGraphRunBlocked, type GraphRunRow as FullGraphRunRow } from '../../../store/graph/graphRuns.js';
+import { graphRunIdStatus, markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
 import { recordArtifactInstance, validateRequiredOutputs } from '../artifacts/resolve.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -144,8 +146,6 @@ type NodeRunRow = Pick<
   FullNodeRunRow,
   'id' | 'graph_run_id' | 'revision_id' | 'node_id' | 'status'
 >;
-
-type GraphRunRow = Pick<FullGraphRunRow, 'id' | 'status'>;
 
 function parkNode(
   deps: CompletionPipelineDeps,
@@ -480,13 +480,8 @@ export async function runCompletionPipeline(
   deps: CompletionPipelineDeps,
   input: { graphRunId: number; nodeRunId: number },
 ): Promise<CompletionPipelineResult> {
-  const run = deps.db
-    .prepare('SELECT id, status FROM approach_graph_runs WHERE id = ?')
-    .get(input.graphRunId) as GraphRunRow | undefined;
-  if (!run || run.status !== 'running') return { kind: 'no-op' };
-  const node = deps.db
-    .prepare('SELECT id, graph_run_id, revision_id, node_id, status FROM approach_node_runs WHERE id = ?')
-    .get(input.nodeRunId) as NodeRunRow | undefined;
+  if (graphRunIdStatus(deps.db, input.graphRunId)?.status !== 'running') return { kind: 'no-op' };
+  const node = nodeRunIntegrationRef(deps.db, input.nodeRunId);
   if (!node || node.status !== 'completing') return { kind: 'no-op' };
 
   const revisionId = node.revision_id;
@@ -545,10 +540,7 @@ export async function runCompletionPipeline(
   }
 
   if (!claimIntegratingStatus(deps, input.nodeRunId)) {
-    const now = deps.db
-      .prepare('SELECT status FROM approach_node_runs WHERE id = ?')
-      .get(input.nodeRunId) as { status: string };
-    if (now.status === 'completing') {
+    if (nodeRunStatus(deps.db, input.nodeRunId) === 'completing') {
       return { kind: 'deferred' }; // a racing window is mid-flight
     }
     return { kind: 'no-op' }; // already moved by a racing window

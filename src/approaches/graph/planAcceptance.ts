@@ -10,8 +10,10 @@ import {
 } from '../../store/graph/graphRuns.js';
 import { graphRunById } from '../../store/graph/graphRuns.js';
 import {
+  plannerRunIdsForGraphRun,
   setPlannerRunReason,
   setPlannerRunReasonEndedAt,
+  submittedPlannerRunForGraphRun,
   transitionPlannerRun,
 } from '../../store/graph/plannerRuns.js';
 import { activeRevision, createRevision } from '../../store/graph/revisions.js';
@@ -99,15 +101,7 @@ export function acceptSubmittedPlan(
     return { kind: 'accepted', revisionId: existing.id, revisionNumber: existing.revision_number };
   }
 
-  const planner = deps.db
-    .prepare(
-      `SELECT id, status, graph_snapshot_id FROM approach_planner_runs
-       WHERE graph_run_id = ? AND kind = 'bootstrap' AND status = 'submitted'
-       ORDER BY id LIMIT 1`,
-    )
-    .get(graphRunId) as
-    | { id: number; status: string; graph_snapshot_id: string | null }
-    | undefined;
+  const planner = submittedPlannerRunForGraphRun(deps.db, graphRunId, 'bootstrap');
   if (!planner || !planner.graph_snapshot_id) {
     deps.debug?.(
       `[graph] run ${graphRunId}: nothing to accept — ${
@@ -214,15 +208,7 @@ export function acceptSubmittedReplan(
 ): AcceptReplanResult {
   const run = graphRunById(deps.db, graphRunId);
   if (!run || run.status !== 'draining') return { kind: 'no-op' };
-  const planner = deps.db
-    .prepare(
-      `SELECT id, status, graph_snapshot_id FROM approach_planner_runs
-       WHERE graph_run_id = ? AND kind = 'replan' AND status = 'submitted'
-       ORDER BY id LIMIT 1`,
-    )
-    .get(graphRunId) as
-    | { id: number; status: string; graph_snapshot_id: string | null }
-    | undefined;
+  const planner = submittedPlannerRunForGraphRun(deps.db, graphRunId, 'replan');
   if (!planner || !planner.graph_snapshot_id) {
     deps.debug?.(
       `[graph] run ${graphRunId}: nothing to accept — ${
@@ -323,11 +309,8 @@ export function latestPlannerDiagnostics(
   deps: Pick<GraphDriverDepsForPlanAcceptance, 'readBytes' | 'db'>,
   graphRunId: number,
 ): string[] {
-  const rows = deps.db
-    .prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC')
-    .all(graphRunId) as { id: number }[];
-  for (const row of rows) {
-    const diagnostics = readPlannerDiagnostics(deps, graphRunId, row.id);
+  for (const plannerRunId of plannerRunIdsForGraphRun(deps.db, graphRunId)) {
+    const diagnostics = readPlannerDiagnostics(deps, graphRunId, plannerRunId);
     if (diagnostics.length > 0) return diagnostics;
   }
   return [];

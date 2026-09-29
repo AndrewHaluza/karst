@@ -18,12 +18,8 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { nodeRunProcessPids } from '../../../store/graph/nodeRuns.js';
 import type { ProcessFactsSource } from '../../../runtime/serverIdentity.js';
-
-interface NodeProcessRow {
-  id: number;
-  pid: number | null;
-}
 
 /**
  * Whether any node run of the graph run carries a recorded pid the OS says is
@@ -36,15 +32,7 @@ export async function graphRunHasLiveNodeProcess(
   graphRunId: number,
   debug?: (message: string) => void,
 ): Promise<boolean> {
-  const rows = db
-    .prepare(
-      `SELECT n.id AS id, p.pid AS pid
-       FROM approach_node_runs n
-       JOIN process_runs p ON p.id = n.process_run_id
-       WHERE n.graph_run_id = ?
-       ORDER BY n.id`,
-    )
-    .all(graphRunId) as NodeProcessRow[];
+  const rows = nodeRunProcessPids(db, graphRunId);
   for (const row of rows) {
     if (row.pid === null) continue;
     if (await facts.isAlive(row.pid)) {

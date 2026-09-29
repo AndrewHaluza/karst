@@ -275,11 +275,12 @@ export function nodeRunClaimedWritesRef(
     .get(id) as Pick<NodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id'> | undefined;
 }
 
-/** The (node run id, pid) pairs of a graph run's live processes, in id order. */
+/** The (node run id, pid) pairs of a graph run's processes, in id order. A
+ *  NULL pid carries no liveness evidence. */
 export function nodeRunProcessPids(
   db: GraphDb,
   graphRunId: number,
-): Array<{ id: number; pid: number }> {
+): Array<{ id: number; pid: number | null }> {
   return db
     .prepare(
       `SELECT n.id AS id, p.pid AS pid
@@ -288,7 +289,7 @@ export function nodeRunProcessPids(
        WHERE n.graph_run_id = ?
        ORDER BY n.id`,
     )
-    .all(graphRunId) as Array<{ id: number; pid: number }>;
+    .all(graphRunId) as Array<{ id: number; pid: number | null }>;
 }
 
 /** The earliest node run of a graph run in one of `statuses`, or undefined. */

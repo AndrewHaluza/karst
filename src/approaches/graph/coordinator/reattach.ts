@@ -21,6 +21,8 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { nodeRunSessionIdentity } from '../../../store/graph/nodeRuns.js';
+import { plannerRunSessionIdentity } from '../../../store/graph/plannerRuns.js';
 import { adoptionSurface } from '../entryPoints.js';
 
 export interface ReattachIdentity {
@@ -32,14 +34,6 @@ export interface ReattachIdentity {
   startedAt: string | null;
   generation: string;
   ownerNonce: string;
-}
-
-interface RunRow {
-  graph_run_id: number;
-  process_run_id: number | null;
-  generation: string | null;
-  owner_nonce: string | null;
-  started_at: string | null;
 }
 
 interface ProcessRow {
@@ -61,20 +55,8 @@ export function reattachableSessionIdentity(
   const runId = /^[1-9]\d*$/.test(input.launchId) ? Number(input.launchId) : NaN;
   if (!Number.isInteger(runId) || runId <= 0) return undefined;
 
-  const nodeRun = db
-    .prepare(
-      `SELECT graph_run_id, process_run_id, generation, owner_nonce, started_at
-       FROM approach_node_runs WHERE id = ?`,
-    )
-    .get(runId) as RunRow | undefined;
-  const plannerRun = nodeRun
-    ? undefined
-    : (db
-        .prepare(
-          `SELECT graph_run_id, process_run_id, generation, owner_nonce, started_at
-           FROM approach_planner_runs WHERE id = ?`,
-        )
-        .get(runId) as RunRow | undefined);
+  const nodeRun = nodeRunSessionIdentity(db, runId);
+  const plannerRun = nodeRun ? undefined : plannerRunSessionIdentity(db, runId);
   const run = nodeRun ?? plannerRun;
   if (!run) return undefined;
 

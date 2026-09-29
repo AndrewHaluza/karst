@@ -22,6 +22,8 @@ import type { Store } from '../../../store/db.js';
 import { stopServersUnder, type ReapedServer } from '../../../runtime/worktreeServers.js';
 import type { ProcessFacts } from '../../../runtime/serverIdentity.js';
 import {
+  cleanableNodeRunIdsForGraphRun,
+  nodeRunWorkspaceRef,
   removeWorkspacesForNode,
   releaseWorkspaceBytes,
   workspacesForNode,
@@ -118,12 +120,7 @@ export function cleanupNodeWorkspace(
 /** The only node-run statuses whose workspace is no longer recoverable. */
 export const TERMINAL_WORKSPACE_NODE_STATUSES = ['completed', 'cancelled'] as const;
 
-interface TerminalWorkspaceNodeRow {
-  graph_run_id: number;
-  status: string;
-  ticket_id: number;
-  project_slug: string | null;
-}
+type TerminalWorkspaceNodeRow = NonNullable<ReturnType<typeof nodeRunWorkspaceRef>>;
 
 function safePathSegment(value: string): boolean {
   return value.length > 0 && value !== '.' && value !== '..' && basename(value) === value;
@@ -196,16 +193,7 @@ export function cleanupTerminalNodeWorkspace(
   deps: CleanupNodeWorkspaceDeps,
   input: { graphRunId: number; nodeRunId: number },
 ): CleanupNodeWorkspaceResult {
-  const node = deps.store.db
-    .prepare(
-      `SELECT n.graph_run_id, n.status, g.ticket_id, p.slug AS project_slug
-       FROM approach_node_runs n
-       JOIN approach_graph_runs g ON g.id = n.graph_run_id
-       JOIN tickets t ON t.id = g.ticket_id
-       LEFT JOIN projects p ON p.id = t.project_id
-       WHERE n.id = ?`,
-    )
-    .get(input.nodeRunId) as TerminalWorkspaceNodeRow | undefined;
+  const node = nodeRunWorkspaceRef(deps.store.db, input.nodeRunId);
   if (
     !node
     || node.graph_run_id !== input.graphRunId
@@ -235,27 +223,21 @@ export function cleanupTerminalGraphRunWorkspaces(
   deps: CleanupNodeWorkspaceDeps,
   input: { graphRunId: number },
 ): CleanupNodeWorkspaceResult[] {
-  const nodes = deps.store.db
-    .prepare(
-      `SELECT id FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN ('completed', 'cancelled')
-       ORDER BY id`,
-    )
-    .all(input.graphRunId) as { id: number }[];
+  const nodes = cleanableNodeRunIdsForGraphRun(deps.store.db, input.graphRunId);
   const results: CleanupNodeWorkspaceResult[] = [];
-  for (const node of nodes) {
+  for (const nodeRunId of nodes) {
     try {
       results.push(
         cleanupTerminalNodeWorkspace(deps, {
           graphRunId: input.graphRunId,
-          nodeRunId: node.id,
+          nodeRunId,
         }),
       );
     } catch (err) {
       // Run close is already committed. Cleanup is best-effort and one bad
       // workspace must not prevent the remaining terminal nodes being reaped.
       deps.debug?.(
-        `[graph] workspace cleanup: node ${node.id} failed after run close (${err instanceof Error ? err.message : String(err)})`,
+        `[graph] workspace cleanup: node ${nodeRunId} failed after run close (${err instanceof Error ? err.message : String(err)})`,
       );
     }
   }

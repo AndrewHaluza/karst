@@ -33,7 +33,18 @@ import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../store/graph/transitions.
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
-import { hasLiveReplanPlanner } from '../../store/graph/plannerRuns.js';
+import {
+  graphMarkerReadyForTicket,
+  graphRunStatusForTicket,
+  latestGraphRunInStatusesForTicket,
+} from '../../store/graph/graphRuns.js';
+import {
+  nodeRunExistsOutsideStatusesForGraphRun,
+} from '../../store/graph/nodeRuns.js';
+import {
+  hasLiveReplanPlanner,
+  plannerRunExistsOutsideStatusesForGraphRun,
+} from '../../store/graph/plannerRuns.js';
 
 /** Graph run statuses in which the coordinator owns the ticket's surface. */
 export const ACTIVE_GRAPH_STATUSES: ReadonlySet<string> = new Set([
@@ -61,14 +72,7 @@ export interface GraphRunSurface {
 
 /** The most recent graph run of a ticket in an active status, or undefined. */
 export function activeGraphRunFor(db: GraphDb, ticketId: number): GraphRunSurface | undefined {
-  const placeholders = [...ACTIVE_GRAPH_STATUSES].map(() => '?').join(', ');
-  const row = db
-    .prepare(
-      `SELECT id, status FROM approach_graph_runs
-       WHERE ticket_id = ? AND status IN (${placeholders})
-       ORDER BY id DESC LIMIT 1`,
-    )
-    .get(ticketId, ...ACTIVE_GRAPH_STATUSES) as { id: number; status: string } | undefined;
+  const row = latestGraphRunInStatusesForTicket(db, ticketId, [...ACTIVE_GRAPH_STATUSES]);
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 
@@ -78,19 +82,12 @@ export function stoppableGraphRunFor(
   ticketId: number,
   graphRunId?: number,
 ): GraphRunSurface | undefined {
-  const placeholders = [...STOPPABLE_GRAPH_STATUSES].map(() => '?').join(', ');
-  const exactRun = graphRunId === undefined ? '' : 'AND id = ?';
-  const row = db
-    .prepare(
-      `SELECT id, status FROM approach_graph_runs
-       WHERE ticket_id = ? ${exactRun} AND status IN (${placeholders})
-       ORDER BY id DESC LIMIT 1`,
-    )
-    .get(
-      ticketId,
-      ...(graphRunId === undefined ? [] : [graphRunId]),
-      ...STOPPABLE_GRAPH_STATUSES,
-    ) as { id: number; status: string } | undefined;
+  const row = latestGraphRunInStatusesForTicket(
+    db,
+    ticketId,
+    [...STOPPABLE_GRAPH_STATUSES],
+    graphRunId,
+  );
   return row ? { graphRunId: row.id, status: row.status } : undefined;
 }
 
@@ -99,12 +96,7 @@ export function stoppableGraphRunFor(
 export function graphTicketSurface(db: GraphDb, ticketId: number): GraphTicketSurface {
   const run = activeGraphRunFor(db, ticketId);
   if (run) return 'active-graph';
-  const markerReady = db
-    .prepare(
-      "SELECT 1 AS x FROM approach_graph_runs WHERE ticket_id = ? AND status = 'completed-awaiting-impl-marker' LIMIT 1",
-    )
-    .get(ticketId);
-  return markerReady ? 'graph-marker' : 'none';
+  return graphMarkerReadyForTicket(db, ticketId) ? 'graph-marker' : 'none';
 }
 
 /** nudge: with an active graph run the coordinator owns continuation — the
@@ -133,22 +125,13 @@ export function adoptionSurface(
   if (!run) return 'legacy';
   const runId = /^[1-9]\d*$/.test(launchId) ? Number(launchId) : NaN;
   if (!Number.isInteger(runId)) return 'refuse';
-  const node = db
-    .prepare(
-      `SELECT 1 AS x FROM approach_node_runs
-       WHERE id = ? AND graph_run_id = ?
-         AND status NOT IN ('completed', 'stale', 'cancelled') LIMIT 1`,
-    )
-    .get(runId, run.graphRunId);
-  if (node) return 'adopt';
-  const planner = db
-    .prepare(
-      `SELECT 1 AS x FROM approach_planner_runs
-       WHERE id = ? AND graph_run_id = ?
-         AND status NOT IN ('submitted', 'stale', 'cancelled') LIMIT 1`,
-    )
-    .get(runId, run.graphRunId);
-  return planner ? 'adopt' : 'refuse';
+  if (nodeRunExistsOutsideStatusesForGraphRun(db, runId, run.graphRunId, ['completed', 'stale', 'cancelled'])) {
+    return 'adopt';
+  }
+  if (plannerRunExistsOutsideStatusesForGraphRun(db, runId, run.graphRunId, ['submitted', 'stale', 'cancelled'])) {
+    return 'adopt';
+  }
+  return 'refuse';
 }
 
 export interface StopActiveGraphDeps {
@@ -233,10 +216,7 @@ export function restartStoppedGraph(
   deps: Pick<StopActiveGraphDeps, 'db' | 'transaction' | 'debug'>,
   input: { ticketId: number; graphRunId: number },
 ): RestartStoppedGraphResult {
-  const run = deps.db
-    .prepare('SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?')
-    .get(input.graphRunId, input.ticketId) as { status: string } | undefined;
-  if (run?.status !== 'draining') {
+  if (graphRunStatusForTicket(deps.db, input.graphRunId, input.ticketId) !== 'draining') {
     return { graphRunId: input.graphRunId, restarted: false, outcome: 'not-draining' };
   }
   if (hasLiveReplanPlanner(deps.db, input.graphRunId)) {

@@ -674,9 +674,6 @@ export async function reconcileGraphRun(
         break; // rest states and completed/cancelled evidence are left alone
     }
   }
-  const after = db
-    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-    .get(run.id) as { status: string };
-  result.status = after.status;
+  result.status = graphRunStatus(db, run.id) ?? run.status;
   return result;
 }

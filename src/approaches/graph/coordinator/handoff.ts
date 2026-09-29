@@ -28,6 +28,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { ticketIdsAwaitingGraphDrive } from '../../../store/graph/graphRuns.js';
 import { ACTIVE_GRAPH_STATUSES } from '../entryPoints.js';
 
 /** The deterministic gate stages the stage driver may auto-run. Mirrors
@@ -50,28 +51,9 @@ export function ticketsAwaitingGraphDrive(
   db: GraphDb,
   scope: { projectId: number },
 ): number[] {
-  const stagePlaceholders = DRIVER_GATE_STAGES.map(() => '?').join(', ');
-  const activePlaceholders = [...ACTIVE_GRAPH_STATUSES].map(() => '?').join(', ');
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT t.id AS id
-         FROM tickets t
-         JOIN approach_graph_runs r ON r.ticket_id = t.id
-         LEFT JOIN stages s ON s.ticket_id = t.id AND s.stage_key = t.stage_current
-        WHERE t.project_id = ?
-          AND t.paused_at IS NULL
-          AND t.stage_current IN (${stagePlaceholders})
-          AND s.blocked_kind IS NULL
-          AND NOT EXISTS (
-                SELECT 1 FROM approach_graph_runs a
-                 WHERE a.ticket_id = t.id AND a.status IN (${activePlaceholders})
-              )
-        ORDER BY t.id`,
-    )
-    .all(
-      scope.projectId,
-      ...DRIVER_GATE_STAGES,
-      ...ACTIVE_GRAPH_STATUSES,
-    ) as { id: number }[];
-  return rows.map((r) => r.id);
+  return ticketIdsAwaitingGraphDrive(db, {
+    projectId: scope.projectId,
+    stageKeys: DRIVER_GATE_STAGES,
+    activeStatuses: [...ACTIVE_GRAPH_STATUSES],
+  });
 }
