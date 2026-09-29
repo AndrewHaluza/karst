@@ -106,6 +106,51 @@ export function nodeRunIdsForGraphRun(db: GraphDb, graphRunId: number): number[]
   return rows.map((r) => r.id);
 }
 
+/** The node run ids of a graph run in one of `statuses`, in id order. */
+export function nodeRunIdsInStatusesForGraphRun(
+  db: GraphDb,
+  graphRunId: number,
+  statuses: readonly string[],
+): number[] {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT id FROM approach_node_runs
+       WHERE graph_run_id = ? AND status IN (${placeholders})
+       ORDER BY id`,
+    )
+    .all(graphRunId, ...statuses) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** The graph run a node run belongs to, or undefined. */
+export function nodeRunGraphRunId(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
+    .get(id) as { graph_run_id: number } | undefined;
+  return row?.graph_run_id;
+}
+
+/** The ticket a node run's graph run belongs to, or undefined. */
+export function nodeRunTicketId(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare(
+      'SELECT gr.ticket_id FROM approach_node_runs nr JOIN approach_graph_runs gr ON gr.id = nr.graph_run_id WHERE nr.id = ?',
+    )
+    .get(id) as { ticket_id: number } | undefined;
+  return row?.ticket_id;
+}
+
+/** The per-run model identity a terminal (re)attach resolves. */
+export function nodeRunModelIdentity(
+  db: GraphDb,
+  id: number,
+): Pick<NodeRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined {
+  return db
+    .prepare('SELECT id, profile, provider, model FROM approach_node_runs WHERE id = ?')
+    .get(id) as Pick<NodeRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
+}
+
 /** The graph run's node runs (launch-identity columns), in id order — the
  *  reconcile sweep's deterministic read. */
 export function nodeRunsForGraphRun(
@@ -318,6 +363,25 @@ export function firstNodeRunIdInStatuses(
 ): number | undefined {
   const row = earliestNodeRunInStatuses(db, graphRunId, statuses);
   return row?.id;
+}
+
+/** The earliest node run of a graph run in one of `statuses` with its outcome —
+ *  the "which node blocked the run" read. */
+export function earliestNodeRunOutcomeForGraphRun(
+  db: GraphDb,
+  graphRunId: number,
+  statuses: readonly string[],
+): Pick<NodeRunRow, 'id' | 'reason' | 'outcome'> | undefined {
+  const placeholders = statuses.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT id, reason, outcome FROM approach_node_runs
+       WHERE graph_run_id = ? AND status IN (${placeholders})
+       ORDER BY id LIMIT 1`,
+    )
+    .get(graphRunId, ...statuses) as
+    | Pick<NodeRunRow, 'id' | 'reason' | 'outcome'>
+    | undefined;
 }
 
 /** The node runs of a graph run in one of `statuses` (recovery-retry shape). */
@@ -547,6 +611,14 @@ export function setNodeRunLaunchIdentity(
       'UPDATE approach_node_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
     )
     .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
+  return res.changes === 1;
+}
+
+/** Record the durable process run a launched node run is bound to. */
+export function setNodeRunProcessRunId(db: GraphDb, id: number, processRunId: number): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET process_run_id = ? WHERE id = ?')
+    .run(processRunId, id);
   return res.changes === 1;
 }
 

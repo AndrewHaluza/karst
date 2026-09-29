@@ -153,6 +153,26 @@ export function plannerRunIdsForGraphRun(db: GraphDb, graphRunId: number): numbe
   return rows.map((r) => r.id);
 }
 
+/** The ticket a planner run's graph run belongs to, or undefined. */
+export function plannerRunTicketId(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare(
+      'SELECT ticket_id FROM approach_graph_runs gr JOIN approach_planner_runs p ON p.graph_run_id = gr.id WHERE p.id = ?',
+    )
+    .get(id) as { ticket_id: number } | undefined;
+  return row?.ticket_id;
+}
+
+/** The per-run model identity a terminal (re)attach resolves. */
+export function plannerRunModelIdentity(
+  db: GraphDb,
+  id: number,
+): Pick<PlannerRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined {
+  return db
+    .prepare('SELECT id, profile, provider, model FROM approach_planner_runs WHERE id = ?')
+    .get(id) as Pick<PlannerRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
+}
+
 /** The launch identity a reattach compares against a live session (planner runs). */
 export function plannerRunSessionIdentity(
   db: GraphDb,
@@ -289,6 +309,14 @@ export function setPlannerRunLaunchIdentity(
       'UPDATE approach_planner_runs SET generation = ?, capability_hash = ?, owner_nonce = ? WHERE id = ?',
     )
     .run(identity.generation, identity.capabilityHash, identity.ownerNonce, id);
+  return res.changes === 1;
+}
+
+/** Record the durable process run a launched planner run is bound to. */
+export function setPlannerRunProcessRunId(db: GraphDb, id: number, processRunId: number): boolean {
+  const res = db
+    .prepare('UPDATE approach_planner_runs SET process_run_id = ? WHERE id = ?')
+    .run(processRunId, id);
   return res.changes === 1;
 }
 
