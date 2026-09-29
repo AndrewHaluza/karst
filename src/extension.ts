@@ -314,7 +314,7 @@ import { systemAsyncProcessFacts } from './runtime/serverIdentity.js';
 import { listBaseBranchCandidates } from './runtime/branchList.js';
 import {
   changeBaseRef as changeBaseRefWorkflow,
-  type ChangeBaseRefResult,
+  describeChangeBaseRef,
 } from './workflow/changeBaseRef.js';
 import {
   openProcessRun,
@@ -7396,30 +7396,6 @@ function makeInsideActionHost(
     graphEditOverride: (ticketId, nodeRunId) => graphHost.graphEditOverride(ticketId, nodeRunId),
     retryShipRepo: (ticketId, repo) => retryShipRepo(ticketId, repo),
   };
-}
-
-/**
- * Word a successful `changeBaseRef` outcome for the dashboard's action-result
- * toast (§ per-repo base branch — live change): rebased or not, PR retargeted
- * or not, merge check cleared — never a generic "done" (see `panel.ts`'s
- * `change-base-ref` branch, which posts this verbatim as `message`).
- */
-function describeChangeBaseRef(result: ChangeBaseRefResult): string {
-  if (result.toBase === result.fromBase) return `Already based on ${result.toBase}.`;
-  const parts: string[] = [
-    result.rebase?.outcome === 'rebased'
-      ? `Rebased onto ${result.toBase}.`
-      : `Re-targeted to ${result.toBase} (not rebased).`,
-  ];
-  if (result.prRetarget) {
-    parts.push(
-      result.prRetarget.ok
-        ? `PR #${result.prRetarget.number} re-targeted.`
-        : `PR #${result.prRetarget.number} re-target refused.`,
-    );
-  }
-  parts.push('Merge check cleared.');
-  return parts.join(' ');
 }
 
 function makeDashboardActions(

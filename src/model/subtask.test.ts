@@ -7,6 +7,7 @@ import {
   subtaskParentRef,
   subtaskProgress,
   canAddSubtask,
+  canDetachSubtask,
 } from './subtask.js';
 import { FOLLOW_UP_TEXT_MARKER } from './followUp.js';
 
@@ -72,5 +73,36 @@ describe('canAddSubtask', () => {
 
   it('refuses an archived parent', () => {
     expect(canAddSubtask({ stageCurrent: 'impl', archivedAt: '2026-01-01T00:00:00Z' })).toBe(false);
+  });
+});
+
+describe('canDetachSubtask', () => {
+  const base = {
+    subtaskParentId: 1,
+    blocksParent: false,
+    stageCurrent: 'impl',
+    agentState: 'idle',
+  };
+
+  it('allows a non-blocking, not-done sub-task with no open children and no live agent', () => {
+    expect(canDetachSubtask(base, 0)).toBe(true);
+    expect(canDetachSubtask({ ...base, stageCurrent: null }, 0)).toBe(true);
+  });
+
+  it('refuses a top-level ticket', () => {
+    expect(canDetachSubtask({ ...base, subtaskParentId: null }, 0)).toBe(false);
+  });
+
+  it('refuses a blocking sub-task (it is the parent’s leave-impl gate)', () => {
+    expect(canDetachSubtask({ ...base, blocksParent: true }, 0)).toBe(false);
+  });
+
+  it('refuses a done sub-task', () => {
+    expect(canDetachSubtask({ ...base, stageCurrent: 'done' }, 0)).toBe(false);
+  });
+
+  it('refuses while the agent is running or a child sub-task is open', () => {
+    expect(canDetachSubtask({ ...base, agentState: 'running' }, 0)).toBe(false);
+    expect(canDetachSubtask(base, 1)).toBe(false);
   });
 });

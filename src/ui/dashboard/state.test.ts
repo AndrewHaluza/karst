@@ -167,6 +167,34 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, parent.id).canAddSubtask).toBe(false);
   });
 
+  it('offers Detach from parent only for a non-blocking, not-done, childless sub-task (NDL-77)', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
+    const blocking = createTicket(store, {
+      key: 'PROJ-1-s1',
+      title: 'blocks',
+      subtaskParentId: parent.id,
+      blocksParent: true,
+    });
+    const free = createTicket(store, {
+      key: 'PROJ-1-s2',
+      title: 'free',
+      subtaskParentId: parent.id,
+    });
+
+    // A top-level ticket and a blocking child never offer detach.
+    expect(buildDashboardState(store, parent.id).canDetachSubtask).toBe(false);
+    expect(buildDashboardState(store, blocking.id).canDetachSubtask).toBe(false);
+    expect(buildDashboardState(store, free.id).canDetachSubtask).toBe(true);
+
+    // A child of its own hides it: the rebase would rewrite that child's base.
+    createTicket(store, { key: 'PROJ-1-s2-s1', title: 'grandchild', subtaskParentId: free.id });
+    expect(buildDashboardState(store, free.id).canDetachSubtask).toBe(false);
+
+    // A done sub-task is already leaving the stack.
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(blocking.id);
+    expect(buildDashboardState(store, blocking.id).canDetachSubtask).toBe(false);
+  });
+
   it('reads 0/0 progress and no sub-tasks for a ticket with none (NDL-76)', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
     const state = buildDashboardState(store, parent.id);

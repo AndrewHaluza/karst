@@ -632,6 +632,28 @@ export function assertNoOpenSubtasks(store: Store, ticketId: number): void {
 }
 
 /**
+ * Clear a sub-task's parent link — the detach write (design NDL-70 §5). Guarded
+ * by the parent it was expected to still have (`subtask_parent_id = ?`), so a
+ * concurrent re-parent/clear cannot be clobbered; returns whether a row matched.
+ *
+ * `blocks_parent` is zeroed in the SAME statement: the leave-impl gate only
+ * exists for a sub-task, so a detached top-level ticket must not carry the flag.
+ * A single statement keeps the two facts from ever disagreeing.
+ */
+export function detachSubtaskParent(
+  store: Store,
+  ticketId: number,
+  expectedParentId: number,
+): boolean {
+  const info = store.db
+    .prepare(
+      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0 WHERE id = ? AND subtask_parent_id = ?',
+    )
+    .run(ticketId, expectedParentId);
+  return info.changes > 0;
+}
+
+/**
  * Clear `approach` from every ticket bound to `approachId`, returning how many
  * rows were cleared.
  *

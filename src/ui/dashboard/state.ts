@@ -21,7 +21,7 @@ import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.j
 import { needsUser } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
-import { subtaskProgress, canAddSubtask } from '../../model/subtask.js';
+import { subtaskProgress, canAddSubtask, canDetachSubtask } from '../../model/subtask.js';
 import { railNeeds } from '../../model/railNeeds.js';
 import { reportedPhases } from '../../model/inside/agent.js';
 import { listProcessRuns } from '../../store/processRuns.js';
@@ -642,6 +642,7 @@ export function buildDashboardState(
     subtasks,
     subtaskProgress: subtaskProgress(subtaskList),
     canAddSubtask: canAddSubtask(ticket),
+    canDetachSubtask: canDetachSubtask(ticket, subtaskList.length),
     stageCurrent: ticket.stageCurrent,
     agentState: ticket.agentState,
     paused: ticket.pausedAt !== null,

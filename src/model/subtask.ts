@@ -85,3 +85,34 @@ export function canAddSubtask(parent: {
     parent.archivedAt === null && parent.stageCurrent !== 'ship' && parent.stageCurrent !== 'done'
   );
 }
+
+/**
+ * Whether a sub-task may be detached from its parent (design NDL-70 §5
+ * 'Detach'). Mirrors the refusals the writer enforces
+ * (`workflow/detachSubtask.ts`): only a NON-blocking, not-done sub-task with no
+ * open sub-tasks of its own and no running agent may detach. A blocking child
+ * is the parent's leave-impl gate, a done sub-task is already leaving the
+ * stack, a child with open children would be rewritten out from under them, and
+ * Karst never rewrites a tree under a live agent.
+ *
+ * `openChildren` is the count of this ticket's own non-archived direct
+ * sub-tasks. Presentation derives from this so the dashboard never offers an
+ * action the writer would refuse — same contract as `canAddSubtask`.
+ */
+export function canDetachSubtask(
+  ticket: {
+    subtaskParentId: number | null;
+    blocksParent: boolean;
+    stageCurrent: string | null;
+    agentState: string | null;
+  },
+  openChildren: number,
+): boolean {
+  return (
+    ticket.subtaskParentId !== null &&
+    !ticket.blocksParent &&
+    ticket.stageCurrent !== 'done' &&
+    ticket.agentState !== 'running' &&
+    openChildren === 0
+  );
+}

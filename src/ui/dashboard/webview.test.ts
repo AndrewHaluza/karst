@@ -796,6 +796,16 @@ describe('dashboard webview.html', () => {
     expect(script).toMatch(/panel\.classList\.toggle\('hidden', subs\.length === 0 && !canAdd\)/);
   });
 
+  it('shows the Detach-from-parent control only when the host allows it (NDL-77)', () => {
+    const script = previewScriptSource();
+    // The control and its action exist, worded for what it does.
+    expect(HTML).toMatch(/id="detachSubtask"[^>]*data-act="detach-subtask"/);
+    expect(HTML).toContain('Detach from parent…');
+    // Visibility is host-derived (`canDetachSubtask`), never re-derived in the
+    // webview — the same contract as the Add sub-task button (NDL-76).
+    expect(script).toMatch(/detach\.classList\.toggle\('hidden', !state\.canDetachSubtask\)/);
+  });
+
   it('shows the awaiting-subtask block chip with the linked sub-task keys (NDL-76)', () => {
     const script = previewScriptSource();
     expect(HTML).toContain('id="subtaskWait"');
