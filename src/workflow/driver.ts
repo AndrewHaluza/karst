@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey, StageRunResult } from '../model/types.js';
 import { getTicket } from '../store/tickets.js';
 import { stageBlock } from '../store/stageBlocks.js';
+import type { IntegrateOutcome } from './subtaskIntegration.js';
 
 /**
  * The fixed vocabulary of human-boundary reasons the driver itself names
@@ -15,6 +16,7 @@ export type DriverBoundaryReason =
   | 'awaiting-merge'
   | 'gate-failed'
   | 'awaiting-marker'
+  | 'subtask-integration-parked'
   | 'not-spun';
 
 /**
@@ -46,6 +48,16 @@ export interface StageDriverDeps {
    * no-op unless the manifest's `debug` flag is on.
    */
   debug?: (message: string) => void;
+  /**
+   * The sub-task integration seam (NDL-75, design §6). Runs at the TOP of the
+   * driver, before any boundary check, so a parent that was `running` when a
+   * sub-task landed integrates the child's work on its next drive — the
+   * deferred half of "invoked from onSubtaskLanded (if parent idle) or the
+   * parent's next driver seam (leave-impl / ship entry)". A park STOPS the
+   * driver: running a gate (uat/review) with the child's work unmerged is the
+   * failure this seam exists to prevent. Absent → no integration happens here.
+   */
+  integrateSubtasks?: (ticketId: number) => Promise<IntegrateOutcome>;
 }
 
 function finish(
@@ -60,6 +72,25 @@ function finish(
 }
 
 export async function runStageDriver(deps: StageDriverDeps, ticketId: number): Promise<StageOutcome> {
+  // Sub-task integration seam (NDL-75): absorb any landed sub-task's work
+  // before the boundary checks and gate runners below. This is the parent's
+  // "leave-impl"/next-drive boundary — the place a deferred integration (parent
+  // was running at landing) finally runs once the parent is idle.
+  if (deps.integrateSubtasks) {
+    deps.debug?.(`[driver] ticket ${ticketId}: integrating landed sub-tasks before driving`);
+    const outcome = await deps.integrateSubtasks(ticketId);
+    if (outcome.parked) {
+      // The child's work is unmerged; do NOT run the stage's gates on a stale
+      // tree. The park names why and holds until a seam integrates or a human
+      // resolves it.
+      const stage = getTicket(deps.store, ticketId).stageCurrent as StageKey;
+      deps.debug?.(
+        `[driver] ticket ${ticketId}: sub-task integration parked at '${stage}' — not driving`,
+      );
+      return finish(deps, ticketId, stage, 'blocked', 'subtask-integration-parked');
+    }
+  }
+
   for (;;) {
     // stage_current is `string | null` at the store layer; STAGE_KEYS values in
     // practice (house precedent: src/store/stages.ts rowToStage).

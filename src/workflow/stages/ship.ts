@@ -13,6 +13,7 @@ import { takeForcePushLease, armForcePushLease } from '../../store/worktrees.js'
 import { getTicket } from '../../store/tickets.js';
 import { resolveShipLanding } from '../mergeGate.js';
 import { settleSubtaskGate } from '../subtaskGate.js';
+import { integrateAndReleaseParent } from '../subtaskIntegration.js';
 import { setStage } from '../../store/stages.js';
 import { nowIso } from '../../model/time.js';
 import {
@@ -634,8 +635,16 @@ export async function shipTicket(
   // stacked sub-task lands, returning ship to its confirm click. Only stacked
   // children count: a non-blocking sub-task that was never started does not
   // hold the ship.
-  if (atShip && settleSubtaskGate(store, opts.ticketId, 'ship', opts.debug).blocked) {
-    return { prs: [] };
+  //
+  // Integration runs FIRST (NDL-75): a landed sub-task's work is merged into the
+  // parent's local branch before the gate is evaluated, so `ship` never opens a
+  // PR for a branch missing the child's commits. A park from integration holds
+  // the stage — `settleSubtaskGate` refuses to advance past one.
+  if (atShip) {
+    await integrateAndReleaseParent(store, opts.ticketId, git, opts.debug);
+    if (settleSubtaskGate(store, opts.ticketId, 'ship', opts.debug).blocked) {
+      return { prs: [] };
+    }
   }
 
   // Idempotency (§5.3): a re-run after a crash mid-ship must not re-open a PR for
@@ -1562,7 +1571,10 @@ export async function shipTicket(
   // still AT ship is the one entitled to decide its landing (see
   // `resolveShipLanding`'s doc comment for why this guard matters).
   if (atShip) {
-    resolveShipLanding(store, opts.ticketId, opts.debug);
+    const landing = resolveShipLanding(store, opts.ticketId, opts.debug);
+    if (landing.landedSubtaskParentId !== null) {
+      await integrateAndReleaseParent(store, landing.landedSubtaskParentId, git, opts.debug);
+    }
   }
 
   return { prs };

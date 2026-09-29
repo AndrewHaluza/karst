@@ -11,6 +11,8 @@ import {
   type PrStatus,
 } from '../integrations/github.js';
 import { settleShipGate } from './mergeGate.js';
+import { integrateAndReleaseParent } from './subtaskIntegration.js';
+import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 
 /**
  * Merge one repo's PR for a ticket, from the ship stage, and record what actually
@@ -86,9 +88,18 @@ async function probe(gh: GhRunner, url: string, cwd: string): Promise<PrDetail> 
  * idempotent and the background sweep runs it again on the next tick, so the
  * ticket still reaches `done` — just later.
  */
-function settle(store: Store, ticketId: number, debug?: (message: string) => void): boolean {
+async function settle(
+  store: Store,
+  ticketId: number,
+  git: GitRunner,
+  debug?: (message: string) => void,
+): Promise<boolean> {
   try {
-    return settleShipGate(store, ticketId, debug).advanced;
+    const result = settleShipGate(store, ticketId, debug);
+    if (result.landedSubtaskParentId !== null) {
+      await integrateAndReleaseParent(store, result.landedSubtaskParentId, git, debug);
+    }
+    return result.advanced;
   } catch {
     return false;
   }
@@ -98,6 +109,7 @@ export async function mergeTicketPr(
   store: Store,
   opts: MergeTicketPrOpts,
   gh: GhRunner = defaultGhRunnerAsync,
+  git: GitRunner = defaultGitRunner,
 ): Promise<MergeTicketPrResult> {
   // The store decides what is mergeable, not the caller: the repo arrives from a
   // webview message and a stale panel can name a PR that has since gone.
@@ -116,7 +128,12 @@ export async function mergeTicketPr(
   // holdout, and a click on the landed one is as good a moment as any to notice
   // it has caught up.
   if (pr.status === 'merged') {
-    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId, opts.debug), reason: '' };
+    return {
+      ok: true,
+      status: 'merged',
+      completedTicket: await settle(store, opts.ticketId, git, opts.debug),
+      reason: '',
+    };
   }
 
   const attempt = await mergePr(gh, pr.url, pr.cwd, opts.method);
@@ -128,7 +145,12 @@ export async function mergeTicketPr(
 
   const status = detail.status === 'unknown' ? pr.status : detail.status;
   if (detail.status === 'merged') {
-    return { ok: true, status: 'merged', completedTicket: settle(store, opts.ticketId, opts.debug), reason: '' };
+    return {
+      ok: true,
+      status: 'merged',
+      completedTicket: await settle(store, opts.ticketId, git, opts.debug),
+      reason: '',
+    };
   }
   if (!attempt.ok) return { ok: false, status, completedTicket: false, reason: attempt.reason };
   return {

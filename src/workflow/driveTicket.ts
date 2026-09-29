@@ -16,6 +16,7 @@ import {
 } from '../store/recoveryRounds.js';
 import { nowIso } from '../model/time.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
+import type { IntegrateOutcome } from './subtaskIntegration.js';
 import { runUat } from './stages/uat.js';
 import { runReview, type OpenDiff } from './stages/review.js';
 import {
@@ -161,6 +162,13 @@ export interface DriveTicketDeps {
    */
   debug?: (message: string) => void;
   /**
+   * The sub-task integration seam (NDL-75, design §6), threaded straight into
+   * `StageDriverDeps.integrateSubtasks`. The host binds it to
+   * `integrateAndReleaseParent`; a parked outcome stops the driver before any
+   * gate runs. Absent → the driver performs no integration.
+   */
+  integrateSubtasks?: (ticketId: number) => Promise<IntegrateOutcome>;
+  /**
    * Where the findings lane's boundary diagnostics land (a failed AI call, an
    * unparseable response, an untrustworthy `file`) — threaded straight into
    * `ReviewDeps.warn`. Absent falls back all the way to `parseFindings`'s own
@@ -257,6 +265,7 @@ export async function driveTicket(
         onProgress: deps.onProgress,
         shouldContinue,
         debug: deps.debug,
+        integrateSubtasks: deps.integrateSubtasks,
         // `runUat` reports its own StageRunResult, so it is passed through
         // verbatim: wrapping a park as 'advanced' at the ticket's unchanged
         // stage would send the driver round the same blocked gate forever.

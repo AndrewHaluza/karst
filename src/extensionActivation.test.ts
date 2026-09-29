@@ -21,7 +21,11 @@ describe('extension activation', () => {
 
     expect(source).toContain('settleShipGates(');
     expect(source).toContain('{ projectId: project.id }');
-    expect(source).toContain('for (const id of landed) void pushDoneStatus(id, false);');
+    // Every landed ticket releases its parent's sub-task gate (integrating the
+    // child's work first, NDL-75) before the provider status is pushed.
+    expect(source).toContain('for (const id of landed) {');
+    expect(source).toContain('await releaseLandedSubtask(localStore, id, defaultGitRunner');
+    expect(source).toContain('void pushDoneStatus(id, false);');
   });
 
   // The provider's post-delivery status used to be pushed the moment the PRs

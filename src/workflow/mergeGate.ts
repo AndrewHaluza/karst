@@ -7,7 +7,6 @@ import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage, setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
 import { transition } from './machine.js';
-import { onSubtaskLanded } from './subtaskGate.js';
 
 /**
  * The gate between "the PRs are open" and "the work has landed" (§11) — an
@@ -215,28 +214,19 @@ export interface ShipGateResult {
   /** True only when THIS call moved the ticket from `ship` to `done`. */
   advanced: boolean;
   state: MergeGateState;
+  /**
+   * When THIS call advanced a SUB-TASK to `done`, its parent's id — the ticket
+   * whose `awaiting-subtask` gate this landing releases. Null otherwise. The
+   * settle functions stay synchronous; the async caller runs integration
+   * (`integrateAndReleaseParent`) and then `onSubtaskLanded` on this id, so the
+   * gate is never cleared while the child's work is still unmerged.
+   */
+  landedSubtaskParentId: number | null;
 }
 
-/**
- * A ticket just reached `done`; if it is a sub-task, its landing may release
- * the parent's `awaiting-subtask` gate (design NDL-70 §5). This covers all
- * three landing paths at once — ship's own tail, the per-repo Merge click and
- * the background PR sweep — because all three go through the two functions
- * below. A throw is swallowed: the child has already landed, and failing the
- * parent's bookkeeping must not unland it.
- */
-function notifySubtaskLanded(store: Store, ticketId: number, debug?: (message: string) => void): void {
-  const parentId = getTicket(store, ticketId).subtaskParentId;
-  if (parentId === null) return;
-  try {
-    onSubtaskLanded(store, parentId, { debug });
-  } catch (err) {
-    debug?.(
-      `[merge] ticket ${ticketId}: sub-task landing hook failed: ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    );
-  }
+/** The parent of the ticket this call just landed, or null (not a sub-task). */
+function landedParentId(store: Store, ticketId: number, advanced: boolean): number | null {
+  return advanced ? getTicket(store, ticketId).subtaskParentId : null;
 }
 
 /** One line naming where the landing decision went, for `[merge]` debug logs. */
@@ -283,8 +273,7 @@ export function resolveShipLanding(
     transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
       clearStageBlock(store, ticketId, 'ship');
     });
-    notifySubtaskLanded(store, ticketId, debug);
-    return { advanced: true, state };
+    return { advanced: true, state, landedSubtaskParentId: landedParentId(store, ticketId, true) };
   }
   debug?.(
     `[merge] ticket ${ticketId}: ship's tail sees ${describeMergeState(state)} — parking at ship with an awaiting-merge block`,
@@ -309,7 +298,7 @@ export function resolveShipLanding(
     // failing ship over a block-write failure would misreport a successful
     // ship as a failure.
   }
-  return { advanced: false, state };
+  return { advanced: false, state, landedSubtaskParentId: null };
 }
 
 /**
@@ -339,7 +328,7 @@ export function settleShipGate(
     debug?.(
       `[merge] ticket ${ticketId}: settle skipped — ticket is at '${ticket.stageCurrent}', not 'ship'`,
     );
-    return { advanced: false, state: mergeGateState(store, ticketId) };
+    return { advanced: false, state: mergeGateState(store, ticketId), landedSubtaskParentId: null };
   }
   const awaiting = stageBlock(store, ticketId, 'ship')?.kind === 'awaiting-merge';
   // The recovery case: ship completed (a passed ship run) but the terminal
@@ -350,7 +339,7 @@ export function settleShipGate(
     debug?.(
       `[merge] ticket ${ticketId}: settle skipped — no awaiting-merge block (freshly parked at ship?)`,
     );
-    return { advanced: false, state: mergeGateState(store, ticketId) };
+    return { advanced: false, state: mergeGateState(store, ticketId), landedSubtaskParentId: null };
   }
 
   const state = mergeGateState(store, ticketId);
@@ -366,7 +355,7 @@ export function settleShipGate(
     debug?.(
       `[merge] ticket ${ticketId}: settle sees ${describeMergeState(state)} — still waiting`,
     );
-    return { advanced: false, state };
+    return { advanced: false, state, landedSubtaskParentId: null };
   }
 
   debug?.(
@@ -375,8 +364,7 @@ export function settleShipGate(
   transition(store, ticketId, 'ship', { kind: 'passed' }, () => {
     clearStageBlock(store, ticketId, 'ship');
   });
-  notifySubtaskLanded(store, ticketId, debug);
-  return { advanced: true, state };
+  return { advanced: true, state, landedSubtaskParentId: landedParentId(store, ticketId, true) };
 }
 
 /**
