@@ -144,4 +144,16 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain('function visibleRows(rows)');
     expect(HTML).toMatch(/collapsedSubtrees\.has\(ancestors\[d\]\)/);
   });
+
+  it('keeps the sub-tree collapse control clear of the hover action strip (NDL-86)', () => {
+    // The hover strip is absolutely positioned at the row's right edge and the
+    // collapse chevron sits in flow in the same slot, so on hover the strip's
+    // solid surface + hit area covered the chevron and a pointer could not
+    // click it (verified in a real browser: elementFromPoint at the chevron
+    // returned the `data-menu` action). The strip reserves one control-width
+    // whenever a collapse control is present, so the two never overlap.
+    expect(HTML).toMatch(
+      /\.row:has\(\.subchev\) \.rowacts\{right:calc\(var\(--k-space-3\) \+ var\(--k-hit-min\)\)\}/,
+    );
+  });
 });
