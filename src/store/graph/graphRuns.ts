@@ -110,6 +110,251 @@ export function graphRunIdsForTicket(db: GraphDb, ticketId: number): number[] {
   return rows.map((r) => r.id);
 }
 
+/* ------------------------------------------------------------------ */
+/* Read helpers — named, narrowed reads (NDL-60). Every raw read of    */
+/* `approach_graph_runs` lives here so a schema change is one module.   */
+/* ------------------------------------------------------------------ */
+
+/** The run's status, or undefined when the row is gone. */
+export function graphRunStatus(db: GraphDb, id: number): string | undefined {
+  const row = db
+    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+    .get(id) as { status: string } | undefined;
+  return row?.status;
+}
+
+/** The run's status, but only when it belongs to `ticketId` (a scoped gate
+ *  for surfaces that must not act on another ticket's run). */
+export function graphRunStatusForTicket(
+  db: GraphDb,
+  id: number,
+  ticketId: number,
+): string | undefined {
+  const row = db
+    .prepare('SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?')
+    .get(id, ticketId) as { status: string } | undefined;
+  return row?.status;
+}
+
+export function graphRunTicketId(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
+    .get(id) as { ticket_id: number } | undefined;
+  return row?.ticket_id;
+}
+
+export function graphRunApproachId(db: GraphDb, id: number): string | undefined {
+  const row = db
+    .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
+    .get(id) as { approach_id: string } | undefined;
+  return row?.approach_id;
+}
+
+/** The run's id and status — the smallest gate shape. */
+export function graphRunIdStatus(
+  db: GraphDb,
+  id: number,
+): Pick<GraphRunRow, 'id' | 'status'> | undefined {
+  return db
+    .prepare('SELECT id, status FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/** The run's id, ticket and status — the compaction/reconcile entry shape. */
+export function graphRunIdTicketStatus(
+  db: GraphDb,
+  id: number,
+): Pick<GraphRunRow, 'id' | 'ticket_id' | 'status'> | undefined {
+  return db
+    .prepare('SELECT id, ticket_id, status FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'id' | 'ticket_id' | 'status'> | undefined;
+}
+
+/** The run's id, status and blocked reason — the recovery/marker read. */
+export function graphRunIdStatusBlockedReason(
+  db: GraphDb,
+  id: number,
+): Pick<GraphRunRow, 'id' | 'status' | 'blocked_reason'> | undefined {
+  return db
+    .prepare('SELECT id, status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'id' | 'status' | 'blocked_reason'> | undefined;
+}
+
+/** The run's ticket and stage attempt — the CLI node resolution shape. */
+export function graphRunTicketStageAttempt(
+  db: GraphDb,
+  id: number,
+): Pick<GraphRunRow, 'ticket_id' | 'stage_attempt'> | undefined {
+  return db
+    .prepare('SELECT ticket_id, stage_attempt FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'ticket_id' | 'stage_attempt'> | undefined;
+}
+
+/** The run's status and replan budget — the replan election's gate. */
+export function graphRunStatusReplanCount(
+  db: GraphDb,
+  id: number,
+): Pick<GraphRunRow, 'status' | 'replan_count'> | undefined {
+  return db
+    .prepare('SELECT status, replan_count FROM approach_graph_runs WHERE id = ?')
+    .get(id) as Pick<GraphRunRow, 'status' | 'replan_count'> | undefined;
+}
+
+/** The run's reserved node-run count (0 when the row is gone). */
+export function graphRunNodeRunCount(db: GraphDb, id: number): number {
+  const row = db
+    .prepare('SELECT node_run_count FROM approach_graph_runs WHERE id = ?')
+    .get(id) as { node_run_count: number } | undefined;
+  return row?.node_run_count ?? 0;
+}
+
+/** The run's reserved expert-run count (0 when the row is gone). */
+export function graphRunExpertRunCount(db: GraphDb, id: number): number {
+  const row = db
+    .prepare('SELECT expert_run_count FROM approach_graph_runs WHERE id = ?')
+    .get(id) as { expert_run_count: number } | undefined;
+  return row?.expert_run_count ?? 0;
+}
+
+/** The newest graph run for a ticket whose status is among `statuses` and
+ *  (when given) whose id matches `id` — the entry-point election read. */
+export function latestGraphRunInStatusesForTicket(
+  db: GraphDb,
+  ticketId: number,
+  statuses: readonly string[],
+  id?: number,
+): Pick<GraphRunRow, 'id' | 'status'> | undefined {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const exact = id === undefined ? '' : 'AND id = ?';
+  const params = id === undefined ? [ticketId, ...statuses] : [ticketId, id, ...statuses];
+  return db
+    .prepare(
+      `SELECT id, status FROM approach_graph_runs
+       WHERE ticket_id = ? ${exact} AND status IN (${placeholders})
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(...params) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/** The newest non-terminal graph run for a ticket, or undefined. */
+export function latestNonTerminalGraphRunForTicket(
+  db: GraphDb,
+  ticketId: number,
+  terminalStatuses: readonly string[],
+): Pick<GraphRunRow, 'id' | 'status'> | undefined {
+  const placeholders = terminalStatuses.map(() => '?').join(', ');
+  return db
+    .prepare(
+      `SELECT id, status FROM approach_graph_runs
+       WHERE ticket_id = ? AND status NOT IN (${placeholders})
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId, ...terminalStatuses) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/** The run for a ticket/stage attempt, or undefined. */
+export function graphRunIdStatusForTicketStageAttempt(
+  db: GraphDb,
+  ticketId: number,
+  stageAttempt: number,
+): Pick<GraphRunRow, 'id' | 'status'> | undefined {
+  return db
+    .prepare(
+      'SELECT id, status FROM approach_graph_runs WHERE ticket_id = ? AND stage_attempt = ? LIMIT 1',
+    )
+    .get(ticketId, stageAttempt) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/** The newest graph run id for a ticket, or undefined. */
+export function latestGraphRunIdForTicket(db: GraphDb, ticketId: number): number | undefined {
+  const row = db
+    .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1')
+    .get(ticketId) as { id: number } | undefined;
+  return row?.id;
+}
+
+/** True when the ticket has any graph run at all. */
+export function graphRunExistsForTicket(db: GraphDb, ticketId: number): boolean {
+  const row = db
+    .prepare('SELECT 1 AS x FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1')
+    .get(ticketId);
+  return row !== undefined;
+}
+
+/** True when the ticket has a run parked at `completed-awaiting-impl-marker`. */
+export function graphMarkerReadyForTicket(db: GraphDb, ticketId: number): boolean {
+  const row = db
+    .prepare(
+      "SELECT 1 AS x FROM approach_graph_runs WHERE ticket_id = ? AND status = 'completed-awaiting-impl-marker' LIMIT 1",
+    )
+    .get(ticketId);
+  return row !== undefined;
+}
+
+/** The ticket's next graph run after `afterId`, or undefined. */
+export function nextGraphRunIdForTicketAfter(
+  db: GraphDb,
+  ticketId: number,
+  afterId: number,
+): number | undefined {
+  const row = db
+    .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ? AND id > ? LIMIT 1')
+    .get(ticketId, afterId) as { id: number } | undefined;
+  return row?.id;
+}
+
+/** Every graph run id of a project with a status among `statuses`, in id order
+ *  (`approach_graph_runs` has no project_id; the join scopes it). */
+export function graphRunIdsByStatusForProject(
+  db: GraphDb,
+  projectId: number,
+  statuses: readonly string[],
+): number[] {
+  const placeholders = statuses.map(() => '?').join(', ');
+  const rows = db
+    .prepare(
+      `SELECT r.id AS id
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE t.project_id = ? AND r.status IN (${placeholders})
+        ORDER BY r.id`,
+    )
+    .all(projectId, ...statuses) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** Every `running`, unpaused graph run id of a project, in id order (the
+ *  scheduler's eligible set, G1a). */
+export function runningGraphRunIdsForProject(db: GraphDb, projectId: number): number[] {
+  const rows = db
+    .prepare(
+      `SELECT r.id AS id
+         FROM approach_graph_runs r
+         JOIN tickets t ON t.id = r.ticket_id
+        WHERE r.status = 'running' AND t.project_id = ? AND t.paused_at IS NULL
+        ORDER BY r.id`,
+    )
+    .all(projectId) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** The diagnostic reference a graph run resolves to: its stage attempt and the
+ *  owning ticket/project slugs. */
+export function graphRunDiagnosticRef(
+  db: GraphDb,
+  id: number,
+): { stageAttempt: number; ticket: string; project: string | null } | undefined {
+  return db
+    .prepare(
+      `SELECT g.stage_attempt AS stageAttempt, t.key AS ticket, p.slug AS project
+         FROM approach_graph_runs g
+         JOIN tickets t ON t.id = g.ticket_id
+         LEFT JOIN projects p ON p.id = t.project_id
+        WHERE g.id = ?`,
+    )
+    .get(id) as { stageAttempt: number; ticket: string; project: string | null } | undefined;
+}
+
 /** Remove a graph run's planner/node run rows and the run itself (leaf-first). */
 export function deleteGraphRunData(db: GraphDb, graphRunId: number): void {
   db.prepare('DELETE FROM approach_graph_tokens WHERE revision_id IN (SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?)').run(graphRunId);

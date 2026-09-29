@@ -62,6 +62,129 @@ export function plannerRunById(db: GraphDb, id: number): PlannerRunRow | undefin
     .get(id) as PlannerRunRow | undefined;
 }
 
+/* ------------------------------------------------------------------ */
+/* Read helpers — named, narrowed reads (NDL-60). Every raw read of    */
+/* `approach_planner_runs` lives here so a schema change is one module. */
+/* ------------------------------------------------------------------ */
+
+/** A planner run's status, or undefined when the row is gone. */
+export function plannerRunStatus(db: GraphDb, id: number): string | undefined {
+  const row = db
+    .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
+    .get(id) as { status: string } | undefined;
+  return row?.status;
+}
+
+/** The compile attempts consumed so far (0 when the row is gone). */
+export function plannerRunCompileAttempt(db: GraphDb, id: number): number {
+  const row = db
+    .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE id = ?')
+    .get(id) as { compile_attempt: number } | undefined;
+  return row?.compile_attempt ?? 0;
+}
+
+/** The graph run a planner run belongs to, or undefined. */
+export function plannerRunGraphRunId(db: GraphDb, id: number): number | undefined {
+  const row = db
+    .prepare('SELECT graph_run_id FROM approach_planner_runs WHERE id = ?')
+    .get(id) as { graph_run_id: number } | undefined;
+  return row?.graph_run_id;
+}
+
+/** The submission shape: the owning graph run, status and accepted snapshot. */
+export function plannerRunSubmissionRef(
+  db: GraphDb,
+  id: number,
+): Pick<PlannerRunRow, 'graph_run_id' | 'status' | 'graph_snapshot_id'> | undefined {
+  return db
+    .prepare('SELECT graph_run_id, status, graph_snapshot_id FROM approach_planner_runs WHERE id = ?')
+    .get(id) as
+    | Pick<PlannerRunRow, 'graph_run_id' | 'status' | 'graph_snapshot_id'>
+    | undefined;
+}
+
+/** The snapshot/election shape: a planner run's id, status and snapshot. */
+export function plannerRunSnapshotRef(
+  db: GraphDb,
+  id: number,
+): Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined {
+  return db
+    .prepare('SELECT id, status, graph_snapshot_id FROM approach_planner_runs WHERE id = ?')
+    .get(id) as Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined;
+}
+
+/** The oldest submitted planner run of a graph run and kind, or undefined. */
+export function submittedPlannerRunForGraphRun(
+  db: GraphDb,
+  graphRunId: number,
+  kind: 'bootstrap' | 'replan',
+): Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined {
+  return db
+    .prepare(
+      `SELECT id, status, graph_snapshot_id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = ? AND status = 'submitted'
+       ORDER BY id LIMIT 1`,
+    )
+    .get(graphRunId, kind) as Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined;
+}
+
+/** The newest planner run of a graph run and kind (launch-identity columns),
+ *  or undefined. */
+export function latestPlannerRunForGraphRunKind(
+  db: GraphDb,
+  graphRunId: number,
+  kind: 'bootstrap' | 'replan',
+): Pick<PlannerRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'> | undefined {
+  return db
+    .prepare(
+      `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = ? ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId, kind) as
+    | Pick<PlannerRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>
+    | undefined;
+}
+
+/** Every planner run id of a graph run, newest first. */
+export function plannerRunIdsForGraphRun(db: GraphDb, graphRunId: number): number[] {
+  const rows = db
+    .prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC')
+    .all(graphRunId) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
+}
+
+/** The launch identity a reattach compares against a live session (planner runs). */
+export function plannerRunSessionIdentity(
+  db: GraphDb,
+  id: number,
+): Pick<PlannerRunRow, 'graph_run_id' | 'process_run_id' | 'generation' | 'owner_nonce' | 'started_at'> | undefined {
+  return db
+    .prepare(
+      `SELECT graph_run_id, process_run_id, generation, owner_nonce, started_at
+       FROM approach_planner_runs WHERE id = ?`,
+    )
+    .get(id) as
+    | Pick<PlannerRunRow, 'graph_run_id' | 'process_run_id' | 'generation' | 'owner_nonce' | 'started_at'>
+    | undefined;
+}
+
+/** True when a planner run of `graphRunId` exists OUTSIDE `terminalStatuses`. */
+export function plannerRunExistsOutsideStatusesForGraphRun(
+  db: GraphDb,
+  id: number,
+  graphRunId: number,
+  terminalStatuses: readonly string[],
+): boolean {
+  const placeholders = terminalStatuses.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT 1 AS x FROM approach_planner_runs
+       WHERE id = ? AND graph_run_id = ? AND status NOT IN (${placeholders}) LIMIT 1`,
+    )
+    .get(id, graphRunId, ...terminalStatuses);
+  return row !== undefined;
+}
+
 /** The next monotonic planner-run number for a graph run (1-based). */
 export function nextPlannerRunNumber(db: GraphDb, graphRunId: number): number {
   const row = db

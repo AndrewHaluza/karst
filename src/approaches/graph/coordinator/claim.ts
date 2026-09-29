@@ -42,6 +42,8 @@ import {
   clearNodeRunLaunchIdentity,
   incrementNodeRunLaunchAttempt,
   insertReservedNodeRun,
+  nextVisitNumber,
+  nodeRunForClaimingToken,
   type BaseHead,
   type NodeRunRow as FullNodeRunRow,
 } from '../../../store/graph/nodeRuns.js';
@@ -136,15 +138,6 @@ function revisionGraphRunId(db: GraphDb, revisionId: number): number {
     .get(revisionId) as RevisionRow | undefined;
   if (!row) throw new GraphClaimError(`unknown revision ${revisionId}`);
   return row.graph_run_id;
-}
-
-function nextVisitNumber(db: GraphDb, revisionId: number, nodeId: string): number {
-  const row = db
-    .prepare(
-      'SELECT COALESCE(MAX(visit_number), 0) + 1 AS next FROM approach_node_runs WHERE revision_id = ? AND node_id = ?',
-    )
-    .get(revisionId, nodeId) as { next: number };
-  return row.next;
 }
 
 function createNodeRun(
@@ -332,13 +325,7 @@ export function claimJoinActivation(deps: ClaimDeps, input: ClaimJoinInput): Cla
 export type NodeRunRow = FullNodeRunRow;
 
 export function claimedNodeRunForToken(db: GraphDb, tokenId: number): NodeRunRow | undefined {
-  return db
-    .prepare(
-      `SELECT r.* FROM approach_node_runs r
-       JOIN approach_graph_tokens t ON t.claiming_node_run_id = r.id
-       WHERE t.id = ?`,
-    )
-    .get(tokenId) as NodeRunRow | undefined;
+  return nodeRunForClaimingToken(db, tokenId);
 }
 
 /**

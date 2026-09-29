@@ -21,7 +21,11 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import { markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
+import {
+  graphRunStatus,
+  markGraphRunBlocked,
+  runningGraphRunIdsForProject,
+} from '../../../store/graph/graphRuns.js';
 import { pendingTokensForRevision, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { heldLeasesForScheduler, type SchedulerLeaseRow } from '../../../store/graph/leases.js';
 import {
@@ -168,10 +172,7 @@ export function runCoordinatorTick(
     return emitGraphDiagnostic({ db, debug: deps.debug }, { category, graphRunId: opts.graphRunId, ...event });
   };
 
-  const run = db
-    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-    .get(opts.graphRunId) as { status: string } | undefined;
-  if (!run || run.status !== 'running') return result;
+  if (graphRunStatus(db, opts.graphRunId) !== 'running') return result;
 
   // Slice 5 Task 6: the FIRST fault stops new launches. A faulted node run on
   // a still-running run means a fault path recorded the node without blocking
@@ -393,10 +394,7 @@ export function runCoordinatorTick(
     // is only a reason to stop if the run actually left `running` — a run this
     // tick is still allowed to schedule for must not lose its remaining
     // transitions to a block nobody performed.
-    const after = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(opts.graphRunId) as { status: string } | undefined;
-    if (after?.status === 'running') {
+    if (graphRunStatus(db, opts.graphRunId) === 'running') {
       deps.debug?.(
         `[graph] run ${opts.graphRunId}: deferral timeout for node ${nodeId} lost its CAS but the run is still running — scheduling continues`,
       );
@@ -605,14 +603,5 @@ export function runCoordinatorTick(
  * list with no recovery step.
  */
 export function activeGraphRunIds(db: GraphDb, scope: { projectId: number }): number[] {
-  const rows = db
-    .prepare(
-      `SELECT r.id AS id
-         FROM approach_graph_runs r
-         JOIN tickets t ON t.id = r.ticket_id
-        WHERE r.status = 'running' AND t.project_id = ? AND t.paused_at IS NULL
-        ORDER BY r.id`,
-    )
-    .all(scope.projectId) as { id: number }[];
-  return rows.map((r) => r.id);
+  return runningGraphRunIdsForProject(db, scope.projectId);
 }
