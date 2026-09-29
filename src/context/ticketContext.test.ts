@@ -175,17 +175,45 @@ describe('buildTicketContext', () => {
         prompt: 'Build the whole thing',
         brief: 'Half done.',
         branches: [{ repo: 'frontend', branch: 'feat/root' }],
+        blocksParent: true,
       });
       // A sub-task must not inherit the follow-up's shipped-PR view.
       expect(ctx.parent).toBeNull();
 
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Parent task');
-      expect(md).toContain('PROJ-1: Root work');
+      expect(md).toContain('PROJ-1: Root work [blocking]');
+      expect(md).toMatch(/blocks its parent/);
       expect(md).toContain('Build the whole thing');
       expect(md).toContain('- frontend: `feat/root`');
       expect(md).toMatch(/lands into the parent's branch, not into main/);
       expect(md).not.toContain('https://x/pr/7');
+    });
+
+    it('reports a non-blocking sub-task without the blocking tag (NDL-96)', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      const child = createTicket(store, {
+        key: 'PROJ-1-s2',
+        title: 'Docs polish',
+        subtaskParentId: parent.id,
+        blocksParent: false,
+      });
+
+      const ctx = buildTicketContext(store, undefined, child.id);
+      expect(ctx.subtaskParent).toEqual({
+        key: 'PROJ-1',
+        title: 'Root work',
+        prompt: null,
+        brief: null,
+        branches: [],
+        blocksParent: false,
+      });
+
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Parent task');
+      expect(md).toContain('PROJ-1: Root work —');
+      expect(md).not.toContain('[blocking]');
+      expect(md).not.toMatch(/blocks its parent/);
     });
 
     it('renders no parent task section for an ordinary ticket', () => {

@@ -200,6 +200,14 @@ export interface TicketContextSubtaskParent {
   brief: string | null;
   /** The parent's branch per repo, from its worktrees. Empty before the parent is cut. */
   branches: { repo: string; branch: string }[];
+  /**
+   * Whether THIS sub-task holds its own parent (its `blocks_parent` column) —
+   * the child's half of the flag the parent's `subtasks[]` already reports
+   * (NDL-96). Present here so a sub-task can answer "do I block my parent?"
+   * from its own `context <key>` without resolving its parent id and re-reading
+   * the parent's context.
+   */
+  blocksParent: boolean;
 }
 
 /** One direct sub-task of this ticket, as the parent's context lists it (design NDL-70 §7). */
@@ -382,6 +390,7 @@ export function buildTicketContext(
       branches: listWorktreesByTicket(store, p.id)
         .filter((w) => w.branch !== null && w.branch.trim() !== '')
         .map((w) => ({ repo: w.repo, branch: w.branch! })),
+      blocksParent: t.blocksParent,
     };
   })();
 
@@ -746,13 +755,21 @@ export function renderTicketContext(
   // deliberately not rendered (that is the follow-up section's job).
   if (ctx.subtaskParent) {
     const p = ctx.subtaskParent;
-    const heading =
+    const base =
       p.key && p.title
         ? `${p.key}: ${p.title}`
         : p.key || p.title || 'the parent ticket';
+    // The child's own blocking status, legible without a parent round-trip
+    // (NDL-96) — the same tag the parent's Sub-tasks section prints per child.
+    const heading = p.blocksParent ? `${base} [blocking]` : base;
     const lines: string[] = [
       `This ticket is a sub-task of ${heading} — its work is part of that open ticket, not standalone.`,
     ];
+    if (p.blocksParent) {
+      lines.push(
+        'This sub-task blocks its parent: the parent waits on it before it can leave impl/fix.',
+      );
+    }
     const parentAsk = p.prompt?.trim();
     if (parentAsk) lines.push(parentAsk);
     const parentBrief = p.brief?.trim();
