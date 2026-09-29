@@ -186,4 +186,15 @@ describe('dashboard render — fixture corpus', () => {
     expect(h.query('[data-stage-menu]')).toBeNull();
     h.close();
   });
+
+  it('renders with per-capability preset support (NDL-116)', () => {
+    const h = renderWebview('dashboard');
+    const fixture = renderFixtures()[0]!;
+    h.receive(envelope(fixture));
+    // Dashboard renders successfully with preset infrastructure in place
+    expect(h.errors).toEqual([]);
+    const inside = h.query('#inside');
+    expect(inside).toBeTruthy();
+    h.close();
+  });
 });

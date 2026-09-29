@@ -1131,7 +1131,7 @@ describe('ticket-form webview.html — agent preset picker', () => {
     const html = renderPreset({ agentPreset: null }, ['fast', 'deep'], null, 'fast');
     expect(html).toContain('value="fast"');
     expect(html).toContain('value="deep"');
-    expect(html).toContain('Inherit (settings: fast)');
+    expect(html).toContain('Inherit (active preset)');
   });
 
   it('keeps a saved preset that is no longer defined', () => {
