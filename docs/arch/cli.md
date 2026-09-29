@@ -20,7 +20,7 @@ The invoking agent reads ticket content it did not author, so prompt injection r
 
 ## A bare ticket key is resolved via `--manifest`
 
-The `karst` CLI takes a bare ticket key, so `--manifest` is what tells it which project's key that is (`cli/resolveTicket.ts`); both `context` and `stage` fall back to an unscoped lookup so an unadopted ticket still resolves. A purely numeric argument is tried as a `tickets.id` LAST — after both key lookups miss — because agent sessions are handed `KARST_TICKET_ID` (an id) while every verb takes a key; a ticket whose KEY is that number always wins, and the failure reads `no ticket found for key or id`.
+The `karst` CLI takes a bare ticket key, so `--manifest` is what tells it which project's key that is (`cli/resolveTicket.ts`); both `context` and `stage` fall back to an unscoped lookup so an unadopted ticket still resolves. A key held by more than one row (a reused/re-created key, or an unadopted row plus a scoped one) resolves to the NON-ARCHIVED row — an archived namesake is the stale ticket, and picking it silently hid the live one (NDL-95). If two LIVE tickets still collide, the key is genuinely ambiguous and resolution refuses with an explicit `ambiguous ticket key` error naming the candidate ids rather than silently picking the older row; a single-match fallback still resolves an unadopted ticket. A purely numeric argument is tried as a `tickets.id` LAST — after both key lookups miss — because agent sessions are handed `KARST_TICKET_ID` (an id) while every verb takes a key; a ticket whose KEY is that number always wins, and the failure reads `no ticket found for key or id`.
 
 ## `stats` is a read the build proves is a read
 
