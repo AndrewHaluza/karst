@@ -63,15 +63,26 @@ import type { Store } from '../../../store/db.js';
 import { clearStageBlock, stageBlock } from '../../../store/stageBlocks.js';
 import { getTicket } from '../../../store/tickets.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import { clearGraphRunBlocked } from '../../../store/graph/graphRuns.js';
 import {
+  clearGraphRunBlocked,
+  graphRunIdStatusBlockedReason,
+  type GraphRunRow,
+} from '../../../store/graph/graphRuns.js';
+import {
+  firstNodeRunIdInStatuses,
   nodeOverrideFor,
+  nodeRunsInStatusesForGraphRun,
   setNodeRunPromptHash,
   transitionNodeRun,
+  type NodeRunRow,
 } from '../../../store/graph/nodeRuns.js';
 import { clearLaunchIdentity, incrementLaunchAttempt } from './claim.js';
 import { sha256Hex } from './plannerRun.js';
-import { createPlannerRun, setPlannerRunPromptHashArtifact } from '../../../store/graph/plannerRuns.js';
+import {
+  createPlannerRun,
+  nextPlannerRunNumber,
+  setPlannerRunPromptHashArtifact,
+} from '../../../store/graph/plannerRuns.js';
 import {
   beginReplanPlannerRun,
   electReplan,
@@ -183,19 +194,9 @@ export interface BootstrapRelaunchRequest {
   ticketContext: string;
 }
 
-interface BlockedRunRow {
-  id: number;
-  status: string;
-  blocked_reason: string | null;
-}
+type BlockedRunRow = Pick<GraphRunRow, 'id' | 'status' | 'blocked_reason'>;
 
-interface BlockedNodeRow {
-  id: number;
-  revision_id: number;
-  node_id: string;
-  node_kind: string;
-  status: string;
-}
+type BlockedNodeRow = Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id' | 'node_kind' | 'status'>;
 
 /**
  * The total function over the closed category set: every `blocked_reason`
@@ -238,16 +239,15 @@ export function recoveryCategoryFor(reason: string | null): RecoveryCategory {
   return 'explicit-resolution';
 }
 
+const RECOVERY_ATTENTION_STATUSES: readonly string[] = [
+  'blocked',
+  'failed-to-launch',
+  'stale',
+  ...ARTIFACT_FAULT_STATUSES,
+];
+
 function blockedNodeRows(db: RecoveryDeps['store']['db'], graphRunId: number): BlockedNodeRow[] {
-  return db
-    .prepare(
-      `SELECT id, revision_id, node_id, node_kind, status FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN ('blocked','failed-to-launch','stale',${ARTIFACT_FAULT_STATUSES.map(
-         (s) => `'${s}'`,
-       ).join(',')})
-       ORDER BY id`,
-    )
-    .all(graphRunId) as BlockedNodeRow[];
+  return nodeRunsInStatusesForGraphRun(db, graphRunId, RECOVERY_ATTENTION_STATUSES);
 }
 
 /** Whether a node is covered by the explicit prompt Resume: its own `prompt`
@@ -421,15 +421,11 @@ function replanRecovery(
   });
   if (!claimed) return { kind: 'no-op' };
 
-  const firstBlocked = db
-    .prepare(
-      `SELECT id FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN ('blocked','failed-to-launch','stale',${ARTIFACT_FAULT_STATUSES.map(
-         (s) => `'${s}'`,
-       ).join(',')})
-       ORDER BY id LIMIT 1`,
-    )
-    .get(input.graphRunId) as { id: number } | undefined;
+  const firstBlocked = firstNodeRunIdInStatuses(
+    db,
+    input.graphRunId,
+    RECOVERY_ATTENTION_STATUSES,
+  );
 
   const replanDeps: ReplanDeps = {
     db,
@@ -439,7 +435,7 @@ function replanRecovery(
   };
   const elected = electReplan(replanDeps, {
     graphRunId: input.graphRunId,
-    requestNodeRunId: firstBlocked?.id,
+    requestNodeRunId: firstBlocked,
   });
   if (!elected.elected) {
     if (elected.reason === 'max-replans-exhausted') {
@@ -586,12 +582,7 @@ function plannerRelaunchRecovery(
       return false; // a racing window already re-opened or cancelled the run
     }
     clearGraphRunBlocked(db, input.graphRunId, deps.now());
-    const next = db
-      .prepare(
-        'SELECT COALESCE(MAX(planner_run_number), 0) + 1 AS next FROM approach_planner_runs WHERE graph_run_id = ?',
-      )
-      .get(input.graphRunId) as { next: number };
-    plannerRunNumber = next.next;
+    plannerRunNumber = nextPlannerRunNumber(db, input.graphRunId);
     plannerRunId = createPlannerRun(db, {
       graphRunId: input.graphRunId,
       plannerRunNumber,
@@ -652,9 +643,7 @@ export function recoverGraphRun(
     return { kind: 'no-op' };
   }
 
-  const run = store.db
-    .prepare('SELECT id, status, blocked_reason FROM approach_graph_runs WHERE id = ?')
-    .get(input.graphRunId) as BlockedRunRow | undefined;
+  const run = graphRunIdStatusBlockedReason(store.db, input.graphRunId);
   if (!run || run.status !== 'blocked') {
     deps.debug?.(
       `[graph] recovery: run ${input.graphRunId} no-op — ${run ? `status is ${run.status}, not blocked` : 'run not found'}`,

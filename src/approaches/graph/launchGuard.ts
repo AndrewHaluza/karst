@@ -32,6 +32,10 @@
  */
 
 import type { GraphDb } from '../../store/graph/transitions.js';
+import {
+  graphRunIdStatusForTicketStageAttempt,
+  latestNonTerminalGraphRunForTicket,
+} from '../../store/graph/graphRuns.js';
 
 /** Statuses whose run will never mutate again — nothing owns continuation. */
 const TERMINAL_RUN_STATUSES = ['closed', 'cancelled', 'stale'] as const;
@@ -57,23 +61,13 @@ export function graphLaunchDecision(
   debug?: (message: string) => void,
 ): GraphLaunchDecision {
   debug?.(`[graph] launch guard: ticket ${ticketId} at impl attempt ${currentAttempt}`);
-  const live = db
-    .prepare(
-      `SELECT id, status FROM approach_graph_runs
-       WHERE ticket_id = ? AND status NOT IN (${TERMINAL_RUN_STATUSES.map(() => '?').join(',')})
-       ORDER BY id DESC LIMIT 1`,
-    )
-    .get(ticketId, ...TERMINAL_RUN_STATUSES) as { id: number; status: string } | undefined;
+  const live = latestNonTerminalGraphRunForTicket(db, ticketId, TERMINAL_RUN_STATUSES);
   if (live) {
     debug?.(`[graph] launch guard: run ${live.id} is live (${live.status}) — the coordinator owns it`);
     return { kind: 'owned', graphRunId: live.id, status: live.status };
   }
 
-  const consumed = db
-    .prepare(
-      'SELECT id, status FROM approach_graph_runs WHERE ticket_id = ? AND stage_attempt = ? LIMIT 1',
-    )
-    .get(ticketId, currentAttempt) as { id: number; status: string } | undefined;
+  const consumed = graphRunIdStatusForTicketStageAttempt(db, ticketId, currentAttempt);
   if (consumed) {
     debug?.(
       `[graph] launch guard: run ${consumed.id} (${consumed.status}) already consumed attempt ${currentAttempt}`,

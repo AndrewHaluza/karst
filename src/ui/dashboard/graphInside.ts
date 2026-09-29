@@ -19,9 +19,13 @@ import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
-import { NODE_OVERRIDE_KINDS } from '../../store/graph/nodeRuns.js';
-import { graphRunOrdinal as runOrdinal } from '../../store/graph/graphRuns.js';
+import { NODE_OVERRIDE_KINDS, nodeRunGraphRunId, nodeRunsForGraphRunDisplay } from '../../store/graph/nodeRuns.js';
+import {
+  graphRunOrdinal as runOrdinal,
+  latestGraphRunForTicket,
+} from '../../store/graph/graphRuns.js';
 import type { GraphRunRow as FullGraphRunRow } from '../../store/graph/graphRuns.js';
+import { plannerRunGraphRunId, plannerRunsForGraphRun } from '../../store/graph/plannerRuns.js';
 
 export interface GraphInsideDeps {
   store: Store;
@@ -42,12 +46,7 @@ export function latestGraphRunFor(
   store: Store,
   ticketId: number,
 ): GraphRunRow | undefined {
-  return store.db
-    .prepare(
-      `SELECT id, stage_attempt, approach_id, status, created_at
-         FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1`,
-    )
-    .get(ticketId) as GraphRunRow | undefined;
+  return latestGraphRunForTicket(store.db, ticketId);
 }
 
 /** The 1-based ordinal of `runId` among the ticket's OWN graph runs — the
@@ -67,14 +66,9 @@ function sessionKindFor(
   graphRunId: number,
   runId: number,
 ): 'node' | 'planner' | null {
-  const node = store.db
-    .prepare('SELECT 1 AS x FROM approach_node_runs WHERE id = ? AND graph_run_id = ?')
-    .get(runId, graphRunId);
-  if (node) return 'node';
-  const planner = store.db
-    .prepare('SELECT 1 AS x FROM approach_planner_runs WHERE id = ? AND graph_run_id = ?')
-    .get(runId, graphRunId);
-  return planner ? 'planner' : null;
+  if (nodeRunGraphRunId(store.db, runId) === graphRunId) return 'node';
+  if (plannerRunGraphRunId(store.db, runId) === graphRunId) return 'planner';
+  return null;
 }
 
 export function buildGraphInsideInput(
@@ -84,46 +78,8 @@ export function buildGraphInsideInput(
   const run = latestGraphRunFor(deps.store, ticketId);
   if (!run) return null;
 
-  const plannerRuns = deps.store.db
-    .prepare(
-      `SELECT planner_run_number, kind, status, compile_attempt, reason,
-              started_at, submitted_at, ended_at
-         FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY planner_run_number`,
-    )
-    .all(run.id) as {
-    planner_run_number: number;
-    kind: 'bootstrap' | 'replan';
-    status: string;
-    compile_attempt: number;
-    reason: string | null;
-    started_at: string | null;
-    submitted_at: string | null;
-    ended_at: string | null;
-  }[];
-
-  const nodeRuns = deps.store.db
-    .prepare(
-      `SELECT id, node_id, node_kind, revision_id, visit_number, status, outcome, reason,
-              provider, model, effort, profile, launch_attempt, started_at, ended_at
-         FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
-    )
-    .all(run.id) as {
-    id: number;
-    node_id: string;
-    node_kind: string;
-    revision_id: number;
-    visit_number: number;
-    status: string;
-    outcome: string | null;
-    reason: string | null;
-    provider: string | null;
-    model: string | null;
-    effort: string | null;
-    profile: string | null;
-    launch_attempt: number;
-    started_at: string | null;
-    ended_at: string | null;
-  }[];
+  const plannerRuns = plannerRunsForGraphRun(deps.store.db, run.id);
+  const nodeRuns = nodeRunsForGraphRunDisplay(deps.store.db, run.id);
 
   // Slice 6 Task 4: existing per-node overrides — a READ over the store's
   // claim-gated override table. Grouped by (revision, node); kinds are

@@ -17,6 +17,11 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { graphRunExpertRunCount } from '../../../store/graph/graphRuns.js';
+import {
+  countNodeRunsForRevisionNode,
+  countNodeRunsForRevisionNodeByOutcome,
+} from '../../../store/graph/nodeRuns.js';
 import type { ComparisonOperator, GatePredicate } from '../parse.js';
 
 export type GateVerdict = 'matched' | 'not-matched';
@@ -74,27 +79,10 @@ export function evaluateGate(predicate: GatePredicate, state: GateState): GateVe
  */
 export function gateStateFromStore(db: GraphDb, graphRunId: number, revisionId: number): GateState {
   const visitCount = (nodeId: string): number =>
-    (
-      db
-        .prepare(
-          'SELECT COUNT(*) AS n FROM approach_node_runs WHERE revision_id = ? AND node_id = ?',
-        )
-        .get(revisionId, nodeId) as { n: number }
-    ).n;
+    countNodeRunsForRevisionNode(db, revisionId, nodeId);
   const outcomeCount = (nodeId: string, outcome: string): number =>
-    (
-      db
-        .prepare(
-          'SELECT COUNT(*) AS n FROM approach_node_runs WHERE revision_id = ? AND node_id = ? AND outcome = ?',
-        )
-        .get(revisionId, nodeId, outcome) as { n: number }
-    ).n;
-  const expertRuns = (): number =>
-    (
-      db
-        .prepare('SELECT expert_run_count AS n FROM approach_graph_runs WHERE id = ?')
-        .get(graphRunId) as { n: number }
-    ).n;
+    countNodeRunsForRevisionNodeByOutcome(db, revisionId, nodeId, outcome);
+  const expertRuns = (): number => graphRunExpertRunCount(db, graphRunId);
   const artifactExists = (artifactId: string): boolean =>
     db
       .prepare(

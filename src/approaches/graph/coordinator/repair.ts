@@ -15,7 +15,11 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
-import { setPlannerRunCompileAttempt } from '../../../store/graph/plannerRuns.js';
+import {
+  plannerRunCompileAttempt,
+  plannerRunGraphRunId,
+  setPlannerRunCompileAttempt,
+} from '../../../store/graph/plannerRuns.js';
 import type { CompileDiagnostic, CompiledGraph } from '../compile.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
 
@@ -86,10 +90,7 @@ export function nextCompileAttempt(
   db: GraphDb,
   plannerRunId: number,
 ): CompileAttemptDecision {
-  const row = db
-    .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE id = ?')
-    .get(plannerRunId) as { compile_attempt: number } | undefined;
-  const attempt = (row?.compile_attempt ?? 0) + 1;
+  const attempt = plannerRunCompileAttempt(db, plannerRunId) + 1;
   return { attempt, exhausted: attempt >= MAX_COMPILE_ATTEMPTS };
 }
 
@@ -112,10 +113,7 @@ export function compileWithRepair(
   plannerRunId: number,
   deps: CompileRepairDeps,
 ): CompileRepairResult {
-  const run = deps.db
-    .prepare('SELECT graph_run_id FROM approach_planner_runs WHERE id = ?')
-    .get(plannerRunId) as { graph_run_id: number } | undefined;
-  const graphRunId = run?.graph_run_id;
+  const graphRunId = plannerRunGraphRunId(deps.db, plannerRunId);
   const emit = graphRunId === undefined
     ? (): void => {}
     : (detail: string): void => {

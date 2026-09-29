@@ -8,7 +8,9 @@ import { getUatFindingById } from '../../store/uatFindings.js';
 import { getTicket } from '../../store/tickets.js';
 import { liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
-import { hasLiveReplanPlanner } from '../../store/graph/plannerRuns.js';
+import { nodeRunTicketId } from '../../store/graph/nodeRuns.js';
+import { graphRunStatusForTicket } from '../../store/graph/graphRuns.js';
+import { hasLiveReplanPlanner, plannerRunTicketId } from '../../store/graph/plannerRuns.js';
 import type { StageKey } from '../../model/types.js';
 import type {
   EvidenceRow,
@@ -266,15 +268,11 @@ function graphSessionOwner(
   runId: number,
   ticketId: number,
 ): boolean {
-  const table = kind === 'planner' ? 'approach_planner_runs' : 'approach_node_runs';
-  const row = store.db
-    .prepare(
-      `SELECT gr.ticket_id AS ticketId
-         FROM ${table} r JOIN approach_graph_runs gr ON gr.id = r.graph_run_id
-        WHERE r.id = ?`,
-    )
-    .get(runId) as { ticketId: number } | undefined;
-  return row !== undefined && row.ticketId === ticketId;
+  const ownerTicketId =
+    kind === 'planner'
+      ? plannerRunTicketId(store.db, runId)
+      : nodeRunTicketId(store.db, runId);
+  return ownerTicketId === ticketId;
 }
 
 function owned<T extends { ticketId: number }>(
@@ -458,12 +456,8 @@ export function dispatchInsideAction(
     case 'graph-stop': {
       // Bind Stop to the run that minted its opaque capability. Selecting the
       // latest ticket run here would let a stale panel stop a newer run.
-      const row = store.db
-        .prepare(
-          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
-        )
-        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
-      if (row === undefined || !GRAPH_STOPPABLE_STATUSES.includes(row.status)) {
+      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
+      if (status === undefined || !GRAPH_STOPPABLE_STATUSES.includes(status)) {
         return { outcome: 'rejected', reason: 'graph run is not stoppable' };
       }
       void deps.host.graphStop(target.ticketId, target.graphRunId);
@@ -474,10 +468,8 @@ export function dispatchInsideAction(
       // run with no replan planner still owing it a submission. A run
       // draining FOR a replan is mid-replan and the coordinator owns its
       // exit; restarting it would race the submission it is waiting for.
-      const row = store.db
-        .prepare('SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?')
-        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
-      if (row?.status !== 'draining' || hasLiveReplanPlanner(store.db, target.graphRunId)) {
+      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
+      if (status !== 'draining' || hasLiveReplanPlanner(store.db, target.graphRunId)) {
         return { outcome: 'rejected', reason: 'graph is not a stopped drain' };
       }
       void deps.host.graphRestart(target.ticketId, target.graphRunId);
@@ -485,12 +477,8 @@ export function dispatchInsideAction(
     }
     case 'graph-resume':
     case 'graph-replan': {
-      const row = store.db
-        .prepare(
-          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
-        )
-        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
-      if (row?.status !== 'blocked') {
+      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
+      if (status !== 'blocked') {
         return { outcome: 'rejected', reason: 'graph is not blocked' };
       }
       if (target.kind === 'graph-resume') {
@@ -501,12 +489,8 @@ export function dispatchInsideAction(
       return { outcome: 'dispatched' };
     }
     case 'graph-confirm': {
-      const row = store.db
-        .prepare(
-          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
-        )
-        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
-      if (row?.status !== 'awaiting-confirmation') {
+      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
+      if (status !== 'awaiting-confirmation') {
         return { outcome: 'rejected', reason: 'graph is not awaiting confirmation' };
       }
       void deps.host.graphConfirm(target.ticketId, target.graphRunId);
@@ -518,12 +502,8 @@ export function dispatchInsideAction(
       // run. The real refusal authority is graphImplMarkerGuard's own
       // in-transaction re-check; this dispatch-time read only avoids opening
       // a session/toast for an id that is plainly stale.
-      const row = store.db
-        .prepare(
-          'SELECT status FROM approach_graph_runs WHERE id = ? AND ticket_id = ?',
-        )
-        .get(target.graphRunId, target.ticketId) as { status: string } | undefined;
-      if (row?.status !== 'completed-awaiting-impl-marker') {
+      const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
+      if (status !== 'completed-awaiting-impl-marker') {
         return { outcome: 'rejected', reason: 'graph is not awaiting the implementation marker' };
       }
       void deps.host.graphMarkImpl(target.ticketId, target.graphRunId);

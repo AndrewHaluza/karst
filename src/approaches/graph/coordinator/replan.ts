@@ -62,6 +62,7 @@ import {
 } from '../../../store/graph/transitions.js';
 import { activeRevision, createRevision } from '../../../store/graph/revisions.js';
 import {
+  plannerRunSubmissionRef,
   setPlannerRunEndedAt,
   setPlannerRunGraphSnapshot,
   setPlannerRunPromptHashArtifact,
@@ -69,8 +70,19 @@ import {
   setPlannerRunSubmittedSnapshot,
   transitionPlannerRun,
 } from '../../../store/graph/plannerRuns.js';
-import { incrementReplanCount, markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
-import { setNodeRunBudgetBlock } from '../../../store/graph/nodeRuns.js';
+import {
+  graphRunStatus,
+  graphRunStatusReplanCount,
+  incrementReplanCount,
+  markGraphRunBlocked,
+} from '../../../store/graph/graphRuns.js';
+import {
+  countNodeRunsInStatusesForGraphRun,
+  nodeRunChangeSetIdsForGraphRun,
+  nodeRunFailuresForGraphRun,
+  replanNodeRunReasons,
+  setNodeRunBudgetBlock,
+} from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken, insertEntryTokens } from '../../../store/graph/tokens.js';
 import { nextPlannerIdentity, sha256Hex } from './plannerRun.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
@@ -119,9 +131,7 @@ export interface ElectReplanInput {
 export function electReplan(deps: ReplanDeps, input: ElectReplanInput): ElectReplanResult {
   return deps.transaction(() => {
     const db = deps.db;
-    const run = db
-      .prepare('SELECT status, replan_count FROM approach_graph_runs WHERE id = ?')
-      .get(input.graphRunId) as { status: string; replan_count: number } | undefined;
+    const run = graphRunStatusReplanCount(db, input.graphRunId);
     if (!run) {
       deps.debug?.(`[graph] replan election: run ${input.graphRunId} is gone — no-op`);
       return { elected: false, reason: 'not-running' };
@@ -240,13 +250,9 @@ export type BeginReplanResult =
  *  `ACTIVE_NODE_STATUSES`, so its never-releasing lease keeps the drain
  *  waiting — the discard action (Task 4) is the named exit. */
 function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | null {
-  const active = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN (${ACTIVE_NODE_STATUSES.map(() => '?').join(',')})`,
-    )
-    .all(graphRunId, ...ACTIVE_NODE_STATUSES) as { n: number }[];
-  if ((active[0]?.n ?? 0) > 0) return 'active-node-runs';
+  if (countNodeRunsInStatusesForGraphRun(db, graphRunId, ACTIVE_NODE_STATUSES) > 0) {
+    return 'active-node-runs';
+  }
   const leases = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_resource_leases
@@ -272,12 +278,10 @@ export function beginReplanPlannerRun(
 ): BeginReplanResult {
   return deps.transaction(() => {
     const db = deps.db;
-    const run = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(input.graphRunId) as { status: string } | undefined;
-    if (!run || run.status !== 'draining') {
+    const runStatus = graphRunStatus(db, input.graphRunId);
+    if (runStatus !== 'draining') {
       deps.debug?.(
-        `[graph] replan begin: run ${input.graphRunId} is ${run?.status ?? 'gone'} — no-op`,
+        `[graph] replan begin: run ${input.graphRunId} is ${runStatus ?? 'gone'} — no-op`,
       );
       return { ok: false, reason: 'not-draining' };
     }
@@ -342,13 +346,7 @@ export function beginReplanPlannerRun(
     // reasons travel as a content-addressed FILE ARTIFACT — never argv, never
     // a shell token — and the planner prompt frames them as untrusted
     // agent-reported text.
-    const reasonRows = db
-      .prepare(
-        `SELECT node_id, reason FROM approach_node_runs
-         WHERE graph_run_id = ? AND outcome = 'replan'
-         ORDER BY id`,
-      )
-      .all(input.graphRunId) as { node_id: string; reason: string | null }[];
+    const reasonRows = replanNodeRunReasons(db, input.graphRunId);
     const reasonsDoc = {
       elected: reasonRows.slice(0, 1).map((r) => ({ node: r.node_id, reason: r.reason })),
       secondary: reasonRows
@@ -367,23 +365,8 @@ export function beginReplanPlannerRun(
          WHERE graph_run_id = ? ORDER BY id LIMIT ${MAX_ARTIFACT_ROWS}`,
       )
       .all(input.graphRunId) as { artifact_id: string; snapshot_path: string }[];
-    const failures = db
-      .prepare(
-        `SELECT node_id, failure_category, reason FROM approach_node_runs
-         WHERE graph_run_id = ?
-           AND (failure_category IS NOT NULL
-                OR outcome IN ('failed','not-matched','infrastructure-error',
-                               'resource-claim-violated','integration-conflict'))
-         ORDER BY id LIMIT ${MAX_FAILURE_ROWS}`,
-      )
-      .all(input.graphRunId) as { node_id: string; failure_category: string | null; reason: string | null }[];
-    const diffs = db
-      .prepare(
-        `SELECT change_set_id FROM approach_node_runs
-         WHERE graph_run_id = ? AND change_set_id IS NOT NULL
-         ORDER BY id LIMIT ${MAX_DIFF_ROWS}`,
-      )
-      .all(input.graphRunId) as { change_set_id: string }[];
+    const failures = nodeRunFailuresForGraphRun(db, input.graphRunId, MAX_FAILURE_ROWS);
+    const diffs = nodeRunChangeSetIdsForGraphRun(db, input.graphRunId, MAX_DIFF_ROWS);
     const resourceConflicts = db
       .prepare(
         `SELECT owner_node_run_id, physical_domain FROM approach_resource_leases
@@ -413,7 +396,7 @@ export function beginReplanPlannerRun(
         category: f.failure_category,
         reason: f.reason,
       })),
-      diffs: diffs.map((d) => d.change_set_id),
+      diffs,
       resourceConflicts: resourceConflicts.map((c) => ({
         physicalDomain: c.physical_domain,
         ownerNodeId: String(c.owner_node_run_id),
@@ -492,21 +475,15 @@ export function submitReplanDocument(
 ): SubmitReplanResult {
   return deps.transaction(() => {
     const db = deps.db;
-    const planner = db
-      .prepare('SELECT graph_run_id, status, graph_snapshot_id FROM approach_planner_runs WHERE id = ?')
-      .get(input.plannerRunId) as
-      | { graph_run_id: number; status: string; graph_snapshot_id: string | null }
-      | undefined;
+    const planner = plannerRunSubmissionRef(db, input.plannerRunId);
     if (!planner) return { ok: false, reason: 'not-found' };
     const graphRunId = planner.graph_run_id;
-    const run = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { status: string } | undefined;
+    const runStatus = graphRunStatus(db, graphRunId);
 
     // A submission whose revision is no longer draining is LATE: a concurrent
     // replan won election and landed N+1 while this planner ran. Mark the
     // late run `stale`, discard its snapshot unpersisted, create nothing.
-    if (!run || run.status !== 'draining') {
+    if (runStatus !== 'draining') {
       const from =
         planner.status === 'running'
           ? 'running'
@@ -520,7 +497,7 @@ export function submitReplanDocument(
         setPlannerRunEndedAt(db, input.plannerRunId, deps.now());
       }
       deps.debug?.(
-        `[graph] replan submit: planner run ${input.plannerRunId} is late (run ${graphRunId} is ${run?.status ?? 'gone'}) — marked stale, no revision`,
+        `[graph] replan submit: planner run ${input.plannerRunId} is late (run ${graphRunId} is ${runStatus ?? 'gone'}) — marked stale, no revision`,
       );
       return { ok: false, reason: 'not-draining' };
     }

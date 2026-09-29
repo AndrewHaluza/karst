@@ -20,7 +20,8 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../../store/graph/transitions.js';
-import { markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
+import { graphRunNodeRunCount, graphRunStatus, markGraphRunBlocked } from '../../../store/graph/graphRuns.js';
+import { latestNodeRunIdForRevisionNode, nextVisitNumber } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken, insertGraphToken, type GraphTokenRow } from '../../../store/graph/tokens.js';
 import { parseGraphDocument } from '../parse.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -46,12 +47,7 @@ export const BUDGET_FAILURE_OUTCOME: Readonly<Record<string, string | null>> = {
 
 /** The next visit number a node would allocate: MAX(visit_number) + 1. */
 export function nextVisitFor(db: GraphDb, revisionId: number, nodeId: string): number {
-  const row = db
-    .prepare(
-      'SELECT COALESCE(MAX(visit_number), 0) + 1 AS next FROM approach_node_runs WHERE revision_id = ? AND node_id = ?',
-    )
-    .get(revisionId, nodeId) as { next: number };
-  return row.next;
+  return nextVisitNumber(db, revisionId, nodeId);
 }
 
 /**
@@ -91,10 +87,7 @@ export function budgetRefusalFor(
 ): BudgetRefusal | null {
   const facts = budgetFactsFor(db, revisionId, nodeId);
   if (!facts) return null;
-  const counters = db
-    .prepare('SELECT node_run_count FROM approach_graph_runs WHERE id = ?')
-    .get(graphRunId) as { node_run_count: number } | undefined;
-  if (counters && counters.node_run_count >= facts.maxNodeRuns) {
+  if (graphRunNodeRunCount(db, graphRunId) >= facts.maxNodeRuns) {
     return { reason: 'max-node-runs', limit: facts.maxNodeRuns };
   }
   const nextVisit = nextVisitFor(db, revisionId, nodeId);
@@ -129,12 +122,7 @@ export type BudgetRefusalOutcome =
 /** The most recent node run of the node, for anchoring a routed successor
  *  whose arrival was an entry token (no source run). */
 function mostRecentNodeRunId(db: GraphDb, revisionId: number, nodeId: string): number | null {
-  const row = db
-    .prepare(
-      'SELECT id FROM approach_node_runs WHERE revision_id = ? AND node_id = ? ORDER BY id DESC LIMIT 1',
-    )
-    .get(revisionId, nodeId) as { id: number } | undefined;
-  return row?.id ?? null;
+  return latestNodeRunIdForRevisionNode(db, revisionId, nodeId) ?? null;
 }
 
 /**
@@ -151,10 +139,7 @@ export function handleBudgetRefusal(
 ): BudgetRefusalOutcome {
   return deps.transaction(() => {
     const db = deps.db;
-    const run = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(input.graphRunId) as { status: string } | undefined;
-    if (!run || run.status !== 'running') return { kind: 'no-op' };
+    if (graphRunStatus(db, input.graphRunId) !== 'running') return { kind: 'no-op' };
 
     const revision = db
       .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')

@@ -233,7 +233,23 @@ import type { BootstrapRelaunchRequest } from './approaches/graph/coordinator/re
 import { type ActivationDomain } from './approaches/graph/coordinator/leases.js';
 import { activationDomainKeys, type AllowlistCommandAccess } from './approaches/graph/coordinator/conflicts.js';
 import { parseGraphDocument } from './approaches/graph/parse.js';
-import { nodeOverrideFor, type BaseHead } from './store/graph/nodeRuns.js';
+import {
+  earliestNodeRunOutcomeForGraphRun,
+  nodeOverrideFor,
+  nodeRunGraphRunId,
+  nodeRunIdsInStatusesForGraphRun,
+  nodeRunModelIdentity,
+  nodeRunTicketId,
+  setNodeRunProcessRunId,
+  type BaseHead,
+} from './store/graph/nodeRuns.js';
+import {
+  plannerRunIdsForGraphRun,
+  plannerRunModelIdentity,
+  plannerRunStatus,
+  plannerRunTicketId,
+  setPlannerRunProcessRunId,
+} from './store/graph/plannerRuns.js';
 import { cleanupTerminalNodeWorkspace } from './approaches/graph/workspace/cleanup.js';
 import {
   blockGraphStage,
@@ -276,7 +292,14 @@ import {
 } from './approaches/graph/integration/domains.js';
 import { canonicalRepoId } from './runtime/repoId.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, type GraphDb } from './store/graph/transitions.js';
-import { markGraphRunBlocked } from './store/graph/graphRuns.js';
+import {
+  graphRunApproachId as storeGraphRunApproachId,
+  graphRunIdTicketStatus,
+  graphRunStatus,
+  graphRunTicketId as storeGraphRunTicketId,
+  graphRunTicketStageAttempt,
+  markGraphRunBlocked,
+} from './store/graph/graphRuns.js';
 import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
@@ -3469,12 +3492,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // pre-claim admission and each claim's atomic slot reservation both
           // enforce the external-process ceiling against it.
           maxParallelOf: (graphRunId) => {
-            const run = gs.db
-              .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
-              .get(graphRunId) as { approach_id: string } | undefined;
-            if (!run) return undefined;
+            const approachId = storeGraphRunApproachId(gs.db, graphRunId);
+            if (approachId === undefined) return undefined;
             const graph = (currentManifest() ?? emptyManifest()).approaches?.find(
-              (a) => a.id === run.approach_id,
+              (a) => a.id === approachId,
             )?.graph;
             return graph?.limits?.maxParallel ?? DEFAULT_GRAPH_LIMITS.maxParallel;
           },
@@ -3510,23 +3531,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return;
-    const completing = gs.db
-      .prepare(
-        `SELECT id FROM approach_node_runs
-         WHERE graph_run_id = ? AND status = 'completing'
-         ORDER BY id`,
-      )
-      .all(graphRunId) as { id: number }[];
-    for (const row of completing) {
+    const completing = nodeRunIdsInStatusesForGraphRun(gs.db, graphRunId, ['completing']);
+    for (const nodeRunId of completing) {
       try {
         const deps = graphCompletionPipelineDeps(graphRunId);
         if (!deps) return;
-        await runCompletionPipeline(deps, { graphRunId, nodeRunId: row.id });
+        await runCompletionPipeline(deps, { graphRunId, nodeRunId });
       } catch (err) {
         // A failed pipeline never retries itself; the next tick re-drives the
         // node, which is still `completing` unless a transition already moved
         // it. The pipeline is single-flighted per node by that CAS.
-        logError(`karst: completion pipeline failed for graph node ${row.id}`, err);
+        logError(`karst: completion pipeline failed for graph node ${nodeRunId}`, err);
       }
     }
     settleGraphRun(gs.db, graphRunId);
@@ -3536,21 +3551,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    *  run flips to `completed-awaiting-impl-marker`. A blocked run then gets
    *  its `approach-graph-failed` stage block, once, via the boundary module. */
   const settleGraphRun = (db: ReturnType<typeof openStore>['db'], graphRunId: number): void => {
-    const run = db
-      .prepare('SELECT id, status, ticket_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { id: number; status: string; ticket_id: number } | undefined;
+    const run = graphRunIdTicketStatus(db, graphRunId);
     if (!run) return;
     if (run.status === 'running') {
       // A node reported `blocked` while the run kept running: the graph must
       // not dangle at impl. The earliest blocked node (durable order = id)
       // names the reason; the graph run blocks with it.
-      const blockedNode = db
-        .prepare(
-          `SELECT id, reason, outcome FROM approach_node_runs
-           WHERE graph_run_id = ? AND status = 'blocked'
-           ORDER BY id LIMIT 1`,
-        )
-        .get(graphRunId) as { id: number; reason: string | null; outcome: string | null } | undefined;
+      const blockedNode = earliestNodeRunOutcomeForGraphRun(db, graphRunId, ['blocked']);
       if (blockedNode) {
         // Slice 4 Task 5: a node reporting `replan` is an election trigger,
         // never a `node-blocked` block. `electReplan` decides it all — the
@@ -3624,17 +3631,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     const tr = graphTransport;
     if (!gs || !tr) return undefined;
-    const node = gs.db
-      .prepare('SELECT gr.ticket_id FROM approach_node_runs nr JOIN approach_graph_runs gr ON gr.id = nr.graph_run_id WHERE nr.id = ?')
-      .get(runId) as { ticket_id: number } | undefined;
-    if (node) return tr.sessionFor(node.ticket_id, runId);
+    const nodeTicketId = nodeRunTicketId(gs.db, runId);
+    if (nodeTicketId !== undefined) return tr.sessionFor(nodeTicketId, runId);
     // A bootstrap planner run lives in `approach_planner_runs`, not the node
     // table — the reconcile planning branch resolves planner ids too.
-    const planner = gs.db
-      .prepare('SELECT ticket_id FROM approach_graph_runs gr JOIN approach_planner_runs p ON p.graph_run_id = gr.id WHERE p.id = ?')
-      .get(runId) as { ticket_id: number } | undefined;
-    if (!planner) return undefined;
-    return tr.sessionFor(planner.ticket_id, runId);
+    const plannerTicketId = plannerRunTicketId(gs.db, runId);
+    if (plannerTicketId === undefined) return undefined;
+    return tr.sessionFor(plannerTicketId, runId);
   };
 
   /**
@@ -3689,11 +3692,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     const proj = currentProject();
     if (!gs || !proj) return '';
-    const run = gs.db
-      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { ticket_id: number } | undefined;
-    if (!run) return '';
-    return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, run.ticket_id, graphRunId);
+    const ticketId = storeGraphRunTicketId(gs.db, graphRunId);
+    if (ticketId === undefined) return '';
+    return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, ticketId, graphRunId);
   };
 
   /** The graph recovery deps (Slice-4 T6): the atomic claim wrapper plus the
@@ -3768,12 +3769,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const graphDomainsFor = (graphRunId: number): DomainEntry[] => {
     const gs = graphCoordinatorStore;
     if (!gs) return [];
-    const run = gs.db
-      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { ticket_id: number } | undefined;
-    if (!run) return [];
+    const ticketId = storeGraphRunTicketId(gs.db, graphRunId);
+    if (ticketId === undefined) return [];
     const manifest = currentManifest() ?? emptyManifest();
-    const worktrees = listWorktreesByTicket(localStore, run.ticket_id);
+    const worktrees = listWorktreesByTicket(localStore, ticketId);
     // `worktrees.repo` stores the repo PATH, never the manifest name, so the
     // manifest names resolve through their own repoPath (a monorepo's two
     // entries sharing a repoPath resolve to the one worktree — the designed
@@ -3791,10 +3790,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const readBaseHeads = async (graphRunId: number): Promise<BaseHead[]> => {
     const gs = graphCoordinatorStore;
     if (!gs) return [];
-    const run = gs.db
-      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { ticket_id: number } | undefined;
-    if (!run) return [];
+    if (storeGraphRunTicketId(gs.db, graphRunId) === undefined) return [];
     const heads: BaseHead[] = [];
     for (const domain of resolvePhysicalDomains(graphDomainsFor(graphRunId), gitCommonDirFromFs)) {
       const r = await defaultGitRunner(['rev-parse', 'HEAD'], domain.canonicalWorktree);
@@ -3839,11 +3835,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const worktreePath = worktreeByRepo.get(repoName);
       return worktreePath ? domainKeyOf(canonicalPath(worktreePath), gitCommonDirFromFs(worktreePath)) : null;
     };
-    const run = gs.db
-      .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
-      .get(input.graphRunId) as { approach_id: string } | undefined;
+    const approachId = storeGraphRunApproachId(gs.db, input.graphRunId);
     const graphConfig = (currentManifest() ?? emptyManifest()).approaches?.find(
-      (a) => a.id === run?.approach_id,
+      (a) => a.id === approachId,
     )?.graph;
     const commands: AllowlistCommandAccess = new Map(
       Object.entries(graphConfig?.commands ?? {}).map(([id, def]) => [id, def.access]),
@@ -3869,14 +3863,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const declaredGraphWrites = (nodeRunId: number) => {
     const gs = graphCoordinatorStore;
     if (!gs) return [];
-    const run = gs.db
-      .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
-      .get(nodeRunId) as { graph_run_id: number } | undefined;
-    if (!run) return [];
+    const graphRunId = nodeRunGraphRunId(gs.db, nodeRunId);
+    if (graphRunId === undefined) return [];
     return declaredWritesFor(
       gs.db,
       nodeRunId,
-      graphDomainsFor(run.graph_run_id).map((entry) => ({
+      graphDomainsFor(graphRunId).map((entry) => ({
         repoName: entry.repoName,
         // The worktree IS the repository root in V1 (one worktree per
         // repoPath); the manifest's nested paths are not re-rooted here.
@@ -3950,22 +3942,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         const gs = graphCoordinatorStore;
         if (!gs) return undefined;
-        const run = gs.db
-          .prepare('SELECT ticket_id, stage_attempt FROM approach_graph_runs WHERE id = ?')
-          .get(request.graphRunId) as
-          | { ticket_id: number; stage_attempt: number }
-          | undefined;
+        const run = graphRunTicketStageAttempt(gs.db, request.graphRunId);
         if (!run) return undefined;
-        const node = gs.db
-          .prepare('SELECT id, profile, provider, model FROM approach_node_runs WHERE id = ?')
-          .get(request.nodeRunId) as
-          | { id: number; profile: string | null; provider: string | null; model: string | null }
-          | undefined;
-        const planner = gs.db
-          .prepare('SELECT id, profile, provider, model FROM approach_planner_runs WHERE id = ?')
-          .get(request.nodeRunId) as
-          | { id: number; profile: string | null; provider: string | null; model: string | null }
-          | undefined;
+        const node = nodeRunModelIdentity(gs.db, request.nodeRunId);
+        const planner = node === undefined ? plannerRunModelIdentity(gs.db, request.nodeRunId) : undefined;
         if (node === undefined && planner === undefined) return undefined;
         const identity = node ?? planner!;
         const processRun = openProcessRun(graphCoordinatorStore!, {
@@ -3979,10 +3959,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           pid,
           startedAt: new Date().toISOString(),
         });
-        const link = node !== undefined ? 'approach_node_runs' : 'approach_planner_runs';
-        gs.db
-          .prepare(`UPDATE ${link} SET process_run_id = ? WHERE id = ?`)
-          .run(processRun.id, request.nodeRunId);
+        if (node !== undefined) {
+          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
+        } else {
+          setPlannerRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
+        }
         return processRun.id;
       } catch (err) {
         logError('karst: opening the graph launch process_runs row failed', err);
@@ -4028,14 +4009,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       .approaches?.find((a) => a.id === approachId)?.graph;
 
   const graphRunTicketId = (graphRunId: number): number =>
-    (graphCoordinatorStore?.db
-      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { ticket_id: number } | undefined)?.ticket_id ?? 0;
+    (graphCoordinatorStore
+      ? storeGraphRunTicketId(graphCoordinatorStore.db, graphRunId)
+      : undefined) ?? 0;
 
   const graphRunApproachId = (graphRunId: number): string =>
-    (graphCoordinatorStore?.db
-      .prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { approach_id: string } | undefined)?.approach_id ?? '';
+    (graphCoordinatorStore
+      ? storeGraphRunApproachId(graphCoordinatorStore.db, graphRunId)
+      : undefined) ?? '';
 
   /** Immutable identity captured by one planner terminal's close fallback. */
   type GraphLaunchIdentity = {
@@ -4330,10 +4311,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const gs = graphCoordinatorStore;
     if (!gs) return;
     try {
-      const run = gs.db
-        .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-        .get(graphRunId) as { status: string } | undefined;
-      if (!run) return;
+      const status = graphRunStatus(gs.db, graphRunId);
+      if (status === undefined) return;
       // Pause gates the CONTINUATION, not the reconcile that precedes it:
       // reconcile only probes liveness and keeps the run's recorded state
       // honest (it spends no tokens), while continuation is what launches
@@ -4344,7 +4323,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         logger.debug(`[graph] run ${graphRunId}: continuation skipped — ticket is paused`);
         return;
       }
-      if (run.status === 'planning') {
+      if (status === 'planning') {
         const accepted = acceptSubmittedPlan(graphDriverDeps(), graphRunId);
         if (accepted.kind === 'undecidable') {
           // Nothing destructive: the run stays `planning` and the next tick
@@ -4372,10 +4351,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (accepted.kind === 'accepted' || accepted.kind === 'rejected') {
           provider.refresh();
           dashboard.pushState(graphRunTicketId(graphRunId));
-          const after = gs.db
-            .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-            .get(graphRunId) as { status: string };
-          if (after.status === 'awaiting-confirmation') {
+          const afterStatus = graphRunStatus(gs.db, graphRunId);
+          if (afterStatus === 'awaiting-confirmation') {
             // The human gate: the plan compiled and is awaiting review.
             void vscode.window
               .showInformationMessage(
@@ -4385,14 +4362,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               .then((choice) => {
                 if (choice === 'Start graph') void confirmGraphRunHost(graphRunId);
               });
-          } else if (after.status === 'running') {
+          } else if (afterStatus === 'running') {
             void runGraphCoordinatorTick(graphRunId);
           }
           settleGraphRun(gs.db, graphRunId);
         }
         return;
       }
-      if (run.status === 'draining') {
+      if (status === 'draining') {
         // A submitted replan planner lands revision N+1 here.
         const accepted = acceptSubmittedReplan(graphDriverDeps(), graphRunId);
         if (accepted.kind === 'accepted') {
@@ -4422,12 +4399,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return;
       }
-      if (run.status === 'awaiting-confirmation') return;
-      if (run.status === 'blocked') {
+      if (status === 'awaiting-confirmation') return;
+      if (status === 'blocked') {
         settleGraphRun(gs.db, graphRunId);
         return;
       }
-      if (run.status === 'running') {
+      if (status === 'running') {
         await driveReadyNodeRuns(graphDriverDeps(), graphRunId);
         driveCompletingNodes(graphRunId);
       }
@@ -4526,10 +4503,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           KARST_GRAPH_ARTIFACT_ROOT: identity.artifactRoot,
         };
         try {
-          const planner = graphCoordinatorStore?.db
-            .prepare('SELECT status FROM approach_planner_runs WHERE id = ?')
-            .get(identity.plannerRunId) as { status: string } | undefined;
-          if (planner?.status !== 'submitted') {
+          const plannerStatus = graphCoordinatorStore
+            ? plannerRunStatus(graphCoordinatorStore.db, identity.plannerRunId)
+            : undefined;
+          if (plannerStatus !== 'submitted') {
             const out = runGraphCommand(graphCoordinatorStore!, env, ['graph', 'submit']);
             const parsed = JSON.parse(out) as { ok: boolean; rejected?: string; reason?: string };
             if (!parsed.ok) {
@@ -4560,15 +4537,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs) return undefined;
     const deps = graphDriverDeps();
     const candidates =
-      plannerRunId !== undefined
-        ? [plannerRunId]
-        : (
-            gs.db
-              .prepare(
-                'SELECT id FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY id DESC',
-              )
-              .all(graphRunId) as { id: number }[]
-          ).map((r) => r.id);
+      plannerRunId !== undefined ? [plannerRunId] : plannerRunIdsForGraphRun(gs.db, graphRunId);
     for (const id of candidates) {
       const diagnostics = readPlannerDiagnostics(deps, graphRunId, id);
       if (diagnostics.length === 0) continue;
@@ -4811,13 +4780,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       facts: systemAsyncProcessFacts,
       sessionFor: (nodeRunId) => graphSessionFor(nodeRunId),
       resumePipeline: (nodeRunId) => {
-        const node = gs.db
-          .prepare('SELECT graph_run_id FROM approach_node_runs WHERE id = ?')
-          .get(nodeRunId) as { graph_run_id: number } | undefined;
-        if (!node) return;
-        const deps = graphCompletionPipelineDeps(node.graph_run_id);
+        const graphRunId = nodeRunGraphRunId(gs.db, nodeRunId);
+        if (graphRunId === undefined) return;
+        const deps = graphCompletionPipelineDeps(graphRunId);
         if (!deps) return;
-        void runCompletionPipeline(deps, { graphRunId: node.graph_run_id, nodeRunId });
+        void runCompletionPipeline(deps, { graphRunId, nodeRunId });
       },
       relaunchPlanner: (graphRunId) => void relaunchBootstrapPlannerHost(graphRunId),
       relaunchReplanPlanner: (graphRunId) => void relaunchReplanPlannerHost(graphRunId),
@@ -4880,10 +4847,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const relaunchBootstrapPlannerHost = async (graphRunId: number): Promise<void> => {
     const gs = graphCoordinatorStore;
     if (!gs) return;
-    const row = gs.db
-      .prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?')
-      .get(graphRunId) as { ticket_id: number } | undefined;
-    if (!row) return;
+    const ticketId = storeGraphRunTicketId(gs.db, graphRunId);
+    if (ticketId === undefined) return;
     const result = await relaunchBootstrapPlanner(graphDriverDeps(), { graphRunId }).catch((err) => {
       logError(`karst: graph planner relaunch failed for run ${graphRunId}`, err);
       return { kind: 'failed' as const, reason: 'planner session could not start' };
@@ -4891,7 +4856,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (result.kind === 'launched') {
       const identity: GraphLaunchIdentity = {
         graphRunId,
-        ticketId: row.ticket_id,
+        ticketId,
         plannerRunId: result.plannerRunId,
         generation: result.generation,
         capability: result.capability,
@@ -4901,8 +4866,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       attachPlannerCloseFallback(result.session, identity);
       result.session.terminal?.show();
       provider.refresh();
-      dashboard.pushState(row.ticket_id);
-      logger.info(`karst: graph run ${graphRunId} planner relaunched for ticket #${row.ticket_id}`);
+      dashboard.pushState(ticketId);
+      logger.info(`karst: graph run ${graphRunId} planner relaunched for ticket #${ticketId}`);
     } else if (result.kind === 'no-op') {
       logger.warn(`karst: graph planner relaunch for run ${graphRunId} was a no-op (run no longer planning)`);
     } else {

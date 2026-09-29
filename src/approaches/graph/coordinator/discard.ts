@@ -49,7 +49,13 @@ import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import { releaseLeaseForNodeRun } from './leases.js';
-import { releaseProcessSlot, setNodeRunEndedAt, type NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
+import {
+  countNodeRunsInStatusesForGraphRun,
+  nodeRunDiscardRef,
+  releaseProcessSlot,
+  setNodeRunEndedAt,
+  type NodeRunRow as FullNodeRunRow,
+} from '../../../store/graph/nodeRuns.js';
 import {
   decrementExpertRunCount,
   decrementNodeRunCount,
@@ -151,13 +157,7 @@ function revisionIsTopologyDeadlocked(db: GraphDb, graphRunId: number): boolean 
     )
     .get(revision.id) as { n: number };
   if (work.n > 0) return false;
-  const active = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN (${ACTIVE_NODE_STATUSES.map(() => '?').join(',')})`,
-    )
-    .all(graphRunId, ...ACTIVE_NODE_STATUSES) as { n: number }[];
-  return (active[0]?.n ?? 0) === 0;
+  return countNodeRunsInStatusesForGraphRun(db, graphRunId, ACTIVE_NODE_STATUSES) === 0;
 }
 
 /**
@@ -171,11 +171,7 @@ export function discardUnknownProcess(deps: DiscardDeps, input: DiscardInput): D
     const db = deps.db;
 
     // 1. Verify the node is in one of the two ambiguous statuses.
-    const node = db
-      .prepare(
-        'SELECT id, graph_run_id, revision_id, node_id, node_kind, status FROM approach_node_runs WHERE id = ?',
-      )
-      .get(input.nodeRunId) as NodeRunRow | undefined;
+    const node = nodeRunDiscardRef(db, input.nodeRunId);
     if (!node) return { discarded: false, reason: 'not-found' };
     if (input.graphRunId !== undefined && input.graphRunId !== node.graph_run_id) {
       return { discarded: false, reason: 'not-found' };

@@ -29,6 +29,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
+import { artifactFaultNodeRuns, type NodeRunRow } from '../../../store/graph/nodeRuns.js';
 import { validateRequiredOutputs } from '../artifacts/resolve.js';
 import { declaredOutputPaths } from '../integration/pipeline.js';
 
@@ -37,22 +38,13 @@ import { declaredOutputPaths } from '../integration/pipeline.js';
 export const ARTIFACT_FAULT_STATUSES = ['output-artifact-missing', 'artifact-unsafe'] as const;
 export type ArtifactFaultStatus = (typeof ARTIFACT_FAULT_STATUSES)[number];
 
-export interface ArtifactFaultRow {
-  id: number;
-  revision_id: number;
-  node_id: string;
+export interface ArtifactFaultRow extends Pick<NodeRunRow, 'id' | 'revision_id' | 'node_id'> {
   status: ArtifactFaultStatus;
 }
 
 /** The artifact-faulted node runs of a graph run, in durable (rowid) order. */
 export function artifactFaultNodeRows(db: GraphDb, graphRunId: number): ArtifactFaultRow[] {
-  return db
-    .prepare(
-      `SELECT id, revision_id, node_id, status FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN (${ARTIFACT_FAULT_STATUSES.map(() => '?').join(',')})
-       ORDER BY id`,
-    )
-    .all(graphRunId, ...ARTIFACT_FAULT_STATUSES) as ArtifactFaultRow[];
+  return artifactFaultNodeRuns(db, graphRunId, ARTIFACT_FAULT_STATUSES) as ArtifactFaultRow[];
 }
 
 export type ArtifactRecheckOutcome =

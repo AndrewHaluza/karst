@@ -15,7 +15,7 @@
  */
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
-import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
+import { nodeRunClaimedWritesRef } from '../../../store/graph/nodeRuns.js';
 import { parseGraphDocument } from '../parse.js';
 
 export interface ResolvedRepoEntry {
@@ -29,8 +29,6 @@ export interface DomainDeclaredWrites {
   domainKey: string;
   paths: string[];
 }
-
-type NodeRunRow = Pick<FullNodeRunRow, 'node_id' | 'node_kind' | 'graph_run_id'>;
 
 /** The active revision's canonical graph for the run, or null when broken. */
 function canonicalGraphOf(db: GraphDb, graphRunId: number): string | null {
@@ -52,9 +50,7 @@ export function declaredWritesFor(
   repos: readonly ResolvedRepoEntry[],
   domainKeyOf: (worktreePath: string) => string,
 ): DomainDeclaredWrites[] {
-  const run = db
-    .prepare('SELECT node_id, node_kind, graph_run_id FROM approach_node_runs WHERE id = ?')
-    .get(nodeRunId) as NodeRunRow | undefined;
+  const run = nodeRunClaimedWritesRef(db, nodeRunId);
   if (!run) return [];
   const canonical = canonicalGraphOf(db, run.graph_run_id);
   if (canonical === null) return [];

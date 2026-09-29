@@ -26,7 +26,7 @@ The DB lives in *global* storage — every window shares it — so every ticket 
 
 Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to.
 
-## Graph-run state writes have one boundary
+## Graph-run state reads and writes have one boundary
 
 Every in-process write to `approach_graph_runs`, `approach_node_runs`, and
 `approach_planner_runs` goes through `src/store/graph/` (`graphRuns.ts`,
@@ -39,14 +39,31 @@ them (`markGraphRunBlocked`, `setNodeRunFailure`,
 tables, so a new column or status is added to the store module and the schema,
 never to a scattered call site (NDL-38).
 
-Deliberate exception: the `karst` CLI's completion/submission UPDATEs
-(`src/cli/node.ts`, `src/cli/graph.ts`) stay beside their authenticated parse
-path — they fold ticket/project scoping, generation identity, and the
-wrong-attempt check into one conditional statement, and keeping that in the CLI
-is the security property `docs/arch/cli.md` describes. Reads are not yet fully
-centralized; reporting aggregates (`store/metrics/cost.ts`,
-`store/tokenUsage.ts`, `diagnostics/**`) and the graph runtime's own status
-reads remain follow-up work.
+Reads are centralized the same way (NDL-60): every raw read of the three tables
+in the runtime, `extension.ts`, the Inside dashboard, and the workflow boundary
+goes through a named read helper next to the full-row reads (`graphRunById`,
+`nodeRunById`, `plannerRunById`) — `graphRunStatus`, `graphRunTicketId`,
+`latestGraphRunForTicket`, `nodeRunsForGraphRun`,
+`countNodeRunsForRevisionNode`, `nextVisitNumber`, `plannerRunCompileAttempt`,
+`submittedPlannerRunForGraphRun`, … — and call sites narrow with
+`Pick<GraphRunRow, …>` / `Pick<NodeRunRow, …>` / `Pick<PlannerRunRow, …>` rather
+than declaring their own drifting row interfaces. A new column or status is
+therefore added to the store module and the schema, never to a repo-wide grep.
+
+Two deliberate, documented exceptions remain:
+
+- **The `karst` CLI's authenticated reads and UPDATEs** (`src/cli/node.ts`,
+  `src/cli/graph.ts`, `src/cli/stage.ts`) stay beside their parse path — they
+  fold ticket/project scoping, generation identity, and the wrong-attempt check
+  into one conditional statement, and keeping that in the CLI is the security
+  property `docs/arch/cli.md` describes. The CLI opens its own `node:sqlite`
+  handle and never imports the extension's `store/graph` module.
+- **Reporting aggregates** (`src/diagnostics/storeEvidence.ts`,
+  `src/store/metrics/cost.ts`, `src/store/tokenUsage.ts`,
+  `src/store/interactiveUsageSamples.ts`) stay as read-only joins over the run
+  tables: they aggregate cost/token/profile facts across `token_usage`,
+  `process_runs`, and the run rows, and reporting observes and never reaches
+  back (`docs/arch/diagnostics.md`). They read; they never write state.
 
 ## The artifact shelf is a READ over existing evidence, never a new write surface
 

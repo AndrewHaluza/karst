@@ -43,10 +43,24 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS, NODE_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import { markGraphRunBlocked, touchGraphRun } from '../../../store/graph/graphRuns.js';
-import { setNodeRunReason } from '../../../store/graph/nodeRuns.js';
+import {
+  graphRunIdTicketStatus,
+  graphRunStatus,
+  markGraphRunBlocked,
+  nextGraphRunIdForTicketAfter,
+  touchGraphRun,
+} from '../../../store/graph/graphRuns.js';
+import {
+  nodeRunIdsForGraphRun,
+  nodeRunsForGraphRun,
+  setNodeRunReason,
+} from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
-import { transitionPlannerRun } from '../../../store/graph/plannerRuns.js';
+import {
+  latestPlannerRunForGraphRunKind,
+  plannerRunCompileAttempt,
+  transitionPlannerRun,
+} from '../../../store/graph/plannerRuns.js';
 import type { GraphRunRow as FullGraphRunRow } from '../../../store/graph/graphRuns.js';
 import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
 import type { PlannerRunRow as FullPlannerRunRow } from '../../../store/graph/plannerRuns.js';
@@ -271,11 +285,9 @@ function cancelForLeftTicket(
  *  an alive-but-unattributable pid also counts as live, because the successor
  *  rule must never accuse a process that may be another window's. */
 async function runHasLiveProcess(deps: ReconcileGraphRunDeps, graphRunId: number): Promise<boolean> {
-  const nodes = deps.db
-    .prepare('SELECT id FROM approach_node_runs WHERE graph_run_id = ?')
-    .all(graphRunId) as { id: number }[];
+  const nodes = nodeRunIdsForGraphRun(deps.db, graphRunId);
   for (const node of nodes) {
-    if (deps.sessionFor(node.id)) return true;
+    if (deps.sessionFor(node)) return true;
   }
   // The durable half is shared with Stop (`coordinator/liveness.ts`) — both
   // callers must answer "is anything still alive" the same way.
@@ -456,12 +468,7 @@ async function reconcilePlannerRun(
   kind: PlannerKind,
 ): Promise<ReconcileGraphRunResult> {
   const relaunch = kind === 'bootstrap' ? deps.relaunchPlanner : deps.relaunchReplanPlanner;
-  const planner = deps.db
-    .prepare(
-      `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
-       WHERE graph_run_id = ? AND kind = ? ORDER BY id DESC LIMIT 1`,
-    )
-    .get(run.id, kind) as PlannerRunRow | undefined;
+  const planner = latestPlannerRunForGraphRunKind(deps.db, run.id, kind);
   if (!planner) return planningResult(deps, run, 0);
   if (deps.sessionFor(planner.id)) return planningResult(deps, run, 0); // this window owns it
   const proc = plannerProcessOf(deps.db, planner);
@@ -483,10 +490,7 @@ async function reconcilePlannerRun(
       const attribution = await attributeOf(deps.facts, proc);
       if (attribution === 'attributable') return planningResult(deps, run, 0);
     }
-    const attemptRow = deps.db
-      .prepare('SELECT compile_attempt FROM approach_planner_runs WHERE id = ?')
-      .get(planner.id) as { compile_attempt: number } | undefined;
-    const attempt = attemptRow?.compile_attempt ?? 0;
+    const attempt = plannerRunCompileAttempt(deps.db, planner.id);
     if (attempt >= MAX_COMPILE_ATTEMPTS) return planningResult(deps, run, 0); // exhausted — never re-prompted
     deps.debug?.(
       `[graph] reconcile: run ${run.id} bootstrap planner ${planner.id} blocked awaiting compile repair — re-prompting (attempt ${attempt})`,
@@ -557,10 +561,8 @@ function planningResult(
   run: GraphRunRow,
   transitions: number,
 ): ReconcileGraphRunResult {
-  const after = deps.db
-    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-    .get(run.id) as { status: string };
-  return { graphRunId: run.id, status: after.status, transitions, resumed: [], reverted: [], cancelledTokens: 0 };
+  const after = graphRunStatus(deps.db, run.id) ?? run.status;
+  return { graphRunId: run.id, status: after, transitions, resumed: [], reverted: [], cancelledTokens: 0 };
 }
 
 /**
@@ -573,9 +575,7 @@ export async function reconcileGraphRun(
   input: { graphRunId: number },
 ): Promise<ReconcileGraphRunResult> {
   const db = deps.db;
-  const run = db
-    .prepare('SELECT id, ticket_id, status FROM approach_graph_runs WHERE id = ?')
-    .get(input.graphRunId) as GraphRunRow | undefined;
+  const run = graphRunIdTicketStatus(db, input.graphRunId);
   if (!run) return noopResult(input.graphRunId, 'gone');
   if (run.status === 'closed' || run.status === 'stale' || run.status === 'cancelled') {
     return noopResult(input.graphRunId, run.status);
@@ -584,12 +584,10 @@ export async function reconcileGraphRun(
   // 1. Ticket gate: no longer at impl → cancel unscheduled tokens + run.
   if (!ticketAtImpl(db, run.ticket_id)) {
     const { cancelledTokens } = cancelForLeftTicket(deps, run);
-    const after = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(run.id) as { status: string };
+    const after = graphRunStatus(db, run.id) ?? run.status;
     return {
       graphRunId: run.id,
-      status: after.status,
+      status: after,
       transitions: 0,
       resumed: [],
       reverted: [],
@@ -600,9 +598,7 @@ export async function reconcileGraphRun(
   // 2. Successor-run staleness: a later run for the same ticket means the
   //    earlier host died — unless a process is still alive (another window).
   if (SUPERSEDABLE_RUN_STATUSES.includes(run.status as (typeof SUPERSEDABLE_RUN_STATUSES)[number])) {
-    const successor = db
-      .prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ? AND id > ? LIMIT 1')
-      .get(run.ticket_id, run.id) as { id: number } | undefined;
+    const successor = nextGraphRunIdForTicketAfter(db, run.ticket_id, run.id);
     if (successor && !(await runHasLiveProcess(deps, run.id))) {
       const moved = deps.transaction(() => {
         if (!casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, run.id, run.status, 'stale')) {
@@ -612,14 +608,11 @@ export async function reconcileGraphRun(
         return true;
       });
       if (moved) {
-        deps.debug?.(`[graph] reconcile: run ${run.id} superseded by run ${successor.id} — marked stale`);
+        deps.debug?.(`[graph] reconcile: run ${run.id} superseded by run ${successor} — marked stale`);
         return noopResult(run.id, 'stale');
       }
       // Raced: another window moved it; re-read for the gates below.
-      const raced = db
-        .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-        .get(run.id) as { status: string };
-      run.status = raced.status;
+      run.status = graphRunStatus(db, run.id) ?? run.status;
     }
   }
 
@@ -654,11 +647,7 @@ export async function reconcileGraphRun(
   if (revision?.status === 'draining') return noopResult(run.id, run.status);
 
   // 4. Node-level sweep, deterministic node-run order.
-  const nodes = db
-    .prepare(
-      'SELECT id, status, owner_nonce, process_run_id FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id',
-    )
-    .all(run.id) as NodeRunRow[];
+  const nodes = nodeRunsForGraphRun(db, run.id);
   const result: ReconcileGraphRunResult = {
     graphRunId: run.id,
     status: run.status,
@@ -685,9 +674,6 @@ export async function reconcileGraphRun(
         break; // rest states and completed/cancelled evidence are left alone
     }
   }
-  const after = db
-    .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-    .get(run.id) as { status: string };
-  result.status = after.status;
+  result.status = graphRunStatus(db, run.id) ?? run.status;
   return result;
 }

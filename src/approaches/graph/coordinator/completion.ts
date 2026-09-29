@@ -23,13 +23,18 @@
 
 import type { GraphDb } from '../../../store/graph/transitions.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitions.js';
-import { setGraphRunCompletedAt } from '../../../store/graph/graphRuns.js';
+import { graphRunStatus, setGraphRunCompletedAt } from '../../../store/graph/graphRuns.js';
 import {
   consumeGraphToken,
   insertGraphToken,
   type InsertGraphToken,
 } from '../../../store/graph/tokens.js';
-import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
+import {
+  countNodeRunsInStatusesForGraphRun,
+  earliestNodeRunInStatuses,
+  nodeRunActivationRef,
+  type NodeRunRow as FullNodeRunRow,
+} from '../../../store/graph/nodeRuns.js';
 import { parseGraphDocument } from '../parse.js';
 import { uuidv7 } from './lineage.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
@@ -99,11 +104,7 @@ export const FAULT_NODE_STATUSES = [
 ] as const;
 
 /** A faulted node run, read for the earliest-fault reason (Slice 5 Task 6). */
-export interface FaultNodeRunRow {
-  id: number;
-  status: string;
-  reason: string | null;
-}
+export type FaultNodeRunRow = Pick<FullNodeRunRow, 'id' | 'status' | 'reason'>;
 
 /**
  * The EARLIEST faulted node run of a graph run by durable event order: the
@@ -113,13 +114,7 @@ export interface FaultNodeRunRow {
  * earliest in durable order names the block, never whichever committed first.
  */
 export function earliestFaultNodeRun(db: GraphDb, graphRunId: number): FaultNodeRunRow | undefined {
-  return db
-    .prepare(
-      `SELECT id, status, reason FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN (${FAULT_NODE_STATUSES.map(() => '?').join(',')})
-       ORDER BY id LIMIT 1`,
-    )
-    .get(graphRunId, ...FAULT_NODE_STATUSES) as FaultNodeRunRow | undefined;
+  return earliestNodeRunInStatuses(db, graphRunId, FAULT_NODE_STATUSES);
 }
 
 /** The recovery-classifiable reason prefix for a node-run fault status: a
@@ -179,9 +174,7 @@ function completeActivationTransaction(
 ): CompletionResult {
   return deps.transaction(() => {
     const db = deps.db;
-    const run = db
-      .prepare('SELECT revision_id, node_id, graph_run_id FROM approach_node_runs WHERE id = ?')
-      .get(input.nodeRunId) as NodeRunRow | undefined;
+    const run = nodeRunActivationRef(db, input.nodeRunId);
     if (!run) return { consumed: 0, inserted: 0 };
     const claimed = db
       .prepare(
@@ -212,10 +205,7 @@ function completeActivationTransaction(
     // claimed token and record the node's evidence, but suppress ALL successor
     // creation — the drain owns the continuation; the replan's N+1 resumes
     // scheduling. A drained completion must never route the old revision.
-    const graphRun = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(run.graph_run_id) as { status: string } | undefined;
-    if (graphRun?.status === 'draining') return { consumed, inserted };
+    if (graphRunStatus(db, run.graph_run_id) === 'draining') return { consumed, inserted };
     if (revision) {
       const parsed = parseGraphDocument(revision.canonical_graph);
       if (parsed.ok) {
@@ -304,13 +294,9 @@ export function quiescenceBlockedBy(db: GraphDb, graphRunId: number): string | n
     )
     .get(revision.id) as { n: number };
   if (pending.n > 0) return 'pending-tokens';
-  const active = db
-    .prepare(
-      `SELECT COUNT(*) AS n FROM approach_node_runs
-       WHERE graph_run_id = ? AND status IN (${ACTIVE_NODE_STATUSES.map(() => '?').join(',')})`,
-    )
-    .all(graphRunId, ...ACTIVE_NODE_STATUSES) as { n: number }[];
-  if ((active[0]?.n ?? 0) > 0) return 'active-node-runs';
+  if (countNodeRunsInStatusesForGraphRun(db, graphRunId, ACTIVE_NODE_STATUSES) > 0) {
+    return 'active-node-runs';
+  }
   const leases = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_resource_leases
@@ -355,10 +341,9 @@ function flipOnEndQuiescenceTransaction(
 ): QuiescenceResult {
   return deps.transaction(() => {
     const db = deps.db;
-    const run = db
-      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
-      .get(input.graphRunId) as { status: string } | undefined;
-    if (!run || run.status !== 'running') return { flipped: false, blockedBy: 'not-running' };
+    if (graphRunStatus(db, input.graphRunId) !== 'running') {
+      return { flipped: false, blockedBy: 'not-running' };
+    }
     const blockedBy = quiescenceBlockedBy(db, input.graphRunId);
     if (blockedBy) return { flipped: false, blockedBy };
     if (

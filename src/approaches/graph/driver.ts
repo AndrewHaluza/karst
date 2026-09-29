@@ -42,6 +42,8 @@ import {
   casStatus,
 } from '../../store/graph/transitions.js';
 import {
+  graphRunApproachId,
+  graphRunTicketId,
   markGraphRunBlocked,
   releaseCommandProcessSlot,
   releaseGraphProcessSlot,
@@ -55,10 +57,13 @@ import {
   transitionPlannerRun,
 } from '../../store/graph/plannerRuns.js';
 import {
-  decodeBaseHeads,
+  nodeRunBaseHeads,
+  nodeRunStatus,
+  runnableNodeRunsForGraphRun,
   setNodeRunFailure,
   setNodeRunLaunchIdentity,
   setNodeRunOutcome,
+  type NodeRunRow,
 } from '../../store/graph/nodeRuns.js';
 import { parseGraphDocument, type GraphDocument } from './parse.js';
 import type { CompileContext } from './compile.js';
@@ -591,14 +596,10 @@ export interface DriveReadyNodesResult {
   blocked: number;
 }
 
-interface RunnableNodeRow {
-  id: number;
-  revision_id: number;
-  node_id: string;
-  status: string;
-  owner_nonce: string | null;
-  process_run_id: number | null;
-}
+type RunnableNodeRow = Pick<
+  NodeRunRow,
+  'id' | 'revision_id' | 'node_id' | 'status' | 'owner_nonce' | 'process_run_id'
+>;
 
 /** Execute every runnable node run of a `running` graph run, in id order. A
  *  runnable row is either `ready`, or a recovery-rearmed `launching` row with
@@ -617,18 +618,7 @@ export async function driveReadyNodeRuns(
 ): Promise<DriveReadyNodesResult> {
   const run = graphRunById(deps.db, graphRunId);
   if (!run || run.status !== 'running') return { launched: 0, completed: 0, blocked: 0 };
-  const runnable = deps.db
-    .prepare(
-      `SELECT id, revision_id, node_id, status, owner_nonce, process_run_id
-       FROM approach_node_runs
-       WHERE graph_run_id = ?
-         AND (
-           status = 'ready'
-           OR (status = 'launching' AND owner_nonce IS NULL AND process_run_id IS NULL)
-         )
-       ORDER BY id`,
-    )
-    .all(graphRunId) as RunnableNodeRow[];
+  const runnable = runnableNodeRunsForGraphRun(deps.db, graphRunId);
   const result: DriveReadyNodesResult = { launched: 0, completed: 0, blocked: 0 };
   for (const row of runnable) {
     try {
@@ -828,19 +818,15 @@ async function executeReadyNode(
 }
 
 function runApproachId(deps: GraphDriverDeps, graphRunId: number): string {
-  return (
-    deps.db.prepare('SELECT approach_id FROM approach_graph_runs WHERE id = ?').get(graphRunId) as {
-      approach_id: string;
-    }
-  ).approach_id;
+  const approachId = graphRunApproachId(deps.db, graphRunId);
+  if (approachId === undefined) throw new Error(`graph run ${graphRunId} not found`);
+  return approachId;
 }
 
 function runTicketId(deps: GraphDriverDeps, graphRunId: number): number {
-  return (
-    deps.db.prepare('SELECT ticket_id FROM approach_graph_runs WHERE id = ?').get(graphRunId) as {
-      ticket_id: number;
-    }
-  ).ticket_id;
+  const ticketId = graphRunTicketId(deps.db, graphRunId);
+  if (ticketId === undefined) throw new Error(`graph run ${graphRunId} not found`);
+  return ticketId;
 }
 
 /** The ticket context for an agent NODE: the generic ticket context (which
@@ -857,11 +843,8 @@ function nodeTicketContext(
   const canonicalWorktree = deps.cwdForRepo(graphRunId, repo) ?? '';
   if (canonicalWorktree === '') return deps.ticketContextOf(runTicketId(deps, graphRunId));
   const domainKey = domainKeyOf(canonicalPath(canonicalWorktree), deps.gitCommonDirOf(canonicalWorktree));
-  const base = deps.db
-    .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
-    .get(row.id) as { base_heads: string | null } | undefined;
   const baseCommit =
-    decodeBaseHeads(base?.base_heads ?? null).find((head) => head.domainKey === domainKey)?.commit ?? '';
+    nodeRunBaseHeads(deps.db, row.id).find((head) => head.domainKey === domainKey)?.commit ?? '';
   return [
     deps.ticketContextOf(runTicketId(deps, graphRunId)),
     nodeWorkspaceDirective({ workspace: cwd, canonicalWorktree, baseCommit }),
@@ -919,11 +902,8 @@ async function prepareAgentWorkspace(
     if (!cwd) continue;
     const gitCommonDir = deps.gitCommonDirOf(cwd);
     const domainKey = domainKeyOf(canonicalPath(cwd), gitCommonDir);
-    const base = deps.db
-      .prepare('SELECT base_heads FROM approach_node_runs WHERE id = ?')
-      .get(row.id) as { base_heads: string | null } | undefined;
     const baseCommit =
-      decodeBaseHeads(base?.base_heads ?? null).find((head) => head.domainKey === domainKey)?.commit ?? '';
+      nodeRunBaseHeads(deps.db, row.id).find((head) => head.domainKey === domainKey)?.commit ?? '';
     domains.push({ repoName: repo, canonicalWorktreePath: cwd, gitCommonDir, baseCommit });
   }
   if (domains.length === 0) return { kind: 'unresolved', repos };
@@ -1016,12 +996,10 @@ function parkLaunchFailure(
   reason = 'launch failed before the session started',
 ): void {
   deps.transaction(() => {
-    const row = deps.db
-      .prepare('SELECT status FROM approach_node_runs WHERE id = ?')
-      .get(nodeRunId) as { status: string } | undefined;
-    if (!row) return;
+    const status = nodeRunStatus(deps.db, nodeRunId);
+    if (status === undefined) return;
     if (
-      row.status === 'ready' &&
+      status === 'ready' &&
       !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'ready', 'launching')
     ) {
       return;

@@ -26,6 +26,7 @@
  */
 
 import type { GraphDb } from '../../store/graph/transitions.js';
+import { graphRunDiagnosticRef } from '../../store/graph/graphRuns.js';
 import { sanitizeText } from '../../diagnostics/redact.js';
 
 /** Cap for the free-form detail tail of a diagnostic line. */
@@ -106,17 +107,7 @@ export function resolveGraphDiagnosticIdentity(
   db: GraphDb,
   graphRunId: number,
 ): GraphDiagnosticIdentity | undefined {
-  const row = db
-    .prepare(
-      `SELECT g.stage_attempt AS stageAttempt, t.key AS ticket, p.slug AS project
-         FROM approach_graph_runs g
-         JOIN tickets t ON t.id = g.ticket_id
-         LEFT JOIN projects p ON p.id = t.project_id
-        WHERE g.id = ?`,
-    )
-    .get(graphRunId) as
-    | { stageAttempt: number; ticket: string | null; project: string | null }
-    | undefined;
+  const row = graphRunDiagnosticRef(db, graphRunId);
   if (!row) return undefined;
   return { project: row.project ?? null, ticket: row.ticket ?? null, stageAttempt: row.stageAttempt };
 }
