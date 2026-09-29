@@ -151,6 +151,58 @@ export function nodeRunModelIdentity(
     .get(id) as Pick<NodeRunRow, 'id' | 'profile' | 'provider' | 'model'> | undefined;
 }
 
+/** A graph run's node runs in id order, narrowed to the Inside-view columns. */
+export function nodeRunsForGraphRunDisplay(
+  db: GraphDb,
+  graphRunId: number,
+): Array<
+  Pick<
+    NodeRunRow,
+    | 'id'
+    | 'node_id'
+    | 'node_kind'
+    | 'revision_id'
+    | 'visit_number'
+    | 'status'
+    | 'outcome'
+    | 'reason'
+    | 'provider'
+    | 'model'
+    | 'effort'
+    | 'profile'
+    | 'launch_attempt'
+    | 'started_at'
+    | 'ended_at'
+  >
+> {
+  return db
+    .prepare(
+      `SELECT id, node_id, node_kind, revision_id, visit_number, status, outcome, reason,
+              provider, model, effort, profile, launch_attempt, started_at, ended_at
+         FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
+    )
+    .all(graphRunId) as Array<
+    Pick<
+      NodeRunRow,
+      | 'id'
+      | 'node_id'
+      | 'node_kind'
+      | 'revision_id'
+      | 'visit_number'
+      | 'status'
+      | 'outcome'
+      | 'reason'
+      | 'provider'
+      | 'model'
+      | 'effort'
+      | 'profile'
+      | 'launch_attempt'
+      | 'started_at'
+      | 'ended_at'
+    >
+  >;
+}
+
 /** The graph run's node runs (launch-identity columns), in id order — the
  *  reconcile sweep's deterministic read. */
 export function nodeRunsForGraphRun(

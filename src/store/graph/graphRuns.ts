@@ -180,6 +180,23 @@ export function graphRunIdStatusBlockedReason(
     .get(id) as Pick<GraphRunRow, 'id' | 'status' | 'blocked_reason'> | undefined;
 }
 
+/** The ticket's run for a (ticket, stage attempt) pair — id, status, blocked
+ *  reason — or undefined. */
+export function graphRunStatusBlockedReasonForTicketStageAttempt(
+  db: GraphDb,
+  ticketId: number,
+  stageAttempt: number,
+): Pick<GraphRunRow, 'id' | 'status' | 'blocked_reason'> | undefined {
+  return db
+    .prepare(
+      `SELECT id, status, blocked_reason FROM approach_graph_runs
+       WHERE ticket_id = ? AND stage_attempt = ?`,
+    )
+    .get(ticketId, stageAttempt) as
+    | Pick<GraphRunRow, 'id' | 'status' | 'blocked_reason'>
+    | undefined;
+}
+
 /** The run's ticket and stage attempt — the CLI node resolution shape. */
 export function graphRunTicketStageAttempt(
   db: GraphDb,
@@ -263,6 +280,22 @@ export function graphRunIdStatusForTicketStageAttempt(
       'SELECT id, status FROM approach_graph_runs WHERE ticket_id = ? AND stage_attempt = ? LIMIT 1',
     )
     .get(ticketId, stageAttempt) as Pick<GraphRunRow, 'id' | 'status'> | undefined;
+}
+
+/** The latest graph run of a ticket, narrowed to the Inside-view columns, or
+ *  undefined. */
+export function latestGraphRunForTicket(
+  db: GraphDb,
+  ticketId: number,
+): Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at'> | undefined {
+  return db
+    .prepare(
+      `SELECT id, stage_attempt, approach_id, status, created_at
+         FROM approach_graph_runs WHERE ticket_id = ? ORDER BY id DESC LIMIT 1`,
+    )
+    .get(ticketId) as
+    | Pick<GraphRunRow, 'id' | 'stage_attempt' | 'approach_id' | 'status' | 'created_at'>
+    | undefined;
 }
 
 /** The newest graph run id for a ticket, or undefined. */

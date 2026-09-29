@@ -145,6 +145,45 @@ export function latestPlannerRunForGraphRunKind(
     | undefined;
 }
 
+/** A graph run's planner runs in run-number order, narrowed to the Inside-view
+ *  columns. */
+export function plannerRunsForGraphRun(
+  db: GraphDb,
+  graphRunId: number,
+): Array<
+  Pick<
+    PlannerRunRow,
+    | 'planner_run_number'
+    | 'kind'
+    | 'status'
+    | 'compile_attempt'
+    | 'reason'
+    | 'started_at'
+    | 'submitted_at'
+    | 'ended_at'
+  >
+> {
+  return db
+    .prepare(
+      `SELECT planner_run_number, kind, status, compile_attempt, reason,
+              started_at, submitted_at, ended_at
+         FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY planner_run_number`,
+    )
+    .all(graphRunId) as Array<
+    Pick<
+      PlannerRunRow,
+      | 'planner_run_number'
+      | 'kind'
+      | 'status'
+      | 'compile_attempt'
+      | 'reason'
+      | 'started_at'
+      | 'submitted_at'
+      | 'ended_at'
+    >
+  >;
+}
+
 /** Every planner run id of a graph run, newest first. */
 export function plannerRunIdsForGraphRun(db: GraphDb, graphRunId: number): number[] {
   const rows = db

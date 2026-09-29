@@ -33,7 +33,11 @@ import { transition } from './machine.js';
 import { parkGateStage, stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { stageAttempt } from '../store/stages.js';
 import { casStatus, GRAPH_RUN_TRANSITIONS } from '../store/graph/transitions.js';
-import { graphRunOrdinal } from '../store/graph/graphRuns.js';
+import {
+  graphRunExistsForTicket,
+  graphRunOrdinal,
+  graphRunStatusBlockedReasonForTicketStageAttempt,
+} from '../store/graph/graphRuns.js';
 import type { GraphRunRow as FullGraphRunRow } from '../store/graph/graphRuns.js';
 import { quiescenceBlockedBy, earliestFaultNodeRun, faultNodeRunReason } from '../approaches/graph/coordinator/completion.js';
 import { GRAPH_FAILED_BLOCKER } from '../approaches/graph/coordinator/recovery.js';
@@ -86,12 +90,7 @@ function graphRunFor(
   ticketId: number,
   stageAttempt: number,
 ): GraphRunRow | undefined {
-  return store.db
-    .prepare(
-      `SELECT id, status, blocked_reason FROM approach_graph_runs
-       WHERE ticket_id = ? AND stage_attempt = ?`,
-    )
-    .get(ticketId, stageAttempt) as GraphRunRow | undefined;
+  return graphRunStatusBlockedReasonForTicketStageAttempt(store.db, ticketId, stageAttempt);
 }
 
 /**
@@ -107,10 +106,7 @@ function graphRunFor(
 export function graphApproachMissingRun(store: Store, ticketId: number): boolean {
   const ticket = getTicket(store, ticketId);
   if (ticket.approach !== BUILT_IN_PACKAGE_ID) return false;
-  const row = store.db
-    .prepare('SELECT 1 AS x FROM approach_graph_runs WHERE ticket_id = ? LIMIT 1')
-    .get(ticketId);
-  return row === undefined;
+  return !graphRunExistsForTicket(store.db, ticketId);
 }
 
 /**
