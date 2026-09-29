@@ -38,6 +38,27 @@ describe('runStageDriver', () => {
     store.close();
   });
 
+  it('stops at the integration seam when it parks, before running any gate', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    let uatRan = 0;
+    const out = await runStageDriver(
+      baseDeps(store, {
+        integrateSubtasks: async () => ({ parked: true, deferred: false }),
+        runUat: async () => {
+          uatRan += 1;
+          return { kind: 'advanced', next: 'review' };
+        },
+      }),
+      id,
+    );
+    // The parent's current stage is `uat`, and a park there must hold the
+    // driver rather than run the gate on a tree missing the child's work.
+    expect(out).toEqual({ stage: 'uat', status: 'blocked', reason: 'subtask-integration-parked' });
+    expect(uatRan).toBe(0);
+    store.close();
+  });
+
   it('emits [driver] debug lines at the loop entry and each boundary', async () => {
     const store = openStore(':memory:');
     const id = seedAtUat(store);

@@ -41,6 +41,12 @@ export interface IntegrateOutcome {
    * release the gate; the park stays for a human or the next seam.
    */
   parked: boolean;
+  /**
+   * True when the parent's agent was running, so integration was DEFERRED to
+   * the parent's next seam — nothing was merged. A deferral is not a success:
+   * the caller must not clear an integration park on the strength of it.
+   */
+  deferred: boolean;
 }
 
 /** A `[driver]` debug line keeps untrusted git prose to one bounded line. */
@@ -68,7 +74,7 @@ function parkParent(
   const stage = getTicket(store, parentId).stageCurrent as StageKey | null;
   if (!stage) {
     debug?.(`[driver] ticket ${parentId}: no current stage — cannot park (${reason})`);
-    return { parked: true };
+    return { parked: true, deferred: false };
   }
   debug?.(`[driver] ticket ${parentId}: parking '${stage}' — ${reason}`);
   setStage(store, parentId, stage, {
@@ -76,7 +82,7 @@ function parkParent(
     blockedReason: reason,
     blockedAt: nowIso(),
   });
-  return { parked: true };
+  return { parked: true, deferred: false };
 }
 
 export async function integrateLandedSubtasks(
@@ -88,18 +94,18 @@ export async function integrateLandedSubtasks(
   const parent = getTicket(store, parentId);
   if (parent.agentState === 'running') {
     debug?.(`[driver] ticket ${parentId}: agent is running — deferring sub-task integration`);
-    return { parked: false };
+    return { parked: false, deferred: true };
   }
 
   const worktrees = listWorktreesByTicket(store, parentId).filter((wt) => wt.branch);
   if (worktrees.length === 0) {
     debug?.(`[driver] ticket ${parentId}: parent has no branch worktree`);
-    return { parked: false };
+    return { parked: false, deferred: false };
   }
 
   if (listLandedSubtasks(store, parentId).length === 0) {
     debug?.(`[driver] ticket ${parentId}: no landed sub-tasks to integrate`);
-    return { parked: false };
+    return { parked: false, deferred: false };
   }
 
   for (const wt of worktrees) {
@@ -111,8 +117,31 @@ export async function integrateLandedSubtasks(
 
     debug?.(`[driver] ticket ${parentId}: integrating ${keys} into '${wt.repo}' (${branch})`);
 
-    // A dirty TRACKED tree is the refusal — untracked files are not karst's to
-    // reason about and must not block integration.
+    // FETCH FIRST. The dirty check below must gate only a merge that is truly
+    // needed, and `origin/<branch>` is the thing we merge.
+    const fetch = await git(['fetch', 'origin', branch], wt.path);
+    if (fetch.exitCode !== 0) {
+      return parkParent(
+        store,
+        parentId,
+        'awaiting-subtask',
+        `sub-task integration failed: git fetch failed integrating ${keys} — ${brief(fetch)}`,
+        debug,
+      );
+    }
+
+    // Already integrated? `origin/<branch>` being an ancestor of HEAD means the
+    // child's work is in — the landed-child row stays FOREVER, so without this
+    // every later call would re-run the dirty check and block ship's own commit
+    // step (the parent tree is normally uncommitted at ship entry).
+    const ancestor = await git(['merge-base', '--is-ancestor', remote, 'HEAD'], wt.path);
+    if (ancestor.exitCode === 0) {
+      debug?.(`[driver] ticket ${parentId}: ${remote} already integrated into HEAD — skipping`);
+      continue;
+    }
+
+    // A merge is needed: refuse a dirty TRACKED tree. Untracked files are not
+    // karst's to reason about and must not block integration.
     const status = await git(['status', '--porcelain', '--untracked-files=no'], wt.path);
     if (status.exitCode !== 0) {
       return parkParent(
@@ -129,17 +158,6 @@ export async function integrateLandedSubtasks(
         parentId,
         'awaiting-subtask',
         `commit or stash parent changes to integrate ${keys}`,
-        debug,
-      );
-    }
-
-    const fetch = await git(['fetch', 'origin', branch], wt.path);
-    if (fetch.exitCode !== 0) {
-      return parkParent(
-        store,
-        parentId,
-        'awaiting-subtask',
-        `sub-task integration failed: git fetch failed integrating ${keys} — ${brief(fetch)}`,
         debug,
       );
     }
@@ -205,7 +223,7 @@ export async function integrateLandedSubtasks(
   }
 
   debug?.(`[driver] ticket ${parentId}: sub-task integration complete`);
-  return { parked: false };
+  return { parked: false, deferred: false };
 }
 
 /**
@@ -223,13 +241,22 @@ export async function integrateAndReleaseParent(
   debug?: (message: string) => void,
 ): Promise<IntegrateOutcome> {
   if (git) {
+    let outcome: IntegrateOutcome;
     try {
-      const outcome = await integrateLandedSubtasks(store, parentId, git, debug);
-      if (outcome.parked) return outcome;
-      clearIntegrationParks(store, parentId, debug);
+      outcome = await integrateLandedSubtasks(store, parentId, git, debug);
     } catch (err) {
-      debug?.(`[driver] ticket ${parentId}: sub-task integration threw: ${messageOf(err)}`);
+      // A throw is a failure, not a release. Park and hold — releasing without
+      // the child's work is the exact failure NDL-75 exists to prevent.
+      const reason = `sub-task integration failed: ${messageOf(err)}`;
+      debug?.(`[driver] ticket ${parentId}: ${reason}`);
+      return parkParent(store, parentId, 'awaiting-subtask', reason, debug);
     }
+    if (outcome.parked) return outcome;
+    // Only a real integration may clear a park. A deferral (parent running) did
+    // nothing, and the no-worktree / no-landed-children results have no park to
+    // clear anyway — but the deferral must be treated as distinct so a stale
+    // park is not silently dropped.
+    if (!outcome.deferred) clearIntegrationParks(store, parentId, debug);
   } else {
     debug?.(`[driver] ticket ${parentId}: no git runner — skipping sub-task integration`);
   }
@@ -238,7 +265,7 @@ export async function integrateAndReleaseParent(
   } catch (err) {
     debug?.(`[driver] ticket ${parentId}: sub-task landing release failed: ${messageOf(err)}`);
   }
-  return { parked: false };
+  return { parked: false, deferred: false };
 }
 
 /**

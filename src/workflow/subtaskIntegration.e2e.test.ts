@@ -130,6 +130,24 @@ describe('sub-task integration (real git)', () => {
     expect(stageBlock(store, s.parentId, 'impl')).toBeNull();
   });
 
+  it('does not re-refuse a dirty tree once the branch is already integrated', async () => {
+    const s = seed('E2E-ALREADY');
+    const childSha = childShips(s, 'child.txt', 'child work\n');
+    const first = await integrateLandedSubtasks(store, s.parentId, defaultGitRunner);
+    expect(first.parked).toBe(false);
+    const integratedHead = git(s.parentWt, 'rev-parse', 'HEAD').trim();
+    expect(integratedHead).toBe(childSha);
+
+    // The landed-child row stays forever; dirty the tracked tree AFTER the
+    // integration and re-run. Nothing to merge → no dirty refusal, no block.
+    writeFileSync(join(s.parentWt, 'shared.txt'), 'uncommitted\n');
+    const second = await integrateLandedSubtasks(store, s.parentId, defaultGitRunner);
+
+    expect(second.parked).toBe(false);
+    expect(stageBlock(store, s.parentId, 'impl')).toBeNull();
+    expect(git(s.parentWt, 'rev-parse', 'HEAD').trim()).toBe(integratedHead);
+  });
+
   it('takes a real merge commit when the parent branch diverged (no rebase)', async () => {
     const s = seed('E2E-MERGE');
     childShips(s, 'child.txt', 'child work\n');

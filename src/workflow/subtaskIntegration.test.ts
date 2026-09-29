@@ -54,6 +54,8 @@ function runnerWith(
 
 const OK: GitResult = { stdout: '', stderr: '', exitCode: 0 };
 const FAIL = (stderr: string): GitResult => ({ stdout: '', stderr, exitCode: 1 });
+/** `git merge-base --is-ancestor` exit 1 = not an ancestor → a merge is needed. */
+const MERGE_NEEDED: GitResult = { stdout: '', stderr: '', exitCode: 1 };
 
 describe('subtaskIntegration', () => {
   let store: ReturnType<typeof openStore>;
@@ -96,12 +98,13 @@ describe('subtaskIntegration', () => {
     const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
     expect(outcome.parked).toBe(false);
+    expect(outcome.deferred).toBe(true);
     expect(calls).toHaveLength(0);
   });
 
   it('fetches and ff-only merges the remote parent branch', async () => {
     const { parentId, parentBranch } = parentWithLandedChild(store, 'P-4');
-    const { runner, calls } = runnerWith([]);
+    const { runner, calls } = runnerWith([['merge-base', MERGE_NEEDED]]);
 
     const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
@@ -113,6 +116,7 @@ describe('subtaskIntegration', () => {
   it('falls back to merge --no-edit when ff-only fails', async () => {
     const { parentId, parentBranch } = parentWithLandedChild(store, 'P-5');
     const { runner, calls } = runnerWith([
+      ['merge-base', MERGE_NEEDED],
       ['merge --ff-only', FAIL('not possible')],
     ]);
 
@@ -125,13 +129,15 @@ describe('subtaskIntegration', () => {
   it('refuses a dirty tracked tree and names the sub-task', async () => {
     const { parentId, child } = parentWithLandedChild(store, 'P-6');
     const { runner, calls } = runnerWith([
+      ['merge-base', MERGE_NEEDED],
       ['status', { stdout: 'M file.ts\n', stderr: '', exitCode: 0 }],
     ]);
 
     const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
     expect(outcome.parked).toBe(true);
-    expect(calls.some((c) => c[0] === 'fetch')).toBe(false);
+    // Fetch runs first now, but the merge must never run on a dirty tree.
+    expect(calls.some((c) => c[0] === 'merge')).toBe(false);
     const block = stageBlock(store, parentId, 'impl');
     expect(block?.kind).toBe('awaiting-subtask');
     expect(block?.reason).toContain('commit or stash parent changes to integrate');
@@ -140,7 +146,10 @@ describe('subtaskIntegration', () => {
 
   it('parks awaiting-subtask when git status fails', async () => {
     const { parentId } = parentWithLandedChild(store, 'P-7');
-    const { runner } = runnerWith([['status', FAIL('boom')]]);
+    const { runner } = runnerWith([
+      ['merge-base', MERGE_NEEDED],
+      ['status', FAIL('boom')],
+    ]);
 
     const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
@@ -165,6 +174,7 @@ describe('subtaskIntegration', () => {
   it('parks subtask-integration-conflict naming the files from git state', async () => {
     const { parentId, child } = parentWithLandedChild(store, 'P-9');
     const { runner, calls } = runnerWith([
+      ['merge-base', MERGE_NEEDED],
       ['merge --ff-only', FAIL('not possible')],
       ['merge --no-edit', FAIL('CONFLICT')],
       ['rev-parse --verify MERGE_HEAD', { stdout: 'abc\n', stderr: '', exitCode: 0 }],
@@ -186,6 +196,7 @@ describe('subtaskIntegration', () => {
   it('parks with manual-cleanup wording when merge --abort fails', async () => {
     const { parentId } = parentWithLandedChild(store, 'P-10');
     const { runner } = runnerWith([
+      ['merge-base', MERGE_NEEDED],
       ['merge --ff-only', FAIL('not possible')],
       ['merge --no-edit', FAIL('CONFLICT')],
       ['rev-parse --verify MERGE_HEAD', { stdout: 'abc\n', stderr: '', exitCode: 0 }],
@@ -204,6 +215,7 @@ describe('subtaskIntegration', () => {
   it('parks awaiting-subtask when the merge fails without entering a conflict', async () => {
     const { parentId } = parentWithLandedChild(store, 'P-11');
     const { runner } = runnerWith([
+      ['merge-base', MERGE_NEEDED],
       ['merge --ff-only', FAIL('not possible')],
       ['merge --no-edit', FAIL('would be overwritten')],
       ['rev-parse --verify MERGE_HEAD', FAIL('not a merge')],
@@ -215,5 +227,22 @@ describe('subtaskIntegration', () => {
     const block = stageBlock(store, parentId, 'impl');
     expect(block?.kind).toBe('awaiting-subtask');
     expect(block?.reason).toContain('git merge');
+  });
+
+  it('skips the dirty check when the branch is already integrated', async () => {
+    const { parentId } = parentWithLandedChild(store, 'P-12');
+    // `origin/<branch>` already an ancestor of HEAD → nothing to merge, so a
+    // dirty tracked tree must NOT refuse (the deadlock the Architect found).
+    const { runner, calls } = runnerWith([
+      ['merge-base', OK],
+      ['status', { stdout: 'M file.ts\n', stderr: '', exitCode: 0 }],
+    ]);
+
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
+
+    expect(outcome.parked).toBe(false);
+    expect(stageBlock(store, parentId, 'impl')).toBeNull();
+    expect(calls.some((c) => c[0] === 'status')).toBe(false);
+    expect(calls.some((c) => c[0] === 'merge')).toBe(false);
   });
 });

@@ -3159,11 +3159,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // Sub-task integration seam (NDL-75): the parent's next drive absorbs
           // any landed sub-task's work before a boundary or gate runner runs —
           // the deferred half of landing a sub-task while the parent was busy.
-          integrateSubtasks: async (id) => {
-            await integrateAndReleaseParent(localStore, id, defaultGitRunner, (message) =>
+          // A park returned here stops the driver before it runs a gate.
+          integrateSubtasks: (id) =>
+            integrateAndReleaseParent(localStore, id, defaultGitRunner, (message) =>
               logger.debug(message),
-            );
-          },
+            ),
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),

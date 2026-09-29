@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
-import type { StageKey } from '../model/types.js';
+import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import { getTicket } from '../store/tickets.js';
+import { listAwaitingSubtaskParentIds } from '../store/subtasks.js';
 import { setStage } from '../store/stages.js';
 import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { nowIso } from '../model/time.js';
@@ -153,7 +154,9 @@ export function clearIntegrationParks(
   ticketId: number,
   debug?: (message: string) => void,
 ): void {
-  for (const stage of ['impl', 'fix', 'ship'] as const) {
+  // EVERY stage, not just impl|fix|ship: integration can park the parent's
+  // current stage, which may be uat/review when the driver seam runs there.
+  for (const stage of STAGE_KEYS) {
     const block = stageBlock(store, ticketId, stage);
     if (block?.kind === 'awaiting-subtask' && isIntegrationParkReason(block.reason)) {
       debug?.(`[driver] ticket ${ticketId}: clearing integration park on '${stage}'`);
@@ -316,13 +319,7 @@ export function recoverAwaitingSubtasks(
   store: Store,
   debug?: (message: string) => void,
 ): void {
-  const candidates = store.db
-    .prepare(
-      `SELECT DISTINCT ticket_id AS id FROM stages
-        WHERE blocked_kind = 'awaiting-subtask'`,
-    )
-    .all() as { id: number }[];
-  for (const { id } of candidates) {
+  for (const id of listAwaitingSubtaskParentIds(store)) {
     try {
       onSubtaskLanded(store, id, { debug });
     } catch (err) {
