@@ -59,6 +59,44 @@ describe('runStageDriver', () => {
     store.close();
   });
 
+  it('blocks rather than running a gate when integration is deferred', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    let uatRan = 0;
+    const out = await runStageDriver(
+      baseDeps(store, {
+        integrateSubtasks: async () => ({ parked: false, deferred: true }),
+        // Bound the loop so an unfixed driver FAILS instead of livelocking the
+        // suite: a stub that reports `advanced` without transitioning re-runs
+        // the same gate forever.
+        shouldContinue: () => uatRan < 3,
+        runUat: async () => {
+          uatRan += 1;
+          return { kind: 'advanced', next: 'review' };
+        },
+      }),
+      id,
+    );
+    // A deferral (parent still running) integrated nothing; the driver must not
+    // run a gate on the unmerged tree.
+    expect(out).toEqual({ stage: 'uat', status: 'blocked', reason: 'subtask-integration-deferred' });
+    expect(uatRan).toBe(0);
+    store.close();
+  });
+
+  it('throws when integration parks a parent with no current stage', async () => {
+    const store = openStore(':memory:');
+    const id = seedAtUat(store);
+    store.db.prepare('UPDATE tickets SET stage_current = NULL WHERE id = ?').run(id);
+    await expect(
+      runStageDriver(
+        baseDeps(store, { integrateSubtasks: async () => ({ parked: true, deferred: false }) }),
+        id,
+      ),
+    ).rejects.toThrow(/no current stage/);
+    store.close();
+  });
+
   it('emits [driver] debug lines at the loop entry and each boundary', async () => {
     const store = openStore(':memory:');
     const id = seedAtUat(store);

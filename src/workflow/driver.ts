@@ -17,6 +17,7 @@ export type DriverBoundaryReason =
   | 'gate-failed'
   | 'awaiting-marker'
   | 'subtask-integration-parked'
+  | 'subtask-integration-deferred'
   | 'not-spun';
 
 /**
@@ -54,8 +55,9 @@ export interface StageDriverDeps {
    * sub-task landed integrates the child's work on its next drive — the
    * deferred half of "invoked from onSubtaskLanded (if parent idle) or the
    * parent's next driver seam (leave-impl / ship entry)". A park STOPS the
-   * driver: running a gate (uat/review) with the child's work unmerged is the
-   * failure this seam exists to prevent. Absent → no integration happens here.
+   * driver, and so does a deferral: running a gate (uat/review) with the child's
+   * work unmerged is the failure this seam exists to prevent, and neither
+   * outcome merged anything. Absent → no integration happens here.
    */
   integrateSubtasks?: (ticketId: number) => Promise<IntegrateOutcome>;
 }
@@ -71,6 +73,20 @@ function finish(
   return reason ? { stage, status, reason } : { stage, status };
 }
 
+/**
+ * The parent's resting stage for a seam-blocked outcome. `stage_current` is
+ * `string | null` at the store layer and the seam only ever runs for a ticket
+ * sitting at a gate, so a null here is an invariant violation — surfaced loudly
+ * rather than cast away into a null `StageOutcome.stage`.
+ */
+function seamStage(deps: StageDriverDeps, ticketId: number, why: string): StageKey {
+  const stage = getTicket(deps.store, ticketId).stageCurrent as StageKey | null;
+  if (stage === null) {
+    throw new Error(`ticket ${ticketId}: ${why} but the parent has no current stage`);
+  }
+  return stage;
+}
+
 export async function runStageDriver(deps: StageDriverDeps, ticketId: number): Promise<StageOutcome> {
   // Sub-task integration seam (NDL-75): absorb any landed sub-task's work
   // before the boundary checks and gate runners below. This is the parent's
@@ -83,11 +99,24 @@ export async function runStageDriver(deps: StageDriverDeps, ticketId: number): P
       // The child's work is unmerged; do NOT run the stage's gates on a stale
       // tree. The park names why and holds until a seam integrates or a human
       // resolves it.
-      const stage = getTicket(deps.store, ticketId).stageCurrent as StageKey;
+      const stage = seamStage(deps, ticketId, 'sub-task integration parked');
       deps.debug?.(
         `[driver] ticket ${ticketId}: sub-task integration parked at '${stage}' — not driving`,
       );
       return finish(deps, ticketId, stage, 'blocked', 'subtask-integration-parked');
+    }
+    if (outcome.deferred) {
+      // The parent's agent was running, so integration deferred and NOTHING
+      // merged. Running a gate here would gate an unintegrated tree — the exact
+      // failure the seam exists to prevent. A parent is never `running` when the
+      // driver runs its gates, so this is an assertion that blocks loudly if
+      // that invariant ever breaks rather than silently running uat/review on
+      // stale work.
+      const stage = seamStage(deps, ticketId, 'sub-task integration deferred');
+      deps.debug?.(
+        `[driver] ticket ${ticketId}: sub-task integration deferred (parent running) — not driving`,
+      );
+      return finish(deps, ticketId, stage, 'blocked', 'subtask-integration-deferred');
     }
   }
 
