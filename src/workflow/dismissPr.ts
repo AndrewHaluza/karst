@@ -1,6 +1,8 @@
 import type { Store } from '../store/db.js';
 import { dismissPr, undismissPr, listCurrentPrsByTicket } from '../store/prs.js';
 import { settleShipGate } from './mergeGate.js';
+import { integrateAndReleaseParent } from './subtaskIntegration.js';
+import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 
 /**
  * The escape hatch for a ticket parked at `ship` behind a pull request that was
@@ -50,10 +52,11 @@ function refusal(store: Store, ticketId: number, repo: string): string {
   return '';
 }
 
-export function dismissTicketPr(
+export async function dismissTicketPr(
   store: Store,
   opts: DismissTicketPrOpts,
-): DismissTicketPrResult {
+  git: GitRunner = defaultGitRunner,
+): Promise<DismissTicketPrResult> {
   // The store decides what is dismissable, not the caller: the repo arrives from
   // a webview message and a stale panel can name a PR that has since moved on.
   const reason = refusal(store, opts.ticketId, opts.repo);
@@ -69,7 +72,7 @@ export function dismissTicketPr(
   opts.debug?.(
     `[merge] ticket ${opts.ticketId}: dismissed the pull request for '${opts.repo}' — re-settling the gate`,
   );
-  return { ok: true, completedTicket: settle(store, opts.ticketId, opts.debug), reason: '' };
+  return { ok: true, completedTicket: await settle(store, opts.ticketId, git, opts.debug), reason: '' };
 }
 
 /**
@@ -103,10 +106,21 @@ export function undismissTicketPr(
  * bookkeeping failure must not be reported as a refused dismissal. The gate is
  * idempotent and the background sweep runs it again on the next tick.
  */
-function settle(store: Store, ticketId: number, debug?: (message: string) => void): boolean {
-  try {
-    return settleShipGate(store, ticketId, undefined, debug).advanced;
-  } catch {
-    return false;
-  }
+function settle(
+  store: Store,
+  ticketId: number,
+  git: GitRunner,
+  debug?: (message: string) => void,
+): Promise<boolean> {
+  return (async () => {
+    try {
+      const result = settleShipGate(store, ticketId, debug);
+      if (result.landedSubtaskParentId !== null) {
+        await integrateAndReleaseParent(store, result.landedSubtaskParentId, git, debug);
+      }
+      return result.advanced;
+    } catch {
+      return false;
+    }
+  })();
 }

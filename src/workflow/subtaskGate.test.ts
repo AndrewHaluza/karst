@@ -12,6 +12,7 @@ import {
   reconcileAwaitingSubtaskBlock,
   onSubtaskLanded,
 } from './subtaskGate.js';
+import { integrateAndReleaseParent } from './subtaskIntegration.js';
 
 function makeParent(store: ReturnType<typeof openStore>, key: string): number {
   return createTicket(store, { key, title: 'Parent', projectId: 1 }).id;
@@ -231,7 +232,7 @@ describe('subtaskGate', () => {
       expect(getTicket(store, parentId).stageCurrent).toBe('ship');
     });
 
-    it('runs integration only while the parent is not running, and does not drive then', () => {
+    it('does not integrate or drive while the parent is running', async () => {
       const parentId = makeParent(store, 'P-11');
       const child = createSubtask(store, parentId, { title: 'blocking', blocking: true });
       setStageCurrent(store, parentId, 'impl');
@@ -239,10 +240,14 @@ describe('subtaskGate', () => {
       setStageCurrent(store, child.id, 'done');
       store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(parentId);
 
-      let integrated = 0;
-      onSubtaskLanded(store, parentId, { integrate: () => (integrated += 1) });
+      let gitCalls = 0;
+      const git = async () => {
+        gitCalls += 1;
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      await integrateAndReleaseParent(store, parentId, git);
 
-      expect(integrated).toBe(0);
+      expect(gitCalls).toBe(0);
       // Still re-derived: the block is stale.
       expect(stageBlock(store, parentId, 'impl')).toBeNull();
       // But not driven: the parent's own marker will advance it.

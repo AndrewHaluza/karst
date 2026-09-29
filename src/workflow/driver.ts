@@ -46,6 +46,15 @@ export interface StageDriverDeps {
    * no-op unless the manifest's `debug` flag is on.
    */
   debug?: (message: string) => void;
+  /**
+   * The sub-task integration seam (NDL-75, design §6). Runs at the TOP of the
+   * driver, before any boundary check, so a parent that was `running` when a
+   * sub-task landed integrates the child's work on its next drive — the
+   * deferred half of "invoked from onSubtaskLanded (if parent idle) or the
+   * parent's next driver seam (leave-impl / ship entry)". Absent → no
+   * integration happens here.
+   */
+  integrateSubtasks?: (ticketId: number) => Promise<void>;
 }
 
 function finish(
@@ -60,6 +69,15 @@ function finish(
 }
 
 export async function runStageDriver(deps: StageDriverDeps, ticketId: number): Promise<StageOutcome> {
+  // Sub-task integration seam (NDL-75): absorb any landed sub-task's work
+  // before the boundary checks and gate runners below. This is the parent's
+  // "leave-impl"/next-drive boundary — the place a deferred integration (parent
+  // was running at landing) finally runs once the parent is idle.
+  if (deps.integrateSubtasks) {
+    deps.debug?.(`[driver] ticket ${ticketId}: integrating landed sub-tasks before driving`);
+    await deps.integrateSubtasks(ticketId);
+  }
+
   for (;;) {
     // stage_current is `string | null` at the store layer; STAGE_KEYS values in
     // practice (house precedent: src/store/stages.ts rowToStage).

@@ -129,13 +129,52 @@ function parkAwaitingSubtask(
 }
 
 /**
+ * Whether an `awaiting-subtask` block is an INTEGRATION park (a dirty tree, a
+ * git failure, or a merge conflict — NDL-75) rather than the gate's own
+ * "waiting on <sub-task>". The two share the kind because both hold the parent
+ * on the same plumbing; they differ in what clears them. A gate park clears
+ * when the predicate empties; an integration park clears only when integration
+ * actually succeeds (or the user resolves it). The gate park's reason is the
+ * one shape `describeAwaitingSubtask` writes, so anything else is integration.
+ */
+export function isIntegrationParkReason(reason: string | null | undefined): boolean {
+  return reason != null && !reason.startsWith('waiting on ');
+}
+
+/**
+ * Drop every integration park on the ticket's stages. Called ONLY after an
+ * integration attempt succeeded: the refusal no longer holds, so a gate park
+ * (if the predicate is still non-empty) can be written fresh by the next
+ * `settleSubtaskGate`. `onSubtaskLanded` deliberately refuses to clear these
+ * itself — a gate predicate going empty is not proof the work merged.
+ */
+export function clearIntegrationParks(
+  store: Store,
+  ticketId: number,
+  debug?: (message: string) => void,
+): void {
+  for (const stage of ['impl', 'fix', 'ship'] as const) {
+    const block = stageBlock(store, ticketId, stage);
+    if (block?.kind === 'awaiting-subtask' && isIntegrationParkReason(block.reason)) {
+      debug?.(`[driver] ticket ${ticketId}: clearing integration park on '${stage}'`);
+      clearStageBlock(store, ticketId, stage);
+    }
+  }
+}
+
+/**
  * Evaluate a stage's gate and park it when closed. Returns `{ blocked: true }`
  * when the caller must NOT advance past `stage`.
  *
- * When the gate is open, a STALE `awaiting-subtask` block on the row is cleared:
- * a stale block would otherwise outlive the pass it was cached for (the
- * machine's `transition` does not touch `blocked_*`), leaving a passed stage
- * with a phantom block.
+ * An integration park holds the stage unconditionally: the child's work has not
+ * merged, so an empty predicate is not permission to advance. Only a successful
+ * integration (which clears the park via `clearIntegrationParks`) may release
+ * it — that is what makes the integration seam the gate's real precondition.
+ *
+ * When the gate is open and no integration park is present, a STALE
+ * `awaiting-subtask` block on the row is cleared: a stale block would otherwise
+ * outlive the pass it was cached for (the machine's `transition` does not touch
+ * `blocked_*`), leaving a passed stage with a phantom block.
  *
  * A failure to write the block IS allowed to propagate: unlike ship's tail
  * (whose irreversible work already happened), nothing has advanced yet, so
@@ -147,9 +186,16 @@ export function settleSubtaskGate(
   stage: StageKey,
   debug?: (message: string) => void,
 ): { blocked: boolean } {
+  const existing = stageBlock(store, ticketId, stage);
+  if (existing?.kind === 'awaiting-subtask' && isIntegrationParkReason(existing.reason)) {
+    debug?.(
+      `[driver] ticket ${ticketId}: '${stage}' held by a sub-task integration park — not advancing`,
+    );
+    return { blocked: true };
+  }
   const subtasks = openGatingSubtasks(store, ticketId, gateForStage(stage));
   if (subtasks.length === 0) {
-    if (stageBlock(store, ticketId, stage)?.kind === 'awaiting-subtask') {
+    if (existing?.kind === 'awaiting-subtask') {
       debug?.(`[driver] ticket ${ticketId}: gate open at '${stage}' — clearing stale sub-task block`);
       clearStageBlock(store, ticketId, stage);
     }
@@ -175,8 +221,15 @@ export function reconcileAwaitingSubtaskBlock(
   stage: StageKey,
   debug?: (message: string) => void,
 ): { cleared: boolean } {
-  if (stageBlock(store, ticketId, stage)?.kind !== 'awaiting-subtask') {
+  const block = stageBlock(store, ticketId, stage);
+  if (block?.kind !== 'awaiting-subtask') {
     debug?.(`[driver] ticket ${ticketId}: no awaiting-subtask block on '${stage}' — nothing to reconcile`);
+    return { cleared: false };
+  }
+  if (isIntegrationParkReason(block.reason)) {
+    debug?.(
+      `[driver] ticket ${ticketId}: awaiting-subtask on '${stage}' is an integration park — leaving it`,
+    );
     return { cleared: false };
   }
   const subtasks = openGatingSubtasks(store, ticketId, gateForStage(stage));
@@ -194,14 +247,6 @@ export function reconcileAwaitingSubtaskBlock(
 
 /** Options for `onSubtaskLanded`. */
 export interface OnSubtaskLandedOpts {
-  /**
-   * Shape B integration (design §6, NDL-75): fetch/ff/merge the landed
-   * sub-task's work into the parent's local branch. Runs BEFORE re-evaluation,
-   * and only while the parent is not `running` (karst never mutates a tree
-   * under a live agent). A throw is caught here — the child has already landed,
-   * and a failed integration must not unland it; NDL-75 parks the conflict.
-   */
-  integrate?: (parentId: number) => void;
   debug?: (message: string) => void;
 }
 
@@ -211,10 +256,15 @@ export interface OnSubtaskLandedOpts {
  * clear and drive it forward — `impl`/`fix` complete their marker run and
  * advance to `uat`; `ship` returns to its confirm click.
  *
+ * The gate parks are re-derived here; an INTEGRATION park is left alone —
+ * integration is NDL-75's job (`integrateAndReleaseParent`), which runs BEFORE
+ * this call and clears its own park only on success. A caller that reaches here
+ * without integrating first must not clear an integration park, so this refuses
+ * to (`isIntegrationParkReason`).
+ *
  * The "settle" shape of `mergeGate`: a read plus at most one transition. Called
- * from the sub-task's done transition (`settleShipGate`/`resolveShipLanding`,
- * which the Merge click and the background PR sweep both reach) and from boot
- * reconciliation for a landing that happened while no window was open.
+ * from the sub-task's done transition via `integrateAndReleaseParent` and from
+ * boot reconciliation for a landing that happened while no window was open.
  */
 export function onSubtaskLanded(
   store: Store,
@@ -224,17 +274,7 @@ export function onSubtaskLanded(
   const parent = getTicket(store, parentId);
   const idle = parent.agentState !== 'running';
   if (!idle) {
-    opts.debug?.(`[driver] ticket ${parentId}: agent is running — deferring sub-task integration`);
-  } else if (opts.integrate) {
-    try {
-      opts.integrate(parentId);
-    } catch (err) {
-      opts.debug?.(
-        `[driver] ticket ${parentId}: sub-task integration failed: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-      );
-    }
+    opts.debug?.(`[driver] ticket ${parentId}: agent is running — deferring sub-task release`);
   }
 
   const cleared: StageKey[] = [];

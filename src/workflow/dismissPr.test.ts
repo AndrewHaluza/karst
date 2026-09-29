@@ -29,36 +29,36 @@ describe('dismissTicketPr', () => {
   });
   afterEach(() => store.close());
 
-  it('lands the ticket when the dismissed PR was the only holdout', () => {
+  it('lands the ticket when the dismissed PR was the only holdout', async () => {
     seedPr(store, id, 'api', 'merged');
     seedPr(store, id, 'web', 'closed', 13);
     parkAtShip(store, id);
     expect(getTicket(store, id).stageCurrent).toBe('ship');
 
-    const result = dismissTicketPr(store, { ticketId: id, repo: 'web', at: '2026-09-06T10:00:00Z' });
+    const result = await dismissTicketPr(store, { ticketId: id, repo: 'web', at: '2026-09-06T10:00:00Z' });
 
     expect(result).toEqual({ ok: true, completedTicket: true, reason: '' });
     expect(getTicket(store, id).stageCurrent).toBe('done');
     expect(stageBlock(store, id, 'ship')).toBeNull();
   });
 
-  it('keeps the ticket parked when another repo has still to land', () => {
+  it('keeps the ticket parked when another repo has still to land', async () => {
     seedPr(store, id, 'api', 'open');
     seedPr(store, id, 'web', 'closed', 13);
     parkAtShip(store, id);
 
-    const result = dismissTicketPr(store, { ticketId: id, repo: 'web', at: '2026-09-06T10:00:00Z' });
+    const result = await dismissTicketPr(store, { ticketId: id, repo: 'web', at: '2026-09-06T10:00:00Z' });
 
     expect(result.ok).toBe(true);
     expect(result.completedTicket).toBe(false);
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
-  it('refuses a repo the ticket has no PR for, and says so', () => {
+  it('refuses a repo the ticket has no PR for, and says so', async () => {
     seedPr(store, id, 'api', 'closed');
     parkAtShip(store, id);
 
-    const result = dismissTicketPr(store, { ticketId: id, repo: 'nope', at: '2026-09-06T10:00:00Z' });
+    const result = await dismissTicketPr(store, { ticketId: id, repo: 'nope', at: '2026-09-06T10:00:00Z' });
 
     expect(result.ok).toBe(false);
     expect(result.completedTicket).toBe(false);
@@ -66,21 +66,21 @@ describe('dismissTicketPr', () => {
     expect(getTicket(store, id).stageCurrent).toBe('ship');
   });
 
-  it('refuses to dismiss a merged PR', () => {
+  it('refuses to dismiss a merged PR', async () => {
     seedPr(store, id, 'api', 'merged');
     seedPr(store, id, 'web', 'open', 13);
     parkAtShip(store, id);
 
-    const result = dismissTicketPr(store, { ticketId: id, repo: 'api', at: '2026-09-06T10:00:00Z' });
+    const result = await dismissTicketPr(store, { ticketId: id, repo: 'api', at: '2026-09-06T10:00:00Z' });
 
     expect(result.ok).toBe(false);
     expect(result.reason).toContain('merged');
   });
 
-  it('undismisses and re-blocks a ticket still at ship', () => {
+  it('undismisses and re-blocks a ticket still at ship', async () => {
     seedPr(store, id, 'api', 'closed');
     parkAtShip(store, id);
-    dismissTicketPr(store, { ticketId: id, repo: 'api', at: '2026-09-06T10:00:00Z' });
+    await dismissTicketPr(store, { ticketId: id, repo: 'api', at: '2026-09-06T10:00:00Z' });
     // The ticket landed on the dismissal; undoing it cannot un-land it, so this
     // asserts only what the store says about the PR itself.
     expect(undismissTicketPr(store, { ticketId: id, repo: 'api' }).ok).toBe(true);

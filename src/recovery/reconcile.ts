@@ -4,7 +4,7 @@ import { STAGE_KEYS } from '../model/types.js';
 import { listTickets, setStageCurrent } from '../store/tickets.js';
 import { setStage, type Stage } from '../store/stages.js';
 import { isTerminal, needsConfirm } from '../workflow/graph.js';
-import { recoverAwaitingSubtasks } from '../workflow/subtaskGate.js';
+import { listAwaitingSubtaskParentIds } from '../store/subtasks.js';
 import { nowIso } from '../model/time.js';
 
 /**
@@ -26,6 +26,14 @@ export interface DeadServer {
 
 export interface ReconcileResult {
   deadServers: DeadServer[];
+  /**
+   * Every ticket carrying an `awaiting-subtask` block at boot (NDL-70 §5,
+   * NDL-75). The caller INTEGRATES each one (git, async) and then re-derives its
+   * gate — deliberately OUTSIDE this synchronous transaction: integration is
+   * asynchronous, and a gate must never be released before the sub-task's work
+   * has merged. `reconcileOnStart` itself only collects them.
+   */
+  awaitingSubtaskParents: number[];
 }
 
 /**
@@ -155,6 +163,7 @@ interface ServerRow {
  */
 export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResult {
   const deadServers: DeadServer[] = [];
+  let awaitingSubtaskParents: number[] = [];
 
   const restore = store.db.transaction(() => {
     for (const ticket of listTickets(store)) {
@@ -165,11 +174,11 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
       }
     }
 
-    // Sub-task gating is a DERIVED fact (design NDL-70 §5): re-evaluate every
-    // `awaiting-subtask` block now. A sub-task that landed while this window was
-    // closed has its parent's block cleared and the parent driven forward;
-    // while the predicate is still non-empty the block is left untouched.
-    recoverAwaitingSubtasks(store);
+    // Sub-task gating is a DERIVED fact (design NDL-70 §5): collect every
+    // `awaiting-subtask` parent now. The caller integrates and re-derives each
+    // one asynchronously (NDL-75) — a sub-task that landed while this window was
+    // closed has the parent's block cleared only after its work is merged.
+    awaitingSubtaskParents = listAwaitingSubtaskParentIds(store);
 
     const running = store.db
       .prepare("SELECT id, ticket_id, repo, pid, status FROM servers WHERE status = 'running'")
@@ -195,5 +204,5 @@ export function reconcileOnStart(store: Store, isAlive: IsAlive): ReconcileResul
   });
   restore();
 
-  return { deadServers };
+  return { deadServers, awaitingSubtaskParents };
 }

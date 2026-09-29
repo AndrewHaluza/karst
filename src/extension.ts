@@ -322,6 +322,7 @@ import { mergeTicketPr } from './workflow/mergePr.js';
 import { dismissTicketPr, undismissTicketPr } from './workflow/dismissPr.js';
 import { nowIso } from './model/time.js';
 import { settleShipGates } from './workflow/mergeGate.js';
+import { integrateAndReleaseParent, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
 import { autoArchiveDoneTickets } from './store/doneArchive.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
@@ -3155,6 +3156,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           onGateOutput: (id, stage, gateName, chunk) =>
             gateConsole.append(id, stage, gateName, chunk),
           shouldContinue: () => driver.shouldContinue(ticketId),
+          // Sub-task integration seam (NDL-75): the parent's next drive absorbs
+          // any landed sub-task's work before a boundary or gate runner runs —
+          // the deferred half of landing a sub-task while the parent was busy.
+          integrateSubtasks: async (id) => {
+            await integrateAndReleaseParent(localStore, id, defaultGitRunner, (message) =>
+              logger.debug(message),
+            );
+          },
           // Stop, as a signal rather than a between-stages poll: `requestStop`
           // aborts this, and the abort reaches the gate child already running.
           signal: driver.signalFor(ticketId),
@@ -5276,13 +5285,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // having to reopen the dashboard.
       let landed: number[] = [];
       try {
-        landed = settleShipGates(
-          localStore,
-          { projectId: project.id },
-          undefined,
-          (message) => logger.debug(message),
+        landed = settleShipGates(localStore, { projectId: project.id }, (message) =>
+          logger.debug(message),
         );
-        for (const id of landed) void pushDoneStatus(id, false);
+        // A landed sub-task releases its parent: integrate the child's work into
+        // the parent's branch, then re-derive the parent's gate. This is the
+        // background sweep — the normal way a merged PR is observed.
+        for (const id of landed) {
+          await releaseLandedSubtask(localStore, id, defaultGitRunner, (message) =>
+            logger.debug(message),
+          );
+          void pushDoneStatus(id, false);
+        }
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.
         logError('karst: merge gate settle failed', e);
@@ -7923,12 +7937,16 @@ function makeDashboardActions(
           );
           if (!choice) return; // dismissed: nothing ran, and nothing is claimed
 
-          const result = dismissTicketPr(store, {
-            ticketId,
-            repo,
-            at: nowIso(),
-            debug,
-          });
+          const result = await dismissTicketPr(
+            store,
+            {
+              ticketId,
+              repo,
+              at: nowIso(),
+              debug,
+            },
+            defaultGitRunner,
+          );
           if (!result.ok) {
             void vscode.window.showErrorMessage(result.reason);
             return;

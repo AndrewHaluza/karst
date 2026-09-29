@@ -2,24 +2,12 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore } from '../store/db.js';
 import { createTicket, setStageCurrent } from '../store/tickets.js';
 import { createSubtask } from './stages/subtask.js';
-import { setStage } from '../store/stages.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { integrateLandedSubtasks } from './subtaskIntegration.js';
-import type { GitResult } from '../integrations/git.js';
-import type { GitRunner } from '../integrations/git.js';
-
-interface MockGitCall {
-  args: string[];
-  cwd: string;
-  result: GitResult;
-}
+import type { GitResult, GitRunner } from '../integrations/git.js';
 
 function makeStore() {
   return openStore(':memory:');
-}
-
-function makeParent(store: ReturnType<typeof openStore>, key: string): number {
-  return createTicket(store, { key, title: 'Parent', projectId: 1 }).id;
 }
 
 function addWorktree(
@@ -36,29 +24,36 @@ function addWorktree(
   return path;
 }
 
-function createMockGitRunner(): { runner: GitRunner; calls: MockGitCall[] } {
-  const calls: MockGitCall[] = [];
+/** A parent at impl with one landed, stacked sub-task in `api`. */
+function parentWithLandedChild(store: ReturnType<typeof openStore>, key: string) {
+  const parentId = createTicket(store, { key, title: 'Parent', projectId: 1 }).id;
+  const parentBranch = `karst/${key}`;
+  addWorktree(store, parentId, 'api', parentBranch, 'main');
+  setStageCurrent(store, parentId, 'impl');
+  const child = createSubtask(store, parentId, { title: 'Child' });
+  addWorktree(store, child.id, 'api', `${parentBranch}-s1`, parentBranch);
+  setStageCurrent(store, child.id, 'done');
+  return { parentId, parentBranch, child };
+}
 
-  const runner: GitRunner = async (args, cwd) => {
-    const call: MockGitCall = { args, cwd, result: { stdout: '', stderr: '', exitCode: 0 } };
-
-    // Default successful responses
-    if (args[0] === 'status') {
-      call.result = { stdout: '', stderr: '', exitCode: 0 };
-    } else if (args[0] === 'fetch') {
-      call.result = { stdout: '', stderr: '', exitCode: 0 };
-    } else if (args[0] === 'merge' && args[1] === '--ff-only') {
-      call.result = { stdout: '', stderr: '', exitCode: 0 };
-    } else if (args[0] === 'rev-parse' && args[1] === 'MERGE_HEAD') {
-      call.result = { stdout: '', stderr: 'fatal: ambiguous argument \'MERGE_HEAD\'', exitCode: 128 };
+/** A scripted runner: the first prefix that matches wins; default is success. */
+function runnerWith(
+  handlers: ReadonlyArray<readonly [prefix: string, result: GitResult]>,
+): { runner: GitRunner; calls: string[][] } {
+  const calls: string[][] = [];
+  const runner: GitRunner = async (args) => {
+    calls.push([...args]);
+    const joined = args.join(' ');
+    for (const [prefix, result] of handlers) {
+      if (joined.startsWith(prefix)) return result;
     }
-
-    calls.push(call);
-    return call.result;
+    return { stdout: '', stderr: '', exitCode: 0 };
   };
-
   return { runner, calls };
 }
+
+const OK: GitResult = { stdout: '', stderr: '', exitCode: 0 };
+const FAIL = (stderr: string): GitResult => ({ stdout: '', stderr, exitCode: 1 });
 
 describe('subtaskIntegration', () => {
   let store: ReturnType<typeof openStore>;
@@ -71,235 +66,154 @@ describe('subtaskIntegration', () => {
     store.close();
   });
 
-  describe('integrateLandedSubtasks', () => {
-    it('does nothing when parent has no worktrees', async () => {
-      const parentId = makeParent(store, 'P-1');
-      setStageCurrent(store, parentId, 'impl');
-      const { runner, calls } = createMockGitRunner();
+  it('does nothing when parent has no worktrees', async () => {
+    const parentId = createTicket(store, { key: 'P-1', title: 'Parent', projectId: 1 }).id;
+    setStageCurrent(store, parentId, 'impl');
+    const { runner, calls } = runnerWith([]);
 
-      await integrateLandedSubtasks(store, parentId, runner);
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      expect(calls).toHaveLength(0);
-    });
+    expect(outcome.parked).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
 
-    it('does nothing when parent has no landed sub-tasks', async () => {
-      const parentId = makeParent(store, 'P-2');
-      setStageCurrent(store, parentId, 'impl');
-      addWorktree(store, parentId, 'api', 'karst/p-2', 'main');
-      const { runner, calls } = createMockGitRunner();
+  it('does nothing when no sub-task has landed', async () => {
+    const parentId = createTicket(store, { key: 'P-2', title: 'Parent', projectId: 1 }).id;
+    addWorktree(store, parentId, 'api', 'karst/p-2', 'main');
+    setStageCurrent(store, parentId, 'impl');
+    const { runner, calls } = runnerWith([]);
 
-      await integrateLandedSubtasks(store, parentId, runner);
+    await integrateLandedSubtasks(store, parentId, runner);
 
-      expect(calls).toHaveLength(0);
-    });
+    expect(calls).toHaveLength(0);
+  });
 
-    it('performs ff-only merge when successful', async () => {
-      const parentId = makeParent(store, 'P-3');
-      const parentBranch = 'karst/p-3';
-      const parentPath = addWorktree(store, parentId, 'api', parentBranch, 'main');
-      setStageCurrent(store, parentId, 'impl');
+  it('defers while the parent agent is running, touching no git', async () => {
+    const { parentId } = parentWithLandedChild(store, 'P-3');
+    store.db.prepare("UPDATE tickets SET agent_state = 'running' WHERE id = ?").run(parentId);
+    const { runner, calls } = runnerWith([]);
 
-      const child = createSubtask(store, parentId, { title: 'Child' });
-      const childBranch = `${parentBranch}-s1`;
-      addWorktree(store, child.id, 'api', childBranch, parentBranch);
-      setStageCurrent(store, child.id, 'done');
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      const { runner, calls } = createMockGitRunner();
-      await integrateLandedSubtasks(store, parentId, runner);
+    expect(outcome.parked).toBe(false);
+    expect(calls).toHaveLength(0);
+  });
 
-      // Should call: status (clean), fetch, merge --ff-only
-      expect(calls.length).toBeGreaterThanOrEqual(2);
-      expect(calls.some((c) => c.args[0] === 'status')).toBe(true);
-      expect(calls.some((c) => c.args[0] === 'fetch')).toBe(true);
-      expect(calls.some((c) => c.args[0] === 'merge' && c.args[1] === '--ff-only')).toBe(true);
-    });
+  it('fetches and ff-only merges the remote parent branch', async () => {
+    const { parentId, parentBranch } = parentWithLandedChild(store, 'P-4');
+    const { runner, calls } = runnerWith([]);
 
-    it('parks awaiting-subtask when tree is dirty', async () => {
-      const parentId = makeParent(store, 'P-4');
-      const parentBranch = 'karst/p-4';
-      addWorktree(store, parentId, 'api', parentBranch, 'main');
-      setStageCurrent(store, parentId, 'impl');
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      const child = createSubtask(store, parentId, { title: 'Child' });
-      const childBranch = `${parentBranch}-s1`;
-      addWorktree(store, child.id, 'api', childBranch, parentBranch);
-      setStageCurrent(store, child.id, 'done');
+    expect(outcome.parked).toBe(false);
+    expect(calls).toContainEqual(['fetch', 'origin', parentBranch]);
+    expect(calls).toContainEqual(['merge', '--ff-only', `origin/${parentBranch}`]);
+  });
 
-      const { runner } = createMockGitRunner();
-      // Override to report dirty tree
-      const dirtyRunner: GitRunner = async (args) => {
-        if (args[0] === 'status') {
-          return { stdout: 'M file.ts\n', stderr: '', exitCode: 0 };
-        }
-        return { stdout: '', stderr: '', exitCode: 0 };
-      };
+  it('falls back to merge --no-edit when ff-only fails', async () => {
+    const { parentId, parentBranch } = parentWithLandedChild(store, 'P-5');
+    const { runner, calls } = runnerWith([
+      ['merge --ff-only', FAIL('not possible')],
+    ]);
 
-      await integrateLandedSubtasks(store, parentId, dirtyRunner);
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      const block = stageBlock(store, parentId, 'impl');
-      expect(block?.kind).toBe('awaiting-subtask');
-      expect(block?.reason).toContain('commit or stash');
-      expect(block?.reason).toContain(child.key);
-    });
+    expect(outcome.parked).toBe(false);
+    expect(calls).toContainEqual(['merge', '--no-edit', `origin/${parentBranch}`]);
+  });
 
-    it('parks subtask-integration-conflict on merge conflict', async () => {
-      const parentId = makeParent(store, 'P-5');
-      const parentBranch = 'karst/p-5';
-      addWorktree(store, parentId, 'api', parentBranch, 'main');
-      setStageCurrent(store, parentId, 'impl');
+  it('refuses a dirty tracked tree and names the sub-task', async () => {
+    const { parentId, child } = parentWithLandedChild(store, 'P-6');
+    const { runner, calls } = runnerWith([
+      ['status', { stdout: 'M file.ts\n', stderr: '', exitCode: 0 }],
+    ]);
 
-      const child = createSubtask(store, parentId, { title: 'Child' });
-      const childBranch = `${parentBranch}-s1`;
-      addWorktree(store, child.id, 'api', childBranch, parentBranch);
-      setStageCurrent(store, child.id, 'done');
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      let inMergeState = false;
-      const conflictRunner: GitRunner = async (args, cwd) => {
-        if (args[0] === 'status') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'fetch') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'merge') {
-          if (args[1] === '--abort') {
-            inMergeState = false;
-            return { stdout: '', stderr: '', exitCode: 0 };
-          }
-          if (args[1] === '--ff-only') {
-            // ff-only fails
-            return { stdout: '', stderr: 'error: ff-only not possible', exitCode: 1 };
-          }
-          // merge --no-edit fails but enters merge state
-          inMergeState = true;
-          return { stdout: '', stderr: 'CONFLICT (content): Merge conflict', exitCode: 1 };
-        }
-        if (args[0] === 'rev-parse' && args[1] === 'MERGE_HEAD') {
-          // Return merge head if in merge state
-          if (inMergeState) {
-            return { stdout: 'abc123\n', stderr: '', exitCode: 0 };
-          }
-          return { stdout: '', stderr: 'fatal: ambiguous argument \'MERGE_HEAD\'', exitCode: 128 };
-        }
-        if (args[0] === 'diff-index') {
-          return { stdout: 'file1.ts\nfile2.ts\n', stderr: '', exitCode: 0 };
-        }
-        return { stdout: '', stderr: '', exitCode: 0 };
-      };
+    expect(outcome.parked).toBe(true);
+    expect(calls.some((c) => c[0] === 'fetch')).toBe(false);
+    const block = stageBlock(store, parentId, 'impl');
+    expect(block?.kind).toBe('awaiting-subtask');
+    expect(block?.reason).toContain('commit or stash parent changes to integrate');
+    expect(block?.reason).toContain(child.key);
+  });
 
-      await integrateLandedSubtasks(store, parentId, conflictRunner);
+  it('parks awaiting-subtask when git status fails', async () => {
+    const { parentId } = parentWithLandedChild(store, 'P-7');
+    const { runner } = runnerWith([['status', FAIL('boom')]]);
 
-      const block = stageBlock(store, parentId, 'impl');
-      expect(block?.kind).toBe('subtask-integration-conflict');
-      expect(block?.reason).toContain(child.key);
-      expect(block?.reason).toContain('merge conflict');
-      expect(block?.reason).toContain('file1.ts');
-      expect(block?.reason).toContain('file2.ts');
-    });
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-    it('falls back to merge --no-edit when ff-only fails', async () => {
-      const parentId = makeParent(store, 'P-6');
-      const parentBranch = 'karst/p-6';
-      const parentPath = addWorktree(store, parentId, 'api', parentBranch, 'main');
-      setStageCurrent(store, parentId, 'impl');
+    expect(outcome.parked).toBe(true);
+    const block = stageBlock(store, parentId, 'impl');
+    expect(block?.kind).toBe('awaiting-subtask');
+    expect(block?.reason).toContain('git status failed');
+  });
 
-      const child = createSubtask(store, parentId, { title: 'Child' });
-      const childBranch = `${parentBranch}-s1`;
-      addWorktree(store, child.id, 'api', childBranch, parentBranch);
-      setStageCurrent(store, child.id, 'done');
+  it('parks awaiting-subtask when the fetch fails', async () => {
+    const { parentId } = parentWithLandedChild(store, 'P-8');
+    const { runner } = runnerWith([['fetch', FAIL('unreachable')]]);
 
-      const { runner, calls } = createMockGitRunner();
-      let mergeAttempts = 0;
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      // Override runner to simulate ff-only failure
-      const noFfRunner: GitRunner = async (args, cwd) => {
-        if (args[0] === 'status') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'fetch') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'merge') {
-          mergeAttempts++;
-          if (args[1] === '--ff-only') {
-            // ff-only fails
-            return { stdout: '', stderr: 'error: ff-only not possible', exitCode: 1 };
-          } else if (args[1] === '--no-edit') {
-            // merge --no-edit succeeds
-            return { stdout: '', stderr: '', exitCode: 0 };
-          }
-        }
-        if (args[0] === 'rev-parse' && args[1] === 'MERGE_HEAD') {
-          return { stdout: '', stderr: 'fatal: ambiguous', exitCode: 128 };
-        }
-        return { stdout: '', stderr: '', exitCode: 0 };
-      };
+    expect(outcome.parked).toBe(true);
+    const block = stageBlock(store, parentId, 'impl');
+    expect(block?.kind).toBe('awaiting-subtask');
+    expect(block?.reason).toContain('git fetch failed');
+  });
 
-      await integrateLandedSubtasks(store, parentId, noFfRunner);
+  it('parks subtask-integration-conflict naming the files from git state', async () => {
+    const { parentId, child } = parentWithLandedChild(store, 'P-9');
+    const { runner, calls } = runnerWith([
+      ['merge --ff-only', FAIL('not possible')],
+      ['merge --no-edit', FAIL('CONFLICT')],
+      ['rev-parse --verify MERGE_HEAD', { stdout: 'abc\n', stderr: '', exitCode: 0 }],
+      ['diff --name-only', { stdout: 'a.ts\nb.ts\n', stderr: '', exitCode: 0 }],
+      ['merge --abort', OK],
+    ]);
 
-      // Should attempt both ff-only and merge --no-edit
-      expect(mergeAttempts).toBeGreaterThanOrEqual(2);
-      expect(stageBlock(store, parentId, 'impl')).toBeNull();
-    });
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-    it('aborts merge on conflict and reports abort failures', async () => {
-      const parentId = makeParent(store, 'P-7');
-      const parentBranch = 'karst/p-7';
-      addWorktree(store, parentId, 'api', parentBranch, 'main');
-      setStageCurrent(store, parentId, 'impl');
+    expect(outcome.parked).toBe(true);
+    expect(calls).toContainEqual(['diff', '--name-only', '--diff-filter=U']);
+    const block = stageBlock(store, parentId, 'impl');
+    expect(block?.kind).toBe('subtask-integration-conflict');
+    expect(block?.reason).toContain(child.key);
+    expect(block?.reason).toContain('a.ts');
+    expect(block?.reason).toContain('b.ts');
+  });
 
-      const child = createSubtask(store, parentId, { title: 'Child' });
-      const childBranch = `${parentBranch}-s1`;
-      addWorktree(store, child.id, 'api', childBranch, parentBranch);
-      setStageCurrent(store, child.id, 'done');
+  it('parks with manual-cleanup wording when merge --abort fails', async () => {
+    const { parentId } = parentWithLandedChild(store, 'P-10');
+    const { runner } = runnerWith([
+      ['merge --ff-only', FAIL('not possible')],
+      ['merge --no-edit', FAIL('CONFLICT')],
+      ['rev-parse --verify MERGE_HEAD', { stdout: 'abc\n', stderr: '', exitCode: 0 }],
+      ['diff --name-only', OK],
+      ['merge --abort', FAIL('cannot abort')],
+    ]);
 
-      const abortFailureRunner: GitRunner = async (args) => {
-        if (args[0] === 'status') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'fetch') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'merge') {
-          return { stdout: '', stderr: '', exitCode: 1 };
-        }
-        if (args[0] === 'rev-parse' && args[1] === 'MERGE_HEAD') {
-          return { stdout: 'abc123\n', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'diff-index') {
-          return { stdout: '', stderr: '', exitCode: 0 };
-        }
-        if (args[0] === 'merge' && args[1] === '--abort') {
-          // abort fails
-          return { stdout: '', stderr: 'error: cannot abort merge', exitCode: 1 };
-        }
-        return { stdout: '', stderr: '', exitCode: 0 };
-      };
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-      let debugMessages = '';
-      const debug = (msg: string) => {
-        debugMessages += msg + '\n';
-      };
+    expect(outcome.parked).toBe(true);
+    const block = stageBlock(store, parentId, 'impl');
+    expect(block?.kind).toBe('subtask-integration-conflict');
+    expect(block?.reason).toContain('abort failed');
+  });
 
-      await integrateLandedSubtasks(store, parentId, abortFailureRunner, debug);
+  it('parks awaiting-subtask when the merge fails without entering a conflict', async () => {
+    const { parentId } = parentWithLandedChild(store, 'P-11');
+    const { runner } = runnerWith([
+      ['merge --ff-only', FAIL('not possible')],
+      ['merge --no-edit', FAIL('would be overwritten')],
+      ['rev-parse --verify MERGE_HEAD', FAIL('not a merge')],
+    ]);
 
-      expect(debugMessages).toContain('merge --abort failed');
-    });
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
 
-    it('skips repos without branches', async () => {
-      const parentId = makeParent(store, 'P-8');
-      addWorktree(store, parentId, 'api', null, 'main');
-      setStageCurrent(store, parentId, 'impl');
-
-      const child = createSubtask(store, parentId, { title: 'Child' });
-      addWorktree(store, child.id, 'api', 'child-branch', null);
-      setStageCurrent(store, child.id, 'done');
-
-      const { runner, calls } = createMockGitRunner();
-      await integrateLandedSubtasks(store, parentId, runner);
-
-      // Should not make any git calls since parent has no branch
-      expect(calls).toHaveLength(0);
-    });
+    expect(outcome.parked).toBe(true);
+    const block = stageBlock(store, parentId, 'impl');
+    expect(block?.kind).toBe('awaiting-subtask');
+    expect(block?.reason).toContain('git merge');
   });
 });

@@ -16,6 +16,7 @@ import { allGraphRunsClosed } from '../../store/graph/graphRuns.js';
 import { defaultGitRunner } from '../../integrations/git.js';
 import { pidAlive } from '../../runtime/pidAlive.js';
 import { reconcileOnStart } from '../../recovery/reconcile.js';
+import { integrateAndReleaseParent } from '../../workflow/subtaskIntegration.js';
 import { isPortOpen } from '../../runtime/portConflict.js';
 import { removeContainer } from '../../runtime/dockerContainer.js';
 
@@ -99,12 +100,22 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   try {
     const serving = await pidsStillServing(deps.store);
     const isAlive = (pid: number): boolean => pidAlive(pid) || serving.has(pid);
-    for (const s of reconcileOnStart(deps.store, isAlive).deadServers) {
+    const reconciled = reconcileOnStart(deps.store, isAlive);
+    for (const s of reconciled.deadServers) {
       const container = containerOf(deps.store, s.id);
       if (container) removeContainer(container);
       deps.info(
         `karst: '${s.service}' is no longer running (pid ${s.pid ?? 'unknown'})` +
           `${s.ticketId === null ? '' : ` on ticket #${s.ticketId}`} — marked offline.`,
+      );
+    }
+    // Sub-task integration (NDL-75): a sub-task that landed while the window was
+    // closed left its parent's `awaiting-subtask` block behind. Integrate the
+    // child's work into the parent's branch first, then re-derive the gate — a
+    // gate must never be released before the work it held for has merged.
+    for (const parentId of reconciled.awaitingSubtaskParents) {
+      await integrateAndReleaseParent(deps.store, parentId, defaultGitRunner, (message) =>
+        deps.debug(message),
       );
     }
   } catch (err) {

@@ -1,159 +1,258 @@
 import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
-import { getTicket, listTickets } from '../store/tickets.js';
+import { getTicket } from '../store/tickets.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
+import { listLandedSubtasks, listLandedStackedSubtasks } from '../store/subtasks.js';
 import { setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
+import { collapseDiagnostic } from '../model/diagnosticText.js';
 import type { GitRunner } from '../integrations/git.js';
+import { onSubtaskLanded, clearIntegrationParks } from './subtaskGate.js';
 
 /**
  * Integrate a landed sub-task's work into its parent's local branch (NDL-75,
- * design §6). Called from `onSubtaskLanded` when the parent is idle, or
- * injected into the parent's driver seams (leave-impl/ship entry) before the
- * gating predicate runs.
+ * design §6).
  *
- * For each repo the parent has a worktree in:
- * 1. Fetch the parent's branch from origin
- * 2. Try ff-only merge of the sub-task's branch
- * 3. If that fails, try git merge --no-edit (no rebase, shared history)
- * 4. Classify MERGE_HEAD conflicts by git state, abort, and park with
- *    subtask-integration-conflict, naming the sub-task and files
- * 5. Dirty tracked tree: refuse with awaiting-subtask park, naming the
- *    sub-task
+ * For each repo the parent has a branch worktree in, and only when at least one
+ * landed sub-task stacked on that branch:
+ * 1. Refuse on a dirty TRACKED tree — park `awaiting-subtask` naming the
+ *    sub-task(s).
+ * 2. Fetch `origin/<parentBranch>`.
+ * 3. `git merge --ff-only origin/<parentBranch>`; on failure,
+ *    `git merge --no-edit origin/<parentBranch>` (no rebase, shared history).
+ * 4. A `MERGE_HEAD` state is a conflict: read the unmerged files from git
+ *    state, `merge --abort`, and park `subtask-integration-conflict` naming the
+ *    sub-task and files. A failed abort parks too — the tree is mid-merge and
+ *    needs manual cleanup.
  *
- * All git operations run via the injected async GitRunner (never spawnSync),
- * and all branches log via the injected logger with [driver] prefix.
+ * Every silent branch (status/fetch/merge failure) PARKS instead of advancing:
+ * `onSubtaskLanded` must never release the parent's gate without the child's
+ * work. The whole step runs only while the parent is idle — karst never mutates
+ * a tree under a live agent — and every branch logs via the injected `debug`
+ * with the `[driver]` prefix.
+ *
+ * The merge target is the FETCHED `origin/<parentBranch>`: a sub-task's ship
+ * pushes its fork point onto the remote parent branch, so that is what actually
+ * landed. The child's local branch is irrelevant (and may be gone).
  */
+export interface IntegrateOutcome {
+  /**
+   * True when integration stopped by parking the parent. The caller must NOT
+   * release the gate; the park stays for a human or the next seam.
+   */
+  parked: boolean;
+}
+
+/** A `[driver]` debug line keeps untrusted git prose to one bounded line. */
+const DEBUG_MAX_CHARS = 500;
+function brief(result: { stdout: string; stderr: string }): string {
+  return collapseDiagnostic(result.stderr.trim() || result.stdout.trim(), DEBUG_MAX_CHARS) || 'no output';
+}
+
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * Park the parent's CURRENT stage with an integration block. The stage is read
+ * fresh — integration awaited, then parks, so `stage_current` is the parent's
+ * real resting place, never a value captured before a drive.
+ */
+function parkParent(
+  store: Store,
+  parentId: number,
+  kind: 'awaiting-subtask' | 'subtask-integration-conflict',
+  reason: string,
+  debug?: (message: string) => void,
+): IntegrateOutcome {
+  const stage = getTicket(store, parentId).stageCurrent as StageKey | null;
+  if (!stage) {
+    debug?.(`[driver] ticket ${parentId}: no current stage — cannot park (${reason})`);
+    return { parked: true };
+  }
+  debug?.(`[driver] ticket ${parentId}: parking '${stage}' — ${reason}`);
+  setStage(store, parentId, stage, {
+    blockedKind: kind,
+    blockedReason: reason,
+    blockedAt: nowIso(),
+  });
+  return { parked: true };
+}
+
 export async function integrateLandedSubtasks(
   store: Store,
   parentId: number,
   git: GitRunner,
   debug?: (message: string) => void,
-): Promise<void> {
+): Promise<IntegrateOutcome> {
   const parent = getTicket(store, parentId);
-  if (!parent) {
-    debug?.(`[driver] ticket ${parentId}: parent not found`);
-    return;
+  if (parent.agentState === 'running') {
+    debug?.(`[driver] ticket ${parentId}: agent is running — deferring sub-task integration`);
+    return { parked: false };
   }
 
-  const parentWorktrees = listWorktreesByTicket(store, parentId);
-  if (parentWorktrees.length === 0) {
-    debug?.(`[driver] ticket ${parentId}: parent has no worktrees`);
-    return;
+  const worktrees = listWorktreesByTicket(store, parentId).filter((wt) => wt.branch);
+  if (worktrees.length === 0) {
+    debug?.(`[driver] ticket ${parentId}: parent has no branch worktree`);
+    return { parked: false };
   }
 
-  const children = store.db
-    .prepare(
-      `SELECT id, key FROM tickets
-         WHERE subtask_parent_id = ?
-           AND stage_current = 'done'
-           AND archived_at IS NULL`,
-    )
-    .all(parentId) as { id: number; key: string }[];
-
-  if (children.length === 0) {
+  if (listLandedSubtasks(store, parentId).length === 0) {
     debug?.(`[driver] ticket ${parentId}: no landed sub-tasks to integrate`);
-    return;
+    return { parked: false };
   }
 
-  for (const wt of parentWorktrees) {
-    if (!wt.branch) continue;
+  for (const wt of worktrees) {
+    const branch = wt.branch!;
+    const children = listLandedStackedSubtasks(store, parentId, wt.repo, branch);
+    if (children.length === 0) continue;
+    const keys = children.map((c) => c.key).join(', ');
+    const remote = `origin/${branch}`;
 
-    debug?.(`[driver] ticket ${parentId}: integrating sub-tasks in repo '${wt.repo}'`);
+    debug?.(`[driver] ticket ${parentId}: integrating ${keys} into '${wt.repo}' (${branch})`);
 
-    // Check for dirty tracked tree first
-    const statusResult = await git(['status', '--porcelain'], wt.path);
-    if (statusResult.exitCode !== 0) {
-      debug?.(`[driver] ticket ${parentId}: git status failed in '${wt.repo}': ${statusResult.stderr}`);
+    // A dirty TRACKED tree is the refusal — untracked files are not karst's to
+    // reason about and must not block integration.
+    const status = await git(['status', '--porcelain', '--untracked-files=no'], wt.path);
+    if (status.exitCode !== 0) {
+      return parkParent(
+        store,
+        parentId,
+        'awaiting-subtask',
+        `sub-task integration failed: git status failed integrating ${keys} — ${brief(status)}`,
+        debug,
+      );
+    }
+    if (status.stdout.trim()) {
+      return parkParent(
+        store,
+        parentId,
+        'awaiting-subtask',
+        `commit or stash parent changes to integrate ${keys}`,
+        debug,
+      );
+    }
+
+    const fetch = await git(['fetch', 'origin', branch], wt.path);
+    if (fetch.exitCode !== 0) {
+      return parkParent(
+        store,
+        parentId,
+        'awaiting-subtask',
+        `sub-task integration failed: git fetch failed integrating ${keys} — ${brief(fetch)}`,
+        debug,
+      );
+    }
+
+    const ff = await git(['merge', '--ff-only', remote], wt.path);
+    if (ff.exitCode === 0) {
+      debug?.(`[driver] ticket ${parentId}: ff-only merge of ${remote} succeeded for ${keys}`);
       continue;
     }
-    if (statusResult.stdout.trim()) {
-      // There are uncommitted changes
-      const childrenList = children.map((c) => c.key).join(', ');
-      debug?.(`[driver] ticket ${parentId}: dirty tracked tree in '${wt.repo}' — parking awaiting-subtask`);
-      const stage = parent.stageCurrent as StageKey;
-      setStage(store, parentId, stage, {
-        blockedKind: 'awaiting-subtask',
-        blockedReason: `commit or stash parent changes to integrate ${childrenList}`,
-        blockedAt: nowIso(),
-      });
-      return;
-    }
 
-    // Find sub-tasks in this repo
-    const childWorktrees = store.db
-      .prepare(
-        `SELECT t.id, t.key, cw.branch FROM tickets t
-           INNER JOIN worktrees cw ON cw.ticket_id = t.id
-          WHERE t.subtask_parent_id = ?
-            AND cw.repo = ?
-            AND t.stage_current = 'done'
-            AND t.archived_at IS NULL`,
-      )
-      .all(parentId, wt.repo) as { id: number; key: string; branch: string | null }[];
-
-    for (const child of childWorktrees) {
-      if (!child.branch) continue;
-
-      debug?.(`[driver] ticket ${parentId}: integrating ${child.key} into ${wt.repo}`);
-
-      // Fetch the parent's branch from origin
-      const fetchResult = await git(['fetch', 'origin', wt.branch], wt.path);
-      if (fetchResult.exitCode !== 0) {
-        debug?.(`[driver] ticket ${parentId}: fetch failed for ${wt.branch}: ${fetchResult.stderr}`);
-        continue;
-      }
-
-      // Try ff-only merge first
-      debug?.(`[driver] ticket ${parentId}: attempting ff-only merge of ${child.branch} into ${wt.branch}`);
-      const ffMergeResult = await git(['merge', '--ff-only', child.branch], wt.path);
-
-      if (ffMergeResult.exitCode === 0) {
-        debug?.(`[driver] ticket ${parentId}: ff-only merge succeeded for ${child.key}`);
-        continue;
-      }
-
-      // ff-only failed, try regular merge
-      debug?.(`[driver] ticket ${parentId}: ff-only merge failed, trying git merge --no-edit`);
-      const mergeResult = await git(['merge', '--no-edit', child.branch], wt.path);
-
-      if (mergeResult.exitCode === 0) {
-        debug?.(`[driver] ticket ${parentId}: merge succeeded for ${child.key}`);
-        continue;
-      }
-
-      // Merge failed — check if it's a MERGE_HEAD conflict
-      const mergeHeadResult = await git(['rev-parse', 'MERGE_HEAD'], wt.path);
-      if (mergeHeadResult.exitCode === 0) {
-        // MERGE_HEAD exists — we're in a merge conflict state
-        debug?.(`[driver] ticket ${parentId}: merge conflict detected in ${wt.repo} for ${child.key} — aborting`);
-
-        // Get the conflicted files
-        const diffIndexResult = await git(['diff-index', '--name-only', '--diff-filter=U', 'HEAD'], wt.path);
-        const conflictedFiles =
-          diffIndexResult.exitCode === 0 ? diffIndexResult.stdout.trim().split('\n').filter((f) => f) : [];
-
-        // Abort the merge
-        const abortResult = await git(['merge', '--abort'], wt.path);
-        if (abortResult.exitCode !== 0) {
-          debug?.(`[driver] ticket ${parentId}: merge --abort failed: ${abortResult.stderr}`);
-          continue;
-        }
-
-        // Park with subtask-integration-conflict
-        const conflictList = conflictedFiles.length > 0 ? ` (${conflictedFiles.join(', ')})` : '';
-        const stage = parent.stageCurrent as StageKey;
-        setStage(store, parentId, stage, {
-          blockedKind: 'subtask-integration-conflict',
-          blockedReason: `${child.key}: merge conflict in ${wt.repo}${conflictList}`,
-          blockedAt: nowIso(),
-        });
-        return;
-      }
-
-      // Not a MERGE_HEAD conflict — regular merge failure
-      debug?.(`[driver] ticket ${parentId}: merge failed for ${child.key}: ${mergeResult.stderr}`);
+    const merge = await git(['merge', '--no-edit', remote], wt.path);
+    if (merge.exitCode === 0) {
+      debug?.(`[driver] ticket ${parentId}: merge of ${remote} succeeded for ${keys}`);
       continue;
     }
+
+    // A conflict is classified by git state, never by parsing prose: MERGE_HEAD
+    // exists only while a merge is in progress.
+    const mergeHead = await git(['rev-parse', '--verify', 'MERGE_HEAD'], wt.path);
+    if (mergeHead.exitCode === 0) {
+      debug?.(`[driver] ticket ${parentId}: merge conflict in '${wt.repo}' for ${keys} — aborting`);
+      // `--diff-filter=U` over the WORKING TREE is the one that names unmerged
+      // files; `diff-index ... HEAD` returns empty in a conflicted merge.
+      const diff = await git(['diff', '--name-only', '--diff-filter=U'], wt.path);
+      const files =
+        diff.exitCode === 0
+          ? diff.stdout
+              .split('\n')
+              .map((f) => f.trim())
+              .filter((f) => f !== '')
+          : [];
+
+      const abort = await git(['merge', '--abort'], wt.path);
+      if (abort.exitCode !== 0) {
+        return parkParent(
+          store,
+          parentId,
+          'subtask-integration-conflict',
+          `${keys}: merge conflict in ${wt.repo}; git merge --abort failed (${brief(abort)}) — ` +
+            'the worktree is mid-merge and needs manual cleanup',
+          debug,
+        );
+      }
+      const fileList = files.length > 0 ? ` (${files.join(', ')})` : '';
+      return parkParent(
+        store,
+        parentId,
+        'subtask-integration-conflict',
+        `${keys}: merge conflict in ${wt.repo}${fileList}`,
+        debug,
+      );
+    }
+
+    // The merge failed without entering a conflict state (e.g. a local change
+    // would be overwritten). Advancing now would silently drop the child's work.
+    return parkParent(
+      store,
+      parentId,
+      'awaiting-subtask',
+      `sub-task integration failed: git merge of ${remote} failed integrating ${keys} — ${brief(merge)}`,
+      debug,
+    );
   }
+
+  debug?.(`[driver] ticket ${parentId}: sub-task integration complete`);
+  return { parked: false };
+}
+
+/**
+ * Integrate the parent's landed sub-tasks, then release its `awaiting-subtask`
+ * gate — in that order, so the gate is never cleared while the child's work is
+ * still unmerged. A park from integration holds the gate; the caller must check
+ * `parked` before running any gating predicate that could clear it.
+ *
+ * The one async seam every landing path and driver boundary funnels through.
+ */
+export async function integrateAndReleaseParent(
+  store: Store,
+  parentId: number,
+  git?: GitRunner,
+  debug?: (message: string) => void,
+): Promise<IntegrateOutcome> {
+  if (git) {
+    try {
+      const outcome = await integrateLandedSubtasks(store, parentId, git, debug);
+      if (outcome.parked) return outcome;
+      clearIntegrationParks(store, parentId, debug);
+    } catch (err) {
+      debug?.(`[driver] ticket ${parentId}: sub-task integration threw: ${messageOf(err)}`);
+    }
+  } else {
+    debug?.(`[driver] ticket ${parentId}: no git runner — skipping sub-task integration`);
+  }
+  try {
+    onSubtaskLanded(store, parentId, { debug });
+  } catch (err) {
+    debug?.(`[driver] ticket ${parentId}: sub-task landing release failed: ${messageOf(err)}`);
+  }
+  return { parked: false };
+}
+
+/**
+ * A sub-task reached `done`; release its parent. Resolves the parent from the
+ * landed sub-task, then runs the same integrate-then-release step. A no-op for
+ * an ordinary top-level ticket.
+ */
+export async function releaseLandedSubtask(
+  store: Store,
+  subtaskTicketId: number,
+  git?: GitRunner,
+  debug?: (message: string) => void,
+): Promise<void> {
+  const parentId = getTicket(store, subtaskTicketId).subtaskParentId;
+  if (parentId === null) return;
+  await integrateAndReleaseParent(store, parentId, git, debug);
 }
