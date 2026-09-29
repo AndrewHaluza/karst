@@ -55,6 +55,13 @@ export type WebviewMessage =
    */
   | { type: 'create-subtask' }
   /**
+   * Detach a sub-task from its parent (design NDL-70 §5 'Detach'). Payload-free:
+   * the host owns the ticket id and validates that it is a sub-task before
+   * calling the detach workflow. Rebases onto the parent's base and clears the
+   * parent link so the sub-task becomes top-level.
+   */
+  | { type: 'detach-subtask' }
+  /**
    * The ONE explicit recovery action: move this ticket back to Implement from
    * the current stage header's ⋯ menu. Payload-free exactly like `refresh-prs`:
    * the host derives availability and the current stage from the store it is
@@ -379,6 +386,8 @@ export interface DashboardActions {
   createFollowUpTicket: () => void | Promise<void>;
   /** Create a sub-task under this ticket (host prompts for the title). */
   createSubtask: () => void | Promise<void>;
+  /** Detach a sub-task from its parent: rebase onto parent's base and clear the parent link. */
+  detachSubtask: () => void | Promise<void>;
   /** Open a stage's log (uat/review artifact) in an editor. Carries the stage key ONLY. */
   openStageLog: (stageKey: StageKey) => void | Promise<void>;
   /** Push one gate stage's console log to the panel; the `stage-log` message is the outcome. */
@@ -582,6 +591,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'create-follow-up-ticket' };
     case 'create-subtask':
       return { type: 'create-subtask' };
+    case 'detach-subtask':
+      return { type: 'detach-subtask' };
     case 'open-stage-log':
       return isStageKey(m.stageKey) ? { type: 'open-stage-log', stageKey: m.stageKey } : null;
     case 'resolve-conflicts':
@@ -876,6 +887,8 @@ export function routeAction(
       return actions.createFollowUpTicket();
     case 'create-subtask':
       return actions.createSubtask();
+    case 'detach-subtask':
+      return actions.detachSubtask();
     case 'open-stage-log':
       return actions.openStageLog(msg.stageKey);
     case 'resolve-conflicts':

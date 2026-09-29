@@ -113,6 +113,13 @@ export interface DashboardState {
    * ticket ships or is done. The webview never re-derives it.
    */
   canAddSubtask: boolean;
+  /**
+   * Whether "Detach from parent" is offered — host-derived from the same rule
+   * the detach writer enforces (`model/subtask.ts` `canDetachSubtask`): only a
+   * non-blocking, not-done sub-task with no open sub-tasks of its own and no
+   * live agent. The webview never re-derives it.
+   */
+  canDetachSubtask: boolean;
   stageCurrent: string | null;
   agentState: string | null;
   paused: boolean;

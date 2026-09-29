@@ -1884,6 +1884,12 @@
   </div>
   <h1 id="title" class="ticketTitle"></h1>
   <span id="parentRef" class="ticketParent" hidden></span>
+  <!-- Detach (design NDL-70 §5): offered only for a non-blocking, not-done
+       sub-task with no open sub-tasks of its own and no live agent
+       (host-derived `canDetachSubtask`), so the control never appears where the
+       writer would refuse. -->
+  <button id="detachSubtask" type="button" class="k-btn k-btn--ghost k-btn--sm hidden" data-act="detach-subtask"
+    title="Detach this sub-task from its parent and rebase it onto the root base">Detach from parent…</button>
   <div class="headerActions">
     <div class="agentWrap">
       <button id="agentButton" type="button" class="agentButton" aria-expanded="false" aria-haspopup="dialog"
@@ -3929,6 +3935,10 @@
     if (state.parent) parts.push('Follow-up of ' + esc(state.parent.key));
     ref.hidden = parts.length === 0;
     ref.innerHTML = parts.join(' · ');
+    // Detach rides the parent-relationship line: it is only meaningful for a
+    // sub-task, and the host decides whether the writer would allow it.
+    const detach = el('detachSubtask');
+    if (detach) detach.classList.toggle('hidden', !state.canDetachSubtask);
   }
 
   // The status glyph a sub-task row paints: the shipped `.k-dot` primitive
@@ -5298,6 +5308,7 @@
     'resume-ticket': (btn, requestId) => karstSend.resumeTicket(requestId),
     'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),
     'create-subtask': (btn, requestId) => karstSend.createSubtask(requestId),
+    'detach-subtask': (btn, requestId) => karstSend.detachSubtask(requestId),
     'copy-ticket-key': (btn, requestId) => karstSend.copyTicketKey(requestId),
     'pause-execution': (btn, requestId) => karstSend.pauseExecution(requestId),
     'unpause-execution': (btn, requestId) => karstSend.unpauseExecution(requestId),

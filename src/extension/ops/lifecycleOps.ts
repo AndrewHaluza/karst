@@ -6,6 +6,11 @@ import { deleteTicketPermanently } from '../../runtime/deleteTicket.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
 import { createFollowUpTicket, TicketNotDoneError } from '../../workflow/stages/followUp.js';
 import { createSubtask } from '../../workflow/stages/subtask.js';
+import type { GitRunner } from '../../integrations/git.js';
+import type { GhRunner } from '../../integrations/github.js';
+import { detachSubtask, DetachSubtaskError, type DetachSubtaskResult } from '../../workflow/detachSubtask.js';
+import { describeChangeBaseRef } from '../../workflow/changeBaseRef.js';
+import type { Manifest } from '../../manifest/types.js';
 
 export interface LifecycleOpsDeps {
   readonly store: Store;
@@ -24,6 +29,9 @@ export interface LifecycleOpsDeps {
   readonly reloadManifest: () => Promise<void>;
   readonly projectId: () => number | undefined;
   readonly labelTemplate: () => string | undefined;
+  readonly git: GitRunner;
+  readonly gh?: GhRunner;
+  readonly manifest: () => Manifest | undefined;
 }
 
 export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): Promise<void> {
@@ -114,4 +122,66 @@ export async function createSubtaskOp(
   await deps.reloadManifest();
   deps.openEdit(child.id);
   await deps.notify.info(`Created sub-task ${child.key}.`);
+}
+
+/**
+ * The success toast for a detach: which repos moved and onto what, reusing the
+ * same per-repo wording as the live base-branch change (`describeChangeBaseRef`),
+ * including a refused PR re-target. A detach with no started worktrees says so.
+ */
+function describeDetach(key: string, result: DetachSubtaskResult): string {
+  if (result.rebases.size === 0) {
+    return `Detached ${key} from its parent (no started worktrees to rebase).`;
+  }
+  const parts = [...result.rebases.entries()].map(
+    ([repoPath, rebase]) => `${repoPath}: ${describeChangeBaseRef(rebase)}`,
+  );
+  return `Detached ${key} from its parent. ${parts.join(' ')}`;
+}
+
+/**
+ * Detach a non-blocking sub-task from its parent (design NDL-70 §5 'Detach'):
+ * rebase it onto its root ancestor's base and clear the parent link so it
+ * becomes top-level. This allows a started sub-task to be detached without
+ * holding the parent's ship.
+ *
+ * Validation refusals throw a `DetachSubtaskError` whose message is user-ready
+ * and passes through unchanged; a partial git failure is a returned
+ * `{ ok: false }` naming the repos that already moved.
+ */
+export async function detachSubtaskOp(deps: LifecycleOpsDeps, subtaskId: number): Promise<void> {
+  const manifestNow = deps.manifest();
+  if (!manifestNow) {
+    await deps.notify.error('No manifest is loaded — cannot detach sub-task.');
+    return;
+  }
+
+  let result: DetachSubtaskResult;
+  try {
+    result = await detachSubtask({
+      store: deps.store,
+      manifest: manifestNow,
+      ticketId: subtaskId,
+      git: deps.git,
+      gh: deps.gh,
+      debug: (message) => deps.log.debug(message),
+    });
+  } catch (err) {
+    const message =
+      err instanceof DetachSubtaskError
+        ? err.message
+        : `Couldn't detach the sub-task: ${err instanceof Error ? err.message : String(err)}`;
+    await deps.notify.error(message);
+    return;
+  }
+
+  if (!result.ok) {
+    await deps.notify.error(`Could not detach sub-task: ${result.reason}`);
+    return;
+  }
+
+  deps.refresh();
+  await deps.reloadManifest();
+  const ticket = getTicket(deps.store, subtaskId);
+  await deps.notify.info(describeDetach(ticket.key ?? `#${subtaskId}`, result));
 }

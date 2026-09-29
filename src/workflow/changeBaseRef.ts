@@ -123,3 +123,28 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
 
   return { ok: true, fromBase, toBase, rebase, prRetarget, reason: '' };
 }
+
+/**
+ * Word a successful `changeBaseRef` outcome for a user-facing toast: rebased or
+ * not, PR retargeted or not (a refusal is surfaced, never swallowed), merge
+ * check cleared — never a generic "done". Shared by the dashboard's
+ * change-base action and the detach operation's success report, so one branch
+ * rewrite reads the same from both.
+ */
+export function describeChangeBaseRef(result: ChangeBaseRefResult): string {
+  if (result.toBase === result.fromBase) return `Already based on ${result.toBase}.`;
+  const parts: string[] = [
+    result.rebase?.outcome === 'rebased'
+      ? `Rebased onto ${result.toBase}.`
+      : `Re-targeted to ${result.toBase} (not rebased).`,
+  ];
+  if (result.prRetarget) {
+    parts.push(
+      result.prRetarget.ok
+        ? `PR #${result.prRetarget.number} re-targeted.`
+        : `PR #${result.prRetarget.number} re-target refused.`,
+    );
+  }
+  parts.push('Merge check cleared.');
+  return parts.join(' ');
+}
