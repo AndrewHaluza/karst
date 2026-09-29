@@ -14,7 +14,7 @@ import { ticketIdArg } from './extension/ops/args.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
-import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
+import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
@@ -3057,6 +3057,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
     projectId: () => currentProject()?.id,
     labelTemplate: () => currentManifest()?.ticketLabelTemplate,
+    git: defaultGitRunner,
+    gh: defaultGhRunnerAsync,
+    manifest: () => currentManifest(),
   };
 
   // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the
@@ -6289,6 +6292,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (pick === undefined) return;
       await createSubtaskOp(lifecycleDeps, ticketId, { title: title.trim(), blocking: pick.blocking });
     }),
+    // Detach a started sub-task from its parent (design NDL-70 §5 'Detach'):
+    // rebase onto the parent's base and clear the parent link.
+    vscode.commands.registerCommand('karst.detachSubtask', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg);
+      if (ticketId === undefined) return;
+      await detachSubtaskOp(lifecycleDeps, ticketId);
+    }),
     vscode.commands.registerCommand('karst.openTicketScmDiff', async (arg: unknown) => {
       if (typeof arg !== 'string' || arg.length === 0) return;
       await ticketScm.openChange(arg);
@@ -7778,6 +7788,9 @@ function makeDashboardActions(
     // The webview sends no payload; the command prompts for the title and the
     // blocking flag, then runs the one sub-task writer.
     createSubtask: () => void vscode.commands.executeCommand('karst.createSubtask', ticketId),
+    // Detach a started sub-task from its parent: rebase onto the parent's base
+    // and clear the parent link (design NDL-70 §5 'Detach').
+    detachSubtask: () => void vscode.commands.executeCommand('karst.detachSubtask', ticketId),
     // The webview names ONLY the stage key; the path is re-derived from the
     // store row this panel owns (never from the message) before `Uri.file`.
     openStageLog: (stageKey) => {

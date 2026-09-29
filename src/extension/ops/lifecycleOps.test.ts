@@ -40,6 +40,9 @@ function makeDeps(overrides: Partial<LifecycleOpsDeps> = {}): LifecycleOpsDeps {
     reloadManifest: vi.fn(),
     projectId: vi.fn().mockReturnValue(1),
     labelTemplate: vi.fn(),
+    git: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
+    gh: vi.fn().mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 }),
+    manifest: vi.fn().mockReturnValue(undefined),
     ...overrides,
   };
 }
