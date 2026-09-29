@@ -22,8 +22,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runCli } from '../../cli/main.js';
 import { openGraphWritableStore } from '../../cli/writableStore.js';
-import { graphApproachConfig } from '../../manifest/fixtures.js';
-import type { GraphApproachConfig } from '../../manifest/types.js';
+import { graphApproachConfig, manifest, repo } from '../../manifest/fixtures.js';
+import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
 import type { CompileContext } from './compile.js';
 import type { GraphDriverDeps } from './driver.js';
 import {
@@ -345,6 +345,7 @@ export function makeHarness(): Harness {
     now: () => NOW,
     debug: () => undefined,
     graphConfigOf: (approachId) => (approachId === GRAPH_APPROACH ? config : undefined),
+    manifest: manifest({}, {}),
     artifactRootOf: () => artifactRoot,
     graphEnvOf: (input) => ({
       KARST_GRAPH_PROJECT: String(projectId),

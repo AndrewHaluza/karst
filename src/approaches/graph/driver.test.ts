@@ -11,8 +11,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'nod
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
 import { openStore } from '../../store/db.js';
-import { graphApproachConfig } from '../../manifest/fixtures.js';
-import type { GraphApproachConfig } from '../../manifest/types.js';
+import { graphApproachConfig, fullPreset, manifest, repo } from '../../manifest/fixtures.js';
+import type { GraphApproachConfig, Manifest } from '../../manifest/types.js';
 import { SUPPORTED, unsupported } from '../../agent/surfaces.js';
 import { domainKeyOf } from './integration/domains.js';
 import type { CompileContext } from './compile.js';
@@ -29,6 +29,7 @@ import {
   diagnosticsPathFor,
   sha256Hex,
   nodeWorkspaceDirective,
+  resolveGraphNodeProfile,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -90,6 +91,18 @@ function compileContextOf(): CompileContext {
     expertSpend: { spentPlannerRuns: 0, permittedReplans: 0, bootstrapUnspent: true },
     projectMaxima: { maxNodeRuns: 200, maxExpertRuns: 10, maxReplans: 5 },
   };
+}
+
+function testManifest(over: Partial<Manifest> = {}): Manifest {
+  return manifest(
+    { extention: repo() },
+    {
+      agentProvider: 'opencode',
+      defaultModel: 'mimo-2.5',
+      defaultEffort: 'low',
+      ...over,
+    },
+  );
 }
 
 function fakeAdapter(): AgentAdapter {
@@ -155,6 +168,7 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
     now: () => NOW,
     debug: () => undefined,
     graphConfigOf: (approachId) => (approachId === 'karst-graph-engineering' ? config : undefined),
+    manifest: testManifest(),
     artifactRootOf: (graphRunId) => join(root, String(graphRunId)),
     graphEnvOf: (input) => ({
       KARST_GRAPH_RUN_ID: String(input.graphRunId),
@@ -1889,5 +1903,127 @@ describe('nodeWorkspaceDirective', () => {
     });
     expect(directive).toContain('Your workspace for this node is: `/ws/extention`');
     expect(directive).not.toContain(' at `');
+  });
+});
+
+describe('resolveGraphNodeProfile', () => {
+  const config = graphApproachConfig({
+    profiles: {
+      expert: { provider: 'opencode', model: 'mimo-2.5' },
+      worker: { provider: 'claude', model: 'claude-opus-5' },
+      fast: { provider: 'codex', model: 'gpt-5.6' },
+      custom: { provider: 'antigravity', model: 'custom-model' },
+    },
+  });
+
+  it('resolves graphExpert profile from preset slot when present', () => {
+    const m = testManifest({
+      agentPresets: {
+        active: {
+          label: 'Custom',
+          slots: {
+            graphExpert: { provider: 'claude', model: 'claude-opus-5', effort: 'high' },
+          },
+        },
+      },
+      defaultAgentPreset: 'active',
+    });
+    const result = resolveGraphNodeProfile(m, config, 'expert');
+    expect(result).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'high' });
+  });
+
+  it('resolves graphWorker profile from preset slot when present', () => {
+    const m = testManifest({
+      agentPresets: {
+        active: {
+          label: 'Custom',
+          slots: {
+            graphWorker: { provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' },
+          },
+        },
+      },
+      defaultAgentPreset: 'active',
+    });
+    const result = resolveGraphNodeProfile(m, config, 'worker');
+    expect(result).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' });
+  });
+
+  it('resolves graphFast profile from preset slot when present', () => {
+    const m = testManifest({
+      agentPresets: {
+        active: {
+          label: 'Custom',
+          slots: {
+            graphFast: { provider: 'opencode', model: 'mimo-2.5', effort: 'flash' },
+          },
+        },
+      },
+      defaultAgentPreset: 'active',
+    });
+    const result = resolveGraphNodeProfile(m, config, 'fast');
+    expect(result).toEqual({ provider: 'opencode', model: 'mimo-2.5', effort: 'flash' });
+  });
+
+  it('falls back to config profile when no preset slot', () => {
+    const m = testManifest();
+    const result = resolveGraphNodeProfile(m, config, 'expert');
+    expect(result).toEqual({ provider: 'opencode', model: 'mimo-2.5' });
+  });
+
+  it('resolves custom profile from config only (not preset-capable)', () => {
+    const m = testManifest();
+    const result = resolveGraphNodeProfile(m, config, 'custom');
+    expect(result).toEqual({ provider: 'antigravity', model: 'custom-model' });
+  });
+
+  it('returns undefined for missing profile', () => {
+    const m = testManifest();
+    const result = resolveGraphNodeProfile(m, config, 'nonexistent');
+    expect(result).toBeUndefined();
+  });
+
+  it('calls onDebug callback for preset slot resolution', () => {
+    const m = testManifest({
+      agentPresets: {
+        active: {
+          label: 'Custom',
+          slots: {
+            graphExpert: { provider: 'claude', model: 'claude-opus-5' },
+          },
+        },
+      },
+      defaultAgentPreset: 'active',
+    });
+    const debugSpy = vi.fn();
+    resolveGraphNodeProfile(m, config, 'expert', debugSpy);
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[process] graph node profile "expert" → preset slot (claude)',
+    );
+  });
+
+  it('calls onDebug callback for config profile resolution', () => {
+    const m = testManifest();
+    const debugSpy = vi.fn();
+    resolveGraphNodeProfile(m, config, 'worker', debugSpy);
+    expect(debugSpy).toHaveBeenCalledWith(
+      '[process] graph node profile "worker" → config (claude/claude-opus-5)',
+    );
+  });
+
+  it('prefers preset slot over config profile', () => {
+    const m = testManifest({
+      agentPresets: {
+        active: {
+          label: 'Custom',
+          slots: {
+            graphExpert: { provider: 'codex', model: 'gpt-custom' },
+          },
+        },
+      },
+      defaultAgentPreset: 'active',
+    });
+    const result = resolveGraphNodeProfile(m, config, 'expert');
+    expect(result?.provider).toBe('codex');
+    expect(result?.model).toBe('gpt-custom');
   });
 });

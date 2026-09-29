@@ -4049,6 +4049,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
       graphConfigOf: graphApproachConfigFor,
+      manifest: currentManifest() ?? emptyManifest(),
       artifactRootOf: graphArtifactRoot,
       graphEnvOf: (input) => {
         const route = graphRouteFor(input.graphRunId);
