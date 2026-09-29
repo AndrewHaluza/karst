@@ -721,7 +721,31 @@ export async function ensureSubtaskForkPointOnParentBranch(
     );
   }
 
-  // A sibling landed on the parent branch and the parent has not integrated it.
+  // A rejection alone is not divergence: pushing an ANCESTOR of the remote head
+  // is also refused as non-fast-forward. If the remote already contains the fork
+  // point (a sibling landed on top of it), the precondition holds — parking here
+  // would never release, because the child's fork point cannot change without a
+  // rebase. Only a remote that lacks the fork point has truly diverged.
+  const fetch = await git(['fetch', 'origin', `refs/heads/${parentBranch}`], cwd, {
+    timeoutMs: GIT_PUSH_TIMEOUT_MS,
+  });
+  if (fetch.exitCode !== 0) {
+    throw new Error(describeGitFailure(`git fetch origin ${parentBranch}`, fetch));
+  }
+  const contains = await git(['merge-base', '--is-ancestor', forkSha, remoteSha], cwd);
+  if (contains.exitCode === 0) {
+    debug?.(
+      `[driver] ticket ${ticketId}: origin/${parentBranch} (${remoteSha.slice(0, 7)}) already ` +
+        'contains the fork point — precondition satisfied',
+    );
+    return { diverged: false };
+  }
+  if (contains.exitCode !== 1) {
+    throw new Error(describeGitFailure(`git merge-base --is-ancestor ${forkSha.slice(0, 7)}`, contains));
+  }
+
+  // The remote moved to a history without the fork point: a sibling landed on an
+  // older base and the parent has not integrated it (and pushed) yet.
   const siblings = listLandedStackedSubtasks(store, parentId, repo, parentBranch)
     .filter((s) => s.id !== ticketId)
     .map((s) => s.key);

@@ -163,8 +163,30 @@ describe('sub-task ship precondition (real git)', () => {
     expect(stageBlock(store, s.childId, 'ship')).toBeNull();
   });
 
-  it('parks ship awaiting-subtask when a sibling landed on the parent branch', async () => {
-    const s = seed('SS-DIV', { withLandedSibling: true });
+  it('does not park when a sibling landed on top of the fork point', async () => {
+    const s = seed('SS-ANC', { withLandedSibling: true });
+    writeFileSync(join(s.parentWt, 'sibling.txt'), 'sibling work\n');
+    git(s.parentWt, 'add', '-A');
+    git(s.parentWt, 'commit', '-q', '-m', 'sibling landed');
+    git(s.parentWt, 'push', '-q', 'origin', `${s.parentBranch}:refs/heads/${s.parentBranch}`);
+    const siblingSha = git(s.parentWt, 'rev-parse', 'HEAD').trim();
+
+    const outcome = await ensureSubtaskForkPointOnParentBranch(
+      store,
+      s.childId,
+      s.repoPath,
+      s.childWt,
+      defaultGitRunner,
+    );
+
+    // The rejected ancestor push is not divergence: origin already has the fork point.
+    expect(outcome.diverged).toBe(false);
+    expect(stageBlock(store, s.childId, 'ship')).toBeNull();
+    expect(remoteHead(s.parentBranch)).toBe(siblingSha);
+  });
+
+  it('parks ship awaiting-subtask when a sibling landed on a base lacking the fork point', async () => {
+    const s = seed('SS-DIV', { withLandedSibling: true, parentLocalCommit: true });
     const forkSha = git(s.childWt, 'rev-parse', 'HEAD').trim();
 
     writeFileSync(join(s.childWt, 'child.txt'), 'child work\n');
@@ -173,11 +195,15 @@ describe('sub-task ship precondition (real git)', () => {
 
     // The sibling's PR merged into the parent branch: a NEW commit on top of the
     // fork point, so the child's fork point is no longer a fast-forward.
-    writeFileSync(join(s.parentWt, 'sibling.txt'), 'sibling work\n');
-    git(s.parentWt, 'add', '-A');
-    git(s.parentWt, 'commit', '-q', '-m', 'sibling landed');
-    git(s.parentWt, 'push', '-q', 'origin', `${s.parentBranch}:refs/heads/${s.parentBranch}`);
-    const siblingSha = git(s.parentWt, 'rev-parse', 'HEAD').trim();
+    // The sibling's PR merged onto the REMOTE tip, which predates the parent's
+    // local-only fork point — so origin's history lacks the fork point.
+    const siblingWt = join(s.parentWt, '..', 'sibling');
+    git(siblingWt, 'reset', '-q', '--hard', `origin/${s.parentBranch}`);
+    writeFileSync(join(siblingWt, 'sibling.txt'), 'sibling work\n');
+    git(siblingWt, 'add', '-A');
+    git(siblingWt, 'commit', '-q', '-m', 'sibling landed');
+    git(siblingWt, 'push', '-q', 'origin', `HEAD:refs/heads/${s.parentBranch}`);
+    const siblingSha = git(siblingWt, 'rev-parse', 'HEAD').trim();
     expect(siblingSha).not.toBe(forkSha);
 
     const outcome = await ensureSubtaskForkPointOnParentBranch(
