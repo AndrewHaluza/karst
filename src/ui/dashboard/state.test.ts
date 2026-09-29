@@ -27,7 +27,7 @@ import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
-import { resolveAgentDefaults } from '../../agent/agentPresets.js';
+import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 
 describe('buildDashboardState', () => {
   let store: Store;
@@ -421,7 +421,7 @@ describe('buildDashboardState', () => {
       {
         defaultModel: 'claude-sonnet-5',
         defaultsFor: (preset, provider) =>
-          resolveAgentDefaults(m, { ticketPreset: preset, explicitProvider: provider }),
+          resolvePresetDefaults(m, 'implementation', { ticketPreset: preset, explicitProvider: provider }),
       },
     );
     // The preset's own core inherits it…

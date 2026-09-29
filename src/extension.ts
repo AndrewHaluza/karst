@@ -106,7 +106,7 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
-import { resolveAgentDefaults } from './agent/agentPresets.js';
+import { resolvePresetDefaults } from './agent/agentPresets.js';
 import {
   resolveProcessAssignment,
   type DriveProcessBundle,
@@ -1505,7 +1505,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         read: () => {
           const ticket = getTicket(localStore, ticketId);
           const manifest = currentManifest() ?? emptyManifest();
-          const defaults = resolveAgentDefaults(manifest, {
+          const defaults = resolvePresetDefaults(manifest, 'implementation', {
             ticketPreset: ticket.agentPreset,
             explicitProvider: ticket.agentProvider ?? null,
           });

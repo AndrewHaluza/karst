@@ -31,7 +31,7 @@ import type {
 } from '../../manifest/types.js';
 import { PROCESS_KEYS, PROCESS_ROLE_BY_KEY, type ProcessKey } from '../../manifest/validate/processAssignments.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
-import { resolveAgentDefaults } from '../../agent/agentPresets.js';
+import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import {
   isModelCompatibleWithProvider,
   resolveModelForProvider,
@@ -149,7 +149,7 @@ export function buildProcessAssignmentView(
   // The approved defaults: the PR-description role's profile default is the
   // ticket-resolved adapter label (never a fixed agent name), the other roles'
   // are the approved role names. The core default follows the effective preset.
-  const presetDefaults = resolveAgentDefaults(manifest, { rolePreset: cfg.preset });
+  const presetDefaults = resolvePresetDefaults(manifest, key, { rolePreset: cfg.preset });
   const presetOptions = Object.keys(manifest.agentPresets ?? {}).sort();
   const presetHint =
     cfg.preset === undefined && manifest.defaultAgentPreset
@@ -174,7 +174,7 @@ export function buildProcessAssignmentView(
 
   // The effective defaults for THIS row: the preset supplies model/effort only
   // when its own core is the one the row will actually run on.
-  const defaults = resolveAgentDefaults(manifest, {
+  const defaults = resolvePresetDefaults(manifest, key, {
     rolePreset: cfg.preset,
     explicitProvider: effectiveProvider,
   });

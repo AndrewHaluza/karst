@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
-import { resolveAgentDefaults } from '../../agent/agentPresets.js';
+import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import {
   shipFinishedEvent,
   shipStartedEvent,
@@ -201,7 +201,7 @@ function resolveTemplateModel(
   manifest?: Manifest,
 ): string | undefined {
   const defaults = manifest
-    ? resolveAgentDefaults(manifest, {
+    ? resolvePresetDefaults(manifest, 'implementation', {
         ticketPreset: ticket.agentPreset ?? null,
         explicitProvider: ticket.agentProvider ?? null,
       })

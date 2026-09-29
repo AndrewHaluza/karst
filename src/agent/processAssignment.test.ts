@@ -13,6 +13,25 @@ const BASE: Manifest = buildManifest(
   { agentProvider: 'codex', defaultModel: 'gpt-5.6-sol' },
 );
 
+/**
+ * A manifest whose ACTIVE preset overrides ONLY `uatTester` — every other
+ * capability has no slot and is therefore Inherit (§3's sparse matrix), which
+ * is what pins that each of the six roles reads its OWN capability row.
+ */
+function mSparse(): Manifest {
+  return buildManifest(
+    { api: { repoPath: '/repo/api', hasMigrations: false } },
+    {
+      agentProvider: 'codex',
+      defaultModel: 'gpt-5.6-sol',
+      agentPresets: {
+        uatOnly: { slots: { uatTester: { provider: 'claude', model: 'claude-sonnet-5' } } },
+      },
+      activeAgentPreset: 'uatOnly',
+    },
+  );
+}
+
 describe('resolveProcessAssignment', () => {
   it('resolves the approved defaults when no process config exists', () => {
     expect(resolveProcessAssignment(BASE, 'uat-tester')).toEqual({
@@ -63,12 +82,16 @@ describe('resolveProcessAssignment', () => {
       provider: 'opencode',
       model: 'gemini-2.5-pro',
     });
-    expect(resolveProcessAssignment(manifest, 'ticket-analysis', { provider: 'claude' })).toEqual({
+    expect(
+      resolveProcessAssignment(manifest, 'ticket-analysis', {
+        provider: 'claude',
+        model: 'claude-sonnet-5',
+      }),
+    ).toEqual({
       agentName: 'Ticket Analysis Agent',
-      // The CONFIG's provider beats the ticket override — same precedence as
-      // every other role.
-      provider: 'opencode',
-      model: 'gemini-2.5-pro',
+      // §4 rung 1: the TICKET's own core and model win over the config's.
+      provider: 'claude',
+      model: 'claude-sonnet-5',
     });
   });
 
@@ -151,17 +174,14 @@ describe('resolveProcessAssignment', () => {
     });
   });
 
-  it('explicit process config beats the ticket override', () => {
+  it('the ticket override beats the explicit process config (§4 rung 1)', () => {
     const manifest: Manifest = { ...BASE, processes: { review: { provider: 'antigravity' } } };
     expect(
       resolveProcessAssignment(manifest, 'review', { provider: 'claude', model: 'claude-opus-4-8' }),
     ).toEqual({
       agentName: 'Review Agent',
-      provider: 'antigravity',
-      // The ticket's model is known only for claude and the CONFIG's provider is
-      // antigravity — the same cross-provider drop resolveModelForProvider applies
-      // to ticket models at launch, so it is dropped rather than launched wrong.
-      model: undefined,
+      provider: 'claude',
+      model: 'claude-opus-4-8',
     });
   });
 
@@ -346,17 +366,30 @@ describe('resolveProcessAssignment', () => {
     expect('instructions' in (resolveProcessAssignment(BASE, 'uat-tester') ?? {})).toBe(false);
   });
 
-  it('a process preset supplies the defaults and explicit fields still win', () => {
+  // §4 rung 2 over rung 3 (§8: "preset beats processes.<key>"): the slot
+  // replaces the config's own provider/model, it does not merge with them.
+  it('the preset slot beats the process config provider and model', () => {
     const manifest: Manifest = {
       ...BASE,
       agentPresets: {
         fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
       },
-      processes: { review: { preset: 'fast', model: 'opencode-go/mimo-v2.5' } },
+      activeAgentPreset: 'fast',
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
     };
     const snap = resolveProcessAssignment(manifest, 'review', {});
     expect(snap?.provider).toBe('opencode');
-    expect(snap?.model).toBe('opencode-go/mimo-v2.5');
+    expect(snap?.model).toBe('opencode-go/deepseek-v4-flash');
+  });
+
+  it('the process config supplies the slot when the preset has no slot for the role (Inherit)', () => {
+    const manifest: Manifest = {
+      ...mSparse(),
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', {});
+    expect(snap?.provider).toBe('antigravity');
+    expect(snap?.model).toBe('gemini-3.6-flash-high');
   });
 
   it('a ticket preset applies to every process role when the role names none', () => {
@@ -408,6 +441,110 @@ describe('resolveProcessAssignment', () => {
     expect(snap?.provider).toBe('codex');
     expect(snap?.model).toBe('gpt-5.6-sol');
     expect(snap?.model).not.toBe('claude-opus-5');
+  });
+});
+
+describe('resolveProcessAssignment precedence rungs (§4)', () => {
+  it('rung 0: enabled:false wins over a preset slot that names the role', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { all: fullPreset('claude', 'claude-opus-5', 'high') },
+      activeAgentPreset: 'all',
+      processes: { review: { enabled: false } },
+    };
+    expect(resolveProcessAssignment(manifest, 'review')).toBeNull();
+    // …and the disabled sibling does not disable the others.
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
+      provider: 'claude',
+      model: 'claude-opus-5',
+    });
+  });
+
+  it('rung 1: a ticket field beats the preset slot', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { all: fullPreset('claude', 'claude-opus-5', 'high') },
+      activeAgentPreset: 'all',
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', {
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      effort: 'high',
+    });
+    expect(snap).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol' });
+  });
+
+  it('rung 2 applies as a WHOLE slot: core, model and effort travel together', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { all: fullPreset('claude', 'claude-opus-5', 'low') },
+      activeAgentPreset: 'all',
+    };
+    expect(resolveProcessAssignment(manifest, 'review', {})).toEqual({
+      agentName: 'Review Agent',
+      provider: 'claude',
+      model: 'claude-opus-5',
+      effort: 'low',
+    });
+    // A ticket that picks another core drops the WHOLE slot, never just its
+    // model — then the manifest defaults take over.
+    expect(resolveProcessAssignment(manifest, 'review', { provider: 'codex' })).toEqual({
+      agentName: 'Review Agent',
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
+  it('rung 1: a ticket core never drags a known-foreign config model across it', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
+    };
+    // On the config's own core the declared model stays verbatim, exactly as
+    // before — even though the catalog knows it for another provider.
+    expect(resolveProcessAssignment(manifest, 'review')).toMatchObject({
+      provider: 'antigravity',
+      model: 'gemini-3.6-flash-high',
+    });
+    // A ticket that picks another core must not inherit it: "a model never
+    // crosses to another core" still holds for rung 3.
+    const snap = resolveProcessAssignment(manifest, 'review', { provider: 'claude' });
+    expect(snap).toMatchObject({ provider: 'claude' });
+    expect(snap?.model).toBeUndefined();
+  });
+
+  it('rung 3: the process config beats the manifest defaults', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
+    };
+    expect(resolveProcessAssignment(manifest, 'review')).toMatchObject({
+      provider: 'antigravity',
+      model: 'gemini-3.6-flash-high',
+    });
+  });
+
+  it('rung 4: the manifest defaults apply when nothing above them is set', () => {
+    expect(resolveProcessAssignment(BASE, 'review')).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+    });
+  });
+
+  // The six roles each resolve THEIR OWN capability row: a preset that only
+  // overrides the UAT tester must not leak onto review, pr-description, …
+  it('each of the six roles reads its own capability slot', () => {
+    const manifest = mSparse();
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    for (const role of ['uat-fix', 'review', 'review-fix', 'pr-description', 'ticket-analysis'] as const) {
+      expect(resolveProcessAssignment(manifest, role)).toMatchObject({
+        provider: 'codex',
+        model: 'gpt-5.6-sol',
+      });
+    }
   });
 });
 

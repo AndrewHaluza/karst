@@ -28,7 +28,7 @@ import { buildPeek, type TicketPeek } from './peek.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { resolveProvider } from '../../agent/registry.js';
-import { resolveAgentDefaults } from '../../agent/agentPresets.js';
+import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -204,7 +204,7 @@ export function buildSidebarState(
   const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
     const agentDefaults = opts.manifest
       ? (ticketPreset: string | null, ticketProvider: AgentProvider | null) =>
-          resolveAgentDefaults(opts.manifest!, { ticketPreset, explicitProvider: ticketProvider })
+          resolvePresetDefaults(opts.manifest!, 'implementation', { ticketPreset, explicitProvider: ticketProvider })
       : undefined;
     const nodes = buildTicketNodes(
       tickets,
