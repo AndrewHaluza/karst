@@ -798,7 +798,7 @@
     lastTicketTypes = state.ticketTypes || [];
     lastDefaultType = state.defaultType || 'feat';
     renderTypePicker(state.ticketTypes, state.selectedType, state.defaultType);
-    renderAgentPresetSelect(state.agentPresetNames, state.selectedAgentPreset, state.defaultAgentPreset);
+    renderAgentPresetSelect(state.agentPresetNames, state.selectedAgentPreset);
     // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
     syncPhase2();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
@@ -1244,7 +1244,7 @@
   // discipline: the host supplies the list, the page renders it). The picker IS
   // the agent identity, so it locks with the identity picker while a session
   // runs (the same lock the core/model/effort picker honors).
-  function renderAgentPresetSelect(names, selected, defaultName) {
+  function renderAgentPresetSelect(names, selected) {
     const list = names || [];
     const sel = draft.agentPreset ?? selected ?? '';
     const inheritLabel = 'Inherit (active preset)';

@@ -1883,6 +1883,11 @@
     </button>
   </div>
   <h1 id="title" class="ticketTitle"></h1>
+  <div id="capabilityLabels" class="capabilityLabels" hidden>
+    <span data-capability="implementation" class="capLabel"></span>
+    <span data-capability="uat-tester" class="capLabel"></span>
+    <span data-capability="review" class="capLabel"></span>
+  </div>
   <span id="parentRef" class="ticketParent" hidden></span>
   <!-- Detach (design NDL-70 §5): offered only for a non-blocking, not-done
        sub-task with no open sub-tasks of its own and no live agent
@@ -4033,6 +4038,44 @@
         btn.title = 'Cannot switch while a fix recovery is running';
       }
     }
+    renderCapabilityLabels(state);
+  }
+
+  function renderCapabilityLabels(state) {
+    const container = el('capabilityLabels');
+    if (!container || !state.agentContext || !state.agentContext.defaultsFor) return;
+
+    const tickets = state.insideViews && state.insideViews[state.stageCurrent];
+    if (!tickets || !tickets.ticket) {
+      if (container) container.hidden = true;
+      return;
+    }
+
+    const ticket = tickets.ticket;
+    const ticketPreset = ticket.agentPreset || null;
+    const ticketProvider = ticket.agentProvider || null;
+
+    const capabilities = ['implementation', 'uat-tester', 'review'];
+    let anyRendered = false;
+
+    for (const cap of capabilities) {
+      const label = container.querySelector(`[data-capability="${cap}"]`);
+      if (!label) continue;
+
+      const defaults = state.agentContext.defaultsFor(ticketPreset, ticketProvider);
+      const provider = ticketProvider || defaults.provider;
+      const model = defaults.model;
+
+      if (provider && model) {
+        label.textContent = `${cap}: ${provider}/${model}`;
+        label.hidden = false;
+        anyRendered = true;
+      } else {
+        label.hidden = true;
+      }
+    }
+
+    container.hidden = !anyRendered;
   }
 
   // The agent-switch popover stages a draft core/model/effort selection and does
@@ -4964,6 +5007,7 @@
     renderParentRef(state);
     renderTicketIdentity(state);
     renderAgentHeader(state);
+    renderCapabilityLabels(state);
     renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
     renderBlocked(state);

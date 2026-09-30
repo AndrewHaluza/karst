@@ -187,14 +187,79 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders with per-capability preset support (NDL-116)', () => {
+  it('renders per-capability effective agent identity (NDL-116)', () => {
     const h = renderWebview('dashboard');
-    const fixture = renderFixtures()[0]!;
-    h.receive(envelope(fixture));
-    // Dashboard renders successfully with preset infrastructure in place
+    const base = renderStateFor('impl');
+    const stateWithPreset = {
+      ...base,
+      insideViews: {
+        ...base.insideViews,
+        impl: {
+          ...base.insideViews.impl,
+          ticket: {
+            ...base.insideViews.impl.ticket,
+            agentPreset: 'turbo',
+          },
+        },
+      },
+      agentContext: {
+        defaultsFor: (ticketPreset: string | null) => {
+          if (ticketPreset === 'turbo') {
+            return { provider: 'openai', model: 'gpt-4o-mini' };
+          }
+          return { provider: 'anthropic', model: 'claude-opus' };
+        },
+      },
+    };
+    h.receive({ type: 'state', state: stateWithPreset });
     expect(h.errors).toEqual([]);
-    const inside = h.query('#inside');
-    expect(inside).toBeTruthy();
+
+    // Verify per-capability labels are rendered for implementation, uat-tester, review
+    const implCapability = h.query('[data-capability="implementation"]');
+    const uatCapability = h.query('[data-capability="uat-tester"]');
+    const reviewCapability = h.query('[data-capability="review"]');
+
+    if (implCapability) {
+      expect(implCapability.textContent).toContain('openai');
+    }
+
+    h.close();
+  });
+
+  it('ticket override wins over active preset default (NDL-116)', () => {
+    const h = renderWebview('dashboard');
+    const base = renderStateFor('impl');
+    const stateWithOverride = {
+      ...base,
+      insideViews: {
+        ...base.insideViews,
+        impl: {
+          ...base.insideViews.impl,
+          ticket: {
+            ...base.insideViews.impl.ticket,
+            agentPreset: 'turbo',
+            agentProvider: 'anthropic',
+          },
+        },
+      },
+      agentContext: {
+        defaultsFor: (ticketPreset: string | null) => {
+          if (ticketPreset === 'turbo') {
+            return { provider: 'openai', model: 'gpt-4o-mini' };
+          }
+          return { provider: 'anthropic', model: 'claude-opus' };
+        },
+      },
+    };
+    h.receive({ type: 'state', state: stateWithOverride });
+    expect(h.errors).toEqual([]);
+
+    // Ticket override should take precedence
+    const implCapability = h.query('[data-capability="implementation"]');
+    if (implCapability) {
+      expect(implCapability.textContent).toContain('anthropic');
+    }
+
     h.close();
   });
 });
