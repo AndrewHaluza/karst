@@ -123,7 +123,7 @@ describe('settings sections — mergeSection', () => {
     expect(merged.uat).toEqual(base.uat);
   });
 
-  it('a general save takes the draft agentPresets and carries defaultAgentPreset', () => {
+  it('a presets save takes the draft agentPresets and the active selection', () => {
     const base: Manifest = {
       ...BASE,
       agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
@@ -131,21 +131,25 @@ describe('settings sections — mergeSection', () => {
     };
     const incoming: Manifest = {
       ...base,
-      host: '0.0.0.0',
       agentPresets: { deep: fullPreset('claude', 'claude-sonnet-5') },
+      activeAgentPreset: 'deep',
     };
-    const merged = mergeSection(base, incoming, 'general');
+    const merged = mergeSection(base, incoming, 'presets');
 
-    // agentPresets is CLAIMED by the general tab (the editor writes it), so a
-    // General Save writes the draft's map — not the baseline's.
+    // agentPresets is CLAIMED by the presets tab (the editor writes it), so a
+    // Presets Save writes the draft's map — not the baseline's — and the
+    // selection travels with it, still under the legacy `defaultAgentPreset`
+    // the file already carried until this tab renames it on write.
     expect(merged.agentPresets).toEqual(incoming.agentPresets);
+    expect(merged.activeAgentPreset).toBe('deep');
     expect(merged.defaultAgentPreset).toBe('fast');
-    expect(merged.host).toBe('0.0.0.0');
+    // The presets tab owns no other field, so a General field is untouched.
+    expect(merged.host).toBe(BASE.host);
 
     // The editor deletes the key when the last preset goes, and an absent field
     // means "cleared" — the baseline's map must not be carried forward.
     const { agentPresets: _cleared, ...without } = incoming;
-    expect(mergeSection(base, without as Manifest, 'general').agentPresets).toBeUndefined();
+    expect(mergeSection(base, without as Manifest, 'presets').agentPresets).toBeUndefined();
   });
 
   it('a quality save leaves every other section untouched', () => {

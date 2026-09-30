@@ -190,7 +190,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
     expect(v.stateMessage).toBe('');
   });
 
-  it('reports the preset the row would inherit and honors a row preset', () => {
+  it('honors a row preset when resolving the row defaults', () => {
     const m: Manifest = {
       ...BASE,
       agentPresets: {
@@ -201,7 +201,6 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       processes: { review: { preset: 'deep' } },
     };
     const view = buildProcessAssignmentView('review', { preset: 'deep' }, m, []);
-    expect(view.presetOptions).toEqual(['deep', 'fast']);
     expect(view.effectiveProvider).toBe('claude');
     expect(view.effectiveModel).toBe('claude-opus-5');
   });
@@ -214,7 +213,6 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       processes: { review: {} },
     };
     const view = buildProcessAssignmentView('review', {}, m, []);
-    expect(view.presetHint).toBe('Default: fast');
     expect(view.effectiveProvider).toBe('opencode');
     expect(view.effectiveModel).toBe('opencode-go/deepseek-v4-flash');
   });

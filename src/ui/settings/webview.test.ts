@@ -15,7 +15,7 @@ import {
 } from './sections.js';
 import { validateManifest } from '../../manifest/schema.js';
 import { validateAgentPresets } from '../../manifest/validate/agentPresets.js';
-import type { GateDef, Manifest } from '../../manifest/types.js';
+import { PRESET_CAPABILITIES, type GateDef, type Manifest } from '../../manifest/types.js';
 import {
   manifest as buildManifest,
   runnableRepo,
@@ -118,6 +118,7 @@ describe('settings model picker', () => {
       saveCandidate: () => ({}),
       post: () => { },
       renderGeneral: () => { },
+      renderPresets: () => { },
       renderApproaches: () => { },
       vscode: {
         getState: () => currentState,
@@ -149,15 +150,23 @@ describe('settings model picker', () => {
     });
   });
 
-  it('renders the General default agent preset select from the manifest names', () => {
-    expect(HTML).toContain('id="f-defaultAgentPreset"');
-    expect(HTML).toContain('aria-labelledby="defaultAgentPresetLabel"');
-    expect(HTML).toContain('function renderAgentPresetOptions()');
-    // The General render (re)builds it on every state push.
-    expect(functionSource('renderGeneral')).toContain('renderAgentPresetOptions()');
-    const src = functionSource('renderAgentPresetOptions');
-    expect(src).toContain('Object.keys(draft.agentPresets || {}).sort()');
-    expect(src).toContain('draft.defaultAgentPreset');
+  it('renders the active-preset select on the Presets tab from the manifest names', () => {
+    const section = HTML.slice(HTML.indexOf('id="section-presets"'), HTML.indexOf('<!-- Ticketing -->'));
+    expect(section).toContain('id="f-activeAgentPreset"');
+    expect(section).toContain('aria-labelledby="activePresetLabel"');
+    expect(section).not.toContain('id="f-defaultAgentPreset"');
+    // The Presets render (re)builds it on every state push.
+    expect(functionSource('renderPresets')).toContain('renderActivePresetOptions()');
+    const src = functionSource('renderActivePresetOptions');
+    expect(src).toContain('presetNames()');
+    expect(functionSource('presetNames')).toContain('Object.keys(draft.agentPresets || {}).sort()');
+    // Legacy files carry `defaultAgentPreset`; the selector reads it as the
+    // same selection rather than showing "None" over a preset that IS applied.
+    expect(functionSource('activePresetName'))
+      .toContain('draft.activeAgentPreset || draft.defaultAgentPreset');
+    // And it must outlive a name the map no longer defines — the host refuses
+    // that file at load, and blanking it would hide the fault.
+    expect(src).toContain('names.indexOf(active) === -1');
   });
 });
 
@@ -898,11 +907,12 @@ describe('settings tab-scoped save', () => {
       ['approaches', { approaches: [{ id: 'a', label: 'A' }, { id: 'a', label: 'B' }] }],
       ['agents', { agents: 'nope' as never }],
       ['agents', { processes: { wibble: {} } as never }],
-      // Preset faults live on General — and ^agents? must not swallow them just
-      // because they start with the same four letters.
-      ['general', { agentPresets: { fast: { provider: 'nope', model: 'x' } } as never }],
-      ['general', { agentPresets: { '': { provider: 'codex', model: 'x' } } as never }],
-      ['general', { defaultAgentPreset: 'ghost' }],
+      // Preset faults live on the Presets tab — and ^agents? must not swallow
+      // them just because they start with the same four letters.
+      ['presets', { agentPresets: { fast: { provider: 'nope', model: 'x' } } as never }],
+      ['presets', { agentPresets: { '': { provider: 'codex', model: 'x' } } as never }],
+      ['presets', { defaultAgentPreset: 'ghost' }],
+      ['presets', { activeAgentPreset: 'ghost' }],
       ['general', { defaultEffort: 7 as never }],
     ];
     for (const [expected, patch] of broken) {
@@ -1605,11 +1615,6 @@ describe('debug logging toggle (General tab)', () => {
       }
       function mountAgentPicker() {}
       function renderPresetOptions() {}
-      function renderAgentPresetOptions() {}
-      function renderAgentPresetProviderOptions() {}
-      function renderAgentPresetList() {}
-      function resetPresetForm() {}
-      let editingPresetName = null;
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
@@ -1659,11 +1664,6 @@ describe('close-done-terminals toggle (General tab)', () => {
       }
       function mountAgentPicker() {}
       function renderPresetOptions() {}
-      function renderAgentPresetOptions() {}
-      function renderAgentPresetProviderOptions() {}
-      function renderAgentPresetList() {}
-      function resetPresetForm() {}
-      let editingPresetName = null;
       function renderDefaultTypeOptions() {}
       function renderLabelPreview() {}
       function renderConventions() {}
@@ -1710,13 +1710,14 @@ interface FakeElement {
   classList: { add: (c: string) => void; remove: (c: string) => void; contains: (c: string) => boolean };
   setAttribute: (k: string, v: string) => void;
   removeAttribute: (k: string) => void;
+  insertAdjacentHTML: (where: string, html: string) => void;
   focus: () => void;
 }
 
 function fakeElement(): FakeElement {
   const attrs: Record<string, string> = {};
   const classes = new Set<string>();
-  return {
+  const node: FakeElement = {
     value: '',
     textContent: '',
     innerHTML: '',
@@ -1729,8 +1730,10 @@ function fakeElement(): FakeElement {
     },
     setAttribute: (k, v) => { attrs[k] = v; },
     removeAttribute: (k) => { delete attrs[k]; },
+    insertAdjacentHTML: (_where: string, html: string) => { node.innerHTML += html; },
     focus: () => {},
   };
+  return node;
 }
 
 /** The preset editor lifted out of the page: real functions, fake elements. */
@@ -1740,19 +1743,42 @@ const PRESET_EDITOR_SOURCE = `
   ${constLine('MAX_AGENT_PRESETS')}
   ${constLine('PRESET_FORM_FIELDS')}
   let editingPresetName = null;
+  ${functionSource('presetCapabilityIds')}
+  ${functionSource('presetCapabilityTotal')}
   ${functionSource('validateAgentPresetsDraft')}
+  ${functionSource('slotsFormPreset')}
+  ${functionSource('activePresetName')}
+  ${functionSource('presetNames')}
+  ${functionSource('currentPreset')}
   ${functionSource('agentPresetReferences')}
   ${functionSource('joinPresetRefs')}
   ${functionSource('showPresetListError')}
   ${functionSource('showPresetFormError')}
   ${functionSource('renderAgentPresetList')}
+  ${functionSource('renderActivePresetOptions')}
+  ${functionSource('renderPresetCapabilityRow')}
+  ${functionSource('renderPresetCapabilityTable')}
+  ${functionSource('mountPresetCapabilityPickers')}
+  ${functionSource('seedPresetSlot')}
+  ${functionSource('writePresetSlot')}
+  ${functionSource('clearPresetSlot')}
+  ${functionSource('writeAllPresetSlots')}
+  ${functionSource('commitPresetEntry')}
+  ${functionSource('renderSetAllControls')}
+  ${functionSource('setAllOverride')}
+  ${functionSource('setAllInherit')}
   ${functionSource('resetPresetForm')}
   ${functionSource('editAgentPreset')}
+  ${functionSource('duplicateAgentPreset')}
   ${functionSource('saveAgentPreset')}
   ${functionSource('deleteAgentPreset')}
   ${functionSource('commitAgentPresets')}
-  ({ saveAgentPreset, deleteAgentPreset, editAgentPreset, renderAgentPresetList,
-     resetPresetForm, validateAgentPresetsDraft, agentPresetReferences,
+  ${functionSource('renderPresets')}
+  ({ saveAgentPreset, deleteAgentPreset, editAgentPreset, duplicateAgentPreset,
+     writePresetSlot, clearPresetSlot, writeAllPresetSlots, setAllOverride, setAllInherit,
+     renderAgentPresetList, renderActivePresetOptions, renderPresetCapabilityTable,
+     renderPresets, resetPresetForm, validateAgentPresetsDraft, agentPresetReferences,
+     mountPresetCapabilityPickers,
      editingPresetName: () => editingPresetName });
 `;
 
@@ -1760,18 +1786,41 @@ interface PresetApi {
   saveAgentPreset: () => unknown;
   deleteAgentPreset: (name: string) => unknown;
   editAgentPreset: (name: string) => void;
+  duplicateAgentPreset: (name: string) => unknown;
+  writePresetSlot: (cap: string, slot: Record<string, string>) => unknown;
+  clearPresetSlot: (cap: string) => unknown;
+  writeAllPresetSlots: (slots: Record<string, unknown>) => unknown;
+  setAllOverride: () => unknown;
+  setAllInherit: () => unknown;
   renderAgentPresetList: () => void;
+  renderActivePresetOptions: () => void;
+  renderPresetCapabilityTable: () => void;
+  renderPresets: () => void;
   resetPresetForm: () => void;
   validateAgentPresetsDraft: (presets: unknown) => string | null;
   agentPresetReferences: (name: string) => string[];
+  mountPresetCapabilityPickers: () => void;
   editingPresetName: () => string | null;
 }
+
+/** The host's capability vocabulary, in the order the host lists it (UI-R31). */
+const PRESET_GROUPS = [
+  { label: 'Quality', rows: PRESET_CAPABILITIES.slice(0, 4).map((capability) => ({ capability, label: capability })) },
+  { label: 'Ticket', rows: PRESET_CAPABILITIES.slice(4, 7).map((capability) => ({ capability, label: capability })) },
+  { label: 'Graph roles', rows: PRESET_CAPABILITIES.slice(7).map((capability) => ({ capability, label: capability })) },
+];
 
 function presetEnv(
   opts: {
     draft?: Record<string, unknown>;
     lastSaved?: Record<string, unknown>;
     views?: Record<string, { roleLabel: string }>;
+    presetGroups?: unknown[];
+    presetInheritance?: Record<string, unknown>;
+    modelCatalog?: Record<string, unknown[]>;
+    /** Override rows present in the DOM when the picker mount runs. */
+    pickerContainers?: Array<{ dataset: { capPicker: string } }>;
+    mountAgentPicker?: (container: unknown, opts: Record<string, unknown>) => void;
   } = {},
 ): {
   api: PresetApi;
@@ -1793,9 +1842,29 @@ function presetEnv(
     lastSaved: opts.lastSaved ?? {},
     processAssignmentViews: opts.views ?? {},
     markDirty: () => { dirtyCalls += 1; },
-    // The default-preset select is re-rendered after every mutation; the list
-    // and the form are the surface under test here.
-    renderAgentPresetOptions: () => {},
+    // §5 rows and their Inherit previews are HOST-supplied (UI-R31); the test
+    // ships the real capability list so a mirror of it could never pass.
+    presetGroups: opts.presetGroups ?? PRESET_GROUPS,
+    presetInheritance: opts.presetInheritance ?? Object.fromEntries(
+      PRESET_CAPABILITIES.map((capability) => [
+        capability,
+        { provider: 'claude', model: 'claude-sonnet-5' },
+      ]),
+    ),
+    modelCatalog: opts.modelCatalog ?? {
+      claude: [{ id: 'claude-sonnet-5', label: 'Claude Sonnet 5', providers: ['claude'], efforts: ['low'] }],
+      codex: [{ id: 'gpt-5.1-codex', label: 'GPT-5.1 Codex', providers: ['codex'] }],
+      antigravity: [],
+      opencode: [],
+    },
+    implementedProviders: ['claude', 'codex', 'antigravity', 'opencode'],
+    recentModels: {},
+    mountAgentPicker: opts.mountAgentPicker ?? (() => {}),
+    document: {
+      querySelectorAll: (selector: string) =>
+        selector === '[data-cap-picker]' ? (opts.pickerContainers ?? []) : [],
+    },
+    clone: (v: unknown) => JSON.parse(JSON.stringify(v)),
     el,
     esc: (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) =>
       ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c),
@@ -1810,71 +1879,98 @@ function presetEnv(
   return { api, draft, el, dirtyCalls: () => dirtyCalls };
 }
 
-describe('settings agent presets (General tab)', () => {
+describe('settings agent presets (Presets tab)', () => {
   const FAST = { provider: 'codex', model: 'gpt-5.1-codex' };
+  const ALL = Object.fromEntries(PRESET_CAPABILITIES.map((c) => [c, FAST]));
 
-  it('renders the list and the one editor form inside the General section', () => {
-    const section = HTML.slice(HTML.indexOf('id="section-general"'), HTML.indexOf('<!-- Git -->'));
+  it('renders the list, the selector, the bulk row and the matrix in the Presets section', () => {
+    const section = HTML.slice(HTML.indexOf('id="section-presets"'), HTML.indexOf('<!-- Ticketing -->'));
     for (const id of [
       'id="agentPresetList"',
       'id="presetListError"',
       'id="f-presetName"',
-      'id="f-presetProvider"',
-      'id="f-presetModel"',
-      'id="f-presetEffort"',
+      'id="f-activeAgentPreset"',
       'id="presetFormError"',
       'id="savePresetBtn"',
       'id="cancelPresetBtn"',
+      'id="presetCapabilityTable"',
+      'id="f-setAllProvider"',
+      'id="f-setAllModel"',
+      'id="f-setAllEffort"',
+      'id="setAllOverrideBtn"',
+      'id="setAllInheritBtn"',
     ]) {
       expect(section, id).toContain(id);
     }
     // UI-R24/R25: every control has an accessible name, and both fault lines
     // are live regions so a refusal is announced, not just drawn.
     expect(section).toContain('aria-labelledby="presetNameLabel"');
-    expect(section).toContain('aria-labelledby="presetProviderLabel"');
-    expect(section).toContain('aria-labelledby="presetModelLabel"');
-    expect(section).toContain('aria-labelledby="presetEffortLabel"');
+    expect(section).toContain('aria-labelledby="activePresetLabel"');
     expect(section).toMatch(/id="presetFormError" role="alert"/);
     expect(section).toMatch(/id="presetListError" role="alert"/);
-    // Both actions are wired through the page's own seams.
+    // Every action is wired through the page's own seams.
     expect(HTML).toContain(`el('savePresetBtn').addEventListener('click', saveAgentPreset)`);
     expect(HTML).toContain(`el('cancelPresetBtn').addEventListener('click', resetPresetForm)`);
     expect(HTML).toContain('if (t.dataset.editPreset)');
+    expect(HTML).toContain('if (t.dataset.duplicatePreset)');
     expect(HTML).toContain('if (t.dataset.removePreset)');
+    expect(HTML).toContain('if (t.dataset.capMode)');
+    // ONE surface: General no longer edits presets, so a General Save can no
+    // longer touch agentPresets / the selection.
+    const general = HTML.slice(HTML.indexOf('id="section-general"'), HTML.indexOf('<!-- Git -->'));
+    expect(general).not.toContain('id="agentPresetList"');
+    expect(general).not.toContain('id="f-defaultAgentPreset"');
+    expect(general).not.toContain('id="f-presetProvider"');
+    // …and no process row carries a preset dropdown — §5 says a preset
+    // overrides capabilities directly, so the row's identity is the source.
+    expect(HTML).not.toContain('data-proc-field="preset"');
+    expect(HTML).not.toContain('id="proc-${key}-preset"');
   });
 
-  it('adds a preset to the draft and marks the tab dirty — Save writes it', () => {
+  it('ships the row ids and labels from the host, not from the webview (UI-R31)', () => {
+    expect(functionSource('renderPresetCapabilityTable')).toContain('presetGroups.map(');
+    expect(functionSource('renderPresetCapabilityTable')).toContain('group.rows');
+    expect(functionSource('renderPresetCapabilityRow')).toContain('row.label');
+    // The vocabulary the mirror writes into a fault comes from the same source.
+    expect(functionSource('validateAgentPresetsDraft')).toContain('presetCapabilityIds()');
+    expect(functionSource('presetCapabilityIds')).toContain('presetGroups');
+    // …and there is no second, hand-maintained list of capability ids.
+    expect(HTML).not.toContain('const PRESET_CAPABILITIES');
+    expect(HTML).not.toContain('const CAPABILITY_LABELS');
+  });
+
+  it('adds an all-Inherit preset to the draft and marks the tab dirty — Save writes it', () => {
     const env = presetEnv();
     env.el('f-presetName').value = 'fast';
-    env.el('f-presetProvider').value = 'codex';
-    env.el('f-presetModel').value = 'gpt-5.1-codex';
-    env.el('f-presetEffort').value = '';
     env.api.saveAgentPreset();
 
-    // A blank effort is OMITTED, never written as '' (the host refuses '' but
-    // accepts absent).
-    expect(env.draft).toEqual({ agentPresets: { fast: FAST } });
+    // A new preset starts with NO slots: every capability inherits until a row
+    // is pinned, and an empty slot map is a legal preset the host accepts.
+    expect(env.draft).toEqual({ agentPresets: { fast: { slots: {} } } });
     expect(env.dirtyCalls()).toBe(1);
     expect(env.el('presetFormError').classList.contains('hidden')).toBe(true);
+    expect(env.el('savePresetBtn').textContent).toBe('Save preset');
 
-    env.el('f-presetName').value = 'deep';
-    env.el('f-presetEffort').value = 'high';
-    env.api.saveAgentPreset();
-    expect(env.draft).toEqual({
-      agentPresets: { fast: FAST, deep: { ...FAST, effort: 'high' } },
+    // …then pinning one row touches only that row.
+    env.api.writePresetSlot('uatTester', FAST);
+    expect(env.draft.agentPresets).toEqual({
+      fast: { slots: { uatTester: FAST } },
     });
     expect(env.dirtyCalls()).toBe(2);
+
+    // …and Inherit drops the slot again rather than blanking the fields.
+    env.api.clearPresetSlot('uatTester');
+    expect(env.draft.agentPresets).toEqual({ fast: { slots: {} } });
+    expect(env.dirtyCalls()).toBe(3);
   });
 
   it('refuses a blank, duplicate or oversized name without touching the draft', () => {
-    const env = presetEnv({ draft: { agentPresets: { fast: FAST } } });
+    const env = presetEnv({ draft: { agentPresets: { fast: { slots: {} } } } });
     const before = JSON.stringify(env.draft);
 
     env.el('f-presetName').value = '   ';
-    env.el('f-presetProvider').value = 'codex';
-    env.el('f-presetModel').value = 'x';
     env.api.saveAgentPreset();
-    expect(env.el('presetFormError').textContent).toContain('empty preset name');
+    expect(env.el('presetFormError').textContent).toContain('must not be blank');
 
     env.el('f-presetName').value = 'fast';
     env.api.saveAgentPreset();
@@ -1890,32 +1986,28 @@ describe('settings agent presets (General tab)', () => {
   });
 
   it('refuses a core or model the host would refuse, with the host wording', () => {
-    const env = presetEnv();
-    env.el('f-presetName').value = 'fast';
-    env.el('f-presetModel').value = 'x';
+    const env = presetEnv({ draft: { agentPresets: { fast: { slots: {} } } } });
+    env.api.editAgentPreset('fast');
 
-    env.el('f-presetProvider').value = 'nope';
-    env.api.saveAgentPreset();
+    env.api.writePresetSlot('uatTester', { provider: 'nope', model: 'x' });
     expect(env.el('presetFormError').textContent)
-      .toBe('agentPresets.fast.provider must be one of: claude, codex, antigravity, opencode');
-    expect(env.el('f-presetProvider').attrs['aria-invalid']).toBe('true');
+      .toBe('agentPresets.fast.slots.uatTester.provider must be one of: claude, codex, antigravity, opencode');
+    expect(env.el('f-presetName').attrs['aria-invalid']).toBe('true');
+    // A refused slot never reaches the draft — and so never reaches Save.
+    expect(env.draft.agentPresets).toEqual({ fast: { slots: {} } });
+    expect(env.dirtyCalls()).toBe(0);
 
-    env.el('f-presetProvider').value = 'codex';
-    env.el('f-presetModel').value = 'has spaces';
-    env.api.saveAgentPreset();
+    env.api.writePresetSlot('uatTester', { provider: 'codex', model: 'has spaces' });
     expect(env.el('presetFormError').textContent)
-      .toBe('agentPresets.fast.model is not a valid model id');
-    expect(env.el('f-presetModel').attrs['aria-invalid']).toBe('true');
-    expect(env.draft).toEqual({});
+      .toBe('agentPresets.fast.slots.uatTester.model is not a valid model id');
+    expect(env.draft.agentPresets).toEqual({ fast: { slots: {} } });
   });
 
   it('refuses a 51st preset', () => {
     const presets: Record<string, unknown> = {};
-    for (let i = 0; i < 50; i += 1) presets[`p${i}`] = FAST;
+    for (let i = 0; i < 50; i += 1) presets[`p${i}`] = { slots: {} };
     const env = presetEnv({ draft: { agentPresets: presets } });
     env.el('f-presetName').value = 'oneMore';
-    env.el('f-presetProvider').value = 'codex';
-    env.el('f-presetModel').value = 'x';
     env.api.saveAgentPreset();
 
     expect(env.el('presetFormError').textContent)
@@ -1926,7 +2018,7 @@ describe('settings agent presets (General tab)', () => {
   });
 
   it('drops the key when the last preset goes — absent means no presets', () => {
-    const env = presetEnv({ draft: { agentPresets: { fast: FAST } } });
+    const env = presetEnv({ draft: { agentPresets: { fast: { slots: {} } } } });
     env.api.deleteAgentPreset('fast');
 
     expect('agentPresets' in env.draft).toBe(false);
@@ -1935,12 +2027,13 @@ describe('settings agent presets (General tab)', () => {
   });
 
   it('refuses to delete a preset the manifest still references, and names where', () => {
-    // The reference is checked in BOTH the draft and the baseline: a General
+    // The reference is checked in BOTH the draft and the baseline: a Presets
     // Save writes the file's process rows, an Agents Save writes the draft's —
-    // either one keeps the reference alive after this tab's Save.
+    // either one keeps the reference alive after this tab's Save. The active
+    // selector is on THIS tab, so it is named as the place to change it.
     const env = presetEnv({
       draft: {
-        agentPresets: { fast: FAST },
+        agentPresets: { fast: { slots: {} } },
         defaultAgentPreset: 'fast',
         processes: { review: { preset: 'fast' } },
       },
@@ -1951,14 +2044,14 @@ describe('settings agent presets (General tab)', () => {
       },
     });
     expect(env.api.agentPresetReferences('fast')).toEqual([
-      'the Default agent preset',
+      'the active preset selector',
       'the "Review" process assignment',
       'the "UAT Tester" process assignment',
     ]);
 
     env.api.deleteAgentPreset('fast');
     expect(env.el('presetListError').textContent).toBe(
-      'Cannot delete "fast" — still used by the Default agent preset, '
+      'Cannot delete "fast" — still used by the active preset selector, '
       + 'the "Review" process assignment and the "UAT Tester" process assignment. Change that first.',
     );
     expect(env.draft).toHaveProperty('agentPresets.fast');
@@ -1968,7 +2061,7 @@ describe('settings agent presets (General tab)', () => {
   it('loads a preset into the form for editing, and renames only when unreferenced', () => {
     const env = presetEnv({
       draft: {
-        agentPresets: { fast: FAST },
+        agentPresets: { fast: { slots: { uatTester: FAST } } },
         processes: { review: { preset: 'fast' } },
       },
       views: { review: { roleLabel: 'Review' } },
@@ -1976,9 +2069,16 @@ describe('settings agent presets (General tab)', () => {
     env.api.editAgentPreset('fast');
     expect(env.api.editingPresetName()).toBe('fast');
     expect(env.el('f-presetName').value).toBe('fast');
-    expect(env.el('f-presetProvider').value).toBe('codex');
-    expect(env.el('f-presetModel').value).toBe('gpt-5.1-codex');
     expect(env.el('savePresetBtn').textContent).toBe('Save preset');
+    // The pinned row mounts the shared identity picker; an unpinned one shows
+    // the host's Inherit preview instead of an empty control.
+    const table = env.el('presetCapabilityTable').innerHTML;
+    expect(table).toContain('data-cap-picker="uatTester"');
+    expect(table).toContain('data-cap-mode="uatTester"');
+    expect(table).toContain('value="override" selected');
+    expect(table).toContain('data-cap-mode="review"');
+    expect(table).toContain('value="inherit" selected');
+    expect(table).toContain('Inherited: claude · claude-sonnet-5');
 
     env.el('f-presetName').value = 'quick';
     env.api.saveAgentPreset();
@@ -1986,24 +2086,85 @@ describe('settings agent presets (General tab)', () => {
     expect(env.draft).toHaveProperty('agentPresets.fast');
 
     // Clear the referrer the way the Agents tab would, then the rename lands
-    // and the old key is gone.
+    // — the record travels whole (label and slots), only the key changes.
     env.draft.processes = {};
     env.api.saveAgentPreset();
-    expect(env.draft.agentPresets).toEqual({ quick: FAST });
-    expect(env.api.editingPresetName()).toBeNull();
-    expect(env.el('savePresetBtn').textContent).toBe('+ Add preset');
+    expect(env.draft.agentPresets).toEqual({ quick: { slots: { uatTester: FAST } } });
+    expect(env.api.editingPresetName()).toBe('quick');
+    expect(env.el('savePresetBtn').textContent).toBe('Save preset');
   });
 
-  it('renders the map as sorted rows with Edit/Delete, escaping the name', () => {
-    const env = presetEnv({ draft: { agentPresets: { zeta: FAST, 'a"b': { ...FAST, effort: 'high' } } } });
+  it('reads §6 legacy flat presets as all-Override and writes back the slots form', () => {
+    const env = presetEnv({ draft: { agentPresets: { fast: { ...FAST, effort: 'high' } } } });
+    env.api.editAgentPreset('fast');
+    // Reading alone never normalizes — an untouched legacy preset stays put.
+    expect(env.draft.agentPresets.fast).toEqual({ ...FAST, effort: 'high' });
+    expect(env.dirtyCalls()).toBe(0);
+
+    const slots: Record<string, { provider: string; model: string; effort?: string }> =
+      Object.fromEntries(
+        PRESET_CAPABILITIES.map((c) => [c, { provider: 'codex', model: 'gpt-5.1-codex', effort: 'high' }]),
+      );
+    // The one row the user rewrites carries exactly what they picked; the other
+    // nine keep the legacy slot the flat form implied for every capability.
+    slots.uatTester = { provider: 'codex', model: 'gpt-5.1-codex' };
+    env.api.writePresetSlot('uatTester', { provider: 'codex', model: 'gpt-5.1-codex' });
+    expect(env.draft.agentPresets).toEqual({ fast: { slots } });
+    // Writing one row must not leave BOTH forms in the record — the host
+    // refuses that shape outright.
+    expect(env.draft.agentPresets.fast.provider).toBeUndefined();
+    expect(env.dirtyCalls()).toBe(1);
+  });
+
+  it('mounts an Override row from the SLOTS view, so an un-normalized legacy record still gets a live picker', () => {
+    const mounted: Array<{ value: unknown; showEffort: unknown }> = [];
+    const env = presetEnv({
+      draft: { agentPresets: { fast: { ...FAST, effort: 'high' } } },
+      pickerContainers: [{ dataset: { capPicker: 'uatTester' } }],
+      mountAgentPicker: (_container, opts) => {
+        mounted.push({ value: opts.value, showEffort: opts.showEffort });
+      },
+    });
+    env.api.editAgentPreset('fast');
+
+    // The table reads slotsFormPreset(...).slots; a mount reading `preset.slots`
+    // directly would find nothing here and leave an empty `.ap` shell.
+    expect(mounted).toHaveLength(1);
+    expect(mounted[0]!.value).toEqual({ core: 'codex', model: 'gpt-5.1-codex', effort: 'high' });
+    expect(mounted[0]!.showEffort).toBe(true);
+  });
+
+  it('writes every row from one "Set all to…" and clears them all again', () => {
+    const env = presetEnv({ draft: { agentPresets: { fast: { slots: {} } } } });
+    env.api.editAgentPreset('fast');
+    env.el('f-setAllProvider').value = 'codex';
+    env.el('f-setAllModel').value = 'gpt-5.1-codex';
+    env.el('f-setAllEffort').value = '';
+    env.api.setAllOverride();
+
+    const slot = { provider: 'codex', model: 'gpt-5.1-codex' };
+    expect(env.draft.agentPresets).toEqual({
+      fast: { slots: Object.fromEntries(PRESET_CAPABILITIES.map((c) => [c, slot])) },
+    });
+    expect(env.dirtyCalls()).toBe(1);
+
+    env.api.setAllInherit();
+    expect(env.draft.agentPresets).toEqual({ fast: { slots: {} } });
+    expect(env.dirtyCalls()).toBe(2);
+  });
+
+  it('renders the map as sorted rows with Edit/Duplicate/Delete, escaping the name', () => {
+    const env = presetEnv({ draft: { agentPresets: { zeta: { slots: {} }, 'a"b': { slots: {} } } } });
     env.api.renderAgentPresetList();
 
     const html = env.el('agentPresetList').innerHTML;
     expect(html.indexOf('data-edit-preset="a&quot;b"')).toBeLessThan(
       html.indexOf('data-edit-preset="zeta"'),
     );
+    expect(html).toContain('data-duplicate-preset="zeta"');
     expect(html).toContain('data-remove-preset="zeta"');
-    expect(html).toContain('Codex · gpt-5.1-codex · high');
+    expect(html).toContain('0/');
+    expect(html).toContain(PRESET_CAPABILITIES.length + ' overridden');
     expect(html).not.toContain('data-edit-preset="a"b"');
   });
 
@@ -2011,6 +2172,24 @@ describe('settings agent presets (General tab)', () => {
     const env = presetEnv();
     env.api.renderAgentPresetList();
     expect(env.el('agentPresetList').innerHTML).toContain('No presets yet.');
+  });
+
+  it('marks the active preset in the list and the selector', () => {
+    const env = presetEnv({
+      draft: { agentPresets: { fast: { slots: {} }, slow: { slots: {} } }, activeAgentPreset: 'slow' },
+    });
+    env.api.renderAgentPresetList();
+    // The marker binds to the NAME row, not to the list as a whole — `fast`
+    // must not inherit it.
+    expect(env.el('agentPresetList').innerHTML).toMatch(
+      /<span class="preset-name">slow<\/span><span class="preset-meta">0\/10 overridden · active<\/span>/,
+    );
+    expect(env.el('agentPresetList').innerHTML).not.toMatch(
+      /<span class="preset-name">fast<\/span><span class="preset-meta">[^<]*active/,
+    );
+    env.api.renderActivePresetOptions();
+    expect(env.el('f-activeAgentPreset').innerHTML).toContain('value="slow" selected');
+    expect(env.el('f-activeAgentPreset').innerHTML).toContain('None (every capability inherits)');
   });
 
   // UI-R34: the webview cannot import TypeScript, so its validator is a mirror.
@@ -2044,7 +2223,11 @@ describe('settings agent presets (General tab)', () => {
       { fast: { provider: 'codex', model: 'x', effort: '' } },
       { fast: { provider: 'codex', model: 'x', nope: 1 } },
       { fast: { provider: 'codex', model: 'x', effort: 'high' } },
-      { fast: { provider: 'claude', model: 'claude-sonnet-5' }, deep: { ...FAST } },
+      { fast: { label: 1, slots: {} } },
+      { fast: { provider: 'codex', model: 'x', slots: {} } },
+      { fast: { slots: { wibble: FAST } } },
+      { fast: { slots: { uatTester: { provider: 'codex', model: 'x', extra: 1 } } } },
+      { fast: { slots: {} }, deep: { ...FAST } },
       fifty,
       fiftyOne,
     ];
@@ -2060,17 +2243,14 @@ describe('settings agent presets (General tab)', () => {
     }
   });
 
-  it('offers every manifest core to the form through the shared vocabulary', () => {
-    const section = HTML.slice(HTML.indexOf('id="section-general"'), HTML.indexOf('<!-- Git -->'));
-    expect(section).toContain('id="f-presetProvider"');
-    // The select's vocabulary is the mirror the picker already renders — a
-    // second list of cores would drift the first time a core is added.
-    const source = functionSource('renderAgentPresetProviderOptions');
+  it('offers every manifest core to the bulk row through the shared vocabulary', () => {
+    // The bulk row is the ONE place the Presets tab names a core itself — its
+    // vocabulary is the same mirror the identity picker renders, so a new core
+    // arrives from one place.
+    const source = functionSource('renderSetAllControls');
     expect(source).toContain('KNOWN_AGENT_PROVIDERS');
     expect(source).toContain('AGENT_PROVIDER_LABELS');
-    // Built once (like the Git tab's preset list) so a state push cannot reset
-    // a core the user has already picked in the form.
-    expect(source).toContain('sel.options.length');
+    expect(source).toContain("el('f-setAllProvider')");
   });
 });
 
@@ -3006,8 +3186,6 @@ describe('settings agents tab — process assignments', () => {
       stateMessage: '',
       invalidField: null,
       profileOptions: [],
-      presetOptions: [],
-      presetHint: '',
       effectiveProvider: 'claude',
       effectiveModel: undefined,
       profileHint: '',
@@ -3076,32 +3254,17 @@ describe('settings agents tab — process assignments', () => {
     expect(html).toContain('<option value="ghost" selected>ghost</option>');
   });
 
-  it('renders the preset select from the host view and keeps an unknown saved preset visible', () => {
+  it('carries no preset dropdown — §5 pins capabilities on the Presets tab instead', () => {
     const render = loadProcessRowRenderer();
-    const html = render('uatTester', { preset: 'fast' }, view('uatTester', 'UAT Tester', {
-      presetOptions: ['fast', 'deep'],
-    }));
-    expect(html).toContain('<label for="proc-uatTester-preset">Agent preset</label>');
-    expect(html).toContain('data-proc-field="preset"');
-    expect(html).toContain('<option value="">Role default</option>');
-    expect(html).toContain('<option value="fast" selected>fast</option>');
-    expect(html).toContain('<option value="deep">deep</option>');
-
-    const unknown = render('review', { preset: 'ghost' }, view('review', 'Review', {
-      state: 'unknown-preset',
-      stateTone: 'error',
-      stateMessage: 'Agent preset "ghost" does not exist. Pick a preset or leave the role default.',
-      invalidField: 'preset',
-      presetOptions: ['fast'],
-    }));
-    expect(unknown).toContain('<option value="ghost" selected>ghost</option>');
-    expect(unknown).toContain('aria-invalid="true"');
-    expect(unknown).toContain('aria-describedby="proc-review-msg"');
-
-    const hinted = render('uatTester', {}, view('uatTester', 'UAT Tester', {
-      presetHint: 'Default: fast',
-    }));
-    expect(hinted).toContain('<span class="proc-hint">Default: fast</span>');
+    const html = render('uatTester', { preset: 'fast' }, view('uatTester', 'UAT Tester', {}));
+    // `processes.<key>.preset` is deprecated and the row's own identity is the
+    // source of truth: a second place to pick a preset would let the two
+    // disagree, and this tab can no longer write the key back.
+    expect(html).not.toContain('proc-uatTester-preset');
+    expect(html).not.toContain('data-proc-field="preset"');
+    expect(html).not.toContain('Agent preset');
+    // The Agent cell is still the shared identity picker.
+    expect(html).toContain('data-proc-picker="uatTester"');
   });
 
   it('emits the unified picker mount point for each process row', () => {
