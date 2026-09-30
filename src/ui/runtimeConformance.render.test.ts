@@ -79,16 +79,16 @@ const KNOWN_UNRESOLVED_K_CLASSES: Record<string, number> = {
 const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number }> = {
   dashboard: { inputs: 1, buttons: 17 },
   diffs: { inputs: 1, buttons: 3 },
-  // gettingStarted: no form inputs; must have at least 1 button or link (counted as "input" in this context)
-  gettingStarted: { inputs: 1, buttons: 2 },
-  // resources: no form inputs; must have at least 1 button or link
-  resources: { inputs: 1, buttons: 1 },
+  // gettingStarted: no form inputs; uses focusables count (measured: 3)
+  gettingStarted: { inputs: 3, buttons: 3 },
+  // resources: no form inputs; uses focusables count (measured: 4)
+  resources: { inputs: 4, buttons: 4 },
   serverLogs: { inputs: 3, buttons: 4 },
   settings: { inputs: 52, buttons: 44 }, // vanilla view measured baseline (phase 4)
   sidebar: { inputs: 1, buttons: 4 },
   ticketForm: { inputs: 7, buttons: 12 },
-  // usage: data-driven without host state; genuinely renders 0 interactive elements until state arrives
-  usage: { inputs: 0, buttons: 0 },
+  // usage: data-driven; test provides minimal state to render range controls
+  usage: { inputs: 1, buttons: 1 },
 };
 
 describe('RUNTIME conformance — discovery', () => {
@@ -175,6 +175,27 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       }
     } else {
       handle = await renderWebviewReady(name as WebviewName);
+    }
+
+    // Usage is data-driven; provide minimal state so it renders range controls
+    if (name === 'usage') {
+      handle.receive({
+        type: 'state',
+        state: {
+          empty: false,
+          rangeId: 'current',
+          ranges: [{ id: 'current', label: 'Current' }],
+          sort: 'total',
+          sorts: [],
+          totals: { calls: 1, totalDisplay: '100', totalExact: '100', inputDisplay: '50', outputDisplay: '50', reasoningDisplay: '0', cacheReadDisplay: '0', erroredCalls: 0, estimatedCalls: 0 },
+          byStage: [],
+          byModel: [],
+          byProfile: [],
+          tickets: [],
+          page: { offset: 0, limit: 10, groups: 0, hasPrev: false, hasNext: false },
+          error: null,
+        },
+      });
     }
   });
 
