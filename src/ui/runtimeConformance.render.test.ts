@@ -126,9 +126,19 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
   let handle: ReturnType<typeof renderWebview>;
 
   beforeAll(async () => {
-    // All views await renderWebviewReady, which waits for React if present, or returns sync render.
-    // Settings waits for data-karst-ready; other views return immediately.
-    handle = await renderWebviewReady(name as WebviewName);
+    // All views use renderWebviewReady: settings waits for React via data-karst-ready,
+    // other views return immediately. Settings needs fake timers for React's microtask to run.
+    if (name === 'settings') {
+      const { vi } = await import('vitest');
+      vi.useFakeTimers();
+      try {
+        handle = await renderWebviewReady(name as WebviewName);
+      } finally {
+        vi.useRealTimers();
+      }
+    } else {
+      handle = await renderWebviewReady(name as WebviewName);
+    }
   });
 
   afterAll(() => {
