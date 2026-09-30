@@ -15,6 +15,10 @@ coverage
 # into dist/. Never edit or commit them; edit webviewSend.ts instead.
 src/ui/dashboard/webviewSend.webview.js
 src/ui/settings/webviewSend.webview.js
+# Generated settings React app bundle (NDL-126 §1) — esbuild output of
+# `src/ui/settings/app/main.tsx`, built by the same script and rebuilt by the
+# vitest globalSetup. Never edit or commit it; edit the app source instead.
+src/ui/settings/app.webview.js
 # karst config lives at .karst/karst.yml and is committed; only the generated
 # worktrees under it are ignored. (Note: worktree.ts excludes the whole .karst/
 # in each *service* repo via .git/info/exclude — that asymmetry is intentional:

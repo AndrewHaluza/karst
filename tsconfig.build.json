@@ -9,8 +9,10 @@
     "dist",
     "spikes",
     "**/*.test.ts",
+    "**/*.test.tsx",
     "src/**/fixtures.ts",
     "src/**/fixtures/**",
-    "src/ui/testing/**"
+    "src/ui/testing/**",
+    "src/ui/settings/app/**"
   ]
 }

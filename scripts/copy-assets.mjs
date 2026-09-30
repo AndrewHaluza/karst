@@ -43,6 +43,9 @@ const assets = [
   // into dist/ like every other runtime asset.
   'ui/dashboard/webviewSend.webview.js',
   'ui/settings/webviewSend.webview.js',
+  // The settings React app bundle (NDL-126 §1) — same generation, same
+  // mirroring, same "edit the SOURCE, never the dist/ copy" rule.
+  'ui/settings/app.webview.js',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the
 // manifest template does: it is written into the TARGET project at scaffold

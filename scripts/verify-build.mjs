@@ -16,7 +16,13 @@ const REQUIRED_ARTIFACTS = [
   // shipped VSIX must never omit it.
   'dist/ui/dashboard/webviewSend.webview.js',
   'dist/ui/settings/webviewSend.webview.js',
+  'dist/ui/settings/app.webview.js',
 ];
+
+// NDL-126 §7 budget: React 19 production + ReactDOM is ~190 KB min, so a
+// settings app bundle over 350 KB means something unintended got bundled in.
+const APP_BUNDLE_BUDGET_BYTES = 350 * 1024;
+const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
   console.error(`verify-build: ${message}`);
@@ -30,6 +36,15 @@ for (const artifact of REQUIRED_ARTIFACTS) {
   const { size } = statSync(artifact);
   if (size === 0) {
     fail(`build artifact is empty: ${artifact}`);
+  }
+}
+
+{
+  const { size } = statSync(APP_BUNDLE);
+  if (size > APP_BUNDLE_BUDGET_BYTES) {
+    fail(
+      `${APP_BUNDLE} is ${size} bytes, over the ${APP_BUNDLE_BUDGET_BYTES} byte budget (NDL-126 §7)`,
+    );
   }
 }
 
@@ -52,5 +67,5 @@ if (!result.stdout || result.stdout.trim().length === 0) {
 }
 
 console.log(
-  'verify-build: ok (dist/extension.js, dist/cli/main.js, webview sender bundles, guide smoke test)',
+  'verify-build: ok (dist/extension.js, dist/cli/main.js, webview bundles, settings app budget, guide smoke test)',
 );
