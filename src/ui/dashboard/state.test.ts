@@ -28,7 +28,7 @@ import { buildDashboardState } from './state.js';
 import { agentContextFor } from './resolvers.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
-import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { PRESET_CAPABILITIES, type AgentProvider } from '../../manifest/types.js';
 
 describe('buildDashboardState', () => {
   let store: Store;
@@ -411,47 +411,117 @@ describe('buildDashboardState', () => {
       defaultModel: 'claude-sonnet-5',
     });
 
-  it('computes the per-capability identity from the ticket preset for every labelled capability (NDL-116)', () => {
-    const t = createTicket(store, { key: 'PRESET-ID', title: 'preset identity' });
-    updateTicketFields(store, t.id, { agentPreset: 'turbo' });
-    const rec = getTicket(store, t.id);
-    const m = presetManifest();
-    // Wired exactly the way the panel wires it: resolver first, state after.
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, undefined,
-      agentContextFor(undefined, m, rec.agentPreset, rec.agentProvider),
-    );
+  /** Capabilities whose identity composes over the manifest defaults. */
+  const NON_GRAPH = PRESET_CAPABILITIES.filter((c) => !c.startsWith('graph'));
+  /** Graph profile ids: a preset slot is the only rung that can fill them. */
+  const GRAPH = ['graphExpert', 'graphWorker', 'graphFast'] as const;
+  const DEEPSEEK = { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash', effort: null };
+  const MANIFEST_DEFAULT = { provider: 'claude', model: 'claude-sonnet-5', effort: null };
 
-    for (const capability of ['implementation', 'uatTester', 'review'] as const) {
-      expect(state.capabilityIdentity[capability]).toEqual({
-        provider: 'opencode',
-        model: 'opencode-go/deepseek-v4-flash',
-      });
+  /**
+   * Wired exactly the way the panel wires it: the host's manifest-derived
+   * defaults first, then the resolver, then the state builder.
+   */
+  function presetState(
+    key: string,
+    over: { agentPreset?: string; agentProvider?: AgentProvider },
+    m = presetManifest(),
+  ) {
+    const t = createTicket(store, { key, title: 'preset' });
+    updateTicketFields(store, t.id, over);
+    const rec = getTicket(store, t.id)!;
+    return buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor(
+        { defaultModel: m.defaultModel ?? null, defaultEffort: m.defaultEffort ?? null },
+        m, rec.agentPreset, rec.agentProvider,
+      ),
+    );
+  }
+
+  it('computes the effective identity for EVERY capability, not only the labelled three (NDL-116)', () => {
+    const state = presetState('PRESET-ID', { agentPreset: 'turbo' });
+
+    expect(PRESET_CAPABILITIES).toHaveLength(10);
+    for (const capability of PRESET_CAPABILITIES) {
+      expect(state.capabilityIdentity[capability]).toEqual(DEEPSEEK);
     }
-    // The capabilities the dashboard does not label carry no identity at all.
-    expect(state.capabilityIdentity.uatFix).toBeNull();
-    expect(state.capabilityIdentity.reviewFix).toBeNull();
   });
 
-  it('lets the ticket agentProvider override win over the preset slot for all three capabilities (NDL-116)', () => {
-    const t = createTicket(store, { key: 'PRESET-OVR', title: 'preset override' });
-    updateTicketFields(store, t.id, { agentPreset: 'turbo', agentProvider: 'claude' });
-    const rec = getTicket(store, t.id);
-    const m = presetManifest();
-    const state = buildDashboardState(
-      store, t.id, undefined, undefined, undefined, undefined, undefined,
-      agentContextFor(undefined, m, rec.agentPreset, rec.agentProvider),
-    );
+  it('lets the ticket agentProvider override win for every non-graph capability (NDL-116)', () => {
+    const state = presetState('PRESET-OVR', { agentPreset: 'turbo', agentProvider: 'claude' });
 
     // The explicit core wins, and the preset's model never crosses onto it.
-    for (const capability of ['implementation', 'uatTester', 'review'] as const) {
-      expect(state.capabilityIdentity[capability]).toEqual({
-        provider: 'claude',
-        model: 'claude-sonnet-5',
-      });
+    for (const capability of NON_GRAPH) {
+      expect(state.capabilityIdentity[capability]).toEqual(MANIFEST_DEFAULT);
+    }
+    // Graph roles are bound by the preset slot (the approach's own profile
+    // config), never by the ticket's session core.
+    for (const capability of GRAPH) {
+      expect(state.capabilityIdentity[capability]).toEqual(DEEPSEEK);
     }
   });
 
+  it('leaves an uncovered graph role of a sparse preset as Inherit, never a guess (NDL-116)', () => {
+    const sparse = manifest({ extention: repo() }, {
+      agentPresets: {
+        lean: { slots: { implementation: { provider: 'codex', model: 'gpt-5.6-sol' } } },
+      },
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const state = presetState('PRESET-SPARSE', { agentPreset: 'lean' }, sparse);
+
+    expect(state.capabilityIdentity.implementation).toEqual({
+      provider: 'codex', model: 'gpt-5.6-sol', effort: null,
+    });
+    // No slot → the manifest defaults, exactly what launch composes.
+    for (const capability of ['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis'] as const) {
+      expect(state.capabilityIdentity[capability]).toEqual(MANIFEST_DEFAULT);
+    }
+    // A graph profile no preset slot names stays Inherit (null).
+    for (const capability of GRAPH) {
+      expect(state.capabilityIdentity[capability]).toBeNull();
+    }
+  });
+
+  it('states what launch opens when a preset owns implementation (NDL-116)', () => {
+    const state = presetState('PRESET-SES', { agentPreset: 'turbo' });
+
+    // The session is the PRESET's identity, not the bare manifest default the
+    // old defaults source reported.
+    expect(state.agentSession.provider).toBe('opencode');
+    expect(state.agentSession.modelId).toBe('opencode-go/deepseek-v4-flash');
+    // …and the inherit rows are gated to that same core, so the picker never
+    // offers an opencode model under claude.
+    expect(state.agentSwitch.inheritCore).toBe('opencode');
+    expect(state.agentSwitch.models.claude![0]!.label).toContain('Sonnet 5');
+    expect(state.agentSwitch.models.claude![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
+  });
+
+  it('does not leak a preset model onto the other cores in the switch popover (NDL-116)', () => {
+    const t = createTicket(store, { key: 'PRESET-SW', title: 'preset switch' });
+    updateTicketFields(store, t.id, { agentPreset: 'fast' });
+    const rec = getTicket(store, t.id)!;
+    const m = manifest({ extention: repo() }, {
+      agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
+      defaultAgentPreset: 'fast',
+      defaultModel: 'claude-sonnet-5',
+    });
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor(
+        { defaultModel: m.defaultModel ?? null, defaultEffort: m.defaultEffort ?? null },
+        m, rec.agentPreset, rec.agentProvider,
+      ),
+    );
+    // The preset's own core inherits it…
+    expect(state.agentSwitch.models.opencode![0]!.label).toContain('opencode-go/deepseek-v4-flash');
+    // …every other core inherits the legacy manifest default, never the preset's.
+    expect(state.agentSwitch.models.claude![0]!.label).toContain('Sonnet 5');
+    expect(state.agentSwitch.models.claude![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
+    expect(state.agentSwitch.models.codex![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
+  });
 
   it('exposes the recently used models per core for the picker\'s "Last used" group', () => {
     const project = upsertProject(store, { slug: 'recent-proj' });

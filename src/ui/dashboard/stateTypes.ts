@@ -24,6 +24,19 @@ export type { StageRail } from '../../model/stageRail.js';
 export type { PrPanelRow } from '../../model/prPanelView.js';
 export type { MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
 
+/**
+ * One capability's EFFECTIVE agent identity (§7.6): ticket override → active
+ * preset slot → manifest default, resolved host-side and carried as plain data
+ * so it survives the `postMessage` structured clone into the webview.
+ * `null` means Inherit — no preset slot covers the capability and it has no
+ * dashboard-level identity of its own.
+ */
+export interface CapabilityIdentity {
+  provider: AgentProvider;
+  model: string | null;
+  effort: string | null;
+}
+
 export interface DashboardAgentContext {
   defaultModel?: string | null;
   /** Manifest default effort/variant, for the switch popover's inherit row. */
@@ -33,7 +46,7 @@ export interface DashboardAgentContext {
    * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
    * Plain data (no functions) suitable for serialization via postMessage.
    */
-  capabilityIdentity?: Record<PresetCapability, { provider: AgentProvider; model: string | null } | null>;
+  capabilityIdentity?: Record<PresetCapability, CapabilityIdentity | null>;
 }
 
 /**
@@ -172,7 +185,7 @@ export interface DashboardState {
    * renders these plain objects directly. Populated by buildDashboardState from
    * the manifest, ticket preset/provider, and per-capability defaults.
    */
-  capabilityIdentity: Record<PresetCapability, { provider: AgentProvider; model: string | null } | null>;
+  capabilityIdentity: Record<PresetCapability, CapabilityIdentity | null>;
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;

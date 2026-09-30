@@ -164,8 +164,6 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       cellOf('scope'),
       scopeProcesses(cellOf('scope'), selectedRepos, worktrees, now, processRuns, tokensFor('prefill')),
       now,
-      undefined,
-      undefined,
     ),
     impl: stageView(
       'impl',
@@ -199,8 +197,6 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         ...(graphInsideProcessOnce ? [graphInsideProcessOnce] : []),
       ],
       now,
-      undefined,
-      undefined,
     ),
     uat: stageView(
       'uat',
@@ -273,8 +269,6 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         findingsBlockingSeverity,
       }),
       now,
-      undefined,
-      undefined,
     ),
     done: doneStageView(
       cellOf('done'),

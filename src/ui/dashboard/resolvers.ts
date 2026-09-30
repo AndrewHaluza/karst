@@ -1,12 +1,29 @@
 import type { Store } from '../../store/db.js';
-import type { Manifest, AgentProvider, PresetCapability } from '../../manifest/types.js';
+import type {
+  Manifest,
+  AgentProvider,
+  PresetCapability,
+} from '../../manifest/types.js';
+import { PRESET_CAPABILITIES } from '../../manifest/types.js';
 import { getTicket } from '../../store/tickets.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolveModelForProvider } from '../../agent/models.js';
-import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { resolvePresetDefaults, resolvePresetSlot } from '../../agent/agentPresets.js';
 import { isRunnable } from '../../manifest/runnable.js';
-import type { DashboardAgentContext } from './stateTypes.js';
+import type { CapabilityIdentity, DashboardAgentContext } from './stateTypes.js';
+
+/**
+ * The graph profile ids: their identity comes from the approach's own profile
+ * config, so a preset slot is the ONLY rung a dashboard identity reads for
+ * them — `resolvePresetDefaults` would compose a manifest default a graph
+ * profile has no notion of.
+ */
+const GRAPH_CAPABILITIES: ReadonlySet<PresetCapability> = new Set<PresetCapability>([
+  'graphExpert',
+  'graphWorker',
+  'graphFast',
+]);
 
 /**
  * The manifest/agent resolution the manager performs on behalf of the state
@@ -41,10 +58,15 @@ export function repoNameFor(manifest: Manifest, repo: string): string | undefine
 }
 
 /**
- * The dashboard's agent context, enriched with a resolver for a ticket's
- * effective preset defaults. The manager is manifest-free by contract, so the
- * resolver is built here from the injected manifest getter; without a manifest
- * the state builder falls back to the legacy context defaults.
+ * The dashboard's agent context, enriched with the EFFECTIVE identity of every
+ * `PRESET_CAPABILITIES` capability (§7.6). The manager is manifest-free by
+ * contract, so the identities are computed here from the injected manifest
+ * getter; without a manifest the state builder falls back to the legacy
+ * context defaults.
+ *
+ * Every capability is computed, never a hand-picked subset: the launch paths
+ * resolve all of them, so the dashboard that states them must not stop at the
+ * three it happens to label.
  */
 export function agentContextFor(
   base: DashboardAgentContext | undefined,
@@ -55,36 +77,33 @@ export function agentContextFor(
   const ctx = base ?? {};
   if (!manifest) return ctx;
 
-  const capabilityIdentity: Record<PresetCapability, { provider: AgentProvider; model: string | null } | null> = {
-    implementation: (() => {
-      const defaults = resolvePresetDefaults(manifest, 'implementation', {
-        ticketPreset: ticketPreset ?? null,
-        explicitProvider: ticketProvider ?? null,
-      });
-      return { provider: defaults.provider, model: defaults.model ?? null };
-    })(),
-    uatTester: (() => {
-      const defaults = resolvePresetDefaults(manifest, 'uatTester', {
-        ticketPreset: ticketPreset ?? null,
-        explicitProvider: ticketProvider ?? null,
-      });
-      return { provider: defaults.provider, model: defaults.model ?? null };
-    })(),
-    review: (() => {
-      const defaults = resolvePresetDefaults(manifest, 'review', {
-        ticketPreset: ticketPreset ?? null,
-        explicitProvider: ticketProvider ?? null,
-      });
-      return { provider: defaults.provider, model: defaults.model ?? null };
-    })(),
-    uatFix: null,
-    reviewFix: null,
-    prDescription: null,
-    ticketAnalysis: null,
-    graphExpert: null,
-    graphWorker: null,
-    graphFast: null,
+  const opts = {
+    ticketPreset: ticketPreset ?? null,
+    explicitProvider: ticketProvider ?? null,
   };
+  const capabilityIdentity = {} as Record<PresetCapability, CapabilityIdentity | null>;
+
+  for (const capability of PRESET_CAPABILITIES) {
+    if (GRAPH_CAPABILITIES.has(capability)) {
+      // A graph slot applies as declared — it is the approach's own profile
+      // binding, and nothing at ticket level overrides it. Absent slot is
+      // Inherit (null): the approach's profile config wins untouched.
+      const slot = resolvePresetSlot(manifest, capability, opts.ticketPreset);
+      capabilityIdentity[capability] = slot
+        ? { provider: slot.provider, model: slot.model ?? null, effort: slot.effort ?? null }
+        : null;
+      continue;
+    }
+    // Everything else is the rung-2-over-rung-4 composition every launch path
+    // without a process config of its own uses: explicit core → slot →
+    // manifest defaults, so it is never null once a manifest exists.
+    const defaults = resolvePresetDefaults(manifest, capability, opts);
+    capabilityIdentity[capability] = {
+      provider: defaults.provider,
+      model: defaults.model ?? null,
+      effort: defaults.effort ?? null,
+    };
+  }
 
   return {
     ...ctx,
