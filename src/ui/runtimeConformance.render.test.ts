@@ -19,7 +19,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { renderWebview } from './testing/renderHarness.js';
+import { renderWebview, renderWebviewReady } from './testing/renderHarness.js';
 import type { WebviewName } from '../model/webviewChains.js';
 
 const UI_DIR = import.meta.dirname!;
@@ -69,6 +69,25 @@ const KNOWN_UNRESOLVED_K_CLASSES: Record<string, number> = {
   usage: 0,
 };
 
+/**
+ * Non-vacuity floor: minimum inputs + buttons each view must render.
+ * A RATCHET: values may only stay same or increase. Measured against
+ * vanilla (non-React) view today; settings floor measured once and
+ * hardcoded below (phase 4 compares it as parity proof).
+ * Measured via jsdom render in the test environment.
+ */
+const INTERACTION_FLOOR: Record<string, number> = {
+  dashboard: 18, // inputs=1, buttons=17 (agent picker, filters, etc)
+  diffs: 4, // inputs=1, buttons=3
+  gettingStarted: 3, // buttons=3
+  resources: 4, // buttons=4
+  serverLogs: 0, // passive display, no interactive elements
+  settings: 96, // inputs=52, buttons=44 (vanilla settings view, phase 3a baseline)
+  sidebar: 5, // inputs=1, buttons=4
+  ticketForm: 19, // inputs=7, buttons=12
+  usage: 0, // data-driven buttons; renders 0 with empty state
+};
+
 describe('RUNTIME conformance — discovery', () => {
   it('covers every webview that exists today', () => {
     expect(WEBVIEWS).toEqual(EXPECTED);
@@ -99,12 +118,12 @@ const INTERACTIVE_TAGS = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 
 describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
   let handle: ReturnType<typeof renderWebview>;
 
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
   beforeAll(() => {
+    // Phase 3a: React app not injected yet, use sync render for all views.
+    // Phase 4+: settings will use renderWebviewReady() to await data-karst-ready.
     handle = renderWebview(name as WebviewName);
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-floating-promises
   afterAll(() => {
     handle?.close();
   });
@@ -182,5 +201,39 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       unresolved.length,
       `k- classes with no matching CSSOM rule: ${unresolved.join(', ')}`,
     ).toBeLessThanOrEqual(allowed);
+  });
+
+  it('renders at least the non-vacuity floor of inputs + buttons', () => {
+    // Non-vacuity check: prevent tests from passing when view renders nothing.
+    // Floor is measured from vanilla view and hardcoded per-view in INTERACTION_FLOOR.
+    const inputs = handle.queryAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+      'input:not([type="hidden"]), select, textarea',
+    );
+    const buttons = handle.queryAll('button');
+    const interactionCount = inputs.length + buttons.length;
+    const floor = INTERACTION_FLOOR[name] ?? 0;
+
+    if (floor > 0) {
+      expect(
+        interactionCount,
+        `${name}: expected at least ${floor} interactions, found ${interactionCount} (inputs=${inputs.length}, buttons=${buttons.length})`,
+      ).toBeGreaterThanOrEqual(floor);
+    }
+  });
+
+  it('proves non-vacuity: assertion fails when #root is emptied', () => {
+    // Prove the floor assertion is not vacuous by showing it fails
+    // when we deliberately empty the render target.
+    if (INTERACTION_FLOOR[name]! > 0) {
+      const root = handle.query('#root');
+      if (root) {
+        root.innerHTML = '';
+        const inputs = handle.queryAll('input:not([type="hidden"]), select, textarea');
+        const buttons = handle.queryAll('button');
+        const emptiedCount = inputs.length + buttons.length;
+        const floor = INTERACTION_FLOOR[name]!;
+        expect(emptiedCount, `${name} floor assertion should fail on empty root`).toBeLessThan(floor);
+      }
+    }
   });
 });

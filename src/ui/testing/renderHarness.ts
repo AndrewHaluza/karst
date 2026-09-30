@@ -64,12 +64,18 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   let state: unknown = undefined;
 
   const beforeParse = (w: DOMWindow): void => {
-    // acuateVsCodeApi — the bridge between the webview script and the host.
-    (w as unknown as Record<string, unknown>).acquireVsCodeApi = () => ({
-      postMessage: (msg: unknown) => { posted.push(msg); },
-      getState: () => state,
-      setState: (s: unknown) => { state = s; },
-    });
+    // acquireVsCodeApi — the bridge between the webview script and the host.
+    // Throws on second call (NDL-126 §1 requires detecting double-acquisition).
+    let acquired = false;
+    (w as unknown as Record<string, unknown>).acquireVsCodeApi = () => {
+      if (acquired) throw new Error('acquireVsCodeApi() already called');
+      acquired = true;
+      return {
+        postMessage: (msg: unknown) => { posted.push(msg); },
+        getState: () => state,
+        setState: (s: unknown) => { state = s; },
+      };
+    };
     w.addEventListener('error', (e: Event) => {
       const msg = (e as ErrorEvent).message ?? String(e);
       errors.push(msg);
@@ -132,4 +138,33 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   };
 
   return handle;
+}
+
+/**
+ * Async render for views that set data-karst-ready after React commits.
+ * Waits for the flag with a timeout. Throws if timeout expires.
+ * For views that don't set the flag, use renderWebview instead.
+ */
+export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
+  const handle = renderWebview(name, opts);
+
+  // Only settings uses React; only it should set data-karst-ready.
+  // For other views, sync render is complete.
+  if (name !== 'settings') return handle;
+
+  const timeoutMs = 2000;
+  const startTime = Date.now();
+
+  while (true) {
+    const isReady = handle.document.documentElement.hasAttribute('data-karst-ready');
+    if (isReady) return handle;
+
+    if (Date.now() - startTime > timeoutMs) {
+      handle.close();
+      throw new Error(`renderWebviewReady(settings): timeout waiting for data-karst-ready`);
+    }
+
+    // Yield to event loop; React effects run during this time
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
