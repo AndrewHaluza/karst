@@ -21,9 +21,11 @@ import type { ReactElement } from 'react';
 import type { SettingsSection } from '../../sections.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { GeneralSection } from './GeneralSection.js';
+import { GitSection } from './GitSection.js';
 
 const PORTED: Readonly<Partial<Record<SettingsSection, () => ReactElement>>> = {
   general: GeneralSection,
+  git: GitSection,
 };
 
 /** The current tab's editor, or nothing while its tab is still vanilla. */

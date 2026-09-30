@@ -34,15 +34,42 @@ export interface ArtifactTemplateContext {
   sessionId?: string;
 }
 
-const COMMON_VARIABLES = ['title', 'key', 'id', 'repo', 'type', 'scope'] as const;
+/**
+ * Variables every artifact template may name. EXPORTED so the Settings Git tab
+ * offers exactly this vocabulary instead of mirroring it (R-X1, "import, never
+ * mirror"); a placeholder the host rejects must never be offered as an insertable.
+ */
+export const COMMON_CONVENTION_VARIABLES = [
+  'title',
+  'key',
+  'id',
+  'repo',
+  'type',
+  'scope',
+] as const;
+
 // The description template is the only artifact that can name the agent that
 // implemented the work — provider/model/approach/sessionId are per-ticket facts
-// with no meaning on a commit subject or a PR title.
-const DESCRIPTION_VARIABLES = ['description', 'provider', 'model', 'approach', 'sessionId'] as const;
+// with no meaning on a commit subject or a PR title. Exported for the same reason
+// as `COMMON_CONVENTION_VARIABLES`.
+export const DESCRIPTION_CONVENTION_VARIABLES = [
+  'description',
+  'provider',
+  'model',
+  'approach',
+  'sessionId',
+] as const;
+
+/** The full description-template vocabulary: common plus the agent metadata. */
+export const FULL_DESCRIPTION_CONVENTION_VARIABLES: readonly string[] = [
+  ...COMMON_CONVENTION_VARIABLES,
+  ...DESCRIPTION_CONVENTION_VARIABLES,
+];
+
 const VARIABLES: Record<ArtifactConventionName, ReadonlySet<string>> = {
-  commitMessage: new Set(COMMON_VARIABLES),
-  pullRequestTitle: new Set(COMMON_VARIABLES),
-  pullRequestDescription: new Set([...COMMON_VARIABLES, ...DESCRIPTION_VARIABLES]),
+  commitMessage: new Set(COMMON_CONVENTION_VARIABLES),
+  pullRequestTitle: new Set(COMMON_CONVENTION_VARIABLES),
+  pullRequestDescription: new Set(FULL_DESCRIPTION_CONVENTION_VARIABLES),
 };
 
 const TOKEN = /\{([^{}]*)\}/g;

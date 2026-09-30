@@ -164,11 +164,16 @@ export function SettingsAppProvider({
   // point at a tab.
   const fault = state.validation.ok ? state.hostError : state.validation.error;
   const errorSection = useMemo(() => sectionForError(fault), [fault]);
+  // A fault belonging to a DIFFERENT tab is prefixed with that tab's label, so
+  // the banner says whose problem it is. Standing ON the owning tab, the message
+  // is shown verbatim — the prefix would only be noise.
   const bannerText = useMemo(() => {
     if (!shouldShowBanner(fault, state.touched)) return null;
     const detail = manifestFaultDetail(fault);
-    return detail || null;
-  }, [fault, state.touched]);
+    if (!detail) return null;
+    const owner = sectionForError(fault);
+    return owner && owner !== section ? `${SECTION_LABELS[owner]}: ${detail}` : detail;
+  }, [fault, state.touched, section]);
 
   const isDirty = useCallback(
     (target: SettingsSection) => state.dirtySections.includes(target),
