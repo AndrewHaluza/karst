@@ -3,6 +3,7 @@ import { getTicket } from '../../store/tickets.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import { providerRef, type AdvanceResult } from './done.js';
+import { DEFAULT_START_STATUS } from './startDefaults.js';
 
 /**
  * Start stage (§ ticket 869e7x7a3). Mirrors `advanceTicketOnShip` (done.ts) on
@@ -12,11 +13,11 @@ import { providerRef, type AdvanceResult } from './done.js';
  */
 
 /**
- * Fallback status name pushed when `advanceOnStart` is on but `startStatus` was
- * left blank or unset — most trackers ship a status with this exact name, so an
- * incomplete config still does something useful instead of silently no-op'ing.
+ * `DEFAULT_START_STATUS` is defined in the browser-safe `startDefaults.ts` and
+ * re-exported here, because this module reaches `store/db.js` and so cannot be
+ * imported by a webview bundle that needs the same constant (UI-R34 / R-X1).
  */
-export const DEFAULT_START_STATUS = 'in progress';
+export { DEFAULT_START_STATUS };
 
 /**
  * Push the configured start-of-work status, when configured and addressable.

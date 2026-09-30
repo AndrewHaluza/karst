@@ -64,12 +64,18 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   let state: unknown = undefined;
 
   const beforeParse = (w: DOMWindow): void => {
-    // acuateVsCodeApi — the bridge between the webview script and the host.
-    (w as unknown as Record<string, unknown>).acquireVsCodeApi = () => ({
-      postMessage: (msg: unknown) => { posted.push(msg); },
-      getState: () => state,
-      setState: (s: unknown) => { state = s; },
-    });
+    // acquireVsCodeApi — the bridge between the webview script and the host.
+    // Throws on second call (NDL-126 §1 requires detecting double-acquisition).
+    let acquired = false;
+    (w as unknown as Record<string, unknown>).acquireVsCodeApi = () => {
+      if (acquired) throw new Error('acquireVsCodeApi() already called');
+      acquired = true;
+      return {
+        postMessage: (msg: unknown) => { posted.push(msg); },
+        getState: () => state,
+        setState: (s: unknown) => { state = s; },
+      };
+    };
     w.addEventListener('error', (e: Event) => {
       const msg = (e as ErrorEvent).message ?? String(e);
       errors.push(msg);
@@ -132,4 +138,65 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   };
 
   return handle;
+}
+
+/**
+ * Async render for views that set data-karst-ready after React commits.
+ * For settings: waits for the flag with a timeout, throws if not set (NDL-126 §4).
+ * For other views: returns immediately after sync render.
+ * In test environment: caller should enable fake timers before calling this, then
+ * call vi.runAllTimersAsync() in the loop as needed.
+ */
+export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
+  const handle = renderWebview(name, opts);
+
+  // Only settings uses React; only it should set data-karst-ready.
+  // For other views, sync render is complete.
+  if (name !== 'settings') return handle;
+
+  // Check if React app is injected (marked by #root element).
+  // If not, vanilla view is active — return sync render immediately.
+  // If yes, wait for data-karst-ready flag with timeout.
+  const hasReactRoot = handle.document.querySelector('#root') !== null;
+  if (!hasReactRoot) return handle;
+
+  // React is injected; wait for its effect to set data-karst-ready.
+  // Throw on timeout — no fallback to incomplete render.
+  // React's useEffect runs as a microtask. In test env with fake timers, call vi.runAllTimersAsync()
+  // to advance them; in real env, yield to event loop with setTimeout.
+  let vi: any = null;
+  try {
+    vi = (await import('vitest')).vi;
+  } catch {
+    // vitest not available — real timers will be used
+  }
+
+  const timeoutMs = 2000;
+  const startTime = Date.now();
+  let checkCount = 0;
+
+  while (true) {
+    const isReady = handle.document.documentElement.hasAttribute('data-karst-ready');
+    if (isReady) return handle;
+
+    if (Date.now() - startTime > timeoutMs) {
+      handle.close();
+      throw new Error(`renderWebviewReady(settings): timeout waiting for data-karst-ready (React injected)`);
+    }
+
+    // In test env with fake timers: run all pending timers to let React's effect execute.
+    // In real env: yield to event loop.
+    if (vi && vi.isFakeTimersEnabled?.()) {
+      await vi.runAllTimersAsync();
+    } else {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+
+    checkCount++;
+    // Safety check to avoid infinite loop.
+    if (checkCount > 200) {
+      handle.close();
+      throw new Error(`renderWebviewReady(settings): gave up after ${checkCount} checks`);
+    }
+  }
 }
