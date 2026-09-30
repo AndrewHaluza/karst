@@ -32,6 +32,7 @@ import { overlaySections } from './draft.js';
 import {
   INITIAL_SETTINGS_APP_STATE,
   beginSave,
+  invalidateTicketFetchesFor,
   setDraftManifest,
   settingsAppReducer,
   touchField,
@@ -59,8 +60,13 @@ function appReducer(state: SettingsAppState, action: AppAction): SettingsAppStat
   switch (action.kind) {
     case 'host':
       return settingsAppReducer(state, action.message);
-    case 'edit':
-      return setDraftManifest(state, action.update(state.draft));
+    case 'edit': {
+      const next = setDraftManifest(state, action.update(state.draft));
+      // A ticketing edit can move the key a cached fetch belongs to, and the
+      // reducer owns the fetches — so the invalidation is its decision, not a
+      // component's (R-X4).
+      return invalidateTicketFetchesFor(state, next);
+    }
     case 'touch':
       return touchField(state, action.key);
     case 'begin-save':

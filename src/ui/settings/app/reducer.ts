@@ -362,6 +362,37 @@ export function setDraftManifest(state: SettingsAppState, draft: Manifest): Sett
   };
 }
 
+/**
+ * Drop a ticketing fetch whose KEY the new draft no longer matches.
+ *
+ * A status list belongs to exactly one `listId`, and a list catalogue to exactly
+ * one `teamId`. Once the draft names a different one, the cached answer describes
+ * the wrong board — and offering it would let a status belonging to the OLD list
+ * be written into the NEW one, which is a silent misconfiguration rather than a
+ * visible failure. The host has no message for this because from ITS side nothing
+ * happened: only the webview moved the draft, so the invalidation belongs here,
+ * next to the fetches it protects.
+ *
+ * Nothing is dropped when the key did not change, so a status list survives an
+ * unrelated edit and the two reload buttons keep working.
+ */
+export function invalidateTicketFetchesFor(
+  before: SettingsAppState,
+  after: SettingsAppState,
+): SettingsAppState {
+  const was = before.draft.ticketing;
+  const now = after.draft.ticketing;
+  const sameTeam = was?.teamId === now?.teamId;
+  const sameList = was?.listId === now?.listId;
+  if (sameTeam && sameList) return after;
+  // A key that MOVED drops its cache just as hard as one that was cleared: the
+  // statuses of list A say nothing about list B, even though both are non-empty.
+  const lists: ListFetch = sameTeam ? after.lists : IDLE_LISTS;
+  const statuses: StatusFetch = sameList ? after.statuses : IDLE_STATUSES;
+  if (lists === after.lists && statuses === after.statuses) return after;
+  return { ...after, lists, statuses };
+}
+
 /** Record that a field was touched, so a mapped error can be shown on it. */
 export function touchField(state: SettingsAppState, key: string): SettingsAppState {
   if (state.touched.includes(key)) return state;
