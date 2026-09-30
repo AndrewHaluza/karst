@@ -87,8 +87,8 @@ const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number; input
   settings: { inputs: 52, buttons: 44 }, // vanilla view measured baseline (phase 4)
   sidebar: { inputs: 1, buttons: 4 },
   ticketForm: { inputs: 7, buttons: 12 },
-  // usage: measured after host sends state (inputs 1, buttons 1)
-  usage: { inputs: 1, buttons: 1 },
+  // usage: measured after seeded host state — no form inputs; focusable 8, buttons 8
+  usage: { inputs: 8, buttons: 8, inputsProbe: 'focusable' },
 };
 
 describe('RUNTIME conformance — discovery', () => {
