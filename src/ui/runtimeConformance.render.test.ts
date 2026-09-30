@@ -50,8 +50,8 @@ const EXPECTED = [
 ];
 
 /**
- * Known RUNTIME violations per view — a RATCHET, not an allowlist.
- * Values may only shrink.  Each survivor has a comment naming the violation.
+ * Known RUNTIME violations per view — a ratchet (values may only shrink).
+ * Each survivor has a comment naming the violation.
  */
 const KNOWN_UNRESOLVED_K_CLASSES: Record<string, number> = {
   // k-agent-core: used in webview.html as a class on #agentCore but styled
@@ -70,22 +70,22 @@ const KNOWN_UNRESOLVED_K_CLASSES: Record<string, number> = {
 };
 
 /**
- * Non-vacuity floor: minimum inputs + buttons each view must render.
- * A RATCHET: values may only stay same or increase. Measured against
- * vanilla (non-React) view today; settings floor measured once and
- * hardcoded below (phase 4 compares it as parity proof).
- * Measured via jsdom render in the test environment.
+ * Non-vacuity floor: minimum inputs and buttons each view must render per-kind.
+ * NDL-126 §4 requires every view to render both inputs and buttons (N > 0 for each).
+ * Settings: fixed parity measurement from vanilla view (phase 4 baseline).
+ * Other views: measured from current sync render in the test environment (may increase).
+ * Usage: data-driven without host state; genuinely renders 0 interactive elements until state arrives.
  */
-const INTERACTION_FLOOR: Record<string, number> = {
-  dashboard: 18, // inputs=1, buttons=17 (agent picker, filters, etc)
-  diffs: 4, // inputs=1, buttons=3
-  gettingStarted: 3, // buttons=3
-  resources: 4, // buttons=4
-  serverLogs: 0, // passive display, no interactive elements
-  settings: 96, // inputs=52, buttons=44 (vanilla settings view, phase 3a baseline)
-  sidebar: 5, // inputs=1, buttons=4
-  ticketForm: 19, // inputs=7, buttons=12
-  usage: 0, // data-driven buttons; renders 0 with empty state
+const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number }> = {
+  dashboard: { inputs: 1, buttons: 17 },
+  diffs: { inputs: 1, buttons: 3 },
+  gettingStarted: { inputs: 0, buttons: 3 },
+  resources: { inputs: 0, buttons: 4 },
+  serverLogs: { inputs: 3, buttons: 4 },
+  settings: { inputs: 52, buttons: 44 }, // vanilla view measured baseline
+  sidebar: { inputs: 1, buttons: 4 },
+  ticketForm: { inputs: 7, buttons: 12 },
+  usage: { inputs: 0, buttons: 0 },
 };
 
 describe('RUNTIME conformance — discovery', () => {
@@ -102,6 +102,13 @@ describe('RUNTIME conformance — discovery', () => {
       expect(KNOWN_UNRESOLVED_K_CLASSES[name], `${name} has no k-class budget`).toBeDefined();
     }
   });
+
+  it('has a non-vacuity floor for every discovered webview', () => {
+    for (const name of WEBVIEWS) {
+      expect(INTERACTION_FLOOR[name], `${name} has no non-vacuity floor`).toBeDefined();
+    }
+  });
+
 });
 
 /** Interaction hook predicate: data-act, data-action, or k-btn family class. */
@@ -118,10 +125,10 @@ const INTERACTIVE_TAGS = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 
 describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
   let handle: ReturnType<typeof renderWebview>;
 
-  beforeAll(() => {
-    // Phase 3a: React app not injected yet, use sync render for all views.
-    // Phase 4+: settings will use renderWebviewReady() to await data-karst-ready.
-    handle = renderWebview(name as WebviewName);
+  beforeAll(async () => {
+    // All views await renderWebviewReady, which waits for React if present, or returns sync render.
+    // Settings waits for data-karst-ready; other views return immediately.
+    handle = await renderWebviewReady(name as WebviewName);
   });
 
   afterAll(() => {
@@ -203,37 +210,54 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
     ).toBeLessThanOrEqual(allowed);
   });
 
-  it('renders at least the non-vacuity floor of inputs + buttons', () => {
+
+  it('renders at least the non-vacuity floor of inputs and buttons', () => {
     // Non-vacuity check: prevent tests from passing when view renders nothing.
     // Floor is measured from vanilla view and hardcoded per-view in INTERACTION_FLOOR.
     const inputs = handle.queryAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
       'input:not([type="hidden"]), select, textarea',
     );
     const buttons = handle.queryAll('button');
-    const interactionCount = inputs.length + buttons.length;
-    const floor = INTERACTION_FLOOR[name] ?? 0;
+    const floor = INTERACTION_FLOOR[name]!;
 
-    if (floor > 0) {
-      expect(
-        interactionCount,
-        `${name}: expected at least ${floor} interactions, found ${interactionCount} (inputs=${inputs.length}, buttons=${buttons.length})`,
-      ).toBeGreaterThanOrEqual(floor);
-    }
+    expect(
+      inputs.length,
+      `${name}: expected at least ${floor.inputs} inputs, found ${inputs.length}`,
+    ).toBeGreaterThanOrEqual(floor.inputs);
+    expect(
+      buttons.length,
+      `${name}: expected at least ${floor.buttons} buttons, found ${buttons.length}`,
+    ).toBeGreaterThanOrEqual(floor.buttons);
   });
 
-  it('proves non-vacuity: assertion fails when #root is emptied', () => {
-    // Prove the floor assertion is not vacuous by showing it fails
-    // when we deliberately empty the render target.
-    if (INTERACTION_FLOOR[name]! > 0) {
-      const root = handle.query('#root');
-      if (root) {
-        root.innerHTML = '';
-        const inputs = handle.queryAll('input:not([type="hidden"]), select, textarea');
-        const buttons = handle.queryAll('button');
-        const emptiedCount = inputs.length + buttons.length;
-        const floor = INTERACTION_FLOOR[name]!;
-        expect(emptiedCount, `${name} floor assertion should fail on empty root`).toBeLessThan(floor);
-      }
+  it('proves non-vacuity: assertion fails on empty render', () => {
+    // Prove floor assertions are not vacuous by rendering into a fresh,
+    // empty container and verifying the predicate fails.
+    // Check per-kind (inputs vs buttons) to match the main floor assertion.
+    const floor = INTERACTION_FLOOR[name]!;
+
+    // Render into a fresh JSDOM to avoid mutating the shared handle.
+    const emptyHandle = renderWebview(name as WebviewName);
+    const container = emptyHandle.query('body');
+    if (!container) return; // Can't test if no body
+
+    container.innerHTML = '';
+    const inputs = emptyHandle.queryAll('input:not([type="hidden"]), select, textarea');
+    const buttons = emptyHandle.queryAll('button');
+    emptyHandle.close();
+
+    // Prove each floor assertion would fail on empty render.
+    if (floor.inputs > 0) {
+      expect(
+        inputs.length,
+        `${name} empty render must violate inputs floor (${floor.inputs})`,
+      ).toBeLessThan(floor.inputs);
+    }
+    if (floor.buttons > 0) {
+      expect(
+        buttons.length,
+        `${name} empty render must violate buttons floor (${floor.buttons})`,
+      ).toBeLessThan(floor.buttons);
     }
   });
 });

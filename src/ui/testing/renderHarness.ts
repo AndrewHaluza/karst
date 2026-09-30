@@ -142,8 +142,8 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
 
 /**
  * Async render for views that set data-karst-ready after React commits.
- * Waits for the flag with a timeout. Throws if timeout expires.
- * For views that don't set the flag, use renderWebview instead.
+ * For settings: waits for the flag with a timeout, throws if not set (NDL-126 §4).
+ * For other views: returns immediately after sync render.
  */
 export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
   const handle = renderWebview(name, opts);
@@ -152,19 +152,51 @@ export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: str
   // For other views, sync render is complete.
   if (name !== 'settings') return handle;
 
-  const timeoutMs = 2000;
-  const startTime = Date.now();
-
-  while (true) {
-    const isReady = handle.document.documentElement.hasAttribute('data-karst-ready');
-    if (isReady) return handle;
-
-    if (Date.now() - startTime > timeoutMs) {
-      handle.close();
-      throw new Error(`renderWebviewReady(settings): timeout waiting for data-karst-ready`);
+  // Settings must wait for React to commit and set data-karst-ready.
+  // Missing marker throws on timeout — no fallback to sync render.
+  // Use fake timers in the test environment so React's microtasks can run.
+  let usingFakeTimers = false;
+  try {
+    // Only enable fake timers if vitest is available (test environment).
+    if (typeof __vitest__ !== 'undefined') {
+      const { vi } = await import('vitest');
+      usingFakeTimers = vi.useFakeTimers();
     }
+  } catch {
+    // vitest not available — real timers will be used.
+  }
 
-    // Yield to event loop; React effects run during this time
-    await new Promise((resolve) => setTimeout(resolve, 10));
+  try {
+    const timeoutMs = 2000;
+    const startTime = Date.now();
+
+    while (true) {
+      const isReady = handle.document.documentElement.hasAttribute('data-karst-ready');
+      if (isReady) return handle;
+
+      if (Date.now() - startTime > timeoutMs) {
+        handle.close();
+        throw new Error(`renderWebviewReady(settings): timeout waiting for data-karst-ready`);
+      }
+
+      // In test environment: advance fake timers to let React's effect run.
+      if (usingFakeTimers) {
+        const { vi } = await import('vitest');
+        await vi.runAllTimersAsync();
+      } else {
+        // In real environment: yield to event loop.
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    }
+  } finally {
+    // Restore real timers if we switched to fake.
+    if (usingFakeTimers) {
+      try {
+        const { vi } = await import('vitest');
+        vi.useRealTimers();
+      } catch {
+        // vitest not available.
+      }
+    }
   }
 }
