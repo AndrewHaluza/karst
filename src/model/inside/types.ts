@@ -1,7 +1,6 @@
 import type { StageKey } from '../types.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { AttemptKey, GateAttemptView } from './rounds.js';
-import type { AgentProvider } from '../../manifest/types.js';
 
 /**
  * How an operation row reads.
@@ -825,14 +824,6 @@ export interface InsideStageView {
    * `selectedAttempt` itself. Absent → no banner.
    */
   attemptNote?: string;
-  /**
-   * The ticket's agent preset and explicit provider override, used for resolving
-   * per-capability effective agent identity. Null values fall through to preset defaults.
-   */
-  ticket?: {
-    agentPreset: string | null;
-    agentProvider: AgentProvider | null;
-  };
 }
 
 /**

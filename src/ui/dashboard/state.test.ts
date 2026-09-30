@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket, updateTicketFields } from '../../store/tickets.js';
+import { createTicket, getTicket, updateTicketFields } from '../../store/tickets.js';
 import { setStage } from '../../store/stages.js';
 import { transition } from '../../workflow/machine.js';
 import { recordGateRun } from '../../store/gateRuns.js';
@@ -25,6 +25,7 @@ import { formatTime } from '../../model/inside/types.js';
 import { attemptKey } from '../../model/inside/rounds.js';
 import { InsideActionRegistry } from './insideActions.js';
 import { buildDashboardState } from './state.js';
+import { agentContextFor } from './resolvers.js';
 import type { ArtifactSummary } from '../../model/artifacts.js';
 import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
@@ -398,6 +399,57 @@ describe('buildDashboardState', () => {
     expect(state.agentSwitch.cores.find((c) => c.id === 'codex')?.label).toBe('Codex');
     expect(Array.isArray(state.agentSwitch.models.codex)).toBe(true);
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
+  });
+
+  // §7.6: the dashboard states the EFFECTIVE agent per capability — ticket
+  // override → active preset slot → manifest default — as plain data, because
+  // state crosses `postMessage` and a function would not survive the clone.
+  const presetManifest = () =>
+    manifest({ extention: repo() }, {
+      agentPresets: { turbo: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
+      agentProvider: 'claude',
+      defaultModel: 'claude-sonnet-5',
+    });
+
+  it('computes the per-capability identity from the ticket preset for every labelled capability (NDL-116)', () => {
+    const t = createTicket(store, { key: 'PRESET-ID', title: 'preset identity' });
+    updateTicketFields(store, t.id, { agentPreset: 'turbo' });
+    const rec = getTicket(store, t.id);
+    const m = presetManifest();
+    // Wired exactly the way the panel wires it: resolver first, state after.
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor(undefined, m, rec.agentPreset, rec.agentProvider),
+    );
+
+    for (const capability of ['implementation', 'uatTester', 'review'] as const) {
+      expect(state.capabilityIdentity[capability]).toEqual({
+        provider: 'opencode',
+        model: 'opencode-go/deepseek-v4-flash',
+      });
+    }
+    // The capabilities the dashboard does not label carry no identity at all.
+    expect(state.capabilityIdentity.uatFix).toBeNull();
+    expect(state.capabilityIdentity.reviewFix).toBeNull();
+  });
+
+  it('lets the ticket agentProvider override win over the preset slot for all three capabilities (NDL-116)', () => {
+    const t = createTicket(store, { key: 'PRESET-OVR', title: 'preset override' });
+    updateTicketFields(store, t.id, { agentPreset: 'turbo', agentProvider: 'claude' });
+    const rec = getTicket(store, t.id);
+    const m = presetManifest();
+    const state = buildDashboardState(
+      store, t.id, undefined, undefined, undefined, undefined, undefined,
+      agentContextFor(undefined, m, rec.agentPreset, rec.agentProvider),
+    );
+
+    // The explicit core wins, and the preset's model never crosses onto it.
+    for (const capability of ['implementation', 'uatTester', 'review'] as const) {
+      expect(state.capabilityIdentity[capability]).toEqual({
+        provider: 'claude',
+        model: 'claude-sonnet-5',
+      });
+    }
   });
 
 
