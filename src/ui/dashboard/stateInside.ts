@@ -1,4 +1,4 @@
-import type { Severity } from '../../manifest/types.js';
+import type { Severity, AgentProvider } from '../../manifest/types.js';
 import { displayStatus, type StepperCell } from '../../model/stepper.js';
 import type { StageKey } from '../../model/types.js';
 import type { GateStage } from '../../store/ticketGates.js';
@@ -98,6 +98,7 @@ export interface InsideViewsInput {
   recordedTotal: NonNullable<DoneReceiptInput['tokens']>;
   roleTokens: DoneReceiptInput['roles'];
   stageCurrent: string | null;
+  ticket?: { agentPreset: string | null; agentProvider: AgentProvider | null };
 }
 
 /**
@@ -156,6 +157,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     recordedTotal,
     roleTokens,
     stageCurrent,
+    ticket,
   } = input;
 
   const insideViews: Record<InsideStageKey, InsideStageView> = {
@@ -164,6 +166,9 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       cellOf('scope'),
       scopeProcesses(cellOf('scope'), selectedRepos, worktrees, now, processRuns, tokensFor('prefill')),
       now,
+      undefined,
+      undefined,
+      ticket,
     ),
     impl: stageView(
       'impl',
@@ -197,6 +202,9 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         ...(graphInsideProcessOnce ? [graphInsideProcessOnce] : []),
       ],
       now,
+      undefined,
+      undefined,
+      ticket,
     ),
     uat: stageView(
       'uat',
@@ -224,6 +232,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       now,
       consoleFor('uat', cellOf),
       uatRoundSwitcher,
+      ticket,
     ),
     review: stageView(
       'review',
@@ -249,6 +258,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
       now,
       consoleFor('review', cellOf),
       reviewRoundSwitcher,
+      ticket,
     ),
     ship: stageView(
       'ship',
@@ -269,6 +279,9 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         findingsBlockingSeverity,
       }),
       now,
+      undefined,
+      undefined,
+      ticket,
     ),
     done: doneStageView(
       cellOf('done'),
@@ -338,6 +351,7 @@ function stageView(
   roundSwitcher?:
     | { attempts: readonly GateAttemptView[]; selectedAttempt: AttemptKey; attemptNote?: string }
     | { attemptNote: string },
+  ticket?: { agentPreset: string | null; agentProvider: AgentProvider | null },
 ): InsideStageView {
   const live = liveFor(processes);
   return {
@@ -359,6 +373,7 @@ function stageView(
     // that never got a console answer at all.
     ...(console !== undefined ? { console } : {}),
     ...(roundSwitcher ? roundSwitcher : {}),
+    ...(ticket ? { ticket } : {}),
   };
 }
 

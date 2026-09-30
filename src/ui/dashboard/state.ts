@@ -631,6 +631,10 @@ export function buildDashboardState(
     recordedTotal,
     roleTokens,
     stageCurrent: ticket.stageCurrent,
+    ticket: {
+      agentPreset: ticket.agentPreset,
+      agentProvider: ticket.agentProvider,
+    },
   });
 
   return {
