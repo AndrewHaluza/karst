@@ -43,18 +43,81 @@ worktreePathDisplay: relative
 # Agent CLI used for sessions: claude, codex, antigravity, or opencode.
 agentProvider: claude
 
-# Named agent core + model bundles. A ticket, a process role, or
-# `defaultAgentPreset` can reference one by name. Reference a preset in
-# `defaultAgentPreset` below, per process under `processes:`, or per ticket.
+# Named presets: a preset is a SPARSE matrix of capability → {provider, model,
+# effort?}, edited in Settings → Presets. A capability with no slot INHERITS —
+# the ticket's own field → the `processes:` row → the agentProvider /
+# defaultModel / defaultEffort defaults above. The ten capabilities, grouped
+# as the tab shows them:
+#   Quality: uatTester, uatFix, review, reviewFix
+#   Ticket: prDescription, ticketAnalysis, implementation
+#   Graph roles: graphExpert, graphWorker, graphFast — the approach profile
+#     ids expert / worker / fast; an approach using another profile id is
+#     never touched by a preset.
+# `activeAgentPreset` names the preset applied to every ticket that names none
+# of its own (`defaultAgentPreset` is its deprecated alias — use ONE spelling;
+# a file carrying both is refused). Presets move provider/model/effort only —
+# the profile (`agent:`) a row points at is never changed — and a manifest
+# with no presets resolves exactly as it did before presets existed.
+# `effort` must be one the model advertises in the model catalog or it is
+# dropped at launch, never launched on a value the model does not support. On
+# opencode the effort IS the model variant: it reaches headless runs as
+# `--variant` and the interactive TUI drops it.
+#
+# Three worked presets below — uncomment ONE block together with its
+# `activeAgentPreset` line:
+#
+# Cheap: every capability on one inexpensive model.
 # agentPresets:
-#   fast:
-#     provider: opencode
-#     model: opencode-go/deepseek-v4-flash
-#   deep:
-#     provider: claude
-#     model: claude-opus-5
-#     effort: high
-# defaultAgentPreset: fast
+#   cheap:
+#     label: Cheap
+#     slots:
+#       uatTester: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       uatFix: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       review: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       reviewFix: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       prDescription: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       ticketAnalysis: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       implementation: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       graphExpert: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       graphWorker: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       graphFast: { provider: opencode, model: opencode-go/mimo-v2.5 }
+# activeAgentPreset: cheap
+#
+# Free: the same everywhere, pinned to the model's free variant.
+# agentPresets:
+#   free:
+#     label: Free
+#     slots:
+#       uatTester: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       uatFix: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       review: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       reviewFix: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       prDescription: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       ticketAnalysis: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       implementation: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       graphExpert: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       graphWorker: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       graphFast: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+# activeAgentPreset: free
+#
+# Smart: mixed per capability — quality on Sonnet 5, PR/analysis on a fast
+# model, implementation and Expert on Opus 5 at low effort, Worker/Fast on
+# cheap models. Sparse by design: delete a row and that capability inherits.
+# agentPresets:
+#   smart:
+#     label: Smart
+#     slots:
+#       uatTester: { provider: claude, model: claude-sonnet-5 }
+#       uatFix: { provider: claude, model: claude-sonnet-5 }
+#       review: { provider: claude, model: claude-sonnet-5 }
+#       reviewFix: { provider: claude, model: claude-sonnet-5 }
+#       prDescription: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
+#       ticketAnalysis: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
+#       implementation: { provider: claude, model: claude-opus-5, effort: low }
+#       graphExpert: { provider: claude, model: claude-opus-5, effort: low }
+#       graphWorker: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
+#       graphFast: { provider: opencode, model: opencode-go/mimo-v2.5 }
+# activeAgentPreset: smart
 
 # How long a ticket stays visible on the board after reaching `done` before
 # Karst archives it automatically (Settings → General). The sweep runs
