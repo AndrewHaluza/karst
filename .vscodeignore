@@ -71,10 +71,32 @@ package-lock.json
 # Vendored webview libs ship as dist/vendor/xterm copies, never as npm packages.
 node_modules/@xterm/**
 
-# Keep only the two runtime dependencies (better-sqlite3 + js-yaml). Everything
-# else is devDependencies and must not bloat the VSIX. vsce resolves the
-# .vscodeignore before packaging, so this glob prunes ~120 dev packages.
-node_modules/** !node_modules/better-sqlite3/** !node_modules/js-yaml/**
+# Keep only the runtime dependency closure. Everything else is devDependencies
+# and must not bloat the VSIX — react, react-dom, eslint, @testing-library and
+# friends live here and must never ship (UI-R01 / NDL-126 §1).
+#
+# The keep-list is the transitive closure of packages reached by the
+# require() calls better-sqlite3 and js-yaml actually make at runtime, not a
+# hand-written pair. better-sqlite3's lib/database.js requires `bindings`, and
+# `bindings` requires `file-uri-to-path` to locate the prebuilt .node addon —
+# prune either and a packaged VSIX dies on the first openStore with
+# `Cannot find module 'bindings'`. Tests and F5 both run from the repo's
+# node_modules, so CI cannot catch this; only the package is wrong.
+#
+# prebuild-install's tree stays pruned: it runs from better-sqlite3's
+# `install` script, never at runtime.
+#
+# ONE PATTERN PER LINE. vsce reads this file line by line and treats each line
+# as a single glob (it splits on newlines only, never on whitespace), so the
+# patterns below used to be one space-joined pattern that matched nothing —
+# which is why the broken closure shipped unnoticed.
+# `src/ui/settings/app/packaging.test.ts` derives this same closure from real
+# require() calls and pins both the one-glob-per-line shape and the closure.
+node_modules/**
+!node_modules/better-sqlite3/**
+!node_modules/bindings/**
+!node_modules/file-uri-to-path/**
+!node_modules/js-yaml/**
 
 # Keep: dist/**, node_modules/** (better-sqlite3 loaded at runtime),
 #       package.json, README.md, karst.example.yml,

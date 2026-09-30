@@ -11,7 +11,7 @@
 // agent CLI verb).
 import { build, context } from 'esbuild';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { buildWebviewSenders } from './build-webview-send.mjs';
+import { buildWebviewBundles } from './build-webview-send.mjs';
 
 const prod = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
@@ -83,10 +83,12 @@ function dedupeShebang(outfile) {
   }
 }
 
-// The webview message-sender bundles must exist before `copy-assets.mjs`
-// mirrors them into `dist/`, and before any webview is served. Built here (one
-// esbuild invocation) rather than a separate npm step so the two never drift.
-await buildWebviewSenders();
+// The webview bundles (message senders + the settings React app) must exist
+// before `copy-assets.mjs` mirrors them into `dist/`, and before any webview
+// is served. Built here (one esbuild invocation) rather than a separate npm
+// step so the two never drift. `prod` reaches only the entries that opt in
+// (see WEBVIEW_BUNDLE_ENTRIES).
+await buildWebviewBundles({ prod });
 
 if (watch) {
   const [extCtx, cliCtx] = await Promise.all([context(extensionOpts), context(cliOpts)]);

@@ -2,7 +2,7 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     environment: 'node',
     // The webview message-sender bundles are generated esbuild output; build
     // them once per run so jsdom/VM tests that hydrate dashboard or settings
@@ -31,8 +31,8 @@ export default defineConfig({
     testTimeout: 30_000,
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts'],
+      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      exclude: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
     },
   },
 });

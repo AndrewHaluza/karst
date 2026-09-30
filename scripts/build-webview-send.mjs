@@ -1,10 +1,16 @@
-// Bundle each webview's type-checked message-sender entry (TS) to the IIFE
+// Bundle each webview's type-checked TypeScript entry (TS/TSX) to the IIFE
 // `*.webview.js` the injector reads at webview-render time.
 //
 // The message constructors live in `src/ui/<view>/webviewSend.ts`, checked
 // against the host's message union by `tsc --noEmit`; the HTML only calls the
 // named functions. esbuild turns each entry into a self-contained IIFE that
 // acquires VS Code's API ONCE and exposes `vscode` + `karstSend` as globals.
+//
+// The settings React app (`src/ui/settings/app/main.tsx`) rides the SAME
+// pipeline — NDL-126 §1: one pipeline, per-entry options, no second build
+// system. Its options are explicit because a React bundle needs
+// `jsx: 'automatic'` and a fixed production `process.env.NODE_ENV` so the
+// bundle tests exercise runs the exact code the shipped VSIX runs.
 //
 // Output lands in `src/` (mirrored to `dist/` by `scripts/copy-assets.mjs`),
 // exactly like the hand-authored `model/agentPicker.webview.js`, so
@@ -18,8 +24,12 @@ import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-/** Input entry → generated bundle, both repo-root-relative. */
-export const WEBVIEW_SEND_ENTRIES = [
+/**
+ * Input entry → generated bundle, both repo-root-relative, plus that entry's
+ * esbuild overrides. Entries that do not override an option inherit the
+ * baseline (the historical sender-bundle settings).
+ */
+export const WEBVIEW_BUNDLE_ENTRIES = [
   {
     input: 'src/ui/dashboard/webviewSend.entry.ts',
     output: 'src/ui/dashboard/webviewSend.webview.js',
@@ -28,21 +38,43 @@ export const WEBVIEW_SEND_ENTRIES = [
     input: 'src/ui/settings/webviewSend.entry.ts',
     output: 'src/ui/settings/webviewSend.webview.js',
   },
+  {
+    input: 'src/ui/settings/app/main.tsx',
+    output: 'src/ui/settings/app.webview.js',
+    jsx: 'automatic',
+    // ALWAYS production, even in dev/test builds (NDL-126 §1): React's
+    // development build would add ~2x weight plus dev-only warnings, and the
+    // whole point of the harness running the bundle is that it runs the same
+    // React build the shipped webview runs.
+    define: { 'process.env.NODE_ENV': '"production"' },
+    minifyFromProd: true,
+  },
 ];
 
-/** Bundle every webview sender entry. Throws (never swallows) on a build error. */
-export async function buildWebviewSenders() {
-  for (const { input, output } of WEBVIEW_SEND_ENTRIES) {
+const BASE_OPTIONS = {
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  target: 'es2020',
+  sourcemap: false,
+  minify: false,
+  logLevel: 'warning',
+};
+
+/**
+ * Bundle every webview TypeScript entry. Throws (never swallows) on a build
+ * error. `prod` only affects entries that opt in via `minifyFromProd` — the
+ * message-sender bundles have always shipped unminified and stay that way.
+ */
+export async function buildWebviewBundles({ prod = false } = {}) {
+  for (const entry of WEBVIEW_BUNDLE_ENTRIES) {
+    const { input, output, minifyFromProd, ...overrides } = entry;
     await build({
+      ...BASE_OPTIONS,
       entryPoints: [join(root, input)],
       outfile: join(root, output),
-      bundle: true,
-      format: 'iife',
-      platform: 'browser',
-      target: 'es2020',
-      sourcemap: false,
-      minify: false,
-      logLevel: 'warning',
+      ...(minifyFromProd ? { minify: prod } : null),
+      ...overrides,
     });
     console.log(`built ${input} → ${output}`);
   }
@@ -50,5 +82,5 @@ export async function buildWebviewSenders() {
 
 // Direct invocation (`node scripts/build-webview-send.mjs`).
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  await buildWebviewSenders();
+  await buildWebviewBundles({ prod: process.argv.includes('--production') });
 }

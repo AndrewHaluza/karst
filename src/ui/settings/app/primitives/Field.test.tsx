@@ -1,0 +1,88 @@
+// @vitest-environment jsdom
+/**
+ * COMPONENT-mode proof for `Field` (NDL-126 §9.1): UI-R25 (programmatic label,
+ * local error association, `aria-invalid`) and UI-R16 (the control union is
+ * exhaustive).
+ */
+import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen } from '@testing-library/react';
+import { Field } from './Field.js';
+
+afterEach(cleanup);
+
+describe('Field', () => {
+  it('associates a text input with its label and help (UI-R25)', () => {
+    render(
+      <Field
+        label="Branch name template"
+        help="Fills the branch name"
+        control={{ kind: 'input', value: 'karst/{type}/{slug}', onChange: () => {} }}
+      />,
+    );
+    const input = screen.getByLabelText('Branch name template') as HTMLInputElement;
+    expect(input.className).toBe('k-input');
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toBe('Fills the branch name');
+    expect(input.hasAttribute('aria-invalid')).toBe(false);
+  });
+
+  it('associates a local error and sets aria-invalid (UI-R25)', () => {
+    render(
+      <Field
+        label="Team"
+        error="Team is required"
+        control={{ kind: 'input', value: '', onChange: () => {} }}
+      />,
+    );
+    const input = screen.getByLabelText('Team') as HTMLInputElement;
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    const describedBy = input.getAttribute('aria-describedby');
+    expect(document.getElementById(describedBy!)?.textContent).toBe('Team is required');
+    expect(document.querySelector('.k-field-error')?.textContent).toBe('Team is required');
+  });
+
+  it('wires a select through the same label/help contract', () => {
+    render(
+      <Field
+        label="Default ticket type"
+        control={{
+          kind: 'select',
+          value: 'bug',
+          onChange: () => {},
+          options: [
+            { value: 'bug', label: 'Bug' },
+            { value: 'feat', label: 'Feature' },
+          ],
+        }}
+      />,
+    );
+    const select = screen.getByLabelText('Default ticket type') as HTMLSelectElement;
+    expect(select.value).toBe('bug');
+    expect([...select.options].map((o) => o.value)).toEqual(['bug', 'feat']);
+  });
+
+  it('renders a checkbox with its label beside it', () => {
+    render(
+      <Field
+        label="Enabled"
+        control={{ kind: 'checkbox', checked: true, onChange: () => {} }}
+      />,
+    );
+    const checkbox = screen.getByLabelText('Enabled') as HTMLInputElement;
+    expect(checkbox.type).toBe('checkbox');
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it('marks a required field without depending on the label text', () => {
+    render(
+      <Field
+        label="Name"
+        required
+        control={{ kind: 'input', value: '', onChange: () => {} }}
+      />,
+    );
+    expect(screen.getByLabelText(/Name/)).toBeTruthy();
+    expect(document.querySelector('.k-field label span')?.getAttribute('aria-hidden')).toBe('true');
+  });
+});

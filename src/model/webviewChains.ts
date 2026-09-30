@@ -28,6 +28,7 @@ import { injectProviderIdentity } from './providerIdentity.js';
 import { injectAgentPicker } from './agentPicker.js';
 import { injectServerLogsView } from './serverLogsView.js';
 import { injectWebviewSend } from './webviewSendInjector.js';
+import { injectSettingsApp } from './settingsAppInjector.js';
 
 export const WEBVIEW_NAMES = [
   'dashboard',
@@ -74,7 +75,10 @@ const DS_PALETTE_SERVER_LOGS: Chain = (html) => injectServerLogsView(DS_PALETTE(
 
 export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
   dashboard: (html) => injectDashboardSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
-  settings: (html) => injectSettingsSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
+  // The React app injector (NDL-126 §1) is a no-op until phase 4 adds the
+  // `/*KARST_SETTINGS_APP*/` marker to the settings document, so the vanilla
+  // view stays live and the chain is the single activation point.
+  settings: (html) => injectSettingsApp(injectSettingsSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html))),
   ticketForm: DS_PALETTE_PROVIDER_AGENT_PICKER,
   sidebar: DS_AGENT_PALETTE,
   usage: DS_PALETTE,
