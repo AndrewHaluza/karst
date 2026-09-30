@@ -25,6 +25,7 @@ export const SETTINGS_SECTIONS = [
   'services',
   'approaches',
   'agents',
+  'presets',
   'ticketing',
   'quality',
 ] as const;
@@ -38,6 +39,7 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   services: 'Repositories',
   approaches: 'Approaches',
   agents: 'Agents',
+  presets: 'Presets',
   ticketing: 'Ticketing',
   quality: 'Quality',
 };
@@ -53,8 +55,6 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'agentProvider',
     'defaultModel',
     'defaultEffort',
-    'agentPresets',
-    'defaultAgentPreset',
     'archiveDoneAfterDays',
     'debug',
     'closeDoneTerminalsWithTicket',
@@ -64,6 +64,10 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   services: ['repositories'],
   approaches: ['approaches'],
   agents: ['agents', 'processes'],
+  // The Presets tab owns the whole preset vocabulary (§5): the map, the active
+  // selection and the deprecated alias it renames on Save. Nothing preset-
+  // related is claimed by General any more.
+  presets: ['agentPresets', 'activeAgentPreset', 'defaultAgentPreset'],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],
 };

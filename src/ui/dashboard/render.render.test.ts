@@ -186,4 +186,78 @@ describe('dashboard render — fixture corpus', () => {
     expect(h.query('[data-stage-menu]')).toBeNull();
     h.close();
   });
+
+  it('renders per-capability effective agent identity (NDL-116)', () => {
+    const h = renderWebview('dashboard');
+    const base = renderStateFor('impl');
+    const stateWithCapabilityIdentity = {
+      ...base,
+      capabilityIdentity: {
+        implementation: { provider: 'openai', model: 'gpt-4o-mini' },
+        uatTester: { provider: 'anthropic', model: 'claude-opus' },
+        review: { provider: 'anthropic', model: 'claude-3-sonnet' },
+        uatFix: null,
+        reviewFix: null,
+        prDescription: null,
+        ticketAnalysis: null,
+        graphExpert: null,
+        graphWorker: null,
+        graphFast: null,
+      },
+    };
+    h.receive({ type: 'state', state: stateWithCapabilityIdentity });
+    expect(h.errors).toEqual([]);
+
+    // Verify all three capability labels render correctly
+    const implCapability = h.query('[data-capability="implementation"]');
+    expect(implCapability).toBeTruthy();
+    expect(implCapability!.textContent).toContain('implementation: openai/gpt-4o-mini');
+
+    const uatCapability = h.query('[data-capability="uat-tester"]');
+    expect(uatCapability).toBeTruthy();
+    expect(uatCapability!.textContent).toContain('uat-tester: anthropic/claude-opus');
+
+    const reviewCapability = h.query('[data-capability="review"]');
+    expect(reviewCapability).toBeTruthy();
+    expect(reviewCapability!.textContent).toContain('review: anthropic/claude-3-sonnet');
+
+    h.close();
+  });
+
+  it('ticket override wins over active preset default (NDL-116)', () => {
+    const h = renderWebview('dashboard');
+    const base = renderStateFor('impl');
+    const stateWithOverride = {
+      ...base,
+      capabilityIdentity: {
+        implementation: { provider: 'anthropic', model: 'claude-opus' },
+        uatTester: { provider: 'anthropic', model: 'claude-opus' },
+        review: { provider: 'anthropic', model: 'claude-opus' },
+        uatFix: null,
+        reviewFix: null,
+        prDescription: null,
+        ticketAnalysis: null,
+        graphExpert: null,
+        graphWorker: null,
+        graphFast: null,
+      },
+    };
+    h.receive({ type: 'state', state: stateWithOverride });
+    expect(h.errors).toEqual([]);
+
+    // All capabilities should use the ticket override (anthropic)
+    const implCapability = h.query('[data-capability="implementation"]');
+    expect(implCapability).toBeTruthy();
+    expect(implCapability!.textContent).toContain('implementation: anthropic/claude-opus');
+
+    const uatCapability = h.query('[data-capability="uat-tester"]');
+    expect(uatCapability).toBeTruthy();
+    expect(uatCapability!.textContent).toContain('uat-tester: anthropic/claude-opus');
+
+    const reviewCapability = h.query('[data-capability="review"]');
+    expect(reviewCapability).toBeTruthy();
+    expect(reviewCapability!.textContent).toContain('review: anthropic/claude-opus');
+
+    h.close();
+  });
 });

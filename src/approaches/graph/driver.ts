@@ -85,7 +85,8 @@ import type {
 } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { ProcessOutcome } from '../../workflow/gates/run.js';
-import type { GraphApproachConfig, GraphCommandConfig } from '../../manifest/types.js';
+import type { GraphApproachConfig, GraphCommandConfig, Manifest } from '../../manifest/types.js';
+import { resolvePresetSlot } from '../../agent/agentPresets.js';
 import type { GraphPromptIdentity } from '../../agent/graphPrompts.js';
 import type { TerminalNamingBag } from '../../ui/terminalNaming.js';
 import { uuidv7 } from './coordinator/lineage.js';
@@ -134,6 +135,8 @@ export interface GraphDriverDeps {
   /** The ticket approach's `graph:` config (resolved through the built-in
    *  overlay seam). Absent → the approach is not a graph approach. */
   graphConfigOf: (approachId: string) => GraphApproachConfig | undefined;
+  /** The host's manifest (preset slot resolution for graph nodes). */
+  manifest: Manifest;
   /** The graph run's artifact root (global storage; staging + snapshots). */
   artifactRootOf: (graphRunId: number) => string;
   /** Compose the graph session environment (KARST_GRAPH_*). */
@@ -237,6 +240,42 @@ export function resolveProfileFor(
   const p = config.profiles[profile];
   if (!p) return undefined;
   return { provider: p.provider, model: p.model, effort: p.effort };
+}
+
+/**
+ * Resolve graph node profile: preset-aware for graphExpert/graphWorker/graphFast,
+ * otherwise fall back to config profiles. Presets enable per-approach capability
+ * overrides; a profile not in {expert, worker, fast} or with no preset slot
+ * resolves from config alone.
+ */
+export function resolveGraphNodeProfile(
+  manifest: Manifest,
+  config: GraphApproachConfig,
+  profile: string,
+  onDebug?: (message: string) => void,
+): { provider: string; model?: string; effort?: string } | undefined {
+  const graphCapabilityMap: Record<string, 'graphExpert' | 'graphWorker' | 'graphFast'> = {
+    expert: 'graphExpert',
+    worker: 'graphWorker',
+    fast: 'graphFast',
+  };
+
+  const capability = graphCapabilityMap[profile];
+  if (capability) {
+    const slot = resolvePresetSlot(manifest, capability);
+    if (slot) {
+      onDebug?.(`[process] graph node profile "${profile}" → preset slot (${slot.provider})`);
+      return { provider: slot.provider, model: slot.model, effort: slot.effort };
+    }
+  }
+
+  const configProfile = resolveProfileFor(config, profile);
+  if (configProfile) {
+    onDebug?.(
+      `[process] graph node profile "${profile}" → config (${configProfile.provider}${configProfile.model ? `/${configProfile.model}` : ''})`,
+    );
+  }
+  return configProfile;
 }
 
 /**
@@ -696,14 +735,17 @@ async function executeReadyNode(
   // Agent node: workspace + supervised session, capability-authenticated.
   const approachId = runApproachId(deps, graphRunId);
   const config = deps.graphConfigOf(approachId);
-  const resolved = config ? resolveProfileFor(config, node.profile) : undefined;
+  const resolved = config ? resolveGraphNodeProfile(deps.manifest, config, node.profile, deps.debug) : undefined;
   if (!resolved) {
     completeDeterministic(deps, row.id, 'blocked');
     deps.debug?.(
-      `[graph] run ${graphRunId}: agent node ${row.node_id} blocked — profile "${node.profile}" unresolved`,
+      `[driver] graph run ${graphRunId}: agent node ${row.node_id} blocked — profile "${node.profile}" unresolved`,
     );
     return 'completed';
   }
+  deps.debug?.(
+    `[driver] graph run ${graphRunId}: agent node ${row.node_id} profile "${node.profile}" → ${resolved.provider}${resolved.model ? `/${resolved.model}` : ''}`,
+  );
   const workspace = await prepareAgentWorkspace(deps, graphRunId, row, node);
   if (workspace.kind === 'unresolved') {
     const claimed = workspace.repos.length === 0 ? 'none' : workspace.repos.join(', ');
@@ -751,7 +793,8 @@ async function executeReadyNode(
   const runResult = await runAgentNode(
     {
       transport: deps.transport,
-      resolveProfile: (profile) => resolveProfileFor(config!, profile) ?? { provider: 'opencode' },
+      resolveProfile: (profile) =>
+        resolveGraphNodeProfile(deps.manifest, config!, profile) ?? { provider: 'opencode' },
       readInstructions: (path) => {
         const bytes = path ? deps.readBytes(graphRunId, path) : undefined;
         return bytes === undefined ? undefined : new TextDecoder().decode(bytes);

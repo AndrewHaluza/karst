@@ -27,7 +27,10 @@ import { validateReview } from './validate/review.js';
 import { validateProcessAssignments } from './validate/processAssignments.js';
 import {
   validateAgentPresets,
+  validateActiveAgentPreset,
   validateDefaultAgentPreset,
+  assertExclusiveActivePreset,
+  assertActiveAgentPresetReference,
   assertAgentPresetReferences,
 } from './validate/agentPresets.js';
 import { validateGraphConfig, assertNoHoistedGraphKeys } from './graphConfig.js';
@@ -587,7 +590,13 @@ export function validateManifest(raw: unknown): Manifest {
   const agents = validateAgents(raw.agents);
   const processes = validateProcessAssignments(raw.processes);
   const agentPresets = validateAgentPresets(raw.agentPresets);
+  // §6: one active preset, two spellings. `defaultAgentPreset` is read as the
+  // deprecated alias of `activeAgentPreset`; a file declaring both is refused
+  // rather than letting one silently win.
+  const activeAgentPreset = validateActiveAgentPreset(raw.activeAgentPreset);
   const defaultAgentPreset = validateDefaultAgentPreset(raw.defaultAgentPreset);
+  assertExclusiveActivePreset(activeAgentPreset, defaultAgentPreset);
+  assertActiveAgentPresetReference(agentPresets, activeAgentPreset);
   assertAgentPresetReferences(agentPresets, defaultAgentPreset, processes);
 
   return {
@@ -609,6 +618,7 @@ export function validateManifest(raw: unknown): Manifest {
     resilience: validateResilience(raw.resilience),
     defaultEffort: validateDefaultEffort(raw.defaultEffort),
     agentPresets,
+    activeAgentPreset,
     defaultAgentPreset,
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
     debug: validateDebug(raw.debug),

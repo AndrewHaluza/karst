@@ -12,24 +12,33 @@
  * adapter and never opens a process run for it (Finding 2). The check
  * short-circuits BEFORE provider/model resolution.
  *
- * Precedence per field (most specific wins, matching `resolveProvider` /
- * `resolveModelForProvider`'s launch conventions):
- *   agentName: config.agentName → config.agent (the referenced profile's
- *              name) → ticket override → role default
- *   provider:  config.provider → ticket override → effective preset
- *              (processes.<key>.preset → ticket preset → defaultAgentPreset)
- *              → manifest.agentProvider → 'claude'
- *   model:     config.model (verbatim — author-declared) → ticket model →
- *              effective preset model → manifest.defaultModel, the latter two
+ * Precedence per field — the §4 ladder, most specific first:
+ *   enabled:   `processes.<key>.enabled: false` WINS outright: the role is
+ *              configured absence, resolved before any of the rungs below.
+ *   provider:  ticket override → preset slot (§4 rung 2) →
+ *              processes.<key>.provider → manifest.agentProvider → 'claude'
+ *   model:     ticket override → preset slot → processes.<key>.model
+ *              (verbatim, but only on the core that config declares — a core
+ *              the ticket picked above it never drags it across) →
+ *              manifest.defaultModel; the ticket/slot/manifest candidates go
  *              through the provider-compatibility check (a known model of
  *              another provider is dropped, never launched wrong)
- *   effort:    config.effort (verbatim — author-declared) → ticket effort →
- *              effective preset effort → manifest.defaultEffort, the latter
- *              two dropped unless the RESOLVED model advertises the value (the
- *              same rule `resolveEffortForProvider` applies to every launch).
+ *   effort:    ticket override → preset slot → processes.<key>.effort →
+ *              manifest.defaultEffort, every candidate dropped unless the
+ *              RESOLVED model advertises the value (the same rule
+ *              `resolveEffortForProvider` applies to every launch)
+ *   agentName: config.agentName → config.agent (the referenced profile's
+ *              name) → ticket override → role default — presets never touch
+ *              it: `agentName`/`agent` are the profile prompt, not the identity
  *   instructions: NOT resolved here — the host's execution boundary resolves
  *              the assigned profile's BODY (`agent`) into it. There is no
  *              manifest-declared prompt any more; the profile is the prompt.
+ *
+ * The preset rung is resolved by the ONE resolver (`resolvePresetSlot`) for
+ * THIS role's own capability (`uatTester` for `uat-tester`, …), and applies as
+ * a whole slot: core + model + effort travel together, so a preset never hands
+ * its model to another core. §6 keeps `processes.<key>.preset` readable for one
+ * release — it outranks the ticket's own preset name, exactly as before.
  */
 
 import type { AgentProvider, Manifest } from '../manifest/types.js';
@@ -37,8 +46,9 @@ import {
   PROCESS_KEY_BY_ROLE,
   type ProcessRole,
 } from '../manifest/validate/processAssignments.js';
-import { resolveAgentDefaults } from './agentPresets.js';
-import { resolveModelForProvider, resolveEffortForProvider } from './models.js';
+import { resolvePresetSlot } from './agentPresets.js';
+import { resolveEffortForProvider, isModelCompatibleWithProvider } from './models.js';
+import { resolveProvider } from './provider.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 import { AGENT_PROVIDER_LABELS } from '../model/agentIdentity.js';
 import type { AgentAdapter } from './adapter.js';
@@ -109,11 +119,13 @@ export const DEFAULT_PROCESS_AGENT_NAMES: Readonly<
 };
 
 /**
- * Resolve the effective identity for `role`: explicit `processes:` config,
- * then the ticket override, then the manifest defaults, then 'claude' — with
- * the model run through the provider-compatibility check at every
+ * Resolve the effective identity for `role`: the ticket's own fields, then the
+ * preset slot for the role's capability, then the explicit `processes:` config,
+ * then the manifest defaults, then 'claude' — with the ticket/slot/manifest
+ * model candidates run through the provider-compatibility check at every
  * non-explicit layer. Returns `null` when the role's process config sets
- * `enabled: false` — the disabled role is absent, not resolved.
+ * `enabled: false` — the disabled role is absent, not resolved, and wins
+ * before any rung below it is even read.
  */
 export function resolveProcessAssignment(
   manifest: Manifest,
@@ -128,37 +140,68 @@ export function resolveProcessAssignment(
   // adapter for the role and opens no process run.
   if (config?.enabled === false) return null;
 
-  // The preset LAYER: `processes.<key>.preset` beats the ticket preset beats
-  // `manifest.defaultAgentPreset`. It supplies the manifest-level defaults;
-  // every explicit field above still wins, so a preset never silently replaces
-  // an operator's pick. The explicit core is passed through so the preset's
-  // model/effort are dropped when a different core was chosen.
-  const defaults = resolveAgentDefaults(manifest, {
-    ticketPreset: ticketOverride.preset,
-    rolePreset: config?.preset,
-    explicitProvider: config?.provider ?? ticketOverride.provider ?? null,
-  });
+  // §4 rung 2: the preset slot for THIS role's capability, read by the ONE
+  // resolver. The deprecated `processes.<key>.preset` still outranks the
+  // ticket's preset name for one release (§6); blanks normalize away at load.
+  const slot =
+    key === undefined
+      ? undefined
+      : resolvePresetSlot(manifest, key, config?.preset ?? ticketOverride.preset);
 
-  const provider = defaults.provider;
+  // Rung 1 over rungs 2–4 for the CORE: the ticket's own provider first, then
+  // the slot, then the process config, then the manifest default, with 'claude'
+  // as the floor (`resolveProvider`'s convention).
+  const provider = resolveProvider(
+    ticketOverride.provider ?? null,
+    slot?.provider ?? config?.provider ?? manifest.agentProvider,
+  );
 
+  // §4 rung 2 is ATOMIC: the slot's core+model+effort travel together, so it
+  // contributes only while the effective core is the slot's own. A ticket that
+  // explicitly picks another core drops the WHOLE slot — never just its model —
+  // and the rungs below (config, then manifest) take over.
+  const activeSlot = slot !== undefined && provider === slot.provider ? slot : undefined;
+
+  // The ticket and slot models are catalog-gated; the config model stays
+  // VERBATIM — an author-declared model is launched as written, even when the
+  // catalog knows it for another core — but only ON THE CORE THAT CONFIG
+  // DECLARES. A ticket that picks a different core (rung 1) must not drag it
+  // across: "a model never crosses to another core" holds for this rung too.
+  // The manifest default is gated last.
+  const compatible = (id: string | null | undefined): string | undefined => {
+    const value = typeof id === 'string' && id.trim() !== '' ? id : undefined;
+    return value !== undefined && isModelCompatibleWithProvider(provider, value, catalog)
+      ? value
+      : undefined;
+  };
+  const configModel =
+    config?.model === undefined
+      ? undefined
+      : provider === (config.provider ?? manifest.agentProvider)
+        ? config.model
+        : compatible(config.model);
   const model =
-    config?.model ??
-    resolveModelForProvider(provider, ticketOverride.model ?? null, defaults.model, catalog);
+    compatible(ticketOverride.model) ??
+    compatible(activeSlot?.model) ??
+    configModel ??
+    compatible(manifest.defaultModel);
 
-  // Effort follows the model's precedence, but is only carried when the
+  // Effort follows the same ladder, and every rung is only carried when the
   // RESOLVED model advertises it — an explicit value for a model with no
   // advertised efforts is a configuration error the settings view reports,
-  // never something silently launched. The verbatim config value is fed
-  // through the SAME rule as the ticket/default values (it wins precedence
-  // via the coalesce, but is still gated on the model): an author-declared
-  // effort for a model that does not advertise it is dropped, never launched.
-  const effort = resolveEffortForProvider(
-    provider,
-    config?.effort ?? ticketOverride.effort ?? null,
-    defaults.effort,
-    model,
-    catalog,
-  );
+  // never something silently launched (`resolveEffortForProvider`'s rule,
+  // applied candidate by candidate so a refused rung falls through instead of
+  // ending the resolution).
+  let effort: string | undefined;
+  for (const candidate of [
+    ticketOverride.effort,
+    activeSlot?.effort,
+    config?.effort,
+    manifest.defaultEffort,
+  ]) {
+    effort = resolveEffortForProvider(provider, candidate ?? null, null, model, catalog);
+    if (effort !== undefined) break;
+  }
 
   const agentName =
     config?.agentName ??

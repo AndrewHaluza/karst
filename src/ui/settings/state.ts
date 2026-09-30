@@ -9,6 +9,12 @@ import {
   buildProcessAssignmentViews,
   type SettingsProcessAssignmentView,
 } from './processAssignmentViews.js';
+import {
+  buildPresetCapabilityGroups,
+  buildPresetInheritanceViews,
+  type PresetCapabilityGroupView,
+  type PresetInheritance,
+} from './presetMatrix.js';
 
 /**
  * A row for the Agents tab: one selectable single-subagent (local file or
@@ -68,6 +74,20 @@ export interface SettingsState {
    * verbatim and derives nothing.
    */
   processAssignments: SettingsProcessAssignmentView[];
+  /**
+   * The Presets tab's Inherit previews (§5): for every `PRESET_CAPABILITIES`
+   * row, the identity that row resolves to when it is `Inherit (default)` —
+   * computed by the same resolvers the launch path uses, one rung beneath the
+   * preset (presetMatrix.ts). The webview greys these beside an Inherit row and
+   * derives nothing.
+   */
+  presetInheritance: PresetInheritance;
+  /**
+   * The Presets tab's row groups (§5): Quality / Ticket / Graph roles, each
+   * carrying its row ids AND labels. Sent as one structure so the webview
+   * cannot render a group whose labels it had to remember itself (UI-R31).
+   */
+  presetGroups: PresetCapabilityGroupView[];
   /** Absolute path of the manifest this window reads. Displayed, never edited. */
   manifestPath: string;
   /**
@@ -119,6 +139,8 @@ export function buildSettingsState(
       agents.map((a) => a.name),
       models,
     ),
+    presetInheritance: buildPresetInheritanceViews(manifest, models),
+    presetGroups: buildPresetCapabilityGroups(),
     manifestPath,
     projectSlug,
     version,

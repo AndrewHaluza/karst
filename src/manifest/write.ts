@@ -188,17 +188,32 @@ export function writeManifest(path: string, manifest: Manifest): void {
     ticketing: manifest.ticketing ?? { provider: 'manual' },
     agentProvider: manifest.agentProvider ?? 'claude',
     // Agent presets: written when set, dropped (undefined → omitted by the
-    // dumper) when cleared. Without this line Save silently drops the whole
-    // block — the failure mode the round-trip test exists to catch.
+    // dumper) when cleared. Emits the per-capability slots shape (§7.4).
+    // Without this line Save silently drops the whole block — the failure mode
+    // the round-trip test exists to catch.
     agentPresets: manifest.agentPresets,
+    // The active preset has TWO spellings (activeAgentPreset canonical,
+    // defaultAgentPreset legacy), and only one may reach the file. The Presets
+    // tab write path renames defaultAgentPreset → activeAgentPreset; legacy files
+    // keep their legacy key until renamed by a Presets-tab Save.
+    activeAgentPreset: manifest.activeAgentPreset,
     defaultAgentPreset: manifest.defaultAgentPreset,
     // Without this line Save silently drops the whole block — the failure mode
     // the writeManifest round-trip test exists to catch.
     uat: manifest.uat,
     review: manifest.review,
     // Same seam, same failure mode: the Agents tab owns `processes`, and an
-    // explicit save must never drop the block (writeManifest.test.ts pins it).
-    processes: manifest.processes,
+    // explicit save must never drop the block. Deprecated process.<key>.preset
+    // is dropped (§7.4) — replaced by activeAgentPreset + per-capability slots.
+    processes: manifest.processes
+      ? Object.entries(manifest.processes).reduce(
+          (acc, [key, config]) => ({
+            ...acc,
+            [key]: config !== undefined ? { ...config, preset: undefined } : config,
+          }),
+          {} as typeof manifest.processes,
+        )
+      : manifest.processes,
   };
 
   // Re-validate before persisting — never write a file the loader would reject.

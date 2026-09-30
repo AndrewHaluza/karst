@@ -200,16 +200,60 @@ export interface GraphProfileConfig {
 }
 
 /**
- * A named bundle of agent core + model (+ optional effort) that a ticket, a
- * process role, or the manifest default may reference. Deliberately the same
- * {provider, model, effort?} shape as `GraphProfileConfig`, but global: the
- * graph profiles stay nested per-approach and are out of scope.
+ * The capabilities a preset can override — the ROWS of the preset matrix (§3).
+ * Six are the inside-process roles (same manifest spellings as `PROCESS_KEYS`),
+ * three are the launch paths outside them, and the three graph rows are the
+ * profile ids `expert`/`worker`/`fast`: an approach whose graph declares a
+ * different profile id is untouched by presets.
+ *
+ * The array is load-bearing beyond typing — the legacy-flat normalization below
+ * widens one `{provider, model}` bundle to a slot on EVERY row, so adding a
+ * capability here is what makes an old preset cover it.
  */
-export interface AgentPreset {
+export const PRESET_CAPABILITIES = [
+  'uatTester',
+  'uatFix',
+  'review',
+  'reviewFix',
+  'prDescription',
+  'ticketAnalysis',
+  'implementation',
+  'graphExpert',
+  'graphWorker',
+  'graphFast',
+] as const;
+
+export type PresetCapability = (typeof PRESET_CAPABILITIES)[number];
+
+/**
+ * One capability's explicit override: a core + model pair with an optional
+ * effort/variant. Deliberately the same `{provider, model, effort?}` shape as
+ * `GraphProfileConfig` and the old flat `AgentPreset`, because a slot replaces
+ * that flat bundle wholesale — core, model and effort travel together, which is
+ * what keeps "a model never crosses to another core" true of presets too.
+ */
+export interface PresetSlot {
   provider: AgentProvider;
   model: string;
   effort?: string;
 }
+
+/**
+ * A named preset: a SPARSE capability → slot matrix (§ agent presets). An
+ * absent capability is Inherit — it falls through to the process assignment /
+ * per-agent config / manifest defaults, never to a guessed value. `label` is
+ * the display name (Settings, ticket form); the map key is the persisted
+ * reference name.
+ *
+ * A legacy flat `{provider, model, effort?}` preset is accepted at load and
+ * normalized to the same slot on every capability, so a pre-existing preset
+ * keeps applying globally (§6).
+ */
+export interface AgentPreset {
+  label?: string;
+  slots: Partial<Record<PresetCapability, PresetSlot>>;
+}
+
 
 /**
  * One trusted command definition a `CommandNode` may reference. `command` is
@@ -545,11 +589,13 @@ export interface ProcessAssignmentConfig {
    */
   effort?: string;
   /**
-   * Per-process agent-preset reference (§ agent presets). Names a key of the
+   * DEPRECATED (§6): per-process agent-preset reference. Names a key of the
    * top-level `agentPresets` map; reference integrity is checked at manifest
-   * load (`assertAgentPresetReferences`). Beats the ticket preset and the
-   * manifest `defaultAgentPreset`, and is itself beaten by this block's
-   * explicit `provider`/`model`/`effort`.
+   * load (`assertAgentPresetReferences`). Still read for one release — the
+   * loader reports it with a deprecation warning naming the replacement, the
+   * preset's per-capability slot (`agentPresets.<name>.slots.<key>`) plus
+   * `activeAgentPreset` — then Settings stops offering the key and it is
+   * removed. Beaten by this block's explicit `provider`/`model`/`effort`.
    */
   preset?: string;
   // NOTE: there is deliberately no `instructions` field. A process's prompt is
@@ -674,18 +720,31 @@ export interface Manifest {
    */
   defaultEffort?: string;
   /**
-   * Named agent core + model bundles (§ agent presets). A ticket's
-   * `agentPreset`, a process role's `preset`, or `defaultAgentPreset` may
-   * reference one by name. A preset supplies the manifest-level defaults; the
-   * existing per-ticket and per-process explicit fields still win over it.
-   * Absent → no presets, and resolution is byte-identical to the legacy
-   * agentProvider/defaultModel/defaultEffort behavior.
+   * Named per-capability presets (§ agent presets). A ticket's `agentPreset`,
+   * a process role's `preset`, or `activeAgentPreset` may reference one by
+   * name. A preset OVERRIDES the capabilities it declares a slot for and is
+   * Inherit everywhere else; the existing per-ticket and per-process explicit
+   * fields still win over it. Absent → no presets, and resolution is
+   * byte-identical to the legacy agentProvider/defaultModel/defaultEffort
+   * behavior. A legacy flat `{provider, model}` entry is normalized at load to
+   * a slot on every capability (§6).
    */
   agentPresets?: Record<string, AgentPreset>;
   /**
-   * Preset applied to every ticket that names none of its own. Must reference
-   * a key of `agentPresets` — an unknown name is refused at load, never
-   * silently ignored. Blank normalizes to undefined (no default preset).
+   * The preset applied to every ticket that names none of its own. Must
+   * reference a key of `agentPresets` — an unknown name is refused at load,
+   * never silently ignored. Blank normalizes to undefined (no active preset).
+   *
+   * Canonical spelling; `defaultAgentPreset` below is its deprecated alias and
+   * a file declaring BOTH is refused at load rather than letting one win.
+   */
+  activeAgentPreset?: string;
+  /**
+   * Deprecated alias of `activeAgentPreset` — the key every file written
+   * before the Presets tab carries. Read as the same single active preset (the
+   * resolver falls back to it when `activeAgentPreset` is absent), written back
+   * unchanged until the writer renames it, and refused alongside
+   * `activeAgentPreset` at load. Blank normalizes to undefined.
    */
   defaultAgentPreset?: string;
   /**

@@ -1,46 +1,53 @@
 /**
- * Agent presets: named {provider, model, effort?} bundles (§ agent presets).
+ * Agent presets: named SPARSE capability → slot matrices (§3).
  *
- * `resolveAgentDefaults` is the ONE precedence rule for the preset LAYER. It
- * returns the manifest-level defaults a caller feeds into the existing
- * `resolveModelForProvider`/`resolveEffortForProvider` calls, so the per-process
- * and per-ticket explicit fields keep winning exactly as they do today. With no
- * presets configured and no `defaultAgentPreset`, the returned defaults are
- * byte-identical to `manifest.agentProvider` / `manifest.defaultModel` /
- * `manifest.defaultEffort`.
+ * `resolvePresetSlot` is the ONE function that reads `manifest.agentPresets`.
+ * It answers a single question — "does the effective preset override this
+ * capability?" — with a whole `PresetSlot` (core + model + effort) or
+ * `undefined` for Inherit. Every other preset-aware site composes that answer
+ * over the rungs beneath it; nothing outside this file touches the preset map.
  *
- * A preset is a (core, model) PAIR, so its model and effort apply ONLY when the
- * effective core is the preset's own core. When an operator explicitly picks a
- * different core, the preset's model must NOT travel with it: a catalog-unknown
- * id (a preview/custom model) is accepted by the compatibility guard for ANY
- * provider, so without this gate a preset model would silently launch on the
- * wrong core. Callers pass the explicit core via `explicitProvider`; omitting it
- * asks for the pure settings default (the ticket form's "Inherit" label).
+ * Effective preset name: the calling scope's own name (a ticket's
+ * `agentPreset`, or a process role's deprecated `processes.<key>.preset`, §6)
+ * → `activeAgentPreset` → the `defaultAgentPreset` alias. A blank or dangling
+ * name degrades to Inherit, never to a guess.
+ *
+ * A slot is an ATOMIC triple: it applies only when the resolved core is the
+ * slot's own core, so a model never crosses to another core — the guarantee
+ * the old `resolveAgentDefaults` carried, now decided by each caller from the
+ * slot it is handed (§4 rung 2 "the whole slot applies atomically").
  *
  * vscode-free and catalog-free.
  */
 
-import type { AgentPreset, AgentProvider, Manifest } from '../manifest/types.js';
+import type {
+  AgentPreset,
+  AgentProvider,
+  Manifest,
+  PresetCapability,
+  PresetSlot,
+} from '../manifest/types.js';
 import { resolveProvider } from './provider.js';
 
-export type { AgentPreset } from '../manifest/types.js';
+export type { AgentPreset, PresetSlot } from '../manifest/types.js';
 
+/** The manifest-level defaults a caller feeds into the existing launch gates. */
 export interface AgentDefaults {
   provider: AgentProvider;
   model?: string;
   effort?: string;
 }
 
-export interface ResolveAgentDefaultsOptions {
-  /** Preset named by a process role; beats the ticket preset. */
+export interface ResolvePresetDefaultsOptions {
+  /** Preset named by a process role; beats the ticket preset (§6). */
   rolePreset?: string | null;
-  /** Preset named by the ticket; beats `manifest.defaultAgentPreset`. */
+  /** Preset named by the ticket; beats `manifest.activeAgentPreset`. */
   ticketPreset?: string | null;
   /**
-   * The core explicitly chosen at the same level as the preset reference
-   * (process config or ticket). When it differs from the preset's core the
-   * preset's model/effort are dropped in favour of the legacy manifest
-   * defaults. Absent/blank → the preset (or legacy) core.
+   * The core explicitly chosen at the same level as the preset reference.
+   * When it differs from the slot's core the slot's model/effort are dropped
+   * in favour of the legacy manifest defaults. Absent/blank → the slot (or
+   * legacy) core.
    */
   explicitProvider?: AgentProvider | null;
 }
@@ -55,14 +62,22 @@ function firstNonBlank(...vals: (string | null | undefined)[]): string | undefin
 /**
  * The preset name that applies, most specific first: a process role's own
  * `processes.<key>.preset`, then the ticket's `agentPreset`, then the manifest
- * `defaultAgentPreset`. Blank values are "unset" at every layer.
+ * `activeAgentPreset`, then the deprecated `defaultAgentPreset` alias (§6:
+ * both spellings name one active preset, so a legacy-keyed file selects
+ * exactly the same preset a new-keyed one would). Blank is "unset" at every
+ * layer.
  */
 export function effectiveAgentPresetName(
   manifest: Manifest,
   ticketPreset?: string | null,
   rolePreset?: string | null,
 ): string | undefined {
-  return firstNonBlank(rolePreset, ticketPreset, manifest.defaultAgentPreset);
+  return firstNonBlank(
+    rolePreset,
+    ticketPreset,
+    manifest.activeAgentPreset,
+    manifest.defaultAgentPreset,
+  );
 }
 
 /**
@@ -82,26 +97,55 @@ export function resolveAgentPreset(
 }
 
 /**
- * The manifest-level defaults with the effective preset overlaid on the legacy
- * fields. `provider` is the EFFECTIVE core (explicit, else preset, else legacy);
- * the preset's model/effort are returned only when that core is the preset's.
+ * THE preset resolver (§4): the effective preset's slot for ONE capability, or
+ * `undefined` = Inherit. `ticketPresetName` is the preset name this calling
+ * scope supplies (a ticket's `agentPreset`; a process role passes its
+ * deprecated `processes.<key>.preset` first, §6); with none, the manifest's
+ * active preset applies. An absent capability on a sparse preset is Inherit —
+ * it falls through to the process assignment / per-agent config / manifest
+ * defaults, never to a guessed value.
  */
-export function resolveAgentDefaults(
+export function resolvePresetSlot(
   manifest: Manifest,
-  opts: ResolveAgentDefaultsOptions = {},
-): AgentDefaults {
+  capability: PresetCapability,
+  ticketPresetName?: string | null,
+): PresetSlot | undefined {
   const preset = resolveAgentPreset(
     manifest,
+    effectiveAgentPresetName(manifest, ticketPresetName),
+  );
+  // Sparse: a preset declares a slot only for the capabilities it overrides.
+  return preset?.slots[capability];
+}
+
+/**
+ * The manifest-level defaults with the effective preset's slot for
+ * `capability` overlaid on the legacy fields — the rung-2-over-rung-4
+ * composition every launch path that has no process config of its own uses.
+ * `provider` is the EFFECTIVE core (explicit, else slot, else legacy); the
+ * slot's model/effort are returned only when that core is the slot's.
+ *
+ * This is a composer, not a second resolver: it never reads `agentPresets`,
+ * it only lays the slot `resolvePresetSlot` returned over the manifest.
+ */
+export function resolvePresetDefaults(
+  manifest: Manifest,
+  capability: PresetCapability,
+  opts: ResolvePresetDefaultsOptions = {},
+): AgentDefaults {
+  const slot = resolvePresetSlot(
+    manifest,
+    capability,
     effectiveAgentPresetName(manifest, opts.ticketPreset, opts.rolePreset),
   );
   const provider = resolveProvider(
     opts.explicitProvider ?? null,
-    preset?.provider ?? manifest.agentProvider,
+    slot?.provider ?? manifest.agentProvider,
   );
-  const presetApplies = preset !== undefined && provider === preset.provider;
+  const applies = slot !== undefined && provider === slot.provider;
   return {
     provider,
-    model: presetApplies ? preset.model : manifest.defaultModel,
-    effort: presetApplies ? (preset.effort ?? manifest.defaultEffort) : manifest.defaultEffort,
+    model: applies ? slot.model : manifest.defaultModel,
+    effort: applies ? (slot.effort ?? manifest.defaultEffort) : manifest.defaultEffort,
   };
 }

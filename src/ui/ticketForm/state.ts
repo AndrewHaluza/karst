@@ -8,7 +8,7 @@ import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { modelsForProvider, type ModelOption } from '../../agent/models.js';
 import { IMPLEMENTED_PROVIDERS, resolveProvider } from '../../agent/registry.js';
-import { resolveAgentDefaults } from '../../agent/agentPresets.js';
+import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { TICKET_TYPES } from '../../store/ticketTypes.js';
 import { resolveTicketType } from '../../workflow/conventionContext.js';
 import { buildStepper, type StepperCell } from '../../model/stepper.js';
@@ -340,7 +340,7 @@ export function buildTicketFormState(
     }));
 
   if (ticketId === undefined) {
-    const createDefaults = resolveAgentDefaults(manifest, {});
+    const createDefaults = resolvePresetDefaults(manifest, 'implementation');
     return {
       mode: 'create',
       key: '',
@@ -383,7 +383,9 @@ export function buildTicketFormState(
   }
 
   const ticket = getTicket(store, ticketId); // throws on unknown id
-  const editDefaults = resolveAgentDefaults(manifest, { ticketPreset: ticket.agentPreset });
+  const editDefaults = resolvePresetDefaults(manifest, 'implementation', {
+    ticketPreset: ticket.agentPreset,
+  });
   const selectedSet = new Set(ticket.selectedRepos);
   // Score against the ticket's persisted text so scored repos survive a webview
   // reload (the fetch action's in-memory scoring isn't re-run here).

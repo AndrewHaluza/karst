@@ -6,6 +6,7 @@ import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
 import { detectInertKeys } from './inertKeys.js';
 import { uatEnvWarnings } from './validate/uat.js';
+import { deprecatedPresetKeyWarnings } from './validate/agentPresets.js';
 
 export type { Manifest } from './types.js';
 export { ManifestError } from './error.js';
@@ -62,7 +63,12 @@ export function loadManifestWithDiagnostics(path: string): LoadedManifestResult 
       // uatEnvWarnings has existed since UAT landed and was called by nothing,
       // so this check has never run. It is a warning, never a block: it cannot
       // be reliable, and the mistake it catches is the likely one.
-      warnings: [...warnings, ...(manifest.uat ? uatEnvWarnings(manifest.uat) : [])],
+      warnings: [
+        ...warnings,
+        ...(manifest.uat ? uatEnvWarnings(manifest.uat) : []),
+        // §6: `processes.<key>.preset` is deprecated but still honoured.
+        ...deprecatedPresetKeyWarnings(manifest.processes),
+      ],
       notices: detectInertKeys(raw),
     };
   } catch (e) {

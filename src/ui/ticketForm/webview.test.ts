@@ -1116,26 +1116,26 @@ describe('legacy busy channel watchdog', () => {
 // manifest no longer defines must stay visible (UI-R34: the pick you saved is
 // never silently dropped).
 describe('ticket-form webview.html — agent preset picker', () => {
-  function renderPreset(draft: Record<string, unknown>, names: unknown, selected: unknown, defaultName: unknown): string {
+  function renderPreset(draft: Record<string, unknown>, names: unknown, selected: unknown): string {
     const state = { innerHTML: '' };
     const render = loadFunction('renderAgentPresetSelect', {
       draft,
       el: () => state,
       lastSessionOpen: false,
-    }) as (n: unknown, s: unknown, d: unknown) => void;
-    render(names, selected, defaultName);
+    }) as (n: unknown, s: unknown) => void;
+    render(names, selected);
     return state.innerHTML;
   }
 
   it('renders the agent preset select from pushed state', () => {
-    const html = renderPreset({ agentPreset: null }, ['fast', 'deep'], null, 'fast');
+    const html = renderPreset({ agentPreset: null }, ['fast', 'deep'], null);
     expect(html).toContain('value="fast"');
     expect(html).toContain('value="deep"');
-    expect(html).toContain('Inherit (settings: fast)');
+    expect(html).toContain('Inherit (active preset)');
   });
 
   it('keeps a saved preset that is no longer defined', () => {
-    const html = renderPreset({ agentPreset: 'gone' }, ['fast'], 'gone', null);
+    const html = renderPreset({ agentPreset: 'gone' }, ['fast'], 'gone');
     expect(html).toContain('value="gone"');
     expect(html).toContain('(unknown)');
   });
@@ -1143,7 +1143,7 @@ describe('ticket-form webview.html — agent preset picker', () => {
   it('treats a cleared preset as an explicit clear, never a fallback', () => {
     // '' (explicit Inherit) is a SET draft value: it wins over the host-cached
     // selection, so the select shows Inherit and submit/save carry null.
-    const html = renderPreset({ agentPreset: '' }, ['fast', 'deep'], 'deep', 'fast');
+    const html = renderPreset({ agentPreset: '' }, ['fast', 'deep'], 'deep');
     expect(html).toMatch(/<option value="" selected>/);
     expect(html).not.toMatch(/<option value="deep" selected>/);
   });
@@ -1163,8 +1163,8 @@ describe('ticket-form webview.html — agent preset picker', () => {
       draft: { agentPreset: null },
       el: () => state,
       lastSessionOpen: true,
-    }) as (n: unknown, s: unknown, d: unknown) => void;
-    render(['fast'], null, 'fast');
+    }) as (n: unknown, s: unknown) => void;
+    render(['fast'], null);
     expect(state.disabled).toBe(true);
     // The change handler refuses the change as well — a disabled control can
     // still be driven programmatically.

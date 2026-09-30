@@ -3,7 +3,7 @@
  * agent session (§ agent presets).
  *
  * Before this module each site re-applied the same three layers by hand:
- * preset-aware manifest defaults (`resolveAgentDefaults`), the ticket's own
+ * preset-aware manifest defaults (`resolvePresetDefaults`), the ticket's own
  * provider/model/effort, then a launch-time override (the Fix path's process
  * assignment). Keeping that chain in one pure, vscode-free place means a new
  * layer is added once, and the precedence can be pinned by unit tests rather
@@ -11,7 +11,7 @@
  */
 
 import type { AgentProvider, Manifest } from '../manifest/types.js';
-import { resolveAgentDefaults } from './agentPresets.js';
+import { resolvePresetDefaults } from './agentPresets.js';
 import { resolveModelForProvider, resolveEffortForProvider } from './models.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
 
@@ -47,7 +47,7 @@ export function resolveLaunchIdentity(
   override?: LaunchOverride,
   catalog: ModelCatalog = bundledModelCatalog(),
 ): LaunchIdentity {
-  const defaults = resolveAgentDefaults(manifest, {
+  const defaults = resolvePresetDefaults(manifest, 'implementation', {
     ticketPreset: ticket.agentPreset,
     explicitProvider: override?.provider ?? ticket.agentProvider ?? null,
   });
@@ -65,7 +65,7 @@ export function resolveLaunchIdentity(
 
 /** Just the provider a ticket resolves to (adapter selection, resume decisions). */
 export function resolveTicketProvider(manifest: Manifest, ticket: LaunchTicket): AgentProvider {
-  return resolveAgentDefaults(manifest, {
+  return resolvePresetDefaults(manifest, 'implementation', {
     ticketPreset: ticket.agentPreset,
     explicitProvider: ticket.agentProvider ?? null,
   }).provider;

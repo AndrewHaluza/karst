@@ -801,6 +801,30 @@
   .preset-row .preset-row-actions{display:flex;gap:var(--k-space-3);margin-left:auto}
   .preset-empty{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-3)}
   .preset-actions{display:flex;justify-content:flex-end;gap:var(--k-space-4);margin-top:var(--k-space-4)}
+  .preset-row.is-selected{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
+
+  /* §5 bulk row: one core/model/effort applied to every capability. */
+  .preset-bulk{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .preset-bulk select{max-width:calc(var(--k-space-8) * 14)}
+
+  /* §5 capability matrix: capability | mode | value. The value cell is the
+     ONLY place a row can switch between the inherited preview and the
+     mounted identity picker, so it takes the remaining width. */
+  .cap-group{display:flex;flex-direction:column;overflow:hidden;
+    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg)}
+  .cap-group + .cap-group{margin-top:var(--k-space-5)}
+  .cap-group .matrix-group{margin-top:0;border-radius:0}
+  .cap-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 8),1fr) minmax(calc(var(--k-space-8) * 9),auto) minmax(calc(var(--k-space-8) * 16),1.6fr);
+    align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);
+    border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .cap-row .cap-name{font-size:var(--k-text-base);font-weight:var(--k-weight-medium);min-width:0;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cap-row .cap-mode select{width:100%}
+  .cap-row .cap-inherited{display:block;font-family:var(--k-font-mono);font-size:var(--k-text-xs);
+    color:var(--k-text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cap-row .cap-value{min-width:0}
+  @media (max-width:calc(var(--k-space-8) * 60)){.cap-row{grid-template-columns:minmax(0,1fr)}}
 
   /* Compact object roster (handoff §6.5 / §10). */
   .roster{display:flex;flex-direction:column;overflow:hidden;border-radius:var(--k-radius-lg);border:var(--k-border-w) solid var(--vscode-panel-border)}
@@ -989,6 +1013,7 @@
     <div class="nav-caption">Workflow</div>
     <button class="nav-btn" data-section="approaches">Approaches</button>
     <button class="nav-btn" data-section="agents">Agents</button>
+    <button class="nav-btn" data-section="presets">Presets</button>
     <button class="nav-btn" data-section="quality">Quality</button>
   </div>
 
@@ -1145,63 +1170,6 @@
           </div>
         </div>
 
-        <div class="form-grid">
-          <div class="field-label" id="defaultAgentPresetLabel">Default agent preset</div>
-          <div class="field-control">
-            <select id="f-defaultAgentPreset" aria-labelledby="defaultAgentPresetLabel"></select>
-            <div class="field-help">Applies to every ticket that picks no preset of its own. A preset overrides the core + model above; a ticket or process can still override it.</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- The preset MAP the select above picks from. It belongs to General
-           because that is where the default preset lives (SECTION_FIELDS); a
-           preset is only a name + core + model + optional effort bundle, so a
-           full Agents-style card would be a second editor for a four-field
-           record. Nothing here writes the file — the draft + Save contract. -->
-      <div class="section-block">
-        <div class="section-head">
-          <div>
-            <div class="section-title">Agent presets</div>
-            <div class="section-desc">Named core + model + effort bundles, offered wherever an agent is picked. Edit the default, a process assignment or a ticket to use one.</div>
-          </div>
-        </div>
-
-        <div id="agentPresetList"></div>
-        <div class="field-error hidden" id="presetListError" role="alert"></div>
-
-        <div class="form-grid">
-          <div class="field-label" id="presetNameLabel">Preset name</div>
-          <div class="field-control">
-            <input type="text" id="f-presetName" placeholder="fast"
-              aria-labelledby="presetNameLabel" aria-describedby="presetFormError" />
-          </div>
-
-          <div class="field-label" id="presetProviderLabel">Core</div>
-          <div class="field-control">
-            <select id="f-presetProvider" aria-labelledby="presetProviderLabel" aria-describedby="presetFormError"></select>
-          </div>
-
-          <div class="field-label" id="presetModelLabel">Model</div>
-          <div class="field-control">
-            <input type="text" id="f-presetModel" placeholder="claude-sonnet-5"
-              aria-labelledby="presetModelLabel" aria-describedby="presetFormError" />
-          </div>
-
-          <div class="field-label" id="presetEffortLabel">Effort / variant</div>
-          <div class="field-control">
-            <input type="text" id="f-presetEffort" placeholder="high"
-              aria-labelledby="presetEffortLabel" aria-describedby="presetFormError" />
-            <div class="field-help">Optional. Blank lets the model keep its own effort; an effort only applies when the preset's model is the one picked.</div>
-          </div>
-        </div>
-
-        <div class="field-error hidden" id="presetFormError" role="alert"></div>
-
-        <div class="preset-actions">
-          <button class="k-btn k-btn--secondary" id="cancelPresetBtn" type="button">Cancel</button>
-          <button class="k-btn k-btn--primary" id="savePresetBtn" type="button">+ Add preset</button>
-        </div>
       </div>
 
       <div class="section-block">
@@ -1483,6 +1451,74 @@
           </div>
         </div>
         <div id="processAssignments"></div>
+      </div>
+    </div>
+
+    <!-- Presets (NDL-110 §5): the ONE place a preset is edited. General keeps
+         the project defaults this tab inherits from; the Agents rows keep
+         their own per-process baseline — a preset row only says which
+         capabilities this preset OVERRIDES on top of those. -->
+    <div class="section hidden" id="section-presets">
+      <div class="page-header">
+        <div class="page-title">Presets</div>
+        <div class="page-desc">A preset is a matrix of capability to core: which core, model and effort each capability runs on. Every capability it leaves alone inherits the project and process defaults.</div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Presets</div>
+            <div class="section-desc">Add, rename, duplicate or delete a preset, then pick the one that is active. The active preset applies to every ticket that names none of its own.</div>
+          </div>
+        </div>
+
+        <div id="agentPresetList"></div>
+        <div class="field-error hidden" id="presetListError" role="alert"></div>
+
+        <div class="form-grid">
+          <div class="field-label" id="presetNameLabel">Preset name</div>
+          <div class="field-control">
+            <input type="text" id="f-presetName" placeholder="smart"
+              aria-labelledby="presetNameLabel" aria-describedby="presetFormError" />
+            <div class="field-help">The name tickets and the active selector refer to. Leave it as-is to edit the selected preset in place.</div>
+          </div>
+
+          <div class="field-label" id="activePresetLabel">Active preset</div>
+          <div class="field-control">
+            <select id="f-activeAgentPreset" aria-labelledby="activePresetLabel"
+              aria-describedby="activePresetHelp"></select>
+            <div class="field-help" id="activePresetHelp">Applies to every ticket that picks no preset of its own. Blank means no preset applies and every capability inherits.</div>
+          </div>
+        </div>
+
+        <div class="field-error hidden" id="presetFormError" role="alert"></div>
+
+        <div class="preset-actions">
+          <button class="k-btn k-btn--secondary" id="cancelPresetBtn" type="button">Cancel</button>
+          <button class="k-btn k-btn--primary" id="savePresetBtn" type="button">+ Add preset</button>
+        </div>
+      </div>
+
+      <div class="section-block">
+        <div class="section-head">
+          <div>
+            <div class="section-title">Capabilities</div>
+            <div class="section-desc">One row per capability. Inherit keeps whatever this project resolves today; Override pins a core, model and effort for this preset. A whole slot applies together, so a model never crosses to another core.</div>
+          </div>
+        </div>
+
+        <!-- §5 "Set all to…" bulk: one core/model/effort written to every row,
+             which is what makes a Cheap/Free preset one step instead of ten. -->
+        <div class="preset-bulk">
+          <label for="f-setAllProvider">Set all to</label>
+          <select id="f-setAllProvider" aria-label="Set all rows to core"></select>
+          <select id="f-setAllModel" aria-label="Set all rows to model"></select>
+          <select id="f-setAllEffort" aria-label="Set all rows to effort or variant"></select>
+          <button class="k-btn k-btn--secondary" id="setAllOverrideBtn" type="button">Override every row</button>
+          <button class="k-btn k-btn--secondary" id="setAllInheritBtn" type="button">Inherit every row</button>
+        </div>
+
+        <div id="presetCapabilityTable"></div>
       </div>
     </div>
 
@@ -2147,6 +2183,11 @@
   // keyed by process key: role labels, descriptions, the four validation
   // states, the Default hints. The webview renders them verbatim.
   let processAssignmentViews = {};
+  // Presets tab (§5): the host-supplied row groups/labels and the Inherit
+  // previews. Both are semantic facts pushed with `state` (UI-R31) — the
+  // webview renders them verbatim and derives nothing.
+  let presetGroups = [];
+  let presetInheritance = {};
   // manifestPath/projectSlug: read-only host facts pushed alongside `state`
   // (§ state.ts SettingsState.manifestPath/projectSlug). Never part of the
   // draft manifest — SECTION_FIELDS excludes them so Save cannot write them.
@@ -2291,13 +2332,14 @@
   // webview.test.ts pins both mirrors AND runs overlaySections against the host's
   // mergeSection, because a drift here would save a different set of fields than
   // the host writes.
-  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'ticketing', 'quality'];
+  const SETTINGS_SECTIONS = ['general', 'git', 'services', 'approaches', 'agents', 'presets', 'ticketing', 'quality'];
   const SECTION_LABELS = {
     general: 'General',
     git: 'Git',
     services: 'Repositories',
     approaches: 'Approaches',
     agents: 'Agents',
+    presets: 'Presets',
     ticketing: 'Ticketing',
     quality: 'Quality',
   };
@@ -2305,13 +2347,14 @@
     general: [
       'host', 'portRange', 'baselineBranch', 'worktreePathDisplay',
       'ticketLabelTemplate', 'terminalNameTemplate', 'agentProvider', 'defaultModel',
-      'defaultEffort', 'agentPresets', 'defaultAgentPreset', 'archiveDoneAfterDays', 'debug',
+      'defaultEffort', 'archiveDoneAfterDays', 'debug',
       'closeDoneTerminalsWithTicket', 'diffsInSourceControl',
     ],
     git: ['conventions'],
     services: ['repositories'],
     approaches: ['approaches'],
     agents: ['agents', 'processes'],
+    presets: ['agentPresets', 'activeAgentPreset', 'defaultAgentPreset'],
     ticketing: ['ticketing'],
     quality: ['uat', 'review'],
   };
@@ -2400,11 +2443,16 @@
     if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
     if (/^agents?\b/.test(msg)) return 'agents';
     if (/^processes\b/.test(msg)) return 'agents';
-    // `agentPresets`/`defaultAgentPreset`/`defaultEffort` sit on this list
-    // BECAUSE they start with "agent": ^agents? does not match them (no word
-    // boundary before the capital P), but naming them explicitly keeps that
-    // from being an accident of the next regex edit.
-    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|defaultEffort|defaultAgentPreset|agentPresets|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket|diffsInSourceControl)\b/.test(msg)) {
+    // The preset vocabulary lives on its own tab (§5). It is matched BEFORE
+    // the general list because `agentPresets`/`activeAgentPreset`/
+    // `defaultAgentPreset` all start with "agent" and would otherwise fall
+    // through to `^agents?` or sit unnamed on the general list.
+    if (/\b(agentPresets|activeAgentPreset|defaultAgentPreset)\b/.test(msg)) return 'presets';
+    // `defaultEffort` starts with "agent"'s family but is a general field:
+    // ^agents? does not match it (no word boundary before the capital E), so
+    // naming the rest explicitly keeps that from being an accident of the
+    // next regex edit.
+    if (/\b(host|portRange|baselineBranch|worktreePathDisplay|ticketLabelTemplate|terminalNameTemplate|agentProvider|defaultModel|defaultEffort|archiveDoneAfterDays|debug|closeDoneTerminalsWithTicket|diffsInSourceControl)\b/.test(msg)) {
       return 'general';
     }
     return null;
@@ -2733,18 +2781,6 @@
     // ship falls back to the same default.
     el('f-prDescriptionTemplate').value = conventions.pullRequestDescription || DEFAULT_PR_DESCRIPTION_TEMPLATE;
     renderPresetOptions();
-    renderAgentPresetProviderOptions();
-    renderAgentPresetOptions();
-    // A state push that took the preset being edited away (Discard, an
-    // out-of-band rewrite of the file) must not leave a form pointed at a
-    // record that no longer exists.
-    if (
-      editingPresetName !== null &&
-      !Object.prototype.hasOwnProperty.call(draft.agentPresets || {}, editingPresetName)
-    ) {
-      resetPresetForm();
-    }
-    renderAgentPresetList();
     renderDefaultTypeOptions(conventions.defaultType || '');
     renderLabelPreview();
     renderConventions();
@@ -2803,78 +2839,135 @@
     ).join('');
   }
 
-  // Agent preset names for the default-preset select. Named distinctly from
-  // renderPresetOptions (the Git tab's conventional-commit presets).
-  function renderAgentPresetOptions() {
-    const names = Object.keys(draft.agentPresets || {}).sort();
-    const sel = draft.defaultAgentPreset || '';
-    el('f-defaultAgentPreset').innerHTML =
-      `<option value="">None (use the core + model above)</option>`
-      + names.map((n) => `<option value="${esc(n)}"${n === sel ? ' selected' : ''}>${esc(n)}</option>`).join('');
-  }
+  // ---- Presets tab (NDL-110 §5) --------------------------------------------
+  // Same contract as every other tab control: write draft.agentPresets /
+  // draft.activeAgentPreset, re-render its consumers, markDirty(). Save is the
+  // only thing that reaches karst.yml, and the host's validateManifest stays
+  // the authority on whether the result is writable — validateAgentPresetsDraft
+  // exists so an edit this form accepts cannot be refused there (webview.test.ts
+  // pins it against validateAgentPresets).
 
-  // ---- Agent presets: the editor behind the list on General ----------------
-  // Same contract as every other General control: write draft.agentPresets,
-  // re-render its consumers, markDirty(). Save is the only thing that reaches
-  // karst.yml, and the host's validateManifest stays the authority on whether
-  // the result is writable — validateAgentPresetsDraft exists so an edit this
-  // form accepts cannot be refused there (webview.test.ts pins it against
-  // validateAgentPresets).
-
-  // The preset name the form is editing; null while it is in "add" mode.
+  // The preset whose capability rows the table edits; null while the tab has no
+  // selection (no presets at all, or the selection was deleted).
   let editingPresetName = null;
 
-  const PRESET_FORM_FIELDS = ['f-presetName', 'f-presetProvider', 'f-presetModel', 'f-presetEffort'];
+  const PRESET_FORM_FIELDS = ['f-presetName'];
 
-  // Mirrors src/manifest/validate/agentPresets.ts — same bounds, same
-  // vocabulary, same message text. Returns the fault, or null when the map
-  // would pass the host's validator.
-  function validateAgentPresetsDraft(presets) {
-    if (presets === undefined) return null;
-    if (typeof presets !== 'object' || presets === null || Array.isArray(presets)) {
-      return 'agentPresets must be a mapping';
+  // The capability vocabulary is HOST-supplied (UI-R31): the webview renders
+  // `state.presetGroups` verbatim and never invents a row id, so an unknown
+  // capability cannot be written into the draft from here.
+  function presetCapabilityIds() {
+    const ids = [];
+    for (const g of presetGroups) {
+      for (const r of (g && g.rows) || []) {
+        if (r && r.capability && ids.indexOf(r.capability) === -1) ids.push(r.capability);
+      }
     }
+    return ids;
+  }
+
+  function presetCapabilityTotal() {
+    return presetCapabilityIds().length;
+  }
+
+  // Mirrors src/manifest/validate/agentPresets.ts — same bounds, same field
+  // paths, same wording, INCLUDING the legacy flat `{provider, model}` preset
+  // §6 still reads (UI-R34). A mirror that refused a row the host accepts would
+  // block a file that loads fine, and one that accepted a row the host refuses
+  // would let the fault surface as a banner this form cannot map to a field.
+  // Returns the fault, or null when the map is writable.
+  function validateAgentPresetsDraft(presets) {
+    const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+    // The capability vocabulary comes from the HOST (UI-R31), in the order the
+    // host lists it — the same order PRESET_CAPABILITIES.join(', ') spells out
+    // in the "expected one of" fault.
+    const known = presetCapabilityIds();
+    const requireString = (v, where) =>
+      (typeof v !== 'string' || v.trim() === '' || v.length > 512
+        ? `${where} must be a non-empty string of at most 512 characters`
+        : null);
+    const assertKnownKeys = (raw, keys, where) => {
+      for (const key of Object.keys(raw)) {
+        if (keys.indexOf(key) === -1) return `${where} has unknown key "${key}"`;
+      }
+      return null;
+    };
+    const validateSlot = (raw, where) => {
+      if (!isObject(raw)) return `${where} must be a mapping`;
+      const badKey = assertKnownKeys(raw, ['provider', 'model', 'effort'], where);
+      if (badKey) return badKey;
+      let fault = requireString(raw.provider, `${where}.provider`);
+      if (fault) return fault;
+      if (KNOWN_AGENT_PROVIDERS.indexOf(raw.provider) === -1) {
+        return `${where}.provider must be one of: ${KNOWN_AGENT_PROVIDERS.join(', ')}`;
+      }
+      fault = requireString(raw.model, `${where}.model`);
+      if (fault) return fault;
+      if (!AGENT_PRESET_MODEL_ID.test(raw.model)) return `${where}.model is not a valid model id`;
+      if (raw.effort !== undefined) {
+        fault = requireString(raw.effort, `${where}.effort`);
+        if (fault) return fault;
+      }
+      return null;
+    };
+    const validateSlotsPreset = (raw, where) => {
+      const badKey = assertKnownKeys(raw, ['label', 'slots'], where);
+      if (badKey) return badKey;
+      if (raw.slots === undefined) {
+        return (
+          `${where} must define \`slots:\` (a capability → slot mapping) or be a legacy ` +
+          '{ provider, model } preset'
+        );
+      }
+      if (!isObject(raw.slots)) return `${where}.slots must be a mapping`;
+      for (const capability of Object.keys(raw.slots)) {
+        if (known.indexOf(capability) === -1) {
+          return (
+            `${where}.slots has unknown capability "${capability}" — expected one of: ` +
+            known.join(', ')
+          );
+        }
+        const fault = validateSlot(raw.slots[capability], `${where}.slots.${capability}`);
+        if (fault) return fault;
+      }
+      if (raw.label !== undefined && typeof raw.label !== 'string') {
+        return `${where}.label must be a string`;
+      }
+      return null;
+    };
+    const validatePreset = (raw, where) => {
+      if (!isObject(raw)) return `${where} must be a mapping`;
+      const isLegacy = raw.provider !== undefined || raw.model !== undefined;
+      const isSlotsForm = raw.slots !== undefined || raw.label !== undefined;
+      if (isLegacy && isSlotsForm) {
+        return (
+          `${where} declares both the legacy flat {provider, model} block and the ` +
+          'per-capability `slots:`/`label:` form — keep only the `slots:` form'
+        );
+      }
+      // Legacy flat → one slot on EVERY capability (§6). Validated the same way
+      // here: the fault wording must not depend on which form the row arrived in.
+      if (isLegacy) return validateSlot(raw, where);
+      return validateSlotsPreset(raw, where);
+    };
+
+    if (presets === undefined) return null;
+    if (!isObject(presets)) return 'agentPresets must be a mapping';
     const names = Object.keys(presets);
     if (names.length > MAX_AGENT_PRESETS) {
       return `agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`;
     }
     for (const name of names) {
       if (name.trim() === '') return 'agentPresets has an empty preset name';
-      const where = `agentPresets.${name}`;
-      const preset = presets[name];
-      if (typeof preset !== 'object' || preset === null || Array.isArray(preset)) {
-        return `${where} must be a mapping`;
-      }
-      for (const key of Object.keys(preset)) {
-        if (['provider', 'model', 'effort'].indexOf(key) === -1) {
-          return `${where} has unknown key "${key}"`;
-        }
-      }
-      const provider = preset.provider;
-      if (typeof provider !== 'string' || provider.trim() === '' || provider.length > 512) {
-        return `${where}.provider must be a non-empty string of at most 512 characters`;
-      }
-      if (KNOWN_AGENT_PROVIDERS.indexOf(provider) === -1) {
-        return `${where}.provider must be one of: ${KNOWN_AGENT_PROVIDERS.join(', ')}`;
-      }
-      const model = preset.model;
-      if (typeof model !== 'string' || model.trim() === '' || model.length > 512) {
-        return `${where}.model must be a non-empty string of at most 512 characters`;
-      }
-      if (!AGENT_PRESET_MODEL_ID.test(model)) return `${where}.model is not a valid model id`;
-      if (preset.effort !== undefined) {
-        const effort = preset.effort;
-        if (typeof effort !== 'string' || effort.trim() === '' || effort.length > 512) {
-          return `${where}.effort must be a non-empty string of at most 512 characters`;
-        }
-      }
+      const fault = validatePreset(presets[name], `agentPresets.${name}`);
+      if (fault) return fault;
     }
     return null;
   }
 
   // Every preset reference a Save could leave in the file, named as the surface
   // an operator can actually change. A referenced preset is REFUSED a delete or
-  // rename rather than silently unlinked: `defaultAgentPreset` lives on this
+  // rename rather than silently unlinked: the active selector lives on THIS
   // tab, but `processes.<key>.preset` belongs to the Agents tab and a
   // tab-scoped Save writes only its own fields — clearing it here would never
   // reach the file, so the Save would be refused anyway (the host checks
@@ -2884,9 +2977,11 @@
   function agentPresetReferences(name) {
     const refs = [];
     const add = (ref) => { if (refs.indexOf(ref) === -1) refs.push(ref); };
-    // This tab writes ITS OWN draft's defaultAgentPreset…
-    if (draft.defaultAgentPreset === name) add('the Default agent preset');
-    // …while a General Save writes the FILE's process rows (mergeSection starts
+    // This tab writes ITS OWN draft's active selection…
+    if (draft.activeAgentPreset === name || draft.defaultAgentPreset === name) {
+      add('the active preset selector');
+    }
+    // …while a Presets Save writes the FILE's process rows (mergeSection starts
     // from the baseline) and a later Agents Save writes the draft's. Either one
     // keeps the reference alive, so both are checked.
     for (const source of [draft, lastSaved]) {
@@ -2917,7 +3012,8 @@
 
   // UI-R25: the fault is shown on its line AND flagged on the control it is
   // about. The message carries the host's field path, so the control follows
-  // the same suffix.
+  // the same suffix; a slot fault lands on the name field because the slot
+  // itself is edited in the capability table, not in this form.
   function showPresetFormError(msg) {
     const line = el('presetFormError');
     for (const id of PRESET_FORM_FIELDS) {
@@ -2926,66 +3022,319 @@
     }
     if (!line) return;
     if (!msg) { line.textContent = ''; line.classList.add('hidden'); return; }
-    const at = msg.indexOf('.provider') !== -1 ? 'f-presetProvider'
-      : msg.indexOf('.model') !== -1 ? 'f-presetModel'
-      : msg.indexOf('.effort') !== -1 ? 'f-presetEffort'
-      : 'f-presetName';
-    const input = el(at);
+    const input = el('f-presetName');
     if (input) input.setAttribute('aria-invalid', 'true');
     line.textContent = msg;
     line.classList.remove('hidden');
+  }
+
+  function presetNames() {
+    return Object.keys(draft.agentPresets || {}).sort();
+  }
+
+  /** The one active-preset spelling this tab edits: canonical, else the legacy alias. */
+  function activePresetName() {
+    return draft.activeAgentPreset || draft.defaultAgentPreset || '';
+  }
+
+  function currentPreset() {
+    if (editingPresetName === null) return null;
+    const presets = draft.agentPresets || {};
+    return Object.prototype.hasOwnProperty.call(presets, editingPresetName)
+      ? presets[editingPresetName]
+      : null;
+  }
+
+  /**
+   * §6's legacy flat `{provider, model}` preset is ONE slot on EVERY capability.
+   * The editor only ever works in the `slots:` form, so a legacy record is
+   * normalized here — on the way OUT of every write path — which is also what
+   * keeps `{provider, model, slots}` (both forms at once, refused by the host)
+   * from ever reaching the file. Reading alone never normalizes: an untouched
+   * legacy preset stays byte-for-byte until the user actually edits it.
+   */
+  function slotsFormPreset(preset) {
+    if (!preset) return { slots: {} };
+    const out = {};
+    if (preset.label !== undefined) out.label = preset.label;
+    const isLegacy = preset.provider !== undefined || preset.model !== undefined;
+    if (!isLegacy) {
+      out.slots = preset.slots || {};
+      return out;
+    }
+    const slot = {};
+    if (preset.provider !== undefined) slot.provider = preset.provider;
+    if (preset.model !== undefined) slot.model = preset.model;
+    if (preset.effort !== undefined) slot.effort = preset.effort;
+    const slots = {};
+    for (const capability of presetCapabilityIds()) slots[capability] = { ...slot };
+    out.slots = slots;
+    return out;
   }
 
   function renderAgentPresetList() {
     const block = el('agentPresetList');
     if (!block) return;
     const presets = draft.agentPresets || {};
-    const names = Object.keys(presets).sort();
+    const names = presetNames();
+    const total = presetCapabilityTotal();
     if (!names.length) {
       block.innerHTML =
-        '<div class="preset-empty">No presets yet. Add one to offer it wherever an agent is picked.</div>';
+        '<div class="preset-empty">No presets yet. Add one to pick the capabilities it overrides.</div>';
       return;
     }
     block.innerHTML = '<div class="preset-list">' + names.map((name) => {
       const preset = presets[name] || {};
-      const meta = (AGENT_PROVIDER_LABELS[preset.provider] || preset.provider || '')
-        + (preset.model ? ` · ${preset.model}` : '')
-        + (preset.effort ? ` · ${preset.effort}` : '');
-      return `<div class="preset-row">`
+      const overridden = Object.keys(slotsFormPreset(preset).slots).length;
+      const meta = (preset.label ? `${preset.label} · ` : '')
+        + `${overridden}/${total} overridden`
+        + (name === activePresetName() ? ' · active' : '');
+      const selected = name === editingPresetName ? ' is-selected' : '';
+      return `<div class="preset-row${selected}">`
         + `<span class="preset-name">${esc(name)}</span>`
         + `<span class="preset-meta">${esc(meta)}</span>`
         + `<span class="preset-row-actions">`
         + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-edit-preset="${esc(name)}">Edit</button>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-duplicate-preset="${esc(name)}">Duplicate</button>`
         + `<button type="button" class="k-btn k-btn--danger k-btn--sm" data-remove-preset="${esc(name)}">Delete</button>`
         + `</span></div>`;
     }).join('') + '</div>';
   }
 
-  // The preset form's core vocabulary — the same KNOWN_AGENT_PROVIDERS the
-  // picker renders, so a preset can be defined for a core whose picker still
-  // shows "coming soon" (the manifest accepts all four). Built once, like
-  // renderPresetOptions, so a state push mid-edit cannot reset a pick.
-  function renderAgentPresetProviderOptions() {
-    const sel = el('f-presetProvider');
-    if (!sel || sel.options.length) return;
-    sel.innerHTML = KNOWN_AGENT_PROVIDERS.map(
-      (p) => `<option value="${p}">${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
-    ).join('');
-    sel.value = KNOWN_AGENT_PROVIDERS.indexOf(draft.agentProvider) === -1
-      ? KNOWN_AGENT_PROVIDERS[0]
-      : draft.agentProvider;
+  // The active-preset selector (§5). Canonical key first, with the legacy
+  // `defaultAgentPreset` alias read as the same selection so a pre-Presets-tab
+  // file shows what it actually applies; this tab's Save renames it
+  // (actions.writeManifestDelta).
+  function renderActivePresetOptions() {
+    const sel = el('f-activeAgentPreset');
+    if (!sel) return;
+    const names = presetNames();
+    const active = activePresetName();
+    sel.innerHTML =
+      '<option value="">None (every capability inherits)</option>'
+      + names.map((n) =>
+        `<option value="${esc(n)}"${n === active ? ' selected' : ''}>${esc(n)}</option>`,
+      ).join('');
+    // A selection naming a preset the map no longer defines keeps its own
+    // option so it stays visible rather than silently blanked — the host
+    // refuses that file at load, and showing it is the honest state.
+    if (active && names.indexOf(active) === -1) {
+      sel.insertAdjacentHTML(
+        'beforeend',
+        `<option value="${esc(active)}" selected>${esc(active)}</option>`,
+      );
+    }
   }
 
+  // ---- the capability matrix (§5) ------------------------------------------
+  function renderPresetCapabilityTable() {
+    const block = el('presetCapabilityTable');
+    if (!block) return;
+    const preset = currentPreset();
+    if (!preset) {
+      block.innerHTML =
+        '<div class="preset-empty">Select a preset above to edit its capabilities.</div>';
+      return;
+    }
+    const slots = slotsFormPreset(preset).slots;
+    block.innerHTML = presetGroups.map((group) => {
+      const rows = ((group && group.rows) || []).map((row) =>
+        renderPresetCapabilityRow(row, slots[row.capability])).join('');
+      return `<div class="cap-group">`
+        + `<div class="matrix-group">${esc((group && group.label) || '')}</div>`
+        + rows
+        + `</div>`;
+    }).join('');
+    mountPresetCapabilityPickers();
+  }
+
+  function renderPresetCapabilityRow(row, slot) {
+    const cap = row.capability;
+    const mode = slot ? 'override' : 'inherit';
+    const inherited = presetInheritance[cap];
+    // The preview is the HOST's fact (UI-R31): this only joins the parts it
+    // was handed with the §5 wording.
+    const inheritedText = inherited
+      ? 'Inherited: ' + [inherited.provider, inherited.model, inherited.effort]
+          .filter(Boolean).join(' · ')
+      : 'Inherited: project defaults';
+    return `<div class="cap-row${mode === 'override' ? ' is-override' : ''}" data-cap-row="${esc(cap)}">`
+      + `<label class="cap-name" for="cap-${esc(cap)}-mode">${esc(row.label)}</label>`
+      + `<div class="cap-mode">`
+      + `<select id="cap-${esc(cap)}-mode" class="proc-select" data-cap-mode="${esc(cap)}"`
+      + ` aria-label="${esc(row.label)} override mode">`
+      + `<option value="inherit"${mode === 'inherit' ? ' selected' : ''}>Inherit (default)</option>`
+      + `<option value="override"${mode === 'override' ? ' selected' : ''}>Override</option>`
+      + `</select></div>`
+      + `<div class="cap-value">`
+      + (mode === 'override'
+        ? `<div class="ap" data-cap-picker="${esc(cap)}"></div>`
+        : `<span class="cap-inherited">${esc(inheritedText)}</span>`)
+      + `</div></div>`;
+  }
+
+  // The UNIFIED agent identity picker (agent core + model + effort/variant) in
+  // every Override row — the same component the graph profiles and process rows
+  // mount, so a core pick re-filters the model list to that core's catalog and
+  // the effort field offers only what the picked model advertises.
+  function mountPresetCapabilityPickers() {
+    const containers = document.querySelectorAll('[data-cap-picker]');
+    for (const container of containers) {
+      const cap = container.dataset.capPicker;
+      const preset = currentPreset();
+      // Same read the table used — a legacy flat record has no `slots`, and an
+      // Override row rendered from it must still get a working picker rather
+      // than an empty `.ap` shell.
+      const slot = preset && slotsFormPreset(preset).slots[cap];
+      if (!slot) continue;
+      const apCores = KNOWN_AGENT_PROVIDERS.map((p) => ({
+        id: p,
+        label: AGENT_PROVIDER_LABELS[p] || p,
+        disabled: implementedProviders.indexOf(p) === -1,
+      }));
+      mountAgentPicker(container, {
+        cores: apCores,
+        catalog: modelCatalog,
+        recent: recentModels,
+        value: { core: slot.provider || '', model: slot.model || '', effort: slot.effort || '' },
+        labels: { core: 'Core', model: 'Model', effort: 'Effort' },
+        showEffort: true,
+        onChange: ({ core, model, effort }) => {
+          if (!core) { clearPresetSlot(cap); return; }
+          writePresetSlot(cap, {
+            provider: core,
+            ...(model ? { model } : {}),
+            ...(effort ? { effort } : {}),
+          });
+        },
+      });
+    }
+  }
+
+  /**
+   * A COMPLETE slot to open an Override row on: the host's inherited identity
+   * for this capability, falling back to the project default. A row must never
+   * start as `{ provider }` with no model — the host refuses that at Save, and
+   * a control that switches to Override only to fail on Apply is UI-R25
+   * backwards. Null means there is nothing valid to seed, so the row stays
+   * Inherit rather than opening broken.
+   */
+  function seedPresetSlot(cap) {
+    const inherited = presetInheritance[cap];
+    const provider = (inherited && inherited.provider) || draft.agentProvider || '';
+    const model = (inherited && inherited.model) || draft.defaultModel || '';
+    if (!provider || !model) return null;
+    const effort = (inherited && inherited.effort) || draft.defaultEffort || '';
+    return { provider, model, ...(effort ? { effort } : {}) };
+  }
+
+  /** The one write path for a slot: spread the preset, replace just this row. */
+  function writePresetSlot(cap, slot) {
+    const preset = currentPreset();
+    if (!preset) return;
+    const base = slotsFormPreset(preset);
+    commitPresetEntry({ ...base, slots: { ...base.slots, [cap]: slot } });
+  }
+
+  function clearPresetSlot(cap) {
+    const preset = currentPreset();
+    if (!preset) return;
+    const base = slotsFormPreset(preset);
+    const slots = { ...base.slots };
+    delete slots[cap];
+    commitPresetEntry({ ...base, slots });
+  }
+
+  /** Rebuild `preset.slots` in bulk — the §5 "Set all to…" write path. */
+  function writeAllPresetSlots(nextSlots) {
+    const preset = currentPreset();
+    if (!preset) return;
+    commitPresetEntry({ ...slotsFormPreset(preset), slots: nextSlots });
+  }
+
+  /** Replace the selected preset in the draft, then re-render its consumers. */
+  function commitPresetEntry(next) {
+    const fault = validateAgentPresetsDraft({ ...(draft.agentPresets || {}), [editingPresetName]: next });
+    if (fault) return showPresetFormError(fault);
+    draft.agentPresets = { ...(draft.agentPresets || {}), [editingPresetName]: next };
+    showPresetFormError(null);
+    showPresetListError(null);
+    markDirty();
+    renderAgentPresetList();
+    renderPresetCapabilityTable();
+  }
+
+  // "Set all to…" (§5): one core/model/effort written to every row, which is
+  // what makes a Cheap/Free preset one step instead of ten.
+  function renderSetAllControls() {
+    const coreSel = el('f-setAllProvider');
+    if (!coreSel) return;
+    if (!coreSel.options.length) {
+      coreSel.innerHTML = KNOWN_AGENT_PROVIDERS.map(
+        (p) => `<option value="${p}">${esc(AGENT_PROVIDER_LABELS[p] || p)}</option>`,
+      ).join('');
+    }
+    const provider = KNOWN_AGENT_PROVIDERS.indexOf(coreSel.value) === -1
+      ? (KNOWN_AGENT_PROVIDERS.indexOf(draft.agentProvider) === -1
+        ? KNOWN_AGENT_PROVIDERS[0]
+        : draft.agentProvider)
+      : coreSel.value;
+    coreSel.value = provider;
+
+    const models = modelCatalog[provider] || [];
+    const modelSel = el('f-setAllModel');
+    const wanted = modelSel.value && models.some((m) => m.id === modelSel.value)
+      ? modelSel.value
+      : (draft.defaultModel && models.some((m) => m.id === draft.defaultModel)
+        ? draft.defaultModel
+        : (models[0] ? models[0].id : ''));
+    modelSel.innerHTML = models.map(
+      (m) => `<option value="${esc(m.id)}"${m.id === wanted ? ' selected' : ''}>${esc(m.label || m.id)}</option>`,
+    ).join('');
+
+    const efforts = (models.find((m) => m.id === modelSel.value) || {}).efforts || [];
+    const effortSel = el('f-setAllEffort');
+    const wantedEffort = efforts.indexOf(effortSel.value) !== -1 ? effortSel.value : '';
+    effortSel.innerHTML =
+      '<option value="">No effort (model default)</option>'
+      + efforts.map(
+        (e) => `<option value="${esc(e)}"${e === wantedEffort ? ' selected' : ''}>${esc(e)}</option>`,
+      ).join('');
+  }
+
+  function setAllOverride() {
+    const preset = currentPreset();
+    if (!preset) return showPresetListError('Select a preset before using “Set all to…”.');
+    const provider = el('f-setAllProvider').value;
+    const model = el('f-setAllModel').value;
+    if (!provider || !model) return showPresetListError('Pick a core and a model to set every row to.');
+    const effort = el('f-setAllEffort').value;
+    const slot = { provider, model, ...(effort ? { effort } : {}) };
+    const next = {};
+    for (const cap of presetCapabilityIds()) next[cap] = { ...slot };
+    showPresetListError(null);
+    writeAllPresetSlots(next);
+    return undefined;
+  }
+
+  function setAllInherit() {
+    if (!currentPreset()) {
+      return showPresetListError('Select a preset before using “Set all to…”.');
+    }
+    showPresetListError(null);
+    writeAllPresetSlots({});
+    return undefined;
+  }
+
+  // ---- preset CRUD ---------------------------------------------------------
   function resetPresetForm() {
     editingPresetName = null;
     el('f-presetName').value = '';
-    el('f-presetModel').value = '';
-    el('f-presetEffort').value = '';
-    el('f-presetProvider').value = KNOWN_AGENT_PROVIDERS.indexOf(draft.agentProvider) === -1
-      ? KNOWN_AGENT_PROVIDERS[0]
-      : draft.agentProvider;
     el('savePresetBtn').textContent = '+ Add preset';
     showPresetFormError(null);
+    showPresetListError(null);
+    renderAgentPresetList();
+    renderPresetCapabilityTable();
   }
 
   function editAgentPreset(name) {
@@ -2993,34 +3342,46 @@
     if (!preset) return;
     editingPresetName = name;
     el('f-presetName').value = name;
-    el('f-presetProvider').value = KNOWN_AGENT_PROVIDERS.indexOf(preset.provider) === -1
-      ? KNOWN_AGENT_PROVIDERS[0]
-      : preset.provider;
-    el('f-presetModel').value = preset.model || '';
-    el('f-presetEffort').value = preset.effort || '';
     el('savePresetBtn').textContent = 'Save preset';
     showPresetFormError(null);
     showPresetListError(null);
+    renderAgentPresetList();
+    renderPresetCapabilityTable();
     const nameField = el('f-presetName');
-    if (nameField && typeof nameField.focus === 'function') nameField.focus();
+    if (nameField && nameField.focus) nameField.focus();
+  }
+
+  /** A duplicate starts as an Inherit-everything copy under a free name. */
+  function duplicateAgentPreset(name) {
+    const preset = (draft.agentPresets || {})[name];
+    if (!preset) return;
+    const next = { ...(draft.agentPresets || {}) };
+    let candidate = `${name} copy`;
+    let n = 2;
+    while (Object.prototype.hasOwnProperty.call(next, candidate)) candidate = `${name} copy ${n++}`;
+    if (Object.keys(next).length >= MAX_AGENT_PRESETS) {
+      return showPresetListError(`agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`);
+    }
+    next[candidate] = clone(slotsFormPreset(preset));
+    if (preset.label) next[candidate].label = `${preset.label} copy`;
+    commitAgentPresets(next);
+    editAgentPreset(candidate);
+    return undefined;
   }
 
   // Commit the form into draft.agentPresets. The name is NOT trimmed: it is the
-  // manifest key and every reference compares against it exactly, so a stray
-  // space is a different preset, not this one with padding.
+  // key every reference stores, so a name with leading/trailing whitespace is a
+  // different preset, not this one with padding.
   function saveAgentPreset() {
     const name = el('f-presetName').value;
-    const provider = el('f-presetProvider').value;
-    const model = el('f-presetModel').value;
-    const effort = el('f-presetEffort').value;
     const renaming = editingPresetName !== null && editingPresetName !== name;
     const next = { ...(draft.agentPresets || {}) };
 
-    // The host bounds preset VALUES through requireString; a name is a KEY, so
-    // the bound is this editor's own (the form is the only thing that can
-    // produce a name the file did not already carry).
     if (name.length > 512) {
       return showPresetFormError('Preset name must be 512 characters or fewer.');
+    }
+    if (name.trim() === '') {
+      return showPresetFormError('Preset name must not be blank.');
     }
     if (name !== editingPresetName && Object.prototype.hasOwnProperty.call(next, name)) {
       return showPresetFormError(`A preset named "${name}" already exists.`);
@@ -3037,12 +3398,21 @@
     if (!Object.prototype.hasOwnProperty.call(next, name) && Object.keys(next).length >= MAX_AGENT_PRESETS) {
       return showPresetFormError(`agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`);
     }
-    const entry = { provider, model };
-    if (effort !== '') entry.effort = effort;
-    next[name] = entry;
+    // A rename keeps the record's CONTENTS and changes only its key; a
+    // re-save of the same name keeps it whole (label included). An ADD starts
+    // as all-Inherit: an empty slot map is a legal preset, and the capability
+    // table below is where the rows get pinned. Every path goes through
+    // slotsFormPreset so a legacy flat record is never written back in the
+    // shape that would give the host both forms at once.
+    const source = editingPresetName !== null ? (draft.agentPresets || {})[editingPresetName] : undefined;
+    next[name] = source ? slotsFormPreset(source) : { slots: {} };
+
     const fault = validateAgentPresetsDraft(next);
     if (fault) return showPresetFormError(fault);
+    editingPresetName = name;
     commitAgentPresets(next);
+    el('f-presetName').value = name;
+    el('savePresetBtn').textContent = 'Save preset';
     return undefined;
   }
 
@@ -3075,11 +3445,34 @@
     showPresetListError(null);
     markDirty();
     renderAgentPresetList();
-    // The default-preset select reads the draft, so it follows immediately.
-    // The process rows' selects stay HOST-computed (the webview derives
-    // nothing): they pick the new preset up with the state push that follows
-    // this tab's Save, exactly like every other field.
-    renderAgentPresetOptions();
+    renderActivePresetOptions();
+    renderPresetCapabilityTable();
+  }
+
+  /** Everything the Presets tab renders; called from renderAll() and on catalog refresh. */
+  function renderPresets() {
+    // A state push that took the preset being edited away (Discard, an
+    // out-of-band rewrite of the file) must not leave a table pointed at a
+    // record that no longer exists. Falling back to the first preset keeps the
+    // tab usable instead of silently empty.
+    if (
+      editingPresetName !== null &&
+      !Object.prototype.hasOwnProperty.call(draft.agentPresets || {}, editingPresetName)
+    ) {
+      editingPresetName = null;
+    }
+    if (editingPresetName === null) {
+      const names = presetNames();
+      if (names.length) editingPresetName = names[0];
+    }
+    if (editingPresetName !== null && el('savePresetBtn')) {
+      el('f-presetName').value = editingPresetName;
+      el('savePresetBtn').textContent = 'Save preset';
+    }
+    renderAgentPresetList();
+    renderActivePresetOptions();
+    renderSetAllControls();
+    renderPresetCapabilityTable();
   }
 
   function renderDefaultTypeOptions(selected) {
@@ -3178,11 +3571,22 @@
     else delete draft.diffsInSourceControl;
     markDirty();
   });
-  el('f-defaultAgentPreset').addEventListener('change', () => {
-    // '' clears it → the renderer falls back to the core + model above.
-    draft.defaultAgentPreset = el('f-defaultAgentPreset').value || undefined;
+  el('f-activeAgentPreset').addEventListener('change', () => {
+    // '' clears it → every capability inherits. The canonical key is written;
+    // a legacy `defaultAgentPreset` still in the draft is left for this tab's
+    // Save to rename (actions.writeManifestDelta) so the file never carries
+    // both spellings at once.
+    const value = el('f-activeAgentPreset').value;
+    if (value) draft.activeAgentPreset = value;
+    else delete draft.activeAgentPreset;
+    if (!value) delete draft.defaultAgentPreset;
     markDirty();
+    renderAgentPresetList();
   });
+  el('setAllOverrideBtn').addEventListener('click', setAllOverride);
+  el('setAllInheritBtn').addEventListener('click', setAllInherit);
+  el('f-setAllProvider').addEventListener('change', renderSetAllControls);
+  el('f-setAllModel').addEventListener('change', renderSetAllControls);
   // The preset editor commits into the draft only — Save is what writes it.
   el('savePresetBtn').addEventListener('click', saveAgentPreset);
   el('cancelPresetBtn').addEventListener('click', resetPresetForm);
@@ -3574,11 +3978,16 @@
     const t = e.target.closest && e.target.closest('button, a, input, select, textarea') || e.target;
     if (!t.dataset) return;
 
-    // Agent presets (General): Edit loads the record into the form, Delete
-    // drops it from the draft — both refuse while a reference still points at
-    // the preset (agentPresetReferences).
+    // Presets tab: Edit loads the record into the form, Duplicate clones it
+    // under a free name, Delete drops it from the draft — Edit's rename and
+    // Delete both refuse while a reference still points at the preset
+    // (agentPresetReferences).
     if (t.dataset.editPreset) {
       editAgentPreset(t.dataset.editPreset);
+      return;
+    }
+    if (t.dataset.duplicatePreset) {
+      duplicateAgentPreset(t.dataset.duplicatePreset);
       return;
     }
     if (t.dataset.removePreset) {
@@ -3916,6 +4325,21 @@
   document.addEventListener('change', (e) => {
     const t = e.target;
     if (!t.dataset) return;
+    // Presets tab: a capability row's mode select carries the slot (Override)
+    // or drops it (Inherit). The re-render mounts or unmounts the picker, so
+    // this write is the whole edit — unlike a gate kind switch there are no
+    // sibling fields left behind to clear.
+    if (t.dataset.capMode) {
+      const cap = t.dataset.capMode;
+      if (t.value === 'override') {
+        const seed = seedPresetSlot(cap);
+        if (seed) writePresetSlot(cap, seed);
+        else renderPresetCapabilityTable();
+      } else {
+        clearPresetSlot(cap);
+      }
+      return;
+    }
     if (t.dataset.svcName !== undefined) {
       renameService(t.dataset.svcName, t.value);
       return;
@@ -3989,16 +4413,6 @@
     // agentName typing is handled on `input` below WITHOUT a re-render so the
     // field never loses focus mid-keystroke.
     if (t.dataset.procField) {
-      // A real preset REPLACES the row's explicit core/model/effort — the
-      // preset becomes the source, so a stale pick from before cannot silently
-      // outrank it. updateProcessAssignment deletes '' keys, which is the
-      // manifest's absent-field removal.
-      if (t.dataset.procField === 'preset') {
-        updateProcessAssignment(t.dataset.procKey, t.value
-          ? { preset: t.value, provider: '', model: '', effort: '' }
-          : { preset: '' });
-        return;
-      }
       updateProcessAssignment(t.dataset.procKey, { [t.dataset.procField]: t.value });
       return;
     }
@@ -5012,17 +5426,6 @@
     if (agent && !(v.profileOptions || []).includes(agent)) {
       profileOpts += `<option value="${esc(agent)}" selected>${esc(agent)}</option>`;
     }
-    // Agent preset options: the host-supplied preset names, plus the saved
-    // value when the manifest no longer defines it — kept visible the same way
-    // the profile select keeps an out-of-pool agent, with the unknown-preset
-    // state message marking it.
-    let presetOpts = '<option value="">Role default</option>'
-      + (v.presetOptions || []).map((name) =>
-        `<option value="${esc(name)}"${name === cfg.preset ? ' selected' : ''}>${esc(name)}</option>`,
-      ).join('');
-    if (cfg.preset && !(v.presetOptions || []).includes(cfg.preset)) {
-      presetOpts += `<option value="${esc(cfg.preset)}" selected>${esc(cfg.preset)}</option>`;
-    }
     // The Agent cell is a MOUNT POINT for the UNIFIED agent identity picker
     // (agent core + model + effort/variant) — mountProcessAssignmentPickers()
     // calls mountAgentPicker into it right after the rows render, exactly like
@@ -5050,9 +5453,6 @@
         : `<span class="proc-hint">Identity only: this process keeps its built-in prompt, so the profile's instructions are not used.</span>`)
       + `</div>`
       + `<div class="proc-cell proc-agent-cell">`
-      + `<label for="proc-${key}-preset">Agent preset</label>`
-      + `<select id="proc-${key}-preset" class="proc-select" data-proc-field="preset" data-proc-key="${key}"${describedBy}${invalid('preset')}>${presetOpts}</select>`
-      + (v.presetHint ? `<span class="proc-hint">${esc(v.presetHint)}</span>` : '')
       + `<div class="ap" data-proc-picker="${key}" data-proc-key="${key}"${describedBy}${invalid('provider')}${invalid('model')}${invalid('effort')}></div>`
       + (v.coreHint || v.modelHint || v.effortHint
         ? `<span class="proc-hint">${[v.coreHint, v.modelHint, v.effortHint].filter(Boolean).map(esc).join(' · ')}</span>`
@@ -5946,6 +6346,7 @@
 
   function renderAll() {
     renderGeneral();
+    renderPresets();
     renderServices();
     renderApproaches();
     renderAgents();
@@ -5960,6 +6361,7 @@
     modelCompatibility = compatibility || modelCatalog;
     if (recent) recentModels = recent;
     renderGeneral();
+    renderPresets();
     renderApproaches();
     // A catalog change can flip a row's state (catalog-unavailable,
     // incompatible-model) — re-ask for host-computed views if the rows are on
@@ -6504,6 +6906,8 @@
         modelCompatibility = msg.state.modelCompatibility || modelCatalog;
         recentModels = msg.state.recentModels || {};
         processAssignmentViews = indexProcessViews(msg.state.processAssignments || []);
+        presetGroups = msg.state.presetGroups || [];
+        presetInheritance = msg.state.presetInheritance || {};
         agentRows = msg.state.agents || [];
         approachCommands = msg.state.approachCommands || {};
         packagedApproaches = msg.state.packagedApproaches || [];

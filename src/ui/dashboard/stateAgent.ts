@@ -42,21 +42,27 @@ export interface AgentStateView {
 /**
  * Resolve the ticket's agent identity and the header's agent-switch choices.
  *
- * A preset is a (core, model) pair: its model is the default only for the
- * preset's OWN core, so every core's choices resolve against that core's own
- * defaults — switching to another core inherits nothing from the preset and
- * cannot prefill its model.
+ * The defaults are the EFFECTIVE identity the host already resolved for this
+ * ticket (§7.6: ticket override → active preset slot → manifest default), so
+ * the header states what launch would open rather than the bare manifest
+ * fields a preset overrides. A preset is a (core, model) pair: its model is
+ * the default only for that identity's own core, so switching to another core
+ * inherits nothing from the preset and cannot prefill its model.
  */
 export function buildAgentState(input: AgentStateInput): AgentStateView {
   const { ticket, fixExecutionActive, defaultProvider, agentContext, recentByCore } = input;
-  const defaults = agentContext.defaultsFor?.(ticket.agentPreset, ticket.agentProvider) ?? {
-    provider: defaultProvider ?? 'claude',
-    model: agentContext.defaultModel ?? undefined,
-    effort: agentContext.defaultEffort ?? undefined,
-  };
-  // `defaultsFor` already folds the ticket provider into `defaults.provider`;
-  // without it (no manifest) the ticket's own provider still wins over the
-  // manifest default, so the resolve stays here.
+  // The DEFAULTS are what LAUNCH resolves for this ticket (§7.6), so the
+  // header states the preset's identity instead of the bare manifest fields a
+  // preset overrides. The identity arrives as plain data from the host — the
+  // same object the capability labels render — never a resolver function.
+  const impl = agentContext.capabilityIdentity?.implementation ?? null;
+  const defaults = impl
+    ? { provider: impl.provider, model: impl.model ?? undefined, effort: impl.effort ?? undefined }
+    : {
+        provider: ticket.agentProvider ?? defaultProvider ?? 'claude',
+        model: agentContext.defaultModel ?? undefined,
+        effort: agentContext.defaultEffort ?? undefined,
+      };
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaults.provider);
   const agentSession = buildAgentSessionView({
     provider: resolvedProvider,
@@ -73,13 +79,15 @@ export function buildAgentState(input: AgentStateInput): AgentStateView {
   const switchModels: Record<string, { model: string | null; label: string }[]> = {};
   for (const id of IMPLEMENTED_PROVIDERS) {
     // A preset is a (core, model) pair: its model is the default only for the
-    // preset's OWN core. Resolve per core so switching to another core does not
-    // inherit — and cannot prefill — the preset's model.
-    const coreDefaults = agentContext.defaultsFor?.(ticket.agentPreset, id) ?? defaults;
+    // effective preset's OWN core. Every other core resolves against the
+    // legacy manifest default, so the preset's model never crosses onto a
+    // core it was not declared for — and cannot prefill one.
+    const coreDefaultModel =
+      id === resolvedProvider ? (defaults.model ?? null) : (agentContext.defaultModel ?? null);
     switchModels[id] = agentSwitchModelChoices({
       provider: id,
       ticketModel: ticket.model,
-      defaultModel: coreDefaults.model ?? null,
+      defaultModel: coreDefaultModel,
       catalog,
     }).map(({ model, label }) => ({ model, label }));
   }
@@ -108,7 +116,11 @@ export function buildAgentState(input: AgentStateInput): AgentStateView {
       effort: agentSession.effort,
       modelInheritLabel,
       effortInheritLabel,
-      inheritCore: defaultProvider ?? null,
+      // The core the model/effort inherit labels describe. With an effective
+      // identity driving them that is the resolved core, not the manifest's
+      // default — an inherited value configured for the identity's core must
+      // not be offered under another one.
+      inheritCore: impl ? resolvedProvider : (defaultProvider ?? null),
     },
   };
 }

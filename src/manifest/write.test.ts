@@ -2,8 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { writeRepoSignals } from './write.js';
+import { writeRepoSignals, writeManifest } from './write.js';
 import { loadManifest } from './load.js';
+import type { Manifest, PresetSlot } from './types.js';
 
 const VALID = `
 host: localhost
@@ -135,6 +136,148 @@ describe('writeRepoSignals', () => {
       expect(loadManifest(path).repositories.backend!.signals).toEqual(['api']);
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('writeManifest', () => {
+  function manifestFixture(): { path: string; cleanup: () => void } {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-manifest-'));
+    const path = join(dir, 'karst.yml');
+    writeFileSync(
+      path,
+      `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+    service:
+      start: npm run dev
+      ports:
+        - { name: port, env: PORT, default: 3000 }
+      dependsOn: []
+`,
+    );
+    return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  it('emits per-capability preset slots shape and round-trips', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      const slot: PresetSlot = { provider: 'claude', model: 'claude-opus-5.5', effort: 'high' };
+      const withPreset: Manifest = {
+        ...loaded,
+        agentPresets: {
+          expensive: {
+            label: 'Expensive Setup',
+            slots: {
+              implementation: slot,
+              uatFix: slot,
+            },
+          },
+        },
+      };
+      writeManifest(path, withPreset);
+      const reloaded = loadManifest(path);
+      expect(reloaded.agentPresets?.expensive?.slots?.implementation).toEqual(slot);
+      expect(reloaded.agentPresets?.expensive?.slots?.uatFix).toEqual(slot);
+      // Preset absent from slot list should not appear:
+      expect(reloaded.agentPresets?.expensive?.slots?.review).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('renames defaultAgentPreset to activeAgentPreset and round-trips', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      const withActive: Manifest = {
+        ...loaded,
+        agentPresets: {
+          default: {
+            label: 'Default',
+            slots: {
+              implementation: { provider: 'claude', model: 'claude-opus-5.5' },
+            },
+          },
+        },
+        activeAgentPreset: 'default',
+      };
+      writeManifest(path, withActive);
+      const reloaded = loadManifest(path);
+      expect(reloaded.activeAgentPreset).toEqual('default');
+      const text = readFileSync(path, 'utf8');
+      expect(text).toContain('activeAgentPreset: default');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops processes.<key>.preset on write and round-trips clean', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      const withProcessPreset: Manifest = {
+        ...loaded,
+        processes: {
+          uatTester: {
+            agent: 'tester',
+            provider: 'claude',
+            model: 'claude-opus-5.5',
+            preset: 'expensive',
+          },
+          review: {
+            agent: 'reviewer',
+          },
+        },
+      };
+      writeManifest(path, withProcessPreset);
+      const text = readFileSync(path, 'utf8');
+      // Preset field should NOT be in the file (dropped by writer)
+      expect(text).not.toContain('preset:');
+      const reloaded = loadManifest(path);
+      expect(reloaded.processes?.uatTester?.preset).toBeUndefined();
+      expect(reloaded.processes?.uatTester?.agent).toEqual('tester');
+      expect(reloaded.processes?.review?.agent).toEqual('reviewer');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps the written file valid across all three changes', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      const comprehensive: Manifest = {
+        ...loaded,
+        agentPresets: {
+          default: {
+            label: 'Default',
+            slots: {
+              implementation: { provider: 'claude', model: 'claude-opus-5.5' },
+            },
+          },
+        },
+        activeAgentPreset: 'default',
+        processes: {
+          uatTester: { agent: 'tester', preset: 'default' },
+        },
+      };
+      writeManifest(path, comprehensive);
+      // Must not throw — the serialized YAML is still valid.
+      expect(() => loadManifest(path)).not.toThrow();
+      const reloaded = loadManifest(path);
+      expect(reloaded.agentPresets?.default?.slots?.implementation?.model).toEqual(
+        'claude-opus-5.5',
+      );
+      expect(reloaded.activeAgentPreset).toEqual('default');
+      expect(reloaded.processes?.uatTester?.preset).toBeUndefined();
+    } finally {
+      cleanup();
     }
   });
 });

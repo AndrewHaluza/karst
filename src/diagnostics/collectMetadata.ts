@@ -1,5 +1,5 @@
 import { resolveModelForProvider } from '../agent/models.js'
-import { resolveAgentDefaults } from '../agent/agentPresets.js'
+import { resolvePresetDefaults } from '../agent/agentPresets.js'
 import type { LogBuffer, LogEntry } from '../logging/logger.js'
 import type { Manifest } from '../manifest/types.js'
 import type { Store } from '../store/db.js'
@@ -179,7 +179,7 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   const safe = makeSafeText(redactions)
   const repositoryNames = selectedRepos(ticket.selected_repos)
   const repositories = createRepositoryAliases(input.manifest)
-  const defaults = resolveAgentDefaults(input.manifest, {
+  const defaults = resolvePresetDefaults(input.manifest, 'implementation', {
     ticketPreset: ticket.agent_preset,
     explicitProvider: ticket.agent_provider,
   })
@@ -301,7 +301,7 @@ export async function collectProjectMetadata(
   const safe = makeSafeText(redactions)
   const aliases = createRepositoryAliases(input.manifest)
   const repositories = Object.keys(input.manifest.repositories)
-  const projectDefaults = resolveAgentDefaults(input.manifest, {})
+  const projectDefaults = resolvePresetDefaults(input.manifest, 'implementation')
   return {
     reportId: input.reportId,
     generatedAt: input.generatedAt,

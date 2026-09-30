@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
+import { PRESET_CAPABILITIES } from './types.js';
 
 /** Write YAML to a temp file, return its path; caller cleans the dir. */
 function fixture(yaml: string): { path: string; cleanup: () => void } {
@@ -2644,6 +2645,18 @@ describe('resilience', () => {
 });
 
 describe('agentPresets', () => {
+  /** Minimal manifest skeleton with `extra` spliced in above `repositories:`. */
+  const withExtra = (extra: string): string => `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+${extra}
+repositories:
+  extention:
+    repoPath: /repo
+    hasMigrations: false
+`;
+
   it('refuses a defaultAgentPreset that names nothing', () => {
     const { path, cleanup } = fixture(`
 host: localhost
@@ -2683,4 +2696,238 @@ repositories:
       cleanup();
     }
   });
+
+  // §6: a legacy flat preset keeps working and keeps meaning "this one bundle
+  // applies everywhere" — the loader widens it to a slot on every capability.
+  it('normalizes a legacy flat preset into a slot on every capability', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    provider: opencode
+    model: opencode-go/deepseek-v4-flash
+    effort: high
+`));
+    try {
+      const preset = loadManifest(path).agentPresets!.fast!;
+      expect(preset.label).toBeUndefined();
+      expect(Object.keys(preset.slots).sort()).toEqual([...PRESET_CAPABILITIES].sort());
+      for (const capability of PRESET_CAPABILITIES) {
+        expect(preset.slots[capability]).toEqual({
+          provider: 'opencode',
+          model: 'opencode-go/deepseek-v4-flash',
+          effort: 'high',
+        });
+      }
+    } finally {
+      cleanup();
+    }
+  });
+
+  // §3: a preset is a sparse capability → slot matrix; an absent capability is
+  // Inherit, never a guessed default.
+  it('parses a per-capability preset with a label and sparse slots', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  smart:
+    label: Smart
+    slots:
+      review: { provider: claude, model: sonnet-5 }
+      prDescription: { provider: opencode, model: deepseek-flash-v4.1, effort: high }
+      graphFast: { provider: opencode, model: mimo-2.5, effort: flash }
+activeAgentPreset: smart
+`));
+    try {
+      const m = loadManifest(path);
+      expect(m.activeAgentPreset).toBe('smart');
+      expect(m.defaultAgentPreset).toBeUndefined();
+      const preset = m.agentPresets!.smart!;
+      expect(preset.label).toBe('Smart');
+      expect(preset.slots).toEqual({
+        review: { provider: 'claude', model: 'sonnet-5' },
+        prDescription: { provider: 'opencode', model: 'deepseek-flash-v4.1', effort: 'high' },
+        graphFast: { provider: 'opencode', model: 'mimo-2.5', effort: 'flash' },
+      });
+      expect(preset.slots.implementation).toBeUndefined();
+      expect(preset.slots.uatTester).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a slot under an unknown capability', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    slots:
+      research: { provider: claude, model: m }
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /agentPresets\.fast\.slots has unknown capability "research"/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an unknown provider in a slot', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    slots:
+      review: { provider: gpt, model: m }
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /agentPresets\.fast\.slots\.review\.provider must be one of/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a slot with no model', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    slots:
+      review: { provider: claude }
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /agentPresets\.fast\.slots\.review\.model must be a non-empty string/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a slot with a malformed model id', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    slots:
+      review: { provider: claude, model: "has space" }
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /agentPresets\.fast\.slots\.review\.model is not a valid model id/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a preset mixing the legacy flat block with slots', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    provider: claude
+    model: m
+    slots:
+      review: { provider: claude, model: m }
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(/declares both the legacy flat/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a preset that declares neither slots nor a legacy block', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast: {}
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(/must define `slots:`/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses a non-string label', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    label: 7
+    slots:
+      review: { provider: claude, model: m }
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(/agentPresets\.fast\.label must be a string/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an activeAgentPreset that names nothing', () => {
+    const { path, cleanup } = fixture(withExtra(`activeAgentPreset: nope`));
+    try {
+      expect(() => loadManifest(path)).toThrow(/activeAgentPreset "nope" names no agent preset/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  // §6: they name the same single active preset, so a file carrying both is
+  // ambiguous and is refused rather than silently letting one win.
+  it('refuses a manifest carrying both activeAgentPreset and defaultAgentPreset', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    provider: opencode
+    model: m
+activeAgentPreset: fast
+defaultAgentPreset: fast
+`));
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /declares both `activeAgentPreset:` and the legacy `defaultAgentPreset:`/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  // §6: `processes.<key>.preset` still works for one release, but says so.
+  it('warns that a process preset key is deprecated while still loading it', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  fast:
+    provider: opencode
+    model: m
+processes:
+  review:
+    preset: fast
+`));
+    try {
+      const m = loadManifest(path);
+      expect(m.processes?.review?.preset).toBe('fast');
+
+      const { warnings } = loadManifestWithDiagnostics(path);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]).toMatch(/`processes\.review\.preset` is deprecated/);
+      expect(warnings[0]).toMatch(/`review` slot under `agentPresets`/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('emits no deprecation warning for a manifest without a process preset key', () => {
+    const { path, cleanup } = fixture(withExtra(`
+agentPresets:
+  smart:
+    label: Smart
+    slots:
+      review: { provider: claude, model: sonnet-5 }
+activeAgentPreset: smart
+`));
+    try {
+      expect(loadManifestWithDiagnostics(path).warnings).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
 });
+

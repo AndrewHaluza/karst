@@ -7,6 +7,7 @@ import { setStage } from '../../store/stages.js';
 import { buildTicketFormState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import {
+  fullPreset,
   manifest as buildManifest,
   repo as bareRepo,
   runnableRepo,
@@ -568,7 +569,7 @@ describe('buildTicketFormState — agent presets', () => {
   it('create mode seeds the default preset and its core/model', () => {
     const m: Manifest = {
       ...MANIFEST,
-      agentPresets: { fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
       defaultAgentPreset: 'fast',
     };
     const state = buildTicketFormState(
@@ -586,8 +587,8 @@ describe('buildTicketFormState — agent presets', () => {
     const m: Manifest = {
       ...MANIFEST,
       agentPresets: {
-        fast: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' },
-        deep: { provider: 'claude', model: 'claude-opus-5' },
+        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
+        deep: fullPreset('claude', 'claude-opus-5'),
       },
       defaultAgentPreset: 'fast',
     };

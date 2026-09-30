@@ -425,6 +425,7 @@ export class DashboardManager {
         return action ?? undefined;
       };
     }
+    const ticket = getTicket(this.store, ticketId);
     const state = buildDashboardState(
       this.store,
       ticketId,
@@ -433,7 +434,12 @@ export class DashboardManager {
       this.approachPhases,
       this.isRepoRunnable,
       this.defaultProvider?.(),
-      agentContextFor(this.agentContext?.(), this.manifest?.()),
+      agentContextFor(
+        this.agentContext?.(),
+        this.manifest?.(),
+        ticket?.agentPreset ?? null,
+        ticket?.agentProvider ?? null,
+      ),
       this.fixCapFor,
       (id) => {
         const manifest = this.manifest?.();
