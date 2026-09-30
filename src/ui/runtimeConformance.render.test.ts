@@ -73,21 +73,21 @@ const KNOWN_UNRESOLVED_K_CLASSES: Record<string, number> = {
  * Non-vacuity floor: minimum inputs and buttons each view must render per-kind.
  * NDL-126 §4 requires every view to render both inputs and buttons (N > 0 for each).
  * Settings: fixed parity measurement from vanilla view (phase 4 baseline).
- * Other views: measured from current sync render in the test environment (may increase).
- * Usage: data-driven without host state; genuinely renders 0 interactive elements until state arrives.
+ * Other views: measured from current sync render in the test environment.
+ * Usage: measured after host sends state message (no longer special).
  */
-const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number }> = {
+const INTERACTION_FLOOR: Record<string, { inputs: number; buttons: number; inputsProbe?: 'focusable' }> = {
   dashboard: { inputs: 1, buttons: 17 },
   diffs: { inputs: 1, buttons: 3 },
-  // gettingStarted: no form inputs; uses focusables count (measured: 3)
-  gettingStarted: { inputs: 3, buttons: 3 },
-  // resources: no form inputs; uses focusables count (measured: 4)
-  resources: { inputs: 4, buttons: 4 },
+  // gettingStarted: no form inputs; measured focusables 3
+  gettingStarted: { inputs: 3, buttons: 3, inputsProbe: 'focusable' },
+  // resources: no form inputs; measured focusables 4
+  resources: { inputs: 4, buttons: 4, inputsProbe: 'focusable' },
   serverLogs: { inputs: 3, buttons: 4 },
   settings: { inputs: 52, buttons: 44 }, // vanilla view measured baseline (phase 4)
   sidebar: { inputs: 1, buttons: 4 },
   ticketForm: { inputs: 7, buttons: 12 },
-  // usage: data-driven; test provides minimal state to render range controls
+  // usage: measured after host sends state (inputs 1, buttons 1)
   usage: { inputs: 1, buttons: 1 },
 };
 
@@ -110,12 +110,8 @@ describe('RUNTIME conformance — discovery', () => {
     for (const name of WEBVIEWS) {
       const floor = INTERACTION_FLOOR[name];
       expect(floor, `${name} has no non-vacuity floor`).toBeDefined();
-      // Most views must have at least 1 input and 1 button; exception: usage is data-driven with no initial content
-      const isDataDriven = name === 'usage';
-      if (!isDataDriven) {
-        expect(floor!.inputs, `${name} inputs floor must be > 0, found ${floor!.inputs}`).toBeGreaterThan(0);
-        expect(floor!.buttons, `${name} buttons floor must be > 0, found ${floor!.buttons}`).toBeGreaterThan(0);
-      }
+      expect(floor!.inputs, `${name} inputs floor must be > 0, found ${floor!.inputs}`).toBeGreaterThan(0);
+      expect(floor!.buttons, `${name} buttons floor must be > 0, found ${floor!.buttons}`).toBeGreaterThan(0);
     }
   });
 
@@ -137,21 +133,24 @@ const INTERACTIVE_TAGS = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 
  */
 function assertInteractionFloor(
   container: Element | null,
-  floor: { inputs: number; buttons: number },
+  floor: { inputs: number; buttons: number; inputsProbe?: 'focusable' },
   viewName: string,
 ): void {
   if (!container) throw new Error(`${viewName}: container is null`);
 
-  const inputs = [...container.querySelectorAll('input:not([type="hidden"]), select, textarea')].length;
-  const buttons = [...container.querySelectorAll('button')].length;
-  // For views with no inputs, count all interactive elements as a proxy
-  const allInteractive = [...container.querySelectorAll('button, a, input:not([type="hidden"]), select, textarea')].length;
+  let inputCount: number;
+  if (floor.inputsProbe === 'focusable') {
+    // For views with no form inputs, count focusable elements
+    inputCount = [...container.querySelectorAll('button, a, input:not([type="hidden"]), select, textarea')].length;
+  } else {
+    // Standard form inputs
+    inputCount = [...container.querySelectorAll('input:not([type="hidden"]), select, textarea')].length;
+  }
 
-  // Use allInteractive as fallback if view has no form inputs
-  const inputCount = inputs > 0 ? inputs : allInteractive;
+  const buttons = [...container.querySelectorAll('button')].length;
 
   if (inputCount < floor.inputs) {
-    throw new Error(`${viewName}: expected at least ${floor.inputs} interactive elements, found ${inputCount}`);
+    throw new Error(`${viewName}: expected at least ${floor.inputs} inputs, found ${inputCount}`);
   }
 
   if (buttons < floor.buttons) {
@@ -196,6 +195,8 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
           error: null,
         },
       });
+      // Yield to let jsdom process the message event and inline script
+      await Promise.resolve();
     }
   });
 
@@ -288,10 +289,7 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
 
   it('proves non-vacuity: assertion fails on empty render', () => {
     // Prove floor assertions are not vacuous: the predicate must fail on an empty render.
-    // Skip for data-driven views (e.g., usage) that legitimately render nothing until state arrives.
     const floor = INTERACTION_FLOOR[name]!;
-    const isDataDriven = name === 'usage';
-    if (isDataDriven) return; // No proof needed; floor is legitimately 0
 
     const emptyHandle = renderWebview(name as WebviewName);
     const container = emptyHandle.query('body');
