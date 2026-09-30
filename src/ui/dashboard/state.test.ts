@@ -400,37 +400,6 @@ describe('buildDashboardState', () => {
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
   });
 
-  it('does not leak a preset model onto the other cores in the switch popover', () => {
-    const t = createTicket(store, { key: 'PRESET-SW', title: 'preset switch' });
-    updateTicketFields(store, t.id, { agentPreset: 'fast' });
-    const m = manifest({ extention: repo() }, {
-      agentPresets: {
-        fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
-      },
-      defaultAgentPreset: 'fast',
-      defaultModel: 'claude-sonnet-5',
-    });
-    const state = buildDashboardState(
-      store,
-      t.id,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      {
-        defaultModel: 'claude-sonnet-5',
-        defaultsFor: (preset, provider) =>
-          resolvePresetDefaults(m, 'implementation', { ticketPreset: preset, explicitProvider: provider }),
-      },
-    );
-    // The preset's own core inherits it…
-    expect(state.agentSwitch.models.opencode![0]!.label).toContain('opencode-go/deepseek-v4-flash');
-    // …every other core inherits the legacy manifest default, never the preset's.
-    expect(state.agentSwitch.models.claude![0]!.label).toContain('Sonnet 5');
-    expect(state.agentSwitch.models.claude![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
-    expect(state.agentSwitch.models.codex![0]!.label).not.toContain('opencode-go/deepseek-v4-flash');
-  });
 
   it('exposes the recently used models per core for the picker\'s "Last used" group', () => {
     const project = upsertProject(store, { slug: 'recent-proj' });

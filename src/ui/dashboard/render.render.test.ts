@@ -190,38 +190,36 @@ describe('dashboard render — fixture corpus', () => {
   it('renders per-capability effective agent identity (NDL-116)', () => {
     const h = renderWebview('dashboard');
     const base = renderStateFor('impl');
-    const stateWithPreset = {
+    const stateWithCapabilityIdentity = {
       ...base,
-      insideViews: {
-        ...base.insideViews,
-        impl: {
-          ...base.insideViews.impl,
-          ticket: {
-            ...base.insideViews.impl.ticket,
-            agentPreset: 'turbo',
-          },
-        },
-      },
-      agentContext: {
-        defaultsFor: (ticketPreset: string | null, ticketProvider: string | null, capability?: string) => {
-          if (ticketPreset === 'turbo') {
-            return { provider: 'openai', model: 'gpt-4o-mini' };
-          }
-          return { provider: 'anthropic', model: 'claude-opus' };
-        },
+      capabilityIdentity: {
+        implementation: { provider: 'openai', model: 'gpt-4o-mini' },
+        uatTester: { provider: 'anthropic', model: 'claude-opus' },
+        review: { provider: 'anthropic', model: 'claude-3-sonnet' },
+        uatFix: null,
+        reviewFix: null,
+        prDescription: null,
+        ticketAnalysis: null,
+        graphExpert: null,
+        graphWorker: null,
+        graphFast: null,
       },
     };
-    h.receive({ type: 'state', state: stateWithPreset });
+    h.receive({ type: 'state', state: stateWithCapabilityIdentity });
     expect(h.errors).toEqual([]);
 
-    // Verify per-capability labels are rendered for implementation, uat-tester, review
+    // Verify all three capability labels render correctly
     const implCapability = h.query('[data-capability="implementation"]');
-    const uatCapability = h.query('[data-capability="uat-tester"]');
-    const reviewCapability = h.query('[data-capability="review"]');
+    expect(implCapability).toBeTruthy();
+    expect(implCapability!.textContent).toContain('implementation: openai/gpt-4o-mini');
 
-    if (implCapability) {
-      expect(implCapability.textContent).toContain('openai');
-    }
+    const uatCapability = h.query('[data-capability="uat-tester"]');
+    expect(uatCapability).toBeTruthy();
+    expect(uatCapability!.textContent).toContain('uat-tester: anthropic/claude-opus');
+
+    const reviewCapability = h.query('[data-capability="review"]');
+    expect(reviewCapability).toBeTruthy();
+    expect(reviewCapability!.textContent).toContain('review: anthropic/claude-3-sonnet');
 
     h.close();
   });
@@ -231,39 +229,34 @@ describe('dashboard render — fixture corpus', () => {
     const base = renderStateFor('impl');
     const stateWithOverride = {
       ...base,
-      insideViews: {
-        ...base.insideViews,
-        impl: {
-          ...base.insideViews.impl,
-          ticket: {
-            ...base.insideViews.impl.ticket,
-            agentPreset: 'turbo',
-            agentProvider: 'anthropic',
-          },
-        },
-      },
-      agentContext: {
-        defaultsFor: (ticketPreset: string | null, ticketProvider: string | null, capability?: string) => {
-          // If explicit provider (ticket override) is set, use it
-          if (ticketProvider === 'anthropic') {
-            return { provider: 'anthropic', model: 'claude-opus' };
-          }
-          // Otherwise resolve from preset
-          if (ticketPreset === 'turbo') {
-            return { provider: 'openai', model: 'gpt-4o-mini' };
-          }
-          return { provider: 'anthropic', model: 'claude-opus' };
-        },
+      capabilityIdentity: {
+        implementation: { provider: 'anthropic', model: 'claude-opus' },
+        uatTester: { provider: 'anthropic', model: 'claude-opus' },
+        review: { provider: 'anthropic', model: 'claude-opus' },
+        uatFix: null,
+        reviewFix: null,
+        prDescription: null,
+        ticketAnalysis: null,
+        graphExpert: null,
+        graphWorker: null,
+        graphFast: null,
       },
     };
     h.receive({ type: 'state', state: stateWithOverride });
     expect(h.errors).toEqual([]);
 
-    // Ticket override should take precedence
+    // All capabilities should use the ticket override (anthropic)
     const implCapability = h.query('[data-capability="implementation"]');
-    if (implCapability) {
-      expect(implCapability.textContent).toContain('anthropic');
-    }
+    expect(implCapability).toBeTruthy();
+    expect(implCapability!.textContent).toContain('implementation: anthropic/claude-opus');
+
+    const uatCapability = h.query('[data-capability="uat-tester"]');
+    expect(uatCapability).toBeTruthy();
+    expect(uatCapability!.textContent).toContain('uat-tester: anthropic/claude-opus');
+
+    const reviewCapability = h.query('[data-capability="review"]');
+    expect(reviewCapability).toBeTruthy();
+    expect(reviewCapability!.textContent).toContain('review: anthropic/claude-opus');
 
     h.close();
   });

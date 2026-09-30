@@ -1,12 +1,12 @@
 import type { Store } from '../../store/db.js';
-import type { Manifest } from '../../manifest/types.js';
+import type { Manifest, AgentProvider, PresetCapability } from '../../manifest/types.js';
 import { getTicket } from '../../store/tickets.js';
 import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolveModelForProvider } from '../../agent/models.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { isRunnable } from '../../manifest/runnable.js';
-import type { DashboardAgentContext } from './state.js';
+import type { DashboardAgentContext } from './stateTypes.js';
 
 /**
  * The manifest/agent resolution the manager performs on behalf of the state
@@ -49,13 +49,46 @@ export function repoNameFor(manifest: Manifest, repo: string): string | undefine
 export function agentContextFor(
   base: DashboardAgentContext | undefined,
   manifest: Manifest | undefined,
+  ticketPreset?: string | null,
+  ticketProvider?: AgentProvider | null,
 ): DashboardAgentContext {
   const ctx = base ?? {};
   if (!manifest) return ctx;
+
+  const capabilityIdentity: Record<PresetCapability, { provider: AgentProvider; model: string | null } | null> = {
+    implementation: (() => {
+      const defaults = resolvePresetDefaults(manifest, 'implementation', {
+        ticketPreset: ticketPreset ?? null,
+        explicitProvider: ticketProvider ?? null,
+      });
+      return { provider: defaults.provider, model: defaults.model ?? null };
+    })(),
+    uatTester: (() => {
+      const defaults = resolvePresetDefaults(manifest, 'uatTester', {
+        ticketPreset: ticketPreset ?? null,
+        explicitProvider: ticketProvider ?? null,
+      });
+      return { provider: defaults.provider, model: defaults.model ?? null };
+    })(),
+    review: (() => {
+      const defaults = resolvePresetDefaults(manifest, 'review', {
+        ticketPreset: ticketPreset ?? null,
+        explicitProvider: ticketProvider ?? null,
+      });
+      return { provider: defaults.provider, model: defaults.model ?? null };
+    })(),
+    uatFix: null,
+    reviewFix: null,
+    prDescription: null,
+    ticketAnalysis: null,
+    graphExpert: null,
+    graphWorker: null,
+    graphFast: null,
+  };
+
   return {
     ...ctx,
-    defaultsFor: (ticketPreset, ticketProvider, capability = 'implementation') =>
-      resolvePresetDefaults(manifest, capability, { ticketPreset, explicitProvider: ticketProvider }),
+    capabilityIdentity,
   };
 }
 

@@ -4043,31 +4043,22 @@
 
   function renderCapabilityLabels(state) {
     const container = el('capabilityLabels');
-    if (!container || !state.agentContext || !state.agentContext.defaultsFor) return;
+    if (!container || !state.capabilityIdentity) return;
 
-    const tickets = state.insideViews && state.insideViews[state.stageCurrent];
-    if (!tickets || !tickets.ticket) {
-      if (container) container.hidden = true;
-      return;
-    }
-
-    const ticket = tickets.ticket;
-    const ticketPreset = ticket.agentPreset || null;
-    const ticketProvider = ticket.agentProvider || null;
-
-    const capabilities = ['implementation', 'uat-tester', 'review'];
+    const capabilityMap = {
+      'implementation': 'implementation',
+      'uat-tester': 'uatTester',
+      'review': 'review',
+    };
     let anyRendered = false;
 
-    for (const cap of capabilities) {
-      const label = container.querySelector(`[data-capability="${cap}"]`);
+    for (const [displayName, capabilityKey] of Object.entries(capabilityMap)) {
+      const label = container.querySelector(`[data-capability="${displayName}"]`);
       if (!label) continue;
 
-      const defaults = state.agentContext.defaultsFor(ticketPreset, ticketProvider, cap);
-      const provider = defaults.provider;
-      const model = defaults.model;
-
-      if (provider && model) {
-        label.textContent = `${cap}: ${provider}/${model}`;
+      const identity = state.capabilityIdentity[capabilityKey];
+      if (identity && identity.provider && identity.model) {
+        label.textContent = `${displayName}: ${identity.provider}/${identity.model}`;
         label.hidden = false;
         anyRendered = true;
       } else {

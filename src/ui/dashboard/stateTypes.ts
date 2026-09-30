@@ -30,12 +30,10 @@ export interface DashboardAgentContext {
   defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
   /**
-   * Resolve the effective agent defaults for a ticket's preset, so the displayed
-   * session identity matches what a launch would use. Injected — the state
-   * builder never reads the manifest. Absent → the legacy `defaultModel` /
-   * `defaultEffort` above, which is exactly the pre-preset behavior.
+   * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
+   * Plain data (no functions) suitable for serialization via postMessage.
    */
-  defaultsFor?: (ticketPreset: string | null, ticketProvider: AgentProvider | null, capability?: PresetCapability) => AgentDefaults;
+  capabilityIdentity?: Record<PresetCapability, { provider: AgentProvider; model: string | null } | null>;
 }
 
 /**
@@ -169,6 +167,12 @@ export interface DashboardState {
      */
     inheritCore: AgentProvider | null;
   };
+  /**
+   * Per-capability effective agent identity resolved at the host. The webview
+   * renders these plain objects directly. Populated by buildDashboardState from
+   * the manifest, ticket preset/provider, and per-capability defaults.
+   */
+  capabilityIdentity: Record<PresetCapability, { provider: AgentProvider; model: string | null } | null>;
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;

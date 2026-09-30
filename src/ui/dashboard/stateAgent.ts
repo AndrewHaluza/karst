@@ -49,14 +49,11 @@ export interface AgentStateView {
  */
 export function buildAgentState(input: AgentStateInput): AgentStateView {
   const { ticket, fixExecutionActive, defaultProvider, agentContext, recentByCore } = input;
-  const defaults = agentContext.defaultsFor?.(ticket.agentPreset, ticket.agentProvider) ?? {
-    provider: defaultProvider ?? 'claude',
+  const defaults = {
+    provider: ticket.agentProvider ?? defaultProvider ?? 'claude',
     model: agentContext.defaultModel ?? undefined,
     effort: agentContext.defaultEffort ?? undefined,
   };
-  // `defaultsFor` already folds the ticket provider into `defaults.provider`;
-  // without it (no manifest) the ticket's own provider still wins over the
-  // manifest default, so the resolve stays here.
   const resolvedProvider = resolveProvider(ticket.agentProvider, defaults.provider);
   const agentSession = buildAgentSessionView({
     provider: resolvedProvider,
@@ -72,14 +69,10 @@ export function buildAgentState(input: AgentStateInput): AgentStateView {
   const catalog = agentContext.modelCatalog ?? bundledModelCatalog();
   const switchModels: Record<string, { model: string | null; label: string }[]> = {};
   for (const id of IMPLEMENTED_PROVIDERS) {
-    // A preset is a (core, model) pair: its model is the default only for the
-    // preset's OWN core. Resolve per core so switching to another core does not
-    // inherit — and cannot prefill — the preset's model.
-    const coreDefaults = agentContext.defaultsFor?.(ticket.agentPreset, id) ?? defaults;
     switchModels[id] = agentSwitchModelChoices({
       provider: id,
       ticketModel: ticket.model,
-      defaultModel: coreDefaults.model ?? null,
+      defaultModel: defaults.model ?? null,
       catalog,
     }).map(({ model, label }) => ({ model, label }));
   }

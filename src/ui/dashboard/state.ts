@@ -258,6 +258,20 @@ export function buildDashboardState(
     agentContext,
     recentByCore: listRecentlyUsedModels(store, ticket.projectId, 5),
   });
+
+  const capabilityIdentity = agentContext.capabilityIdentity ?? {
+    implementation: null,
+    uatTester: null,
+    review: null,
+    uatFix: null,
+    reviewFix: null,
+    prDescription: null,
+    ticketAnalysis: null,
+    graphExpert: null,
+    graphWorker: null,
+    graphFast: null,
+  };
+
   const stepper = buildStepper(ticket.stages);
   const currentStage = stepper.find((c) => c.stageKey === ticket.stageCurrent) ?? null;
 
@@ -656,6 +670,7 @@ export function buildDashboardState(
     currentStage,
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
     agentSwitch,
+    capabilityIdentity,
     servers: listServersByTicket(store, ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live
