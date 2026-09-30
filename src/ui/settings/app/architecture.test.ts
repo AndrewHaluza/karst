@@ -92,13 +92,39 @@ describe('R01 — React is a dev dependency scoped to the settings app', () => {
   });
 
   it('allows react/react-dom/testing-library imports only under src/ui/settings/app', () => {
-    const reactImport =
-      /(?:^|\n)\s*(?:import|export)[^\n]*from\s+['"](?:react|react-dom)(?:\/[^'"]*)?['"]/;
-    const testingImport =
-      /(?:^|\n)\s*import[^\n]*from\s+['"]@testing-library\/react['"]/;
+    // Four spellings reach React, and the guard has to catch all of them:
+    // `import ... from 'react'`, side-effect `import 'react'` (no `from`),
+    // `export ... from 'react'`, and CommonJS `require('react')`. Matching only
+    // the first would let the other three put React outside the settings app.
+    const FROM_IMPORT =
+      /(?:^|\n)\s*(?:import|export)[^\n]*\bfrom\s+['"](?:react|react-dom|@testing-library\/react)(?:\/[^'"]*)?['"]/;
+    const SIDE_EFFECT_IMPORT =
+      /(?:^|\n)\s*import\s+['"](?:react|react-dom|@testing-library\/react)(?:\/[^'"]*)?['"]/;
+    const REQUIRE =
+      /\brequire\(\s*['"](?:react|react-dom|@testing-library\/react)(?:\/[^'"]*)?['"]\s*\)/;
+    const DYNAMIC_IMPORT =
+      /\bimport\(\s*['"](?:react|react-dom|@testing-library\/react)(?:\/[^'"]*)?['"]\s*\)/;
+    const REACT_IMPORT = [FROM_IMPORT, SIDE_EFFECT_IMPORT, REQUIRE, DYNAMIC_IMPORT];
+
+    // Non-vacuity: every spelling must fire on its own fixture, or a spelling
+    // silently stops being guarded and the loop below proves nothing about it.
+    const fixtures: ReadonlyArray<readonly [RegExp, string]> = [
+      [FROM_IMPORT, `import { useState } from 'react';`],
+      [SIDE_EFFECT_IMPORT, `import 'react/jsx-runtime';`],
+      [REQUIRE, `const r = require('react');`],
+      [DYNAMIC_IMPORT, `const m = await import('react-dom/client');`],
+    ];
+    for (const [pattern, fixture] of fixtures) {
+      expect(pattern.test(fixture), `R01 guard misses ${JSON.stringify(fixture)}`).toBe(true);
+    }
+    // And a non-React import must not trip any of them.
+    for (const [pattern] of fixtures) {
+      expect(pattern.test(`import { readFileSync } from 'node:fs';`)).toBe(false);
+    }
+
     for (const file of walk(SRC)) {
       const text = readFileSync(file, 'utf8');
-      if (reactImport.test(text) || testingImport.test(text)) {
+      if (REACT_IMPORT.some((pattern) => pattern.test(text))) {
         expect(isUnderApp(file), `${rel(file)} imports React outside the settings app`).toBe(true);
       }
     }
