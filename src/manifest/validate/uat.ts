@@ -11,9 +11,16 @@ import type {
   UatTesterObservationsConfig,
 } from '../types.js';
 
+// Imported, not mirrored: the Settings React app renders the same defaults and
+// cannot import this module (it reaches the rest of the validator tree, which
+// pulls in js-yaml). One definition, two importers — R-X1.
+import {
+  BLOCKING_SEVERITIES,
+  SEVERITIES,
+  UAT_MAX_FIX_ATTEMPTS,
+} from '../qualityDefaults.js';
+
 const GATE_KINDS: readonly GateKind[] = ['script', 'command'];
-const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-const BLOCKING_SEVERITIES: readonly (Severity | 'none')[] = [...SEVERITIES, 'none'];
 
 /** Value shapes that read as a pasted credential rather than a config literal. */
 const CREDENTIAL_PREFIXES = ['sk_live_', 'sk_test_', 'ghp_', 'AKIA', 'SG.'];
@@ -218,7 +225,7 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   if (raw === undefined) return undefined;
   if (!isObject(raw)) throw new ManifestError('uat must be a mapping');
 
-  let maxFixAttempts = 3;
+  let maxFixAttempts = UAT_MAX_FIX_ATTEMPTS;
   if (raw.maxFixAttempts !== undefined) {
     if (typeof raw.maxFixAttempts !== 'number' || !Number.isInteger(raw.maxFixAttempts) || raw.maxFixAttempts < 1) {
       throw new ManifestError('uat.maxFixAttempts must be a positive integer');
