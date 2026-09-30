@@ -70,6 +70,77 @@ export type SettingsHostMessage =
   | ActionResultMessage;
 
 /**
+ * The closed destructive-action taxonomy for the Settings view (UI-R10b).
+ *
+ * UI-R10b asks for "an explicit action taxonomy, not a broad keyword regex", and
+ * NDL-126 §9.1 makes the taxonomy load-bearing for the React port: a `<Button>`
+ * overload requires `variant="danger"` whenever its `action` is in this union, so
+ * `tsc` — not a review — is the check that a destructive control got danger
+ * treatment. Before this union existed the taxonomy was spread across the inline
+ * script's `data-remove-*` attributes and `k-btn--danger` class strings, which is
+ * exactly the shape a reviewer cannot enumerate.
+ *
+ * The members are the controls the vanilla view ALREADY renders with the shared
+ * danger variant, so adding one is a mapping, not a redesign:
+ *
+ * - the two irreversible host mutations — `delete-agent` and `uninstall-approach`
+ *   both post to the host and destroy something on disk;
+ * - `discard-approach`, the approach drawer's Delete, which drops the definition
+ *   from the manifest draft (a `save`, so it carries no dedicated message type —
+ *   the draft-local members below are in the same position);
+ * - the draft-local removes, which discard a preset, a repository service, a
+ *   service port/binding/dependency/signal, a gate override or a gate override
+ *   entry. These never cross postMessage — they edit the draft in the webview —
+ *   but they are irreversible discard controls and get the same treatment.
+ *
+ * `messages.destructive.test.ts` pins this list against the vanilla markup in
+ * BOTH directions, so neither a new danger control nor a new irreversible message
+ * type can land without a taxonomy decision.
+ *
+ * Deliberately NOT a member: `clear-token`. It destroys a stored credential, so
+ * by the R10b definition it belongs here — but the vanilla view ships it as
+ * `k-btn--secondary` (`webview.html` `clearTokenBtn`), and the phase 4 parity
+ * gate compares Playwright baselines against the vanilla render. Re-treating it
+ * would be a visible change smuggled into a migration that is explicitly
+ * additive (NDL-126 §7 rollback), so it is left alone and the taxonomy pins that
+ * exclusion. Closing it is a separate behavior change with its own baseline
+ * update, not a React-porting step.
+ */
+export const DESTRUCTIVE_ACTIONS = [
+  'delete-agent',
+  'uninstall-approach',
+  'discard-approach',
+  'remove-preset',
+  'remove-service',
+  'remove-port',
+  'remove-binding',
+  'remove-dependency',
+  'remove-signal',
+  'remove-gate',
+  'remove-override',
+] as const;
+
+/** One member of the closed destructive taxonomy. */
+export type DestructiveAction = (typeof DESTRUCTIVE_ACTIONS)[number];
+
+/** Narrow an untrusted value to the taxonomy (a runtime guard, not the check). */
+export function isDestructiveAction(value: unknown): value is DestructiveAction {
+  return typeof value === 'string' && (DESTRUCTIVE_ACTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * Irreversible webview → host message types. Every entry MUST also appear in
+ * `DESTRUCTIVE_ACTIONS`, which is what makes the taxonomy a drift detector
+ * rather than a list: a new irreversible message type that skips the union is a
+ * pinning-test failure, so it cannot ship with an unmarked danger control.
+ *
+ * Kept as its own literal union (rather than a `Extract<>` over the message
+ * union) so the pinning test can assert it stays a SUBSET of both unions — i.e.
+ * the two directions are checked, not one.
+ */
+export const DESTRUCTIVE_MESSAGE_TYPES = ['delete-agent', 'uninstall-approach'] as const;
+
+/**
  * The host-side effects a settings panel can trigger.
  *
  * Every method's return type is widened from `() => void` to
