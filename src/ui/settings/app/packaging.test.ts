@@ -6,10 +6,20 @@
  * redacts the dependency UUIDs `vsce ls` needs), so this test pins the same
  * property statically instead: `.vscodeignore` must keep its one-glob-per-line
  * shape, and replaying those rules over a candidate file list must exclude every
- * React/dev path while still including the two runtime dependencies.
+ * React/dev path.
+ *
+ * The keep-list is NOT a hardcoded pair. Every package `build-extension.mjs`
+ * leaves `external` is resolved by walking the `require()` calls its shipped
+ * entry actually makes, transitively. That is the runtime closure — a packaged
+ * VSIX that keeps `better-sqlite3` but prunes `bindings` fails on the first
+ * `openStore` with `Cannot find module 'bindings'`, and only a closure derived
+ * from real requires catches that. Install-time-only dependencies
+ * (`prebuild-install`'s tree, run from better-sqlite3's `install` script rather
+ * than from its runtime code) are deliberately not required at runtime, so they
+ * stay pruned and do not bloat the VSIX.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -54,6 +64,103 @@ function isIgnored(path: string): boolean {
   return ignored;
 }
 
+/** Packages `scripts/build-extension.mjs` leaves unbundled, and so that must ship. */
+const EXTERNAL_PACKAGES = ['better-sqlite3', 'js-yaml'] as const;
+
+type PackageJson = {
+  main?: string;
+  exports?: unknown;
+  dependencies?: Record<string, string>;
+};
+
+function readPackageJson(name: string): PackageJson | null {
+  const manifestPath = join(ROOT, 'node_modules', name, 'package.json');
+  return existsSync(manifestPath)
+    ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageJson)
+    : null;
+}
+
+/**
+ * Bare (non-relative, non-builtin) specifiers a shipped JS file requires.
+ * Scoped names collapse to the package root: `@scope/name/sub` -> `@scope/name`.
+ */
+function requiredPackages(source: string): Set<string> {
+  const found = new Set<string>();
+  const requireCall = /\brequire\(\s*['"]([^'"]+)['"]\s*\)/g;
+  for (const match of source.matchAll(requireCall)) {
+    const specifier = match[1]!;
+    if (specifier.startsWith('.') || specifier.startsWith('/')) continue;
+    if (specifier.startsWith('node:')) continue;
+    const parts = specifier.split('/');
+    found.add(specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!);
+  }
+  return found;
+}
+
+/**
+ * Transitive closure of packages reached by following real `require()` calls out
+ * of each external package's entry point. Walks in-file requires too, so a
+ * lazily-required sibling (`better-sqlite3/lib/database.js` -> `bindings`) is
+ * found without trusting the declared dependency list.
+ */
+function runtimeClosure(roots: readonly string[]): Set<string> {
+  const closure = new Set<string>();
+  const visitedFiles = new Set<string>();
+  const queue: string[] = [...roots];
+
+  while (queue.length > 0) {
+    const pkgName = queue.pop()!;
+    const packageDir = join(ROOT, 'node_modules', pkgName);
+    const manifest = readPackageJson(pkgName);
+    if (manifest === null) continue;
+    closure.add(pkgName);
+
+    // `main` is the entry the extension host loads, but a lazily-required
+    // sibling can pull in a package the entry never names — better-sqlite3's
+    // `lib/database.js` requires `bindings` behind a `DEFAULT_ADDON` check.
+    // Scan those too so the closure does not depend on which file is `main`.
+    const files = new Set<string>();
+    for (const relative of ['lib', 'dist', 'build']) {
+      const dir = join(packageDir, relative);
+      if (!existsSync(dir)) continue;
+      for (const candidate of ['index.js', 'database.js', 'bindings.js', 'main.js']) {
+        const file = join(dir, candidate);
+        if (existsSync(file)) files.add(file);
+      }
+    }
+    const entry = join(packageDir, manifest.main ?? 'index.js');
+    if (existsSync(entry)) files.add(entry);
+
+    for (const file of files) {
+      if (visitedFiles.has(file)) continue;
+      visitedFiles.add(file);
+      // requiredPackages already drops relative and `node:` specifiers, so
+      // every name here is a bare specifier that leaves this package.
+      for (const required of requiredPackages(readFileSync(file, 'utf8'))) {
+        if (readPackageJson(required) === null) continue;
+        if (closure.has(required) && visitedFiles.has(join(ROOT, 'node_modules', required, 'index.js'))) {
+          continue;
+        }
+        queue.push(required);
+      }
+    }
+  }
+
+  return closure;
+}
+
+/** Every path inside a package that a replay can be asked about. */
+function samplePaths(name: string): string[] {
+  const packageDir = join(ROOT, 'node_modules', name);
+  const samples = [`node_modules/${name}/index.js`];
+  for (const relative of ['lib/database.js', 'build/Release/better_sqlite3.node']) {
+    if (existsSync(join(packageDir, relative))) {
+      samples.push(`node_modules/${name}/${relative}`);
+    }
+  }
+  return samples;
+}
+
 describe('.vscodeignore packaging', () => {
   it('keeps exactly one glob per line (vsce splits on newlines only)', () => {
     for (const line of RULES) {
@@ -74,9 +181,37 @@ describe('.vscodeignore packaging', () => {
     }
   });
 
-  it('still includes the two runtime dependencies', () => {
-    expect(isIgnored('node_modules/better-sqlite3/build/Release/better_sqlite3.node')).toBe(false);
-    expect(isIgnored('node_modules/js-yaml/index.js')).toBe(false);
+  it('derives a non-empty runtime closure from real require() calls', () => {
+    const closure = runtimeClosure(EXTERNAL_PACKAGES);
+    // Non-vacuity: a walker that silently resolved nothing would pass every
+    // other assertion here by proving nothing.
+    expect(closure.size).toBeGreaterThanOrEqual(EXTERNAL_PACKAGES.length);
+    for (const name of EXTERNAL_PACKAGES) expect(closure.has(name)).toBe(true);
+  });
+
+  it('keeps every package in the runtime dependency closure', () => {
+    for (const name of runtimeClosure(EXTERNAL_PACKAGES)) {
+      for (const path of samplePaths(name)) {
+        expect(isIgnored(path), `${path} would be pruned from the VSIX`).toBe(false);
+      }
+    }
+  });
+
+  it('keeps the native addon path the bindings loader opens', () => {
+    // better-sqlite3 ships prebuilds under bin/<platform>-<abi>/ and
+    // rebuild:electron copies one into build/Release. `bindings` opens exactly
+    // that path, so pruning the package but not the tree breaks openStore.
+    expect(
+      isIgnored('node_modules/better-sqlite3/build/Release/better_sqlite3.node'),
+    ).toBe(false);
+  });
+
+  it('keeps the native binaries better-sqlite3 prebuild-installs', () => {
+    // prebuild-install runs at install time, but the binaries it produced are
+    // what `bindings` loads, so the .node payloads must survive the prune.
+    for (const name of ['better-sqlite3', 'bindings', 'file-uri-to-path']) {
+      expect(isIgnored(`node_modules/${name}/`), `${name} is pruned`).toBe(false);
+    }
   });
 
   it('never re-includes a React path with a negation rule', () => {

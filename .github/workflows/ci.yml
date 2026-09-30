@@ -51,6 +51,12 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # R-X4 (NDL-126 §9.4): `react-hooks` is scoped to src/ui/settings/app.
+      # It only enforces anything if it runs in CI — an advisory local script
+      # lets a derived-state-in-effect slip through to review.
+      - name: Lint React app
+        run: npm run lint:react
+
       - name: Build
         run: npm run build
 

@@ -5,9 +5,11 @@
  * `AnnouncerProvider` is mounted once here and `LiveRegion` renders exactly one
  * polite status region for the whole view.
  *
- * Phase 1 ships the pipeline and this shell only — the component is built and
- * tested but NOT wired into `WEBVIEW_CHAINS.settings`, so the vanilla
- * `webview.html` script stays the live implementation (NDL-126 §7 rollback).
+ * Phase 1 ships the pipeline and this shell only. The app is wired into
+ * `WEBVIEW_CHAINS.settings` through `injectSettingsApp`, but that injector is a
+ * no-op while `webview.html` has no `/*KARST_SETTINGS_APP*\/` marker — it
+ * returns the HTML unchanged, so the vanilla script stays the live
+ * implementation until the phase 4 switch-over (NDL-126 §7 rollback).
  *
  * The `data-karst-ready` flag is set from an effect, i.e. after React's first
  * commit (NDL-126 §4). `createRoot().render()` has no completion callback in
