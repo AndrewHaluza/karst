@@ -4062,8 +4062,8 @@
       const label = container.querySelector(`[data-capability="${cap}"]`);
       if (!label) continue;
 
-      const defaults = state.agentContext.defaultsFor(ticketPreset, ticketProvider);
-      const provider = ticketProvider || defaults.provider;
+      const defaults = state.agentContext.defaultsFor(ticketPreset, ticketProvider, cap);
+      const provider = defaults.provider;
       const model = defaults.model;
 
       if (provider && model) {

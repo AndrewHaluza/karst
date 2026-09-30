@@ -1,5 +1,5 @@
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
-import type { AgentProvider } from '../../manifest/types.js';
+import type { AgentProvider, PresetCapability } from '../../manifest/types.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { ShipSlot } from '../../model/shipSlot.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
@@ -35,7 +35,7 @@ export interface DashboardAgentContext {
    * builder never reads the manifest. Absent → the legacy `defaultModel` /
    * `defaultEffort` above, which is exactly the pre-preset behavior.
    */
-  defaultsFor?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults;
+  defaultsFor?: (ticketPreset: string | null, ticketProvider: AgentProvider | null, capability?: PresetCapability) => AgentDefaults;
 }
 
 /**

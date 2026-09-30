@@ -54,8 +54,8 @@ export function agentContextFor(
   if (!manifest) return ctx;
   return {
     ...ctx,
-    defaultsFor: (ticketPreset, ticketProvider) =>
-      resolvePresetDefaults(manifest, 'implementation', { ticketPreset, explicitProvider: ticketProvider }),
+    defaultsFor: (ticketPreset, ticketProvider, capability = 'implementation') =>
+      resolvePresetDefaults(manifest, capability, { ticketPreset, explicitProvider: ticketProvider }),
   };
 }
 

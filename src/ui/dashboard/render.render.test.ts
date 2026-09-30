@@ -203,7 +203,7 @@ describe('dashboard render — fixture corpus', () => {
         },
       },
       agentContext: {
-        defaultsFor: (ticketPreset: string | null) => {
+        defaultsFor: (ticketPreset: string | null, ticketProvider: string | null, capability?: string) => {
           if (ticketPreset === 'turbo') {
             return { provider: 'openai', model: 'gpt-4o-mini' };
           }
@@ -243,7 +243,12 @@ describe('dashboard render — fixture corpus', () => {
         },
       },
       agentContext: {
-        defaultsFor: (ticketPreset: string | null) => {
+        defaultsFor: (ticketPreset: string | null, ticketProvider: string | null, capability?: string) => {
+          // If explicit provider (ticket override) is set, use it
+          if (ticketProvider === 'anthropic') {
+            return { provider: 'anthropic', model: 'claude-opus' };
+          }
+          // Otherwise resolve from preset
           if (ticketPreset === 'turbo') {
             return { provider: 'openai', model: 'gpt-4o-mini' };
           }
