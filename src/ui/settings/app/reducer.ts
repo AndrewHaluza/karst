@@ -342,7 +342,13 @@ export function settingsAppReducer(
  * in both places or the tab stays dirty forever.
  */
 export function beginSave(state: SettingsAppState, section: SettingsSection): SettingsAppState {
-  return { ...state, pendingSaveSection: section };
+  // The PREVIOUS save's terminal result is cleared here, not left in place for
+  // the next one to read. `saved` and `hostError` are what a caller settles a
+  // save against, so a stale value from an earlier ack — or from a `token-state`
+  // failure that had nothing to do with Save — would settle the NEXT save the
+  // instant it was requested, before the host had replied. There is exactly one
+  // place a Save is requested from, so this is exactly one place to clear it.
+  return { ...state, pendingSaveSection: section, saved: null, hostError: null };
 }
 
 /**

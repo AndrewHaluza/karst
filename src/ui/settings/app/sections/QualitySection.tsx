@@ -299,7 +299,7 @@ function GateBlock({
   readonly base: Base;
   readonly repositories: readonly string[];
 }) {
-  const { state, edit } = useSettingsApp();
+  const { state } = useSettingsApp();
   const draft = state.draft;
   const cfg = (draft as unknown as Record<Base, { gates?: GateDef[]; repositories?: object }>)[base];
   const overrides = Object.keys(cfg?.repositories ?? {});

@@ -23,7 +23,7 @@
  * selected, never silently dropped: dropping it would save an empty value away
  * and quietly un-configure a working board.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Manifest, TicketingConfig } from '../../../../manifest/types.js';
 import {
   TICKET_PROVIDER_IDS,
@@ -35,7 +35,6 @@ import { useHostMutation, type MutationStatus } from '../useHostMutation.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { Help } from '../primitives/Help.js';
-import { Status, type StatusKind } from '../primitives/Status.js';
 import type { ListFetch, StatusFetch } from '../reducer.js';
 import { ProviderBadgeIsland } from './ProviderBadgeIsland.js';
 
@@ -445,10 +444,12 @@ function savedOption(savedId: string | undefined): Array<{ value: string; label:
   return savedId === undefined ? [] : [{ value: savedId, label: savedId }];
 }
 
-interface DerivedStatuses extends DerivedLists {
-  // Both status selects read the same derived view; kept as its own name so a
-  // future per-side hint (the vanilla share one hint string) has somewhere to go.
-}
+/**
+ * Both status selects read the SAME derived view — the vanilla view shares one
+ * hint string between them — but the alias is kept so a future per-side hint has
+ * somewhere to go without changing every call site.
+ */
+type DerivedStatuses = DerivedLists;
 
 /** The same derivation for the two status selects. */
 function deriveStatuses(
@@ -644,11 +645,3 @@ function ClearTokenButton() {
 /** Re-exported for the component test's vocabulary assertions (R-X1). */
 export { HINT, TICKET_PROVIDER_IDS, providerLabel };
 export type { TicketList };
-
-/** The lifecycle status a fetch row renders, as a `Status` kind. */
-export function fetchStatusKind(fetch: ListFetch | StatusFetch): StatusKind | null {
-  if (fetch.kind === 'loading') return 'pending';
-  if (fetch.kind === 'ready') return 'passed';
-  if (fetch.kind === 'failed') return 'failed';
-  return null;
-}

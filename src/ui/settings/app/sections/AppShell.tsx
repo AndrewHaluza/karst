@@ -75,7 +75,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       // here would be gated on the previous tab's answer.
       send.validate(saveCandidate(target));
     },
-    [send, saveCandidate],
+    // `setSection` is a `useState` setter: referentially stable for the life of
+    // the component, so it is listed for completeness, not for identity.
+    [send, saveCandidate, setSection],
   );
 
   // Settle the topbar save from the reducer's own view of the last terminal
@@ -90,15 +92,17 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     if (savedSection !== null) {
       save.settle({ requestId: inFlight, result: 'success' });
       setAcknowledged(`${SECTION_LABELS[savedSection]} saved`);
-      setNavigateAfterSave((target) => {
-        if (target !== null) goTo(target);
-        return null;
-      });
+      // Read the intent and clear it here rather than inside an updater: an
+      // updater must be PURE, and StrictMode double-invokes it — which would
+      // post `validate` twice on every ack.
+      const next = navigateAfterAck;
+      setNavigateAfterSave(null);
+      if (next !== null) goTo(next);
     } else if (hostError !== null) {
       save.settle({ requestId: inFlight, result: 'failure', message: hostError });
       setNavigateAfterSave(null);
     }
-  }, [savedSection, hostError, inFlight, save, goTo]);
+  }, [savedSection, hostError, inFlight, navigateAfterAck, save, goTo]);
 
   useEffect(() => {
     if (acknowledged === null) return undefined;

@@ -259,6 +259,39 @@ describe('rendered Settings — tab-scoped Save through useHostMutation (R11–R
     );
   });
 
+  it('stays pending across a SECOND save — the first ack must not settle it', async () => {
+    // `beginSave` clears the previous `saved`, so the shell's settle effect has
+    // nothing to read on the second activation. Without that clear the FIRST ack
+    // was still in state and settled the second save before the host replied
+    // (R15: success is only ever set by an explicit settle).
+    const { view } = await mount();
+    await type(view, 'host', '0.0.0.0');
+    await view.click(saveButton(view));
+    await view.receive({ type: 'saved', section: 'general' });
+    expect(saveButton(view).getAttribute('aria-busy')).toBeNull();
+
+    await type(view, 'host', '0.0.0.1');
+    await view.click(saveButton(view));
+    expect(saveButton(view).getAttribute('aria-busy')).toBe('true');
+    expect(root(view).querySelector('.save-state')?.textContent).toBe('Saving…');
+    await view.receive({ type: 'saved', section: 'general' });
+    expect(saveButton(view).getAttribute('aria-busy')).toBeNull();
+  });
+
+  it('stays pending after an unrelated host error, then fails on its own', async () => {
+    // A `token-state` failure has nothing to do with Save, but it lands in the
+    // same `hostError` slot the settle effect reads — so requesting a Save must
+    // clear it, or every later save would settle `failure` instantly (R13).
+    const { view } = await mount();
+    await view.receive({ type: 'error', message: 'Could not write the token' });
+    await type(view, 'host', '0.0.0.0');
+    await view.click(saveButton(view));
+    expect(saveButton(view).getAttribute('aria-busy')).toBe('true');
+    await view.receive({ type: 'error', message: 'Could not write karst.yml' });
+    expect(saveButton(view).getAttribute('aria-busy')).toBeNull();
+    expect(root(view).querySelector('.err-banner')?.textContent).toBe('Could not write karst.yml');
+  });
+
   it('does NOT settle on action-result — save reports ok on a rejected write', async () => {
     const { view } = await mount();
     await type(view, 'host', '0.0.0.0');

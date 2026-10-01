@@ -28,7 +28,7 @@ import { TICKET_PROVIDER_IDS } from '../../../../model/ticketProviders.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
-import { FIXTURE_MANIFEST, FIXTURE_STATE_PUSH } from '../testFixtures.js';
+import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
 import type { SettingsState } from '../../state.js';
 import { TicketingSection } from './TicketingSection.js';
 import { AppProbe, readProbe, type AppProbeShape } from './AppProbe.js';
