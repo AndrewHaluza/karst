@@ -25,7 +25,7 @@
 import { act } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { Manifest, RepositoryDef } from '../../../../manifest/types.js';
+import type { Manifest } from '../../../../manifest/types.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';

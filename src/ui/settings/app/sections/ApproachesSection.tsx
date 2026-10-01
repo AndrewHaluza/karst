@@ -34,8 +34,6 @@ import {
   DEFAULT_GRAPH_LIMITS,
   GRAPH_COMMAND_TIMEOUT_CEILING,
   GRAPH_HARD_CEILINGS,
-  ACCESS_VALUES,
-  CWD_VALUES,
 } from '../../../../manifest/graphConfig.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
@@ -132,7 +130,10 @@ export function ApproachesSection() {
   const host = state.host;
   const installedIds = host?.installedIds ?? [];
   const packaged = host?.packagedApproaches ?? [];
-  const list: readonly ApproachDef[] = draft.approaches ?? [];
+  const list = useMemo(
+    () => draft.approaches ?? [],
+    [draft.approaches],
+  );
 
   const [mode, setMode] = useState<DrawerMode>(null);
   const [editId, setEditId] = useState<string | null>(null);
@@ -147,11 +148,20 @@ export function ApproachesSection() {
     () => Object.keys(state.models?.recentModels ?? {}).join(','),
     [state.models],
   );
-  const catalog = useMemo(() => state.models?.models ?? EMPTY_CATALOG, [modelKeys]);
-  const recent = useMemo(() => state.models?.recentModels ?? EMPTY_RECENT, [recentKeys]);
+  const catalog = useMemo(
+    () => state.models?.models ?? EMPTY_CATALOG,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
+    [modelKeys],
+  );
+  const recent = useMemo(
+    () => state.models?.recentModels ?? EMPTY_RECENT,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
+    [recentKeys],
+  );
   const implementedKey = state.implementedProviders.join(',');
   const cores = useMemo(
     () => pickerCores(state.implementedProviders),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
     [implementedKey],
   );
 

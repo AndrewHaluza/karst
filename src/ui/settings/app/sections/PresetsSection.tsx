@@ -40,7 +40,7 @@ import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
-import type { PresetCapabilityGroupView, PresetInheritance } from '../../presetMatrix.js';
+import type { PresetInheritance } from '../../presetMatrix.js';
 import {
   activePresetName,
   currentPreset,
@@ -94,7 +94,10 @@ export function PresetsSection() {
   const [selected, setSelected] = useState<string | null>(NO_SELECTION);
   const editing = selected !== null && names.indexOf(selected) !== -1 ? selected : (names[0] ?? NO_SELECTION);
 
-  const groups: readonly PresetCapabilityGroupView[] = host?.presetGroups ?? [];
+  const groups = useMemo(
+    () => host?.presetGroups ?? [],
+    [host?.presetGroups],
+  );
   const inheritance: PresetInheritance | undefined = host?.presetInheritance;
   const capabilityIds = useMemo(() => presetCapabilityIds(groups), [groups]);
   const total = capabilityIds.length;

@@ -139,10 +139,22 @@ export function AgentsSection() {
     () => Object.keys(state.models?.recentModels ?? {}).join(','),
     [state.models],
   );
-  const catalog = useMemo(() => state.models?.models ?? EMPTY_CATALOG, [modelKeys]);
-  const recent = useMemo(() => state.models?.recentModels ?? EMPTY_RECENT, [recentKeys]);
+  const catalog = useMemo(
+    () => state.models?.models ?? EMPTY_CATALOG,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
+    [modelKeys],
+  );
+  const recent = useMemo(
+    () => state.models?.recentModels ?? EMPTY_RECENT,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
+    [recentKeys],
+  );
   const implementedKey = state.implementedProviders.join(',');
-  const cores = useMemo(() => pickerCores(state.implementedProviders), [implementedKey]);
+  const cores = useMemo(
+    () => pickerCores(state.implementedProviders),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- content key, by design
+    [implementedKey],
+  );
 
   const fileRows = rows.filter((a) => a.source === 'file');
   const approachRows = rows.filter((a) => a.source === 'approach');

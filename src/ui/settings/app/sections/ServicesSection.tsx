@@ -44,7 +44,6 @@
 import { useMemo, useState } from 'react';
 import type {
   DependsOn,
-  Manifest,
   PortSlot,
   RepositoryDef,
   ServiceDef,
@@ -57,7 +56,6 @@ import {
 } from '../diagnostics.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
-import { IconButton } from '../primitives/IconButton.js';
 import { Switch } from '../primitives/Switch.js';
 import { Chip } from '../primitives/Chip.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
@@ -70,7 +68,6 @@ import {
   isRunnable,
   newRepository,
   nextRepositoryName,
-  parseLines,
   portDefault,
   portsOf,
   removePort,
@@ -78,7 +75,6 @@ import {
   renameRepository,
   repositoryNames,
   runtimeBadge,
-  setRepositoryEnabled,
   writePort,
   writeRepository,
   writeRepositoryField,
