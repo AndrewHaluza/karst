@@ -11,8 +11,14 @@
  * imported at webview runtime.
  */
 
-/** Provider id → display label. `manual` has no board, so it renders label-only. */
-export const PROVIDER_LABELS: Record<string, string> = { clickup: 'ClickUp', manual: 'Manual' };
+/**
+ * The vocabulary lives in `ticketProviders.ts`, which is dependency-free so the
+ * settings webview bundle can import it (R-X1: import, never mirror).
+ * Re-exported here because this module is where every host-side reader already
+ * looks, and the SVG/CSS below are host-only asset reads.
+ */
+export { PROVIDER_LABELS, TICKET_PROVIDER_IDS, providerLabel } from './ticketProviders.js';
+import { PROVIDER_LABELS } from './ticketProviders.js';
 
 /**
  * ClickUp's brand mark: the upward peak/arrow in its pink→purple→blue gradient.
@@ -52,8 +58,8 @@ export function providerIdentityCss(): string {
 }
 
 /**
- * The JS blob defining `PROVIDER_LABELS`, `CLICKUP_SVG`, and `providerBadgeHtml`
- * in the webview's global script scope. Emitted as plain statements (no wrapping
+ * The JS blob defining `PROVIDER_LABELS`, `CLICKUP_SVG`, `providerBadgeHtml`,
+ * `providerIconHtml` and `providerBadgeInto` in the webview's global script scope. Emitted as plain statements (no wrapping
  * `<script>` tag) so it can be injected as the first lines of an existing block.
  */
 export function providerIdentityJs(): string {
@@ -78,6 +84,32 @@ export function providerIdentityJs(): string {
     'function providerIconHtml(provider) {\n' +
     '  const icon = provider === "clickup" ? CLICKUP_SVG : "";\n' +
     '  return icon ? \'<span class="provicon" aria-hidden="true">\' + icon + \'</span>\' : "";\n' +
+    '}\n' +
+    // MOUNTING form, for the React settings view (NDL-126 §9.4 R-X3).
+    //
+    // A React component cannot adopt `providerBadgeHtml`'s string — that would
+    // need `dangerouslySetInnerHTML`, which R-X6 bans and which would defeat
+    // UI-R32's escaping guarantee. So the shared runtime is given a MOUNT
+    // entry point instead: the React component owns an empty container it never
+    // reconciles children into, and this builds the badge inside it. One
+    // definition of the mark, no mirrored SVG, no HTML injection.
+    'function providerBadgeInto(el, provider) {\n' +
+    '  if (!el) return;\n' +
+    '  const p = provider || "manual";\n' +
+    '  el.className = p === "manual" ? "provbadge manual" : "provbadge";\n' +
+    '  el.textContent = "";\n' +
+    '  const icon = p === "clickup" ? CLICKUP_SVG : "";\n' +
+    '  if (icon) {\n' +
+    '    const holder = document.createElement("span");\n' +
+    '    holder.className = "provicon";\n' +
+    '    holder.setAttribute("aria-hidden", "true");\n' +
+    '    holder.innerHTML = icon;\n' +
+    '    el.appendChild(holder);\n' +
+    '  }\n' +
+    '  const name = document.createElement("span");\n' +
+    '  name.className = "provname";\n' +
+    '  name.textContent = PROVIDER_LABELS[p] || (p.charAt(0).toUpperCase() + p.slice(1));\n' +
+    '  el.appendChild(name);\n' +
     '}'
   );
 }

@@ -4,12 +4,21 @@ import type { GateDef, ReviewConfig, ReviewFindingsConfig, Severity } from '../t
 import { isObject } from './primitives.js';
 import { validateGates } from './uat.js';
 
-const SEVERITIES: readonly Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
-const BLOCKING_SEVERITIES: readonly (Severity | 'none')[] = [...SEVERITIES, 'none'];
+// Imported, not mirrored: the Settings React app renders the same defaults and
+// cannot import this module (it reaches the rest of the validator tree, which
+// pulls in js-yaml). One definition, two importers — R-X1.
+import {
+  BLOCKING_SEVERITIES,
+  REVIEW_FINDINGS_DEFAULTS,
+  REVIEW_MAX_FIX_ATTEMPTS,
+  REVIEW_OPEN_CHANGES,
+  REVIEW_REQUIRE_INDEPENDENT_SIGNAL,
+  SEVERITIES,
+} from '../qualityDefaults.js';
 
 /** Default `review.findings` — the human-decided ON/`'high'` default (constraints.md). */
 function defaultFindings(): ReviewFindingsConfig {
-  return { enabled: true, blockingSeverity: 'high', maxFindings: 50 };
+  return { ...REVIEW_FINDINGS_DEFAULTS };
 }
 
 function validateFindings(raw: unknown): ReviewFindingsConfig {
@@ -94,7 +103,7 @@ export function validateReview(
   if (raw === undefined) return undefined;
   if (!isObject(raw)) throw new ManifestError('review must be a mapping');
 
-  let maxFixAttempts = 3;
+  let maxFixAttempts = REVIEW_MAX_FIX_ATTEMPTS;
   if (raw.maxFixAttempts !== undefined) {
     if (
       typeof raw.maxFixAttempts !== 'number' ||
@@ -118,7 +127,7 @@ export function validateReview(
     stallTimeoutMinutes = raw.stallTimeoutMinutes;
   }
 
-  let requireIndependentSignal = true;
+  let requireIndependentSignal = REVIEW_REQUIRE_INDEPENDENT_SIGNAL;
   if (raw.requireIndependentSignal !== undefined) {
     if (typeof raw.requireIndependentSignal !== 'boolean') {
       throw new ManifestError('review.requireIndependentSignal must be a boolean');
@@ -126,7 +135,7 @@ export function validateReview(
     requireIndependentSignal = raw.requireIndependentSignal;
   }
 
-  let openChanges = false;
+  let openChanges = REVIEW_OPEN_CHANGES;
   if (raw.openChanges !== undefined) {
     if (typeof raw.openChanges !== 'boolean') {
       throw new ManifestError('review.openChanges must be a boolean');

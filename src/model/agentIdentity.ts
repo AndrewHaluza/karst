@@ -30,32 +30,16 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentProvider } from '../manifest/types.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
-
-/** One registered agent core: its canonical display name + icon asset. */
-export interface AgentCoreMeta {
-  /** Canonical provider name (e.g. "Claude Code"). */
-  label: string;
-  /** Canonical SVG asset file under `model/icons/agent/`. */
-  icon: string;
-}
+import { AGENT_PROVIDERS, AGENT_PROVIDER_LABELS } from './agentProviders.js';
 
 /**
- * THE agent-core registry. A new provider = one entry here + one file in
- * `model/icons/agent/`; nothing else in the identity system changes.
- * Keyed by `AgentProvider` so a provider can never be registered in one
- * surface and missing from another.
+ * The registry and its labels live in `agentProviders.ts`, which is
+ * dependency-free so the settings webview bundle can import them (R-X1: import,
+ * never mirror). Re-exported here because this module is where every host-side
+ * reader already looks, and the icon-path resolution below is host-only.
  */
-export const AGENT_PROVIDERS: Readonly<Record<AgentProvider, AgentCoreMeta>> = {
-  claude: { label: 'Claude Code', icon: 'claude-code.svg' },
-  codex: { label: 'Codex', icon: 'codex.svg' },
-  antigravity: { label: 'Antigravity CLI', icon: 'antigravity-cli.svg' },
-  opencode: { label: 'OpenCode', icon: 'opencode.svg' },
-};
-
-/** Agent provider id → display label, derived from the registry. */
-export const AGENT_PROVIDER_LABELS: Readonly<Record<AgentProvider, string>> = Object.fromEntries(
-  Object.entries(AGENT_PROVIDERS).map(([provider, meta]) => [provider, meta.label]),
-) as Record<AgentProvider, string>;
+export { AGENT_PROVIDERS, AGENT_PROVIDER_LABELS };
+export type { AgentCoreMeta } from './agentProviders.js';
 
 /**
  * Where the canonical core SVGs are read from at runtime.
