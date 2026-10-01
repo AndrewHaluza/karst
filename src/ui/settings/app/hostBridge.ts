@@ -1,12 +1,11 @@
 /**
  * The settings app's single seam onto the webview page (NDL-126 §1, R-X7).
  *
- * `webviewSend.entry.ts` already calls `acquireVsCodeApi()` — VS Code throws on
- * a second call, and the vanilla script needs the same handle — and publishes it
- * as the page globals `vscode` and `karstSend`. So the React app READS those
- * globals instead of acquiring again, and every outbound message still goes
- * through the one typed sender whose constructors are checked against
- * `SettingsWebviewMessage` by `tsc`.
+ * `main.tsx` is the app bundle's only `acquireVsCodeApi()` caller (VS Code
+ * throws on a second call) and publishes the page globals `vscode` and
+ * `karstSend`. So the React app READS those globals instead of acquiring again,
+ * and every outbound message still goes through the one typed sender whose
+ * constructors are checked against `SettingsWebviewMessage` by `tsc`.
  *
  * The seam is an interface, not a module-level constant, so a component or a
  * COMPONENT test can drive the whole app against an injected double without a
@@ -95,7 +94,7 @@ export function pageHostBridge(scope: PageGlobals = globalThis as PageGlobals): 
   const api = scope.vscode;
   if (!api) {
     throw new Error(
-      'settings app: window.vscode is missing — webviewSend.entry.ts must run before the app bundle',
+      'settings app: window.vscode is missing — main.tsx must run before any settings UI',
     );
   }
   const send = scope.karstSend ?? createSender(api);

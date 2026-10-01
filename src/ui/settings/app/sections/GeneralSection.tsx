@@ -26,6 +26,11 @@ import type {
   WorktreePathDisplay,
 } from '../../../../manifest/types.js';
 import { AGENT_PROVIDER_LABELS, KNOWN_AGENT_PROVIDERS } from '../../../../model/agentProviders.js';
+import {
+  DEFAULT_TERMINAL_NAME_TEMPLATE,
+  DEFAULT_TICKET_LABEL_TEMPLATE,
+  TICKET_LABEL_VARIABLES,
+} from '../../../../store/ticketLabelTemplate.js';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
@@ -163,23 +168,22 @@ export function GeneralSection() {
             label="Port range"
             help="Pool Karst may allocate when starting services."
             control={{
-              kind: 'input',
-              name: 'portRangeMin',
-              type: 'number',
-              value: String(portRange[0] ?? ''),
-              placeholder: 'min',
-              onChange: (value) => setPortBound(0)(value),
-            }}
-          />
-          <Field
-            label="Port range maximum"
-            control={{
-              kind: 'input',
-              name: 'portRangeMax',
-              type: 'number',
-              value: String(portRange[1] ?? ''),
-              placeholder: 'max',
-              onChange: (value) => setPortBound(1)(value),
+              kind: 'pair',
+              first: {
+                name: 'portRangeMin',
+                type: 'number',
+                value: String(portRange[0] ?? ''),
+                placeholder: 'min',
+                onChange: setPortBound(0),
+              },
+              second: {
+                name: 'portRangeMax',
+                type: 'number',
+                value: String(portRange[1] ?? ''),
+                placeholder: 'max',
+                ariaLabel: 'Port range maximum',
+                onChange: setPortBound(1),
+              },
             }}
           />
           <Field
@@ -249,7 +253,9 @@ export function GeneralSection() {
               kind: 'input',
               name: 'ticketLabelTemplate',
               value: readField<string>(draft, 'ticketLabelTemplate', ''),
-              placeholder: '{key} — {title}',
+              // The host's own default (R-X1: import, never mirror) — a drift
+              // here would show Settings a default the engine does not use.
+              placeholder: DEFAULT_TICKET_LABEL_TEMPLATE,
               onChange: (value) => edit(set('ticketLabelTemplate', value || undefined)),
             }}
             help="Leave blank to keep the built-in label format."
@@ -260,11 +266,20 @@ export function GeneralSection() {
               kind: 'input',
               name: 'terminalNameTemplate',
               value: readField<string>(draft, 'terminalNameTemplate', ''),
-              placeholder: 'Karst: {key} — {title}',
+              placeholder: DEFAULT_TERMINAL_NAME_TEMPLATE,
               onChange: (value) => edit(set('terminalNameTemplate', value || undefined)),
             }}
             help="Leave blank to keep the built-in terminal name."
           />
+          {/*
+            The shared variable set, IMPORTED from the same host module the
+            label engine uses (UI-R34). The follow-up marker is deliberately
+            absent: `parentTicketId` is presentation metadata forced at the
+            terminal seam, never a template token.
+          */}
+          <div className="field-control label-vars">
+            {`Variables: ${TICKET_LABEL_VARIABLES.map((name) => `{${name}}`).join(' ')}`}
+          </div>
         </div>
       </div>
 

@@ -25,7 +25,7 @@
  * the ticket-type list are all IMPORTED (R-X1) — a placeholder the host would
  * reject is never offered as an insertable.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type { ArtifactConventions, Manifest } from '../../../../manifest/types.js';
 import { BRANCH_VARIABLES } from '../../../../runtime/branchName.js';
 import {
@@ -50,6 +50,7 @@ import {
   previewConvention,
   type ConventionField,
 } from './conventionPreview.js';
+import { applyTransformAtCaret } from './templateCaret.js';
 
 /** The four template fields that carry an inline fault line, in vanilla order. */
 const FAULT_FIELDS = [
@@ -264,6 +265,41 @@ function TemplateRow({
 }) {
   const preview = useMemo(() => previewConvention(field, value), [field, value]);
   const vocabulary = VARIABLE_VOCABULARY[field];
+  // The live control, so a transform button can read the caret the user left
+  // in THIS field (the vanilla helper operated on its target the same way).
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const areaRef = useRef<HTMLTextAreaElement | null>(null);
+  const isBody = field === 'pullRequestDescription';
+
+  /**
+   * Append `transform` to the variable at the caret of this field's control,
+   * then write it through the field's `onChange`. No variable under the caret
+   * leaves the value untouched and makes NO write — the vanilla refusal.
+   *
+   * The caret position comes from the pure helper; it is re-applied after the
+   * state write because a browser resets the selection to the end when React
+   * commits the new value.
+   */
+  const insertTransform = (transform: string): void => {
+    const node = isBody ? areaRef.current : inputRef.current;
+    if (!node) return;
+    const caret = { pos: [0, 0] as [number, number] };
+    const next = applyTransformAtCaret(
+      {
+        value: node.value,
+        selectionStart: node.selectionStart,
+        selectionEnd: node.selectionEnd,
+        setSelectionRange: (start, end) => {
+          caret.pos = [start, end];
+        },
+      },
+      transform,
+    );
+    if (next === node.value) return;
+    onChange(next);
+    queueMicrotask(() => node.setSelectionRange(caret.pos[0], caret.pos[1]));
+  };
+
   return (
     <>
       <Field
@@ -271,9 +307,24 @@ function TemplateRow({
         error={error}
         help={HINTS[field]}
         control={
-          field === 'pullRequestDescription'
-            ? { kind: 'textarea', name: field, value, rows: 6, placeholder: PLACEHOLDERS[field], onChange }
-            : { kind: 'input', name: field, value, placeholder: PLACEHOLDERS[field], onChange }
+          isBody
+            ? {
+                kind: 'textarea',
+                name: field,
+                value,
+                rows: 6,
+                placeholder: PLACEHOLDERS[field],
+                onChange,
+                inputRef: areaRef,
+              }
+            : {
+                kind: 'input',
+                name: field,
+                value,
+                placeholder: PLACEHOLDERS[field],
+                onChange,
+                inputRef,
+              }
         }
       />
       <div className="field-control template-meta">
@@ -284,7 +335,13 @@ function TemplateRow({
           Variables: {vocabulary.map((name) => `{${name}}`).join(' ')}
         </Help>
         <Help>
-          Transforms: {TRANSFORM_NAMES.map((name) => name).join(' ')} — pipe them, e.g. {'{key|slice:-4}'}
+          Transforms:{' '}
+          {TRANSFORM_NAMES.map((name) => (
+            <Button key={name} variant="ghost" size="sm" onClick={() => insertTransform(name)}>
+              {name}
+            </Button>
+          ))}{' '}
+          — pipe them, e.g. {'{key|slice:-4}'}
         </Help>
         {onReset ? (
           <button type="button" className="template-reset-link" onClick={onReset}>

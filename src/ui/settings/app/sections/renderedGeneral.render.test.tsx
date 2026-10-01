@@ -18,13 +18,16 @@
  * - the dirty dot, the nav marker and the off-screen "Unsaved on …" hint;
  * - the unsaved-changes gate on leaving a dirty tab (save / discard / cancel);
  * - tab-scoped Save: the payload is the whole draft and the host scopes the write.
+ *
+ * Since phase 4 the settings webview IS this React app (the injector chain
+ * mounts it into `#root`), so the tests drive the chain-mounted instance
+ * directly and assert through the DOM + the harness `posted`/`receive` channel
+ * — never through a second, test-only mount.
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { createTestBridge, type Outbound, type TestBridge } from '../testBridge.js';
-import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
-import type { AppProbeShape } from './AppProbe.js';
+import { renderSettingsApp, type Outbound, type RenderedSettings } from '../renderSettingsApp.js';
 
 let open: RenderedSettings | null = null;
 
@@ -35,21 +38,20 @@ afterEach(() => {
 
 interface Mounted {
   readonly view: RenderedSettings;
-  readonly bridge: TestBridge;
-  probe(): AppProbeShape;
+  /** The draft as the last posted save/validate carried it. */
+  lastDraft(): Record<string, unknown> | undefined;
 }
 
-async function mount(options: { bridge?: TestBridge } = {}): Promise<Mounted> {
-  const bridge = options.bridge ?? createTestBridge();
-  const view = await renderSettingsApp({ bridge });
+async function mount(): Promise<Mounted> {
+  const view = await renderSettingsApp();
   open = view;
   await view.receive({ type: 'state', state: FIXTURE_STATE_PUSH });
-  const probe = (): AppProbeShape => {
-    const node = root(view).querySelector('[data-probe="app"]');
-    if (!node) throw new Error('AppProbe is not mounted in the rendered settings document');
-    return JSON.parse(node.getAttribute('data-state') ?? '{}') as AppProbeShape;
+  const lastDraft = (): Record<string, unknown> | undefined => {
+    const msg = [...view.posted].reverse().find((m) => m.type === 'save' || m.type === 'validate');
+    const manifest = msg && 'manifest' in msg ? msg.manifest : undefined;
+    return manifest as Record<string, unknown> | undefined;
   };
-  return { view, bridge, probe };
+  return { view, lastDraft };
 }
 
 /** The manifest an outbound `save`/`validate` carried, typed for assertions. */
@@ -59,14 +61,9 @@ function manifestOf(message: Outbound | undefined): Record<string, unknown> {
 }
 
 /**
- * The React-mounted tree, so the assertions never see the vanilla chrome.
- *
- * Selectors here are ATTRIBUTE selectors, not `#id`. The harness document holds
- * the vanilla sections too — the React view is mounted alongside them until
- * phase 4 — so `#section-general` matches twice, and jsdom's id fast-path
- * resolves it against the document and then fails the containment check when the
- * match is the vanilla one outside this root. `[id="…"]` has no such shortcut
- * and is therefore the honest selector while both views share a document.
+ * The React-mounted tree, so the assertions never see any leftover chrome.
+ * Since phase 4 the app is mounted by the chain into `#root`, so this is the one
+ * tree the tests assert against.
  */
 function root(view: RenderedSettings): Element {
   const node = view.document.querySelector('[id="root"]');
@@ -105,26 +102,35 @@ async function type(view: RenderedSettings, name: string, value: string): Promis
   await view.settle();
 }
 
+/** The general tab's `host` input — the observable draft projection. */
+function hostValue(view: RenderedSettings): string {
+  const field = root(view).querySelector('[name="host"]') as HTMLInputElement | null;
+  return field?.value ?? '';
+}
+
+/** The active nav section, as the DOM renders it. */
+function activeSection(view: RenderedSettings): string | null {
+  const active = root(view).querySelector('.nav-btn.active');
+  return active?.getAttribute('data-section') ?? null;
+}
+
+/** Whether the dirty marker is currently visible. */
+function dirtyVisible(view: RenderedSettings): boolean {
+  const dot = root(view).querySelector('.dirty-dot');
+  return !!dot && !dot.classList.contains('hidden');
+}
+
 describe('rendered Settings — General tab mounts into the real document', () => {
   it('renders the tab inside the real settings document, with no script errors', async () => {
-    const { view, probe } = await mount();
-    expect(byId(view, 'section-general')).not.toBeNull();
-    expect(probe().hydrated).toBe(true);
-    expect(view.errors).toEqual([]);
-  });
-
-  it('leaves the vanilla view in place — the marker still arrives in phase 4', async () => {
     const { view } = await mount();
-    // The vanilla sections are still the shipped ones; the React view is mounted
-    // alongside them, which is exactly the additive phase-3 shape.
-    expect(view.document.querySelector('[id="section-git"]')).not.toBeNull();
-    expect(byId(view, 'section-git')).toBeNull();
+    expect(byId(view, 'section-general')).not.toBeNull();
+    expect(view.document.documentElement.hasAttribute('data-karst-ready')).toBe(true);
+    expect(view.errors).toEqual([]);
   });
 
   it('reports the first tab as active and names it in the topbar', async () => {
     const { view } = await mount();
-    const active = root(view).querySelector('.nav-btn.active');
-    expect(active?.getAttribute('data-section')).toBe('general');
+    expect(activeSection(view)).toBe('general');
     expect(root(view).querySelector('.topbar-section')?.textContent).toBe('› General');
   });
 
@@ -138,9 +144,8 @@ describe('rendered Settings — General tab mounts into the real document', () =
 
 describe('rendered Settings — the dirty markers are derived from the reducer (R26)', () => {
   it('starts clean: no dirty dot, Save disabled, nav marker absent', async () => {
-    const { view, probe } = await mount();
-    expect(probe().dirtySections).toEqual([]);
-    expect(root(view).querySelector('.dirty-dot')?.classList.contains('hidden')).toBe(true);
+    const { view } = await mount();
+    expect(dirtyVisible(view)).toBe(false);
     expect(saveButton(view).disabled).toBe(true);
     expect(root(view).querySelector('[data-section="general"]')?.classList.contains('has-changes'))
       .toBe(false);
@@ -148,10 +153,9 @@ describe('rendered Settings — the dirty markers are derived from the reducer (
   });
 
   it('lights the dot, the nav marker and Save once the tab has edits', async () => {
-    const { view, probe } = await mount();
+    const { view } = await mount();
     await type(view, 'host', '0.0.0.0');
-    expect(probe().dirtySections).toEqual(['general']);
-    expect(root(view).querySelector('.dirty-dot')?.classList.contains('hidden')).toBe(false);
+    expect(dirtyVisible(view)).toBe(true);
     expect(root(view).querySelector('[data-section="general"]')?.classList.contains('has-changes'))
       .toBe(true);
     expect(saveButton(view).disabled).toBe(false);
@@ -175,14 +179,13 @@ describe('rendered Settings — the dirty markers are derived from the reducer (
   });
 
   it('shows the banner for a fault attributed to this tab, and marks the nav item', async () => {
-    const { view, probe } = await mount();
+    const { view } = await mount();
     await type(view, 'host', '0.0.0.0');
     await view.receive({
       type: 'validation',
       ok: false,
       error: 'Invalid karst.yml: portRange min exceeds max',
     });
-    expect(probe().errorSection).toBe('general');
     const banner = root(view).querySelector('.err-banner');
     expect(banner?.getAttribute('role')).toBe('alert');
     expect(banner?.textContent).toBe('portRange min exceeds max');
@@ -205,11 +208,11 @@ describe('rendered Settings — the dirty markers are derived from the reducer (
 
 describe('rendered Settings — tab-scoped Save through useHostMutation (R11–R18)', () => {
   it('posts the whole draft scoped to the tab on screen', async () => {
-    const { view, bridge } = await mount();
+    const { view } = await mount();
     await type(view, 'host', '0.0.0.0');
     saveButton(view).click();
     await view.settle();
-    const save = bridge.last('save');
+    const save = view.last('save');
     expect(save).toBeDefined();
     expect(save).toMatchObject({ type: 'save', section: 'general' });
     expect(manifestOf(save)).toMatchObject({ host: '0.0.0.0' });
@@ -229,11 +232,11 @@ describe('rendered Settings — tab-scoped Save through useHostMutation (R11–R
   });
 
   it('drops a second activation while one is in flight (R12)', async () => {
-    const { view, bridge } = await mount();
+    const { view } = await mount();
     await type(view, 'host', '0.0.0.0');
     await view.click(saveButton(view));
     await view.click(saveButton(view));
-    expect(bridge.all('save')).toHaveLength(1);
+    expect(view.all('save')).toHaveLength(1);
   });
 
   it('settles on the domain `saved` message and announces it (R13, R15, R27)', async () => {
@@ -303,23 +306,22 @@ describe('rendered Settings — tab-scoped Save through useHostMutation (R11–R
   });
 
   it('re-reads the baseline from the push that follows the ack, so the tab goes clean', async () => {
-    const { view, probe } = await mount();
+    const { view } = await mount();
     await type(view, 'host', '0.0.0.0');
     await view.click(saveButton(view));
     const saved = { ...FIXTURE_STATE_PUSH, manifest: { ...FIXTURE_STATE_PUSH.manifest, host: '0.0.0.0' } };
     await view.receive({ type: 'state', state: saved });
     await view.receive({ type: 'saved', section: 'general' });
-    expect(probe().dirtySections).toEqual([]);
-    expect(root(view).querySelector('.dirty-dot')?.classList.contains('hidden')).toBe(true);
+    expect(dirtyVisible(view)).toBe(false);
   });
 
   it('rolls one tab back to the baseline on Discard, leaving other tabs alone', async () => {
-    const { view, probe } = await mount();
+    const { view } = await mount();
     await type(view, 'host', '0.0.0.0');
     await type(view, 'baselineBranch', 'trunk');
     await view.click(discardButton(view));
-    expect(probe().draft).toMatchObject({ host: FIXTURE_STATE_PUSH.manifest.host });
-    expect(probe().dirtySections).toEqual([]);
+    expect(hostValue(view)).toBe(FIXTURE_STATE_PUSH.manifest.host);
+    expect(dirtyVisible(view)).toBe(false);
   });
 });
 
@@ -331,57 +333,62 @@ describe('rendered Settings — leaving a dirty tab asks first', () => {
   }
 
   it('switches straight away when the tab on screen is clean', async () => {
-    const { view, bridge } = await mount();
+    const { view } = await mount();
     await view.click(root(view).querySelector('[data-section="git"]') as Element);
     expect(root(view).querySelector('.modal-backdrop')).toBeNull();
-    expect(bridge.all('validate')).toHaveLength(1);
+    expect(view.all('validate')).toHaveLength(1);
     // The debounced `validate` posts the tab-scoped CANDIDATE, never the whole
     // draft — the payload is what a Save would actually write.
-    expect(manifestOf(bridge.last('validate'))).toMatchObject({
+    expect(manifestOf(view.last('validate'))).toMatchObject({
       host: FIXTURE_STATE_PUSH.manifest.host,
     });
   });
 
   it('blocks the switch and names both tabs while the tab on screen is dirty', async () => {
-    const { view, probe } = await goDirty();
+    const { view } = await goDirty();
     await view.click(root(view).querySelector('[data-section="git"]') as Element);
     const modal = root(view).querySelector('.modal-backdrop');
     expect(modal?.getAttribute('role')).toBe('dialog');
     const body = byId(view, 'leaveModalBody')?.textContent ?? '';
     expect(body).toContain('General');
     expect(body).toContain('Git');
-    expect(probe().section).toBe('general');
+    expect(activeSection(view)).toBe('general');
   });
 
   it('cancel keeps both the tab and the edits', async () => {
-    const { view, probe } = await goDirty();
+    const { view } = await goDirty();
     await view.click(root(view).querySelector('[data-section="git"]') as Element);
     await clickModal(view, 'Cancel');
     expect(root(view).querySelector('.modal-backdrop')).toBeNull();
-    expect(probe().section).toBe('general');
-    expect(probe().draft).toMatchObject({ host: '0.0.0.0' });
+    expect(activeSection(view)).toBe('general');
+    expect(hostValue(view)).toBe('0.0.0.0');
   });
 
   it('discards only the tab being left, then navigates', async () => {
-    const { view, probe } = await goDirty();
+    const { view } = await goDirty();
     await view.click(root(view).querySelector('[data-section="git"]') as Element);
     await clickModal(view, 'Discard changes');
-    expect(probe().section).toBe('git');
-    expect(probe().draft).toMatchObject({ host: FIXTURE_STATE_PUSH.manifest.host });
+    expect(activeSection(view)).toBe('git');
+    // The tab being left rolled back to baseline. The Single-tab mount means the
+    // General fields are unmounted now — navigate back and read the observable
+    // projection: the baseline host value, and no dirty marker branding it.
+    await view.click(root(view).querySelector('[data-section="general"]') as Element);
+    expect(hostValue(view)).toBe(FIXTURE_STATE_PUSH.manifest.host);
+    expect(dirtyVisible(view)).toBe(false);
   });
 
   it('saves the tab being left and waits for the ack before navigating', async () => {
-    const { view, bridge, probe } = await goDirty();
+    const { view } = await goDirty();
     await view.click(root(view).querySelector('[data-section="git"]') as Element);
     await clickModal(view, 'Save General');
-    const save = bridge.last('save');
+    const save = view.last('save');
     expect(save).toMatchObject({ type: 'save', section: 'general' });
     expect(manifestOf(save)).toMatchObject({ host: '0.0.0.0' });
     // Still on General until the host acknowledges.
-    expect(probe().section).toBe('general');
+    expect(activeSection(view)).toBe('general');
     await view.receive({ type: 'saved', section: 'general' });
     await view.settle();
-    expect(probe().section).toBe('git');
+    expect(activeSection(view)).toBe('git');
   });
 
   it('offers only discard or cancel while the draft cannot be saved', async () => {

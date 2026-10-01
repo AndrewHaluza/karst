@@ -41,6 +41,14 @@ meaning rather than source shape, runtime behavior, or rendered pixels. Examples
 include deciding whether two tokens represent the same semantic role or whether
 an action is genuinely destructive.
 
+### COMPONENT
+
+A testing-library render of a single primitive or hook in jsdom (v3.1, NDL-126
+§9.5). It is accepted as proof for rules enforced inside a React primitive,
+because every usage goes through that primitive. It is **additive**: each
+state-dependent rule (R11-R18, R26, R27) also needs at least one rendered-Settings
+test through `renderWebviewReady`. COMPONENT never substitutes for VISUAL.
+
 Some rules use more than one mode.
 
 A source grep is not accepted as proof of visual behavior that it cannot observe.
@@ -983,3 +991,92 @@ rule, so the search box and facet chips disappeared below the fold.
 (`html,body{height:100%}`); pinned blocks are `flex:0 0 auto`; the list is
 `flex:1` with `min-height:0`; visual review confirms the controls stay visible
 while the list scrolls.
+
+---
+
+# Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
+
+**Version:** 3.1 · **Scope:** the Settings webview only (`src/ui/settings/app/**`),
+where the NDL-126 architecture decision authorizes React. Vanilla views keep v3.0
+unchanged. This annex **adds checks by construction** (types and single-owner
+components) on top of the existing v3.0 checks; it **removes nothing**. Where §5
+and this annex differ, the annex adds to §5 — except R34 per R-X1 (retired *per
+constant* only once R-X1's check covers it; the pinning tests stay until then).
+
+## 9.1 Rules that become type-enforced (the STATIC check becomes `tsc`)
+
+| Rule | v3.0 check | React-view replacement |
+|---|---|---|
+| R24 icon-only names | runtime/grep | `<IconButton label>` with a required prop, so a missing name fails `tsc`. A COMPONENT test asserts it is non-empty (`""` type-checks). |
+| R21 tooltip = accessible name | review | `<IconButton>`/`<Tip>` derive `title` and `aria-label` from the same `label` prop. They can't disagree. |
+| R19 no required info in `title` | review | `title` is not a public prop on the primitives, and help text goes through the visible `<Help>`. A STATIC grep bans `title=` on raw JSX outside `primitives/`. |
+| R25 labels + error association | runtime sweep | `<Field label error?>` owns `useId()`, the `for`/`id` pairing and `aria-describedby`. Raw `<input>`/`<select>`/`<textarea>` outside primitives is banned (STATIC grep). The RUNTIME R25 sweep is **kept**. |
+| R16 closed discriminants | STATIC review | Reducer and message handlers end in an `assertNever` exhaustive switch. `tsc` is the check. |
+| R28b status icon-only | runtime | `<Status kind: StatusKind>` takes a closed union mapped through the shared table, and its props declare `children?: never`. The RUNTIME check is kept. |
+| R10b danger treatment | review | `DestructiveAction` is a closed literal union in `messages.ts` (pinned). A `<Button>` overload requires `variant="danger"` whenever `action` is in that union. |
+| R34 mirrored constants | pinning tests | Retired **per constant** only once R-X1's check covers it. Until then the pinning tests stay. |
+
+## 9.2 Rules whose owner moves into one hook/component
+
+- **R11–R15, R17, R18 (async lifecycle)** → single `useHostMutation(kind)` hook.
+  It owns the pending → success/failure/unknown lifecycle, the per-mutation id,
+  duplicate-activation guard (R12), disabled-vs-loading distinction (R17), and
+  stable label/geometry (R18). Components cannot hand-roll pending state. Static
+  test: no `useState` named `*pending*|*loading*` outside the hook. Verification:
+  hook unit tests cover every transition, including unknown ≠ failure (R14) and
+  no premature success (R15).
+- **R14b recovery context** → drafts live in reducer state keyed by form, and are
+  cleared only on terminal success.
+- **R27 announcements** → one `<LiveRegion>` at root plus `announce()` from the
+  hook. A terminal result announces by construction.
+- **R26 ARIA reflects state** → ARIA attributes are derived from props inside
+  primitives. Setting `aria-*` imperatively is banned (no `setAttribute('aria-`
+  in the app).
+- **R09b interaction state stays on its owner** → satisfied structurally: state
+  lives in the owning component. Toggling classes through a
+  `document.querySelector` is banned in the app (static test).
+- **R07/R08 primitives** → `src/ui/settings/app/primitives/` is the only place
+  allowed to emit DS primitive classes (`k-btn`, `k-field`, `k-status`, …).
+  Static test greps `.tsx` outside that directory for those class names.
+
+## 9.3 Rules unchanged in substance (same check, new target)
+
+R02, R03, R04/R05/R06 (CSS stays in the shared DS plus the view `<style>`),
+R09/R09c/R10 (runtime sweep), R20 (review), R22/R23/R29/R30/R38 (VISUAL/Playwright),
+R31, R33 (host-side confirm), R35–R37.
+
+## 9.4 New React-view rules
+
+- **R-X1 Import, never mirror.** A behavior constant used by the webview
+  (`SECTION_FIELDS`, `CONVENTION_PRESETS`, `deriveKey`/`TITLE_KEY_MAX`, …) is
+  imported from its TS source. Check: STATIC test that no `.tsx` redeclares an
+  exported constant's literal value.
+- **R-X2 Serializable boundary.** Only `messages.ts`-typed plain data crosses
+  postMessage or `vscode.setState`. Check: round-trip tests.
+- **R-X3 Vanilla runtimes live in opaque islands.** A shared vanilla runtime
+  (agentPicker, designRuntime, tablerIcons) mounts into a `ref` container that
+  React never reconciles children into. Check: component test that re-render
+  preserves the island's DOM.
+- **R-X4 No derived state in effects.** Derived values are computed in render or
+  `useMemo`. `useEffect` is only for external sync (message listener, islands).
+  Check: REVIEW, plus a lint rule (`react-hooks` plugin, dev dep).
+- **R-X5 Stable keys.** List keys come from domain ids, never an array index.
+  Check: STATIC grep for `key={i`/`key={index`.
+- **R-X6 No inline style, no raw HTML.** No `style={{}}` (single audited
+  exception list) and no `dangerouslySetInnerHTML`. Check: STATIC.
+- **R-X7 No global state or runtime libs.** Only React plus
+  `useReducer`/context. Any further runtime dependency needs a new decision
+  (extends R01).
+
+## 9.5 Verification-mode change (R36)
+
+COMPONENT (see the verification modes above) is accepted as proof for rules
+enforced inside a primitive (9.1/9.2), because every usage goes through that
+primitive. It is **additive**: each state-dependent rule (R11-R18, R26, R27) also
+needs at least one rendered-Settings test through `renderWebviewReady`. The
+cross-view RUNTIME sweep and VISUAL remain the final parity gate, and COMPONENT
+never substitutes for VISUAL.
+
+**Check:** `npm run test:unit` (settings suite), `npm run test:visual`, and the
+e2e suite pass; the rendered-Settings tests run against the chain-mounted app
+(`renderWebviewReady('settings')`), never a test-only second mount.

@@ -14,7 +14,7 @@
  * save would be indistinguishable from a written one. It settles on the domain
  * `saved` / `error` messages instead — see the settle effect below (R13, R15).
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { SECTION_LABELS, type SettingsSection } from '../../sections.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
@@ -54,6 +54,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const [leaveTarget, setPendingSection] = useState<SettingsSection | null>(null);
   const [navigateAfterAck, setNavigateAfterSave] = useState<SettingsSection | null>(null);
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
+  const [infoOpen, setInfoOpen] = useState(false);
 
   const dirty = isDirty(section);
 
@@ -67,6 +68,29 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       send.save(state.draft, target, id);
     },
   });
+
+  // The sidebar's "Open karst.yml" posts through the SAME pending-action
+  // runtime every other fire-and-settle control uses (UI-R11/R12): pending on
+  // activation, no second activation while in flight, terminal on the host's
+  // `action-result` receipt — which the reducer has already filed by id.
+  const openManifest = useHostMutation<[]>({
+    kind: 'Manifest open',
+    send: (requestId) => send.openManifest(requestId),
+  });
+  const receipts = state.receipts;
+  const manifestReceiptRef = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const id = openManifest.requestId;
+    if (id === undefined || manifestReceiptRef.current.has(id)) return;
+    const receipt = receipts[id];
+    if (!receipt) return;
+    manifestReceiptRef.current = new Set(manifestReceiptRef.current).add(id);
+    openManifest.settle({
+      requestId: id,
+      result: receipt.ok ? 'success' : 'failure',
+      message: receipt.message ?? undefined,
+    });
+  }, [receipts, openManifest]);
 
   const goTo = useCallback(
     (target: SettingsSection) => {
@@ -148,9 +172,23 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
 
   const onDiscard = useCallback(() => app.discard(section), [app, section]);
 
+  // Read-only project facts for the sidebar footer (handoff §5.2): host-pushed,
+  // rendered verbatim, never derived here (UI-R31).
+  const slug = state.host?.projectSlug;
+  const version = state.host?.version ?? '';
+  const manifestPath = state.host?.manifestPath ?? '';
+  const manifestName = manifestPath
+    ? manifestPath.split(/[\\/]/).pop() || 'karst.yml'
+    : 'karst.yml';
+
   return (
-    <>
-      <nav className="nav" aria-label="Settings sections">
+    <div className="app">
+      <nav className="sidebar" aria-label="Settings sections">
+        <div className="brand">
+          <ProjectGlyph idPrefix="set" className="brandmark" />
+          <span className="brand-name">Karst settings</span>
+        </div>
+
         {NAV_GROUPS.map((group) => (
           <div className="nav-group" key={group.caption}>
             <div className="nav-caption">{group.caption}</div>
@@ -166,21 +204,101 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             ))}
           </div>
         ))}
+
+        {/* Compact project identity footer (handoff §5.2): read-only context,
+            kept out of the editable pages. Full details open on demand; the
+            manifest opens through the shared pending-action runtime. */}
+        <div className="sidebar-foot">
+          <div className="sidebar-project-label">Project</div>
+          <button
+            type="button"
+            className="project-identity"
+            id="projectInfoBtn"
+            aria-expanded={infoOpen}
+            aria-haspopup="dialog"
+            onClick={() => setInfoOpen((open) => !open)}
+          >
+            <ProjectGlyph idPrefix="foot" className="project-icon" />
+            <span className="project-copy">
+              <span className="project-id" id="footProjectId">
+                {slug?.value || '(unresolved)'}
+              </span>
+              <span className="project-version" id="footProjectVersion">
+                {version ? `v${version}` : ''}
+              </span>
+            </span>
+            <span className="project-more" aria-hidden="true">⋮</span>
+          </button>
+          <button
+            type="button"
+            className="manifest-btn"
+            id="footOpenManifest"
+            disabled={openManifest.pending}
+            aria-busy={openManifest.pending || undefined}
+            onClick={() => openManifest.trigger()}
+          >
+            <span className="manifest-icon" aria-hidden="true">Y</span>
+            <span className="manifest-name" id="footManifestName">{manifestName}</span>
+            <span className="manifest-open">Open ↗</span>
+          </button>
+          {/* The pop is closed by its own `display:none` rule — it must NOT
+              carry the `hidden` class: `.hidden` is `display:none !important`
+              and would defeat `.open{display:block}` here. */}
+          <div
+            className={infoOpen ? 'project-info-pop open' : 'project-info-pop'}
+            id="projectInfoPop"
+            role="dialog"
+            aria-label="Project information"
+          >
+            <div className="project-info-title">Project information</div>
+            <div className="project-info-row">
+              <span>Project ID</span>
+              <strong className="mono" id="popProjectId">{slug?.value || '(unresolved)'}</strong>
+            </div>
+            <div className="project-info-row">
+              <span>ID source</span>
+              <strong id="popIdSource">
+                {slug?.derived ? 'Derived from workspace path' : 'Explicit (manifest id:)'}
+              </strong>
+            </div>
+            <div className="project-info-row">
+              <span>Version</span>
+              <strong className="mono" id="popVersion">{version || '—'}</strong>
+            </div>
+            <div className="project-info-row">
+              <span>Manifest</span>
+              <strong className="mono" id="popManifestPath">{manifestPath || '(unresolved)'}</strong>
+            </div>
+          </div>
+        </div>
       </nav>
 
       <div className="main">
         <div className="topbar">
           <span
+            id="dirtyDot"
             className={dirty ? 'dirty-dot' : 'dirty-dot hidden'}
             title="Unsaved changes on this tab"
           />
           {/* Names the tab Save now acts on — the scope of the button is not
               obvious from a bare "Settings" heading. */}
           <h1>
-            Settings <span className="topbar-section">› {SECTION_LABELS[section]}</span>
+            Settings{' '}
+            <span className="topbar-section" id="topbarSection">› {SECTION_LABELS[section]}</span>
           </h1>
+          <button
+            className="mobile-project-btn"
+            id="mobileProjectBtn"
+            type="button"
+            aria-label="Project information"
+            title="Project information"
+            onClick={() => setInfoOpen((open) => !open)}
+          >
+            <ProjectGlyph idPrefix="mob" />
+          </button>
           <span className="spacer" />
           <span
+            id="saveState"
             className={valid && dirty ? 'save-state is-error' : 'save-state'}
             role="status"
             aria-live="polite"
@@ -188,6 +306,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             {saveStateText(dirty, saving, valid)}
           </span>
           <span
+            id="savedMsg"
             className={acknowledged ? 'saved-msg' : 'saved-msg hidden'}
             role="status"
             aria-live="polite"
@@ -196,6 +315,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           </span>
           <UnsavedHint current={section} />
           <Button
+            id="discardBtn"
             variant="secondary"
             disabled={!dirty}
             title={`Discard the unsaved changes on ${SECTION_LABELS[section]}`}
@@ -204,6 +324,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             Discard
           </Button>
           <Button
+            id="saveBtn"
             variant="primary"
             busy={saving}
             disabled={saveBlocked}
@@ -243,7 +364,53 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           }}
         />
       )}
-    </>
+    </div>
+  );
+}
+
+/**
+ * The approved #35 project mark, inline (the CSP forbids external assets).
+ *
+ * One shape, three placements — sidebar brand, footer identity, mobile
+ * topbar entry — each with its OWN page-scoped gradient ids, exactly as the
+ * vanilla markup had them, so no two gradients in the document clash.
+ */
+function ProjectGlyph({
+  idPrefix,
+  className,
+}: {
+  readonly idPrefix: string;
+  readonly className?: string;
+}) {
+  return (
+    <svg className={className} aria-hidden="true" viewBox="0 0 215 215">
+      <defs>
+        <linearGradient id={`${idPrefix}Left`} x1="0.22" y1="0.12" x2="0.78" y2="0.92">
+          <stop offset="0%" stopColor="#7D48E9" />
+          <stop offset="43%" stopColor="#7D3CEE" />
+          <stop offset="100%" stopColor="#4A71D7" />
+        </linearGradient>
+        <linearGradient id={`${idPrefix}Right`} x1="0.18" y1="0.10" x2="0.82" y2="0.90">
+          <stop offset="0%" stopColor="#00B7C9" />
+          <stop offset="55%" stopColor="#00AFC0" />
+          <stop offset="100%" stopColor="#00B1C4" />
+        </linearGradient>
+        <linearGradient id={`${idPrefix}Core`} x1="0.20" y1="0.18" x2="0.82" y2="0.86">
+          <stop offset="0%" stopColor="#6647DE" />
+          <stop offset="48%" stopColor="#5660D9" />
+          <stop offset="100%" stopColor="#3586D6" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"
+        fill={`url(#${idPrefix}Left)`}
+      />
+      <path
+        d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"
+        fill={`url(#${idPrefix}Right)`}
+      />
+      <circle cx="106.5" cy="111.5" r="26.5" fill={`url(#${idPrefix}Core)`} />
+    </svg>
   );
 }
 

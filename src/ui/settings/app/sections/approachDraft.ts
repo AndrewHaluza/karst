@@ -21,7 +21,7 @@
  *   directory mapping; rename means delete + add. And the id is checked for path
  *   safety on add, because the host turns it into a directory.
  */
-import type { ApproachDef, Manifest } from '../../../../manifest/types.js';
+import type { ApproachDef, GraphLimits, Manifest } from '../../../../manifest/types.js';
 
 /** The drawer's fields, before they become an entry. */
 export interface ApproachDrawerFields {
@@ -279,5 +279,39 @@ export function writeGraphProfile(
   else delete next.effort;
   profiles[profile] = next;
   graph.profiles = profiles;
+  return { ...entry, graph: graph as unknown as ApproachDef['graph'] };
+}
+
+/**
+ * The numeric budget fields a limit row edits — exactly the hard-ceiling key
+ * set. `confirmGeneratedGraph` is a boolean and has no number row, so it is
+ * not part of this union (the ceilings' key type in `graphConfig.ts` is the
+ * same `Omit`, which is why a row field can never miss its ceiling lookup).
+ */
+export type GraphLimitField = keyof Omit<GraphLimits, 'confirmGeneratedGraph'>;
+
+/**
+ * Write ONE graph limit field. A `value` of `undefined` DELETES the key —
+ * absence IS the packaged default at Save, the vanilla `data-gf-limit` input
+ * listener's rule (an emptied input never writes `0` or `""`) — and a number
+ * writes it verbatim; the webview never coerces further, because the host is
+ * the one that refuses a non-integer or a ceiling violation at Save with a
+ * named error (A3/A4).
+ *
+ * The spread-not-rebuild rule applies at every level: the entry, its `graph`
+ * block and its `limits` block are each spread, so `planner`, `profiles` and
+ * `commands` keep their references and a limit edit can never reorder or
+ * resurrect a sibling block.
+ */
+export function writeGraphLimit(
+  entry: ApproachDef,
+  field: GraphLimitField,
+  value: number | undefined,
+): ApproachDef {
+  const graph = { ...(entry.graph ?? {}) } as unknown as Record<string, unknown>;
+  const limits = { ...((graph.limits ?? {}) as Record<string, unknown>) };
+  if (value === undefined) delete limits[field];
+  else limits[field] = value;
+  graph.limits = limits;
   return { ...entry, graph: graph as unknown as ApproachDef['graph'] };
 }

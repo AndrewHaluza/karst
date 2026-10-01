@@ -186,7 +186,7 @@ export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: str
 
     // In test env with fake timers: run all pending timers to let React's effect execute.
     // In real env: yield to event loop.
-    if (vi && vi.isFakeTimersEnabled?.()) {
+    if (vi && vi.isFakeTimers()) {
       await vi.runAllTimersAsync();
     } else {
       await new Promise((resolve) => setTimeout(resolve, 10));

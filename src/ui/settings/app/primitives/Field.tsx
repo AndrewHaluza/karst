@@ -14,7 +14,7 @@
  * `designComponents.webview.css`, so emitting it would be an undefined shared
  * class (UI-R10). When `.k-select` ships, only this file changes.
  */
-import { useId, type ReactNode } from 'react';
+import { useId, type ReactNode, type RefObject } from 'react';
 
 export interface SelectOption {
   readonly value: string;
@@ -40,6 +40,12 @@ export interface InputControl extends CommonControl {
   onChange: (value: string) => void;
   placeholder?: string;
   readOnly?: boolean;
+  /**
+   * Optional ref to the rendered element. A caret-aware helper (inserting a
+   * transform at the selection) needs the LIVE control — this stays optional so
+   * every existing call site is untouched.
+   */
+  inputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export interface TextareaControl extends CommonControl {
@@ -48,6 +54,7 @@ export interface TextareaControl extends CommonControl {
   onChange: (value: string) => void;
   placeholder?: string;
   rows?: number;
+  inputRef?: RefObject<HTMLTextAreaElement | null>;
 }
 
 export interface SelectControl extends CommonControl {
@@ -63,7 +70,34 @@ export interface CheckboxControl extends CommonControl {
   onChange: (checked: boolean) => void;
 }
 
-export type FieldControl = InputControl | TextareaControl | SelectControl | CheckboxControl;
+/** One half of a paired range input (vanilla's `.row` group: min "to" max). */
+export interface PairSideInput {
+  name?: string;
+  type?: 'text' | 'number';
+  value: string;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}
+
+/**
+ * A one-row pair of inputs under a single top label — the vanilla settings
+ * "Port range" row (label + `[min] to [max]` + help in ONE form-grid row).
+ * Two sibling `Field`s would take two grid rows and shift every row below,
+ * which the visual parity gate notices immediately (NDL-126 §8.4).
+ */
+export interface PairControl extends CommonControl {
+  kind: 'pair';
+  first: PairSideInput;
+  /** `aria-label` because only the pair's FIRST input answers to the label. */
+  second: PairSideInput & { ariaLabel: string };
+}
+
+export type FieldControl =
+  | InputControl
+  | TextareaControl
+  | SelectControl
+  | CheckboxControl
+  | PairControl;
 
 export interface FieldProps {
   label: ReactNode;
@@ -110,10 +144,15 @@ export function Field({
     </span>
   ) : null;
 
-  // A checkbox's label sits beside the control, so it does not use the top label.
+  // A checkbox's label sits beside the control, so it does not use the top
+  // label. The vanilla view still showed the field's name in the form-grid's
+  // LABEL track (as plain text — the toggle's own `Enabled` label was the
+  // control's accessible name), so render that track's text too: inside
+  // `.form-grid` it lands in column 1, keeping the two-column grammar.
   if (control.kind === 'checkbox') {
     return (
       <div className={shellClass}>
+        <span className="field-label">{label}</span>
         <div className="k-switch">
           <input
             type="checkbox"
@@ -126,6 +165,51 @@ export function Field({
             onChange={(e) => control.onChange(e.target.checked)}
           />
           <label htmlFor={id}>{label}</label>
+        </div>
+        {helpNode}
+        {errorNode}
+      </div>
+    );
+  }
+
+  // The pair renders its own top label + `.row` group (vanilla's min "to" max
+  // row): one label, two wired inputs, one grid row.
+  if (control.kind === 'pair') {
+    const secondId = `${id}-second`;
+    const labelId = `${id}-label`;
+    const shared = {
+      disabled: control.disabled,
+      'aria-describedby': wiring.describedBy,
+      'aria-invalid': wiring.invalid || undefined,
+    };
+    return (
+      <div className={shellClass}>
+        <label id={labelId} htmlFor={id}>
+          {label}
+        </label>
+        <div className="row" role="group" aria-labelledby={labelId}>
+          <input
+            {...shared}
+            className="k-input"
+            id={id}
+            name={control.first.name}
+            type={control.first.type ?? 'text'}
+            value={control.first.value}
+            placeholder={control.first.placeholder}
+            onChange={(e) => control.first.onChange(e.target.value)}
+          />
+          <span className="fixed muted">to</span>
+          <input
+            {...shared}
+            className="k-input"
+            id={secondId}
+            name={control.second.name}
+            type={control.second.type ?? 'text'}
+            aria-label={control.second.ariaLabel}
+            value={control.second.value}
+            placeholder={control.second.placeholder}
+            onChange={(e) => control.second.onChange(e.target.value)}
+          />
         </div>
         {helpNode}
         {errorNode}
@@ -147,7 +231,7 @@ export function Field({
 }
 
 function renderControl(
-  control: Exclude<FieldControl, { kind: 'checkbox' }>,
+  control: Exclude<FieldControl, { kind: 'checkbox' } | { kind: 'pair' }>,
   wiring: Wiring,
 ): ReactNode {
   const controlClass = ['k-input', control.controlClassName]
@@ -165,6 +249,7 @@ function renderControl(
       return (
         <input
           {...shared}
+          ref={control.inputRef}
           className={controlClass}
           type={control.type ?? 'text'}
           value={control.value}
@@ -177,6 +262,7 @@ function renderControl(
       return (
         <textarea
           {...shared}
+          ref={control.inputRef}
           className={controlClass}
           value={control.value}
           rows={control.rows}

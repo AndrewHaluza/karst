@@ -62,8 +62,7 @@ const DS_PALETTE_PROVIDER_AGENT_PICKER: Chain = (html) =>
     ),
   );
 
-const injectDashboardSend = (html: string) => injectWebviewSend(html, 'dashboard');
-const injectSettingsSend = (html: string) => injectWebviewSend(html, 'settings');
+const injectDashboardSend = (html: string) => injectWebviewSend(html);
 
 const DS_AGENT_PALETTE: Chain = (html) =>
   injectPalette(injectAgentIdentity(injectDesignSystem(html)));
@@ -75,10 +74,12 @@ const DS_PALETTE_SERVER_LOGS: Chain = (html) => injectServerLogsView(DS_PALETTE(
 
 export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
   dashboard: (html) => injectDashboardSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
-  // The React app injector (NDL-126 §1) is a no-op until phase 4 adds the
-  // `/*KARST_SETTINGS_APP*/` marker to the settings document, so the vanilla
-  // view stays live and the chain is the single activation point.
-  settings: (html) => injectSettingsApp(injectSettingsSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html))),
+  // The switch-over (NDL-126 §8.4): `webview.html` now carries the
+  // `/*KARST_SETTINGS_APP*/` marker, so `injectSettingsApp` is live and the
+  // React app becomes the settings implementation. The settings sender bundle
+  // is folded into the app bundle (`main.tsx` imports `webviewSend.ts`
+  // directly), so no `injectWebviewSend(…, 'settings')` remains in the chain.
+  settings: (html) => injectSettingsApp(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
   ticketForm: DS_PALETTE_PROVIDER_AGENT_PICKER,
   sidebar: DS_AGENT_PALETTE,
   usage: DS_PALETTE,

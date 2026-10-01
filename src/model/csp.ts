@@ -51,13 +51,18 @@ export function newNonce(): string {
  * rather than being served a policy that would block its own untagged scripts.
  *
  * Script tags must stay attribute-less (`<script>`): the match is literal, so a
- * `<script type="module">` would silently go untagged and never run. The blunt
- * `replaceAll` also rewrites the literal `<script>` anywhere it appears — inside
- * a JS string or a style block, say — which no webview does today.
- * `ui/webviewCsp.test.ts` holds both of those true.
+ * `<script type="module">` would silently go untagged and never run.
+ *
+ * The nonce is added to `<script>` OPENING TAGS only — the lookbehind excludes
+ * a `<script>` inside a JS string literal (the settings React app embeds
+ * `"<script></script>"` for script-element hydration, NDL-126 §8.4). A blind
+ * `replaceAll` would corrupt that bundle and the shipped webview with it.
+ * `ui/webviewCsp.test.ts` holds the "every inline script is tagged" contract.
  */
 export function injectCsp(html: string, nonce: string, mediaSource?: string): string {
   if (!html.includes(CSP_MARKER)) return html;
   const meta = `<meta http-equiv="Content-Security-Policy" content="${POLICY(nonce, mediaSource)}" />`;
-  return html.replace(CSP_MARKER, meta).replaceAll('<script>', `<script nonce="${nonce}">`);
+  return html
+    .replace(CSP_MARKER, meta)
+    .replace(/(?<!["'\w])<script>/g, `<script nonce="${nonce}">`);
 }

@@ -16,15 +16,26 @@
  *   to the file (R-X4);
  * - a fetch pending window keeps the topbar Save's own lifecycle separate from
  *   the fetch's, so a re-render cannot confuse the two (R17, R18).
+ *
+ * Since phase 4 the settings webview IS this React app (the injector chain
+ * mounts it into `#root`), so the tests drive the chain-mounted instance
+ * directly. The `AppProbe` that serialised reducer internals is retired; every
+ * fact is asserted through the rendered DOM (nav markers, the ticketing
+ * controls themselves) or the harness `posted` channel:
+ * - `section` → the `.nav-btn.active` `data-section`;
+ * - `dirtySections` → the nav buttons carrying `has-changes`;
+ * - `draft.ticketing` → the rendered ticketing controls (provider selection,
+ *   team-id / list / status values, the advance rows), or the last posted
+ *   `save` `manifest.ticketing` when the test captures a save;
+ * - the `posted` array is the recording channel (`last`/`all`), replacing the
+ *   recording bridge.
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Manifest, TicketingConfig } from '../../../../manifest/types.js';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
 import type { SettingsState } from '../../state.js';
-import type { AppProbeShape } from './AppProbe.js';
 
 let open: RenderedSettings | null = null;
 
@@ -35,8 +46,6 @@ afterEach(() => {
 
 interface Mounted {
   readonly view: RenderedSettings;
-  readonly bridge: TestBridge;
-  probe(): AppProbeShape;
 }
 
 const asCfg = (block: Record<string, unknown>): TicketingConfig =>
@@ -46,8 +55,7 @@ async function mountOnTicketing(
   ticketing: Record<string, unknown> = { provider: 'clickup', teamId: '9001', listId: 'L1' },
   tokenConfigured = true,
 ): Promise<Mounted> {
-  const bridge = createTestBridge();
-  const view = await renderSettingsApp({ bridge });
+  const view = await renderSettingsApp();
   open = view;
   const state: SettingsState = {
     ...FIXTURE_STATE_PUSH,
@@ -58,17 +66,7 @@ async function mountOnTicketing(
   await view.click(
     view.document.querySelector('[id="root"] [data-section="ticketing"]') as Element,
   );
-  return {
-    view,
-    bridge,
-    probe: () => {
-      const node = view.document
-        .querySelector('[id="root"]')
-        ?.querySelector('[data-probe="app"]');
-      if (!node) throw new Error('AppProbe is not mounted');
-      return JSON.parse(node.getAttribute('data-state') ?? '{}') as AppProbeShape;
-    },
-  };
+  return { view };
 }
 
 function root(view: RenderedSettings): Element {
@@ -113,8 +111,53 @@ const byAriaLabel = (view: RenderedSettings, label: string): Element => {
   return node;
 };
 
-const cfgOf = (probe: () => AppProbeShape): Record<string, unknown> =>
-  (probe().draft as { ticketing?: Record<string, unknown> }).ticketing ?? {};
+/**
+ * The dirty tabs, as the nav renders them — one `has-changes` marker per dirty
+ * tab. This is the observable twin of the retired probe's `dirtySections`: the
+ * marker is derived from the same reducer list (R26).
+ */
+function dirtySections(view: RenderedSettings): string[] {
+  return [...root(view).querySelectorAll('.nav-btn[data-section]')]
+    .filter((btn) => btn.classList.contains('has-changes'))
+    .map((btn) => btn.getAttribute('data-section') ?? '');
+}
+
+/** The selected provider, as the listbox renders it (`.provselect-opt.selected`). */
+function selectedProvider(view: RenderedSettings): string | undefined {
+  return (
+    [...root(view).querySelectorAll('.provselect-opt')]
+      .find((opt) => opt.classList.contains('selected'))
+      ?.getAttribute('data-value') ?? undefined
+  );
+}
+
+/**
+ * The ticketing draft AS THE CONTROLS PROJECT IT — the observable twin of the
+ * retired probe's `cfgOf(...)` (`draft.ticketing`), read back out of the DOM.
+ * Absent controls read `undefined`, so a config fact that was deleted (the
+ * ClickUp-only keys after switching to Manual) is visibly absent too.
+ */
+function readTicketing(view: RenderedSettings): Record<string, unknown> {
+  const node = root(view);
+  const fieldValue = (name: string): string | undefined => {
+    const control = node.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+    return control ? control.value : undefined;
+  };
+  const fieldChecked = (name: string): boolean | undefined => {
+    const control = node.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+    return control ? control.checked : undefined;
+  };
+  return {
+    provider: selectedProvider(view),
+    teamId: fieldValue('teamId'),
+    listId: fieldValue('listId'),
+    advanceOnShip: fieldChecked('advanceOnShip'),
+    advanceOnStart: fieldChecked('advanceOnStart'),
+    searchEnabled: fieldChecked('searchEnabled'),
+    shipStatus: fieldValue('shipStatus'),
+    startStatus: fieldValue('startStatus'),
+  };
+}
 
 describe('rendered Settings — Ticketing tab mounts into the real document', () => {
   it('renders the page with no script errors', async () => {
@@ -125,12 +168,12 @@ describe('rendered Settings — Ticketing tab mounts into the real document', ()
   });
 
   it('marks the tab active and names it in the topbar', async () => {
-    const { view, probe } = await mountOnTicketing();
+    const { view } = await mountOnTicketing();
+    // `probe().section` → the `.nav-btn.active` marker's `data-section`.
     expect(root(view).querySelector('.nav-btn.active')?.getAttribute('data-section')).toBe(
       'ticketing',
     );
     expect(root(view).querySelector('.topbar-section')?.textContent).toBe('› Ticketing');
-    expect(probe().section).toBe('ticketing');
   });
 
   it('renders the provider trigger through the shared runtime (R-X3)', async () => {
@@ -144,20 +187,20 @@ describe('rendered Settings — Ticketing tab mounts into the real document', ()
 
 describe('rendered Settings — a ticketing edit drives the dirty markers (R26)', () => {
   it('lights the nav marker and Save once a field changes', async () => {
-    const { view, probe } = await mountOnTicketing();
-    expect(probe().dirtySections).toEqual([]);
+    const { view } = await mountOnTicketing();
+    expect(dirtySections(view)).toEqual([]);
     await setField(view, 'Team ID', '9002');
-    expect(probe().dirtySections).toEqual(['ticketing']);
+    expect(dirtySections(view)).toEqual(['ticketing']);
     expect(root(view).querySelector('[data-section="ticketing"]')?.classList.contains('has-changes'))
       .toBe(true);
     expect(root(view).querySelector('.dirty-dot')?.classList.contains('hidden')).toBe(false);
   });
 
   it('posts the whole draft with section "ticketing"', async () => {
-    const { view, bridge } = await mountOnTicketing();
+    const { view } = await mountOnTicketing();
     await setField(view, 'Team ID', '9002');
     await view.click(saveButton(view));
-    const save = bridge.last('save');
+    const save = view.last('save');
     expect(save).toMatchObject({ type: 'save', section: 'ticketing' });
     const manifest = (save as { manifest: Partial<Manifest> }).manifest;
     expect(manifest.ticketing).toMatchObject({ provider: 'clickup', teamId: '9002' });
@@ -174,11 +217,11 @@ describe('rendered Settings — the list fetch settles on its own reply (R11–R
   });
 
   it('refuses a second activation while in flight (R12)', async () => {
-    const { view, bridge } = await mountOnTicketing();
+    const { view } = await mountOnTicketing();
     const reload = byAriaLabel(view, 'Reload lists from ClickUp');
     await view.click(reload);
     await view.click(reload);
-    expect(bridge.all('fetch-ticket-lists')).toHaveLength(1);
+    expect(view.all('fetch-ticket-lists')).toHaveLength(1);
   });
 
   it('does NOT settle on action-result — these fetches have their own replies', async () => {
@@ -219,7 +262,7 @@ describe('rendered Settings — the list fetch settles on its own reply (R11–R
 
 describe('rendered Settings — the reducer coherence rule reaches the file', () => {
   it('fills an unset ship status from the first entry and start from "in progress"', async () => {
-    const { view, bridge, probe } = await mountOnTicketing({
+    const { view } = await mountOnTicketing({
       provider: 'clickup',
       teamId: '9001',
       listId: 'L1',
@@ -229,9 +272,14 @@ describe('rendered Settings — the reducer coherence rule reaches the file', ()
     await view.click(byAriaLabel(view, 'Reload statuses for this list'));
     await view.receive({ type: 'ticket-statuses', statuses: ['open', 'in progress', 'Done'] });
     // The REDUCER made this decision (R-X4): the component re-derives nothing.
-    expect(cfgOf(probe)).toMatchObject({ shipStatus: 'open', startStatus: 'in progress' });
+    // `cfgOf(probe)` → the rendered status selects show the filled values.
+    const ship = byLabel(view, 'Status after ship') as unknown as HTMLSelectElement;
+    expect(ship.value).toBe('open');
+    const start = byLabel(view, 'Status at start of work') as unknown as HTMLSelectElement;
+    expect(start.value).toBe('in progress');
     await view.click(saveButton(view));
-    const save = bridge.last('save') as { manifest: { ticketing?: TicketingConfig } };
+    // And the round trip to the file carries the same decision.
+    const save = view.last('save') as { manifest: { ticketing?: TicketingConfig } };
     expect(save.manifest.ticketing).toMatchObject({
       shipStatus: 'open',
       startStatus: 'in progress',
@@ -239,7 +287,7 @@ describe('rendered Settings — the reducer coherence rule reaches the file', ()
   });
 
   it('announces the fetch result once and keeps the tab editable', async () => {
-    const { view, probe } = await mountOnTicketing({
+    const { view } = await mountOnTicketing({
       provider: 'clickup',
       teamId: '9001',
       listId: 'L1',
@@ -247,8 +295,9 @@ describe('rendered Settings — the reducer coherence rule reaches the file', ()
     });
     await view.click(byAriaLabel(view, 'Reload statuses for this list'));
     await view.receive({ type: 'ticket-statuses', statuses: ['open', 'Done'] });
-    expect(cfgOf(probe)).toMatchObject({ shipStatus: 'open' });
+    // `cfgOf(probe)` → the status select rendered the reducer's filled value.
     const select = byLabel(view, 'Status after ship') as unknown as HTMLSelectElement;
+    expect(select.value).toBe('open');
     expect(select.disabled).toBe(false);
     expect(Array.from(select.options).map((o) => o.value)).toEqual(['open', 'Done']);
   });
@@ -256,38 +305,41 @@ describe('rendered Settings — the reducer coherence rule reaches the file', ()
 
 describe('rendered Settings — the token flag never touches the draft', () => {
   it('posts set-token, shows pending, and leaves the draft alone', async () => {
-    const { view, bridge, probe } = await mountOnTicketing(
+    const { view } = await mountOnTicketing(
       { provider: 'clickup', teamId: '9001' },
       false,
     );
-    const before = cfgOf(probe);
+    // `cfgOf(probe)` → the rendered ticketing controls, read before and after.
+    const before = readTicketing(view);
     const button = [...root(view).querySelectorAll('button')].find(
       (b) => b.textContent === 'Set token',
     ) as Element;
     expect(button).toBeTruthy();
     await view.click(button);
-    expect(bridge.last('set-token')).toBeDefined();
+    expect(view.last('set-token')).toBeDefined();
     expect(
       [...root(view).querySelectorAll('button')].find((b) => b.textContent === 'Set token')
         ?.getAttribute('aria-busy'),
     ).toBe('true');
     await view.receive({ type: 'token-state', configured: true });
     expect(root(view).textContent).toContain('Token set');
-    expect(cfgOf(probe)).toEqual(before);
-    expect(probe().dirtySections).toEqual([]);
+    // The token flow left the draft alone: the controls still project the same
+    // config, and no tab has been marked dirty.
+    expect(readTicketing(view)).toEqual(before);
+    expect(dirtySections(view)).toEqual([]);
   });
 
   it('re-arms the list auto-fetch once the token prerequisite lands', async () => {
-    const { view, bridge } = await mountOnTicketing({ provider: 'clickup', teamId: '9001' }, false);
-    expect(bridge.all('fetch-ticket-lists')).toHaveLength(0);
+    const { view } = await mountOnTicketing({ provider: 'clickup', teamId: '9001' }, false);
+    expect(view.all('fetch-ticket-lists')).toHaveLength(0);
     await view.receive({ type: 'token-state', configured: true });
-    expect(bridge.all('fetch-ticket-lists')).toHaveLength(1);
+    expect(view.all('fetch-ticket-lists')).toHaveLength(1);
   });
 });
 
 describe('rendered Settings — leaving ClickUp clears the ClickUp-only keys', () => {
   it('drops the advance rows and the search card, and keeps the tab dirty', async () => {
-    const { view, probe } = await mountOnTicketing({
+    const { view } = await mountOnTicketing({
       provider: 'clickup',
       teamId: '9001',
       listId: 'L1',
@@ -297,9 +349,13 @@ describe('rendered Settings — leaving ClickUp clears the ClickUp-only keys', (
     });
     const manual = root(view).querySelector('[data-value="manual"]') as Element;
     await view.click(manual);
-    expect(cfgOf(probe)).toMatchObject({ provider: 'manual', advanceOnShip: false });
-    expect(cfgOf(probe)).not.toHaveProperty('shipStatus');
+    // `cfgOf(probe).provider` → the listbox's selected option.
+    expect(selectedProvider(view)).toBe('manual');
+    // `cfgOf(probe).advanceOnShip` → the status row is unmounted with the flag
+    // cleared; `not.toHaveProperty('shipStatus')` → the select inside it (the
+    // only control that carried the ship status) is gone with it.
+    expect(root(view).querySelector('[id="advanceStatusRow"]')).toBeNull();
     expect(root(view).querySelector('[id="searchCard"]')).toBeNull();
-    expect(probe().dirtySections).toEqual(['ticketing']);
+    expect(dirtySections(view)).toEqual(['ticketing']);
   });
 });

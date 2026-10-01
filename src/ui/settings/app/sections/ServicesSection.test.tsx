@@ -172,6 +172,22 @@ describe('ServicesSection — the disclosure', () => {
     expect(
       (card('api').querySelector('[data-toggle]') as HTMLButtonElement).getAttribute('aria-expanded'),
     ).toBe('true');
+    // UI-R09/R26 (retired webview.test.ts): the enable switch and the Remove
+    // control are SIBLINGS under the card head, never descendants of the
+    // toggle — the old defect was an interactive control nested inside a
+    // clickable div.
+    const head = card('api').querySelector('.card-head') as HTMLElement;
+    const sw = head.querySelector('[data-switch="repo-enabled-api"]') as HTMLElement;
+    const remove = Array.from(head.querySelectorAll('button')).find(
+      (b) => b.textContent?.trim() === 'Remove',
+    ) as HTMLElement;
+    expect(sw, 'the enable switch must live under the card head').not.toBeNull();
+    expect(remove, 'the Remove control must live under the card head').not.toBeNull();
+    expect(sw.parentElement).toBe(remove.parentElement);
+    expect(sw.contains(remove)).toBe(false);
+    expect(remove.contains(sw)).toBe(false);
+    expect(toggle.contains(sw)).toBe(false);
+    expect(toggle.contains(remove)).toBe(false);
   });
 
   it('renders runtime fields only for a runnable repository', () => {
@@ -181,6 +197,30 @@ describe('ServicesSection — the disclosure', () => {
     open('docs');
     // There is nothing to fill in, and an empty box is what invited a fake value.
     expect(document.querySelector('[name="f-svc-start-docs"]')).toBeNull();
+  });
+});
+
+describe('ServicesSection — repository field placeholders', () => {
+  it('gives every free-text repo/service field an example placeholder', () => {
+    mount();
+    open('api');
+    const placeholderOf = (name: string): string => {
+      const el = document.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
+      expect(el, `no control named ${name}`).not.toBeNull();
+      return el!.placeholder;
+    };
+    // The free-text repo/service fields the vanilla view gave an example
+    // (`git show HEAD:src/ui/settings/webview.html | grep placeholder=`):
+    expect(placeholderOf('f-svc-name-api')).toBe('my-repo'); // repository name
+    expect(placeholderOf('f-svc-repoPath-api')).toBe('/Users/you/code/api'); // repoPath
+    expect(placeholderOf('f-svc-baseline-api')).toBe('main'); // baselineBranch
+    expect(placeholderOf('f-svc-start-api')).toBe('npm run dev'); // start
+    expect(placeholderOf('f-svc-health-api')).toBe('http://{host}:{port}/health'); // health
+    expect(placeholderOf('f-svc-port-api-0-name')).toBe('http'); // port name
+    expect(placeholderOf('f-svc-port-api-0-env')).toBe('PORT'); // port env
+    expect(placeholderOf('f-svc-port-api-0-default')).toBe('3000'); // port default
+    expect(placeholderOf('f-svc-port-min-api')).toBe('min'); // port range min
+    expect(placeholderOf('f-svc-port-max-api')).toBe('max'); // port range max
   });
 });
 

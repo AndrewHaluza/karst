@@ -8,7 +8,11 @@
 //
 // The settings React app (`src/ui/settings/app/main.tsx`) rides the SAME
 // pipeline — NDL-126 §1: one pipeline, per-entry options, no second build
-// system. Its options are explicit because a React bundle needs
+// system. Since phase 4 the settings app IS the settings sender: `main.tsx`
+// imports `webviewSend.ts` directly and is the document's single
+// `acquireVsCodeApi()` caller, so the standalone settings sender entry
+// (`webviewSend.entry.ts`) is retired and only the app bundle ships.
+// Its options are explicit because a React bundle needs
 // `jsx: 'automatic'` and a fixed production `process.env.NODE_ENV` so the
 // bundle tests exercise runs the exact code the shipped VSIX runs.
 //
@@ -33,10 +37,6 @@ export const WEBVIEW_BUNDLE_ENTRIES = [
   {
     input: 'src/ui/dashboard/webviewSend.entry.ts',
     output: 'src/ui/dashboard/webviewSend.webview.js',
-  },
-  {
-    input: 'src/ui/settings/webviewSend.entry.ts',
-    output: 'src/ui/settings/webviewSend.webview.js',
   },
   {
     input: 'src/ui/settings/app/main.tsx',
