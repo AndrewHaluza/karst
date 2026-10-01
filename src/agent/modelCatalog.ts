@@ -45,6 +45,7 @@ const BUNDLED_CATALOG: ModelCatalog = {
     { id: 'claude-opus-5', label: 'Opus 5', providers: ['claude'], efforts: ['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'], tags: ['multimodal', 'vision'] },
     { id: 'claude-opus-4-8', label: 'Opus 4.8', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
     { id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
+    { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
     { id: 'claude-fable-5-1', label: 'Fable 5.1', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
     { id: 'claude-fable-5', label: 'Fable 5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
     { id: 'claude-haiku-4-5', label: 'Haiku 4.5', providers: ['claude'], efforts: ['low', 'medium', 'high'], tags: ['multimodal', 'vision'] },
