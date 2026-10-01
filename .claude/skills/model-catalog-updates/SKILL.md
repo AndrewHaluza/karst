@@ -63,10 +63,10 @@ runtime.
 
 | Field | Rule | Source |
 | --- | --- | --- |
-| `id` | The exact `--model` value the CLI accepts. Must match `^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$` — no spaces, 128 chars max. | `MODEL_ID` in `src/agent/modelCatalog.ts` |
-| `label` | 1–160 chars after trim, no control characters, unique within its provider. Shown in the picker. | `validateModelList` |
+| `id` | The exact `--model` value the CLI accepts. Must match `^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$` — no spaces, 128 chars max — and be unique within its provider (a duplicate id invalidates the whole section). | `MODEL_ID` in `src/agent/modelCatalog.ts` |
+| `label` | 1–160 chars after trim, no control characters. Shown in the picker; it need not be unique — the id is what is deduplicated. | `validateModelList` |
 | `providers` | `['<core>']` in `BUNDLED_CATALOG`. **Omit it in `model-catalog.json`** — the section key implies it and `validateModelList` fills it in. | `validateModelList` |
-| `efforts` | Optional. Present: non-empty, unique, each matching `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. **Absent: the model accepts no effort** — a configured effort is then a Save-time failure (`EffortError`, `src/agent/effort.ts`), never silently dropped. Copy the effort shape of the model's own tier, not of a neighbour (Opus rows carry `low`…`ultracode`, Sonnet rows carry `low`/`medium`/`high`). | `EFFORT_VALUE` |
+| `efforts` | Optional. Present: non-empty, unique, each matching `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`. **Absent: the model accepts no effort** — a configured effort is then a Save-time failure (`EffortError`, `src/agent/effort.ts`), never silently dropped. Copy the effort shape of the model's own tier, not of a neighbour (today's Opus 5.x rows carry `low`…`ultracode`, Sonnet 5 carries `low`/`medium`/`high`, and older rows such as Sonnet 4.6 carry none). | `EFFORT_VALUE` |
 | `tags` | Optional, closed vocabulary: `multimodal`, `text-only`, `audio`, `vision`. Unique. Absent means "capabilities unknown". | `MODEL_TAGS` |
 
 `model-catalog.json` also needs `"version": 1` at the root — any other version
