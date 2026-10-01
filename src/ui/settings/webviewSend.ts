@@ -1,15 +1,16 @@
 /**
  * Type-checked webview → host message constructors for the settings webview.
  *
- * The settings HTML is plain JavaScript inside a standalone document: it can
- * neither import TS nor be type-checked by `tsc`. Moving message construction
- * here ties every call site to the host's `SettingsWebviewMessage` union, so a
- * typo'd or renamed field is a `tsc --noEmit` error instead of a message the
- * host silently drops.
+ * Moving message construction here ties every call site — the React app in
+ * `app/**`, which imports this module directly — to the host's
+ * `SettingsWebviewMessage` union, so a typo'd or renamed field is a
+ * `tsc --noEmit` error instead of a message the host silently drops.
  *
- * The HTML only calls `createSender(api)`'s named functions with positional
+ * The app only calls `createSender(api)`'s named functions with positional
  * values; it never writes a message field name. `createSender` does NOT call
- * `acquireVsCodeApi()` — that single call belongs to `webviewSend.entry.ts`.
+ * `acquireVsCodeApi()` — that single call lives in the app entry
+ * (`app/main.tsx`), which publishes the `vscode` + `karstSend` globals
+ * `pageHostBridge` reads.
  */
 
 import type { SettingsWebviewMessage } from './messages.js';

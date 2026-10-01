@@ -18,6 +18,11 @@ import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
 import type { AgentPickerOptions } from '../hostBridge.js';
+import {
+  DEFAULT_TERMINAL_NAME_TEMPLATE,
+  DEFAULT_TICKET_LABEL_TEMPLATE,
+  TICKET_LABEL_VARIABLES,
+} from '../../../../store/ticketLabelTemplate.js';
 import { GeneralSection } from './GeneralSection.js';
 import { AppProbe, readProbe, type AppProbeShape } from './AppProbe.js';
 
@@ -79,7 +84,13 @@ describe('GeneralSection — the fields SECTION_FIELDS.general claims', () => {
     expect(controls.length).toBeGreaterThan(0);
     for (const control of Array.from(controls)) {
       expect(control.getAttribute('id'), `control without an id`).toBeTruthy();
-      expect(document.querySelector(`label[for="${control.getAttribute('id')}"]`)).not.toBeNull();
+      // The vanilla rule (UI-R25): a `<label for>` OR an `aria-label` — the
+      // pair group's SECOND input answers to its own aria-label, because one
+      // label cannot carry two controls without concatenating their names.
+      const hasLabel =
+        control.getAttribute('aria-label') !== null ||
+        document.querySelector(`label[for="${control.getAttribute('id')}"]`) !== null;
+      expect(hasLabel, `control ${control.getAttribute('id')} has no label`).toBe(true);
       const describedBy = control.getAttribute('aria-describedby');
       if (!describedBy) continue;
       for (const token of describedBy.split(' ')) {
@@ -149,7 +160,13 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
 
   it('keeps portRange a 2-tuple when either half is edited', () => {
     const { probe } = mountGeneral();
-    fireEvent.change(screen.getByLabelText('Port range'), { target: { value: '4100' } });
+    // 'Port range' names BOTH the input and its `role="group"` wrapper
+    // (aria-labelledby) — the control is the input of the pair.
+    const min = screen
+      .getAllByLabelText('Port range')
+      .find((el) => el.tagName === 'INPUT') as HTMLInputElement;
+    expect(min).toBeTruthy();
+    fireEvent.change(min, { target: { value: '4100' } });
     expect(probe().draft).toMatchObject({ portRange: [4100, 4999] });
     fireEvent.change(screen.getByLabelText('Port range maximum'), { target: { value: '4200' } });
     expect(probe().draft).toMatchObject({ portRange: [4100, 4200] });
@@ -236,5 +253,26 @@ describe('GeneralSection — the agent-identity picker is an opaque island (R-X3
     expect(island.querySelector('span')?.textContent).toBe('mounted by the vanilla runtime');
     // …and the island was NOT rebuilt, because its identity did not change.
     expect(pickerOptions!.value).toEqual({ core: '', model: '', effort: '' });
+  });
+});
+
+describe('GeneralSection — display templates are the host\'s own (UI-R34 / R-X1)', () => {
+  it("renders the host's template defaults and the shared variable set", () => {
+    mountGeneral();
+    // The placeholders are the IMPORTED host constants, not copied literals —
+    // a drift would show Settings a default the label engine does not use.
+    const label = screen.getByLabelText('Ticket label template') as HTMLInputElement;
+    const terminal = screen.getByLabelText('Terminal name template') as HTMLInputElement;
+    expect(label.placeholder).toBe(DEFAULT_TICKET_LABEL_TEMPLATE);
+    expect(terminal.placeholder).toBe(DEFAULT_TERMINAL_NAME_TEMPLATE);
+
+    // The variable set shown matches the host's exported list exactly.
+    const shown = document.querySelector('#section-general .label-vars')?.textContent ?? '';
+    expect(shown).toBeTruthy();
+    const names = (shown.match(/\{(\w+)\}/g) ?? []).map((token) => token.slice(1, -1));
+    expect(names).toEqual([...TICKET_LABEL_VARIABLES]);
+    // The follow-up marker is presentation metadata forced at the terminal
+    // seam — it was never a template token, so it is never rendered as one.
+    expect(names).not.toContain('parentTicketId');
   });
 });

@@ -275,6 +275,7 @@ function RepositoryCard({
             kind: 'input',
             name: `f-svc-name-${name}`,
             value: name,
+            placeholder: 'my-repo',
             onChange: onRename,
           }}
         />

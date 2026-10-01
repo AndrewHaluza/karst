@@ -366,3 +366,25 @@ describe('PresetsSection — the island is opaque (R-X3)', () => {
     expect(pickerCalls).toBe(callsBefore);
   });
 });
+
+describe('PresetsSection — the active-preset selector mirrors the manifest', () => {
+  it('renders the active-preset select on the Presets tab from the manifest names', () => {
+    mount({
+      ...BASE,
+      agentPresets: {
+        ...BASE.agentPresets,
+        quiet: { slots: { implementation: { provider: 'claude', model: 'claude-sonnet' } } },
+      } as Record<string, AgentPreset>,
+    });
+    const select = document.querySelector('select[name="f-activeAgentPreset"]');
+    expect(select, 'active preset select').not.toBeNull();
+    const values = [...(select as HTMLSelectElement).options].map((o) => o.value);
+    // The blank "None" row leads; every manifest preset name is on offer.
+    expect(values[0]).toBe('');
+    expect(values).toContain('smart');
+    expect(values).toContain('quiet');
+    // Names come from the host push (UI-R31): a preset the manifest does not
+    // define can never appear as an option.
+    expect(values.slice(1).sort()).toEqual(['quiet', 'smart']);
+  });
+});

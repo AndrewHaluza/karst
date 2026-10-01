@@ -20,6 +20,7 @@
 - Product composition is allowed; only PRIMITIVES are shared
 - Contrast is verified per theme
 - Mirrored TS→HTML constants
+- React views (the Settings webview, since NDL-126)
 
 ## The TITLE is a ticket's identity; the key is derived from it
 
@@ -92,3 +93,30 @@ Findings are ordered worst-first by the host using one shared comparator (`model
 ## Mirrored TS→HTML constants are BEHAVIOR, not styling
 
 Mirrored TS→HTML constants (`SECTION_FIELDS`, `TICKET_TYPES`, `CONVENTION_PRESETS`, `TRANSFORM_NAMES`, `deriveKey`/`TITLE_KEY_MAX`, `MAX_PASTE_BYTES`, `briefToText`) are BEHAVIOR, not styling — a UI change must not touch them and their pinning tests must keep passing untouched (UI-R34).
+
+## React views (the Settings webview, since NDL-126)
+
+The Settings webview is the ONE view where an architecture decision authorizes
+React (`src/ui/settings/app/**`, NDL-126). `docs/ui/UI-RULES.md` carries the
+scoped **v3.1 "React views" annex** (§9.1–§9.5): it adds checks by construction
+(type-enforced rules, single-owner hooks/components, the new R-X1…R-X7 rules, and
+the COMPONENT verification mode), removes nothing from v3.0, and applies ONLY
+where the decision authorizes React — every other webview stays vanilla v3.0.
+
+Three invariants the original investigators learned the hard way, now load-bearing:
+
+- **One app, one mount.** The injector chain mounts the app into `#root`; the
+  rendered-Settings tests assert through `renderWebviewReady('settings')` /
+  `renderSettingsApp` — the same chain-mounted DOM users see — and never a
+  test-only second mount: the phase-3 helper that mounted its own `<App/>`
+  instance into the document is gone with the switch-over. (`AppProbe` and
+  `TestBridge` remain the COMPONENT-mode seams for the per-component tests,
+  which mount a single section against the reducer, not the document.)
+- **Single `acquireVsCodeApi()`.** A second call throws in VS Code; the app entry
+  (`main.tsx`) owns the one acquisition and publishes the `vscode`/`karstSend`
+  globals the app reads. The harness mock throws on a second call so tests catch
+  a re-acquire.
+- **The parity floor is vanilla-measured and unchanged.** The conformance sweep's
+  Settings floor (52 inputs / 44 buttons) was measured on the vanilla view; the
+  React DOM satisfies it as the union across all eight tabs, because the app
+  mounts one tab at a time while vanilla mounted all tabs in one DOM.

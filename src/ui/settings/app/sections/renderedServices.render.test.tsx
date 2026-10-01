@@ -16,17 +16,28 @@
  *   field, then renders on that control (UI-R25) and marks the tab with an
  *   ERROR dot rather than the dirty one.
  *
- * Scoped to `[data-karst-settings-app="true"]`: `section-services` still belongs
- * to the live VANILLA section until phase 4.
+ * Since phase 4 the settings webview IS this React app (the injector chain
+ * mounts it into `#root`), so the tests drive the chain-mounted instance
+ * directly. The manually-mounted `AppProbe` that serialised reducer internals is
+ * retired with the phase-3 helper; every fact is asserted through the rendered
+ * DOM (nav markers, banners, the repository-card controls themselves) or the
+ * harness `posted` channel, mapping the probe reads like this:
+ * - `probe().section` → the `.nav-btn.active` marker's `data-section`;
+ * - `probe().dirtySections` → the nav buttons carrying `has-changes`;
+ * - `probe().errorSection` → the lone nav button carrying `has-error`;
+ * - the map-shaped draft facts (every repository surviving the Save) → the
+ *   payload of the last posted `save`, which IS the whole draft;
+ * - the per-field draft facts (a repository's path, start command) → those
+ *   controls on the rendered repo card, and the fault-gating facts → the field
+ *   error classes (`k-field-error`) the card shows;
+ * - `bridge.last/all` → `view.last/all` (the harness `posted` array).
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
-import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { buildSettingsState } from '../../state.js';
 import { FIXTURE_MANIFEST } from '../testFixtures.js';
 import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
-import type { AppProbeShape } from './AppProbe.js';
 
 let open: RenderedSettings | null = null;
 
@@ -57,14 +68,10 @@ const MANIFEST: Manifest = {
 
 interface Mounted {
   readonly view: RenderedSettings;
-  readonly bridge: TestBridge;
-  probe(): AppProbeShape;
-  last(type: string): Record<string, unknown> | undefined;
 }
 
 async function mountOnServices(manifest: Manifest = MANIFEST): Promise<Mounted> {
-  const bridge = createTestBridge();
-  const view = await renderSettingsApp({ bridge });
+  const view = await renderSettingsApp();
   open = view;
   await view.receive({
     type: 'state',
@@ -81,34 +88,50 @@ async function mountOnServices(manifest: Manifest = MANIFEST): Promise<Mounted> 
     ),
   });
   await view.click(view.document.querySelector('[id="root"] [data-section="services"]') as Element);
-  const probe = (): AppProbeShape => {
-    const node = view.document.querySelector('[id="root"]')?.querySelector('[data-probe="app"]');
-    if (!node) throw new Error('AppProbe is not mounted');
-    return JSON.parse(node.getAttribute('data-state') ?? '{}') as AppProbeShape;
-  };
-  return {
-    view,
-    bridge,
-    probe,
-    last: (type: string) => bridge.last(type as never) as unknown as Record<string, unknown> | undefined,
-  };
+  return { view };
+}
+
+/** The `#root` tree the chain-mounted app renders into. */
+function root(view: RenderedSettings): Element {
+  const node = view.document.querySelector('[id="root"]');
+  if (!node) throw new Error('#root is missing');
+  return node;
 }
 
 /** The React tab, scoped by the mount marker the parity sweep keys on. */
 function tab(view: RenderedSettings): Element {
-  const node = view.document.querySelector('[data-karst-settings-app="true"]');
+  const node = root(view).querySelector('[data-karst-settings-app="true"]');
   if (!node) throw new Error('the React settings mount is not rendered');
   return node;
 }
 
 function navMarker(view: RenderedSettings, section: string): Element | null {
-  return view.document.querySelector(`[id="root"] [data-section="${section}"]`);
+  return root(view).querySelector(`[data-section="${section}"]`);
 }
 
 function buttonNamed(root: ParentNode, label: string): HTMLElement {
   const node = Array.from(root.querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
   if (!node) throw new Error(`no button named ${label}`);
   return node as HTMLElement;
+}
+
+/**
+ * The dirty tabs, as the nav renders them — one `has-changes` marker per dirty
+ * tab. This is the observable twin of the retired probe's `dirtySections`: the
+ * marker is derived from the same reducer list (R26).
+ */
+function dirtySections(view: RenderedSettings): string[] {
+  return [...root(view).querySelectorAll('.nav-btn[data-section]')]
+    .filter((btn) => btn.classList.contains('has-changes'))
+    .map((btn) => btn.getAttribute('data-section') ?? '');
+}
+
+/**
+ * The faulted tab, as the nav renders it — the lone `has-error` marker. This is
+ * the observable twin of the retired probe's `errorSection`.
+ */
+function errorSection(view: RenderedSettings): string | null {
+  return root(view).querySelector('.nav-btn.has-error')?.getAttribute('data-section') ?? null;
 }
 
 async function setField(view: RenderedSettings, name: string, value: string): Promise<void> {
@@ -133,32 +156,35 @@ describe('rendered Services tab — the roster mounts', () => {
 
 describe('rendered Services tab — dirty marking (R26)', () => {
   it('marks only the Services tab dirty on a repository edit', async () => {
-    const { view, probe } = await mountOnServices();
-    expect(probe().dirtySections).toEqual([]);
+    const { view } = await mountOnServices();
+    // `probe().dirtySections` → the nav buttons carrying `has-changes`.
+    expect(dirtySections(view)).toEqual([]);
     await setField(view, 'f-svc-repoPath-api', '../api2');
-    expect(probe().dirtySections).toEqual(['services']);
+    expect(dirtySections(view)).toEqual(['services']);
     expect(navMarker(view, 'services')?.className).toContain('has-changes');
     expect(navMarker(view, 'general')?.className).not.toContain('has-changes');
   });
 
   it('rolls Services back alone on Discard', async () => {
-    const { view, probe } = await mountOnServices();
+    const { view } = await mountOnServices();
     await setField(view, 'f-svc-repoPath-api', '../api2');
-    expect(probe().dirtySections).toEqual(['services']);
-    await view.click(buttonNamed(view.document.querySelector('[id="root"]') as Element, 'Discard'));
-    expect(probe().dirtySections).toEqual([]);
+    // `probe().dirtySections` → the nav buttons carrying `has-changes`.
+    expect(dirtySections(view)).toEqual(['services']);
+    await view.click(buttonNamed(root(view), 'Discard'));
+    expect(dirtySections(view)).toEqual([]);
   });
 });
 
 describe('rendered Services tab — the tab-scoped Save carries every repository', () => {
   it('posts section services and preserves the untouched repositories', async () => {
-    const { view, last } = await mountOnServices();
+    const { view } = await mountOnServices();
     await setField(view, 'f-svc-repoPath-api', '../api2');
-    await view.click(buttonNamed(view.document.querySelector('[id="root"]') as Element, 'Save Repositories'));
+    await view.click(buttonNamed(root(view), 'Save Repositories'));
 
-    const save = last('save');
+    const save = view.last('save') as { manifest: Manifest } | undefined;
     expect(save).toMatchObject({ type: 'save', section: 'services' });
-    const repositories = (save?.manifest as Manifest | undefined)?.repositories as
+    // `probe().draft.repositories` → the save payload, which IS the whole draft.
+    const repositories = save?.manifest.repositories as
       | Record<string, { repoPath?: string }>
       | undefined;
     expect(repositories?.api?.repoPath).toBe('../api2');
@@ -181,9 +207,10 @@ describe('rendered Services tab — a mapped repository fault', () => {
   });
 
   it('attributes the fault to the Services tab so the nav shows an error dot', async () => {
-    const { view, probe } = await mountOnServices();
+    const { view } = await mountOnServices();
     await view.receive({ type: 'error', message: 'repository "api" service.start is required' });
-    expect(probe().errorSection).toBe('services');
+    // `probe().errorSection` → the lone nav button carrying `has-error`.
+    expect(errorSection(view)).toBe('services');
     expect(navMarker(view, 'services')?.className).toContain('has-error');
   });
 });

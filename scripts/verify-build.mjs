@@ -13,9 +13,10 @@ const REQUIRED_ARTIFACTS = [
   'dist/cli/main.js',
   // The generated, type-checked webview message-sender bundles. A missing one
   // means every control in that webview silently no-ops at runtime, so the
-  // shipped VSIX must never omit it.
+  // shipped VSIX must never omit it. The dashboard sender is its own bundle;
+  // the settings sender folded into `app.webview.js` at phase 4 (NDL-126 §8.4),
+  // so the settings sender is verified through the app bundle below.
   'dist/ui/dashboard/webviewSend.webview.js',
-  'dist/ui/settings/webviewSend.webview.js',
   'dist/ui/settings/app.webview.js',
 ];
 

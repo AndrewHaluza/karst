@@ -18,15 +18,28 @@
  * - a `state` push adopts the file everywhere EXCEPT the tab being saved, so a
  *   Presets edit survives an out-of-band write to another tab;
  * - Discard rolls Presets back alone.
+ *
+ * Since phase 4 the settings webview IS this React app (the injector chain
+ * mounts it into `#root`), so the tests drive the chain-mounted instance
+ * directly. The manually-mounted `AppProbe` that serialised reducer internals is
+ * retired with the phase-3 helper; every fact is asserted through the rendered
+ * DOM or the harness `posted` channel, mapping the probe reads like this:
+ * - `dirtySections` → the nav buttons carrying `has-changes`;
+ * - `section` → the `.nav-btn.active` marker's `data-section`;
+ * - `errorSection` → the lone nav button carrying `has-error`;
+ * - `bannerText` → the `.err-banner` text;
+ * - `draft` → the rendered presets controls (the preset list, the matrix rows,
+ *   the form's own fields) — and where a manifest-shape fact no control shows
+ *   (a field owned by another tab), the payload of a save, which IS the whole
+ *   draft;
+ * - `bridge.last/all` → `view.last/all` (the harness `posted` array).
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Manifest, AgentPreset } from '../../../../manifest/types.js';
-import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { buildSettingsState } from '../../state.js';
 import { FIXTURE_MANIFEST } from '../testFixtures.js';
 import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
-import type { AppProbeShape } from './AppProbe.js';
 
 let open: RenderedSettings | null = null;
 
@@ -37,10 +50,6 @@ afterEach(() => {
 
 interface Mounted {
   readonly view: RenderedSettings;
-  readonly bridge: TestBridge;
-  probe(): AppProbeShape;
-  /** The last outbound message of `type`, as the recording bridge saw it. */
-  last(type: string): Record<string, unknown> | undefined;
 }
 
 const PRESET_MANIFEST: Manifest = {
@@ -59,47 +68,23 @@ function stateWith(manifest: Manifest) {
 
 /** Mount the app, push the file, then switch to Presets the way a user would. */
 async function mountOnPresets(manifest: Manifest = PRESET_MANIFEST): Promise<Mounted> {
-  const bridge = createTestBridge();
-  const view = await renderSettingsApp({ bridge });
+  const view = await renderSettingsApp();
   open = view;
   await view.receive({ type: 'state', state: stateWith(manifest) });
   await view.click(view.document.querySelector('[id="root"] [data-section="presets"]') as Element);
-  const probe = (): AppProbeShape => {
-    const node = view.document.querySelector('[id="root"]')?.querySelector('[data-probe="app"]');
-    if (!node) throw new Error('AppProbe is not mounted');
-    return JSON.parse(node.getAttribute('data-state') ?? '{}') as AppProbeShape;
-  };
-  return {
-    view,
-    bridge,
-    probe,
-    last: (type: string) => bridge.last(type as never) as unknown as Record<string, unknown> | undefined,
-  };
+  return { view };
 }
 
-/**
- * The React tree. NOTE: the section mount is a SIBLING of `#root` (the shell
- * renders nav/topbar inside `#root` and the current section beside it), so a
- * section-scoped selector has to reach the document, not `#root`.
- */
+/** The React tree — since phase 4 the chain mounts the app into `#root`. */
 function root(view: RenderedSettings): Element {
   const node = view.document.querySelector('[id="root"]');
   if (!node) throw new Error('#root is missing');
   return node;
 }
 
-/**
- * The REACT tab, scoped by the mount marker `AppSections` emits.
- *
- * It cannot be found by `id="section-presets"`: that id still belongs to the
- * VANILLA section in `webview.html`, which remains the live view through phase 3
- * (the `KARST_SETTINGS_APP` marker arrives in phase 4). Two elements share the
- * id and the vanilla one wins `querySelector`, so every assertion here is scoped
- * to `[data-karst-settings-app]` — the same hook the phase 4 parity sweep diffs
- * against the vanilla subtree.
- */
+/** The REACT tab, scoped by the mount marker `AppSections` emits. */
 function tab(view: RenderedSettings): Element {
-  const node = view.document.querySelector('[data-karst-settings-app="true"]');
+  const node = root(view).querySelector('[data-karst-settings-app="true"]');
   if (!node) throw new Error('the React settings mount is not rendered');
   return node;
 }
@@ -125,6 +110,33 @@ function saveButton(view: RenderedSettings, label = 'Save Presets'): Element {
  */
 function navMarker(view: RenderedSettings, section: string): Element | null {
   return root(view).querySelector(`[data-section="${section}"]`);
+}
+
+/**
+ * The dirty tabs, as the nav renders them — one `has-changes` marker per dirty
+ * tab. This is the observable twin of the retired probe's `dirtySections`: the
+ * marker is derived from the same reducer list (R26).
+ */
+function dirtySections(view: RenderedSettings): string[] {
+  return [...root(view).querySelectorAll('.nav-btn[data-section]')]
+    .filter((btn) => btn.classList.contains('has-changes'))
+    .map((btn) => btn.getAttribute('data-section') ?? '');
+}
+
+/**
+ * The faulted tab, as the nav renders it — the lone `has-error` marker. This is
+ * the observable twin of the retired probe's `errorSection`.
+ */
+function errorSection(view: RenderedSettings): string | null {
+  return root(view).querySelector('.nav-btn.has-error')?.getAttribute('data-section') ?? null;
+}
+
+/** The mode one capability row currently shows (`inherit` or `override`). */
+function capMode(view: RenderedSettings, capability: string): string {
+  const select = tab(view).querySelector(
+    `[data-cap-row="${capability}"] .cap-mode select`,
+  ) as HTMLSelectElement | null;
+  return select?.value ?? '';
 }
 
 /** Set a control's value the way React's own onChange observes it. */
@@ -167,7 +179,7 @@ describe('rendered Presets tab — the section mounts and re-renders on a push',
   });
 
   it('falls back to the first preset when a push removes the one being edited', async () => {
-    const { view, probe } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     // The tab defaults to the first name in sorted order.
     expect(tab(view).querySelector('.preset-row.is-selected .preset-name')?.textContent).toBe('cheap');
     // A push that drops `cheap` must not leave the matrix pointed at a record
@@ -180,16 +192,22 @@ describe('rendered Presets tab — the section mounts and re-renders on a push',
       }),
     });
     expect(tab(view).querySelector('.preset-row.is-selected .preset-name')?.textContent).toBe('smart');
-    expect(Object.keys(probe().draft as Record<string, unknown>)).toContain('agentPresets');
+    // `probe().draft` → the rendered preset list: the push dropped `cheap`, so
+    // the draft's `agentPresets` map now names only the surviving preset.
+    const names = Array.from(tab(view).querySelectorAll('.preset-row .preset-name')).map(
+      (n) => n.textContent ?? '',
+    );
+    expect(names).toEqual(['smart']);
   });
 });
 
 describe('rendered Presets tab — dirty marking (R26)', () => {
   it('marks the Presets tab dirty and no other tab, on a matrix edit', async () => {
-    const { view, probe } = await mountOnPresets();
-    expect(probe().dirtySections).not.toContain('presets');
+    const { view } = await mountOnPresets();
+    // `probe().dirtySections` → the nav buttons carrying `has-changes`.
+    expect(dirtySections(view)).toEqual([]);
     await overrideRow(view, 'review');
-    expect(probe().dirtySections).toEqual(['presets']);
+    expect(dirtySections(view)).toEqual(['presets']);
   });
 
   it('shows the nav dot only on the dirty tab', async () => {
@@ -203,52 +221,60 @@ describe('rendered Presets tab — dirty marking (R26)', () => {
   });
 
   it('does not touch the draft until Save is pressed — the name field is a form buffer', async () => {
-    const { view, probe } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     await typeInto(view, 'f-presetName', 'smarter');
     // Typing is not a manifest write: the rename is committed by the Save
     // button, which is what makes "leave it as-is to edit in place" safe.
-    const draft = probe().draft as { agentPresets?: Record<string, AgentPreset> };
-    expect(Object.keys(draft.agentPresets ?? {}).sort()).toEqual(['cheap', 'smart']);
-    expect(probe().dirtySections).toEqual([]);
+    // `probe().draft.agentPresets` → the rendered preset list, still both
+    // records, and nothing marked dirty.
+    const names = Array.from(tab(view).querySelectorAll('.preset-row .preset-name')).map(
+      (n) => n.textContent ?? '',
+    );
+    expect(names.sort()).toEqual(['cheap', 'smart']);
+    expect(dirtySections(view)).toEqual([]);
   });
 });
 
 describe('rendered Presets tab — the tab-scoped Save (R11, R26)', () => {
   it('posts the whole draft with section: presets', async () => {
-    const { view, last } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     await overrideRow(view, 'review');
     await view.click(saveButton(view));
-    const save = last('save');
+    const save = view.last('save') as { manifest: Manifest } | undefined;
     expect(save).toMatchObject({ type: 'save', section: 'presets' });
     // The host scopes the write; the payload carries the whole draft plus the
     // section it belongs to.
-    const manifest = (save?.manifest ?? {}) as Manifest;
-    const written = (manifest.agentPresets ?? {}) as Record<string, AgentPreset>;
+    const written = (save?.manifest.agentPresets ?? {}) as Record<string, AgentPreset>;
     expect(Object.keys(written).sort()).toEqual(['cheap', 'smart']);
   });
 
   it('rolls Presets back alone on Discard', async () => {
-    const { view, probe } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     await overrideRow(view, 'review');
-    expect(probe().dirtySections).toEqual(['presets']);
+    // `probe().dirtySections` → the nav buttons carrying `has-changes`.
+    expect(dirtySections(view)).toEqual(['presets']);
     const discard = Array.from(root(view).querySelectorAll('button')).find((b) =>
       (b.textContent ?? '').startsWith('Discard'),
     );
     expect(discard).toBeDefined();
     await view.click(discard as Element);
-    expect(probe().dirtySections).toEqual([]);
+    expect(dirtySections(view)).toEqual([]);
   });
 });
 
 describe('rendered Presets tab — fault attribution (R26, R-X4)', () => {
   it('attributes a preset fault to the Presets tab and shows the banner', async () => {
-    const { view, probe } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     await view.receive({
       type: 'error',
       message: 'agentPresets.smart.slots.review.provider must be one of: claude, codex',
     });
-    expect(probe().errorSection).toBe('presets');
-    expect(probe().bannerText).toContain('agentPresets.smart.slots.review.provider');
+    // `probe().errorSection` → the nav button carrying `has-error`; `probe().
+    // bannerText` → the `.err-banner` text.
+    expect(errorSection(view)).toBe('presets');
+    expect(root(view).querySelector('.err-banner')?.textContent).toContain(
+      'agentPresets.smart.slots.review.provider',
+    );
     // The nav shows an ERROR marker, not the dirty one: a fault outranks a
     // pending edit in the same dot.
     const marker = navMarker(view, 'presets');
@@ -257,27 +283,37 @@ describe('rendered Presets tab — fault attribution (R26, R-X4)', () => {
   });
 
   it('prefixes the banner with the owning tab label when standing elsewhere', async () => {
-    const { view, probe } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     await view.click(root(view).querySelector('[data-section="general"]') as Element);
     await view.receive({ type: 'error', message: 'agentPresets.smart.slots.review.provider is invalid' });
-    expect(probe().section).toBe('general');
-    expect(probe().bannerText).toMatch(/^Presets: /);
+    // `probe().section` → the `.nav-btn.active` marker's `data-section`;
+    // `probe().bannerText` → the `.err-banner` text.
+    expect(root(view).querySelector('.nav-btn.active')?.getAttribute('data-section')).toBe('general');
+    expect(root(view).querySelector('.err-banner')?.textContent).toMatch(/^Presets: /);
   });
 });
 
 describe('rendered Presets tab — a state push adopts the file except the saved tab', () => {
   it('keeps the in-flight Presets edit when another tab is written', async () => {
-    const { view, probe } = await mountOnPresets();
+    const { view } = await mountOnPresets();
     await overrideRow(view, 'review');
     // An out-of-band rewrite of an unrelated field arrives.
     await view.receive({
       type: 'state',
       state: stateWith({ ...PRESET_MANIFEST, host: '10.0.0.1' }),
     });
-    const draft = probe().draft as { host?: string; agentPresets?: Record<string, AgentPreset> };
+    // `probe().draft.agentPresets` → the rendered matrix: the `review` row still
+    // reads Override, so the uncommitted Presets edit survived the push.
+    expect(capMode(view, 'review')).toBe('override');
+    // `probe().draft.host` lives on a tab the single-tab mount does not render,
+    // so the whole draft is read where it crosses the boundary: the payload of a
+    // save, which adopts the file's `host` change AND carries the surviving edit
+    // — the "everywhere except the saved tab" claim end to end.
+    await view.click(saveButton(view));
+    const save = view.last('save') as { manifest: Manifest } | undefined;
     // The file's change to `general` is adopted…
-    expect(draft.host).toBe('10.0.0.1');
+    expect(save?.manifest.host).toBe('10.0.0.1');
     // …while the uncommitted Presets edit survives.
-    expect(draft.agentPresets?.cheap?.slots?.review).toBeDefined();
+    expect(save?.manifest.agentPresets?.cheap?.slots?.review).toBeDefined();
   });
 });

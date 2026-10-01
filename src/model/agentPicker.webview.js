@@ -256,7 +256,7 @@ function mountAgentPicker(root, opts) {
     + '</div></div></div>'
     + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
-    + '<select class="ap-effort" data-ap-effort></select>'
+    + '<select class="ap-effort" data-ap-effort aria-label="' + apEsc(labelEffort) + '"></select>'
     + '</div>'
     + '</div>';
 

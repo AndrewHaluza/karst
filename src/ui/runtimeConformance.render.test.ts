@@ -21,6 +21,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { renderWebview, renderWebviewReady } from './testing/renderHarness.js';
 import type { WebviewName } from '../model/webviewChains.js';
+import { FIXTURE_STATE_PUSH } from './settings/app/testFixtures.js';
 
 const UI_DIR = import.meta.dirname!;
 
@@ -128,6 +129,37 @@ const hasInteractionHook = (el: Element): boolean => {
 /** Native interactive element names. */
 const INTERACTIVE_TAGS = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY', 'DETAILS']);
 
+/**
+ * The settings nav sections, in nav order — the union of distinct interactive
+ * controls across ALL tabs is the React equivalent of the vanilla whole-DOM
+ * snapshot the floor was measured against (NDL-126 §4).
+ */
+const SETTINGS_SECTIONS = [
+  'general',
+  'git',
+  'services',
+  'approaches',
+  'agents',
+  'presets',
+  'quality',
+  'ticketing',
+];
+
+/** A stable identity for a control, so one control seen from two tabs (the
+ *  shared topbar/nav, a drawer shared across tabs) is counted once. */
+function controlKey(el: Element): string {
+  const text = (el.textContent ?? '').trim().replace(/\s+/g, ' ');
+  return [
+    el.tagName,
+    el.getAttribute('name') ?? '',
+    el.getAttribute('id') ?? '',
+    el.getAttribute('aria-label') ?? '',
+    el.getAttribute('data-section') ?? '',
+    el.getAttribute('data-act') ?? '',
+    text.slice(0, 60),
+  ].join('|');
+}
+
 /** Assert container has at least N interactive elements per floor spec.
  *  For views with no form inputs, counts all native interactive tags (button, link, input, etc.) as "inputs".
  */
@@ -160,6 +192,8 @@ function assertInteractionFloor(
 
 describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
   let handle: ReturnType<typeof renderWebview>;
+  /** Settings only: the union of distinct controls across all 8 tabs (parity floor). */
+  let settingsSurface: { inputs: Set<string>; buttons: Set<string> } | undefined;
 
   beforeAll(async () => {
     // All views use renderWebviewReady: settings waits for React via data-karst-ready,
@@ -169,6 +203,30 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       vi.useFakeTimers();
       try {
         handle = await renderWebviewReady(name as WebviewName);
+        // The settings surface is the union of DISTINCT controls across every
+        // tab — the React app mounts one section at a time, while the vanilla
+        // DOM the floor was measured on carried all tabs at once. Push a
+        // representative state (data-driven tabs render only with data) and
+        // visit each nav section, so the parity floor (NDL-126 §4) measures the
+        // full React surface, not the one tab the app shows first.
+        handle.receive({ type: 'state', state: FIXTURE_STATE_PUSH });
+        await Promise.resolve();
+        await vi.runAllTimersAsync();
+
+        const inputs = new Set<string>();
+        const buttons = new Set<string>();
+        for (const section of SETTINGS_SECTIONS) {
+          if (section !== 'general') {
+            handle.click(`[data-section="${section}"]`);
+          }
+          await Promise.resolve();
+          await vi.runAllTimersAsync();
+          for (const el of handle.queryAll('input:not([type="hidden"]), select, textarea')) {
+            inputs.add(controlKey(el));
+          }
+          for (const el of handle.queryAll('button')) buttons.add(controlKey(el));
+        }
+        settingsSurface = { inputs, buttons };
       } finally {
         vi.useRealTimers();
       }
@@ -198,7 +256,11 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       // Yield to let jsdom process the message event and inline script
       await Promise.resolve();
     }
-  });
+    // The settings arm mounts the React app and walks all eight sections for
+    // the union floor; under a loaded machine that legitimately takes longer
+    // than vitest's 10 s default (NDL-143 review round 1 — a hook timeout is
+    // a failure guard, not a correctness window, so give it headroom).
+  }, 30_000);
 
   afterAll(() => {
     handle?.close();
@@ -284,6 +346,15 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
     // Non-vacuity check: prevent tests from passing when view renders nothing.
     // Floor is measured from vanilla view and hardcoded per-view in INTERACTION_FLOOR.
     const floor = INTERACTION_FLOOR[name]!;
+    if (name === 'settings') {
+      // The React app mounts one tab at a time; the floor was measured against
+      // the vanilla whole-DOM (all tabs at once). The parity proof is the union
+      // across all 8 sections (NDL-126 §4), captured in beforeAll.
+      expect(settingsSurface, 'settingsSurface must be captured for settings').toBeDefined();
+      expect(settingsSurface!.inputs.size, 'settings React union inputs').toBeGreaterThanOrEqual(floor.inputs);
+      expect(settingsSurface!.buttons.size, 'settings React union buttons').toBeGreaterThanOrEqual(floor.buttons);
+      return;
+    }
     expect(() => assertInteractionFloor(handle.document.body, floor, name)).not.toThrow();
   });
 

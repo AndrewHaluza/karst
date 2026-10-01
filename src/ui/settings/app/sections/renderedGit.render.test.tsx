@@ -16,15 +16,26 @@
  * - a `state` push adopts the file everywhere EXCEPT the tab being saved, so a
  *   Git edit survives an out-of-band write to another tab;
  * - Discard rolls Git back alone.
+ *
+ * Since phase 4 the settings webview IS this React app (the injector chain
+ * mounts it into `#root`), so the tests drive the chain-mounted instance
+ * directly. The `AppProbe` that serialised reducer internals is retired; every
+ * fact is asserted through the rendered DOM (nav markers, banners, the fields
+ * themselves) or the harness `posted` channel:
+ * - `dirtySections` → the nav buttons carrying `has-changes`;
+ * - `section` → the `.nav-btn.active` `data-section`;
+ * - `errorSection` → the lone nav button carrying `has-error`;
+ * - `bannerText` → the `.err-banner` text;
+ * - `draft` → the rendered field values (same reducer, read back out of the DOM);
+ * - the `posted` array is the recording channel (`last`/`all`), replacing the
+ *   recording bridge.
  */
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import { FIXTURE_MANIFEST, FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
 import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../../../../workflow/conventionPresets.js';
-import type { AppProbeShape } from './AppProbe.js';
 
 let open: RenderedSettings | null = null;
 
@@ -35,25 +46,15 @@ afterEach(() => {
 
 interface Mounted {
   readonly view: RenderedSettings;
-  readonly bridge: TestBridge;
-  probe(): AppProbeShape;
 }
 
 /** Mount the app, push the file, then switch to Git the way a user would. */
 async function mountOnGit(state = FIXTURE_STATE_PUSH): Promise<Mounted> {
-  const bridge = createTestBridge();
-  const view = await renderSettingsApp({ bridge });
+  const view = await renderSettingsApp();
   open = view;
   await view.receive({ type: 'state', state });
   await view.click(view.document.querySelector('[id="root"] [data-section="git"]') as Element);
-  const probe = (): AppProbeShape => {
-    const node = view.document
-      .querySelector('[id="root"]')
-      ?.querySelector('[data-probe="app"]');
-    if (!node) throw new Error('AppProbe is not mounted');
-    return JSON.parse(node.getAttribute('data-state') ?? '{}') as AppProbeShape;
-  };
-  return { view, bridge, probe };
+  return { view };
 }
 
 function root(view: RenderedSettings): Element {
@@ -83,6 +84,25 @@ async function typeInto(
   return field;
 }
 
+/**
+ * The dirty tabs, as the nav renders them — one `has-changes` marker per dirty
+ * tab. This is the observable twin of the retired probe's `dirtySections`: the
+ * marker is derived from the same reducer list (R26).
+ */
+function dirtySections(view: RenderedSettings): string[] {
+  return [...root(view).querySelectorAll('.nav-btn[data-section]')]
+    .filter((btn) => btn.classList.contains('has-changes'))
+    .map((btn) => btn.getAttribute('data-section') ?? '');
+}
+
+/**
+ * The faulted tab, as the nav renders it — the lone `has-error` marker. This is
+ * the observable twin of the retired probe's `errorSection`.
+ */
+function errorSection(view: RenderedSettings): string | null {
+  return root(view).querySelector('.nav-btn.has-error')?.getAttribute('data-section') ?? null;
+}
+
 describe('rendered Settings — Git tab mounts into the real document', () => {
   it('renders the tab with no script errors', async () => {
     const { view } = await mountOnGit();
@@ -92,10 +112,10 @@ describe('rendered Settings — Git tab mounts into the real document', () => {
   });
 
   it('marks the Git tab active and names it in the topbar', async () => {
-    const { view, probe } = await mountOnGit();
+    const { view } = await mountOnGit();
+    // `probe().section` → the `.nav-btn.active` marker's `data-section`.
     expect(root(view).querySelector('.nav-btn.active')?.getAttribute('data-section')).toBe('git');
     expect(root(view).querySelector('.topbar-section')?.textContent).toBe('› Git');
-    expect(probe().section).toBe('git');
   });
 
   it('pre-fills the default PR description, matching what ship would open with', async () => {
@@ -107,10 +127,10 @@ describe('rendered Settings — Git tab mounts into the real document', () => {
 
 describe('rendered Settings — a conventions edit drives the dirty markers (R26)', () => {
   it('starts clean and lights every marker once a template changes', async () => {
-    const { view, probe } = await mountOnGit();
-    expect(probe().dirtySections).toEqual([]);
+    const { view } = await mountOnGit();
+    expect(dirtySections(view)).toEqual([]);
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
-    expect(probe().dirtySections).toEqual(['git']);
+    expect(dirtySections(view)).toEqual(['git']);
     expect(root(view).querySelector('.dirty-dot')?.classList.contains('hidden')).toBe(false);
     expect(root(view).querySelector('[data-section="git"]')?.classList.contains('has-changes')).toBe(
       true,
@@ -119,7 +139,7 @@ describe('rendered Settings — a conventions edit drives the dirty markers (R26
   });
 
   it('leaving a dirty tab commits or discards it, so nothing off screen is left unnamed', async () => {
-    const { view, probe } = await mountOnGit();
+    const { view } = await mountOnGit();
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
     // The unsaved-changes gate is why at most ONE tab is ever dirty through the
     // UI: leaving asks, and the answer is save or discard. The off-screen hint
@@ -129,18 +149,18 @@ describe('rendered Settings — a conventions edit drives the dirty markers (R26
       ...FIXTURE_MANIFEST,
       conventions: { branchName: 'karst/{key}-{slug}' },
     });
-    expect(probe().dirtySections).toEqual([]);
+    expect(dirtySections(view)).toEqual([]);
     const hint = root(view).querySelector('.unsaved-hint');
     expect(hint?.classList.contains('hidden')).toBe(true);
     await typeInto(view, 'Host', '0.0.0.0');
-    expect(probe().dirtySections).toEqual(['general']);
+    expect(dirtySections(view)).toEqual(['general']);
     expect(hint?.classList.contains('hidden')).toBe(true);
   });
 
   it('re-asks for validation of the tab now on screen when the tab switches', async () => {
-    const { view, bridge } = await mountOnGit();
+    const { view } = await mountOnGit();
     await view.click(root(view).querySelector('[data-section="quality"]') as Element);
-    const last = bridge.last('validate') as { manifest?: unknown } | undefined;
+    const last = view.last('validate') as { manifest?: unknown } | undefined;
     expect(last).toBeDefined();
     expect(last?.manifest).toBeDefined();
   });
@@ -148,19 +168,21 @@ describe('rendered Settings — a conventions edit drives the dirty markers (R26
 
 describe('rendered Settings — Git faults are attributed by the shared selector', () => {
   it('marks the Git nav item with an ERROR dot and names the tab in the banner', async () => {
-    const { view, probe } = await mountOnGit();
+    const { view } = await mountOnGit();
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
     await view.receive({
       type: 'validation',
       ok: false,
       error: 'Invalid karst.yml: conventions.branchName must include {slug}, {key} or {id}',
     });
-    expect(probe().errorSection).toBe('git');
+    // `probe().errorSection` → the nav button that carries `has-error`.
+    expect(errorSection(view)).toBe('git');
     const gitNav = root(view).querySelector('[data-section="git"]');
     expect(gitNav?.classList.contains('has-error')).toBe(true);
     expect(gitNav?.classList.contains('has-changes')).toBe(false);
     expect(gitNav?.getAttribute('title')).toBe('Git has a validation error');
     // Standing ON the faulted tab, the banner is the message itself — no prefix.
+    // (`probe().bannerText` → the `.err-banner` text.)
     expect(root(view).querySelector('.err-banner')?.textContent).toBe(
       'conventions.branchName must include {slug}, {key} or {id}',
     );
@@ -183,29 +205,30 @@ describe('rendered Settings — Git faults are attributed by the shared selector
 
 describe('rendered Settings — tab-scoped Save for Git', () => {
   it('posts the whole draft with section "git"', async () => {
-    const { view, bridge } = await mountOnGit();
+    const { view } = await mountOnGit();
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
     await view.click(saveButton(view));
-    const save = bridge.last('save');
+    const save = view.last('save');
     expect(save).toMatchObject({ type: 'save', section: 'git' });
     const manifest = (save as { manifest: { conventions?: Record<string, unknown> } }).manifest;
     expect(manifest.conventions).toMatchObject({ branchName: 'karst/{key}-{slug}' });
   });
 
   it('keeps a Git edit alive across an unrelated out-of-band write', async () => {
-    const { view, probe } = await mountOnGit();
+    const { view } = await mountOnGit();
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
     // The host re-pushes after an out-of-band write (an agent toggle, an approach
     // install). Every dirty tab keeps its draft except the one being saved.
     await view.receive({ type: 'state', state: { ...FIXTURE_STATE_PUSH } });
-    expect(probe().draft).toMatchObject({
-      conventions: { branchName: 'karst/{key}-{slug}' },
-    });
-    expect(probe().dirtySections).toEqual(['git']);
+    // `probe().draft.conventions.branchName` → the rendered input still shows
+    // the edit: the tab's draft survives the push.
+    const branch = await findField(view, 'Branch name template');
+    expect((branch as HTMLInputElement).value).toBe('karst/{key}-{slug}');
+    expect(dirtySections(view)).toEqual(['git']);
   });
 
   it('drops the saved tab from the drafts a push keeps, so it goes clean', async () => {
-    const { view, probe, bridge } = await mountOnGit();
+    const { view } = await mountOnGit();
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
     await view.click(saveButton(view));
     const written: Manifest = {
@@ -214,21 +237,26 @@ describe('rendered Settings — tab-scoped Save for Git', () => {
     };
     await view.receive({ type: 'state', state: { ...FIXTURE_STATE_PUSH, manifest: written } });
     await view.receive({ type: 'saved', section: 'git' });
-    expect(probe().dirtySections).toEqual([]);
-    expect(bridge.last('save')).toMatchObject({ section: 'git' });
+    expect(dirtySections(view)).toEqual([]);
+    expect(view.last('save')).toMatchObject({ section: 'git' });
   });
 
   it('rolls only the tab on screen back to the baseline on Discard', async () => {
-    const { view, probe } = await mountOnGit();
+    const { view } = await mountOnGit();
     await typeInto(view, 'Branch name template', 'karst/{key}-{slug}');
     await typeInto(view, 'Default ticket type', 'fix');
-    expect(probe().dirtySections).toEqual(['git']);
+    expect(dirtySections(view)).toEqual(['git']);
     const discard = [...root(view).querySelectorAll('button')].find((b) =>
       b.textContent?.startsWith('Discard'),
     ) as Element;
     await view.click(discard);
-    expect(probe().draft).not.toHaveProperty('conventions');
-    expect(probe().dirtySections).toEqual([]);
+    // `probe().draft.conventions` is gone — the observable twin is that every
+    // conventions control is back to its baseline (the file declares none).
+    const branch = await findField(view, 'Branch name template');
+    expect((branch as HTMLInputElement).value).toBe('');
+    const ticketType = await findField(view, 'Default ticket type');
+    expect((ticketType as HTMLSelectElement).value).toBe('');
+    expect(dirtySections(view)).toEqual([]);
   });
 });
 

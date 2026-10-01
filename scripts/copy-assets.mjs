@@ -42,9 +42,10 @@ const assets = [
   // in both the test and shipped worlds). Gitignored build products, mirrored
   // into dist/ like every other runtime asset.
   'ui/dashboard/webviewSend.webview.js',
-  'ui/settings/webviewSend.webview.js',
   // The settings React app bundle (NDL-126 §1) — same generation, same
-  // mirroring, same "edit the SOURCE, never the dist/ copy" rule.
+  // mirroring, same "edit the SOURCE, never the dist/ copy" rule. Since phase 4
+  // the settings sender is folded into this bundle (`main.tsx` imports
+  // webviewSend.ts directly), so only the app bundle ships for settings.
   'ui/settings/app.webview.js',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the

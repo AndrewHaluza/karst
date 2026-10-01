@@ -2331,7 +2331,6 @@ const HYDRATED = injectWebviewSend(
   injectServerLogsView(
     injectAgentIdentity(injectProviderIdentity(injectPalette(injectDesignSystem(HTML)))),
   ),
-  'dashboard',
 );
 
 function previewScriptSource(): string {

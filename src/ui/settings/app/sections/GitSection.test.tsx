@@ -20,6 +20,7 @@ import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
 import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../../../../workflow/conventionPresets.js';
+import { TRANSFORM_NAMES } from '../../../../template/transforms.js';
 import { GitSection } from './GitSection.js';
 import { AppProbe, readProbe, type AppProbeShape } from './AppProbe.js';
 import { CONVENTION_FALLBACKS } from './conventionPreview.js';
@@ -257,6 +258,65 @@ describe('GitSection — the preview', () => {
     // The known half renders; the unknown one stays visible so the user can see
     // WHICH variable is wrong, instead of a blank that hides it.
     expect(preview).toContain('-142/{nope}');
+  });
+});
+
+describe('GitSection — the transform helper operates on the caret (R-X1)', () => {
+  /** The Transforms help of one template row — the row's own transform list. */
+  function transformButtons(meta: Element): string[] {
+    const help = Array.from(meta.querySelectorAll('.k-field-help')).find((node) =>
+      node.textContent?.startsWith('Transforms:'),
+    );
+    expect(help, 'a template row without a Transforms help block').toBeTruthy();
+    return Array.from(help!.querySelectorAll('button')).map((b) => b.textContent?.trim() ?? '');
+  }
+
+  it('lists exactly the host transform names', () => {
+    mountGit();
+    const metas = Array.from(document.querySelectorAll('.template-meta'));
+    // Non-vacuity: four template rows, each with its own transform list.
+    expect(metas).toHaveLength(4);
+    for (const meta of metas) {
+      // The list is the IMPORTED host vocabulary (R-X1), not a copy: rendering
+      // drifts the moment `TRANSFORM_NAMES` changes.
+      expect(transformButtons(meta)).toEqual([...TRANSFORM_NAMES]);
+    }
+  });
+
+  it('clicking a transform with the caret inside a variable writes it through the field\'s onChange', async () => {
+    const { probe } = mountGit();
+    const field = screen.getByLabelText('Branch name template') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'karst/{slug}' } });
+    // Caret at 9 sits INSIDE {slug} (6..12) — not at the end of the template.
+    field.setSelectionRange(9, 9);
+    const meta = field.closest('.k-field')!.nextElementSibling as Element;
+    const upper = transformButtons(meta).find((name) => name === 'upper');
+    expect(upper).toBe('upper');
+    const button = Array.from(meta.querySelectorAll('button')).find(
+      (b) => b.textContent === 'upper',
+    ) as HTMLButtonElement;
+    fireEvent.click(button);
+    expect(conventions(probe)).toMatchObject({ branchName: 'karst/{slug|upper}' });
+    // The caret is re-applied after the write, just after the inserted chain
+    // (index 17 — before the closing brace of `{slug|upper}`).
+    await Promise.resolve();
+    expect(field.selectionStart).toBe(17);
+  });
+
+  it('leaves the draft untouched when the caret is outside every variable', () => {
+    const { probe } = mountGit();
+    const field = screen.getByLabelText('Branch name template') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'karst/slug' } });
+    field.setSelectionRange(9, 9);
+    const meta = field.closest('.k-field')!.nextElementSibling as Element;
+    const button = Array.from(meta.querySelectorAll('button')).find(
+      (b) => b.textContent === 'upper',
+    ) as HTMLButtonElement;
+    fireEvent.click(button);
+    // Vanilla refused the append: the value the user typed stays exactly as
+    // it was — no `{slug|upper}`, no second write.
+    expect(conventions(probe).branchName).toBe('karst/slug');
+    expect(field.value).toBe('karst/slug');
   });
 });
 

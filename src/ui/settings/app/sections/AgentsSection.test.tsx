@@ -323,3 +323,35 @@ describe('AgentsSection — the island is opaque (R-X3)', () => {
     expect(pickerCalls).toBe(before);
   });
 });
+
+describe('AgentsSection — the process matrix structure (v7 parity)', () => {
+  it('emits the matrix head and UAT/Review/Ship group headers from the row renderer', () => {
+    mount();
+    const head = document.querySelector('.matrix-head');
+    expect(head, 'matrix head').not.toBeNull();
+    expect([...head!.children].map((child) => child.textContent)).toEqual([
+      'Process',
+      'Agent profile',
+      'Agent',
+      'State',
+    ]);
+    // PROCESS_KEYS order: uatTester, uatFix, review, reviewFix, prDescription,
+    // ticketAnalysis — a group header precedes only the FIRST row of its group.
+    const markers = [...document.querySelectorAll('.matrix-group, .proc-row')].map((el) =>
+      el.classList.contains('matrix-group')
+        ? `group:${el.textContent?.trim()}`
+        : `row:${(el as HTMLElement).dataset.procKey}`,
+    );
+    expect(markers).toEqual([
+      'group:UAT',
+      'row:uatTester',
+      'row:uatFix',
+      'group:Review',
+      'row:review',
+      'row:reviewFix',
+      'group:Ship',
+      'row:prDescription',
+      'row:ticketAnalysis',
+    ]);
+  });
+});

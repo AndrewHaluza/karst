@@ -23,13 +23,32 @@
  *   `approachCommandBody`, and the drawer's selection is keyed on the record's
  *   presence), so a destructive control cannot outlive the approach it deletes.
  *
+ * The card also hosts the **graph configuration surface** (vanilla's
+ * `renderGraphConfig`), whose three easy-to-lose rules:
+ *
+ * - a per-profile agent pick writes ONLY that profile's `provider`/`model`/
+ *   `effort` in the draft entry — spread through `writeGraphProfile`, never a
+ *   rebuilt `graph` block — and marks the approaches tab dirty the same way the
+ *   enable toggle does (R26);
+ * - every budget row is a real number input bound to one `graph.limits` field
+ *   (vanilla's `data-gf-limit`), carrying the packaged default and the product
+ *   hard ceiling beside it, both IMPORTED from `graphConfig.ts` (R-X1: a
+ *   mirrored ceiling is a ceiling that can drift from the validator that
+ *   enforces it). An emptied input DELETES the key — absence = packaged default
+ *   at Save;
+ * - the **prompt link** posts `open-graph-prompt` through `useHostMutation`
+ *   (UI-R11): pending on activation, no second activation while in flight,
+ *   settled by the host's `action-result` receipt. It is one mutation per CARD,
+ *   because interaction state belongs to the control that owns it — a shared
+ *   section-level hook would flag every sibling card's link busy (UI-R09b).
+ *
  * Async lifecycle: the drawer's Save and Delete are mutations whose result the
  * user must see, so they go through `useHostMutation` — the ONLY owner of async
  * lifecycle. A drawer Save persists immediately rather than waiting for the
  * topbar Save, because Install reads the manifest FILE (869e836xh, defect 1).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { ApproachDef, Manifest } from '../../../../manifest/types.js';
+import type { ApproachDef, GraphLimits, Manifest } from '../../../../manifest/types.js';
 import {
   DEFAULT_GRAPH_LIMITS,
   GRAPH_COMMAND_TIMEOUT_CEILING,
@@ -37,6 +56,7 @@ import {
 } from '../../../../manifest/graphConfig.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
+import type { AgentPickerIdentity } from '../hostBridge.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
@@ -53,8 +73,23 @@ import {
   rebuildApproachFromDrawer,
   replaceApproach,
   toApproachDeltas,
+  writeGraphLimit,
+  writeGraphProfile,
   type ApproachDrawerFields,
+  type GraphLimitField,
 } from './approachDraft.js';
+
+/**
+ * The host's graph-prompt identity — the value vanilla hardcoded on
+ * `data-open-graph-prompt`, which the host resolves to the packaged planner
+ * artifact. A behavior value, but view-local in both implementations (the host
+ * takes it as the message's `identity`), so it lives here rather than being
+ * mirrored from a TS export that does not exist.
+ */
+const GRAPH_PROMPT_IDENTITY = 'karst-graph-planner';
+
+/** The prompt link's text when the approach declares no artifact (vanilla copy). */
+const FALLBACK_PROMPT_TEXT = 'graph-planner prompt';
 
 /** Stable identity for "this row inherits nothing" — see `PresetsSection`. */
 const NO_INHERIT: { readonly core?: string; readonly model?: string; readonly effort?: string } = {};
@@ -67,6 +102,78 @@ const EMPTY_CATALOG: Readonly<Record<string, unknown>> = {};
 
 /** Which editor the drawer is showing. `null` is closed. */
 type DrawerMode = 'add' | 'edit' | null;
+
+/** One budget row: the `data-gf-limit` field and the vanilla row label. */
+interface LimitRowSpec {
+  readonly field: GraphLimitField;
+  readonly label: string;
+}
+
+/**
+ * The limit rows vanilla's `renderGraphConfig` emitted, in its render order and
+ * with its labels verbatim — the row list is the design of record, so it is
+ * stated once here and each row imports its packaged default and hard ceiling
+ * from `graphConfig.ts` (R-X1) rather than restating a number.
+ */
+const BUDGET_ROWS: readonly LimitRowSpec[] = [
+  { field: 'maxGraphWallSeconds', label: 'Graph lifetime' },
+  { field: 'maxAgentWallSeconds', label: 'Planner/agent wall time' },
+  { field: 'maxAgentIdleSeconds', label: 'Agent idle time' },
+];
+
+const BYTE_ROWS: readonly LimitRowSpec[] = [
+  { field: 'maxArtifactBytes', label: 'Per-artifact' },
+  { field: 'maxLogBytes', label: 'Per-log' },
+  { field: 'maxAggregateArtifactBytes', label: 'Aggregate artifacts' },
+  { field: 'maxAggregateWorkspaceBytes', label: 'Aggregate workspace' },
+];
+
+const CEILING_ROWS: readonly LimitRowSpec[] = [
+  { field: 'maxParallel', label: 'Max parallel processes' },
+  { field: 'maxNodeRuns', label: 'Node runs' },
+  { field: 'maxExpertRuns', label: 'Expert runs' },
+  { field: 'maxReplans', label: 'Replans' },
+  { field: 'maxActivations', label: 'Activations' },
+];
+
+/** Byte budgets render as byte counts, everything else as durations (vanilla). */
+function isByteLimit(field: GraphLimitField): boolean {
+  return (
+    field.startsWith('maxAggregate') ||
+    field.startsWith('maxArtifact') ||
+    field === 'maxLogBytes'
+  );
+}
+
+/** Vanilla's `formatSeconds` — the hint's human form of a second budget. */
+function formatSeconds(seconds: number): string {
+  if (seconds >= 3600 && seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds >= 60 && seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+}
+
+/** Vanilla's `formatBytes` — the hint's human form of a byte budget. */
+function formatBytes(bytes: number): string {
+  const units = ['B', 'KiB', 'MiB', 'GiB'];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  return `${Math.round(value * 10) / 10} ${units[unit] ?? 'B'}`;
+}
+
+/**
+ * The hint half of vanilla's `graphLimitRowHtml`: `packaged <default> (…)
+ * · hard ceiling <ceiling> (…)`. The two VALUES are read from the imported
+ * constants at the call site, so the row cannot show a ceiling the validator
+ * does not enforce.
+ */
+function budgetHint(field: GraphLimitField, packaged: number, ceiling: number): string {
+  const format = isByteLimit(field) ? formatBytes : formatSeconds;
+  return `packaged ${packaged} (${format(packaged)}) · hard ceiling ${ceiling} (${format(ceiling)})`;
+}
 
 interface DrawerFields {
   id: string;
@@ -317,6 +424,15 @@ export function ApproachesSection() {
     writeList(list.map((a) => (a.id === approach.id ? { ...a, enabled: next } : a)));
   };
 
+  // One graph write (a profile pick or a limit edit): replace THIS approach
+  // through the draft helper — which spreads `entry`/`graph`/`limits`/
+  // `profiles` rather than rebuilding them — over the same `writeList` path the
+  // enable toggle takes, so the approaches tab goes dirty the same way (R26)
+  // and no other tab or approach is touched.
+  const writeGraph = (approach: ApproachDef, mutate: (entry: ApproachDef) => ApproachDef): void => {
+    writeList(list.map((a) => (a.id === approach.id ? mutate(a) : a)));
+  };
+
   return (
     <div className="section" id="section-approaches">
       <div className="page-header">
@@ -357,6 +473,12 @@ export function ApproachesSection() {
                 cores={cores}
                 onToggle={(next) => onToggle(approach, next)}
                 onEdit={() => open('edit', approach)}
+                onWriteProfile={(profile, identity) =>
+                  writeGraph(approach, (entry) => writeGraphProfile(entry, profile, identity))
+                }
+                onWriteLimit={(field, value) =>
+                  writeGraph(approach, (entry) => writeGraphLimit(entry, field, value))
+                }
               />
             ))}
           </div>
@@ -392,6 +514,8 @@ function ApproachCard({
   cores,
   onToggle,
   onEdit,
+  onWriteProfile,
+  onWriteLimit,
 }: {
   readonly approach: ApproachDef;
   readonly installed: boolean;
@@ -401,9 +525,47 @@ function ApproachCard({
   readonly cores: ReturnType<typeof pickerCores>;
   readonly onToggle: (next: boolean) => void;
   readonly onEdit: () => void;
+  /** Write one profile's identity into the draft entry (spread, not rebuild). */
+  readonly onWriteProfile: (profile: string, identity: AgentPickerIdentity) => void;
+  /** Write one limit field into the draft entry; `undefined` deletes the key. */
+  readonly onWriteLimit: (field: GraphLimitField, value: number | undefined) => void;
 }) {
+  const { state, send } = useSettingsApp();
   const stateClass = installed ? 'installed' : (approach.source ? 'available' : 'builtin');
-  const profiles = approach.graph?.profiles ?? {};
+  const graph = approach.graph;
+  const profiles = graph?.profiles ?? {};
+  const limits: GraphLimits | undefined = graph?.limits;
+
+  // The prompt link's mutation, owned PER CARD: two graph cards on screen means
+  // two links, and interaction state belongs to the control that owns it (R09b)
+  // — one section-level hook would flag a sibling card's link busy too.
+  // `useHostMutation` is the ONLY owner of async lifecycle (R11–R15, R17, R18):
+  // pending enters synchronously on activation, a second activation while
+  // in flight posts nothing, and the terminal result comes from the receipt
+  // below rather than a local flag.
+  const openPrompt = useHostMutation<[]>({
+    kind: 'Open graph prompt',
+    send: (requestId) => send.openGraphPrompt(GRAPH_PROMPT_IDENTITY, requestId),
+  });
+
+  // Settle from the reducer's receipts — ONE direction of truth, exactly like
+  // the drawer mutations: each receipt is consumed ONCE (the hook keeps
+  // `requestId` for its whole life, so an effect that re-read it on every
+  // render would re-fire the success branch forever).
+  const receipts = state.receipts;
+  const promptSettledRef = useRef<ReadonlySet<string>>(new Set());
+  useEffect(() => {
+    const id = openPrompt.requestId;
+    if (id === undefined || promptSettledRef.current.has(id)) return;
+    const receipt = receipts[id];
+    if (!receipt) return;
+    promptSettledRef.current = new Set(promptSettledRef.current).add(id);
+    openPrompt.settle({
+      requestId: id,
+      result: receipt.ok ? 'success' : 'failure',
+      message: receipt.message ?? undefined,
+    });
+  }, [receipts, openPrompt]);
 
   return (
     <div className={`roster-card ${stateClass}`} data-approach={approach.id}>
@@ -444,8 +606,38 @@ function ApproachCard({
               : `${approach.source.repo}${approach.source.ref ? `@${approach.source.ref}` : ''}`}
           </div>
         ) : null}
-        {approach.graph ? (
+        {graph ? (
           <div className="graph-config" data-graph-config={approach.id}>
+            {/*
+              Planner: the prompt link is the visible resource identifier (the
+              packaged artifact path, UI-R09c) — link semantics, not a button —
+              and it is host-mediated, so its click posts the shared
+              pending-action runtime (UI-R11): pending on activation, no second
+              activation while in flight, settled by the host's action-result
+              receipt through the mutation above. `href="#"` keeps the anchor
+              focusable and activatable exactly like the vanilla link.
+            */}
+            <div className="graph-subsection-title">Planner</div>
+            <div className="graph-row">
+              <a
+                href="#"
+                className="graph-prompt-link"
+                data-open-graph-prompt={GRAPH_PROMPT_IDENTITY}
+                aria-busy={openPrompt.pending || undefined}
+                aria-disabled={openPrompt.disabled || undefined}
+                onClick={(event) => {
+                  event.preventDefault();
+                  if (openPrompt.disabled) return;
+                  openPrompt.trigger();
+                }}
+              >
+                {graph.planner?.prompt?.artifact || FALLBACK_PROMPT_TEXT}
+              </a>
+            </div>
+            {/* Execution profiles: each profile row hosts the UNIFIED agent
+                identity picker (R-X3 island) — a pick re-filters the model list
+                for THAT profile only, and writes only that profile through
+                `onWriteProfile`. */}
             <div className="graph-subsection-title">Execution profiles</div>
             {Object.keys(profiles).length === 0 ? (
               <div className="k-empty">
@@ -468,29 +660,51 @@ function ApproachCard({
                       }}
                       labels={{ core: 'Core', model: 'Model', effort: 'Effort' }}
                       showEffort
-                      onChange={() => {
-                        // Wired through the draft by the owning card; the island
-                        // reports the identity, the card writes it.
-                      }}
+                      onChange={(identity) => onWriteProfile(name, identity)}
                     />
                   </div>
                 </div>
               ))
             )}
+            {/* Budgets, then the byte ceilings, then the concurrency ceilings —
+                the three subsections vanilla's renderGraphConfig emitted, with
+                one editable number input per limit field. The command timeout
+                stays a HINT row: it is set per command, not here (and the
+                React card does not yet render the command allowlist). */}
             <div className="graph-subsection-title">Budgets</div>
-            <div className="graph-row">
-              <span className="graph-label">Max parallel processes</span>
-              <span className="graph-hint">
-                default {DEFAULT_GRAPH_LIMITS.maxParallel} · hard ceiling{' '}
-                {GRAPH_HARD_CEILINGS.maxParallel}
-              </span>
-            </div>
+            {BUDGET_ROWS.map((row) => (
+              <LimitRow
+                key={row.field}
+                row={row}
+                value={limits?.[row.field]}
+                onChange={(value) => onWriteLimit(row.field, value)}
+              />
+            ))}
             <div className="graph-row">
               <span className="graph-label">Command timeout</span>
               <span className="graph-hint">
-                set per command below · hard ceiling {GRAPH_COMMAND_TIMEOUT_CEILING}
+                set per command below · hard ceiling {GRAPH_COMMAND_TIMEOUT_CEILING}{' '}
+                ({formatSeconds(GRAPH_COMMAND_TIMEOUT_CEILING)})
               </span>
             </div>
+            <div className="graph-subsection-title">Artifact and workspace ceilings</div>
+            {BYTE_ROWS.map((row) => (
+              <LimitRow
+                key={row.field}
+                row={row}
+                value={limits?.[row.field]}
+                onChange={(value) => onWriteLimit(row.field, value)}
+              />
+            ))}
+            <div className="graph-subsection-title">Concurrency and budget ceilings</div>
+            {CEILING_ROWS.map((row) => (
+              <LimitRow
+                key={row.field}
+                row={row}
+                value={limits?.[row.field]}
+                onChange={(value) => onWriteLimit(row.field, value)}
+              />
+            ))}
           </div>
         ) : null}
       </div>
@@ -696,6 +910,65 @@ function ApproachDrawer({
           {mode === 'edit' ? 'Save approach' : 'Add approach'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * One numeric budget row — the React form of vanilla's `graphLimitRowHtml`.
+ *
+ * The vanilla row was a raw `<input data-gf-limit … aria-label>`; the static
+ * guard wins over that markup: a raw `<input>` is banned outside `primitives/`
+ * (architecture.test R07/R08) and `Field` is the one owner of the label ↔
+ * control pairing (UI-R25). So the control rides `Field` — its label IS the
+ * accessible name, the same string vanilla put in `aria-label`, wired through
+ * `for`/`id` instead — and the vanilla `data-gf-limit` / `data-packaged` /
+ * `data-ceiling` hooks live on the ROW that owns that input, where a test (and
+ * any parity sweep) can still address them per field.
+ *
+ * The input is CONTROLLED by the draft: an absent key renders empty — absence
+ * is the packaged default, exactly vanilla's valueless input — and a present
+ * override renders as written (React cannot echo keystrokes back through an
+ * uncontrolled node once the draft is the source of truth). Clearing the input
+ * writes `undefined`, which `writeGraphLimit` turns into a DELETED key.
+ */
+function LimitRow({
+  row,
+  value,
+  onChange,
+}: {
+  readonly row: LimitRowSpec;
+  readonly value: number | undefined;
+  readonly onChange: (value: number | undefined) => void;
+}) {
+  const packaged = DEFAULT_GRAPH_LIMITS[row.field];
+  const ceiling = GRAPH_HARD_CEILINGS[row.field];
+  return (
+    <div
+      className="graph-row"
+      data-gf-limit={row.field}
+      data-packaged={String(packaged)}
+      data-ceiling={String(ceiling)}
+    >
+      <Field
+        label={row.label}
+        control={{
+          kind: 'input',
+          type: 'number',
+          name: `gf-limit-${row.field}`,
+          value: value === undefined ? '' : String(value),
+          onChange: (raw) => {
+            // The vanilla input listener's rule, per keystroke: empty DELETES
+            // the key (absence = packaged default at Save); anything else is
+            // handed to the host as typed — the webview never coerces, because
+            // validateGraphConfig is the one that refuses a non-integer or a
+            // ceiling violation with a named error.
+            const text = raw.trim();
+            onChange(text === '' ? undefined : Number(text));
+          },
+        }}
+      />
+      <span className="graph-hint">{budgetHint(row.field, packaged, ceiling)}</span>
     </div>
   );
 }
