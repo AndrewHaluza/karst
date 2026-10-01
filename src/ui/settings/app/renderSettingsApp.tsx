@@ -22,7 +22,7 @@
  * manually-mounted probe that serialised reducer internals is gone with the
  * phase-3 helper: the reducer's own suite covers those derivations.
  */
-import { renderWebviewReady, type RenderHandle } from '../../testing/renderHarness.js';
+import { pumpRenderRealm, renderWebviewReady, type RenderHandle } from '../../testing/renderHarness.js';
 import type { SettingsHostMessage, SettingsWebviewMessage } from '../messages.js';
 
 /** One outbound message, including the async-action correlation id (UI-R13). */
@@ -98,6 +98,7 @@ export async function renderSettingsApp(): Promise<RenderedSettings> {
     query: handle.query,
     queryAll: handle.queryAll,
     cssRules: handle.cssRules,
+    pendingWorkTimers: (horizonMs: number) => handle.pendingWorkTimers(horizonMs),
     close: () => {
       handle.close();
     },
@@ -118,50 +119,52 @@ function inRoot(handle: RenderHandle, selector: string): Element {
 }
 
 /**
- * Wait until the React tree has stopped changing, instead of guessing a delay.
+ * Wait until the app realm has no scheduled work left — deterministically.
  *
  * The app runs inside the harness's JSDOM realm, so the test realm's `act`
- * cannot flush it (the phase-3 manual mount could, and did — the chain-mounted
- * app cannot). React's commits therefore land asynchronously through the
- * realm's own timer queue: measured, a host message takes 5–10 ms to reach the
- * DOM unloaded and longer under a loaded suite, so the fixed 10 ms wait this
- * replaces was a race that failed roughly two assertions per suite run.
+ * cannot flush it: React's commits land asynchronously through the realm's own
+ * `setTimeout` queue (jsdom has no MessageChannel or setImmediate for the
+ * scheduler to prefer). A wall-clock wait — 10 ms fixed, or a mutation-quiet
+ * window — is a bet on how long that queue takes, and under a loaded suite the
+ * bet loses (NDL-143 review round 1: the quiet-window variant still lost
+ * ~2 assertions per 7 full-suite runs).
  *
- * The wait is a quiet window on `#root`: any mutation (React's visible output)
- * restarts the window, so the drain stretches with real work under load
- * instead of expiring against wall-clock. Inter-hop scheduling delays inside
- * React are single-digit milliseconds (0–5 ms timer hops), well inside the
- * 12 ms window, and a hard deadline guarantees settle() can never hang.
+ * So don't bet: `renderWebview` instruments the realm's one-shot timers in
+ * `beforeParse`, and this drain PUMPS the realm (`pumpRenderRealm` — a real
+ * timer turn, or `vi.runAllTimersAsync` when the test's sinon clock covers the
+ * realm) and asks whether ANY timer is due within `WORK_HORIZON_MS`. React's
+ * flush hops are due immediately, so while work is queued the answer is yes
+ * and the drain keeps pumping; the exit condition — empty horizon after two
+ * consecutive pumps — is quiescence, not an estimate. Work landing later than
+ * the horizon would have to be a deliberately delayed timer, and the app's only
+ * long timers (the 30 s mutation watchdog, the 2 s saved-ack) sit far outside
+ * it; starvation delays FIRING, never the due time, so a loaded machine cannot
+ * push a queued hop out of the horizon.
+ *
+ * The budget is a tripwire, not a wait: a realm that never quiesces is a bug
+ * and must fail loudly instead of resolving early into the same race.
  */
-function drainReactWork(handle: RenderHandle): Promise<void> {
-  const root = handle.document.getElementById('root');
-  if (!root) {
-    return new Promise((resolve) => handle.window.setTimeout(resolve, 0));
+const WORK_HORIZON_MS = 500;
+const QUIESCE_BUDGET_MS = 5_000;
+
+async function drainReactWork(handle: RenderHandle): Promise<void> {
+  const start = Date.now();
+  let emptyPumps = 0;
+  for (;;) {
+    await pumpRenderRealm(handle);
+    if (handle.pendingWorkTimers(WORK_HORIZON_MS) === 0) {
+      emptyPumps += 1;
+      // Effects of the commit that just ran may queue more work synchronously;
+      // a second consecutive empty pump means the queue actually stayed empty.
+      if (emptyPumps >= 2) return;
+    } else {
+      emptyPumps = 0;
+    }
+    if (Date.now() - start > QUIESCE_BUDGET_MS) {
+      throw new Error(
+        `renderSettingsApp.settle: the app realm did not quiesce within ${QUIESCE_BUDGET_MS}ms — ` +
+          `${handle.pendingWorkTimers(WORK_HORIZON_MS)} timer(s) still due within ${WORK_HORIZON_MS}ms`,
+      );
+    }
   }
-  const QUIET_MS = 12;
-  const HARD_MS = 500;
-  return new Promise((resolve) => {
-    let done = false;
-    let quietTimer = 0;
-    const finish = (): void => {
-      if (done) return;
-      done = true;
-      observer.disconnect();
-      handle.window.clearTimeout(quietTimer);
-      handle.window.clearTimeout(hardTimer);
-      resolve();
-    };
-    const observer = new handle.window.MutationObserver(() => {
-      handle.window.clearTimeout(quietTimer);
-      quietTimer = handle.window.setTimeout(finish, QUIET_MS);
-    });
-    quietTimer = handle.window.setTimeout(finish, QUIET_MS);
-    const hardTimer = handle.window.setTimeout(finish, HARD_MS);
-    observer.observe(root, {
-      subtree: true,
-      childList: true,
-      attributes: true,
-      characterData: true,
-    });
-  });
 }

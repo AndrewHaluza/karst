@@ -256,7 +256,11 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       // Yield to let jsdom process the message event and inline script
       await Promise.resolve();
     }
-  });
+    // The settings arm mounts the React app and walks all eight sections for
+    // the union floor; under a loaded machine that legitimately takes longer
+    // than vitest's 10 s default (NDL-143 review round 1 — a hook timeout is
+    // a failure guard, not a correctness window, so give it headroom).
+  }, 30_000);
 
   afterAll(() => {
     handle?.close();

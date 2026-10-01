@@ -50,6 +50,15 @@ export interface RenderHandle {
   queryAll<T extends Element = Element>(selector: string): readonly T[];
   /** Flatten all loaded CSSStyleRules across every stylesheet. */
   cssRules(): readonly CSSStyleRule[];
+  /**
+   * How many one-shot timers are pending in the RENDER realm with a due time
+   * within `horizonMs` of now — the realm's own notion of "there is still
+   * scheduled work". Intervals are not counted (they never drain); a long
+   * watchdog (30 s) falls outside any sane horizon, so what is left at a
+   * short horizon is renderer/framework work: React's scheduler flushes
+   * through exactly this queue (jsdom has no MessageChannel or setImmediate).
+   */
+  pendingWorkTimers(horizonMs: number): number;
   /** Idempotent teardown. */
   close(): void;
 }
@@ -62,6 +71,8 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   const posted: unknown[] = [];
   const errors: string[] = [];
   let state: unknown = undefined;
+  /** Set by `beforeParse`: reads the realm's pending-timer queue (see below). */
+  let pendingWorkProbe: ((horizonMs: number) => number) | null = null;
 
   const beforeParse = (w: DOMWindow): void => {
     // acquireVsCodeApi — the bridge between the webview script and the host.
@@ -76,6 +87,55 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
         setState: (s: unknown) => { state = s; },
       };
     };
+
+    // Instrument the realm's one-shot timer queue BEFORE any script runs, so a
+    // test can ask "is there still scheduled work in there?" instead of
+    // guessing with wall-clock windows (NDL-143 review round 1: settle()
+    // determinism). React's scheduler in this realm has no MessageChannel or
+    // setImmediate to hide behind — every commit lands through this
+    // setTimeout — so an empty horizon IS quiescence.
+    const realm = w as unknown as Record<string, unknown>;
+    const origSetTimeout = w.setTimeout.bind(w);
+    const origClearTimeout = w.clearTimeout.bind(w);
+    type Pending = { due: number };
+    const pending = new Set<Pending>();
+    const byId = new Map<unknown, Pending>();
+    realm.setTimeout = ((
+      fn: (...args: unknown[]) => void,
+      delay?: unknown,
+      ...args: unknown[]
+    ): unknown => {
+      const ms = typeof delay === 'number' && Number.isFinite(delay) && delay >= 0 ? delay : 0;
+      const entry: Pending = { due: Date.now() + ms };
+      const id = origSetTimeout(
+        (...cbArgs: unknown[]) => {
+          pending.delete(entry);
+          byId.delete(id);
+          fn(...cbArgs);
+        },
+        delay as number | undefined,
+        ...args,
+      );
+      pending.add(entry);
+      byId.set(id, entry);
+      return id;
+    }) as typeof w.setTimeout;
+    realm.clearTimeout = ((id?: unknown): void => {
+      const entry = id === undefined ? undefined : byId.get(id);
+      if (entry) {
+        pending.delete(entry);
+        byId.delete(id);
+      }
+      origClearTimeout(id as number | undefined);
+    }) as typeof w.clearTimeout;
+    realm.__karstPendingWorkTimers = (horizonMs: number): number => {
+      const limit = Date.now() + horizonMs;
+      let n = 0;
+      for (const entry of pending) if (entry.due <= limit) n += 1;
+      return n;
+    };
+    pendingWorkProbe = realm.__karstPendingWorkTimers as (h: number) => number;
+
     w.addEventListener('error', (e: Event) => {
       const msg = (e as ErrorEvent).message ?? String(e);
       errors.push(msg);
@@ -130,6 +190,9 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
       }
       return rules;
     },
+    pendingWorkTimers(horizonMs: number): number {
+      return pendingWorkProbe ? pendingWorkProbe(horizonMs) : 0;
+    },
     close() {
       if (closed) return;
       closed = true;
@@ -141,11 +204,44 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
 }
 
 /**
+ * One turn of the render realm's scheduled-work queue.
+ *
+ * Real-timer tests: a zero-delay turn of the realm's own event loop.
+ * Fake-timer tests: `vi.runAllTimersAsync()` — the harness window's timers are
+ * covered by the test's sinon clock, so a bare await of `window.setTimeout`
+ * would never resolve (it hangs the mount, which is exactly how the first
+ * deterministic draft of `renderWebviewReady` failed).
+ *
+ * Outside vitest (no module to import) the real-timer path is the only sane
+ * answer, so that is what the fallback takes.
+ */
+export async function pumpRenderRealm(handle: RenderHandle): Promise<void> {
+  let vi: any = null;
+  try {
+    vi = (await import('vitest')).vi;
+  } catch {
+    // Not running under vitest — real timers only.
+  }
+  if (vi && vi.isFakeTimers()) {
+    await vi.runAllTimersAsync();
+    return;
+  }
+  await new Promise((resolve) => handle.window.setTimeout(resolve, 0));
+}
+
+/**
  * Async render for views that set data-karst-ready after React commits.
- * For settings: waits for the flag with a timeout, throws if not set (NDL-126 §4).
+ * For settings: waits for the flag by draining the render realm's scheduled
+ * work, and throws if the realm goes idle without ever setting it (NDL-126 §4).
  * For other views: returns immediately after sync render.
- * In test environment: caller should enable fake timers before calling this, then
- * call vi.runAllTimersAsync() in the loop as needed.
+ *
+ * The wait used to poll on a wall-clock budget (2 s of 10 ms naps) — another
+ * bet on how long the realm takes, and under a loaded suite the bet lost by
+ * timing out mid-mount (NDL-143 review round 1). React schedules its commit
+ * through the realm's timer queue, so this wait pumps that queue until it is
+ * idle: a healthy mount never depends on elapsed time, and an idle-but-never-
+ * ready realm (the bundle threw, React never scheduled) fails fast with the
+ * realm's own captured errors instead of burning the budget.
  */
 export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
   const handle = renderWebview(name, opts);
@@ -160,43 +256,40 @@ export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: str
   const hasReactRoot = handle.document.querySelector('#root') !== null;
   if (!hasReactRoot) return handle;
 
-  // React is injected; wait for its effect to set data-karst-ready.
-  // Throw on timeout — no fallback to incomplete render.
-  // React's useEffect runs as a microtask. In test env with fake timers, call vi.runAllTimersAsync()
-  // to advance them; in real env, yield to event loop with setTimeout.
-  let vi: any = null;
-  try {
-    vi = (await import('vitest')).vi;
-  } catch {
-    // vitest not available — real timers will be used
-  }
-
-  const timeoutMs = 2000;
+  const WORK_HORIZON_MS = 500;
+  const TRIPWIRE_MS = 15_000;
   const startTime = Date.now();
-  let checkCount = 0;
+  let idleConfirmations = 0;
 
-  while (true) {
-    const isReady = handle.document.documentElement.hasAttribute('data-karst-ready');
-    if (isReady) return handle;
-
-    if (Date.now() - startTime > timeoutMs) {
+  for (;;) {
+    if (handle.document.documentElement.hasAttribute('data-karst-ready')) return handle;
+    if (Date.now() - startTime > TRIPWIRE_MS) {
       handle.close();
-      throw new Error(`renderWebviewReady(settings): timeout waiting for data-karst-ready (React injected)`);
+      throw new Error(
+        'renderWebviewReady(settings): tripwire — the realm never reached data-karst-ready (React injected)',
+      );
     }
 
-    // In test env with fake timers: run all pending timers to let React's effect execute.
-    // In real env: yield to event loop.
-    if (vi && vi.isFakeTimers()) {
-      await vi.runAllTimersAsync();
-    } else {
-      await new Promise((resolve) => setTimeout(resolve, 10));
+    const scheduled = handle.pendingWorkTimers(WORK_HORIZON_MS);
+    if (scheduled > 0) {
+      // React's commit/effect chain is still scheduled — pump one turn.
+      await pumpRenderRealm(handle);
+      idleConfirmations = 0;
+      continue;
     }
 
-    checkCount++;
-    // Safety check to avoid infinite loop.
-    if (checkCount > 200) {
+    // The queue looks empty: pump one confirming turn (microtasks and any
+    // just-fired zero-delay work flush there) before believing it.
+    await pumpRenderRealm(handle);
+    if (handle.document.documentElement.hasAttribute('data-karst-ready')) return handle;
+    idleConfirmations += 1;
+    if (idleConfirmations >= 3) {
+      const seen = handle.errors.slice(-3);
       handle.close();
-      throw new Error(`renderWebviewReady(settings): gave up after ${checkCount} checks`);
+      throw new Error(
+        `renderWebviewReady(settings): the render realm went idle without data-karst-ready` +
+          (seen.length > 0 ? ` — realm errors: ${seen.join(' | ')}` : ''),
+      );
     }
   }
 }

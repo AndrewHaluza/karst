@@ -146,3 +146,26 @@ describe('media source', () => {
     }
   });
 });
+
+// The nonce is added to `<script>` OPENING TAGS only. The settings app bundle
+// embeds a literal "<script></script>" inside a JS string (script-element
+// hydration, NDL-126 §2), and the pre-phase-4 `replaceAll('<script>', …)` would
+// have rewritten that string's tag and corrupted the shipped bundle. This is the
+// direct case for the lookbehind — a future "simplify this regex" fails here
+// instead of in a hydrated render (NDL-143 review round 1, non-blocking ask).
+describe('nonce tagging — the lookbehind', () => {
+  it('tags the real opening tag but never a <script> inside a JS string', () => {
+    const nonce = 'csp-lookbehind-pin';
+    const html =
+      '<!--KARST_CSP--><script>resource.innerHTML = "<script></script>";</script>';
+    const out = injectCsp(html, nonce);
+    // The document's one real opening tag carries the nonce …
+    expect(out).toContain(`<script nonce="${nonce}">resource.innerHTML`);
+    // … and the string literal's tag is byte-for-byte untouched.
+    expect(out).toContain('innerHTML = "<script></script>"');
+    expect(out.match(/<script/g) ?? []).toHaveLength(2);
+    expect(out).toContain(
+      `<script nonce="${nonce}">resource.innerHTML = "<script></script>";</script>`,
+    );
+  });
+});
