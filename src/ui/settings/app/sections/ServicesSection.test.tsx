@@ -326,16 +326,51 @@ describe('ServicesSection — dependencies and binds', () => {
     expect(add.disabled).toBe(true);
   });
 
-  it('emits data-karst-action="remove-binding" on the dependency Remove', () => {
-    mount();
+  /**
+   * Two distinct destructive controls, two distinct taxonomy members. Vanilla
+   * draws them as `data-remove-dep` (the row's "Remove", drops the whole
+   * `dependsOn` entry) and `data-remove-bind` (the per-bind icon, drops one
+   * bind), and `messages.ts` maps those to `remove-dependency` and
+   * `remove-binding`. Collapsing them onto one member places a member never and
+   * breaks phase 4's `data-karst-action` parity diff, so both are asserted here
+   * against the same service: one dependency carrying one bind.
+   */
+  it('emits remove-dependency on the row Remove and remove-binding on the bind icon', () => {
+    mount({
+      ...BASE,
+      repositories: {
+        api: {
+          name: 'api',
+          repoPath: '../api',
+          hasMigrations: false,
+          enabled: true,
+          service: {
+            start: 'npm run dev',
+            ports: [{ name: 'http', env: 'PORT', default: 3000 }],
+            dependsOn: [
+              { target: 'db', port: 'pg', bind: [{ env: 'DB_URL', template: 'http://{host}:{port}' }] },
+            ],
+          },
+        },
+        db: BASE.repositories!.db,
+      } as unknown as Manifest['repositories'],
+    });
     open('api');
+
     // Scoped to the dependency card: the roster's own "Remove" removes the whole
     // repository and carries `remove-service`.
     const depCard = document.querySelector('[data-dep-card="0"]') as HTMLElement;
-    const remove = Array.from(depCard.querySelectorAll('button')).find(
+    const rowRemove = Array.from(depCard.querySelectorAll('button')).find(
       (b) => b.textContent?.trim() === 'Remove',
     ) as HTMLButtonElement;
-    expect(remove.getAttribute('data-karst-action')).toBe('remove-binding');
+    expect(rowRemove.getAttribute('data-karst-action')).toBe('remove-dependency');
+
+    // The bind row carries its own control, addressed by its accessible name.
+    const bindRemove = depCard.querySelector('.bind-row button[data-karst-action]') as HTMLButtonElement;
+    expect(bindRemove.getAttribute('data-karst-action')).toBe('remove-binding');
+
+    // And they are not the same button, so neither member is orphaned.
+    expect(bindRemove).not.toBe(rowRemove);
   });
 
   it('adds a bind row', () => {

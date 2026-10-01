@@ -690,7 +690,7 @@ function Dependencies({
                   }}
                 />
                 <DestructiveButton
-                  action="remove-binding"
+                  action="remove-dependency"
                   size="sm"
                   onClick={() =>
                     onWrite(deps.filter((_, j) => j !== i).map((d) => ({ ...d, bind: [...d.bind] })))
