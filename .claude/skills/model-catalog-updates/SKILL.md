@@ -75,9 +75,11 @@ makes `parseModelFeed` reject the whole feed.
 ## Check the core first
 
 karst does not validate an id before launch. Every adapter passes `--model`
-through verbatim (`src/agent/claude.ts`, `src/agent/codex.ts`,
-`src/agent/opencode.ts`, `src/agent/antigravity.ts`; all four declare
-`model: SUPPORTED` and `exactModel: SUPPORTED` in `src/agent/surfaces.ts`).
+through verbatim, and every adapter's own `surfaces` object declares
+`model: SUPPORTED` and `exactModel: SUPPORTED` (`src/agent/claude.ts`,
+`src/agent/codex.ts`, `src/agent/opencode.ts`, `src/agent/antigravity.ts`;
+the `AdapterSurfaces` type and the `SUPPORTED` constant are
+`src/agent/surfaces.ts`).
 An id the vendor rejects comes back as a 400/404 naming the model, which
 `src/agent/failureClass.ts` classifies as `model-rejected` — no retry, the
 fallback chain advances with a warning. So confirm support before adding the
