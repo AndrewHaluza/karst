@@ -26,8 +26,14 @@ import type {
 
 const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
 
-const CWD_VALUES = ['repository', 'worktreeRoot'] as const;
-const ACCESS_VALUES = ['read', 'write'] as const;
+/**
+ * The closed vocabularies for a trusted command's cwd / access. Exported so the
+ * Settings graph editor offers exactly what the validator accepts — the webview
+ * must not restate these (R-X1), because a restated list is a list that can
+ * drift from the validator that refuses the value.
+ */
+export const CWD_VALUES = ['repository', 'worktreeRoot'] as const;
+export const ACCESS_VALUES = ['read', 'write'] as const;
 
 /** Product hard ceilings (design Budgets section). Configuration cannot raise these. */
 export const GRAPH_HARD_CEILINGS: Readonly<Record<keyof Omit<GraphLimits, 'confirmGeneratedGraph'>, number>> = {
