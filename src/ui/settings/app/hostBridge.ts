@@ -67,6 +67,18 @@ export interface AgentPickerOptions {
   readonly value: AgentPickerIdentity;
   readonly inherit: { readonly core?: string; readonly model?: string; readonly effort?: string };
   readonly inheritCore?: string;
+  /**
+   * Field captions the runtime renders beside each control. `agentPicker.webview.js`
+   * reads them with its own fallbacks ("Agent core" / "Model" / "Effort /
+   * variant"), so omitting them is legal but renders the generic wording; every
+   * mount site in the vanilla view passes an explicit set, so the option is part
+   * of the documented bag rather than an accident.
+   */
+  readonly labels?: {
+    readonly core?: string;
+    readonly model?: string;
+    readonly effort?: string;
+  };
   readonly disabled?: boolean;
   readonly showEffort?: boolean;
   readonly onChange: (value: AgentPickerIdentity) => void;

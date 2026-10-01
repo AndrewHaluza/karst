@@ -24,6 +24,13 @@ export interface SelectOption {
 interface CommonControl {
   disabled?: boolean;
   name?: string;
+  /**
+   * Extra class on the control ELEMENT itself (not the `.k-field` shell), for a
+   * layout class the section's own CSS already styles — e.g. the matrix's
+   * `.proc-select` width. The shared DS control class stays owned here: a caller
+   * cannot pass `k-input` to replace it, it is appended to whatever this sets.
+   */
+  controlClassName?: string;
 }
 
 export interface InputControl extends CommonControl {
@@ -143,6 +150,9 @@ function renderControl(
   control: Exclude<FieldControl, { kind: 'checkbox' }>,
   wiring: Wiring,
 ): ReactNode {
+  const controlClass = ['k-input', control.controlClassName]
+    .filter((c): c is string => Boolean(c))
+    .join(' ');
   const shared = {
     id: wiring.id,
     name: control.name,
@@ -155,7 +165,7 @@ function renderControl(
       return (
         <input
           {...shared}
-          className="k-input"
+          className={controlClass}
           type={control.type ?? 'text'}
           value={control.value}
           placeholder={control.placeholder}
@@ -167,7 +177,7 @@ function renderControl(
       return (
         <textarea
           {...shared}
-          className="k-input"
+          className={controlClass}
           value={control.value}
           rows={control.rows}
           placeholder={control.placeholder}
@@ -178,7 +188,7 @@ function renderControl(
       return (
         <select
           {...shared}
-          className="k-input"
+          className={controlClass}
           value={control.value}
           onChange={(e) => control.onChange(e.target.value)}
         >
