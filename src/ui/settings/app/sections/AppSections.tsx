@@ -6,7 +6,7 @@
  * step 2 fills it in — General, Git, Quality, Ticketing first: the low-coupling
  * tabs that establish the section-mount pattern, the Save wiring through
  * `useHostMutation`, and the dirty-marker / nav-dot plumbing against the real
- * reducer. Repositories, Approaches, Agents and Presets follow.
+ * reducer. Step 3 adds Presets, then Approaches, Agents and Repositories.
  *
  * A section that is not ported yet renders nothing rather than a placeholder: an
  * empty tab is honest about what the React view can do, and the nav still marks
@@ -21,6 +21,10 @@ import type { ReactElement } from 'react';
 import type { SettingsSection } from '../../sections.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { GeneralSection } from './GeneralSection.js';
+import { PresetsSection } from './PresetsSection.js';
+import { ApproachesSection } from './ApproachesSection.js';
+import { AgentsSection } from './AgentsSection.js';
+import { ServicesSection } from './ServicesSection.js';
 import { GitSection } from './GitSection.js';
 import { QualitySection } from './QualitySection.js';
 import { TicketingSection } from './TicketingSection.js';
@@ -30,6 +34,10 @@ const PORTED: Readonly<Partial<Record<SettingsSection, () => ReactElement>>> = {
   git: GitSection,
   quality: QualitySection,
   ticketing: TicketingSection,
+  presets: PresetsSection,
+  approaches: ApproachesSection,
+  agents: AgentsSection,
+  services: ServicesSection,
 };
 
 /** The current tab's editor, or nothing while its tab is still vanilla. */
