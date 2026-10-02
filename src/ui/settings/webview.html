@@ -76,7 +76,13 @@
      recipe (base ink, space-3/space-4 padding) are the vanilla settings
      rules for those elements, pinned here so the switch-over does not move
      a single pixel of the form surface. */
-  .form-grid > .k-field{
+  /* `.k-field.template-form-row` is the same two-track row for the General
+     Display-templates pair: the vanilla view wrapped those two rows in
+     `.template-form-row` (10px block padding + a hairline between them)
+     instead of letting `.form-grid` place them, and the React row has to
+     keep the identical grammar or every row below it shifts (NDL-200). */
+  .form-grid > .k-field,
+  .k-field.template-form-row{
     display:grid;
     grid-column:1 / -1;
     grid-template-columns:calc(var(--k-space-8) * 10.4) minmax(0,1fr);
@@ -84,7 +90,8 @@
     row-gap:var(--k-space-0);
     align-items:start;
   }
-  .form-grid > .k-field > label{
+  .form-grid > .k-field > label,
+  .k-field.template-form-row > label{
     display:flex;align-items:center;
     min-height:var(--k-space-8);
     font-size:var(--k-text-md);
@@ -95,8 +102,14 @@
   .form-grid > .k-field > .k-input,
   .form-grid > .k-field > .k-switch,
   .form-grid > .k-field > .k-field-help,
-  .form-grid > .k-field > .k-field-error{grid-column:2}
-  .form-grid > .k-field > .k-field-help{margin-top:var(--k-space-2)}
+  .form-grid > .k-field > .k-field-error,
+  .k-field.template-form-row > .k-input,
+  .k-field.template-form-row > .template-meta,
+  .k-field.template-form-row > .label-vars,
+  .k-field.template-form-row > .k-field-help,
+  .k-field.template-form-row > .k-field-error{grid-column:2}
+  .form-grid > .k-field > .k-field-help,
+  .k-field.template-form-row > .k-field-help{margin-top:var(--k-space-2)}
   /* The checkbox field's label-track text exists only to fill the form-grid
      label track; outside it the switch's own label already carries the name. */
   .k-field > span.field-label{display:none}

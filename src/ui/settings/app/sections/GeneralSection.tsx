@@ -19,7 +19,7 @@
  *   `defaultEffort`) are ONE picker, not three selects, so it is mounted as an
  *   opaque island (R-X3) rather than rebuilt out of primitives.
  */
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import type {
   AgentProvider,
   Manifest,
@@ -30,10 +30,28 @@ import {
   DEFAULT_TERMINAL_NAME_TEMPLATE,
   DEFAULT_TICKET_LABEL_TEMPLATE,
   TICKET_LABEL_VARIABLES,
+  renderTicketLabel,
+  type TicketLabelFields,
 } from '../../../../store/ticketLabelTemplate.js';
+import { TRANSFORM_NAMES } from '../../../../template/transforms.js';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
+
+/**
+ * The sample ticket every template preview renders against — the same one the
+ * vanilla view previewed with, so the preview reads `PROJ-142 — add login`
+ * under both implementations (NDL-200 parity).
+ */
+const PREVIEW_TICKET: TicketLabelFields = {
+  id: 142,
+  key: 'PROJ-142',
+  title: 'add login',
+  stageCurrent: 'implement',
+  agentState: 'working',
+  selectedRepos: ['fe', 'be'],
+  parentTicketId: null,
+};
 
 /** The one inherit row the General picker leads with, as the vanilla view pins it. */
 const PICKER_INHERIT = {
@@ -84,6 +102,27 @@ export function GeneralSection() {
   const archiveText = archiveRaw === undefined ? '' : String(archiveRaw);
 
   const portRange = readField<readonly number[]>(draft, 'portRange', [4000, 4999]);
+
+  // The two Display-templates rows preview against the vanilla sample ticket, so
+  // a blank field previews the DEFAULT render (the label default for the label
+  // row, the terminal default for the terminal row) exactly as the vanilla view
+  // did (NDL-200).
+  const ticketLabel = readField<string>(draft, 'ticketLabelTemplate', '');
+  const terminalName = readField<string>(draft, 'terminalNameTemplate', '');
+  const labelPreview = useMemo(
+    () => renderTicketLabel(PREVIEW_TICKET, ticketLabel),
+    [ticketLabel],
+  );
+  const terminalPreview = useMemo(
+    () =>
+      renderTicketLabel(
+        PREVIEW_TICKET,
+        terminalName.trim() === '' ? DEFAULT_TERMINAL_NAME_TEMPLATE : terminalName,
+      ),
+    [terminalName],
+  );
+  const [labelVarsOpen, setLabelVarsOpen] = useState(false);
+  const [terminalVarsOpen, setTerminalVarsOpen] = useState(false);
 
   // Memoise every island input: the island rebuilds on an input change, so an
   // unstable object here would tear the shared runtime down on every render.
@@ -214,6 +253,10 @@ export function GeneralSection() {
         <div className="section-head">
           <div>
             <div className="section-title">Default implementation agent</div>
+            <div className="section-desc">
+              Used for normal implementation sessions. Inside process assignments are configured on
+              the Agents page.
+            </div>
           </div>
         </div>
         <div className="form-grid">
@@ -246,41 +289,74 @@ export function GeneralSection() {
             </div>
           </div>
         </div>
-        <div className="form-grid">
-          <Field
-            label="Ticket label template"
-            control={{
-              kind: 'input',
-              name: 'ticketLabelTemplate',
-              value: readField<string>(draft, 'ticketLabelTemplate', ''),
-              // The host's own default (R-X1: import, never mirror) — a drift
-              // here would show Settings a default the engine does not use.
-              placeholder: DEFAULT_TICKET_LABEL_TEMPLATE,
-              onChange: (value) => edit(set('ticketLabelTemplate', value || undefined)),
-            }}
-            help="Leave blank to keep the built-in label format."
-          />
-          <Field
-            label="Terminal name template"
-            control={{
-              kind: 'input',
-              name: 'terminalNameTemplate',
-              value: readField<string>(draft, 'terminalNameTemplate', ''),
-              placeholder: DEFAULT_TERMINAL_NAME_TEMPLATE,
-              onChange: (value) => edit(set('terminalNameTemplate', value || undefined)),
-            }}
-            help="Leave blank to keep the built-in terminal name."
-          />
-          {/*
-            The shared variable set, IMPORTED from the same host module the
-            label engine uses (UI-R34). The follow-up marker is deliberately
-            absent: `parentTicketId` is presentation metadata forced at the
-            terminal seam, never a template token.
-          */}
-          <div className="field-control label-vars">
-            {`Variables: ${TICKET_LABEL_VARIABLES.map((name) => `{${name}}`).join(' ')}`}
-          </div>
-        </div>
+        {/*
+          The vanilla view wrapped these two rows in `.template-form-row` —
+          10px of block padding, a hairline between them, the live preview and
+          the "Variables & transforms" helper under the input — and carried no
+          field help here. Matching that composition is what closes the residual
+          react-vs-vanilla row delta (NDL-200): the rows start and end on the
+          vanilla's own lines instead of a `.form-grid` row that is 15px short.
+        */}
+        <Field
+          className="template-form-row"
+          label="Ticket label template"
+          control={{
+            kind: 'input',
+            name: 'ticketLabelTemplate',
+            value: ticketLabel,
+            // The host's own default (R-X1: import, never mirror) — a drift
+            // here would show Settings a default the engine does not use.
+            placeholder: DEFAULT_TICKET_LABEL_TEMPLATE,
+            onChange: (value) => edit(set('ticketLabelTemplate', value || undefined)),
+          }}
+          meta={
+            <>
+              <div className="template-meta">
+                <div className="template-preview">
+                  Preview: <span className="lp-val">{labelPreview}</span>
+                </div>
+                <button
+                  type="button"
+                  className="template-help-link"
+                  aria-expanded={labelVarsOpen}
+                  onClick={() => setLabelVarsOpen((open) => !open)}
+                >
+                  Variables &amp; transforms
+                </button>
+              </div>
+              <TemplateVars open={labelVarsOpen} />
+            </>
+          }
+        />
+        <Field
+          className="template-form-row"
+          label="Terminal name template"
+          control={{
+            kind: 'input',
+            name: 'terminalNameTemplate',
+            value: terminalName,
+            placeholder: DEFAULT_TERMINAL_NAME_TEMPLATE,
+            onChange: (value) => edit(set('terminalNameTemplate', value || undefined)),
+          }}
+          meta={
+            <>
+              <div className="template-meta">
+                <div className="template-preview">
+                  Preview: <span className="lp-val">{terminalPreview}</span>
+                </div>
+                <button
+                  type="button"
+                  className="template-help-link"
+                  aria-expanded={terminalVarsOpen}
+                  onClick={() => setTerminalVarsOpen((open) => !open)}
+                >
+                  Variables &amp; transforms
+                </button>
+              </div>
+              <TemplateVars open={terminalVarsOpen} />
+            </>
+          }
+        />
       </div>
 
       <div className="section-block">
@@ -312,6 +388,9 @@ export function GeneralSection() {
               name: 'debug',
               checked: readField<boolean>(draft, 'debug', false),
               onChange: setToggle('debug'),
+              // The vanilla toggle reads `Enabled` beside the row's own name
+              // (NDL-200): the switch label is the control's accessible name.
+              switchLabel: 'Enabled',
             }}
           />
           <Field
@@ -322,6 +401,7 @@ export function GeneralSection() {
               name: 'closeDoneTerminalsWithTicket',
               checked: readField<boolean>(draft, 'closeDoneTerminalsWithTicket', false),
               onChange: setToggle('closeDoneTerminalsWithTicket'),
+              switchLabel: 'Enabled',
             }}
           />
           <Field
@@ -332,6 +412,7 @@ export function GeneralSection() {
               name: 'diffsInSourceControl',
               checked: readField<boolean>(draft, 'diffsInSourceControl', false),
               onChange: setToggle('diffsInSourceControl'),
+              switchLabel: 'Enabled',
             }}
           />
         </div>
@@ -343,4 +424,24 @@ export function GeneralSection() {
 /** The provider ids the picker offers, for a host that only knows some of them. */
 export function offeredProviders(implemented: readonly AgentProvider[]): readonly AgentProvider[] {
   return KNOWN_AGENT_PROVIDERS.filter((provider) => implemented.includes(provider));
+}
+
+/**
+ * The shared variable/transform vocabulary a Display-templates row reveals.
+ *
+ * The variable set is IMPORTED from the host module the label engine uses
+ * (UI-R34 / R-X1) and the transforms from `template/transforms.ts` — a mirror
+ * here would drift the moment either list changed. The follow-up marker is
+ * deliberately absent: `parentTicketId` is presentation metadata forced at the
+ * terminal seam, never a template token. Hidden at rest, so the row occupies
+ * no layout until its helper link is opened.
+ */
+function TemplateVars({ open }: { readonly open: boolean }) {
+  return (
+    <div className={open ? 'label-vars' : 'label-vars hidden'}>
+      {`Variables: ${TICKET_LABEL_VARIABLES.map((name) => `{${name}}`).join(' ')}`}
+      <br />
+      {`Transforms: ${TRANSFORM_NAMES.join(' ')} — pipe them, e.g. {key|slice:-4}`}
+    </div>
+  );
 }
