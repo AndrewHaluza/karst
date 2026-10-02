@@ -47,9 +47,18 @@ const FOCUS_CAP = 12;
  * Cancel). The seed has no presets, so the list itself contributes no rows;
  * six net-new controls on a form that could not fold into any existing field,
  * since the preset map is a top-level manifest key this tab now owns.
+ *
+ * Updated a fifth time by the sub-task UI (NDL-76, `#addSubtask`; PR #448,
+ * `#detachSubtask`): `dashboard` +2 — the Sub-tasks panel's "Add sub-task…"
+ * and the ticket header's "Detach from parent…" controls. Both are net-new
+ * interactive controls on the awaiting-subtask flow and neither folds into an
+ * existing focusable: `git diff 65df7194..HEAD -- src/ui/dashboard/webview.html`
+ * adds exactly these two focusable elements and removes none (no `tabindex`
+ * / `a[href]` / form-control changes either), and `tests/visual/corpora.ts` —
+ * which seeds the rendered rows — is unchanged since the fourth update.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 44,
+  dashboard: 46,
   usage: 11,
   resources: 17,
   serverLogs: 11,
