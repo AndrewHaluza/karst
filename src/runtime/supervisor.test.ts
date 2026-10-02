@@ -13,7 +13,7 @@ import {
   abandonVerdict,
 } from './supervisor.js';
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
-import { listenerPids } from './portConflict.js';
+import { listenerPids, isPortOpen } from './portConflict.js';
 import { killTree } from './processTree.js';
 import { removeContainer, removeContainerAsync } from './dockerContainer.js';
 import { RUN_MARKER_PREFIX } from './serverLog.js';
@@ -1102,6 +1102,92 @@ createServer((_req, res) => {
     expect(readFileSync(logPath, 'utf8')).toMatch(/booting on/);
 
     await stopServer(store, rec.id);
+  });
+
+  it('stopServer waits for the listening port to be released before returning', async () => {
+    const port = nextPort();
+    const rec = await startHot(store, {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+    });
+
+    expect(await isPortOpen('127.0.0.1', port)).toBe(true);
+
+    await stopServer(store, rec.id);
+
+    // The moment stopServer returns, the port must already be released.
+    expect(await isPortOpen('127.0.0.1', port)).toBe(false);
+    expect(alive(rec.pid)).toBe(false);
+  });
+
+  it('stopServer waits for process teardown when server has no recorded port', async () => {
+    let aliveCount = 2;
+    const fakeFacts = {
+      isAlive: async () => {
+        if (aliveCount > 0) {
+          aliveCount--;
+          return true;
+        }
+        return false;
+      },
+      liveCwd: async () => ({ path: dir, deleted: false }),
+      processStartMs: async () => null,
+    };
+    const info = store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, cwd, started_at)
+         VALUES (1, 'worker', NULL, NULL, 55555, 'running', '/tmp/worker.log', ?, ?)`,
+      )
+      .run(dir, '2026-08-03T07:00:00.000Z');
+    const id = Number(info.lastInsertRowid);
+
+    const signal = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    try {
+      await stopServer(store, id, { facts: fakeFacts });
+      expect(signal).toHaveBeenCalledWith(-55555, 'SIGKILL');
+      expect(aliveCount).toBe(0);
+    } finally {
+      signal.mockRestore();
+    }
+  });
+
+  it('restarts a running server cleanly without false stranger port conflicts', async () => {
+    const port = nextPort();
+    const opts = {
+      ticketId: 1,
+      service: 'backend',
+      command: process.execPath,
+      args: [join(dir, 'server.mjs')],
+      cwd: dir,
+      repoPath: dir,
+      env: { PORT: String(port) },
+      host: '127.0.0.1',
+      port,
+      healthUrl: `http://127.0.0.1:${port}/health`,
+      logPath: join(dir, 'svc.log'),
+    };
+
+    const first = await startHot(store, opts);
+    expect(first.status).toBe('running');
+
+    // Immediate restart: stopServer followed directly by startHot on the same port
+    await stopServer(store, first.id);
+    const restarted = await startHot(store, opts);
+
+    expect(restarted.status).toBe('running');
+    expect(restarted.pid).not.toBe(first.pid);
+    expect(await isPortOpen('127.0.0.1', port)).toBe(true);
+
+    await stopServer(store, restarted.id);
   });
 });
 

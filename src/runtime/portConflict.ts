@@ -317,16 +317,26 @@ export interface ReclaimOutcome {
 }
 
 /** How long a killed listener may take to actually release its socket. */
-const PORT_RELEASE_MS = 2_000;
+export const PORT_RELEASE_MS = 2_000;
 
 /** Wait (bounded) for the port to be free again; true when it is. */
-async function recheckFree(host: string, port: number): Promise<boolean> {
-  const deadline = Date.now() + PORT_RELEASE_MS;
+export async function recheckFree(
+  host: string,
+  port: number,
+  timeoutMs = PORT_RELEASE_MS,
+): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (!(await isPortOpen(host, port))) return true;
     await new Promise((r) => setTimeout(r, 50));
   }
   return false;
+}
+
+export interface ReclaimPortOptions {
+  facts?: ProcessFactsSource;
+  findListeners?: (host: string, port: number) => Promise<number[]>;
+  recheckTimeoutMs?: number;
 }
 
 /**
@@ -342,14 +352,30 @@ export async function reclaimPort(
   host: string,
   port: number,
   repoPath: string,
-  facts: ProcessFactsSource = systemAsyncProcessFacts,
+  factsOrOpts: ProcessFactsSource | ReclaimPortOptions = systemAsyncProcessFacts,
 ): Promise<ReclaimOutcome> {
+  const facts: ProcessFactsSource =
+    typeof (factsOrOpts as ProcessFactsSource).isAlive === 'function'
+      ? (factsOrOpts as ProcessFactsSource)
+      : ((factsOrOpts as ReclaimPortOptions).facts ?? systemAsyncProcessFacts);
+  const findListeners =
+    'findListeners' in factsOrOpts && factsOrOpts.findListeners
+      ? factsOrOpts.findListeners
+      : listenerPids;
+  const recheckTimeoutMs =
+    'recheckTimeoutMs' in factsOrOpts && factsOrOpts.recheckTimeoutMs != null
+      ? factsOrOpts.recheckTimeoutMs
+      : PORT_RELEASE_MS;
+
   const outcome: ReclaimOutcome = { killedPids: [], stoppedRows: [], survivors: [], portFree: false };
   const uncertainKills: { pid: number; rowId?: number }[] = [];
   if (!(await isPortOpen(host, port))) return { ...outcome, portFree: true };
 
-  const pids = await listenerPids(host, port);
+  const pids = await findListeners(host, port);
   if (pids.length === 0) {
+    if (await recheckFree(host, port, recheckTimeoutMs)) {
+      return { ...outcome, portFree: true };
+    }
     // Occupied but unidentified: reclaiming is impossible, and guessing who
     // holds the port would be a stranger's kill.
     outcome.survivors.push({ pid: null });
@@ -379,7 +405,7 @@ export async function reclaimPort(
   // once. The recheck only arbitrates the killed set (fire-and-forget kills,
   // kernel teardown latency, a listener that died on its own).
   if (outcome.survivors.length === 0) {
-    outcome.portFree = await recheckFree(host, port);
+    outcome.portFree = await recheckFree(host, port, recheckTimeoutMs);
     if (outcome.portFree) {
       for (const { pid, rowId } of uncertainKills) {
         if (await facts.isAlive(pid)) {

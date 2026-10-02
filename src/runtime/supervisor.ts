@@ -602,6 +602,17 @@ interface ServerRow {
   container: string | null;
   cwd: string | null;
   started_at: string | null;
+  host: string | null;
+  port: number | null;
+}
+
+/** How long stopServer waits for process exit and port release. */
+const STOP_TEARDOWN_TIMEOUT_MS = 2_000;
+
+export interface StopServerOptions {
+  facts?: ProcessFactsSource;
+  timeoutMs?: number;
+  debug?: (message: string) => void;
 }
 
 /**
@@ -637,10 +648,10 @@ interface ServerRow {
 export async function stopServer(
   store: Store,
   id: number,
-  opts: { facts?: ProcessFactsSource } = {},
+  opts: StopServerOptions = {},
 ): Promise<void> {
   const row = store.db
-    .prepare('SELECT pid, status, container, cwd, started_at FROM servers WHERE id = ?')
+    .prepare('SELECT pid, status, container, cwd, started_at, host, port FROM servers WHERE id = ?')
     .get(id) as ServerRow | undefined;
   if (!row) return;
 
@@ -655,6 +666,20 @@ export async function stopServer(
     if (attribution === 'attributable') {
       // Group kill so a launcher's grandchildren (Vite etc.) die with it.
       denied = killTree(row.pid) === 'denied';
+      if (!denied) {
+        opts.debug?.(`[runtime] server ${id} (pid ${row.pid}): waiting for teardown`);
+        const timeoutMs = opts.timeoutMs ?? STOP_TEARDOWN_TIMEOUT_MS;
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          const released =
+            row.host && row.port
+              ? !(await isPortOpen(row.host, row.port))
+              : !(await facts.isAlive(row.pid));
+          if (released) break;
+          await new Promise((r) => setTimeout(r, 25));
+        }
+        opts.debug?.(`[runtime] server ${id}: teardown complete`);
+      }
     }
   }
   // The client is not the container. `docker run` attached gives karst a pid it
