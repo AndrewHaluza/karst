@@ -68,6 +68,15 @@ export interface CheckboxControl extends CommonControl {
   kind: 'checkbox';
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /**
+   * The text the switch's OWN `<label>` carries, when it is not the row's
+   * field name. The vanilla view pairs a plain `.field-label` (the row name)
+   * with a switch label that reads `Enabled` for the three General toggles —
+   * the switch label is the control's accessible name, so this is what the
+   * toggle reads on screen (NDL-200 parity). Omit it and the switch reuses
+   * `label`, which is what every other toggle in the vanilla view does.
+   */
+  switchLabel?: string;
 }
 
 /** One half of a paired range input (vanilla's `.row` group: min "to" max). */
@@ -103,6 +112,14 @@ export interface FieldProps {
   label: ReactNode;
   control: FieldControl;
   help?: ReactNode;
+  /**
+   * Content the row carries BESIDE its control, in the control's own track —
+   * the vanilla template row's `.template-meta` (live preview + the
+   * "Variables & transforms" helper) and its vocabulary block. Emitted after
+   * the control and before `help`, so it stacks under the control exactly
+   * where `.field-control` put it (NDL-200 parity).
+   */
+  meta?: ReactNode;
   /** Local, field-scoped error; sets `aria-invalid` and associates the message (UI-R25). */
   error?: string;
   required?: boolean;
@@ -119,6 +136,7 @@ export function Field({
   label,
   control,
   help,
+  meta,
   error,
   required = false,
   className,
@@ -164,7 +182,7 @@ export function Field({
             aria-invalid={invalid || undefined}
             onChange={(e) => control.onChange(e.target.checked)}
           />
-          <label htmlFor={id}>{label}</label>
+          <label htmlFor={id}>{control.switchLabel ?? label}</label>
         </div>
         {helpNode}
         {errorNode}
@@ -224,6 +242,7 @@ export function Field({
         {required ? <span aria-hidden="true"> *</span> : null}
       </label>
       {renderControl(control, wiring)}
+      {meta}
       {helpNode}
       {errorNode}
     </div>
