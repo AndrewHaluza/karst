@@ -64,6 +64,7 @@ Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0) — num
 
 ## Workflow
 - Strict TDD (RED→GREEN). Conventional commits. Keep files small (<400 lines typical).
+- Do not overengineer: build only what is required for the task. Avoid speculative abstractions, unnecessary configurability, premature generalizations, or unused helper layers. Keep solutions simple, direct, and pragmatic.
 - Manifest validation tested via `loadManifest` in `manifest/load.test.ts` (no schema.test.ts).
 - `vscode`-importing modules don't load under vitest (no mock). Put testable logic in a vscode-free module (e.g. `secretStore.ts`), keep the `vscode` binding a thin wrapper (`secrets.ts`).
 - Command logic belongs in `src/extension/ops/` with a `Notify` seam. `extension.ts` handlers are bindings only. The ratchet test enforces both: line ceiling and no `vscode` under `ops/`.
