@@ -96,12 +96,15 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     (target: SettingsSection) => {
       setSection(target);
       // Validity is per-tab, so re-ask for the tab now shown — otherwise Save
-      // here would be gated on the previous tab's answer.
-      send.validate(saveCandidate(target));
+      // here would be gated on the previous tab's answer. Only validate when hydrated
+      // so unhydrated empty drafts never trigger bogus validation errors.
+      if (state.hydrated) {
+        send.validate(saveCandidate(target));
+      }
     },
     // `setSection` is a `useState` setter: referentially stable for the life of
     // the component, so it is listed for completeness, not for identity.
-    [send, saveCandidate, setSection],
+    [send, saveCandidate, setSection, state.hydrated],
   );
 
   // Settle the topbar save from the reducer's own view of the last terminal
@@ -135,7 +138,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   }, [acknowledged]);
 
   const saving = save.pending;
-  const saveBlocked = !valid || !dirty || saving;
+  const saveBlocked = !valid || !dirty || saving || !state.hydrated;
 
   const requestSection = useCallback(
     (target: SettingsSection) => {
@@ -150,9 +153,9 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   );
 
   const saveNow = useCallback(() => {
-    if (!valid || !dirty) return;
+    if (!valid || !dirty || !state.hydrated) return;
     save.trigger(section);
-  }, [valid, dirty, save, section]);
+  }, [valid, dirty, save, section, state.hydrated]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {

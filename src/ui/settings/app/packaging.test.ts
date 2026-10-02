@@ -26,6 +26,23 @@ import { dirname, join } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..', '..', '..', '..');
 
+function findNodeModulesDir(start: string): string {
+  let curr = start;
+  while (curr !== dirname(curr)) {
+    const candidate = join(curr, 'node_modules');
+    if (
+      existsSync(candidate) &&
+      existsSync(join(candidate, 'better-sqlite3')) &&
+      existsSync(join(candidate, 'js-yaml'))
+    ) {
+      return candidate;
+    }
+    curr = dirname(curr);
+  }
+  return join(start, 'node_modules');
+}
+const NODE_MODULES = findNodeModulesDir(ROOT);
+
 const LINES = readFileSync(join(ROOT, '.vscodeignore'), 'utf8').split('\n');
 const RULES = LINES.map((line) => line.trim()).filter(
   (line) => line.length > 0 && !line.startsWith('#'),
@@ -74,7 +91,7 @@ type PackageJson = {
 };
 
 function readPackageJson(name: string): PackageJson | null {
-  const manifestPath = join(ROOT, 'node_modules', name, 'package.json');
+  const manifestPath = join(NODE_MODULES, name, 'package.json');
   return existsSync(manifestPath)
     ? (JSON.parse(readFileSync(manifestPath, 'utf8')) as PackageJson)
     : null;
@@ -110,7 +127,7 @@ function runtimeClosure(roots: readonly string[]): Set<string> {
 
   while (queue.length > 0) {
     const pkgName = queue.pop()!;
-    const packageDir = join(ROOT, 'node_modules', pkgName);
+    const packageDir = join(NODE_MODULES, pkgName);
     const manifest = readPackageJson(pkgName);
     if (manifest === null) continue;
     closure.add(pkgName);
@@ -138,7 +155,7 @@ function runtimeClosure(roots: readonly string[]): Set<string> {
       // every name here is a bare specifier that leaves this package.
       for (const required of requiredPackages(readFileSync(file, 'utf8'))) {
         if (readPackageJson(required) === null) continue;
-        if (closure.has(required) && visitedFiles.has(join(ROOT, 'node_modules', required, 'index.js'))) {
+        if (closure.has(required) && visitedFiles.has(join(NODE_MODULES, required, 'index.js'))) {
           continue;
         }
         queue.push(required);
@@ -151,7 +168,7 @@ function runtimeClosure(roots: readonly string[]): Set<string> {
 
 /** Every path inside a package that a replay can be asked about. */
 function samplePaths(name: string): string[] {
-  const packageDir = join(ROOT, 'node_modules', name);
+  const packageDir = join(NODE_MODULES, name);
   const samples = [`node_modules/${name}/index.js`];
   for (const relative of ['lib/database.js', 'build/Release/better_sqlite3.node']) {
     if (existsSync(join(packageDir, relative))) {
