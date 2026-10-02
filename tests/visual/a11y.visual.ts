@@ -52,6 +52,34 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  * `background` on its `body` rule, so its text rendered against the browser
  * default white instead of `--k-bg`, collapsing to near-1:1 in dark and HC.
  * Fixed in `src/ui/gettingStarted/webview.html` — see UI-R05.
+ *
+ * NDL-217: the sub-task UI (NDL-76 / PR #448) added four selectors to the
+ * light dashboard that no entry covered. None of them invents a colour:
+ *
+ * - `span#subtaskCount.count` is a `.phead .count` reading `--k-text-faint`,
+ *   the same 2.36:1 the already-ratcheted `light:span#srvCount.count` and
+ *   `light:span#prCount.count` measure — a new instance of G5, keyed
+ *   separately only because the sub-task panel's count carries its own id.
+ * - `span.stage.stg-done` is a stage badge (G5's own scope). It reads
+ *   `:root`'s DARK `--stage-done:#4bb64b` in the light fixture because
+ *   `buildFixture` only injects the theme's `document.body.className` script
+ *   when the webview markup carries a `<body>` tag — and
+ *   `src/ui/dashboard/webview.html` has none, so the palette's
+ *   `body.vscode-light{--stage-done:#1a7f37}` never applies. (That is also
+ *   why `light:span.stage.stg-impl` sits at 3.13 rather than the ~5.7 its
+ *   light value would give.) VS Code supplies the class on its own body, so
+ *   the shipped webview is unaffected; the harness fidelity gap and the
+ *   light/hc re-record that closing it needs are tracked separately, and the
+ *   entry shrinks when that lands.
+ * - `span#subtaskWaitText` and `span.subtaskBlock` read `--k-attention`
+ *   (`#bf8803` — VS Code Light Modern's own `charts-yellow` transcription),
+ *   the very colour the already-tolerated `light:span` and
+ *   `light:span.attentionMark` entries measure at 3.12:1. The sub-task row
+ *   sits on the panel's `#f3f3f3` instead of the page's white, which pulls
+ *   the "Blocking" pill down to 2.81:1. Attention-ink status text below AA in
+ *   light is the pre-existing gap those two entries already admit; these two
+ *   are its sub-task instances, keyed separately because they carry a class
+ *   and an id.
  */
 const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   // dark theme
@@ -106,6 +134,11 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span.sec-n': { ratio: 2.36, gap: 'G5' },
   'light:span.stage.stg-impl': { ratio: 3.13, gap: 'G5' },
   'light:div.nextact.warn': { ratio: 4.27, gap: 'G5' },
+  // NDL-217 — sub-task UI instances of the gaps documented above.
+  'light:span#subtaskWaitText': { ratio: 3.12 },
+  'light:span.subtaskBlock': { ratio: 2.81 },
+  'light:span#subtaskCount.count': { ratio: 2.36, gap: 'G5' },
+  'light:span.stage.stg-done': { ratio: 2.34, gap: 'G5' },
   // hc theme
   'hc:span.k-ansi-fg-red': { ratio: 3.6, gap: 'G6' },
 };
