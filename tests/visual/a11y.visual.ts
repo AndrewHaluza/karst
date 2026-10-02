@@ -132,7 +132,12 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span#diskHint.meta': { ratio: 2.36, gap: 'G5' },
   'light:span.sec-name': { ratio: 2.36, gap: 'G5' },
   'light:span.sec-n': { ratio: 2.36, gap: 'G5' },
-  'light:span.stage.stg-impl': { ratio: 3.13, gap: 'G5' },
+  // NDL-219 removed `light:span.stage.stg-impl` here. The harness only put the
+  // theme class on <body> when the markup carried a literal <body> tag, which
+  // seven of the nine webview fragments do not, so the light fixture rendered
+  // :root's dark #7f7bf5 and measured 3.13:1. buildFixture now sets the class
+  // unconditionally, the badge computes #4f46e5, and it clears AA on its own
+  // (~5.7:1) — a shrink, so the entry is gone rather than re-measured upward.
   'light:div.nextact.warn': { ratio: 4.27, gap: 'G5' },
   // NDL-217 — sub-task UI instances of the gaps documented above.
   'light:span#subtaskWaitText': { ratio: 3.12 },
