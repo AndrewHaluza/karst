@@ -33,15 +33,16 @@ export interface SettingsHostBridge {
 }
 
 /** `WebviewApi` plus the persisted-state pair `webviewSend.entry.ts` also exposes. */
-interface PageVsCodeApi extends WebviewApi {
+export interface PageVsCodeApi extends WebviewApi {
   getState(): unknown;
   setState(state: unknown): void;
 }
 
-interface PageGlobals {
+export interface PageGlobals {
   readonly vscode?: PageVsCodeApi;
   readonly karstSend?: SettingsSender;
   readonly mountAgentPicker?: AgentPickerMount;
+  readonly __karstSubscribe?: (listener: (message: SettingsHostMessage) => void) => () => void;
 }
 
 /**
@@ -104,12 +105,21 @@ export function pageHostBridge(scope: PageGlobals = globalThis as PageGlobals): 
     getState: () => (api.getState() as PersistedSettingsState | undefined) ?? undefined,
     setState: (state) => api.setState(state),
     subscribe: (listener) => {
-      const onMessage = (event: Event): void => {
-        const data = (event as MessageEvent).data as SettingsHostMessage | undefined;
-        if (data && typeof data === 'object' && typeof data.type === 'string') listener(data);
-      };
-      target.addEventListener('message', onMessage);
-      return () => target.removeEventListener('message', onMessage);
+      let unsub: () => void;
+      if (scope.__karstSubscribe) {
+        unsub = scope.__karstSubscribe(listener);
+      } else if (typeof target?.addEventListener === 'function') {
+        const onMessage = (event: Event): void => {
+          const data = (event as MessageEvent).data as SettingsHostMessage | undefined;
+          if (data && typeof data === 'object' && typeof data.type === 'string') listener(data);
+        };
+        target.addEventListener('message', onMessage);
+        unsub = () => target.removeEventListener?.('message', onMessage);
+      } else {
+        unsub = () => {};
+      }
+      send.requestState();
+      return unsub;
     },
   };
 }

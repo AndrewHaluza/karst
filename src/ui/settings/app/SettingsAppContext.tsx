@@ -129,9 +129,29 @@ export function SettingsAppProvider({
   initialSection,
   children,
 }: SettingsAppProviderProps) {
-  const [state, dispatch] = useReducer(appReducer, INITIAL_SETTINGS_APP_STATE);
-  const [section, setSection] = useState<SettingsSection>(initialSection ?? FIRST_SECTION);
   const host = useMemo(() => bridge ?? pageHostBridge(), [bridge]);
+  const [state, dispatch] = useReducer(
+    appReducer,
+    INITIAL_SETTINGS_APP_STATE,
+    (base) => {
+      const persisted = host.getState();
+      if (
+        persisted?.manifest &&
+        typeof persisted.manifest === 'object' &&
+        'host' in (persisted.manifest as Record<string, unknown>)
+      ) {
+        const manifest = persisted.manifest as Manifest;
+        return {
+          ...base,
+          draft: manifest,
+          lastSaved: manifest,
+          tokenConfigured: !!persisted.tokenConfigured,
+        };
+      }
+      return base;
+    },
+  );
+  const [section, setSection] = useState<SettingsSection>(initialSection ?? FIRST_SECTION);
   const { send } = host;
 
   // The message listener is external sync — the one effect the boundary owns.
@@ -144,12 +164,13 @@ export function SettingsAppProvider({
 
   // Persist across a reload: the manifest the file holds, plus the token flag
   // (keychain state, re-reported by the host — kept so the tab does not flash
-  // "No token" while the first `state` push is in flight).
-  const { lastSaved, tokenConfigured } = state;
-  useEffect(
-    () => host.setState({ manifest: lastSaved, tokenConfigured }),
-    [host, lastSaved, tokenConfigured],
-  );
+  // "No token" while the first `state` push is in flight). Only write after hydration
+  // so the empty placeholder never clobbers persisted state.
+  const { lastSaved, tokenConfigured, hydrated } = state;
+  useEffect(() => {
+    if (!hydrated) return;
+    host.setState({ manifest: lastSaved, tokenConfigured });
+  }, [host, lastSaved, tokenConfigured, hydrated]);
 
   const edit = useCallback(
     (update: (draft: Manifest) => Manifest) => dispatch({ kind: 'edit', update }),

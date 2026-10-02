@@ -20,6 +20,7 @@
  */
 import { createRoot } from 'react-dom/client';
 import { createSender } from '../webviewSend.js';
+import type { SettingsHostMessage } from '../messages.js';
 import { App } from './App.js';
 
 /** The subset of the VS Code webview API the page uses. */
@@ -34,12 +35,36 @@ declare function acquireVsCodeApi(): VsCodeApi;
 const vscode = acquireVsCodeApi();
 const karstSend = createSender(vscode);
 
+const bufferedMessages: SettingsHostMessage[] = [];
+let activeListener: ((message: SettingsHostMessage) => void) | null = null;
+
+window.addEventListener('message', (event: MessageEvent) => {
+  const data = event.data as SettingsHostMessage | undefined;
+  if (data && typeof data === 'object' && typeof data.type === 'string') {
+    if (activeListener) {
+      activeListener(data);
+    } else {
+      bufferedMessages.push(data);
+    }
+  }
+});
+
 const globals = globalThis as unknown as {
   vscode: VsCodeApi;
   karstSend: typeof karstSend;
+  __karstSubscribe?: (listener: (message: SettingsHostMessage) => void) => () => void;
 };
 globals.vscode = vscode;
 globals.karstSend = karstSend;
+globals.__karstSubscribe = (listener) => {
+  activeListener = listener;
+  while (bufferedMessages.length > 0) {
+    listener(bufferedMessages.shift()!);
+  }
+  return () => {
+    activeListener = null;
+  };
+};
 
 const container = document.getElementById('root');
 
@@ -48,3 +73,4 @@ if (!container) {
 }
 
 createRoot(container).render(<App />);
+karstSend.requestState();

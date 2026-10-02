@@ -241,4 +241,25 @@ describe('AppShell — the topbar keeps the vanilla entry points', () => {
     fireEvent.click(document.getElementById('mobileProjectBtn')!);
     expect(document.getElementById('projectInfoPop')!.classList.contains('open')).toBe(true);
   });
+
+  it('switching tabs while unhydrated does not validate empty drafts', () => {
+    const bridge = createTestBridge();
+    render(
+      <AnnouncerProvider>
+        <SettingsAppProvider bridge={bridge} initialSection="general">
+          <AppShell>
+            <div data-testid="tab-content" />
+          </AppShell>
+        </SettingsAppProvider>
+        <LiveRegion />
+      </AnnouncerProvider>,
+    );
+    // Click Git tab before any state push lands
+    const gitBtn = document.querySelector('.nav-btn[data-section="git"]');
+    expect(gitBtn).not.toBeNull();
+    fireEvent.click(gitBtn!);
+    expect(activeSection()).toBe('git');
+    // Must NOT post validate with an empty draft (which would fail with "host must be a non-empty string")
+    expect(bridge.all('validate')).toHaveLength(0);
+  });
 });
