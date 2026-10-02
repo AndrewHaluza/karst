@@ -261,6 +261,41 @@ describe('reclaimPort', () => {
       await close(srv);
     }
   });
+
+  it('self-heals when a listener socket releases during/immediately after discovery', async () => {
+    const { srv, port } = await listen({ host: '127.0.0.1' });
+    const repoPath = '/repo/fe';
+
+    // When listener discovery finishes and returns empty (simulating the process
+    // having terminated before lsof inspects the port), close the socket so recheckFree finds it free.
+    const findListeners = async () => {
+      await close(srv);
+      return [];
+    };
+
+    const outcome = await reclaimPort(store, '127.0.0.1', port, repoPath, { findListeners });
+
+    expect(outcome.portFree).toBe(true);
+    expect(outcome.survivors).toEqual([]);
+    expect(outcome.killedPids).toEqual([]);
+  });
+
+  it('reports an unidentified survivor when an occupied port remains occupied after discovery finds no listeners', async () => {
+    const { srv, port } = await listen({ host: '127.0.0.1' });
+    const repoPath = '/repo/fe';
+
+    try {
+      const outcome = await reclaimPort(store, '127.0.0.1', port, repoPath, {
+        findListeners: async () => [],
+        recheckTimeoutMs: 100,
+      });
+
+      expect(outcome.portFree).toBe(false);
+      expect(outcome.survivors).toEqual([{ pid: null }]);
+    } finally {
+      await close(srv);
+    }
+  });
 });
 
 describe('decideReclaim', () => {
