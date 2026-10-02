@@ -96,4 +96,7 @@ reports/
 # Playwright visual sweep
 tests/visual/.report/
 tests/visual/.tmp/
+# JSON outcome counts the CI gate (scripts/visual-sweep-gate.mjs) reads to
+# tell an advisory diff failure apart from a sweep that never ran.
+tests/visual/.results.json
 test-results/

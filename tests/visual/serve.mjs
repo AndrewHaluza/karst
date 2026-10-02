@@ -3,11 +3,41 @@ import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
 import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
+import {
+  WEBVIEW_BUNDLE_ENTRIES,
+  buildWebviewBundles,
+} from '../../scripts/build-webview-send.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+const REPO_ROOT = join(__dirname, '..', '..');
 const PORT = 4317;
 const ROOT = join(__dirname, '.tmp');
+
+// The webview sender bundles (esbuild output of *.webviewSend.entry.ts /
+// app/main.tsx) are gitignored build products.  vitest's globalSetup rebuilds
+// them for the unit suite, but nothing rebuilds them for a checkout that goes
+// straight to the sweep — CI, `npm run test:visual:docker`, a fresh clone.  The
+// fixture writer hydrates each webview.html through the real injector chain,
+// which readFileSync's those bundles, so a missing one kills fixture
+// generation and with it the whole webServer (ENOENT webviewSend.webview.js,
+// NDL-218).  Build whatever is missing before anything else runs.
+const missingBundles = WEBVIEW_BUNDLE_ENTRIES.filter(
+  (entry) => !existsSync(join(REPO_ROOT, entry.output)),
+);
+if (missingBundles.length > 0) {
+  console.log(
+    `Building ${missingBundles.length} missing webview bundle(s): ${missingBundles
+      .map((entry) => entry.output)
+      .join(', ')}`,
+  );
+  try {
+    await buildWebviewBundles();
+  } catch (err) {
+    console.error('Failed to build webview bundles:', err);
+    process.exit(1);
+  }
+}
 
 // Ensure fixtures exist before serving.  On a clean checkout .tmp/ is absent
 // and every request would 404 without this step.

@@ -149,6 +149,18 @@ jobs:
       # NOT run — the image already provides Chromium.
       - run: npm ci
 
+      # The webview sender bundles (gitignored esbuild output of
+      # scripts/build-webview-send.mjs) must exist before the sweep: fixture
+      # generation hydrates webview.html through the REAL injector chain, which
+      # readFileSync's `webviewSend.webview.js`. Until NDL-218 only vitest's
+      # globalSetup built them, so this job died on startup with
+      # ENOENT webviewSend.webview.js — masked by `continue-on-error: true`.
+      # serve.mjs now also builds them on demand (it is the path the docker
+      # script takes); doing it here as well fails fast and names the
+      # prerequisite in the job log.
+      - name: Build the webview bundles
+        run: node scripts/build-webview-send.mjs
+
       # tests/visual is excluded from the main tsconfig, so its type errors are
       # only visible through this config — and they belong to this job, not to
       # the blocking verify job.
@@ -159,10 +171,22 @@ jobs:
       # environmental noise unrelated to the PR under review, and a blocking
       # check that cries wolf gets ignored. The uploaded report makes every
       # diff inspectable in the meantime.
+      #
+      # Advisory covers TEST FAILURES only — hence no `continue-on-error`
+      # here. scripts/visual-sweep-gate.mjs exits non-zero when the run
+      # produced zero executed tests (a webServer/startup crash), so a sweep
+      # that never ran is a red step on a red job instead of the green
+      # conclusion/outcome split that hid it (NDL-218).
       - name: Run the visual sweep
         id: visual
-        continue-on-error: true
-        run: npm run test:visual
+        run: |
+          rm -f tests/visual/.results.json
+          set +e
+          npm run test:visual
+          code=$?
+          set -e
+          echo "playwright-exit-code=${code}" >> "$GITHUB_OUTPUT"
+          node scripts/visual-sweep-gate.mjs
 
       - name: Publish the outcome to the run summary
         if: always()
@@ -171,21 +195,35 @@ jobs:
             echo '## Visual regression'
             echo
             echo "Sweep step outcome: \`${{ steps.visual.outcome }}\`"
+            echo "Playwright exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (advisory for test failures; the gate fails the job only when zero tests ran)"
             echo
-            if [ -d tests/visual/.report ]; then
-              echo 'See the uploaded `visual-report` artifact for the diff viewer.'
+            if [ -f tests/visual/.results.json ]; then
+              executed="$(node -e "const s = require('./tests/visual/.results.json').stats || {}; console.log((s.expected || 0) + (s.unexpected || 0) + (s.flaky || 0))" 2>/dev/null || echo 0)"
+              echo "Tests executed: \`${executed}\`"
+              if [ "$executed" -gt 0 ]; then
+                echo 'See the uploaded `visual-report` artifact for the diff viewer.'
+              else
+                echo 'Zero tests executed — the sweep never started. That is a hard failure, not an advisory diff.'
+              fi
             else
-              echo 'Playwright produced no HTML report.'
+              echo 'No Playwright results — the sweep did not run. That is a hard failure, not an advisory diff.'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # `.report` is a DOT-prefixed directory, and upload-artifact@v4 drops
+      # every path that passes through a hidden segment unless
+      # `include-hidden-files` is on — with the default the step "succeeds"
+      # while silently uploading nothing (the missing `visual-report` artifact
+      # in NDL-218, which read as a healthy job). `if-no-files-found: error`
+      # so a report that should exist can never vanish quietly again.
       - name: Upload the Playwright report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: visual-report
           path: tests/visual/.report/
-          if-no-files-found: ignore
+          if-no-files-found: error
+          include-hidden-files: true
           retention-days: 14
 
   # Branch policy guard (NDL-52 phase 4.4): `main` is the release branch, so it

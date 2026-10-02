@@ -60,6 +60,12 @@ export default defineConfig({
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'tests/visual/.report' }],
+    // Machine-readable outcome counts for the CI gate
+    // (scripts/visual-sweep-gate.mjs, called by .github/workflows/ci.yml):
+    // the sweep step is advisory for screenshot diffs but must fail when the
+    // run produced zero executed tests — a webServer/startup crash that used
+    // to hide behind `continue-on-error: true` (NDL-218).  Gitignored.
+    ['json', { outputFile: 'tests/visual/.results.json' }],
   ],
 
   projects: [
