@@ -103,6 +103,7 @@
   .form-grid > .k-field > .k-switch,
   .form-grid > .k-field > .k-field-help,
   .form-grid > .k-field > .k-field-error,
+  .form-grid > .k-field > .template-meta,
   .k-field.template-form-row > .k-input,
   .k-field.template-form-row > .template-meta,
   .k-field.template-form-row > .label-vars,
@@ -727,6 +728,12 @@
   .form-grid > .field-label{grid-column:1}
   .form-grid > .field-control{grid-column:2;min-width:0}
   .form-grid > .field-label, .form-grid > .field-control{grid-column:auto}
+  /* The Git tab's preset row has no `.field-label` sibling — the React `Field`
+     carries its own label inside the wrapper — so auto placement drops the
+     wrapper into the 208px label track and clips the select to "Choose a p"
+     (NDL-211). Pin it to the content track, where vanilla's `.field-control`
+     for that row sat. */
+  .form-grid > .field-control.row{grid-column:2}
   .field-label{display:flex;align-items:center;min-height:var(--k-space-8);font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-0)}
   .field-control{min-width:0}
   .field-help{font-size:var(--k-text-xs);color:var(--k-text-dim);line-height:var(--k-leading-normal);margin-top:var(--k-space-2)}

@@ -289,7 +289,7 @@ describe('GitSection — the transform helper operates on the caret (R-X1)', () 
     fireEvent.change(field, { target: { value: 'karst/{slug}' } });
     // Caret at 9 sits INSIDE {slug} (6..12) — not at the end of the template.
     field.setSelectionRange(9, 9);
-    const meta = field.closest('.k-field')!.nextElementSibling as Element;
+    const meta = field.closest('.k-field')!.querySelector('.template-meta') as Element;
     const upper = transformButtons(meta).find((name) => name === 'upper');
     expect(upper).toBe('upper');
     const button = Array.from(meta.querySelectorAll('button')).find(
@@ -308,7 +308,7 @@ describe('GitSection — the transform helper operates on the caret (R-X1)', () 
     const field = screen.getByLabelText('Branch name template') as HTMLInputElement;
     fireEvent.change(field, { target: { value: 'karst/slug' } });
     field.setSelectionRange(9, 9);
-    const meta = field.closest('.k-field')!.nextElementSibling as Element;
+    const meta = field.closest('.k-field')!.querySelector('.template-meta') as Element;
     const button = Array.from(meta.querySelectorAll('button')).find(
       (b) => b.textContent === 'upper',
     ) as HTMLButtonElement;

@@ -201,6 +201,7 @@ export function GitSection() {
             />
             <Button
               variant="secondary"
+              className="fixed"
               disabled={chosen === ''}
               onClick={() => applyPreset(chosen)}
             >
@@ -301,55 +302,55 @@ function TemplateRow({
   };
 
   return (
-    <>
-      <Field
-        label={label}
-        error={error}
-        help={HINTS[field]}
-        control={
-          isBody
-            ? {
-                kind: 'textarea',
-                name: field,
-                value,
-                rows: 6,
-                placeholder: PLACEHOLDERS[field],
-                onChange,
-                inputRef: areaRef,
-              }
-            : {
-                kind: 'input',
-                name: field,
-                value,
-                placeholder: PLACEHOLDERS[field],
-                onChange,
-                inputRef,
-              }
-        }
-      />
-      <div className="field-control template-meta">
-        <div className="template-preview">
-          Preview: <span className="lp-val">{preview}</span>
+    <Field
+      label={label}
+      error={error}
+      help={HINTS[field]}
+      control={
+        isBody
+          ? {
+              kind: 'textarea',
+              name: field,
+              value,
+              rows: 6,
+              placeholder: PLACEHOLDERS[field],
+              onChange,
+              inputRef: areaRef,
+            }
+          : {
+              kind: 'input',
+              name: field,
+              value,
+              placeholder: PLACEHOLDERS[field],
+              onChange,
+              inputRef,
+            }
+      }
+      meta={
+        <div className="template-meta">
+          <div className="template-preview">
+            Preview: <span className="lp-val">{preview}</span>
+          </div>
+          <Help>
+            Variables: {vocabulary.map((name) => `{${name}}`).join(' ')}
+          </Help>
+          <Help>
+            Transforms:{' '}
+            {TRANSFORM_NAMES.map((name) => (
+              <Button key={name} variant="ghost" size="sm" onClick={() => insertTransform(name)}>
+                {name}
+              </Button>
+            ))}{' '}
+            — pipe them, e.g. {'{key|slice:-4}'}
+          </Help>
+          {onReset ? (
+            <button type="button" className="template-reset-link" onClick={onReset}>
+              Reset to default
+            </button>
+          ) : null}
         </div>
-        <Help>
-          Variables: {vocabulary.map((name) => `{${name}}`).join(' ')}
-        </Help>
-        <Help>
-          Transforms:{' '}
-          {TRANSFORM_NAMES.map((name) => (
-            <Button key={name} variant="ghost" size="sm" onClick={() => insertTransform(name)}>
-              {name}
-            </Button>
-          ))}{' '}
-          — pipe them, e.g. {'{key|slice:-4}'}
-        </Help>
-        {onReset ? (
-          <button type="button" className="template-reset-link" onClick={onReset}>
-            Reset to default
-          </button>
-        ) : null}
-      </div>
-    </>
+      }
+    />
   );
 }
 
