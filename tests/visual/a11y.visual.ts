@@ -53,24 +53,13 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  * default white instead of `--k-bg`, collapsing to near-1:1 in dark and HC.
  * Fixed in `src/ui/gettingStarted/webview.html` — see UI-R05.
  *
- * NDL-217: the sub-task UI (NDL-76 / PR #448) added four selectors to the
+ * NDL-217: the sub-task UI (NDL-76 / PR #448) added selectors to the
  * light dashboard that no entry covered. None of them invents a colour:
  *
  * - `span#subtaskCount.count` is a `.phead .count` reading `--k-text-faint`,
  *   the same 2.36:1 the already-ratcheted `light:span#srvCount.count` and
  *   `light:span#prCount.count` measure — a new instance of G5, keyed
  *   separately only because the sub-task panel's count carries its own id.
- * - `span.stage.stg-done` is a stage badge (G5's own scope). It reads
- *   `:root`'s DARK `--stage-done:#4bb64b` in the light fixture because
- *   `buildFixture` only injects the theme's `document.body.className` script
- *   when the webview markup carries a `<body>` tag — and
- *   `src/ui/dashboard/webview.html` has none, so the palette's
- *   `body.vscode-light{--stage-done:#1a7f37}` never applies. (That is also
- *   why `light:span.stage.stg-impl` sits at 3.13 rather than the ~5.7 its
- *   light value would give.) VS Code supplies the class on its own body, so
- *   the shipped webview is unaffected; the harness fidelity gap and the
- *   light/hc re-record that closing it needs are tracked separately, and the
- *   entry shrinks when that lands.
  * - `span#subtaskWaitText` and `span.subtaskBlock` read `--k-attention`
  *   (`#bf8803` — VS Code Light Modern's own `charts-yellow` transcription),
  *   the very colour the already-tolerated `light:span` and
@@ -80,6 +69,17 @@ const HAS_PENDING_STATE: readonly ViewId[] = ['usage', 'resources'];
  *   light is the pre-existing gap those two entries already admit; these two
  *   are its sub-task instances, keyed separately because they carry a class
  *   and an id.
+ *
+ * NDL-219 removed two stage-badge entries that were never palette defects:
+ * `light:span.stage.stg-impl` (3.13) and NDL-217's `light:span.stage.stg-done`
+ * (2.34). The harness only set `document.body.className` when the markup
+ * carried a literal `<body>` tag — and seven of the nine webview fragments
+ * have none — so the light fixture rendered `:root`'s dark `#7f7bf5` /
+ * `#4bb64b` instead of `#4f46e5` / `#1a7f37`. `buildFixture` now sets the
+ * class unconditionally; both badges compute their light values and clear AA
+ * on their own (~5.7:1 and ~4.6:1). The shipped webview was never affected —
+ * VS Code puts the class on its own body — so this was a harness-fidelity gap,
+ * now closed and pinned by `stagePalette.visual.ts`.
  */
 const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   // dark theme
@@ -132,18 +132,14 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:span#diskHint.meta': { ratio: 2.36, gap: 'G5' },
   'light:span.sec-name': { ratio: 2.36, gap: 'G5' },
   'light:span.sec-n': { ratio: 2.36, gap: 'G5' },
-  // NDL-219 removed `light:span.stage.stg-impl` here. The harness only put the
-  // theme class on <body> when the markup carried a literal <body> tag, which
-  // seven of the nine webview fragments do not, so the light fixture rendered
-  // :root's dark #7f7bf5 and measured 3.13:1. buildFixture now sets the class
-  // unconditionally, the badge computes #4f46e5, and it clears AA on its own
-  // (~5.7:1) — a shrink, so the entry is gone rather than re-measured upward.
+  // NDL-219 removed `light:span.stage.stg-impl` here (3.13, G5) and
+  // `light:span.stage.stg-done` below (2.34, G5) — both were the harness
+  // missing the theme body class, not a palette defect. See the header note.
   'light:div.nextact.warn': { ratio: 4.27, gap: 'G5' },
   // NDL-217 — sub-task UI instances of the gaps documented above.
   'light:span#subtaskWaitText': { ratio: 3.12 },
   'light:span.subtaskBlock': { ratio: 2.81 },
   'light:span#subtaskCount.count': { ratio: 2.36, gap: 'G5' },
-  'light:span.stage.stg-done': { ratio: 2.34, gap: 'G5' },
   // hc theme
   'hc:span.k-ansi-fg-red': { ratio: 3.6, gap: 'G6' },
 };
