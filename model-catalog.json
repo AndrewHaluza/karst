@@ -32,6 +32,12 @@
       { "id": "gemini-3.5-flash-low", "label": "Gemini 3.5 Flash (Low)", "efforts": ["low", "medium", "high"], "tags": ["multimodal", "vision", "audio"] },
       { "id": "gemini-3.1-pro-high", "label": "Gemini 3.1 Pro (High)", "efforts": ["low", "high"], "tags": ["multimodal", "vision", "audio"] },
       { "id": "gemini-3.1-pro-low", "label": "Gemini 3.1 Pro (Low)", "efforts": ["low", "high"], "tags": ["multimodal", "vision", "audio"] },
+      { "id": "claude-opus-5-5-high", "label": "Claude Opus 5.5 (High)", "tags": ["multimodal", "vision"] },
+      { "id": "claude-opus-5-5-medium", "label": "Claude Opus 5.5 (Medium)", "tags": ["multimodal", "vision"] },
+      { "id": "claude-opus-5-5-low", "label": "Claude Opus 5.5 (Low)", "tags": ["multimodal", "vision"] },
+      { "id": "claude-sonnet-5-5-high", "label": "Claude Sonnet 5.5 (High)", "tags": ["multimodal", "vision"] },
+      { "id": "claude-sonnet-5-5-medium", "label": "Claude Sonnet 5.5 (Medium)", "tags": ["multimodal", "vision"] },
+      { "id": "claude-sonnet-5-5-low", "label": "Claude Sonnet 5.5 (Low)", "tags": ["multimodal", "vision"] },
       { "id": "claude-sonnet-4-6", "label": "Claude Sonnet 4.6", "tags": ["multimodal", "vision"] },
       { "id": "claude-opus-4-6-thinking", "label": "Claude Opus 4.6 Thinking", "tags": ["multimodal", "vision"] },
       { "id": "gpt-oss-120b-medium", "label": "GPT-OSS 120B (Medium)", "tags": ["text-only"] }
