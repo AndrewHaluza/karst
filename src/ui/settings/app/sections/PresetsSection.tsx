@@ -88,6 +88,43 @@ const EMPTY_CATALOG: Readonly<Record<string, unknown>> = {};
  */
 const NO_INHERIT: { readonly core?: string; readonly model?: string; readonly effort?: string } = {};
 
+function InlineEditor({
+  initialValue,
+  onSave,
+  onCancel
+}: {
+  initialValue: string;
+  onSave: (val: string) => boolean;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(initialValue);
+  return (
+    <input
+      autoFocus
+      className="k-input"
+      style={{ minWidth: 0, padding: '2px 8px', height: 'auto', flex: 1 }}
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (onSave(value)) onCancel();
+        } else if (e.key === 'Escape') {
+          onCancel();
+        }
+      }}
+      onBlur={() => {
+        if (value !== initialValue) {
+          if (onSave(value)) onCancel();
+        } else {
+          onCancel();
+        }
+      }}
+    />
+  );
+}
+
 export function PresetsSection() {
   const { state, edit } = useSettingsApp();
   const draft = state.draft;
@@ -138,15 +175,9 @@ export function PresetsSection() {
   // verdict and must not go through the shared banner.
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-  const [nameValue, setNameValue] = useState('');
-  const [inlineEdit, setInlineEdit] = useState<string | null>(null);
+    const [inlineEdit, setInlineEdit] = useState<string | null>(null);
 
-  const setName = (next: string): void => {
-    setNameValue(next);
-    // UI-R25: typing clears the stale fault rather than leaving it next to a
-    // value that may already be legal.
-    setFormError(null);
-  };
+
 
   /** Replace one preset in the draft map and clear the tab's fault lines. */
   const commitPresets = (next: Record<string, AgentPreset>): void => {
@@ -243,8 +274,8 @@ export function PresetsSection() {
     setListError(null);
   };
 
-  const onSave = (): boolean => {
-    const name = nameValue;
+  const onSave = (name: string): boolean => {
+    
     const next = { ...presetMap(draft) };
     const renaming = editing !== NO_SELECTION && editing !== name;
 
@@ -386,8 +417,7 @@ export function PresetsSection() {
               next[newName] = { slots: {} } as AgentPreset;
               commitPresets(next);
               setSelected(newName);
-              setNameValue(newName);
-              setInlineEdit(newName);
+                            setInlineEdit(newName);
               setFormError(null);
               setListError(null);
             }}
@@ -454,30 +484,10 @@ export function PresetsSection() {
                   <div className="preset-card-row-top">
                     <div className="preset-name-cluster">
                       {inlineEdit === name ? (
-                        <input
-                          autoFocus
-                          className="k-input"
-                          style={{ minWidth: 0, padding: '2px 8px', height: 'auto', flex: 1 }}
-                          value={nameValue}
-                          onChange={(e) => setName(e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              if (onSave()) setInlineEdit(null);
-                            } else if (e.key === 'Escape') {
-                              setInlineEdit(null);
-                              setNameValue(name);
-                            }
-                          }}
-                          onBlur={() => {
-                            if (nameValue !== name) {
-                              if (onSave()) setInlineEdit(null);
-                            } else {
-                              setInlineEdit(null);
-                            }
-                          }}
-                        />
+                        <InlineEditor initialValue={name} onSave={(val) => {
+                          setFormError(null); // Clear fault on save attempt
+                          return onSave(val);
+                        }} onCancel={() => setInlineEdit(null)} />
                       ) : (
                         <>
                           <span className="preset-card-name">{name}</span>
