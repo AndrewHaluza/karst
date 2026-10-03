@@ -124,6 +124,7 @@
 .bulk-controls .ap {
   grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(140px, 1fr);
   gap: var(--k-space-2);
+  align-items: center;
 }
 
 .bulk-buttons {
@@ -527,7 +528,7 @@
    column header already names the whole cell, so the per-row captions
    are redundant — hide them here, scoped to the matrix so the Agents
    tab's process matrix (which mounts the same picker) keeps theirs. */
-.cap-value .ap .ap-label {
+.cap-value .ap .ap-label, .bulk-controls .ap .ap-label {
   display: none;
 }
 
