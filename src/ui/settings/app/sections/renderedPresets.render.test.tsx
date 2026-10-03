@@ -181,7 +181,7 @@ describe('rendered Presets tab — the section mounts and re-renders on a push',
   it('falls back to the first preset when a push removes the one being edited', async () => {
     const { view } = await mountOnPresets();
     // The tab defaults to the first name in sorted order.
-    expect(tab(view).querySelector('.preset-row.is-selected .preset-name')?.textContent).toBe('cheap');
+    expect(tab(view).querySelector('.preset-card-compact.is-selected .preset-card-name')?.textContent).toBe('cheap');
     // A push that drops `cheap` must not leave the matrix pointed at a record
     // that no longer exists — the tab stays usable.
     await view.receive({
@@ -191,10 +191,10 @@ describe('rendered Presets tab — the section mounts and re-renders on a push',
         agentPresets: { smart: { slots: {} } } as Record<string, AgentPreset>,
       }),
     });
-    expect(tab(view).querySelector('.preset-row.is-selected .preset-name')?.textContent).toBe('smart');
+    expect(tab(view).querySelector('.preset-card-compact.is-selected .preset-card-name')?.textContent).toBe('smart');
     // `probe().draft` → the rendered preset list: the push dropped `cheap`, so
     // the draft's `agentPresets` map now names only the surviving preset.
-    const names = Array.from(tab(view).querySelectorAll('.preset-row .preset-name')).map(
+    const names = Array.from(tab(view).querySelectorAll('.preset-card-compact .preset-card-name')).map(
       (n) => n.textContent ?? '',
     );
     expect(names).toEqual(['smart']);
@@ -220,14 +220,10 @@ describe('rendered Presets tab — dirty marking (R26)', () => {
     expect(navMarker(view, 'presets')?.getAttribute('title')).toContain('unsaved changes');
   });
 
-  it('does not touch the draft until Save is pressed — the name field is a form buffer', async () => {
+  it('does not mark draft dirty simply by selecting different presets', async () => {
     const { view } = await mountOnPresets();
-    await typeInto(view, 'f-presetName', 'smarter');
-    // Typing is not a manifest write: the rename is committed by the Save
-    // button, which is what makes "leave it as-is to edit in place" safe.
-    // `probe().draft.agentPresets` → the rendered preset list, still both
-    // records, and nothing marked dirty.
-    const names = Array.from(tab(view).querySelectorAll('.preset-row .preset-name')).map(
+    await view.click(tab(view).querySelectorAll('.preset-card-compact')[0] as Element);
+    const names = Array.from(tab(view).querySelectorAll('.preset-card-compact .preset-card-name')).map(
       (n) => n.textContent ?? '',
     );
     expect(names.sort()).toEqual(['cheap', 'smart']);

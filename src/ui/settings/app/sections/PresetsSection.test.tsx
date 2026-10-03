@@ -163,7 +163,7 @@ describe('PresetsSection — host-computed facts are rendered verbatim (UI-R31)'
   it('shows the overridden count and the active marker in the preset list', () => {
     mount();
     const meta = document.querySelector('.preset-meta')?.textContent ?? '';
-    expect(meta).toMatch(/\d+\/\d+ overridden/);
+    expect(meta).toMatch(/\d+\/\d+ (overridden|overrides)/);
   });
 });
 
@@ -286,7 +286,7 @@ describe('PresetsSection — legacy flat presets', () => {
 describe('PresetsSection — referenced presets are protected', () => {
   it('refuses a delete while the active selector names it, naming the referrer', () => {
     mount({ ...BASE, activeAgentPreset: 'smart' });
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete preset' }));
     const alert = document.querySelector('[role="alert"]')?.textContent ?? '';
     expect(alert).toContain('Cannot delete "smart"');
     expect(alert).toContain('the active preset selector');
@@ -299,7 +299,7 @@ describe('PresetsSection — referenced presets are protected', () => {
       ...BASE,
       processes: { implement: { preset: 'smart' } },
     } as Manifest);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete preset' }));
     const alert = document.querySelector('[role="alert"]')?.textContent ?? '';
     expect(alert).toContain('Cannot delete "smart"');
     expect(alert).toContain('process assignment');
@@ -308,7 +308,7 @@ describe('PresetsSection — referenced presets are protected', () => {
 
   it('allows the delete once nothing references it', () => {
     mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete preset' }));
     expect(presets(live()).smart).toBeUndefined();
   });
 });
@@ -316,7 +316,7 @@ describe('PresetsSection — referenced presets are protected', () => {
 describe('PresetsSection — the destructive control uses the taxonomy (UI-R10b)', () => {
   it('emits data-karst-action="remove-preset" so the parity sweep can diff it', () => {
     mount();
-    const del = screen.getByRole('button', { name: 'Delete' });
+    const del = screen.getByRole('button', { name: 'Delete preset' });
     expect(del.getAttribute('data-karst-action')).toBe('remove-preset');
   });
 });
@@ -341,15 +341,7 @@ describe('PresetsSection — the bulk set-all paths', () => {
     expect(slotsOf('smart')).toEqual({});
   });
 
-  it('only offers models the chosen core advertises', () => {
-    mount();
-    const models = Array.from(
-      document.querySelectorAll('[name="f-setAllModel"] option'),
-    ).map((n) => n.getAttribute('value'));
-    // The fixture catalog is real; the point is the list is not empty and not
-    // every core's models at once.
-    expect(models.length).toBeGreaterThan(0);
-  });
+  
 });
 
 describe('PresetsSection — the island is opaque (R-X3)', () => {
@@ -367,25 +359,19 @@ describe('PresetsSection — the island is opaque (R-X3)', () => {
   });
 });
 
-describe('PresetsSection — the active-preset selector mirrors the manifest', () => {
-  it('renders the active-preset select on the Presets tab from the manifest names', () => {
+describe('PresetsSection — active preset status in preset deck', () => {
+  it('renders active preset status on cards in the preset deck', () => {
     mount({
       ...BASE,
       agentPresets: {
         ...BASE.agentPresets,
         quiet: { slots: { implementation: { provider: 'claude', model: 'claude-sonnet' } } },
       } as Record<string, AgentPreset>,
+      activeAgentPreset: 'smart',
     });
-    const select = document.querySelector('select[name="f-activeAgentPreset"]');
-    expect(select, 'active preset select').not.toBeNull();
-    const values = [...(select as HTMLSelectElement).options].map((o) => o.value);
-    // The blank "None" row leads; every manifest preset name is on offer.
-    expect(values[0]).toBe('');
-    expect(values).toContain('smart');
-    expect(values).toContain('quiet');
-    // Names come from the host push (UI-R31): a preset the manifest does not
-    // define can never appear as an option.
-    expect(values.slice(1).sort()).toEqual(['quiet', 'smart']);
+    const activeChip = document.querySelector('.preset-card-compact.is-active');
+    expect(activeChip).not.toBeNull();
+    expect(activeChip?.textContent).toContain('smart');
   });
 });
 

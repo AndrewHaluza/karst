@@ -121,8 +121,7 @@
   white-space: nowrap;
 }
 
-.bulk-controls {
-  display: grid;
+.bulk-controls .ap {
   grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(140px, 1fr);
   gap: var(--k-space-2);
 }
@@ -431,7 +430,7 @@
     grid-template-columns: 1fr;
     gap: var(--k-space-3);
   }
-  .bulk-controls {
+  .bulk-controls .ap {
     grid-template-columns: 1fr 1fr;
   }
   .bulk-buttons {
@@ -454,7 +453,7 @@
   .cap-override-grid {
     grid-template-columns: 1fr;
   }
-  .bulk-controls {
+  .bulk-controls .ap {
     grid-template-columns: 1fr;
   }
 }
@@ -563,3 +562,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+

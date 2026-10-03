@@ -40,6 +40,12 @@ import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { Chip } from '../primitives/Chip.js';
+import { IconButton } from '../primitives/IconButton.js';
+
+function TablerIcon({ name }: { name: string }) {
+  const paths = (window as any).KARST_TABLER_ICONS?.[name] || '';
+  return <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" width={14} height={14} dangerouslySetInnerHTML={{ __html: paths }} />;
+}
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 import type { PresetInheritance } from '../../presetMatrix.js';
 import {
@@ -103,12 +109,23 @@ export function PresetsSection() {
   const capabilityIds = useMemo(() => presetCapabilityIds(groups), [groups]);
   const total = capabilityIds.length;
 
+  /** Preset filter: 'all' | 'active' */
+  const [presetFilter, setPresetFilter] = useState<'all' | 'active'>('all');
+
   /** Filter mode: 'all' | 'overridden' | 'inherited' */
   const [filterMode, setFilterMode] = useState<'all' | 'overridden' | 'inherited'>('all');
   /** Search query for filtering capability names/labels */
   const [matrixSearch, setMatrixSearch] = useState('');
   /** Set of group IDs that are folded */
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const activeName = activePresetName(draft);
+  const displayedNames = useMemo(() => {
+    if (presetFilter === 'active') {
+      return names.filter((n) => n === activeName);
+    }
+    return names;
+  }, [names, presetFilter, activeName]);
 
   const preset: AgentPreset | null = currentPreset(draft, editing);
   const slots: Record<string, PresetSlot> = useMemo(
@@ -311,19 +328,7 @@ export function PresetsSection() {
   const [comparePresetA, setComparePresetA] = useState<string>('');
   const [comparePresetB, setComparePresetB] = useState<string>('');
 
-  const exportYaml = (name: string): void => {
-    const p = presetMap(draft)[name];
-    if (!p) return;
-    const content = `agentPresets:\n  ${name}:\n` + JSON.stringify(p, null, 2);
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      void navigator.clipboard.writeText(content).then(
-        () => setListError(`Copied "${name}" YAML to clipboard!`),
-        () => setListError(`Preset configuration:\n${content}`),
-      );
-    } else {
-      setListError(`Preset configuration:\n${content}`);
-    }
-  };
+  
 
   const filteredGroups = useMemo(() => {
     return groups
@@ -396,15 +401,31 @@ export function PresetsSection() {
               Select a preset to inspect its matrix below. Click “Set as Active” or use the icons to copy/export YAML.
             </div>
           </div>
+          <div className="filter-pills">
+            <button
+              type="button"
+              className={`pill-btn${presetFilter === 'all' ? ' active' : ''}`}
+              onClick={() => setPresetFilter('all')}
+            >
+              All ({names.length})
+            </button>
+            <button
+              type="button"
+              className={`pill-btn${presetFilter === 'active' ? ' active' : ''}`}
+              onClick={() => setPresetFilter('active')}
+            >
+              Active ({activeName ? 1 : 0})
+            </button>
+          </div>
         </div>
 
-        {names.length === 0 ? (
+        {displayedNames.length === 0 ? (
           <div className="preset-empty">
             No presets yet. Add one to pick the capabilities it overrides.
           </div>
         ) : (
-          <div className="preset-deck preset-list">
-            {names.map((name) => {
+          <div className="preset-deck">
+            {displayedNames.map((name) => {
               const record = presetMap(draft)[name];
               const overridden = overriddenCount(record, capabilityIds);
               const active = name === activePresetName(draft);
@@ -416,66 +437,52 @@ export function PresetsSection() {
               return (
                 <div
                   key={name}
-                  className={`preset-card-compact preset-row${isSelected ? ' is-selected' : ''}${active ? ' is-active' : ''}`}
+                  className={`preset-card-compact${isSelected ? ' is-selected' : ''}${active ? ' is-active' : ''}`}
                   tabIndex={0}
                   onClick={() => select(name)}
                 >
                   <div className="preset-card-row-top">
                     <div className="preset-name-cluster">
-                      <span className="preset-name preset-card-name">{name}</span>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        title="Rename or edit preset"
+                      <span className="preset-card-name">{name}</span>
+                      <IconButton
+                        label="Rename preset"
                         onClick={(e) => {
                           e.stopPropagation();
                           select(name);
                         }}
                       >
-                        ✎
-                      </Button>
+                        <TablerIcon name="pencil" />
+                      </IconButton>
                     </div>
-                    <div className="preset-corner-actions preset-row-actions">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        title="Export / Copy YAML"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          exportYaml(name);
-                        }}
-                      >
-                        📄
-                      </Button>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        title="Duplicate preset"
+                    <div className="preset-corner-actions">
+                      <IconButton
+                        label="Duplicate preset"
                         onClick={(e) => {
                           e.stopPropagation();
                           onDuplicate(name);
                         }}
                       >
-                        Duplicate
-                      </Button>
-                      <DestructiveButton
-                        action="remove-preset"
-                        size="sm"
-                        title="Delete preset"
-                        aria-label="Delete"
+                        <TablerIcon name="copy" />
+                      </IconButton>
+                      <IconButton
+                        label="Delete preset"
+                        danger
+                        data-karst-action="remove-preset"
                         onClick={(e) => {
                           e.stopPropagation();
                           onDelete(name);
                         }}
                       >
-                        Delete
-                      </DestructiveButton>
+                        <TablerIcon name="trash" />
+                      </IconButton>
                     </div>
                   </div>
                   <div className="preset-card-row-bottom">
-                    <span className="preset-meta">{meta}</span>
+                    <span className="preset-meta">{`${overridden}/${total} overrides`}</span>
                     {active ? (
-                      <Chip tone="success">✓ Active Default</Chip>
+                      <span className="k-chip k-chip--success" title="Default preset applied to tickets">
+                        <TablerIcon name="check" /> Selected
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -502,54 +509,7 @@ export function PresetsSection() {
           </div>
         ) : null}
 
-        <div className="form-grid">
-          <Field
-            label="Preset name"
-            error={formError ?? undefined}
-            help="The name tickets and the active selector refer to. Leave it as-is to edit the selected preset in place."
-            control={{
-              kind: 'input',
-              name: 'f-presetName',
-              value: nameValue,
-              placeholder: 'smart',
-              onChange: setName,
-            }}
-          />
-
-          <Field
-            label="Active preset"
-            control={{
-              kind: 'select',
-              name: 'f-activeAgentPreset',
-              value: activePresetName(draft),
-              options: [
-                { value: '', label: 'None (every capability inherits)' },
-                ...(activePresetName(draft) !== '' && names.indexOf(activePresetName(draft)) === -1
-                  ? [{ value: activePresetName(draft), label: activePresetName(draft) }]
-                  : []),
-                ...names.map((n) => ({ value: n, label: n })),
-              ],
-              onChange: setActive,
-            }}
-          />
-        </div>
-
-        <div className="preset-actions">
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setSelected(NO_SELECTION);
-              setNameValue('');
-              setFormError(null);
-              setListError(null);
-            }}
-          >
-            Cancel
-          </Button>
-          <Button variant="primary" onClick={onSave}>
-            {editing === NO_SELECTION ? '+ Add preset' : 'Save preset'}
-          </Button>
-        </div>
+        
       </div>
 
       <div className="section-card section-block">
@@ -594,42 +554,24 @@ export function PresetsSection() {
 
         {/* Batch Override Toolbar */}
         <div className="bulk-toolbar preset-bulk">
-          <div className="bulk-label">⚡ Batch Override</div>
+          <div className="bulk-label">Batch Override</div>
           <div className="bulk-controls">
-            <Field
-              className="preset-bulk-field"
-              label={<span className="sr-only">Set all rows to core</span>}
-              control={{
-                kind: 'select',
-                name: 'f-setAllProvider',
-                value: bulk.provider,
-                options: bulk.cores.map((c) => ({ value: c.id, label: c.label })),
-                onChange: bulk.setProvider,
+            <AgentPickerIsland
+              cores={cores}
+              catalog={catalog}
+              recent={recent}
+              inherit={NO_INHERIT}
+              value={{
+                core: bulk.provider || '',
+                model: bulk.model || '',
+                effort: bulk.effort || '',
               }}
-            />
-            <Field
-              className="preset-bulk-field"
-              label={<span className="sr-only">Set all rows to model</span>}
-              control={{
-                kind: 'select',
-                name: 'f-setAllModel',
-                value: bulk.model,
-                options: bulk.models.map((m) => ({ value: m.id, label: m.label || m.id })),
-                onChange: bulk.setModel,
-              }}
-            />
-            <Field
-              className="preset-bulk-field"
-              label={<span className="sr-only">Set all rows to effort or variant</span>}
-              control={{
-                kind: 'select',
-                name: 'f-setAllEffort',
-                value: bulk.effort,
-                options: [
-                  { value: '', label: 'Default effort' },
-                  ...bulk.efforts.map((e) => ({ value: e, label: e })),
-                ],
-                onChange: bulk.setEffort,
+              labels={{ core: 'Core', model: 'Model', effort: 'Effort' }}
+              showEffort
+              onChange={({ core, model, effort }) => {
+                if (core !== bulk.provider) bulk.setProvider(core);
+                if (model !== bulk.model) bulk.setModel(model);
+                if (effort !== bulk.effort) bulk.setEffort(effort);
               }}
             />
           </div>
