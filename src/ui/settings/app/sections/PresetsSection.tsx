@@ -518,7 +518,6 @@ export function PresetsSection() {
 
           <Field
             label="Active preset"
-            help="Applies to every ticket that picks no preset of its own. Blank means no preset applies and every capability inherits."
             control={{
               kind: 'select',
               name: 'f-activeAgentPreset',

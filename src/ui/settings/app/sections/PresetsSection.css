@@ -16,7 +16,7 @@
 }
 
 .preset-card-compact {
-  background: var(--k-bg);
+  background: var(--k-surface, #252526);
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
   padding: var(--k-space-3) var(--k-space-4);
@@ -502,11 +502,18 @@
    a box that pushes the input down off the pills' baseline. Pull the label
    out of flow so it neither participates in the gap nor adds a margin box,
    but keeps the caption in the accessibility tree (UI-R25). */
-.matrix-filter-controls .k-field > label {
+.matrix-filter-controls .k-field > label,
+.preset-bulk-field > label,
+.cap-mode .k-field > label {
   position: absolute;
   margin: 0;
   font-size: 0;
   line-height: 0;
+}
+
+.preset-bulk-field,
+.cap-mode .k-field {
+  margin: 0;
 }
 
 /* Override-mode picker: core | model | effort in one line, like the preview */
