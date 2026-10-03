@@ -130,6 +130,7 @@
 .bulk-buttons {
   display: flex;
   gap: var(--k-space-2);
+  align-items: center;
 }
 
 /* Capabilities Matrix Layout */
