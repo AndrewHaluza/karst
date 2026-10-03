@@ -381,9 +381,13 @@ export function PresetsSection() {
           <Button
             variant="primary"
             onClick={() => {
-              setSelected(NO_SELECTION);
-              setNameValue('');
-              setInlineEdit(NO_SELECTION);
+              const next = { ...presetMap(draft) };
+              const newName = duplicateName('new-preset', new Set(Object.keys(next)));
+              next[newName] = { slots: {} } as AgentPreset;
+              commitPresets(next);
+              setSelected(newName);
+              setNameValue(newName);
+              setInlineEdit(newName);
               setFormError(null);
               setListError(null);
             }}
@@ -419,7 +423,7 @@ export function PresetsSection() {
           </div>
         </div>
 
-        {displayedNames.length === 0 && inlineEdit !== NO_SELECTION ? (
+        {displayedNames.length === 0 ? (
           <div className="preset-empty">
             No presets yet. Add one to pick the capabilities it overrides.
           </div>
@@ -431,45 +435,6 @@ export function PresetsSection() {
               </div>
             )}
             <div className="preset-deck">
-          {inlineEdit === NO_SELECTION && (
-            <div className="preset-card-compact is-selected" tabIndex={0}>
-              <div className="preset-card-row-top">
-                <div className="preset-name-cluster">
-                  <input
-                    autoFocus
-                    className="k-input"
-                    style={{ minWidth: 0, padding: '2px 8px', height: 'auto', flex: 1 }}
-                    placeholder="new-preset"
-                    value={nameValue}
-                    onChange={(e) => setName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        if (onSave()) setInlineEdit(null);
-                      } else if (e.key === 'Escape') {
-                        setInlineEdit(null);
-                        setSelected(names[0] || NO_SELECTION);
-                      }
-                    }}
-                    onBlur={() => {
-                      if (nameValue.trim() !== '') {
-                        if (onSave()) setInlineEdit(null);
-                      } else {
-                        setInlineEdit(null);
-                        setSelected(names[0] || NO_SELECTION);
-                      }
-                    }}
-                  />
-                </div>
-              </div>
-              <div className="preset-card-row-bottom">
-                <span className="preset-meta">0/{total} overrides</span>
-                <button type="button" className="set-active-trigger" disabled>
-                  ☆ Set as Active
-                </button>
-              </div>
-            </div>
-          )}
             {displayedNames.map((name) => {
               const record = presetMap(draft)[name];
               const overridden = overriddenCount(record, capabilityIds);
