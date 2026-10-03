@@ -139,6 +139,7 @@ export function PresetsSection() {
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [nameValue, setNameValue] = useState('');
+  const [inlineEdit, setInlineEdit] = useState<string | null>(null);
 
   const setName = (next: string): void => {
     setNameValue(next);
@@ -242,7 +243,7 @@ export function PresetsSection() {
     setListError(null);
   };
 
-  const onSave = (): void => {
+  const onSave = (): boolean => {
     const name = nameValue;
     const next = { ...presetMap(draft) };
     const renaming = editing !== NO_SELECTION && editing !== name;
@@ -250,22 +251,20 @@ export function PresetsSection() {
     // The name is NOT trimmed: it is the key every reference stores, so a name
     // with leading/trailing whitespace is a DIFFERENT preset, not this one with
     // padding.
-    if (name.length > 512) return setFormError('Preset name must be 512 characters or fewer.');
-    if (name.trim() === '') return setFormError('Preset name must not be blank.');
+    if (name.length > 512) { setFormError('Preset name must be 512 characters or fewer.'); return false; }
+    if (name.trim() === '') { setFormError('Preset name must not be blank.'); return false; }
     if (name !== editing && Object.prototype.hasOwnProperty.call(next, name)) {
-      return setFormError(`A preset named "${name}" already exists.`);
+      { setFormError(`A preset named "${name}" already exists.`); return false; }
     }
     if (renaming) {
       const refs = referencesOf(editing);
       if (refs.length) {
-        return setFormError(
-          `Cannot rename "${editing}" — still used by ${joinPresetRefs(refs)}. Change that first.`,
-        );
+        { setFormError(`Cannot rename "${editing}" — still used by ${joinPresetRefs(refs)}. Change that first.`); return false; }
       }
       delete next[editing];
     }
     if (!Object.prototype.hasOwnProperty.call(next, name) && Object.keys(next).length >= MAX_AGENT_PRESETS) {
-      return setFormError(`agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`);
+      { setFormError(`agentPresets accepts at most ${MAX_AGENT_PRESETS} presets`); return false; }
     }
     // A rename keeps the record's CONTENTS and changes only its key; a re-save of
     // the same name keeps it whole (label included). An ADD starts as
@@ -277,7 +276,7 @@ export function PresetsSection() {
     next[name] = (source ? slotsFormPreset(source, capabilityIds) : { slots: {} }) as AgentPreset;
 
     const fault = validateAgentPresetsDraft(next, capabilityIds);
-    if (fault) return setFormError(fault);
+    if (fault) { setFormError(fault); return false; }
     setSelected(name);
     commitPresets(next);
     return undefined;
@@ -384,6 +383,7 @@ export function PresetsSection() {
             onClick={() => {
               setSelected(NO_SELECTION);
               setNameValue('');
+              setInlineEdit(NO_SELECTION);
               setFormError(null);
               setListError(null);
             }}
@@ -419,12 +419,57 @@ export function PresetsSection() {
           </div>
         </div>
 
-        {displayedNames.length === 0 ? (
+        {displayedNames.length === 0 && inlineEdit !== NO_SELECTION ? (
           <div className="preset-empty">
             No presets yet. Add one to pick the capabilities it overrides.
           </div>
         ) : (
-          <div className="preset-deck">
+          <>
+            {formError && (
+              <div className="preset-yaml-notice" style={{ color: 'var(--k-danger)' }}>
+                {formError}
+              </div>
+            )}
+            <div className="preset-deck">
+          {inlineEdit === NO_SELECTION && (
+            <div className="preset-card-compact is-selected" tabIndex={0}>
+              <div className="preset-card-row-top">
+                <div className="preset-name-cluster">
+                  <input
+                    autoFocus
+                    className="k-input"
+                    style={{ minWidth: 0, padding: '2px 8px', height: 'auto', flex: 1 }}
+                    placeholder="new-preset"
+                    value={nameValue}
+                    onChange={(e) => setName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (onSave()) setInlineEdit(null);
+                      } else if (e.key === 'Escape') {
+                        setInlineEdit(null);
+                        setSelected(names[0] || NO_SELECTION);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (nameValue.trim() !== '') {
+                        if (onSave()) setInlineEdit(null);
+                      } else {
+                        setInlineEdit(null);
+                        setSelected(names[0] || NO_SELECTION);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <div className="preset-card-row-bottom">
+                <span className="preset-meta">0/{total} overrides</span>
+                <button type="button" className="set-active-trigger" disabled>
+                  ☆ Set as Active
+                </button>
+              </div>
+            </div>
+          )}
             {displayedNames.map((name) => {
               const record = presetMap(draft)[name];
               const overridden = overriddenCount(record, capabilityIds);
@@ -443,16 +488,46 @@ export function PresetsSection() {
                 >
                   <div className="preset-card-row-top">
                     <div className="preset-name-cluster">
-                      <span className="preset-card-name">{name}</span>
-                      <IconButton
-                        label="Rename preset"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          select(name);
-                        }}
-                      >
-                        <TablerIcon name="pencil" />
-                      </IconButton>
+                      {inlineEdit === name ? (
+                        <input
+                          autoFocus
+                          className="k-input"
+                          style={{ minWidth: 0, padding: '2px 8px', height: 'auto', flex: 1 }}
+                          value={nameValue}
+                          onChange={(e) => setName(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              if (onSave()) setInlineEdit(null);
+                            } else if (e.key === 'Escape') {
+                              setInlineEdit(null);
+                              setNameValue(name);
+                            }
+                          }}
+                          onBlur={() => {
+                            if (nameValue !== name) {
+                              if (onSave()) setInlineEdit(null);
+                            } else {
+                              setInlineEdit(null);
+                            }
+                          }}
+                        />
+                      ) : (
+                        <>
+                          <span className="preset-card-name">{name}</span>
+                          <IconButton
+                            label="Rename preset"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              select(name);
+                              setInlineEdit(name);
+                            }}
+                          >
+                            <TablerIcon name="pencil" />
+                          </IconButton>
+                        </>
+                      )}
                     </div>
                     <div className="preset-corner-actions">
                       <IconButton
@@ -501,6 +576,7 @@ export function PresetsSection() {
               );
             })}
           </div>
+          </>
         )}
 
         {listError ? (
