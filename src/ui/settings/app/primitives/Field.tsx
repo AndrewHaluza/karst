@@ -14,7 +14,7 @@
  * `designComponents.webview.css`, so emitting it would be an undefined shared
  * class (UI-R10). When `.k-select` ships, only this file changes.
  */
-import { useId, type ReactNode, type RefObject } from 'react';
+import { useId, useEffect, useState, type ReactNode, type RefObject } from 'react';
 
 export interface SelectOption {
   readonly value: string;
@@ -132,6 +132,47 @@ interface Wiring {
   readonly invalid: boolean;
 }
 
+
+function DebouncedInput(props: React.InputHTMLAttributes<HTMLInputElement> & { onValueChange: (v: string) => void, initialValue: string | number | readonly string[] | undefined }) {
+  const { onValueChange, initialValue, ...rest } = props;
+  const [localValue, setLocalValue] = useState(String(initialValue || ''));
+  
+  useEffect(() => {
+    setLocalValue(String(initialValue || ''));
+  }, [initialValue]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localValue !== String(initialValue || '')) {
+        onValueChange(localValue);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [localValue, initialValue, onValueChange]);
+
+  return <input {...rest} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+}
+
+function DebouncedTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { onValueChange: (v: string) => void, initialValue: string | number | readonly string[] | undefined }) {
+  const { onValueChange, initialValue, ...rest } = props;
+  const [localValue, setLocalValue] = useState(String(initialValue || ''));
+  
+  useEffect(() => {
+    setLocalValue(String(initialValue || ''));
+  }, [initialValue]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (localValue !== String(initialValue || '')) {
+        onValueChange(localValue);
+      }
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [localValue, initialValue, onValueChange]);
+
+  return <textarea {...rest} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+}
+
 export function Field({
   label,
   control,
@@ -206,27 +247,27 @@ export function Field({
           {label}
         </label>
         <div className="row" role="group" aria-labelledby={labelId}>
-          <input
+          <DebouncedInput
             {...shared}
             className="k-input"
             id={id}
             name={control.first.name}
             type={control.first.type ?? 'text'}
-            value={control.first.value}
+            initialValue={control.first.value}
             placeholder={control.first.placeholder}
-            onChange={(e) => control.first.onChange(e.target.value)}
+            onValueChange={(val) => control.first.onChange(val)}
           />
           <span className="fixed muted">to</span>
-          <input
+          <DebouncedInput
             {...shared}
             className="k-input"
             id={secondId}
             name={control.second.name}
             type={control.second.type ?? 'text'}
             aria-label={control.second.ariaLabel}
-            value={control.second.value}
+            initialValue={control.second.value}
             placeholder={control.second.placeholder}
-            onChange={(e) => control.second.onChange(e.target.value)}
+            onValueChange={(val) => control.second.onChange(val)}
           />
         </div>
         {helpNode}
@@ -266,27 +307,27 @@ function renderControl(
   switch (control.kind) {
     case 'input':
       return (
-        <input
+        <DebouncedInput
           {...shared}
           ref={control.inputRef}
           className={controlClass}
           type={control.type ?? 'text'}
-          value={control.value}
+          initialValue={control.value}
           placeholder={control.placeholder}
           readOnly={control.readOnly}
-          onChange={(e) => control.onChange(e.target.value)}
+          onValueChange={(val) => control.onChange(val)}
         />
       );
     case 'textarea':
       return (
-        <textarea
+        <DebouncedTextarea
           {...shared}
           ref={control.inputRef}
           className={controlClass}
-          value={control.value}
+          initialValue={control.value}
           rows={control.rows}
           placeholder={control.placeholder}
-          onChange={(e) => control.onChange(e.target.value)}
+          onValueChange={(val) => control.onChange(val)}
         />
       );
     case 'select':
