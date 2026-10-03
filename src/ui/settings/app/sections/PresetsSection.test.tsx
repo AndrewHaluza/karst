@@ -388,3 +388,63 @@ describe('PresetsSection — the active-preset selector mirrors the manifest', (
     expect(values.slice(1).sort()).toEqual(['quiet', 'smart']);
   });
 });
+
+describe('PresetsSection — the capability groups are foldable', () => {
+  /** The group-header disclosure button (a real `<button aria-expanded>`). */
+  function groupToggle(groupLabelFragment: string): HTMLButtonElement {
+    const toggles = Array.from(document.querySelectorAll('.cap-group-toggle')) as HTMLButtonElement[];
+    const toggle = toggles.find((t) => (t.textContent ?? '').includes(groupLabelFragment));
+    if (!toggle) throw new Error(`no group toggle matching "${groupLabelFragment}"`);
+    return toggle;
+  }
+
+  it('renders every group expanded by default', () => {
+    mount();
+    const toggles = Array.from(document.querySelectorAll('.cap-group-toggle'));
+    expect(toggles.length).toBeGreaterThan(0);
+    for (const t of toggles) {
+      expect((t as HTMLButtonElement).getAttribute('aria-expanded')).toBe('true');
+    }
+  });
+
+  it('collapses a group on toggle, hiding its rows but keeping the others', () => {
+    mount();
+    const groupIds = Array.from(document.querySelectorAll('[id^="cap-group-body-"]')).map(
+      (n) => n.id,
+    );
+    expect(groupIds.length).toBeGreaterThan(0);
+    const firstId = groupIds[0]!;
+    const firstFragment = firstId.replace('cap-group-body-', '');
+    // Find the toggle for the first group: the toggle whose aria-controls
+    // matches the first group's body id.
+    const firstToggle = Array.from(
+      document.querySelectorAll('.cap-group-toggle'),
+    ) as HTMLButtonElement[];
+    const target = firstToggle.find(
+      (t) => t.getAttribute('aria-controls')! === firstId,
+    );
+    expect(target, 'first group toggle').toBeDefined();
+    expect(document.querySelectorAll(`#cap-group-body-${firstFragment} [data-cap-row]`).length).toBeGreaterThan(0);
+    fireEvent.click(target as HTMLButtonElement);
+    expect(target?.getAttribute('aria-expanded')).toBe('false');
+    // The first group's body is gone from the DOM; the other groups keep theirs.
+    expect(document.getElementById(firstId)).toBeNull();
+    for (const id of groupIds.slice(1)) {
+      expect(document.getElementById(id)).not.toBeNull();
+    }
+  });
+
+  it('re-expands a collapsed group on a second click', () => {
+    mount();
+    const firstToggle = Array.from(
+      document.querySelectorAll('.cap-group-toggle'),
+    )[0] as HTMLButtonElement;
+    const bodyId = firstToggle.getAttribute('aria-controls')!;
+    expect(document.querySelectorAll(`#${bodyId} [data-cap-row]`).length).toBeGreaterThan(0);
+    fireEvent.click(firstToggle);
+    expect(document.getElementById(bodyId)).toBeNull();
+    fireEvent.click(firstToggle);
+    expect(document.getElementById(bodyId)).not.toBeNull();
+    expect(firstToggle.getAttribute('aria-expanded')).toBe('true');
+  });
+});

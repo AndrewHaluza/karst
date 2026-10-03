@@ -317,3 +317,33 @@ describe('rendered Presets tab — a state push adopts the file except the saved
     expect(save?.manifest.agentPresets?.cheap?.slots?.review).toBeDefined();
   });
 });
+
+describe('rendered Presets tab — foldable groups', () => {
+  it('renders every group with its disclosure toggle expanded', async () => {
+    const { view } = await mountOnPresets();
+    const toggles = Array.from(
+      root(view).querySelectorAll('.cap-group-toggle'),
+    ) as HTMLButtonElement[];
+    expect(toggles.length).toBeGreaterThan(0);
+    for (const t of toggles) {
+      expect(t.getAttribute('aria-expanded')).toBe('true');
+    }
+  });
+
+  it('collapses a group via its toggle and re-expands it', async () => {
+    const { view } = await mountOnPresets();
+    const toggles = Array.from(
+      root(view).querySelectorAll('.cap-group-toggle'),
+    ) as HTMLButtonElement[];
+    expect(toggles.length).toBeGreaterThan(0);
+    const toggle = toggles[0]!;
+    const bodyId = toggle.getAttribute('aria-controls')!;
+    expect(root(view).querySelectorAll(`#${bodyId} [data-cap-row]`).length).toBeGreaterThan(0);
+    await view.click(toggle);
+    await view.settle();
+    expect(view.document.querySelector(`#${bodyId}`)).toBeNull();
+    await view.click(toggle);
+    await view.settle();
+    expect(view.document.querySelector(`#${bodyId}`)).not.toBeNull();
+  });
+});

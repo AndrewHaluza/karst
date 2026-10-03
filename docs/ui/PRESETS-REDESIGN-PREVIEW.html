@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Karst Settings — Presets Redesign Preview (Full Feature Set)</title>
+  <style>
+    :root {
+      --k-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --k-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      --k-bg: #1e1e1e;
+      --k-surface: #252526;
+      --k-surface-hover: #2d2d2d;
+      --k-surface-selected: #37373d;
+      --k-border: #3c3c3c;
+      --k-text: #cccccc;
+      --k-text-dim: #969696;
+      --k-text-bright: #ffffff;
+      --k-link: #3794ff;
+      --k-success: #4ec9b0;
+      --k-danger: #f14c4c;
+      --k-warning: #cca700;
+      --k-radius-sm: 4px;
+      --k-radius-md: 6px;
+      --k-radius-lg: 8px;
+      --k-space-1: 4px;
+      --k-space-2: 8px;
+      --k-space-3: 12px;
+      --k-space-4: 16px;
+      --k-space-5: 20px;
+      --k-space-6: 24px;
+      --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24'%3E%3Cpath d='M6 9l6 6l6 -6' fill='none' stroke='%238a8a8a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--k-bg);
+      color: var(--k-text);
+      font-family: var(--k-font-ui);
+      font-size: 13px;
+      padding: var(--k-space-6);
+      line-height: 1.5;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: var(--k-space-5);
+    }
+
+    /* Tabler SVG stroke styling */
+    .k-icon-svg {
+      width: 14px;
+      height: 14px;
+      stroke-width: 2;
+      stroke: currentColor;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      display: inline-block;
+      vertical-align: middle;
+      flex: none;
+    }
+
+    /* Agent Icons & Badges */
+    .agentbadge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+    }
+    .agenticon {
+      flex: none;
+      width: 14px;
+      height: 14px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .agenticon svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      fill: currentColor;
+    }
+
+    /* Page Header */
+    .page-header {
+      border-bottom: 1px solid var(--k-border);
+      padding-bottom: var(--k-space-4);
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      flex-wrap: wrap;
+      gap: var(--k-space-3);
+    }
+    .page-title { font-size: 20px; font-weight: 600; color: var(--k-text-bright); margin-bottom: 2px; }
+    .page-desc { color: var(--k-text-dim); font-size: 13px; max-width: 750px; }
+
+    /* Section Cards */
+    .section-card {
+      background: var(--k-surface);
+      border: 1px solid var(--k-border);
+      border-radius: var(--k-radius-lg);
+      padding: var(--k-space-5);
+      display: flex;
+      flex-direction: column;
+      gap: var(--k-space-4);
+    }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: var(--k-space-3);
+    }
+    .section-title { font-size: 14px; font-weight: 600; color: var(--k-text-bright); }
+    .section-desc { font-size: 12px; color: var(--k-text-dim); margin-top: 2px; }
+
+    /* Inputs, Selects */
+    .k-input, select.k-input {
+      background: #3c3c3c;
+      border: 1px solid transparent;
+      color: var(--k-text-bright);
+      padding: 6px 10px;
+      font-size: 13px;
+      font-family: inherit;
+      border-radius: var(--k-radius-sm);
+      outline: none;
+      width: 100%;
+      appearance: none;
+      -webkit-appearance: none;
+      background-image: var(--chevron);
+      background-repeat: no-repeat;
+      background-position: right 8px center;
+      padding-right: 26px;
+    }
+    .k-input:focus { border-color: var(--k-link); }
+
+    .k-select-trigger {
+      display: inline-flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #3c3c3c;
+      border: 1px solid transparent;
+      color: var(--k-text-bright);
+      padding: 6px 10px;
+      font-size: 13px;
+      border-radius: var(--k-radius-sm);
+      cursor: pointer;
+      width: 100%;
+      user-select: none;
+    }
+    .k-select-trigger:hover { background: #454545; }
+    .k-select-trigger .chev {
+      width: 12px;
+      height: 12px;
+      opacity: 0.7;
+      margin-left: 6px;
+      flex: none;
+    }
+
+    /* Buttons */
+    .k-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: var(--k-radius-sm);
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .k-btn--primary { background: #0078d4; color: #fff; }
+    .k-btn--primary:hover { background: #026ec1; }
+    .k-btn--secondary { background: #3a3d41; color: var(--k-text-bright); border-color: #45494e; }
+    .k-btn--secondary:hover { background: #45494e; }
+    .k-btn--danger { background: #d32f2f; color: #fff; }
+    .k-btn--danger:hover { background: #b71c1c; }
+    .k-btn--ghost { background: transparent; color: var(--k-text); }
+    .k-btn--ghost:hover { background: var(--k-surface-hover); color: var(--k-text-bright); }
+    .k-btn--sm { padding: 4px 8px; font-size: 11px; }
+
+    /* Icon Buttons */
+    .k-icon-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      padding: 0;
+      border-radius: var(--k-radius-sm);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--k-text-dim);
+      cursor: pointer;
+      transition: all 0.12s ease;
+    }
+    .k-icon-btn:hover { background: var(--k-surface-hover); color: var(--k-text-bright); }
+    .k-icon-btn.danger:hover { background: rgba(241, 76, 76, 0.18); color: var(--k-danger); }
+    .k-icon-btn.active-star { color: var(--k-warning); }
+
+    /* Chips */
+    .k-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-weight: 600;
+      line-height: 16px;
+      cursor: pointer;
+    }
+    .k-chip--success { background: rgba(78, 201, 176, 0.15); color: var(--k-success); border: 1px solid rgba(78, 201, 176, 0.3); }
+    .k-chip--set-active { background: transparent; color: var(--k-text-dim); border: 1px dashed var(--k-border); }
+    .k-chip--set-active:hover { color: var(--k-warning); border-color: var(--k-warning); background: rgba(204, 167, 0, 0.1); }
+    .k-chip--neutral { background: rgba(255, 255, 255, 0.08); color: var(--k-text-dim); }
+
+    /* Filter pills */
+    .filter-pills { display: flex; gap: var(--k-space-1); }
+    .pill-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--k-text-dim);
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .pill-btn:hover { color: var(--k-text-bright); }
+    .pill-btn.active { background: #37373d; color: var(--k-text-bright); border-color: #555; }
+
+    /* Preset Deck / Cards */
+    .preset-deck {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      gap: var(--k-space-3);
+    }
+
+    .preset-card-compact {
+      background: var(--k-bg);
+      border: 1px solid var(--k-border);
+      border-radius: var(--k-radius-md);
+      padding: var(--k-space-3) var(--k-space-4);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      cursor: pointer;
+      position: relative;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+    .preset-card-compact:hover { border-color: #555; background: var(--k-surface-hover); }
+    .preset-card-compact.is-selected {
+      border-color: var(--k-link);
+      background: var(--k-surface-selected);
+      box-shadow: 0 0 0 1px var(--k-link);
+    }
+
+    .preset-card-row-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .preset-name-cluster {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .preset-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      font-family: var(--k-font-mono);
+      color: var(--k-text-bright);
+    }
+
+    .preset-corner-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .preset-card-row-bottom {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--k-text-dim);
+    }
+
+    /* Batch Action Toolbar */
+    .bulk-toolbar {
+      background: var(--k-bg);
+      border: 1px solid var(--k-border);
+      border-radius: var(--k-radius-md);
+      padding: var(--k-space-3) var(--k-space-4);
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: var(--k-space-4);
+    }
+    .bulk-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--k-text-bright);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .bulk-controls {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(140px, 1fr);
+      gap: var(--k-space-2);
+    }
+    .bulk-buttons { display: flex; gap: var(--k-space-2); }
+
+    /* Sticky Capabilities Matrix Table */
+    .cap-table-wrapper {
+      position: relative;
+      max-height: 600px;
+      overflow-y: auto;
+      border: 1px solid var(--k-border);
+      border-radius: var(--k-radius-md);
+      background: var(--k-bg);
+    }
+
+    /* Sticky Header Bar on top of Matrix */
+    .cap-matrix-sticky-header {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      background: #252526;
+      border-bottom: 1px solid var(--k-border);
+      padding: 8px var(--k-space-4);
+      display: grid;
+      grid-template-columns: 240px 140px minmax(360px, 1fr);
+      gap: var(--k-space-4);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--k-text-dim);
+    }
+
+    .cap-group-header {
+      position: sticky;
+      top: 33px;
+      z-index: 10;
+      background: #2d2d2d;
+      padding: 7px var(--k-space-4);
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--k-text-bright);
+      border-top: 1px solid var(--k-border);
+      border-bottom: 1px solid var(--k-border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .cap-group-header:first-of-type { border-top: none; }
+
+    .cap-row {
+      display: grid;
+      grid-template-columns: 240px 140px minmax(360px, 1fr);
+      align-items: center;
+      padding: var(--k-space-3) var(--k-space-4);
+      border-top: 1px solid var(--k-border);
+      gap: var(--k-space-4);
+      transition: background 0.1s ease;
+    }
+    .cap-row:first-child { border-top: none; }
+    .cap-row:hover { background: rgba(255, 255, 255, 0.02); }
+    .cap-row.is-override { background: rgba(55, 148, 255, 0.04); }
+
+    .cap-title { font-weight: 500; color: var(--k-text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    
+    .cap-preview-inherited {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--k-font-mono);
+      font-size: 12px;
+      color: var(--k-text-dim);
+    }
+    .cap-preview-inherited .sub-label { color: var(--k-text-dim); font-size: 11px; opacity: 0.7; }
+
+    .cap-override-grid {
+      display: grid;
+      grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(130px, 1fr);
+      gap: var(--k-space-2);
+      align-items: center;
+    }
+
+    /* Modal Dialog Backing & Popup */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(3px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .modal-dialog {
+      background: var(--k-surface);
+      border: 1px solid var(--k-border);
+      border-radius: var(--k-radius-lg);
+      width: 440px;
+      max-width: 90vw;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+      padding: var(--k-space-5);
+      display: flex;
+      flex-direction: column;
+      gap: var(--k-space-4);
+    }
+    .modal-dialog.wide { width: 850px; max-width: 94vw; }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; }
+    .modal-head-title { display: flex; align-items: center; gap: var(--k-space-3); }
+    .modal-head .warn-icon { color: var(--k-danger); width: 22px; height: 22px; }
+    .modal-title { font-size: 15px; font-weight: 600; color: var(--k-text-bright); }
+    .modal-body { color: var(--k-text); font-size: 13px; line-height: 1.5; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: var(--k-space-2); }
+
+    /* Comparison Table in Modal */
+    .diff-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+      margin-top: var(--k-space-3);
+    }
+    .diff-table th, .diff-table td {
+      padding: 8px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--k-border);
+    }
+    .diff-table th { background: var(--k-surface-hover); color: var(--k-text-dim); font-size: 11px; text-transform: uppercase; }
+    .diff-table tr:hover { background: rgba(255, 255, 255, 0.02); }
+    .diff-tag { font-size: 10px; padding: 2px 6px; border-radius: 4px; font-weight: 600; font-family: var(--k-font-mono); }
+    .diff-tag.a { background: rgba(78, 201, 176, 0.15); color: var(--k-success); }
+    .diff-tag.b { background: rgba(55, 148, 255, 0.15); color: var(--k-link); }
+
+    /* Responsive */
+    @media (max-width: 1024px) {
+      .bulk-toolbar { grid-template-columns: 1fr; gap: var(--k-space-3); }
+      .bulk-controls { grid-template-columns: 1fr 1fr; }
+      .bulk-buttons { justify-content: flex-end; }
+      .cap-matrix-sticky-header, .cap-row { grid-template-columns: 180px 120px 1fr; }
+    }
+
+    @media (max-width: 768px) {
+      .cap-matrix-sticky-header { display: none; }
+      .cap-row { grid-template-columns: 1fr; gap: var(--k-space-2); }
+      .cap-override-grid { grid-template-columns: 1fr; }
+      .bulk-controls { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Page Header with Global Compare and Import/Export -->
+  <div class="page-header">
+    <div>
+      <div class="page-title">Presets</div>
+      <div class="page-desc">
+        A preset maps capabilities to specific agent cores, models, and reasoning variants. Capabilities left unset inherit project and process defaults.
+      </div>
+    </div>
+    <div style="display: flex; gap: var(--k-space-2);">
+      <!-- Feature 2: Compare Presets Button -->
+      <button type="button" class="k-btn k-btn--secondary" onclick="document.getElementById('compareModal').style.display='flex'">
+        <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/><path d="M13 18h-5a2 2 0 0 1 -2 -2v-8"/><path d="M10 15l3 3l-3 3"/></svg>
+        Compare Presets
+      </button>
+      <button type="button" class="k-btn k-btn--primary" onclick="document.getElementById('newPresetModal').style.display='flex'">
+        <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg>
+        New Preset
+      </button>
+    </div>
+  </div>
+
+  <!-- Presets Manager (Ultra-Compact Cards with 1-Click Active Switch & YAML Export) -->
+  <div class="section-card">
+    <div class="section-head">
+      <div>
+        <div class="section-title">Preset Profiles</div>
+        <div class="section-desc">Select a preset to inspect its matrix below. Click “Set as Active” or use the icons to copy/export YAML.</div>
+      </div>
+      <div class="filter-pills">
+        <button type="button" class="pill-btn active">All (3)</button>
+        <button type="button" class="pill-btn">Active</button>
+      </div>
+    </div>
+
+    <div class="preset-deck">
+      <!-- Card 1: smart (Selected & Active) -->
+      <div class="preset-card-compact is-selected" tabindex="0">
+        <div class="preset-card-row-top">
+          <div class="preset-name-cluster">
+            <span class="preset-card-name">smart</span>
+            <!-- Inline Rename Icon -->
+            <button type="button" class="k-icon-btn" title="Rename preset" onclick="event.stopPropagation()">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>
+            </button>
+          </div>
+          <!-- Top Right Corner Actions: Duplicate, Export YAML, Delete -->
+          <div class="preset-corner-actions">
+            <!-- Feature 3: Export YAML -->
+            <button type="button" class="k-icon-btn" title="Export / Copy YAML" onclick="event.stopPropagation(); alert('Preset YAML copied to clipboard!')">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>
+            </button>
+            <button type="button" class="k-icon-btn" title="Duplicate preset" onclick="event.stopPropagation()">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666"/><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"/></svg>
+            </button>
+            <button type="button" class="k-icon-btn danger" title="Delete preset" onclick="event.stopPropagation(); document.getElementById('deleteConfirmModal').style.display='flex'">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="preset-card-row-bottom">
+          <span>24/28 overrides</span>
+          <!-- Active State Badge -->
+          <span class="k-chip k-chip--success" title="Default preset applied to tickets">
+            <svg class="k-icon-svg" viewBox="0 0 24 24" style="width:10px;height:10px"><path d="M5 12l5 5l10 -10"/></svg>
+            Active Default
+          </span>
+        </div>
+      </div>
+
+      <!-- Card 2: fast -->
+      <div class="preset-card-compact" tabindex="0">
+        <div class="preset-card-row-top">
+          <div class="preset-name-cluster">
+            <span class="preset-card-name">fast</span>
+            <button type="button" class="k-icon-btn" title="Rename preset" onclick="event.stopPropagation()">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>
+            </button>
+          </div>
+          <div class="preset-corner-actions">
+            <button type="button" class="k-icon-btn" title="Export / Copy YAML" onclick="event.stopPropagation(); alert('Preset YAML copied to clipboard!')">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>
+            </button>
+            <button type="button" class="k-icon-btn" title="Duplicate preset" onclick="event.stopPropagation()">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666"/><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"/></svg>
+            </button>
+            <button type="button" class="k-icon-btn danger" title="Delete preset" onclick="event.stopPropagation(); document.getElementById('deleteConfirmModal').style.display='flex'">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="preset-card-row-bottom">
+          <span>12/28 overrides</span>
+          <!-- Feature 4: 1-Click Set as Active -->
+          <button type="button" class="k-chip k-chip--set-active" onclick="event.stopPropagation()" title="Make this preset the default for all tickets">
+            ☆ Set as Active
+          </button>
+        </div>
+      </div>
+
+      <!-- Card 3: balanced -->
+      <div class="preset-card-compact" tabindex="0">
+        <div class="preset-card-row-top">
+          <div class="preset-name-cluster">
+            <span class="preset-card-name">balanced</span>
+            <button type="button" class="k-icon-btn" title="Rename preset" onclick="event.stopPropagation()">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 20h4l10.5 -10.5a2.828 2.828 0 1 0 -4 -4l-10.5 10.5v4"/><path d="M13.5 6.5l4 4"/></svg>
+            </button>
+          </div>
+          <div class="preset-corner-actions">
+            <button type="button" class="k-icon-btn" title="Export / Copy YAML" onclick="event.stopPropagation(); alert('Preset YAML copied to clipboard!')">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>
+            </button>
+            <button type="button" class="k-icon-btn" title="Duplicate preset" onclick="event.stopPropagation()">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M7 9.667a2.667 2.667 0 0 1 2.667 -2.667h8.666a2.667 2.667 0 0 1 2.667 2.667v8.666a2.667 2.667 0 0 1 -2.667 2.667h-8.666a2.667 2.667 0 0 1 -2.667 -2.667l0 -8.666"/><path d="M4.012 16.737a2.005 2.005 0 0 1 -1.012 -1.737v-10c0 -1.1 .9 -2 2 -2h10c.75 0 1.158 .385 1.5 1"/></svg>
+            </button>
+            <button type="button" class="k-icon-btn danger" title="Delete preset" onclick="event.stopPropagation(); document.getElementById('deleteConfirmModal').style.display='flex'">
+              <svg class="k-icon-svg" viewBox="0 0 24 24"><path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="preset-card-row-bottom">
+          <span>8/28 overrides</span>
+          <button type="button" class="k-chip k-chip--set-active" onclick="event.stopPropagation()">
+            ☆ Set as Active
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Capability Matrix for Selected Preset -->
+  <div class="section-card">
+    <div class="section-head">
+      <div>
+        <div class="section-title">Capability Matrix: <span style="font-family: var(--k-font-mono); color: var(--k-link);">“smart”</span></div>
+        <div class="section-desc">Override individual tasks or bulk-assign a core and model across every capability.</div>
+      </div>
+      <div style="display: flex; gap: var(--k-space-2); align-items: center;">
+        <input type="search" class="k-input" placeholder="Filter capabilities..." style="width: 200px; padding: 4px 10px;" />
+        <div class="filter-pills">
+          <button type="button" class="pill-btn active">All (28)</button>
+          <button type="button" class="pill-btn">Overridden (24)</button>
+          <button type="button" class="pill-btn">Inherited (4)</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batch Override Toolbar -->
+    <div class="bulk-toolbar">
+      <div class="bulk-label">⚡ Batch Override</div>
+      <div class="bulk-controls">
+        <button type="button" class="k-select-trigger" title="Select core">
+          <span class="agentbadge">
+            <span class="agenticon">
+              <svg viewBox="0 0 24 24"><path d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"/></svg>
+            </span>
+            <span>Claude Code</span>
+          </span>
+          <span class="chev">▼</span>
+        </button>
+
+        <select class="k-input">
+          <option>Claude 3.7 Sonnet (Thinking)</option>
+          <option>Claude 3.5 Sonnet</option>
+          <option>Claude 3.5 Haiku</option>
+        </select>
+
+        <select class="k-input">
+          <option>Default effort</option>
+          <option>High</option>
+          <option>Low</option>
+        </select>
+      </div>
+
+      <div class="bulk-buttons">
+        <button type="button" class="k-btn k-btn--secondary k-btn--sm">Override all</button>
+        <button type="button" class="k-btn k-btn--ghost k-btn--sm">Reset all to inherit</button>
+      </div>
+    </div>
+
+    <!-- Feature 6: Sticky Capabilities Matrix -->
+    <div class="cap-table-wrapper">
+      <div class="cap-matrix-sticky-header">
+        <div>Capability Name</div>
+        <div>Mode</div>
+        <div>Configured Agent & Model</div>
+      </div>
+
+      <!-- Group 1: Specification & Planning -->
+      <div class="cap-group-header">
+        <span>Specification & Planning (4)</span>
+        <button type="button" class="k-btn k-btn--ghost k-btn--sm" style="color: var(--k-text-dim);">Apply batch to group</button>
+      </div>
+      
+      <div class="cap-row is-override">
+        <div class="cap-title">Feature Spec</div>
+        <select class="k-input">
+          <option>Override</option>
+          <option>Inherit</option>
+        </select>
+        <div class="cap-override-grid">
+          <button type="button" class="k-select-trigger">
+            <span class="agentbadge">
+              <span class="agenticon">
+                <svg viewBox="0 0 24 24"><path d="M20.998 10.949H24v3.102h-3v3.028h-1.487V20H18v-2.921h-1.487V20H15v-2.921H9V20H7.488v-2.921H6V20H4.487v-2.921H3V14.05H0V10.95h3V5h17.998v5.949zM6 10.949h1.488V8.102H6v2.847zm10.51 0H18V8.102h-1.49v2.847z"/></svg>
+              </span>
+              <span>Claude Code</span>
+            </span>
+            <span class="chev">▼</span>
+          </button>
+          <select class="k-input">
+            <option>Claude 3.7 Sonnet</option>
+            <option>Claude 3.5 Sonnet</option>
+          </select>
+          <select class="k-input">
+            <option>High</option>
+            <option>Standard</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cap-row">
+        <div class="cap-title">Architectural Review</div>
+        <select class="k-input">
+          <option selected>Inherit</option>
+          <option>Override</option>
+        </select>
+        <div class="cap-preview-inherited">
+          <span class="sub-label">↳ inherits:</span>
+          <span class="agentbadge">
+            <span class="agenticon">
+              <svg viewBox="0 0 24 24"><path d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"/></svg>
+            </span>
+            <span>Antigravity CLI · Gemini 2.5 Pro</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Group 2: Implementation & Code -->
+      <div class="cap-group-header">
+        <span>Implementation & Code (6)</span>
+        <button type="button" class="k-btn k-btn--ghost k-btn--sm" style="color: var(--k-text-dim);">Apply batch to group</button>
+      </div>
+
+      <div class="cap-row is-override">
+        <div class="cap-title">Code Generation</div>
+        <select class="k-input">
+          <option selected>Override</option>
+          <option>Inherit</option>
+        </select>
+        <div class="cap-override-grid">
+          <button type="button" class="k-select-trigger">
+            <span class="agentbadge">
+              <span class="agenticon">
+                <svg viewBox="0 0 24 24"><path d="M8.086.457a6.105 6.105 0 013.046-.415c1.333.153 2.521.72 3.564 1.7a.117.117 0 00.107.029c1.408-.346 2.762-.224 4.061.366l.063.03.154.076c1.357.703 2.33 1.77 2.918 3.198.278.679.418 1.388.421 2.126a5.655 5.655 0 01-.18 1.631.167.167 0 00.04.155 5.982 5.982 0 011.578 2.891c.385 1.901-.01 3.615-1.183 5.14l-.182.22a6.063 6.063 0 01-2.934 1.851.162.162 0 00-.108.102c-.255.736-.511 1.364-.987 1.992-1.199 1.582-2.962 2.462-4.948 2.451-1.583-.008-2.986-.587-4.21-1.736a.145.145 0 00-.14-.032c-.518.167-1.04.191-1.604.185a5.924 5.924 0 01-2.595-.622 6.058 6.058 0 01-2.146-1.781c-.203-.269-.404-.522-.551-.821a7.74 7.74 0 01-.495-1.283 6.11 6.11 0 01-.017-3.064.166.166 0 00.008-.074.115.115 0 00-.037-.064 5.958 5.958 0 01-1.38-2.202 5.196 5.196 0 01-.333-1.589 6.915 6.915 0 01.188-2.132c.45-1.484 1.309-2.648 2.577-3.493.282-.188.55-.334.802-.438.286-.12.573-.22.861-.304a.129.129 0 00.087-.087A6.016 6.016 0 015.635 2.31C6.315 1.464 7.132.846 8.086.457zm-.804 7.85a.848.848 0 00-1.473.842l1.694 2.965-1.688 2.848a.849.849 0 001.46.864l1.94-3.272a.849.849 0 00.007-.854l-1.94-3.393zm5.446 6.24a.849.849 0 000 1.695h4.848a.849.849 0 000-1.696h-4.848z"/></svg>
+              </span>
+              <span>Codex</span>
+            </span>
+            <span class="chev">▼</span>
+          </button>
+          <select class="k-input">
+            <option>o3-mini</option>
+            <option>gpt-4o</option>
+          </select>
+          <select class="k-input">
+            <option>High</option>
+            <option>Medium</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cap-row is-override">
+        <div class="cap-title">Automated Tests</div>
+        <select class="k-input">
+          <option selected>Override</option>
+          <option>Inherit</option>
+        </select>
+        <div class="cap-override-grid">
+          <button type="button" class="k-select-trigger">
+            <span class="agentbadge">
+              <span class="agenticon">
+                <svg viewBox="0 0 24 24"><path d="M16 6H8v12h8V6zm4 16H4V2h16v20z"/></svg>
+              </span>
+              <span>OpenCode</span>
+            </span>
+            <span class="chev">▼</span>
+          </button>
+          <select class="k-input">
+            <option>DeepSeek-R1</option>
+            <option>Qwen 2.5 Coder</option>
+          </select>
+          <select class="k-input">
+            <option>Default</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Feature 2: Side-by-Side Compare Modal -->
+<div class="modal-overlay" id="compareModal" style="display: none;" onclick="if(event.target === this) this.style.display='none'">
+  <div class="modal-dialog wide" role="dialog" aria-modal="true" aria-labelledby="compareTitle">
+    <div class="modal-head">
+      <div class="modal-head-title">
+        <svg class="k-icon-svg" viewBox="0 0 24 24" style="color:var(--k-link);width:18px;height:18px;"><path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M11 6h5a2 2 0 0 1 2 2v8"/><path d="M14 9l-3 -3l3 -3"/><path d="M13 18h-5a2 2 0 0 1 -2 -2v-8"/><path d="M10 15l3 3l-3 3"/></svg>
+        <div class="modal-title" id="compareTitle">Compare Preset Matrices</div>
+      </div>
+      <button type="button" class="k-icon-btn" onclick="document.getElementById('compareModal').style.display='none'">✕</button>
+    </div>
+    <div class="modal-body">
+      <div style="display: flex; gap: var(--k-space-4); margin-bottom: var(--k-space-3);">
+        <div style="flex: 1;">
+          <label style="font-size: 11px; color: var(--k-text-dim);">Preset A (Base)</label>
+          <select class="k-input"><option>smart (Active)</option></select>
+        </div>
+        <div style="flex: 1;">
+          <label style="font-size: 11px; color: var(--k-text-dim);">Preset B (Comparison)</label>
+          <select class="k-input"><option>fast</option><option>balanced</option></select>
+        </div>
+      </div>
+
+      <table class="diff-table">
+        <thead>
+          <tr>
+            <th>Capability</th>
+            <th>smart (Active)</th>
+            <th>fast</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Code Generation</strong></td>
+            <td><span class="diff-tag a">Claude 3.7 Sonnet (High)</span></td>
+            <td><span class="diff-tag b">Codex · o3-mini (Medium)</span></td>
+          </tr>
+          <tr>
+            <td><strong>Automated Tests</strong></td>
+            <td><span class="diff-tag a">OpenCode · DeepSeek-R1</span></td>
+            <td><span class="diff-tag b">Claude · 3.5 Haiku</span></td>
+          </tr>
+          <tr>
+            <td><strong>Feature Spec</strong></td>
+            <td><span class="diff-tag a">Claude 3.7 Sonnet</span></td>
+            <td><span class="diff-tag b" style="opacity: 0.7;">↳ Inherited</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="k-btn k-btn--secondary" onclick="document.getElementById('compareModal').style.display='none'">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Confirmation Dialog (Delete Preset) -->
+<div class="modal-overlay" id="deleteConfirmModal" style="display: none;" onclick="if(event.target === this) this.style.display='none'">
+  <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-head">
+      <div class="modal-head-title">
+        <svg class="k-icon-svg warn-icon" viewBox="0 0 24 24"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M5 19h14a2 2 0 0 0 1.84 -2.75l-7.1 -12.25a2 2 0 0 0 -3.5 0l-7.1 12.25a2 2 0 0 0 1.76 2.75"/></svg>
+        <div class="modal-title" id="modalTitle">Delete Preset</div>
+      </div>
+    </div>
+    <div class="modal-body">
+      Are you sure you want to delete preset <strong style="color: var(--k-text-bright); font-family: var(--k-font-mono);">“smart”</strong>? Any ticket referencing this preset will fall back to project defaults.
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="k-btn k-btn--secondary" onclick="document.getElementById('deleteConfirmModal').style.display='none'">Cancel</button>
+      <button type="button" class="k-btn k-btn--danger" onclick="document.getElementById('deleteConfirmModal').style.display='none'">Delete Preset</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -173,6 +173,9 @@ export function agentIdentityJs(): string {
     '  const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",\'"\':"&quot;" }[c]));\n' +
     '  return \'<span class="agentbadge">\' + agentIconHtml(provider) + \'<span class="agentname">\' + esc(agentLabel(provider)) + \'</span></span>\';\n' +
     '}\n' +
+    'function agentBadgeInto(el, provider) {\n' +
+    '  if (el) el.innerHTML = agentBadgeHtml(provider);\n' +
+    '}\n' +
     // THE identity component: [icon] Provider · Model. `model` is the already
     // resolved model label (''/null omits it); `compact` selects the small
     // terminal-friendly variant. Provider and model stay separate elements so

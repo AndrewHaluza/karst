@@ -119,4 +119,4 @@ Three invariants the original investigators learned the hard way, now load-beari
 - **The parity floor is vanilla-measured and unchanged.** The conformance sweep's
   Settings floor (52 inputs / 44 buttons) was measured on the vanilla view; the
   React DOM satisfies it as the union across all eight tabs, because the app
-  mounts one tab at a time while vanilla mounted all tabs in one DOM.
+  mounts one tab at a time while vanilla mounted all tabs in one DOM.- **CSS must be extracted.** To keep `webview.html` maintainable and component-driven, any CSS specific to a React component must be written in a dedicated `.css` file alongside the component (e.g. `PresetsSection.css`) and imported in the `.tsx` file, rather than placed in an inline `<style>` block in `webview.html`. `esbuild` bundles these imports and the injector places them in the document.

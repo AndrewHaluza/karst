@@ -102,6 +102,13 @@ export function PresetsSection() {
   const capabilityIds = useMemo(() => presetCapabilityIds(groups), [groups]);
   const total = capabilityIds.length;
 
+  /** Filter mode: 'all' | 'overridden' | 'inherited' */
+  const [filterMode, setFilterMode] = useState<'all' | 'overridden' | 'inherited'>('all');
+  /** Search query for filtering capability names/labels */
+  const [matrixSearch, setMatrixSearch] = useState('');
+  /** Set of group IDs that are folded */
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
   const preset: AgentPreset | null = currentPreset(draft, editing);
   const slots: Record<string, PresetSlot> = useMemo(
     () => slotsFormPreset(preset, capabilityIds).slots,
@@ -430,9 +437,39 @@ export function PresetsSection() {
               model never crosses to another core.
             </div>
           </div>
-        </div>
+         </div>
 
-        <div className="preset-bulk">
+         {/* Filter pills: All / Overridden / Inherited */}
+         <div className="matrix-filter-controls">
+           <Field
+             className="matrix-filter-field"
+             label={<span className="sr-only">Filter capabilities</span>}
+             control={{
+               kind: 'select',
+               name: 'f-filterMode',
+               value: filterMode,
+               options: [
+                 { value: 'all', label: 'All' },
+                 { value: 'overridden', label: 'Overridden' },
+                 { value: 'inherited', label: 'Inherited' },
+               ],
+               onChange: (value) => setFilterMode(value as 'all' | 'overridden' | 'inherited'),
+             }}
+           />
+           <Field
+             className="matrix-filter-field"
+             label={<span className="sr-only">Search capabilities</span>}
+             control={{
+               kind: 'input',
+               name: 'f-matrixSearch',
+               value: matrixSearch,
+               onChange: (value) => setMatrixSearch(value),
+               placeholder: 'Search capability name or label…',
+             }}
+           />
+         </div>
+
+         <div className="preset-bulk">
           <Field
             className="preset-bulk-field"
             label="Set all to"
@@ -520,27 +557,50 @@ export function PresetsSection() {
         {preset === null ? (
           <div className="preset-empty">Select a preset above to edit its capabilities.</div>
         ) : (
-          groups.map((group) => (
-            <div key={group.id} className="cap-group">
-              <div className="matrix-group">{group.label}</div>
-              {group.rows.map((row) => (
-                <CapabilityRow
-                  key={row.capability}
-                  label={row.label}
-                  capability={row.capability}
-                  slot={slots[row.capability]}
-                  inheritedText={inheritedText(row.capability, inheritance)}
-                  inheritance={inheritance}
-                  manifest={draft}
-                  catalog={catalog}
-                  recent={recent}
-                  cores={cores}
-                  onWrite={(slot) => writeSlot(row.capability, slot)}
-                  onClear={() => clearSlot(row.capability)}
-                />
-              ))}
-            </div>
-          ))
+           groups.map((group) => {
+             const isCollapsed = collapsedGroups.has(group.id);
+             const bodyId = `cap-group-body-${group.id}`;
+             return (
+               <div key={group.id} className={`cap-group${isCollapsed ? ' is-collapsed' : ''}`}>
+                 <button
+                   type="button"
+                   className="cap-group-toggle matrix-group"
+                   aria-expanded={!isCollapsed}
+                   aria-controls={bodyId}
+                   onClick={() => {
+                     setCollapsedGroups((prev) => {
+                       const next = new Set(prev);
+                       if (next.has(group.id)) next.delete(group.id);
+                       else next.add(group.id);
+                       return next;
+                     });
+                   }}>
+                   <span className="chevron">▸</span>
+                   {group.label}
+                 </button>
+                 {!isCollapsed && (
+                   <div id={bodyId} className="cap-group-body">
+                     {group.rows.map((row) => (
+                       <CapabilityRow
+                         key={row.capability}
+                         label={row.label}
+                         capability={row.capability}
+                         slot={slots[row.capability]}
+                         inheritedText={inheritedText(row.capability, inheritance)}
+                         inheritance={inheritance}
+                         manifest={draft}
+                         catalog={catalog}
+                         recent={recent}
+                         cores={cores}
+                         onWrite={(slot) => writeSlot(row.capability, slot)}
+                         onClear={() => clearSlot(row.capability)}
+                       />
+                     ))}
+                   </div>
+                 )}
+               </div>
+             );
+           })
         )}
       </div>
     </div>

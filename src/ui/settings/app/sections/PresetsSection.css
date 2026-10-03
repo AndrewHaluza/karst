@@ -1,0 +1,558 @@
+/* Presets Tab Styling matching PRESETS-REDESIGN-PREVIEW.html */
+
+/* Header actions bar */
+.presets-header-actions {
+  display: flex;
+  gap: var(--k-space-2);
+  align-items: center;
+}
+
+/* Preset Deck / Cards Grid */
+.preset-deck {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: var(--k-space-3);
+  margin-bottom: var(--k-space-4);
+}
+
+.preset-card-compact {
+  background: var(--k-bg);
+  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-radius: var(--k-radius-md);
+  padding: var(--k-space-3) var(--k-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  cursor: pointer;
+  position: relative;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.preset-card-compact:hover {
+  border-color: var(--k-border-focus, #555);
+  background: var(--k-surface-hover);
+}
+
+.preset-card-compact.is-selected {
+  border-color: var(--k-link);
+  background: var(--k-surface-selected);
+  box-shadow: 0 0 0 1px var(--k-link);
+}
+
+.preset-card-compact.is-active {
+  border-color: var(--k-success);
+}
+
+.preset-card-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.preset-name-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preset-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--k-font-mono);
+  color: var(--k-text-bright);
+}
+
+.preset-corner-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.preset-card-row-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  color: var(--k-text-dim);
+}
+
+/* 1-Click Set Active Chip */
+.set-active-trigger {
+  background: transparent;
+  border: 1px dashed var(--vscode-panel-border, var(--k-border));
+  color: var(--k-text-dim);
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.set-active-trigger:hover {
+  color: var(--k-warning);
+  border-color: var(--k-warning);
+  background: color-mix(in srgb, var(--k-warning) 10%, transparent);
+}
+
+/* Batch Override Toolbar matching PRESETS-REDESIGN-PREVIEW.html */
+.bulk-toolbar {
+  background: var(--k-bg);
+  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-radius: var(--k-radius-md);
+  padding: var(--k-space-3) var(--k-space-4);
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--k-space-4);
+  margin-bottom: var(--k-space-4);
+}
+
+.bulk-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--k-text-bright);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.bulk-controls {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(140px, 1fr);
+  gap: var(--k-space-2);
+}
+
+.bulk-buttons {
+  display: flex;
+  gap: var(--k-space-2);
+}
+
+/* Capabilities Matrix Layout */
+.cap-table-wrapper {
+  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-radius: var(--k-radius-md);
+  background: var(--k-bg);
+}
+
+/* Sticky Capabilities Header */
+.cap-matrix-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--k-surface, #252526);
+  border-bottom: 1px solid var(--vscode-panel-border, var(--k-border));
+  padding: 8px var(--k-space-4);
+  display: grid;
+  grid-template-columns: 240px 140px minmax(360px, 1fr);
+  gap: var(--k-space-4);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--k-text-dim);
+}
+
+/* Sticky Group Header */
+.cap-group-header {
+  position: sticky;
+  top: 33px;
+  z-index: 10;
+  background: var(--k-surface-hover, #2d2d2d);
+  padding: 7px var(--k-space-4);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--k-text-bright);
+  border-top: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-bottom: 1px solid var(--vscode-panel-border, var(--k-border));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cap-group-header:first-of-type {
+  border-top: none;
+}
+
+.cap-group-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--k-space-2);
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  user-select: none;
+  padding: 0;
+  border-radius: var(--k-radius-sm);
+}
+
+.cap-group-toggle:hover {
+  background: var(--k-surface-hover);
+}
+
+.cap-group-toggle:focus-visible {
+  outline: var(--k-focus-w) solid var(--k-focus);
+  outline-offset: var(--k-focus-offset);
+}
+
+.cap-group-toggle .chevron {
+  font-size: var(--k-text-xs);
+  opacity: 0.7;
+  transition: transform var(--k-dur-fast);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cap-group:not(.is-collapsed) .cap-group-toggle .chevron {
+  transform: rotate(90deg);
+}
+
+/* Per UI-R30: null the chevron transition when the user prefers reduced
+   motion — the rotation is decorative and conveys no information. */
+@media (prefers-reduced-motion: reduce) {
+  .cap-group-toggle .chevron {
+    transition: none;
+  }
+}
+
+/* Capability Row */
+.cap-row {
+  display: grid;
+  grid-template-columns: 240px 140px minmax(360px, 1fr);
+  align-items: center;
+  padding: var(--k-space-3) var(--k-space-4);
+  border-top: 1px solid var(--vscode-panel-border, var(--k-border));
+  gap: var(--k-space-4);
+  transition: background 0.1s ease;
+}
+
+.cap-row:first-child {
+  border-top: none;
+}
+
+.cap-row:hover {
+  background: color-mix(in srgb, var(--k-text-bright) 2%, transparent);
+}
+
+.cap-row.is-override {
+  background: color-mix(in srgb, var(--k-link) 4%, transparent);
+}
+
+.cap-title {
+  font-weight: 500;
+  color: var(--k-text-bright);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cap-preview-inherited {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--k-font-mono);
+  font-size: 12px;
+  color: var(--k-text-dim);
+}
+
+.cap-preview-inherited .sub-label {
+  color: var(--k-text-dim);
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.cap-override-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(130px, 1fr);
+  gap: var(--k-space-2);
+  align-items: center;
+}
+
+/* Modal Dialog Overlay */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-dialog {
+  background: var(--k-surface, #252526);
+  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-radius: var(--k-radius-lg);
+  width: 440px;
+  max-width: 90vw;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+  padding: var(--k-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--k-space-4);
+}
+
+.modal-dialog.wide {
+  width: 850px;
+  max-width: 94vw;
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-head-title {
+  display: flex;
+  align-items: center;
+  gap: var(--k-space-3);
+}
+
+.modal-head-title .k-icon-svg {
+  color: var(--k-link);
+  width: 18px;
+  height: 18px;
+}
+
+.modal-head-title .warn-icon {
+  color: var(--k-danger);
+  width: 20px;
+  height: 20px;
+}
+
+.modal-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--k-text-bright);
+}
+
+.modal-body {
+  color: var(--k-text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--k-space-2);
+}
+
+/* Compare Matrix Table in Modal */
+.diff-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: var(--k-space-3);
+}
+
+.diff-table th,
+.diff-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--vscode-panel-border, var(--k-border));
+}
+
+.diff-table th {
+  background: var(--k-surface-hover);
+  color: var(--k-text-dim);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.diff-table tr:hover {
+  background: color-mix(in srgb, var(--k-text-bright) 2%, transparent);
+}
+
+.diff-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-family: var(--k-font-mono);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.diff-tag.a {
+  background: color-mix(in srgb, var(--k-success) 15%, transparent);
+  color: var(--k-success);
+}
+
+.diff-tag.b {
+  background: color-mix(in srgb, var(--k-link) 15%, transparent);
+  color: var(--k-link);
+}
+
+/* Filter pills */
+.filter-pills {
+  display: flex;
+  gap: var(--k-space-1);
+}
+
+.pill-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--k-text-dim);
+  padding: 3px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.pill-btn:hover {
+  color: var(--k-text-bright);
+}
+
+.pill-btn.active {
+  background: var(--k-surface-selected);
+  color: var(--k-text-bright);
+  border-color: var(--vscode-panel-border, #555);
+}
+
+/* Responsive Rules for Laptops vs Ultra-wide */
+@media (max-width: 1024px) {
+  .bulk-toolbar {
+    grid-template-columns: 1fr;
+    gap: var(--k-space-3);
+  }
+  .bulk-controls {
+    grid-template-columns: 1fr 1fr;
+  }
+  .bulk-buttons {
+    justify-content: flex-end;
+  }
+  .cap-matrix-sticky-header,
+  .cap-row {
+    grid-template-columns: 180px 120px 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .cap-matrix-sticky-header {
+    display: none;
+  }
+  .cap-row {
+    grid-template-columns: 1fr;
+    gap: var(--k-space-2);
+  }
+  .cap-override-grid {
+    grid-template-columns: 1fr;
+  }
+  .bulk-controls {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Utility classes replacing inline styles to conform with R-X6 */
+.preset-yaml-notice {
+  color: var(--k-success);
+  margin-bottom: var(--k-space-3);
+}
+
+.preset-title-highlight {
+  color: var(--k-link);
+}
+
+.compare-pickers-row {
+  display: flex;
+  gap: var(--k-space-4);
+  margin-bottom: var(--k-space-3);
+}
+
+.compare-picker-col {
+  flex: 1;
+}
+
+.diff-inherited {
+  color: var(--k-text-dim);
+  opacity: 0.7;
+}
+
+/* Matrix Search and Filter controls in Section Head */
+.matrix-filter-controls {
+  display: flex;
+  gap: var(--k-space-2);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.matrix-search-input {
+  width: 200px;
+  max-width: 100%;
+}
+
+/* The search `Field` renders a `<label>` (wrapping the sr-only span) that
+   carries the shell's global `label{margin}` plus `.k-field`'s flex gap —
+   a box that pushes the input down off the pills' baseline. Pull the label
+   out of flow so it neither participates in the gap nor adds a margin box,
+   but keeps the caption in the accessibility tree (UI-R25). */
+.matrix-filter-controls .k-field > label {
+  position: absolute;
+  margin: 0;
+  font-size: 0;
+  line-height: 0;
+}
+
+/* Override-mode picker: core | model | effort in one line, like the preview */
+.cap-value .ap {
+  grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(130px, 1fr);
+  gap: var(--k-space-2);
+  align-items: end;
+}
+
+/* Shared picker runtime renders a "Core" / "Model" / "Effort" caption
+   above every control (agentPicker.webview.js:244,250,258). The matrix
+   column header already names the whole cell, so the per-row captions
+   are redundant — hide them here, scoped to the matrix so the Agents
+   tab's process matrix (which mounts the same picker) keeps theirs. */
+.cap-value .ap .ap-label {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .cap-value .ap {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Page header: title block left, actions right (scoped; other tabs unchanged) */
+#section-presets .page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--k-space-5);
+}
+
+.cap-name {
+  min-width: 0;
+}
+
+.cap-mode select {
+  width: 100%;
+}
+
+.cap-value {
+  min-width: 0;
+}
+
+.cap-preview-inherited .cap-inherited {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

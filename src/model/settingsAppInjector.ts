@@ -21,10 +21,19 @@ import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 
 /** Marker in the settings webview document, filled at phase 4 (NDL-126 §8.4). */
 export const SETTINGS_APP_MARKER = '/*KARST_SETTINGS_APP*/';
+export const SETTINGS_APP_CSS_MARKER = '/*KARST_SETTINGS_APP_CSS*/';
 
 /** The settings React app bundle text, read from the runtime assets root. */
 export function settingsAppJs(): string {
   return readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui/settings/app.webview.js'), 'utf8').trim();
+}
+
+export function settingsAppCss(): string {
+  try {
+    return readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui/settings/app.webview.css'), 'utf8').trim();
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -33,5 +42,9 @@ export function settingsAppJs(): string {
  */
 export function injectSettingsApp(html: string): string {
   if (!html.includes(SETTINGS_APP_MARKER)) return html;
-  return html.replace(SETTINGS_APP_MARKER, () => settingsAppJs());
+  let out = html.replace(SETTINGS_APP_MARKER, () => settingsAppJs());
+  if (out.includes(SETTINGS_APP_CSS_MARKER)) {
+    out = out.replace(SETTINGS_APP_CSS_MARKER, () => settingsAppCss());
+  }
+  return out;
 }

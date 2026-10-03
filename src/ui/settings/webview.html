@@ -21,6 +21,7 @@
 <!--KARST_CSP-->
 <style>
   /*KARST_DS_CSS*/
+  /*KARST_SETTINGS_APP_CSS*/
 
   :root{
     /* One chevron for every dropdown (native <select> + the custom provider
@@ -51,6 +52,12 @@
      flex box and the `.app` grid see exactly the children the vanilla
      document had (nav.sidebar + div.main), at the same sizes. */
   #root{display:contents}
+
+  /* Cap the whole settings layout (sidebar + content) so an ultra-wide window
+     does not stretch it; it centers on the canvas instead. */
+  body{max-width:calc(var(--k-space-8) * 90);margin-inline:auto}
+
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
   /* Settings help text keeps the v3.0 recipe the vanilla view used for field
      help (`.field-help`): the dim ink at the leading-normal line-height — NOT
@@ -902,28 +909,6 @@
   .preset-actions{display:flex;justify-content:flex-end;gap:var(--k-space-4);margin-top:var(--k-space-4)}
   .preset-row.is-selected{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
 
-  /* §5 bulk row: one core/model/effort applied to every capability. */
-  .preset-bulk{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin-top:var(--k-space-4);
-    font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .preset-bulk select{max-width:calc(var(--k-space-8) * 14)}
-
-  /* §5 capability matrix: capability | mode | value. The value cell is the
-     ONLY place a row can switch between the inherited preview and the
-     mounted identity picker, so it takes the remaining width. */
-  .cap-group{display:flex;flex-direction:column;overflow:hidden;
-    border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg)}
-  .cap-group + .cap-group{margin-top:var(--k-space-5)}
-  .cap-group .matrix-group{margin-top:0;border-radius:0}
-  .cap-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 8),1fr) minmax(calc(var(--k-space-8) * 9),auto) minmax(calc(var(--k-space-8) * 16),1.6fr);
-    align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);
-    border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .cap-row .cap-name{font-size:var(--k-text-base);font-weight:var(--k-weight-medium);min-width:0;
-    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .cap-row .cap-mode select{width:100%}
-  .cap-row .cap-inherited{display:block;font-family:var(--k-font-mono);font-size:var(--k-text-xs);
-    color:var(--k-text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .cap-row .cap-value{min-width:0}
-  @media (max-width:calc(var(--k-space-8) * 60)){.cap-row{grid-template-columns:minmax(0,1fr)}}
 
   /* Compact object roster (handoff §6.5 / §10). */
   .roster{display:flex;flex-direction:column;overflow:hidden;border-radius:var(--k-radius-lg);border:var(--k-border-w) solid var(--vscode-panel-border)}

@@ -78,17 +78,17 @@ export function TicketingSection() {
   const listState = state.lists;
   const statusState = state.statuses;
   useEffect(() => {
-    if (listState.kind === 'ready') lists.settle({ requestId: current(lists.requestId), result: 'success' });
-    if (listState.kind === 'failed') {
+    if (listState.kind === 'ready' && lists.requestId) lists.settle({ requestId: current(lists.requestId), result: 'success' });
+    if (listState.kind === 'failed' && lists.requestId) {
       lists.settle({ requestId: current(lists.requestId), result: 'failure', message: listState.error });
     }
   }, [listState, lists]);
 
   useEffect(() => {
-    if (statusState.kind === 'ready') {
+    if (statusState.kind === 'ready' && statuses.requestId) {
       statuses.settle({ requestId: current(statuses.requestId), result: 'success' });
     }
-    if (statusState.kind === 'failed') {
+    if (statusState.kind === 'failed' && statuses.requestId) {
       statuses.settle({
         requestId: current(statuses.requestId),
         result: 'failure',
