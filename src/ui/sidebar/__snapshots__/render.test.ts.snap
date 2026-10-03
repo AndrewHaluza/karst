@@ -210,6 +210,9 @@ function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
 }
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
+}
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   const p = provider || "";
@@ -1057,6 +1060,9 @@ function agentIconHtml(provider) {
 function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
+}
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
 }
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
@@ -1906,6 +1912,9 @@ function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
 }
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
+}
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   const p = provider || "";
@@ -2753,6 +2762,9 @@ function agentIconHtml(provider) {
 function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
+}
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
 }
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
@@ -3602,6 +3614,9 @@ function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
 }
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
+}
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   const p = provider || "";
@@ -4449,6 +4464,9 @@ function agentIconHtml(provider) {
 function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
+}
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
 }
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
@@ -5298,6 +5316,9 @@ function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
 }
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
+}
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   const p = provider || "";
@@ -6145,6 +6166,9 @@ function agentIconHtml(provider) {
 function agentBadgeHtml(provider) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
   return '<span class="agentbadge">' + agentIconHtml(provider) + '<span class="agentname">' + esc(agentLabel(provider)) + '</span></span>';
+}
+function agentBadgeInto(el, provider) {
+  if (el) el.innerHTML = agentBadgeHtml(provider);
 }
 function agentIdentityHtml(provider, model, compact) {
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));

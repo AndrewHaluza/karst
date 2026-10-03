@@ -57,7 +57,7 @@
      does not stretch it; it centers on the canvas instead. */
   body{max-width:calc(var(--k-space-8) * 90);margin-inline:auto}
 
-  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .sr-only{position:absolute;width:var(--k-border-w);height:var(--k-border-w);padding:0;margin:calc(var(--k-border-w) * -1);overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
   /* Settings help text keeps the v3.0 recipe the vanilla view used for field
      help (`.field-help`): the dim ink at the leading-normal line-height — NOT

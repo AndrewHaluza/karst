@@ -39,6 +39,7 @@ import { useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
+import { Chip } from '../primitives/Chip.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 import type { PresetInheritance } from '../../presetMatrix.js';
 import {
@@ -306,23 +307,93 @@ export function PresetsSection() {
     });
   };
 
+  const [compareModalOpen, setCompareModalOpen] = useState(false);
+  const [comparePresetA, setComparePresetA] = useState<string>('');
+  const [comparePresetB, setComparePresetB] = useState<string>('');
+
+  const exportYaml = (name: string): void => {
+    const p = presetMap(draft)[name];
+    if (!p) return;
+    const content = `agentPresets:\n  ${name}:\n` + JSON.stringify(p, null, 2);
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(content).then(
+        () => setListError(`Copied "${name}" YAML to clipboard!`),
+        () => setListError(`Preset configuration:\n${content}`),
+      );
+    } else {
+      setListError(`Preset configuration:\n${content}`);
+    }
+  };
+
+  const filteredGroups = useMemo(() => {
+    return groups
+      .map((group) => {
+        const rows = group.rows.filter((row) => {
+          const slot = slots[row.capability];
+          const isOverridden = slot !== undefined;
+          if (filterMode === 'overridden' && !isOverridden) return false;
+          if (filterMode === 'inherited' && isOverridden) return false;
+          if (matrixSearch.trim() !== '') {
+            const q = matrixSearch.toLowerCase();
+            const matchName = row.capability.toLowerCase().includes(q);
+            const matchLabel = row.label.toLowerCase().includes(q);
+            if (!matchName && !matchLabel) return false;
+          }
+          return true;
+        });
+        return { ...group, rows };
+      })
+      .filter((group) => group.rows.length > 0);
+  }, [groups, slots, filterMode, matrixSearch]);
+
   return (
     <div className="section" id="section-presets">
       <div className="page-header">
-        <div className="page-title">Presets</div>
-        <div className="page-desc">
-          A preset is a matrix of capability to core: which core, model and effort each capability
-          runs on. Every capability it leaves alone inherits the project and process defaults.
+        <div>
+          <div className="page-title">Presets</div>
+          <div className="page-desc">
+            A preset maps capabilities to specific agent cores, models, and reasoning variants. Capabilities left unset inherit project and process defaults.
+          </div>
+        </div>
+        <div className="presets-header-actions">
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setComparePresetA(editing ?? names[0] ?? '');
+              setComparePresetB(names.find((n) => n !== editing) ?? names[0] ?? '');
+              setCompareModalOpen(true);
+            }}
+          >
+            <svg className="k-icon-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+              <path d="M16 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+              <path d="M11 6h5a2 2 0 0 1 2 2v8" />
+              <path d="M14 9l-3 -3l3 -3" />
+              <path d="M13 18h-5a2 2 0 0 1 -2 -2v-8" />
+              <path d="M10 15l3 3l-3 3" />
+            </svg>
+            Compare Presets
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              setSelected(NO_SELECTION);
+              setNameValue('');
+              setFormError(null);
+              setListError(null);
+            }}
+          >
+            + New Preset
+          </Button>
         </div>
       </div>
 
-      <div className="section-block">
+      <div className="section-card section-block">
         <div className="section-head">
           <div>
-            <div className="section-title">Presets</div>
+            <div className="section-title">Preset Profiles</div>
             <div className="section-desc">
-              Add, rename, duplicate or delete a preset, then pick the one that is active. The
-              active preset applies to every ticket that names none of its own.
+              Select a preset to inspect its matrix below. Click “Set as Active” or use the icons to copy/export YAML.
             </div>
           </div>
         </div>
@@ -332,7 +403,7 @@ export function PresetsSection() {
             No presets yet. Add one to pick the capabilities it overrides.
           </div>
         ) : (
-          <div className="preset-list">
+          <div className="preset-deck preset-list">
             {names.map((name) => {
               const record = presetMap(draft)[name];
               const overridden = overriddenCount(record, capabilityIds);
@@ -343,20 +414,82 @@ export function PresetsSection() {
                 (active ? ' · active' : '');
               const isSelected = name === editing;
               return (
-                <div key={name} className={`preset-row${isSelected ? ' is-selected' : ''}`}>
-                  <span className="preset-name">{name}</span>
-                  <span className="preset-meta">{meta}</span>
-                  <span className="preset-row-actions">
-                    <Button variant="secondary" size="sm" onClick={() => select(name)}>
-                      Edit
-                    </Button>
-                    <Button variant="secondary" size="sm" onClick={() => onDuplicate(name)}>
-                      Duplicate
-                    </Button>
-                    <DestructiveButton action="remove-preset" size="sm" onClick={() => onDelete(name)}>
-                      Delete
-                    </DestructiveButton>
-                  </span>
+                <div
+                  key={name}
+                  className={`preset-card-compact preset-row${isSelected ? ' is-selected' : ''}${active ? ' is-active' : ''}`}
+                  tabIndex={0}
+                  onClick={() => select(name)}
+                >
+                  <div className="preset-card-row-top">
+                    <div className="preset-name-cluster">
+                      <span className="preset-name preset-card-name">{name}</span>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Rename or edit preset"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          select(name);
+                        }}
+                      >
+                        ✎
+                      </Button>
+                    </div>
+                    <div className="preset-corner-actions preset-row-actions">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        title="Export / Copy YAML"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          exportYaml(name);
+                        }}
+                      >
+                        📄
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        title="Duplicate preset"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDuplicate(name);
+                        }}
+                      >
+                        Duplicate
+                      </Button>
+                      <DestructiveButton
+                        action="remove-preset"
+                        size="sm"
+                        title="Delete preset"
+                        aria-label="Delete"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDelete(name);
+                        }}
+                      >
+                        Delete
+                      </DestructiveButton>
+                    </div>
+                  </div>
+                  <div className="preset-card-row-bottom">
+                    <span className="preset-meta">{meta}</span>
+                    {active ? (
+                      <Chip tone="success">✓ Active Default</Chip>
+                    ) : (
+                      <button
+                        type="button"
+                        className="set-active-trigger"
+                        title="Make this preset the default for all tickets"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActive(name);
+                        }}
+                      >
+                        ☆ Set as Active
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -372,9 +505,6 @@ export function PresetsSection() {
         <div className="form-grid">
           <Field
             label="Preset name"
-            // UI-R25: the fault is shown on its line AND flagged on the control it
-            // is about. A slot fault lands here because the slot itself is edited
-            // in the matrix below, not in this form.
             error={formError ?? undefined}
             help="The name tickets and the active selector refer to. Leave it as-is to edit the selected preset in place."
             control={{
@@ -393,10 +523,6 @@ export function PresetsSection() {
               kind: 'select',
               name: 'f-activeAgentPreset',
               value: activePresetName(draft),
-              // A selection naming a preset the map no longer defines keeps its
-              // own option so it stays visible rather than silently blanked — the
-              // host refuses that file at load, and showing it is the honest
-              // state.
               options: [
                 { value: '', label: 'None (every capability inherits)' },
                 ...(activePresetName(draft) !== '' && names.indexOf(activePresetName(draft)) === -1
@@ -427,182 +553,296 @@ export function PresetsSection() {
         </div>
       </div>
 
-      <div className="section-block">
+      <div className="section-card section-block">
         <div className="section-head">
           <div>
-            <div className="section-title">Capabilities</div>
+            <div className="section-title">
+              Capability Matrix: <span className="preset-title-highlight">{editing ? `"${editing}"` : 'None'}</span>
+            </div>
             <div className="section-desc">
-              One row per capability. Inherit keeps whatever this project resolves today; Override
-              pins a core, model and effort for this preset. A whole slot applies together, so a
-              model never crosses to another core.
+              Override individual tasks or bulk-assign a core and model across every capability.
             </div>
           </div>
-         </div>
-
-         {/* Filter pills: All / Overridden / Inherited */}
-         <div className="matrix-filter-controls">
-           <Field
-             className="matrix-filter-field"
-             label={<span className="sr-only">Filter capabilities</span>}
-             control={{
-               kind: 'select',
-               name: 'f-filterMode',
-               value: filterMode,
-               options: [
-                 { value: 'all', label: 'All' },
-                 { value: 'overridden', label: 'Overridden' },
-                 { value: 'inherited', label: 'Inherited' },
-               ],
-               onChange: (value) => setFilterMode(value as 'all' | 'overridden' | 'inherited'),
-             }}
-           />
-           <Field
-             className="matrix-filter-field"
-             label={<span className="sr-only">Search capabilities</span>}
-             control={{
-               kind: 'input',
-               name: 'f-matrixSearch',
-               value: matrixSearch,
-               onChange: (value) => setMatrixSearch(value),
-               placeholder: 'Search capability name or label…',
-             }}
-           />
-         </div>
-
-         <div className="preset-bulk">
-          <Field
-            className="preset-bulk-field"
-            label="Set all to"
-            // The three selects of the §5 bulk row are ONE labelled control, not
-            // three fields, so they ride a single `Field` whose label wraps the
-            // first. Writing the control elements here would own the shared DS
-            // control class from outside the primitives directory, which is
-            // exactly what R07/R08 bans — the primitive is the only place that
-            // class may appear.
-            control={{
-              kind: 'select',
-              name: 'f-setAllProvider',
-              value: bulk.provider,
-              options: bulk.cores.map((c) => ({ value: c.id, label: c.label })),
-              onChange: bulk.setProvider,
-            }}
-          />
-          <Field
-            className="preset-bulk-field"
-            label={<span className="sr-only">Set all rows to model</span>}
-            control={{
-              kind: 'select',
-              name: 'f-setAllModel',
-              value: bulk.model,
-              options: bulk.models.map((m) => ({ value: m.id, label: m.label || m.id })),
-              onChange: bulk.setModel,
-            }}
-          />
-          <Field
-            className="preset-bulk-field"
-            label={<span className="sr-only">Set all rows to effort or variant</span>}
-            control={{
-              kind: 'select',
-              name: 'f-setAllEffort',
-              value: bulk.effort,
-              options: [
-                { value: '', label: 'No effort (model default)' },
-                ...bulk.efforts.map((e) => ({ value: e, label: e })),
-              ],
-              onChange: bulk.setEffort,
-            }}
-          />
-          <Button
-            variant="secondary"
-            disabled={preset === null}
-            onClick={() => {
-              if (preset === null) {
-                return setListError('Select a preset before using “Set all to…”.');
-              }
-              if (!bulk.provider || !bulk.model) {
-                return setListError('Pick a core and a model to set every row to.');
-              }
-              setListError(null);
-              const slot: PresetSlot = {
-                provider: bulk.provider,
-                model: bulk.model,
-                ...(bulk.effort ? { effort: bulk.effort } : {}),
-              };
-              const next: Record<string, PresetSlot> = {};
-              for (const capability of capabilityIds) next[capability] = { ...slot };
-              const base = slotsFormPreset(preset, capabilityIds);
-              commitPresetEntry({ ...base, slots: next });
-              return undefined;
-            }}
-          >
-            Override every row
-          </Button>
-          <Button
-            variant="secondary"
-            disabled={preset === null}
-            onClick={() => {
-              if (preset === null) {
-                return setListError('Select a preset before using “Set all to…”.');
-              }
-              setListError(null);
-              const base = slotsFormPreset(preset, capabilityIds);
-              commitPresetEntry({ ...base, slots: {} });
-              return undefined;
-            }}
-          >
-            Inherit every row
-          </Button>
+          <div className="matrix-filter-controls">
+            <Field
+              className="matrix-filter-field"
+              label={<span className="sr-only">Filter capabilities</span>}
+              control={{
+                kind: 'select',
+                name: 'f-filterMode',
+                value: filterMode,
+                options: [
+                  { value: 'all', label: `All (${total})` },
+                  { value: 'overridden', label: `Overridden (${preset ? overriddenCount(preset, capabilityIds) : 0})` },
+                  { value: 'inherited', label: `Inherited (${preset ? total - overriddenCount(preset, capabilityIds) : total})` },
+                ],
+                onChange: (value) => setFilterMode(value as 'all' | 'overridden' | 'inherited'),
+              }}
+            />
+            <Field
+              className="matrix-filter-field"
+              label={<span className="sr-only">Search capabilities</span>}
+              control={{
+                kind: 'input',
+                name: 'f-matrixSearch',
+                value: matrixSearch,
+                onChange: (value) => setMatrixSearch(value),
+                placeholder: 'Filter capabilities…',
+              }}
+            />
+          </div>
         </div>
 
-        {preset === null ? (
-          <div className="preset-empty">Select a preset above to edit its capabilities.</div>
-        ) : (
-           groups.map((group) => {
-             const isCollapsed = collapsedGroups.has(group.id);
-             const bodyId = `cap-group-body-${group.id}`;
-             return (
-               <div key={group.id} className={`cap-group${isCollapsed ? ' is-collapsed' : ''}`}>
-                 <button
-                   type="button"
-                   className="cap-group-toggle matrix-group"
-                   aria-expanded={!isCollapsed}
-                   aria-controls={bodyId}
-                   onClick={() => {
-                     setCollapsedGroups((prev) => {
-                       const next = new Set(prev);
-                       if (next.has(group.id)) next.delete(group.id);
-                       else next.add(group.id);
-                       return next;
-                     });
-                   }}>
-                   <span className="chevron">▸</span>
-                   {group.label}
-                 </button>
-                 {!isCollapsed && (
-                   <div id={bodyId} className="cap-group-body">
-                     {group.rows.map((row) => (
-                       <CapabilityRow
-                         key={row.capability}
-                         label={row.label}
-                         capability={row.capability}
-                         slot={slots[row.capability]}
-                         inheritedText={inheritedText(row.capability, inheritance)}
-                         inheritance={inheritance}
-                         manifest={draft}
-                         catalog={catalog}
-                         recent={recent}
-                         cores={cores}
-                         onWrite={(slot) => writeSlot(row.capability, slot)}
-                         onClear={() => clearSlot(row.capability)}
-                       />
-                     ))}
-                   </div>
-                 )}
-               </div>
-             );
-           })
-        )}
+        {/* Batch Override Toolbar */}
+        <div className="bulk-toolbar preset-bulk">
+          <div className="bulk-label">⚡ Batch Override</div>
+          <div className="bulk-controls">
+            <Field
+              className="preset-bulk-field"
+              label={<span className="sr-only">Set all rows to core</span>}
+              control={{
+                kind: 'select',
+                name: 'f-setAllProvider',
+                value: bulk.provider,
+                options: bulk.cores.map((c) => ({ value: c.id, label: c.label })),
+                onChange: bulk.setProvider,
+              }}
+            />
+            <Field
+              className="preset-bulk-field"
+              label={<span className="sr-only">Set all rows to model</span>}
+              control={{
+                kind: 'select',
+                name: 'f-setAllModel',
+                value: bulk.model,
+                options: bulk.models.map((m) => ({ value: m.id, label: m.label || m.id })),
+                onChange: bulk.setModel,
+              }}
+            />
+            <Field
+              className="preset-bulk-field"
+              label={<span className="sr-only">Set all rows to effort or variant</span>}
+              control={{
+                kind: 'select',
+                name: 'f-setAllEffort',
+                value: bulk.effort,
+                options: [
+                  { value: '', label: 'Default effort' },
+                  ...bulk.efforts.map((e) => ({ value: e, label: e })),
+                ],
+                onChange: bulk.setEffort,
+              }}
+            />
+          </div>
+          <div className="bulk-buttons">
+            <Button
+              variant="secondary"
+              disabled={preset === null}
+              onClick={() => {
+                if (preset === null) {
+                  return setListError('Select a preset before using “Set all to…”.');
+                }
+                if (!bulk.provider || !bulk.model) {
+                  return setListError('Pick a core and a model to set every row to.');
+                }
+                setListError(null);
+                const slot: PresetSlot = {
+                  provider: bulk.provider,
+                  model: bulk.model,
+                  ...(bulk.effort ? { effort: bulk.effort } : {}),
+                };
+                const next: Record<string, PresetSlot> = {};
+                for (const capability of capabilityIds) next[capability] = { ...slot };
+                const base = slotsFormPreset(preset, capabilityIds);
+                commitPresetEntry({ ...base, slots: next });
+                return undefined;
+              }}
+            >
+              Override every row
+            </Button>
+            <Button
+              variant="secondary"
+              disabled={preset === null}
+              onClick={() => {
+                if (preset === null) {
+                  return setListError('Select a preset before using “Set all to…”.');
+                }
+                setListError(null);
+                const base = slotsFormPreset(preset, capabilityIds);
+                commitPresetEntry({ ...base, slots: {} });
+                return undefined;
+              }}
+            >
+              Inherit every row
+            </Button>
+          </div>
+        </div>
+
+        {/* Sticky Capabilities Matrix Table */}
+        <div className="cap-table-wrapper">
+          <div className="cap-matrix-sticky-header">
+            <div>Capability Name</div>
+            <div>Mode</div>
+            <div>Configured Agent & Model</div>
+          </div>
+
+          {preset === null ? (
+            <div className="preset-empty">Select a preset above to edit its capabilities.</div>
+          ) : (
+            filteredGroups.map((group) => {
+              const isCollapsed = collapsedGroups.has(group.id);
+              const bodyId = `cap-group-body-${group.id}`;
+              return (
+                <div key={group.id} className={`cap-group${isCollapsed ? ' is-collapsed' : ''}`}>
+                  <div className="cap-group-header">
+                    <button
+                      type="button"
+                      className="cap-group-toggle matrix-group"
+                      aria-expanded={!isCollapsed}
+                      aria-controls={bodyId}
+                      onClick={() => {
+                        setCollapsedGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(group.id)) next.delete(group.id);
+                          else next.add(group.id);
+                          return next;
+                        });
+                      }}
+                    >
+                      <span className="chevron">▸</span>
+                      <span>{group.label} ({group.rows.length})</span>
+                    </button>
+                  </div>
+                  {!isCollapsed && (
+                    <div id={bodyId} className="cap-group-body">
+                      {group.rows.map((row) => (
+                        <CapabilityRow
+                          key={row.capability}
+                          label={row.label}
+                          capability={row.capability}
+                          slot={slots[row.capability]}
+                          inheritedText={inheritedText(row.capability, inheritance)}
+                          inheritance={inheritance}
+                          manifest={draft}
+                          catalog={catalog}
+                          recent={recent}
+                          cores={cores}
+                          onWrite={(slot) => writeSlot(row.capability, slot)}
+                          onClear={() => clearSlot(row.capability)}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
+
+      {compareModalOpen && (
+        <div
+          className="modal-overlay"
+          id="compareModal"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setCompareModalOpen(false);
+          }}
+        >
+          <div className="modal-dialog wide" role="dialog" aria-modal="true" aria-labelledby="compareTitle">
+            <div className="modal-head">
+              <div className="modal-head-title">
+                <div className="modal-title" id="compareTitle">Compare Preset Matrices</div>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setCompareModalOpen(false)}>
+                ✕
+              </Button>
+            </div>
+            <div className="modal-body">
+              <div className="compare-pickers-row">
+                <div className="compare-picker-col">
+                  <Field
+                    label="Preset A (Base)"
+                    control={{
+                      kind: 'select',
+                      name: 'f-comparePresetA',
+                      value: comparePresetA,
+                      options: names.map((n) => ({
+                        value: n,
+                        label: n === activePresetName(draft) ? `${n} (Active)` : n,
+                      })),
+                      onChange: (val) => setComparePresetA(val),
+                    }}
+                  />
+                </div>
+                <div className="compare-picker-col">
+                  <Field
+                    label="Preset B (Comparison)"
+                    control={{
+                      kind: 'select',
+                      name: 'f-comparePresetB',
+                      value: comparePresetB,
+                      options: names.map((n) => ({
+                        value: n,
+                        label: n === activePresetName(draft) ? `${n} (Active)` : n,
+                      })),
+                      onChange: (val) => setComparePresetB(val),
+                    }}
+                  />
+                </div>
+              </div>
+
+              <table className="diff-table">
+                <thead>
+                  <tr>
+                    <th>Capability</th>
+                    <th>{comparePresetA || 'Preset A'}</th>
+                    <th>{comparePresetB || 'Preset B'}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {capabilityIds.map((cap) => {
+                    const presetA = presetMap(draft)[comparePresetA];
+                    const presetB = presetMap(draft)[comparePresetB];
+                    const slotsA = slotsFormPreset(presetA, capabilityIds).slots;
+                    const slotsB = slotsFormPreset(presetB, capabilityIds).slots;
+                    const slotA = slotsA[cap];
+                    const slotB = slotsB[cap];
+                    const label = groups.flatMap((g) => g.rows).find((r) => r.capability === cap)?.label ?? cap;
+
+                    const textA = slotA
+                      ? `${slotA.provider} · ${slotA.model ?? 'default'}${slotA.effort ? ` (${slotA.effort})` : ''}`
+                      : '↳ Inherited';
+                    const textB = slotB
+                      ? `${slotB.provider} · ${slotB.model ?? 'default'}${slotB.effort ? ` (${slotB.effort})` : ''}`
+                      : '↳ Inherited';
+
+                    return (
+                      <tr key={cap}>
+                        <td><strong>{label}</strong></td>
+                        <td>
+                          <span className={`diff-tag ${slotA ? 'a' : 'diff-inherited'}`}>
+                            {textA}
+                          </span>
+                        </td>
+                        <td>
+                          <span className={`diff-tag ${slotB ? 'b' : 'diff-inherited'}`}>
+                            {textB}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="modal-actions">
+              <Button variant="secondary" onClick={() => setCompareModalOpen(false)}>
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

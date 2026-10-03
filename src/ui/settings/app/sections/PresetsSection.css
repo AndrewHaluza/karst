@@ -17,7 +17,7 @@
 
 .preset-card-compact {
   background: var(--k-bg);
-  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
   padding: var(--k-space-3) var(--k-space-4);
   display: flex;
@@ -36,7 +36,7 @@
 .preset-card-compact.is-selected {
   border-color: var(--k-link);
   background: var(--k-surface-selected);
-  box-shadow: 0 0 0 1px var(--k-link);
+  box-shadow: 0 0 0 var(--k-border-w) var(--k-link);
 }
 
 .preset-card-compact.is-active {
@@ -72,17 +72,17 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   color: var(--k-text-dim);
 }
 
 /* 1-Click Set Active Chip */
 .set-active-trigger {
   background: transparent;
-  border: 1px dashed var(--vscode-panel-border, var(--k-border));
+  border: var(--k-border-w) dashed var(--vscode-panel-border, var(--k-border));
   color: var(--k-text-dim);
   font-size: 10px;
-  padding: 1px 7px;
+  padding: var(--k-border-w) var(--k-space-2);
   border-radius: 10px;
   font-weight: 600;
   line-height: 16px;
@@ -101,7 +101,7 @@
 /* Batch Override Toolbar matching PRESETS-REDESIGN-PREVIEW.html */
 .bulk-toolbar {
   background: var(--k-bg);
-  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
   padding: var(--k-space-3) var(--k-space-4);
   display: grid;
@@ -134,7 +134,7 @@
 
 /* Capabilities Matrix Layout */
 .cap-table-wrapper {
-  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
   background: var(--k-bg);
 }
@@ -145,12 +145,12 @@
   top: 0;
   z-index: 20;
   background: var(--k-surface, #252526);
-  border-bottom: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   padding: 8px var(--k-space-4);
   display: grid;
   grid-template-columns: 240px 140px minmax(360px, 1fr);
   gap: var(--k-space-4);
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -164,13 +164,13 @@
   z-index: 10;
   background: var(--k-surface-hover, #2d2d2d);
   padding: 7px var(--k-space-4);
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--k-text-bright);
-  border-top: 1px solid var(--vscode-panel-border, var(--k-border));
-  border-bottom: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
+  border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -230,7 +230,7 @@
   grid-template-columns: 240px 140px minmax(360px, 1fr);
   align-items: center;
   padding: var(--k-space-3) var(--k-space-4);
-  border-top: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   gap: var(--k-space-4);
   transition: background 0.1s ease;
 }
@@ -266,7 +266,7 @@
 
 .cap-preview-inherited .sub-label {
   color: var(--k-text-dim);
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   opacity: 0.7;
 }
 
@@ -294,7 +294,7 @@
 
 .modal-dialog {
   background: var(--k-surface, #252526);
-  border: 1px solid var(--vscode-panel-border, var(--k-border));
+  border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-lg);
   width: 440px;
   max-width: 90vw;
@@ -364,13 +364,13 @@
 .diff-table td {
   padding: 8px 12px;
   text-align: left;
-  border-bottom: 1px solid var(--vscode-panel-border, var(--k-border));
+  border-bottom: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
 }
 
 .diff-table th {
   background: var(--k-surface-hover);
   color: var(--k-text-dim);
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   text-transform: uppercase;
 }
 
@@ -379,7 +379,7 @@
 }
 
 .diff-tag {
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   padding: 2px 6px;
   border-radius: 4px;
   font-weight: 600;
@@ -407,11 +407,11 @@
 
 .pill-btn {
   background: transparent;
-  border: 1px solid transparent;
+  border: var(--k-border-w) solid transparent;
   color: var(--k-text-dim);
   padding: 3px 10px;
   border-radius: 12px;
-  font-size: 11px;
+  font-size: var(--k-text-xs);
   cursor: pointer;
 }
 
