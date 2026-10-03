@@ -380,6 +380,9 @@
 }
 
 .diff-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: var(--k-text-xs);
   padding: 2px 6px;
   border-radius: 4px;

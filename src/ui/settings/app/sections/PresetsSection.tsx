@@ -805,12 +805,26 @@ export function PresetsSection() {
                         <td><strong>{label}</strong></td>
                         <td>
                           <span className={`diff-tag ${slotA ? 'a' : 'diff-inherited'}`}>
-                            {textA}
+                            {slotA ? (
+                              <>
+                                <span dangerouslySetInnerHTML={{ __html: (window as any).agentIconHtml?.(slotA.provider) || '' }} />
+                                {textA}
+                              </>
+                            ) : (
+                              textA
+                            )}
                           </span>
                         </td>
                         <td>
                           <span className={`diff-tag ${slotB ? 'b' : 'diff-inherited'}`}>
-                            {textB}
+                            {slotB ? (
+                              <>
+                                <span dangerouslySetInnerHTML={{ __html: (window as any).agentIconHtml?.(slotB.provider) || '' }} />
+                                {textB}
+                              </>
+                            ) : (
+                              textB
+                            )}
                           </span>
                         </td>
                       </tr>
