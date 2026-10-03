@@ -1,4 +1,4 @@
-/* src/ui/settings/app/sections/PresetsSection.css */
+/* Presets Tab Styling matching PRESETS-REDESIGN-PREVIEW.html */
 
 /* Header actions bar */
 .presets-header-actions {
@@ -121,15 +121,16 @@
   white-space: nowrap;
 }
 
-.bulk-controls {
-  display: grid;
+.bulk-controls .ap {
   grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(140px, 1fr);
   gap: var(--k-space-2);
+  align-items: center;
 }
 
 .bulk-buttons {
   display: flex;
   gap: var(--k-space-2);
+  align-items: center;
 }
 
 /* Capabilities Matrix Layout */
@@ -431,7 +432,7 @@
     grid-template-columns: 1fr;
     gap: var(--k-space-3);
   }
-  .bulk-controls {
+  .bulk-controls .ap {
     grid-template-columns: 1fr 1fr;
   }
   .bulk-buttons {
@@ -454,7 +455,7 @@
   .cap-override-grid {
     grid-template-columns: 1fr;
   }
-  .bulk-controls {
+  .bulk-controls .ap {
     grid-template-columns: 1fr;
   }
 }
@@ -528,7 +529,7 @@
    column header already names the whole cell, so the per-row captions
    are redundant — hide them here, scoped to the matrix so the Agents
    tab's process matrix (which mounts the same picker) keeps theirs. */
-.cap-value .ap .ap-label {
+.cap-value .ap .ap-label, .bulk-controls .ap .ap-label {
   display: none;
 }
 
@@ -563,3 +564,4 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
