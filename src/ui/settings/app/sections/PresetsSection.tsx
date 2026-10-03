@@ -481,16 +481,18 @@ export function PresetsSection() {
                       ) : (
                         <>
                           <span className="preset-card-name">{name}</span>
-                          <IconButton
-                            label="Rename preset"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              select(name);
-                              setInlineEdit(name);
-                            }}
-                          >
-                            <TablerIcon name="pencil" />
-                          </IconButton>
+                          {editing === name && (
+                            <IconButton
+                              label="Rename preset"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                select(name);
+                                setInlineEdit(name);
+                              }}
+                            >
+                              <TablerIcon name="pencil" />
+                            </IconButton>
+                          )}
                         </>
                       )}
                     </div>
