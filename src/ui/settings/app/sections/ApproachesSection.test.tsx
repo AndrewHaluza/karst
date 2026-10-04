@@ -428,6 +428,8 @@ describe('ApproachesSection — the destructive controls (UI-R10b)', () => {
     editApproach('tdd');
     const del = screen.getByRole('button', { name: 'Delete' }) as HTMLButtonElement;
     expect(del.disabled).toBe(false);
+    // The row is shown, not merely present: `.hidden` is display:none !important.
+    expect(del.closest('.drawer-delete-row')!.classList.contains('hidden')).toBe(false);
     fireEvent.click(del);
     expect(approaches().find((a) => a.id === 'tdd')).toBeUndefined();
   });
@@ -443,6 +445,47 @@ describe('ApproachesSection — the destructive controls (UI-R10b)', () => {
     editApproach('tdd');
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
     expect(approaches().some((a) => a.id === 'tdd')).toBe(false);
+  });
+});
+
+describe('ApproachesSection — the drawer behaves as a dialog', () => {
+  function drawer(): HTMLElement | null {
+    return document.querySelector('.drawer[role="dialog"]');
+  }
+
+  it('focuses the id field on add and the label field on edit', () => {
+    mount();
+    fireEvent.click(addApproachControl());
+    expect(document.activeElement?.getAttribute('name')).toBe('af-id');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    editApproach('tdd');
+    expect(document.activeElement?.getAttribute('name')).toBe('af-label');
+  });
+
+  it('Escape closes it', () => {
+    mount();
+    editApproach('tdd');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(drawer()).toBeNull();
+  });
+
+  it('has a close control in its header', () => {
+    mount();
+    editApproach('tdd');
+    fireEvent.click(drawer()!.querySelector<HTMLElement>('.drawer-head button[aria-label="Close"]')!);
+    expect(drawer()).toBeNull();
+  });
+
+  it('keeps Tab inside the drawer', () => {
+    mount();
+    editApproach('tdd');
+    const focusables = [...drawer()!.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select, textarea')];
+    const last = focusables[focusables.length - 1]!;
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(document.activeElement).toBe(focusables[0]);
+    fireEvent.keyDown(focusables[0]!, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(last);
   });
 });
 

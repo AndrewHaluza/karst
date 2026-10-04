@@ -60,6 +60,9 @@ import type { AgentPickerIdentity } from '../hostBridge.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
+import { IconButton } from '../primitives/IconButton.js';
+import { useDismiss } from '../primitives/useDismiss.js';
+import { useFocusTrap } from '../primitives/useFocusTrap.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 import { Switch } from '../primitives/Switch.js';
 import { pickerCores } from './presetDraft.js';
@@ -745,11 +748,17 @@ function ApproachDrawer({
   readonly onDelete: () => void;
 }) {
   const set = (patch: Partial<DrawerFields>) => setFields({ ...fields, ...patch });
+  const rootRef = useRef<HTMLDivElement>(null);
+  // Add starts on the id; edit on the label, since the id is read-only there.
+  const firstField = mode === 'edit' ? 'af-label' : 'af-id';
+  useFocusTrap(rootRef, true, () => rootRef.current?.querySelector<HTMLElement>(`[name="${firstField}"]`) ?? null);
+  useDismiss({ active: true, onClose, refs: [rootRef], outside: false });
 
   return (
-    <div className="drawer open" role="dialog" aria-label={mode === 'edit' ? 'Edit approach' : 'Add approach'}>
+    <div className="drawer open" role="dialog" aria-label={mode === 'edit' ? 'Edit approach' : 'Add approach'} ref={rootRef}>
       <div className="drawer-head">
         <div className="drawer-title">{mode === 'edit' ? 'Edit approach' : 'Add approach'}</div>
+        <IconButton label="Close" onClick={onClose}>×</IconButton>
       </div>
       <div className="drawer-body">
         <div className="form-grid">
@@ -892,7 +901,7 @@ function ApproachDrawer({
         ) : null}
 
         {mode === 'edit' ? (
-          <div className={installed ? 'drawer-delete-row' : 'drawer-delete-row hidden'}>
+          <div className="drawer-delete-row">
             <DestructiveButton action="discard-approach" busy={deleting} disabled={!canDelete} onClick={onDelete}>
               Delete
             </DestructiveButton>
