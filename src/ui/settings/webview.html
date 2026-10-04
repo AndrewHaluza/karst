@@ -173,24 +173,13 @@
   .modal .modal-error{margin-top:var(--k-space-5);font-size:var(--k-text-sm);color:var(--k-danger)}
   .modal-actions{display:flex;justify-content:flex-end;gap:var(--k-space-4);margin-top:var(--k-space-7)}
   /* Live preview + variable hint for the ticket-label template field. */
-  .label-preview{margin-top:var(--k-space-3);font-size:var(--k-text-md);
-    color:var(--k-text-dim);opacity:.85}
-  .label-preview .lp-val{font-family:var(--k-font-mono);
-    color:var(--k-text);opacity:1}
   .label-vars{margin-top:var(--k-space-2);font-size:var(--k-text-xs);
     color:var(--k-text-dim);opacity:.7}
   .label-vars code{font-family:var(--k-font-mono)}
-  .convention-intro,.convention-hint,.convention-vars,.convention-preview{
+  .convention-preview{
     color:var(--k-text-dim);font-size:var(--k-text-xs)}
-  .convention-intro{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
-  .convention-hint{margin-top:var(--k-space-2)}
-  .convention-vars{margin-top:var(--k-space-2)}
-  .convention-vars code{font-family:var(--k-font-mono)}
   .convention-preview{margin-top:var(--k-space-3);white-space:pre-wrap}
   .convention-preview .lp-val{font-family:var(--k-font-mono);color:var(--k-text)}
-  textarea.convention-description{min-height:calc(var(--k-space-8) * 5.5)}
-  .convention-error{color:var(--k-danger);font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
-  .convention-control[aria-invalid="true"],
   input[aria-invalid="true"],select[aria-invalid="true"]{
     border-color:var(--vscode-inputValidation-errorBorder,var(--k-danger))}
   /* Inline per-field validation message on repository cards — see
@@ -686,7 +675,6 @@
   .form-grid > .field-control.row{grid-column:2}
   .field-label{display:flex;align-items:center;min-height:var(--k-space-8);font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-0)}
   .field-control{min-width:0}
-  .field-help{font-size:var(--k-text-xs);color:var(--k-text-dim);line-height:var(--k-leading-normal);margin-top:var(--k-space-2)}
   .form-grid label{margin:var(--k-space-0)}
 
   /* Template rows: input, then Preview + helper link on one line (handoff §7.3). */
@@ -704,7 +692,6 @@
   }
   .template-help-link:hover{text-decoration:underline}
   .template-help-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .template-meta-actions{display:flex;align-items:center;gap:var(--k-space-4);flex:0 0 auto}
   .template-reset-link{
     flex:0 0 auto;background:none;border:none;color:var(--k-text-dim);cursor:pointer;font:inherit;
     font-size:var(--k-text-xs);padding:var(--k-space-1) var(--k-space-0);text-decoration:none;
