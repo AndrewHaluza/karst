@@ -369,9 +369,6 @@
   .icon-btn .btn-ico{flex:none;width:var(--k-space-6);height:var(--k-space-6)}
   .approach-source{font-family:var(--k-font-mono);font-size:var(--k-text-xs);opacity:.7}
   .approach-source:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .confirm-run{display:flex;flex-direction:column;gap:var(--k-space-2);align-items:flex-end}
-  .confirm-cmd{font-family:var(--k-font-mono);font-size:var(--k-text-xs);opacity:.8}
-  .confirm-actions{display:flex;gap:var(--k-space-3)}
 
   .is-disabled{opacity:.55}
   /* "generated" marks a karst-emitted entry command — an accent the shared
@@ -450,16 +447,7 @@
   .graph-row input[type="text"]{flex:0 0 auto}
   .graph-hint{font-size:var(--k-text-xs);opacity:.65;font-family:var(--k-font-mono)}
   .graph-profile-name{font-family:var(--k-font-mono);font-weight:600;min-width:calc(var(--k-space-8) * 2.6)}
-  .graph-provider-choice{display:flex;gap:var(--k-space-5);align-items:center}
-  .graph-provider-choice label{display:inline-flex;align-items:center;gap:var(--k-space-2)}
   .graph-prompt-link{font-family:var(--k-font-mono);font-size:var(--k-text-xs)}
-  .graph-cmd-row{
-    display:flex;gap:var(--k-space-3);align-items:center;flex-wrap:wrap;
-    padding:var(--k-space-3) var(--k-space-0);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
-  }
-  .graph-cmd-row .cmd-name{font-family:var(--k-font-mono);font-weight:600;min-width:calc(var(--k-space-8) * 2.6)}
-  .graph-cmd-row input[type="text"]{flex:1 1 auto;min-width:calc(var(--k-space-8) * 4)}
-  .graph-cmd-row input[type="number"]{width:calc(var(--k-space-8) * 5);flex:0 0 auto}
 
   /* ---- agents roster (provenance groups: Yours / From approaches) ---- */
   .agent-hero{
@@ -567,13 +555,6 @@
     font-size:var(--k-text-base);white-space:normal;
   }
   .drawer .drawer-body.form label:first-child{margin-top:var(--k-space-0)}
-  .drawer-error{
-    color:var(--k-danger);font-size:var(--k-text-md);
-    padding:var(--k-space-3) var(--k-space-5);margin-bottom:var(--k-space-5);border-radius:var(--k-radius-md);
-    background:var(--vscode-inputValidation-errorBackground,color-mix(in srgb,var(--k-danger) 8%,transparent));
-    border:var(--k-border-w) solid var(--vscode-inputValidation-errorBorder,var(--k-danger));
-  }
-  .drawer-note{font-size:var(--k-text-xs);color:var(--k-text-dim)}
 
   /* Local (non-k-prefixed) transitions the injected design system's own
      reduced-motion block does not reach — nulled here for the same reason
@@ -902,13 +883,6 @@
   /* Drawer/modals: same primitives as before, plus a shared focus ring. */
   .drawer .drawer-body.form label{display:block;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
   .drawer .drawer-body.form .toggle label{margin:var(--k-space-0)}
-
-  /* Name-override drawer: a single field, no chrome. */
-  .name-override-form{display:flex;flex-direction:column;gap:var(--k-space-4)}
-  .name-override-form .field-help{margin:var(--k-space-0)}
-
-  /* Agent profile create drawer: keep the same form grammar as the roster. */
-  .agent-drawer-form{display:flex;flex-direction:column;gap:var(--k-space-4)}
 </style>
 
 <div id="root"></div>
