@@ -35,6 +35,7 @@ import { useHostMutation, type MutationStatus } from '../useHostMutation.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { Help } from '../primitives/Help.js';
+import { useDismiss } from '../primitives/useDismiss.js';
 import type { ListFetch, StatusFetch } from '../reducer.js';
 import { ProviderBadgeIsland } from './ProviderBadgeIsland.js';
 
@@ -538,7 +539,29 @@ function ProviderPicker({
   readonly onPick: (id: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }, []);
+  useDismiss({ active: open, onClose: close, refs: [menuRef, triggerRef] });
+  const options = (): HTMLElement[] => [...(menuRef.current?.querySelectorAll<HTMLElement>('[role="option"]') ?? [])];
+  // Vanilla parity: opening lands on the selected option (or the first).
+  useEffect(() => {
+    if (!open) return;
+    const list = options();
+    (list.find((o) => o.getAttribute('aria-selected') === 'true') ?? list[0])?.focus();
+  }, [open]);
+  const pick = (id: string): void => {
+    onPick(id);
+    close();
+  };
+  const moveFocus = (from: HTMLElement, step: 1 | -1): void => {
+    const list = options();
+    const next = list[(list.indexOf(from) + step + list.length) % list.length];
+    next?.focus();
+  };
   return (
     <div className="provselect" id="provSelectWrap">
       <div className="field-label" id="ticketProviderLabel">
@@ -549,6 +572,7 @@ function ProviderPicker({
           type="button"
           className="provselect-trigger"
           id="providerTrigger"
+          ref={triggerRef}
           aria-label="Ticketing provider"
           aria-haspopup="listbox"
           aria-expanded={open}
@@ -561,6 +585,7 @@ function ProviderPicker({
         <div
           className={open ? 'provselect-menu' : 'provselect-menu hidden'}
           id="providerMenu"
+          ref={menuRef}
           role="listbox"
           aria-labelledby="ticketProviderLabel"
         >
@@ -572,14 +597,14 @@ function ProviderPicker({
               tabIndex={0}
               data-value={id}
               aria-selected={id === value}
-              onClick={() => {
-                onPick(id);
-                close();
-              }}
+              onClick={() => pick(id)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
-                  onPick(id);
-                  close();
+                  event.preventDefault();
+                  pick(id);
+                } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  moveFocus(event.currentTarget, event.key === 'ArrowDown' ? 1 : -1);
                 }
               }}
             >

@@ -120,6 +120,46 @@ describe('TicketingSection — the page', () => {
   });
 });
 
+describe('TicketingSection — the provider menu is keyboard-operable and dismissable', () => {
+  const trigger = (): HTMLElement => document.getElementById('providerTrigger')!;
+  const menu = (): HTMLElement => document.getElementById('providerMenu')!;
+  const options = (): HTMLElement[] => [...menu().querySelectorAll<HTMLElement>('[role="option"]')];
+  const isOpen = (): boolean => !menu().classList.contains('hidden');
+
+  it('focuses the selected option on open, and arrows wrap', () => {
+    mountTicketing();
+    fireEvent.click(trigger());
+    const selected = options().find((o) => o.getAttribute('aria-selected') === 'true')!;
+    expect(document.activeElement).toBe(selected);
+    const first = options()[0]!;
+    const last = options()[options().length - 1]!;
+    first.focus();
+    fireEvent.keyDown(first, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(last);
+    fireEvent.keyDown(last, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(first);
+  });
+
+  it('a pick returns focus to the trigger', () => {
+    mountTicketing();
+    fireEvent.click(trigger());
+    fireEvent.keyDown(options()[0]!, { key: 'Enter' });
+    expect(isOpen()).toBe(false);
+    expect(document.activeElement).toBe(trigger());
+  });
+
+  it('Escape and an outside click close it', () => {
+    mountTicketing();
+    fireEvent.click(trigger());
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(isOpen()).toBe(false);
+    expect(document.activeElement).toBe(trigger());
+    fireEvent.click(trigger());
+    fireEvent.mouseDown(document.body);
+    expect(isOpen()).toBe(false);
+  });
+});
+
 describe('TicketingSection — the token is keychain state, not draft state', () => {
   it('offers only the action that applies', () => {
     mountTicketing(stateWith({ provider: 'clickup' }, false));
