@@ -308,7 +308,6 @@
     width:var(--k-space-8);height:var(--k-space-8);flex:none;
   }
   .card.open .card-toggle .chevron{transform:rotate(90deg)}
-  .card .card-head .no-service{margin-left:var(--k-space-4)}
   /* Destructive actions had NO styling of their own on this page: "Delete"
      (agent), "Remove" (repository/port/bind/signal) and "Uninstall" (approach)
      all rendered as the same plain `.secondary` as "Cancel" and "Reload"
@@ -344,9 +343,8 @@
     background:var(--vscode-inputValidation-errorBackground,color-mix(in srgb,var(--k-danger) 8%,transparent));
     border:var(--k-border-w) solid var(--vscode-inputValidation-errorBorder,var(--k-danger));
   }
-  .agent-row{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-3) var(--k-space-2)}
   .approach-install{margin-left:var(--k-space-0);flex-shrink:0}
-  .installed-tag,.builtin-tag{font-size:var(--k-text-xs);opacity:.6}
+  .builtin-tag{font-size:var(--k-text-xs);opacity:.6}
   /* Ticketing token row: the status text grows so its buttons keep their natural
      width and sit right-aligned — same shape as the List/Status rows (field grows,
      action stays fixed). Without this, .row > *{flex:1 1 0} stretches every button
@@ -367,8 +365,6 @@
   /* Icon + short label buttons (the Reload actions). */
   .icon-btn{display:inline-flex;align-items:center;gap:var(--k-space-3)}
   .icon-btn .btn-ico{flex:none;width:var(--k-space-6);height:var(--k-space-6)}
-  .approach-source{font-family:var(--k-font-mono);font-size:var(--k-text-xs);opacity:.7}
-  .approach-source:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   .is-disabled{opacity:.55}
   /* "generated" marks a karst-emitted entry command — an accent the shared
@@ -401,7 +397,6 @@
     margin-top:var(--k-space-4);padding:var(--k-space-4);
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-sm);
   }
-  .override-card-head{justify-content:space-between}
   .override-repo{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm)}
   .roster-card{
     display:flex;border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
@@ -422,13 +417,6 @@
     margin-top:var(--k-space-3);max-width:calc(var(--k-space-8) * 38);
   }
   .roster-card .approach-actions{display:flex;align-items:center;gap:var(--k-space-5);margin-left:auto;flex:0 0 auto}
-  .roster-card .approach-lines{display:flex;flex-direction:column;gap:var(--k-space-3);margin-top:var(--k-space-5)}
-  .roster-card .approach-line{display:flex;gap:var(--k-space-5);align-items:center}
-  .roster-card .approach-line .micro{
-    font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.06em;
-    color:var(--k-text-dim);min-width:calc(var(--k-space-8) * 1.8);flex:0 0 auto;
-  }
-  .roster-card .approach-line .chips{margin:var(--k-space-0)}
   .roster-card .approach-foot{margin-top:var(--k-space-5)}
 
   /* ---- graph configuration surface (built-in approach card, Slice-1 T6) ---- */
@@ -508,20 +496,14 @@
   .proc-row:hover{background:var(--k-surface-hover)}
   .proc-row.on{border-left-color:var(--k-success)}
   .proc-row.is-disabled{opacity:.6}
-  .proc-row .proc-head{display:flex;align-items:center;gap:var(--k-space-4)}
   .proc-row .proc-name{flex:0 0 auto;font-size:var(--k-text-base);font-weight:var(--k-weight-medium)}
   .proc-row .proc-desc{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .proc-row .spacer{flex:1}
-  .proc-row .proc-fields{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-3)}
   .proc-row .proc-field{flex:1 1 calc(var(--k-space-8) * 8);min-width:0}
-  .proc-row .proc-field-wide{flex:1 1 100%}
   .proc-row .proc-field label{margin:var(--k-space-0) var(--k-space-0) var(--k-space-1);
     font-size:var(--k-text-2xs);opacity:.7}
   .proc-row .proc-hint{display:block;font-size:var(--k-text-2xs);color:var(--k-text-dim);
     margin-top:var(--k-space-1)}
-  .proc-row .proc-msg{font-size:var(--k-text-xs);margin-top:var(--k-space-2)}
-  .proc-row .proc-msg.is-error{color:var(--k-danger)}
-  .proc-row .proc-msg.is-note{color:var(--k-text-dim)}
 
   /* Command chips become clickable when they carry data-cmd (opens the drawer) —
      rendered as a real <button class="k-chip"> (UI-R09) so Enter/Space/focus,
@@ -689,7 +671,6 @@
   .section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-space-6);margin-bottom:var(--k-space-6)}
   .section-title{font-size:var(--k-text-lg);font-weight:600;margin:var(--k-space-0)}
   .section-desc{margin-top:var(--k-space-2);color:var(--k-text-dim);font-size:var(--k-text-md);line-height:var(--k-leading-normal);max-width:calc(var(--k-space-8) * 38)}
-  .section-side{flex:0 0 auto;display:flex;align-items:center;gap:var(--k-space-3)}
   .page-actions{display:flex;gap:var(--k-space-3);margin-top:var(--k-space-5)}
 
   /* Aligned form grammar: label column + control column (handoff §7.1). */
@@ -760,20 +741,7 @@
   .reload-btn.is-pending .reload-icon{animation-play-state:running}
   @keyframes reload-spin{to{transform:rotate(360deg)}}
 
-  /* Agent presets (General): a compact list of the manifest's preset map, then
-     the ONE form that adds/edits an entry. Same recipe as .roster — the
-     container owns the border and radius, rows are hairline-separated — but a
-     row is not a click target (it carries Edit/Delete), so it gets its own
-     names rather than borrowing .roster-row's selected/cursor treatment. */
-  .preset-list{display:flex;flex-direction:column;overflow:hidden;border-radius:var(--k-radius-lg);border:var(--k-border-w) solid var(--vscode-panel-border)}
-  .preset-row{display:flex;align-items:center;gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .preset-row:first-child{border-top:none}
-  .preset-row .preset-name{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-base);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .preset-row .preset-meta{font-size:var(--k-text-xs);color:var(--k-text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .preset-row .preset-row-actions{display:flex;gap:var(--k-space-3);margin-left:auto}
   .preset-empty{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-3)}
-  .preset-actions{display:flex;justify-content:flex-end;gap:var(--k-space-4);margin-top:var(--k-space-4)}
-  .preset-row.is-selected{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
 
 
   /* Compact object roster (handoff §6.5 / §10). */
@@ -783,7 +751,6 @@
   .roster-row{border-top:var(--k-border-w) solid var(--vscode-panel-border);cursor:pointer}
   .roster-row:hover{background:var(--k-surface-hover)}
   .roster-row.is-selected{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
-  .roster-row .cell-name{font-weight:600;font-size:var(--k-text-base);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .roster-row .cell-path,.roster-row .cell-meta{font-size:var(--k-text-xs);color:var(--k-text-dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .roster-row .cell-path{font-family:var(--k-font-mono)}
   .roster-row .cell-actions{display:flex;align-items:center;justify-content:flex-end;gap:var(--k-space-3)}
@@ -800,13 +767,6 @@
   .roster .card.is-selected .card-head{background:var(--vscode-list-inactiveSelectionBackground,var(--k-surface-hover))}
   .roster .card .card-head{gap:var(--k-space-4);padding:var(--k-space-4) var(--k-space-5)}
   .roster .card .card-head .card-toggle{border-radius:var(--k-radius-sm)}
-  .repo-detail{
-    display:none;border-top:var(--k-border-w) solid var(--vscode-panel-border);
-    padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
-  }
-  .repo-detail.open{display:block}
-  .detail-grid{display:grid;grid-template-columns:calc(var(--k-space-8) * 10.4) minmax(0,1fr);gap:var(--k-space-4) var(--k-space-8);align-items:start}
-  .detail-grid > *{min-width:0}
 
   /* Process-assignment matrix (handoff §13): CSS grid, aligned columns. */
   .matrix{display:flex;flex-direction:column;overflow:visible}
@@ -821,15 +781,8 @@
   .matrix-row .cell-actions{display:flex;align-items:center;gap:var(--k-space-3)}
   .proc-name{font-size:var(--k-text-base);font-weight:var(--k-weight-medium)}
   .proc-desc{font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .proc-advanced-link{
-    background:none;border:none;color:var(--k-text-faint);cursor:pointer;font:inherit;
-    font-size:var(--k-text-2xs);padding:var(--k-space-1) var(--k-space-0);text-align:left;
-  }
-  .proc-advanced-link:hover{color:var(--k-link);text-decoration:underline}
-  .proc-advanced-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .matrix-cols{grid-template-columns:minmax(calc(var(--k-space-8) * 6),1fr) minmax(calc(var(--k-space-8) * 7),1.1fr) minmax(calc(var(--k-space-8) * 16),2.4fr) auto}
   .matrix-row .proc-cell-wide{grid-column:1 / -1}
-  .matrix-row .proc-row-wrap{min-width:0}
   /* The Agent cell hosts the UNIFIED agent identity picker
      (model/agentPicker.ts) — the same component every other agent-selecting
      surface mounts. The picker carries its own labels; this cell only frames
@@ -908,7 +861,7 @@
      budget explicitly exempts em as relative typography (conformance.test.ts),
      so these queries stay within the zero-literal budget. */
   @media (max-width: 61.25em){
-    .form-grid,.detail-grid,.template-form-row{grid-template-columns:minmax(0,1fr);gap:var(--k-space-3)}
+    .form-grid,.template-form-row{grid-template-columns:minmax(0,1fr);gap:var(--k-space-3)}
     .quality-grid,.quality-grid--two{grid-template-columns:minmax(0,1fr)}
     .matrix-head{display:none}
     .matrix-cols{grid-template-columns:minmax(0,1fr)}
@@ -918,10 +871,7 @@
     .repo-cols{grid-template-columns:minmax(0,1fr) auto}
     .roster-head{display:none}
     .roster-row .cell-meta{display:none}
-    .override-editor-row{grid-template-columns:minmax(0,1fr)}
-    .subtable-head{display:none}
-    .subtable-row{grid-template-columns:minmax(0,1fr)}
-    .dependency-head,.bind-row{grid-template-columns:minmax(0,1fr)}
+    .bind-row{grid-template-columns:minmax(0,1fr)}
   }
   @media (max-width: 40em){
     .app{grid-template-columns:minmax(0,1fr)}
@@ -941,7 +891,7 @@
     .mobile-project-btn{display:grid;place-items:center}
     .content{padding:var(--k-space-5) var(--k-space-5) calc(var(--k-space-8) * 3)}
     .page-actions{margin-top:var(--k-space-3)}
-    .object-row,.agent-roster-row{flex-wrap:wrap}
+    .agent-roster-row{flex-wrap:wrap}
     .agent-hero{flex-wrap:wrap;gap:var(--k-space-3)}
     .project-info-pop{left:auto;right:var(--k-space-4);top:auto;bottom:calc(var(--k-space-8) * 2.5)}
     .template-meta{flex-direction:column;align-items:flex-start}
@@ -957,7 +907,7 @@
   @media (max-width: 22.5em){
     .topbar .saved-msg,.topbar .unsaved-hint{display:none}
     .roster-row .cell-path{display:none}
-    .approach-card,.approach-actions{flex-wrap:wrap}
+    .approach-actions{flex-wrap:wrap}
     .footer-row{flex-wrap:wrap;justify-content:stretch}
   }
   @media (max-width: 18.75em){
