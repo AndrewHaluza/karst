@@ -259,6 +259,61 @@ describe('QualitySection — the gate editor', () => {
     },
   };
 
+  it('heads each block with its name and gate count', () => {
+    mountQuality();
+    const heads = Array.from(document.querySelectorAll('.gate-block-head')).map((n) => n.textContent);
+    expect(heads).toEqual(['UAT gates0 gates', 'Review gates0 gates']);
+  });
+
+  it('names gate cells by a clipped label, with a visible column header instead', () => {
+    mountQuality();
+    fireEvent.click(screen.getAllByRole('button', { name: '+ Add gate' })[0] as Element);
+    const name = byLabel('Gate 1 name');
+    expect(document.querySelector(`label[for="${name.id}"]`)?.className).toBe('sr-only');
+    expect(document.querySelector('.gate-head')?.textContent).toContain('Name');
+  });
+
+  it('keeps every edit when several land before a re-render', () => {
+    const { probe } = mountQuality();
+    fireEvent.click(screen.getAllByRole('button', { name: '+ Add gate' })[0] as Element);
+    // One batch: each patch must apply to the CURRENT draft, not the list the
+    // row rendered with — otherwise the script write erases the name.
+    act(() => {
+      fireEvent.change(byLabel('Gate 1 name'), { target: { value: 'unit' } });
+      fireEvent.change(byLabel('Gate 1 script'), { target: { value: 'test' } });
+    });
+    const gates = (uatOf(probe).gates ?? []) as Record<string, unknown>[];
+    expect(gates[0]).toMatchObject({ name: 'unit', kind: 'script', script: 'test' });
+  });
+
+  it('keeps the same row (and focus) while the gate name is typed', () => {
+    mountQuality();
+    fireEvent.click(screen.getAllByRole('button', { name: '+ Add gate' })[0] as Element);
+    const before = byLabel('Gate 1 name');
+    before.focus();
+    act(() => {
+      fireEvent.change(before, { target: { value: 'u' } });
+    });
+    act(() => {
+      fireEvent.change(byLabel('Gate 1 name'), { target: { value: 'un' } });
+    });
+    expect(byLabel('Gate 1 name')).toBe(before);
+    expect(document.activeElement).toBe(before);
+  });
+
+  it('shows the gate problem only while the gate is invalid', () => {
+    mountQuality();
+    fireEvent.click(screen.getAllByRole('button', { name: '+ Add gate' })[0] as Element);
+    expect(document.querySelector('.gate-problem')).not.toBeNull();
+    act(() => {
+      fireEvent.change(byLabel('Gate 1 name'), { target: { value: 'unit' } });
+    });
+    act(() => {
+      fireEvent.change(byLabel('Gate 1 script'), { target: { value: 'test' } });
+    });
+    expect(document.querySelector('.gate-problem')).toBeNull();
+  });
+
   it('states the package.json fallback when a global list is empty', () => {
     mountQuality();
     const empties = Array.from(document.querySelectorAll('.gate-empty')).map((n) => n.textContent);
@@ -368,8 +423,8 @@ describe('QualitySection — the gate editor', () => {
         }),
       },
     });
-    const summaries = Array.from(document.querySelectorAll('.gate-summary')).map((n) => n.textContent);
-    expect(summaries).toContain('Runs in backend');
+    const fixed = Array.from(document.querySelectorAll('.gate-repo-fixed')).map((n) => n.textContent);
+    expect(fixed).toContain('Runs in backend');
   });
 });
 
@@ -421,7 +476,19 @@ describe('QualitySection — per-repository overrides REPLACE the global list', 
     });
     const picker = byLabel('Repository to override') as unknown as HTMLSelectElement;
     // `backend` is already overridden, so it is not offered again.
-    expect(Array.from(picker.options).map((o) => o.value)).toEqual(['frontend']);
+    expect(Array.from(picker.options).filter((o) => !o.disabled).map((o) => o.value)).toEqual([
+      'frontend',
+    ]);
+  });
+
+  it('starts on a disabled placeholder, so the FIRST repository is choosable', () => {
+    mountQuality(TWO_REPOS);
+    const picker = byLabel('Repository to override') as unknown as HTMLSelectElement;
+    // Without a placeholder the browser shows the first repository as already
+    // selected, and picking it fires no change — it could never be added.
+    expect(picker.options[0]?.disabled).toBe(true);
+    expect(picker.options[0]?.value).toBe('');
+    expect(picker.value).toBe('');
   });
 
   it('seeds a new override with a COPY of the global list, not a shared reference', () => {
@@ -498,7 +565,7 @@ describe('QualitySection — the remove controls carry the taxonomy (UI-R10b)', 
     expect(actions).toContain('remove-override');
     for (const action of actions) {
       const node = document.querySelector(`[data-karst-action="${action}"]`) as HTMLElement;
-      expect(node.className).toContain('k-btn--danger');
+      expect(node.className).toContain('k-iconbtn--danger');
       expect(node.getAttribute('aria-label')).toBeTruthy();
     }
   });

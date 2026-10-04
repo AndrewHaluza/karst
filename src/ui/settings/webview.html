@@ -368,22 +368,47 @@
   }
   .approach-group-header:first-child{margin-top:var(--k-space-0)}
 
-  /* ---- quality tab: shared gate editor (uat.gates / review.gates) ---- */
-  .gate-row{
-    display:flex;gap:var(--k-space-3);align-items:center;flex-wrap:wrap;
-    padding:var(--k-space-3) var(--k-space-0);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
+  /* ---- quality tab: shared gate editor (uat.gates / review.gates) ----
+     One block per gate list: a titled panel holding the global list and its
+     repository overrides. Rows are a table — one visible column header, each
+     cell's `Field` label clipped (`.sr-only`) but still its accessible name.
+     The `.k-field` wrappers ARE the grid cells, so they carry the sizing. */
+  .gate-block + .gate-block{margin-top:var(--k-space-6)}
+  .gate-block-head{display:flex;align-items:baseline;gap:var(--k-space-4);margin-bottom:var(--k-space-4)}
+  .gate-count{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .gate-head,.gate-row{
+    display:grid;
+    grid-template-columns:minmax(0,1.2fr) calc(var(--k-space-8) * 5) minmax(0,2fr) minmax(0,1.2fr) auto;
+    column-gap:var(--k-space-3);align-items:center;
   }
-  .gate-row input[type="text"],.gate-row select{flex:1 1 auto;min-width:calc(var(--k-space-8) * 3)}
-  .gate-summary{
-    flex:1 1 100%;font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim);
+  .gate-head{
+    font-size:var(--k-text-xs);color:var(--k-text-dim);
+    padding-bottom:var(--k-space-2);border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
   }
+  .gate-row{row-gap:var(--k-space-2);padding:var(--k-space-3) var(--k-space-0);border-bottom:var(--k-border-w) solid var(--vscode-panel-border)}
+  .gate-row > .k-field,.gate-target > .k-field{min-width:0}
+  .gate-row .k-input{width:100%}
+  .gate-target{display:flex;gap:var(--k-space-3);min-width:0}
+  .gate-target > .k-field{flex:1 1 0}
+  .gate-repo-fixed{font-size:var(--k-text-sm);color:var(--k-text-dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gate-meta{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:var(--k-space-2) var(--k-space-5)}
+  .gate-summary{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .gate-problem{font-size:var(--k-text-xs);color:var(--k-danger)}
+  .gate-actions{margin-top:var(--k-space-4)}
 
   /* ---- quality tab: per-repository gate overrides ---- */
+  .override-editor{margin-top:var(--k-space-6)}
+  .override-heading{
+    font-size:var(--k-text-sm);font-weight:600;color:var(--k-text-dim);
+    margin-bottom:var(--k-space-3);
+  }
   .override-card{
     margin-top:var(--k-space-4);padding:var(--k-space-4);
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-sm);
   }
+  .override-card-head{display:flex;align-items:center;justify-content:space-between;gap:var(--k-space-4);margin-bottom:var(--k-space-2)}
   .override-repo{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm)}
+  .override-add{display:flex;flex-direction:column;gap:var(--k-space-2);margin-top:var(--k-space-5);max-width:calc(var(--k-space-8) * 16)}
   .roster-card{
     display:flex;border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     margin-bottom:var(--k-space-5);overflow:hidden;
@@ -785,14 +810,18 @@
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
     padding:var(--k-space-6);background:var(--vscode-editorWidget-background,transparent);
   }
-  /* The q-row columns had oversized fixed minimums — together wider than a
-     3-column quality panel at mid-width viewports, so the findings
-     Select/input overflowed the panel and stuck out past the page's right
-     edge (a horizontal scrollbar on the Quality tab only). The minimums now
-     only guard against a crushed copy column; the columns still share the
-     panel as fr tracks above the breakpoint. */
-  .q-row{display:grid;grid-template-columns:minmax(calc(var(--k-space-8) * 5),1fr) minmax(calc(var(--k-space-8) * 5),1fr);gap:var(--k-space-6);align-items:center;padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
-  .q-row label{margin:var(--k-space-0)}
+  /* A policy row: the hairline-separated wrapper, and inside it the `Field`
+     laid out as copy | control — label over help on the left, the control
+     in a fixed narrow track on the right. The copy track is minmax(0,1fr)
+     so a half-width panel never pushes the control past its edge (the old
+     two-track q-row held the whole Field in column 1, leaving column 2
+     empty). A switch carries its own name, so it spans the row. */
+  .q-row{padding:var(--k-space-4) var(--k-space-0);border-top:var(--k-border-w) solid var(--vscode-panel-border)}
+  .q-row > .k-field{display:grid;grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 5);column-gap:var(--k-space-6);row-gap:var(--k-space-1);align-items:center}
+  .q-row > .k-field > label{grid-column:1;margin:var(--k-space-0)}
+  .q-row > .k-field > .k-input{grid-column:2;grid-row:1 / span 2;width:100%}
+  .q-row > .k-field > .k-field-help,.q-row > .k-field > .k-field-error{grid-column:1;margin:var(--k-space-0)}
+  .q-row > .k-field > .k-switch{grid-column:1 / -1}
   /* Empty gate lists: a muted line instead of a bare "+ Add gate" button, so
      the fallback that an empty list actually means is stated next to it. */
   .gate-empty{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-4) var(--k-space-0);max-width:calc(var(--k-space-8) * 28)}
@@ -884,9 +913,12 @@
   @media (max-width: 26.875em){
     .content{padding:var(--k-space-4) var(--k-space-4) calc(var(--k-space-8) * 3)}
     .page-title{font-size:var(--k-text-xl)}
-    .q-row{grid-template-columns:minmax(0,1fr)}
+    .q-row > .k-field{grid-template-columns:minmax(0,1fr)}
+    .q-row > .k-field > .k-input{grid-column:1;grid-row:auto}
     .matrix-row .proc-cell{grid-column:1 / -1}
-    .gate-row{flex-direction:column;align-items:stretch}
+    .gate-head{display:none}
+    .gate-row{grid-template-columns:minmax(0,1fr)}
+    .gate-target{flex-direction:column}
   }
   @media (max-width: 22.5em){
     .topbar .saved-msg,.topbar .unsaved-hint{display:none}

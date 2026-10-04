@@ -108,14 +108,13 @@ describe('settings width and spacing consistency', () => {
     expect(m![1]).toMatch(/margin-top:var\(--k-space-7\)/);
   });
 
-  it('keeps quality q-rows inside their 3-column panels', () => {
-    // The q-row columns used to carry 160/180px minimums — together wider
-    // than a panel at 980–1300px viewports, so the findings Select overflowed
-    // the panel and past the page edge. The minimums must fit the narrowest
-    // 3-column panel; the columns still share the panel as fr tracks.
-    const m = HTML.match(/\.q-row\{([^}]*)\}/);
-    expect(m, '.q-row rule not found').toBeTruthy();
-    expect(m![1]).toContain('minmax(calc(var(--k-space-8) * 5),1fr)');
+  it('keeps quality policy rows inside their panels', () => {
+    // A fixed copy-track minimum once pushed the findings Select past the
+    // panel and the page edge. The copy track must be able to shrink to zero;
+    // only the control track is a fixed width.
+    const m = HTML.match(/\.q-row > \.k-field\{([^}]*)\}/);
+    expect(m, '.q-row > .k-field rule not found').toBeTruthy();
+    expect(m![1]).toContain('grid-template-columns:minmax(0,1fr) calc(var(--k-space-8) * 5)');
   });
 });
 

@@ -26,7 +26,7 @@
  * `manifest/qualityDefaults.ts`, which the host validators also import (R-X1):
  * what the tab shows for an absent key must be what ship will use.
  */
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import type {
   GateDef,
   ReviewConfig,
@@ -50,10 +50,11 @@ import {
 } from '../../gateDraft.js';
 import type { DestructiveAction } from '../../messages.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
-import { Field } from '../primitives/Field.js';
+import { Field, type SelectOption } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
-import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { Help } from '../primitives/Help.js';
+import { IconButton } from '../primitives/IconButton.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
 import {
   addRepoOverride,
   parseGateBlock,
@@ -61,7 +62,7 @@ import {
   updateFindings,
   updateReview,
   updateUat,
-  writeGates,
+  updateGates,
   type Base,
 } from './qualityDraft.js';
 
@@ -291,6 +292,8 @@ export function QualitySection() {
   );
 }
 
+const BLOCK_TITLES: Record<Base, string> = { uat: 'UAT gates', review: 'Review gates' };
+
 /** The global gate list plus every per-repository override for one block. */
 function GateBlock({
   base,
@@ -304,20 +307,25 @@ function GateBlock({
   const cfg = (draft as unknown as Record<Base, { gates?: GateDef[]; repositories?: object }>)[base];
   const overrides = Object.keys(cfg?.repositories ?? {});
 
+  const gates = cfg?.gates ?? [];
   return (
-    <>
-      <div className="quality-panel">
-        <GateList
-          block={base}
-          gates={cfg?.gates ?? []}
-          repositories={repositories}
-          emptyCopy="No gates declared — karst probes the repository's package.json scripts instead. Not a Node project? Add a Command gate (e.g. pytest, cargo test) — it runs no npm script."
-        />
+    <div className="quality-panel gate-block">
+      <div className="gate-block-head">
+        <div className="section-title">{BLOCK_TITLES[base]}</div>
+        <span className="gate-count">
+          {gates.length === 1 ? '1 gate' : `${gates.length} gates`}
+        </span>
       </div>
+      <GateList
+        block={base}
+        gates={gates}
+        repositories={repositories}
+        emptyCopy="No gates declared — karst probes the repository's package.json scripts instead. Not a Node project? Add a Command gate (e.g. pytest, cargo test) — it runs no npm script."
+      />
       {repositories.length === 0 ? null : (
         <OverrideSection base={base} repositories={repositories} overrides={overrides} />
       )}
-    </>
+    </div>
   );
 }
 
@@ -339,10 +347,13 @@ function GateList({
   readonly overrideRepo?: string;
 }) {
   const { edit } = useSettingsApp();
-  const write = (next: readonly GateDef[]): void =>
-    edit((draft) => writeGates(draft, block, next));
+  const change = (fn: (current: readonly GateDef[]) => readonly GateDef[]): void =>
+    edit((draft) => updateGates(draft, block, fn));
+
+  const [rowIds, dropRowId] = useRowIds(block, gates.length);
 
   const removeAt = (index: number): void => {
+    dropRowId(index);
     const next = gates.filter((_, i) => i !== index);
     // Deleting an override's LAST gate removes the OVERRIDE, not just the gate:
     // an empty override is not "this repository runs nothing", it silently means
@@ -353,99 +364,137 @@ function GateList({
       edit((draft) => removeRepoOverride(draft, base, overrideRepo));
       return;
     }
-    write(next);
+    change((current) => current.filter((_, i) => i !== index));
   };
 
-  const patchAt = (index: number, patch: Partial<GateDef>): void => {
-    const next = gates.map((gate, i) => (i === index ? { ...gate, ...patch } : gate));
-    write(next);
-  };
+  const patchAt = (index: number, patch: Partial<GateDef>): void =>
+    change((current) => current.map((gate, i) => (i === index ? { ...gate, ...patch } : gate)));
 
   return (
     <div className="gate-list">
-      {gates.length === 0 ? <div className="gate-empty">{emptyCopy}</div> : null}
-      {gates.map((gate, index) => (
-        <div className="gate-row" key={gateKey(block, gate, index)}>
-          <GateTextField
-            label={`Gate ${index + 1} name`}
-            value={gate.name ?? ''}
-            onChange={(value) => patchAt(index, { name: value })}
-          />
-          <GateSelect
-            label={`Gate ${index + 1} kind`}
-            value={gate.kind}
-            options={[
-              { value: 'script', label: 'script' },
-              { value: 'command', label: 'command' },
-            ]}
-            onChange={(value) =>
-              write(gates.map((g, i) => (i === index ? setGateKind(g, value as GateDef['kind']) : g)))
-            }
-          />
-          {gate.kind === 'script' ? (
-            <GateTextField
-              label={`Gate ${index + 1} script`}
-              value={gate.script ?? ''}
-              onChange={(value) => patchAt(index, { script: value })}
-            />
-          ) : (
-            <>
-              <GateTextField
-                label={`Gate ${index + 1} command`}
-                value={gate.command ?? ''}
-                onChange={(value) => patchAt(index, { command: value })}
-              />
-              <GateTextField
-                label={`Gate ${index + 1} arguments`}
-                value={(gate.args ?? []).join(' ')}
-                placeholder="space-separated"
-                onChange={(value) =>
-                  patchAt(index, {
-                    args: value.trim() === '' ? [] : value.trim().split(/\s+/),
-                  })
-                }
-              />
-            </>
-          )}
-          {overrideRepo === undefined ? (
-            <GateSelect
-              label={`Gate ${index + 1} repository`}
-              value={gate.repo ?? ''}
-              options={[
-                { value: '', label: 'every target' },
-                ...repositories.map((repo) => ({ value: repo, label: repo })),
-              ]}
-              onChange={(value) => patchAt(index, { repo: value || undefined })}
-            />
-          ) : (
-            <span className="gate-summary">Runs in {overrideRepo}</span>
-          )}
-          <span className="gate-summary">{gateSummary(gate)}</span>
-          <span className="gate-summary gate-problem">{validateGateDraft(gate) ?? ''}</span>
-          <DestructiveButton
-            action={'remove-gate' satisfies DestructiveAction}
-            size="sm"
-            aria-label={`Remove gate ${index + 1}`}
-            onClick={() => removeAt(index)}
-          >
-            &times;
-          </DestructiveButton>
+      {gates.length === 0 ? (
+        <div className="gate-empty">{emptyCopy}</div>
+      ) : (
+        <div className="gate-head" aria-hidden="true">
+          <span>Name</span>
+          <span>Kind</span>
+          <span>Runs</span>
+          <span>Repository</span>
+          <span />
         </div>
-      ))}
-      <Button variant="secondary" size="sm" onClick={() => write([...gates, emptyGate()])}>
-        + Add gate
-      </Button>
+      )}
+      {gates.map((gate, index) => {
+        const n = index + 1;
+        const problem = validateGateDraft(gate);
+        return (
+          <div className="gate-row" key={rowIds[index]}>
+            <GateTextField
+              label={`Gate ${n} name`}
+              value={gate.name ?? ''}
+              placeholder="name"
+              onChange={(value) => patchAt(index, { name: value })}
+            />
+            <GateSelect
+              label={`Gate ${n} kind`}
+              value={gate.kind}
+              options={[
+                { value: 'script', label: 'script' },
+                { value: 'command', label: 'command' },
+              ]}
+              onChange={(value) =>
+                change((current) =>
+                  current.map((g, i) => (i === index ? setGateKind(g, value as GateDef['kind']) : g)),
+                )
+              }
+            />
+            <div className="gate-target">
+              {gate.kind === 'script' ? (
+                <GateTextField
+                  label={`Gate ${n} script`}
+                  value={gate.script ?? ''}
+                  placeholder="npm script, e.g. test"
+                  onChange={(value) => patchAt(index, { script: value })}
+                />
+              ) : (
+                <>
+                  <GateTextField
+                    label={`Gate ${n} command`}
+                    value={gate.command ?? ''}
+                    placeholder="command, e.g. pytest"
+                    onChange={(value) => patchAt(index, { command: value })}
+                  />
+                  <GateTextField
+                    label={`Gate ${n} arguments`}
+                    value={(gate.args ?? []).join(' ')}
+                    placeholder="arguments, space-separated"
+                    onChange={(value) =>
+                      patchAt(index, {
+                        args: value.trim() === '' ? [] : value.trim().split(/\s+/),
+                      })
+                    }
+                  />
+                </>
+              )}
+            </div>
+            {overrideRepo === undefined ? (
+              <GateSelect
+                label={`Gate ${n} repository`}
+                value={gate.repo ?? ''}
+                options={[
+                  { value: '', label: 'every target' },
+                  ...repositories.map((repo) => ({ value: repo, label: repo })),
+                ]}
+                onChange={(value) => patchAt(index, { repo: value || undefined })}
+              />
+            ) : (
+              <span className="gate-repo-fixed">Runs in {overrideRepo}</span>
+            )}
+            <IconButton
+              danger
+              label={`Remove gate ${n}`}
+              data-karst-action={'remove-gate' satisfies DestructiveAction}
+              onClick={() => removeAt(index)}
+            >
+              <TablerIcon name="trash" />
+            </IconButton>
+            <div className="gate-meta">
+              <span className="gate-summary">{gateSummary(gate)}</span>
+              {problem ? (
+                <span className="gate-problem" role="alert">
+                  {problem}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        );
+      })}
+      <div className="gate-actions">
+        <Button variant="secondary" size="sm" onClick={() => change((current) => [...current, emptyGate()])}>
+          + Add gate
+        </Button>
+      </div>
     </div>
   );
 }
 
 /**
- * A row key that is the gate's own identity, falling back to its position only
- * when the name is blank (a gate being typed has no identity yet, and two blank
- * gates must still not share a key).
+ * Row keys that survive editing (R-X5). A key derived from the gate's name
+ * remounted the row on every keystroke in that name — the input lost focus
+ * after one character. These ids are minted once per row, follow a removal,
+ * and only reset when the list is shortened from outside (Discard, host push).
  */
-function gateKey(block: string, gate: GateDef, index: number): string {
-  return `${block}:${gate.name || `unnamed-${index}`}`;
+function useRowIds(block: string, length: number): readonly [readonly string[], (at: number) => void] {
+  const counter = useRef(0);
+  const ids = useRef<readonly string[]>([]);
+  if (ids.current.length > length) ids.current = ids.current.slice(0, length);
+  while (ids.current.length < length) {
+    counter.current += 1;
+    ids.current = [...ids.current, `${block}:row-${counter.current}`];
+  }
+  const drop = (at: number): void => {
+    ids.current = ids.current.filter((_, i) => i !== at);
+  };
+  return [ids.current, drop];
 }
 
 function GateTextField({
@@ -462,6 +511,7 @@ function GateTextField({
   return (
     <Field
       label={label}
+      hideLabel
       control={{ kind: 'input', name: undefined, value, placeholder, onChange }}
     />
   );
@@ -472,14 +522,20 @@ function GateSelect({
   value,
   options,
   onChange,
+  hideLabel = true,
 }: {
+  readonly hideLabel?: boolean;
   readonly label: string;
   readonly value: string;
-  readonly options: ReadonlyArray<{ value: string; label: string }>;
+  readonly options: readonly SelectOption[];
   readonly onChange: (value: string) => void;
 }) {
   return (
-    <Field label={label} control={{ kind: 'select', name: undefined, value, options, onChange }} />
+    <Field
+      label={label}
+      hideLabel={hideLabel}
+      control={{ kind: 'select', name: undefined, value, options, onChange }}
+    />
   );
 }
 
@@ -506,24 +562,24 @@ function OverrideSection({
 
   return (
     <div className="override-editor">
-      <div className="approach-group-header">Repository overrides</div>
+      <div className="override-heading">Repository overrides</div>
       <div className="override-editor-note">
         An override <strong>replaces</strong> the global list for that repository — it does not add
         to it.
       </div>
       {overrides.map((repo) => (
         <div className="override-card" key={`${base}:${repo}`}>
-          <span className="override-repo">{repo}</span>
-          <DestructiveButton
-            action={'remove-override' satisfies DestructiveAction}
-            size="sm"
-            aria-label={`Remove ${repo} override`}
-            onClick={() =>
-              edit((current) => removeRepoOverride(current, base, repo))
-            }
-          >
-            &times;
-          </DestructiveButton>
+          <div className="override-card-head">
+            <span className="override-repo">{repo}</span>
+            <IconButton
+              danger
+              label={`Remove ${repo} override`}
+              data-karst-action={'remove-override' satisfies DestructiveAction}
+              onClick={() => edit((current) => removeRepoOverride(current, base, repo))}
+            >
+              <TablerIcon name="trash" />
+            </IconButton>
+          </div>
           <GateList
             block={`${base}:${repo}`}
             gates={cfg.repositories?.[repo]?.gates ?? []}
@@ -534,11 +590,15 @@ function OverrideSection({
         </div>
       ))}
       {available.length === 0 ? null : (
-        <div className="row">
+        <div className="override-add">
           <GateSelect
             label="Repository to override"
+            hideLabel={false}
             value=""
-            options={available.map((repo) => ({ value: repo, label: repo }))}
+            options={[
+              { value: '', label: 'Add override for…', disabled: true },
+              ...available.map((repo) => ({ value: repo, label: repo })),
+            ]}
             onChange={(repo) =>
               edit((current) =>
                 addRepoOverride(current, base, repo, cfg.gates ?? []),

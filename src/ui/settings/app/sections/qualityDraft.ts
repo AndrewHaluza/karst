@@ -121,6 +121,25 @@ export function writeGates(draft: Manifest, block: string, gates: readonly GateD
   return update(draft, { repositories: next as never });
 }
 
+/**
+ * Apply `fn` to the block's gate list AS IT IS IN `draft` — the reducer's
+ * current draft, not the list a row rendered with. Two edits that land before
+ * a re-render (text commits run as transitions) would otherwise each write
+ * their own stale copy, and the later one would erase the earlier.
+ */
+export function updateGates(
+  draft: Manifest,
+  block: string,
+  fn: (gates: readonly GateDef[]) => readonly GateDef[],
+): Manifest {
+  const { base, repo } = parseGateBlock(block);
+  const current =
+    repo === null
+      ? ((blocksOf(draft)[base] as { gates?: GateDef[] } | undefined)?.gates ?? [])
+      : (readRepositories(draft, base)[repo]?.gates ?? []);
+  return writeGates(draft, block, fn(current));
+}
+
 function readRepositories(draft: Manifest, base: Base): Overrides {
   return (blocksOf(draft)[base] as { repositories?: Overrides } | undefined)?.repositories ?? {};
 }

@@ -19,6 +19,8 @@ import { startTransition, useId, useState, type ComponentProps, type ReactNode, 
 export interface SelectOption {
   readonly value: string;
   readonly label: string;
+  /** A non-choosable entry — a picker's "Choose…" placeholder. */
+  readonly disabled?: boolean;
 }
 
 interface CommonControl {
@@ -123,6 +125,11 @@ export interface FieldProps {
   /** Local, field-scoped error; sets `aria-invalid` and associates the message (UI-R25). */
   error?: string;
   required?: boolean;
+  /**
+   * Keep the `<label>` for the accessible name (UI-R25) but clip it visually —
+   * for a table row whose column header already names the cell.
+   */
+  hideLabel?: boolean;
   className?: string;
 }
 
@@ -180,6 +187,7 @@ export function Field({
   meta,
   error,
   required = false,
+  hideLabel = false,
   className,
 }: FieldProps) {
   const id = useId();
@@ -278,7 +286,7 @@ export function Field({
 
   return (
     <div className={shellClass}>
-      <label htmlFor={id}>
+      <label htmlFor={id} className={hideLabel ? 'sr-only' : undefined}>
         {label}
         {required ? <span aria-hidden="true"> *</span> : null}
       </label>
@@ -339,7 +347,7 @@ function renderControl(
           onChange={(e) => control.onChange(e.target.value)}
         >
           {control.options.map((option) => (
-            <option key={option.value} value={option.value}>
+            <option key={option.value} value={option.value} disabled={option.disabled}>
               {option.label}
             </option>
           ))}
