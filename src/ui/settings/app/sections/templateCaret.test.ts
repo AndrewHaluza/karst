@@ -5,7 +5,7 @@
  * now a plain unit test).
  */
 import { describe, expect, it } from 'vitest';
-import { applyTransformAtCaret, variableAtCaret } from './templateCaret.js';
+import { applyTransformAtCaret, insertAtCaret, variableAtCaret } from './templateCaret.js';
 
 describe('settings v7 template helper semantics', () => {
   it('inserts a transform only into the variable at the caret', () => {
@@ -56,5 +56,29 @@ describe('variableAtCaret', () => {
     expect(variableAtCaret('karst/slug', 9)).toBeNull();
     // Past the closing brace the variable no longer counts as under the caret.
     expect(variableAtCaret('karst/{slug}x', 14)).toBeNull();
+  });
+});
+
+describe('insertAtCaret', () => {
+  const field = (value: string, start: number | null, end: number | null = start) => {
+    const caret: number[] = [];
+    return {
+      caret,
+      input: { value, selectionStart: start, selectionEnd: end, setSelectionRange: (s: number, e: number) => caret.push(s, e) },
+    };
+  };
+
+  it('inserts at the caret and moves the caret after the text', () => {
+    const { input, caret } = field('ab', 1);
+    expect(insertAtCaret(input, '{slug}')).toBe('a{slug}b');
+    expect(caret).toEqual([7, 7]);
+  });
+
+  it('replaces a selection', () => {
+    expect(insertAtCaret(field('abcd', 1, 3).input, '{key}')).toBe('a{key}d');
+  });
+
+  it('appends when the control reports no caret', () => {
+    expect(insertAtCaret(field('ab', null).input, '{key}')).toBe('ab{key}');
   });
 });

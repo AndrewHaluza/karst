@@ -74,3 +74,17 @@ export function applyTransformAtCaret(input: CaretField, transform: string): str
   input.setSelectionRange(caret, caret);
   return applied;
 }
+
+/**
+ * Insert `text` at the caret (replacing any selection), the vanilla
+ * `insertTextAtCaret`: no caret appends at the end. The new caret lands just
+ * after the inserted text.
+ */
+export function insertAtCaret(input: CaretField, text: string): string {
+  const { value } = input;
+  const start = input.selectionStart ?? value.length;
+  const end = input.selectionEnd ?? value.length;
+  const pos = start + text.length;
+  input.setSelectionRange(pos, pos);
+  return value.slice(0, start) + text + value.slice(end);
+}

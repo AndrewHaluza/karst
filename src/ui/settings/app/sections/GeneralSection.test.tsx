@@ -275,4 +275,17 @@ describe('GeneralSection — display templates are the host\'s own (UI-R34 / R-X
     // seam — it was never a template token, so it is never rendered as one.
     expect(names).not.toContain('parentTicketId');
   });
+
+  it('clicking a variable inserts it at the caret of its own template', () => {
+    const { probe } = mountGeneral();
+    const terminal = screen.getByLabelText('Terminal name template') as HTMLInputElement;
+    fireEvent.change(terminal, { target: { value: 'T-' } });
+    terminal.setSelectionRange(2, 2);
+    const row = terminal.closest('.k-field')!;
+    fireEvent.click(Array.from(row.querySelectorAll('button')).find((b) => b.textContent === 'Variables & transforms')!);
+    const key = Array.from(row.querySelectorAll('.label-vars button')).find((b) => b.textContent === '{key}');
+    expect(key, 'variables are insert buttons').toBeTruthy();
+    fireEvent.click(key!);
+    expect(probe().draft).toMatchObject({ terminalNameTemplate: 'T-{key}' });
+  });
 });

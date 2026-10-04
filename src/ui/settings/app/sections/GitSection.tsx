@@ -50,7 +50,8 @@ import {
   previewConvention,
   type ConventionField,
 } from './conventionPreview.js';
-import { applyTransformAtCaret } from './templateCaret.js';
+import { applyTransformAtCaret, insertAtCaret } from './templateCaret.js';
+import { useCaretEdit } from './useCaretEdit.js';
 
 /** The four template fields that carry an inline fault line, in vanilla order. */
 const FAULT_FIELDS = [
@@ -272,34 +273,7 @@ function TemplateRow({
   const areaRef = useRef<HTMLTextAreaElement | null>(null);
   const isBody = field === 'pullRequestDescription';
 
-  /**
-   * Append `transform` to the variable at the caret of this field's control,
-   * then write it through the field's `onChange`. No variable under the caret
-   * leaves the value untouched and makes NO write — the vanilla refusal.
-   *
-   * The caret position comes from the pure helper; it is re-applied after the
-   * state write because a browser resets the selection to the end when React
-   * commits the new value.
-   */
-  const insertTransform = (transform: string): void => {
-    const node = isBody ? areaRef.current : inputRef.current;
-    if (!node) return;
-    const caret = { pos: [0, 0] as [number, number] };
-    const next = applyTransformAtCaret(
-      {
-        value: node.value,
-        selectionStart: node.selectionStart,
-        selectionEnd: node.selectionEnd,
-        setSelectionRange: (start, end) => {
-          caret.pos = [start, end];
-        },
-      },
-      transform,
-    );
-    if (next === node.value) return;
-    onChange(next);
-    queueMicrotask(() => node.setSelectionRange(caret.pos[0], caret.pos[1]));
-  };
+  const editAtCaret = useCaretEdit(isBody ? areaRef : inputRef, onChange);
 
   return (
     <Field
@@ -332,12 +306,17 @@ function TemplateRow({
             Preview: <span className="lp-val">{preview}</span>
           </div>
           <Help>
-            Variables: {vocabulary.map((name) => `{${name}}`).join(' ')}
+            Variables:{' '}
+            {vocabulary.map((name) => (
+              <Button key={name} variant="ghost" size="sm" onClick={() => editAtCaret((input) => insertAtCaret(input, `{${name}}`))}>
+                {`{${name}}`}
+              </Button>
+            ))}
           </Help>
           <Help>
             Transforms:{' '}
             {TRANSFORM_NAMES.map((name) => (
-              <Button key={name} variant="ghost" size="sm" onClick={() => insertTransform(name)}>
+              <Button key={name} variant="ghost" size="sm" onClick={() => editAtCaret((input) => applyTransformAtCaret(input, name))}>
                 {name}
               </Button>
             ))}{' '}

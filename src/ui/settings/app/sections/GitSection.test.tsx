@@ -303,6 +303,20 @@ describe('GitSection — the transform helper operates on the caret (R-X1)', () 
     expect(field.selectionStart).toBe(17);
   });
 
+  it('clicking a variable inserts it at the caret', async () => {
+    const { probe } = mountGit();
+    const field = screen.getByLabelText('Branch name template') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: 'karst/x' } });
+    field.setSelectionRange(6, 6);
+    const meta = field.closest('.k-field')!.querySelector('.template-meta') as Element;
+    const slug = Array.from(meta.querySelectorAll('button')).find((b) => b.textContent === '{slug}');
+    expect(slug, 'variables are insert buttons').toBeTruthy();
+    fireEvent.click(slug!);
+    expect(conventions(probe)).toMatchObject({ branchName: 'karst/{slug}x' });
+    await Promise.resolve();
+    expect(field.selectionStart).toBe(12);
+  });
+
   it('leaves the draft untouched when the caret is outside every variable', () => {
     const { probe } = mountGit();
     const field = screen.getByLabelText('Branch name template') as HTMLInputElement;

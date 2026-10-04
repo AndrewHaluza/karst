@@ -19,7 +19,7 @@
  *   `defaultEffort`) are ONE picker, not three selects, so it is mounted as an
  *   opaque island (R-X3) rather than rebuilt out of primitives.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import type {
   AgentProvider,
   Manifest,
@@ -36,6 +36,9 @@ import {
 import { TRANSFORM_NAMES } from '../../../../template/transforms.js';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
+import { Button } from '../primitives/Button.js';
+import { insertAtCaret } from './templateCaret.js';
+import { useCaretEdit } from './useCaretEdit.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 
 /**
@@ -123,6 +126,10 @@ export function GeneralSection() {
   );
   const [labelVarsOpen, setLabelVarsOpen] = useState(false);
   const [terminalVarsOpen, setTerminalVarsOpen] = useState(false);
+  const labelRef = useRef<HTMLInputElement | null>(null);
+  const terminalRef = useRef<HTMLInputElement | null>(null);
+  const labelCaret = useCaretEdit(labelRef, (value) => edit(set('ticketLabelTemplate', value || undefined)));
+  const terminalCaret = useCaretEdit(terminalRef, (value) => edit(set('terminalNameTemplate', value || undefined)));
 
   // Memoise every island input: the island rebuilds on an input change, so an
   // unstable object here would tear the shared runtime down on every render.
@@ -308,6 +315,7 @@ export function GeneralSection() {
             // here would show Settings a default the engine does not use.
             placeholder: DEFAULT_TICKET_LABEL_TEMPLATE,
             onChange: (value) => edit(set('ticketLabelTemplate', value || undefined)),
+            inputRef: labelRef,
           }}
           meta={
             <>
@@ -324,7 +332,7 @@ export function GeneralSection() {
                   Variables &amp; transforms
                 </button>
               </div>
-              <TemplateVars open={labelVarsOpen} />
+              <TemplateVars open={labelVarsOpen} onInsert={(token) => labelCaret((input) => insertAtCaret(input, token))} />
             </>
           }
         />
@@ -337,6 +345,7 @@ export function GeneralSection() {
             value: terminalName,
             placeholder: DEFAULT_TERMINAL_NAME_TEMPLATE,
             onChange: (value) => edit(set('terminalNameTemplate', value || undefined)),
+            inputRef: terminalRef,
           }}
           meta={
             <>
@@ -353,7 +362,7 @@ export function GeneralSection() {
                   Variables &amp; transforms
                 </button>
               </div>
-              <TemplateVars open={terminalVarsOpen} />
+              <TemplateVars open={terminalVarsOpen} onInsert={(token) => terminalCaret((input) => insertAtCaret(input, token))} />
             </>
           }
         />
@@ -436,10 +445,15 @@ export function offeredProviders(implemented: readonly AgentProvider[]): readonl
  * terminal seam, never a template token. Hidden at rest, so the row occupies
  * no layout until its helper link is opened.
  */
-function TemplateVars({ open }: { readonly open: boolean }) {
+function TemplateVars({ open, onInsert }: { readonly open: boolean; readonly onInsert: (token: string) => void }) {
   return (
     <div className={open ? 'label-vars' : 'label-vars hidden'}>
-      {`Variables: ${TICKET_LABEL_VARIABLES.map((name) => `{${name}}`).join(' ')}`}
+      Variables:{' '}
+      {TICKET_LABEL_VARIABLES.map((name) => (
+        <Button key={name} variant="ghost" size="sm" onClick={() => onInsert(`{${name}}`)}>
+          {`{${name}}`}
+        </Button>
+      ))}
       <br />
       {`Transforms: ${TRANSFORM_NAMES.join(' ')} — pipe them, e.g. {key|slice:-4}`}
     </div>
