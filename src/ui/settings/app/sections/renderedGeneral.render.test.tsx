@@ -405,6 +405,40 @@ describe('rendered Settings — leaving a dirty tab asks first', () => {
     expect(save.disabled).toBe(true);
     expect(root(view).querySelector('.modal-error')?.classList.contains('hidden')).toBe(false);
   });
+
+  it('focuses Save when it opens, so Enter commits the safe default', async () => {
+    const { view } = await goDirty();
+    await view.click(root(view).querySelector('[data-section="git"]') as Element);
+    expect(root(view).ownerDocument.activeElement?.textContent).toBe('Save General');
+  });
+
+  it('focuses Discard instead while the draft cannot be saved', async () => {
+    const { view } = await goDirty();
+    await view.receive({ type: 'validation', ok: false, error: 'Invalid karst.yml: host must be a string' });
+    await view.click(root(view).querySelector('[data-section="git"]') as Element);
+    expect(root(view).ownerDocument.activeElement?.textContent).toBe('Discard changes');
+  });
+
+  it('ignores the save chord while it is open — the modal owns the choice', async () => {
+    const { view } = await goDirty();
+    await view.click(root(view).querySelector('[data-section="git"]') as Element);
+    const doc = root(view).ownerDocument;
+    const KeyboardEventCtor = doc.defaultView!.KeyboardEvent;
+    doc.activeElement!.dispatchEvent(new KeyboardEventCtor('keydown', { key: 's', metaKey: true, ctrlKey: true, bubbles: true }));
+    await view.settle();
+    expect(view.all('save')).toHaveLength(0);
+  });
+
+  it('keeps Tab inside the dialog', async () => {
+    const { view } = await goDirty();
+    await view.click(root(view).querySelector('[data-section="git"]') as Element);
+    const doc = root(view).ownerDocument;
+    const buttons = [...root(view).querySelectorAll<HTMLElement>('.modal-actions button:not([disabled])')];
+    const last = buttons[buttons.length - 1]!;
+    last.focus();
+    last.dispatchEvent(new (doc.defaultView!.KeyboardEvent)('keydown', { key: 'Tab', bubbles: true }));
+    expect(doc.activeElement).toBe(buttons[0]);
+  });
 });
 
 async function clickModal(view: RenderedSettings, label: string): Promise<void> {

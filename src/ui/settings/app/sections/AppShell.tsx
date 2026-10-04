@@ -20,6 +20,7 @@ import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
 import { Button } from '../primitives/Button.js';
 import { useDismiss } from '../primitives/useDismiss.js';
+import { useFocusTrap } from '../primitives/useFocusTrap.js';
 
 /** The left-nav grouping, in the order the vanilla sidebar renders it. */
 const NAV_GROUPS: ReadonlyArray<{
@@ -180,7 +181,8 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       }
       if (isSaveChord(event)) {
         event.preventDefault();
-        saveNow();
+        // The leave modal owns the choice while it is open (vanilla parity).
+        if (leaveTarget === null) saveNow();
       }
     };
     globalThis.addEventListener('keydown', onKeyDown);
@@ -510,6 +512,12 @@ function LeaveModal({
 }) {
   const fromLabel = SECTION_LABELS[from];
   const toLabel = SECTION_LABELS[to];
+  const modalRef = useRef<HTMLDivElement>(null);
+  // Vanilla parity: land on Save, or on Discard when Save is blocked.
+  useFocusTrap(modalRef, true, () => {
+    const actions = modalRef.current?.querySelectorAll<HTMLElement>('.modal-actions button');
+    return actions?.[canSave ? 2 : 1] ?? null;
+  });
   return (
     <div
       className="modal-backdrop"
@@ -518,7 +526,7 @@ function LeaveModal({
       aria-labelledby="leaveModalTitle"
       aria-describedby="leaveModalBody"
     >
-      <div className="modal">
+      <div className="modal" ref={modalRef}>
         <h2 id="leaveModalTitle">Unsaved changes</h2>
         <p id="leaveModalBody">
           {`You have unsaved changes on ${fromLabel}. They will not take effect until you save. Save them before going to ${toLabel}?`}
