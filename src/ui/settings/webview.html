@@ -692,8 +692,16 @@
   .manifest-icon{color:var(--k-text-faint);font-size:var(--k-text-xs)}
   .manifest-name{font-family:var(--k-font-mono);font-size:var(--k-text-xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text-dim)}
   .manifest-open{font-size:var(--k-text-2xs);color:var(--k-link);white-space:nowrap}
+  /* In-place edit input (preset rename): sized by its row, not the form grid.
+     R-X6 keeps this out of a style prop. */
+  .inline-text-input{min-width:0;flex:1 1 auto;height:auto;padding:var(--k-space-1) var(--k-space-3)}
+  .preset-yaml-notice.is-error{color:var(--k-danger)}
+  /* Anchored to the right of the fixed-width sidebar, pinned to the viewport
+     bottom so the whole card stays visible however short the window is.
+     CSS only: R-X6 bans inline style writes from the React app. */
   .project-info-pop{
-    position:fixed;z-index:var(--k-z-tooltip);width:min(calc(var(--k-space-8) * 15),92vw);
+    position:fixed;z-index:var(--k-z-tooltip);
+    left:calc(var(--k-space-8) * 9.4 + var(--k-space-4));bottom:var(--k-space-4);width:min(calc(var(--k-space-8) * 15),92vw);
     display:none;padding:var(--k-space-6);border-radius:var(--k-radius-lg);
     background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3);
   }

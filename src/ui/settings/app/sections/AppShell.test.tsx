@@ -148,6 +148,47 @@ describe('AppShell — the brand and project footer carry the approved #35 mark'
   });
 });
 
+describe('AppShell — the project-info popover dismisses like the vanilla one', () => {
+  function pop(): HTMLElement {
+    return document.getElementById('projectInfoPop')!;
+  }
+
+  it('toggles open from the footer button and reflects aria-expanded', () => {
+    mount();
+    const btn = document.getElementById('projectInfoBtn')!;
+    fireEvent.click(btn);
+    expect(pop().classList.contains('open')).toBe(true);
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(btn);
+    expect(pop().classList.contains('open')).toBe(false);
+  });
+
+  it('Escape closes it and returns focus to the footer button', () => {
+    mount();
+    const btn = document.getElementById('projectInfoBtn')!;
+    fireEvent.click(btn);
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(pop().classList.contains('open')).toBe(false);
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    expect(document.activeElement).toBe(btn);
+  });
+
+  it('a click outside closes it; a click inside does not', () => {
+    mount();
+    fireEvent.click(document.getElementById('projectInfoBtn')!);
+    fireEvent.mouseDown(document.getElementById('popVersion')!);
+    expect(pop().classList.contains('open')).toBe(true);
+    fireEvent.mouseDown(document.querySelector('[data-testid="tab-content"]')!);
+    expect(pop().classList.contains('open')).toBe(false);
+  });
+
+  it('the mobile entry opens it too', () => {
+    mount();
+    fireEvent.click(document.getElementById('mobileProjectBtn')!);
+    expect(pop().classList.contains('open')).toBe(true);
+  });
+});
+
 describe('AppShell — the footer renders the host-pushed facts (UI-R31)', () => {
   it('fills the footer and popover from the host-pushed facts', () => {
     mount();

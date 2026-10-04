@@ -19,6 +19,7 @@ import { SECTION_LABELS, type SettingsSection } from '../../sections.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
 import { Button } from '../primitives/Button.js';
+import { useDismiss } from '../primitives/useDismiss.js';
 
 /** The left-nav grouping, in the order the vanilla sidebar renders it. */
 const NAV_GROUPS: ReadonlyArray<{
@@ -55,6 +56,19 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const [navigateAfterAck, setNavigateAfterSave] = useState<SettingsSection | null>(null);
   const [acknowledged, setAcknowledged] = useState<string | null>(null);
   const [infoOpen, setInfoOpen] = useState(false);
+  const infoBtnRef = useRef<HTMLButtonElement>(null);
+  const mobileInfoBtnRef = useRef<HTMLButtonElement>(null);
+  const infoPopRef = useRef<HTMLDivElement>(null);
+  const infoOpenerRef = useRef<HTMLButtonElement | null>(null);
+  const toggleInfo = useCallback((opener: HTMLButtonElement | null) => {
+    infoOpenerRef.current = opener;
+    setInfoOpen((open) => !open);
+  }, []);
+  const closeInfo = useCallback(() => {
+    setInfoOpen(false);
+    infoOpenerRef.current?.focus();
+  }, []);
+  useDismiss({ active: infoOpen, onClose: closeInfo, refs: [infoPopRef, infoBtnRef, mobileInfoBtnRef] });
 
   const dirty = isDirty(section);
 
@@ -217,9 +231,10 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
             type="button"
             className="project-identity"
             id="projectInfoBtn"
+            ref={infoBtnRef}
             aria-expanded={infoOpen}
             aria-haspopup="dialog"
-            onClick={() => setInfoOpen((open) => !open)}
+            onClick={() => toggleInfo(infoBtnRef.current)}
           >
             <ProjectGlyph idPrefix="foot" className="project-icon" />
             <span className="project-copy">
@@ -250,6 +265,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <div
             className={infoOpen ? 'project-info-pop open' : 'project-info-pop'}
             id="projectInfoPop"
+            ref={infoPopRef}
             role="dialog"
             aria-label="Project information"
           >
@@ -292,10 +308,11 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
           <button
             className="mobile-project-btn"
             id="mobileProjectBtn"
+            ref={mobileInfoBtnRef}
             type="button"
             aria-label="Project information"
             title="Project information"
-            onClick={() => setInfoOpen((open) => !open)}
+            onClick={() => toggleInfo(mobileInfoBtnRef.current)}
           >
             <ProjectGlyph idPrefix="mob" />
           </button>
