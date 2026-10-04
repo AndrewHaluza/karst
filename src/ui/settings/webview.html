@@ -278,33 +278,6 @@
      src/model/agentPicker.ts, injected here at load. */
   /*KARST_AGENT_PICKER_CSS*/
 
-  /* Agent provider custom select (icon + name inside dropdown) */
-  .agentselect{position:relative;width:100%}
-  .agentselect-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;
-    text-align:left;background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
-    padding:var(--k-space-3) var(--k-space-4);font-family:inherit;font-size:var(--k-text-base);cursor:pointer}
-  .agentselect-trigger:hover{background:var(--vscode-input-background)}
-  .agentselect-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .agentselect-trigger .chev{flex:none;width:var(--k-space-6);height:var(--k-space-6);margin-left:var(--k-space-4);
-    background:var(--chevron) no-repeat center/var(--k-space-6)}
-  /* The trigger composes .k-btn (UI-R07) but is a DROPDOWN control, not an
-     action button — suppress the primitive's scale-on-active that squishes it
-     on every menu open/close (same call designComponents makes for
-     .k-btn--row; same rule as ticketForm/webview.html, which must not drift). */
-  .agentselect-trigger:active:not(:disabled){transform:none}
-  .agentselect-menu{position:absolute;top:calc(100% + var(--k-space-2));left:0;right:0;z-index:var(--k-z-drawer);
-    background:var(--vscode-dropdown-background,var(--k-bg));
-    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
-    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2)}
-  .agentselect-opt{display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
-    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base)}
-  .agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}
-  .agentselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
-    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
-  .agentselect-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .agentselect-opt[aria-disabled="true"]{opacity:.5;cursor:not-allowed}
-
   /* ---- accordion cards ---- */
   .card{
     border:var(--k-border-w) solid var(--vscode-panel-border);border-radius:var(--k-radius-lg);
@@ -778,26 +751,6 @@
   .template-reset-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* ═══ shared select/combobox trigger (handoff §6.1) ═══════════════════════ */
-  .select-shell{position:relative;min-width:0}
-  .select-trigger{
-    width:100%;min-height:calc(var(--k-space-8) * 1.7);display:flex;align-items:center;gap:var(--k-space-3);
-    padding:var(--k-space-2) calc(var(--k-space-8) + var(--k-space-3)) var(--k-space-2) var(--k-space-4);
-    text-align:left;position:relative;cursor:pointer;overflow:hidden;
-    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));border-radius:var(--k-radius-sm);
-    font:inherit;font-size:var(--k-text-base);
-  }
-  .select-trigger:hover{border-color:var(--vscode-inputOption-activeBorder,var(--k-focus))}
-  .select-trigger:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .select-trigger .chev{
-    position:absolute;right:var(--k-space-4);top:50%;transform:translateY(-50%);
-    width:var(--k-space-6);height:var(--k-space-6);flex:none;margin:var(--k-space-0);
-    background:var(--chevron) no-repeat center/var(--k-space-6);
-  }
-  .select-trigger .sel-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .select-trigger.is-invalid{border-color:var(--vscode-inputValidation-errorBorder,var(--k-danger))}
-  .select-trigger.is-unavailable{color:var(--k-text-dim)}
-  .select-shell.is-open{z-index:var(--k-z-scrim)}
   .dropdown{
     position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
     min-width:calc(var(--k-space-8) * 10);z-index:var(--k-z-drawer);display:none;
@@ -809,45 +762,6 @@
 
   /* Identity option: [icon] name (handoff §6.2). */
   .identity{display:inline-flex;align-items:center;gap:var(--k-space-3);min-width:0}
-  .identity .ident-icon{flex:0 0 auto}
-  .identity .ident-label{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .identity .ident-meta{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
-
-  /* Searchable model picker (handoff §6.3). */
-  .model-pop{
-    position:absolute;top:calc(100% + var(--k-space-2));left:var(--k-space-0);right:var(--k-space-0);
-    min-width:calc(var(--k-space-8) * 14);z-index:var(--k-z-drawer);display:none;overflow:hidden;
-    background:var(--vscode-dropdown-background,var(--k-bg));
-    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
-    border-radius:var(--k-radius-md);box-shadow:var(--k-elev-2);
-  }
-  .model-pop.open{display:block}
-  .model-search{padding:var(--k-space-3);border-bottom:var(--k-border-w) solid var(--vscode-panel-border)}
-  .model-search input{width:100%}
-  .model-scroll{max-height:calc(var(--k-space-8) * 15);overflow:auto}
-  .model-group-label{
-    padding:var(--k-space-4) var(--k-space-4) var(--k-space-2);font-size:var(--k-text-2xs);
-    text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);
-  }
-  /* The provider identity badge inside the group header: the label's
-     uppercase transform must not bleed into the badge's canonical name. */
-  .model-group-label .agentbadge{text-transform:none;letter-spacing:0}
-  .model-group-label .agenticon{width:calc(var(--k-space-8) * 1.5);height:calc(var(--k-space-8) * 1.5)}
-  .model-item{
-    display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;
-    padding:var(--k-space-3) var(--k-space-4);cursor:pointer;
-  }
-  .model-item:hover{background:var(--k-surface-hover)}
-  .model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}
-  .model-item.active,.model-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
-    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
-  .model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}
-  .model-item .model-name{font-weight:500;font-size:var(--k-text-base)}
-  .model-item .model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
-  .model-item .model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
-  .model-empty{padding:var(--k-space-5) var(--k-space-4);font-size:var(--k-text-sm);color:var(--k-text-dim)}
-  .model-warning{display:none;margin-top:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-danger)}
-  .model-warning.visible{display:block}
 
   /* Fixed-size reload icon button (handoff §6.4). */
   .reload-btn{
@@ -942,11 +856,6 @@
   .proc-agent-cell{min-width:0}
   .proc-agent-cell .ap{width:100%}
 
-
-  /* Overlay stacking: the shell, row and panel elevate only while a menu is open
-     (handoff §17) — local elevation, never a blanket global z-index. */
-  .select-shell.is-open{z-index:var(--k-z-scrim)}
-
   /* Quality policy panels (handoff §16): UAT policy, Review policy and
      Findings side by side, each a bordered box whose rows are hairline
      separated. Every row carries `border-top` — the head above the first
@@ -1000,9 +909,6 @@
 
   /* Agent profile create drawer: keep the same form grammar as the roster. */
   .agent-drawer-form{display:flex;flex-direction:column;gap:var(--k-space-4)}
-
-  /* Skeleton state: model picker trigger mirrors native select height. */
-  .model-trigger{min-height:calc(var(--k-space-8) * 1.7)}
 </style>
 
 <div id="root"></div>

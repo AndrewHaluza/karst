@@ -133,8 +133,6 @@ describe('settings quality tab (UAT + review scalars)', () => {
 
 describe('settings v7 shared primitives', () => {
   it('styles select triggers, dropdowns and identity options with the shared geometry', () => {
-    expect(HTML).toContain('.select-trigger');
-    expect(HTML).toContain('.select-shell');
     expect(HTML).toContain('.dropdown');
     expect(HTML).toContain('.chev');
   });
@@ -146,15 +144,10 @@ describe('settings v7 shared primitives', () => {
     // re-grey themselves on the fill.
     expect(HTML).toContain('.provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));');
     expect(HTML).toMatch(/\.provselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
-    expect(HTML).toMatch(/\.agentselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
-    expect(HTML).toMatch(/\.model-item\.active[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
-    expect(HTML).toContain('.model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}');
   });
 
   it('keeps dropdown items readable on hover with an explicit foreground', () => {
     expect(HTML).toContain('.provselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
-    expect(HTML).toContain('.agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
-    expect(HTML).toContain('.model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}');
   });
 
   it('overlay pops use their own display:none — never the !important .hidden class', () => {
