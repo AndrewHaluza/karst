@@ -248,36 +248,6 @@
   background: color-mix(in srgb, var(--k-link) 4%, transparent);
 }
 
-.cap-title {
-  font-weight: 500;
-  color: var(--k-text-bright);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cap-preview-inherited {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--k-font-mono);
-  font-size: 12px;
-  color: var(--k-text-dim);
-}
-
-.cap-preview-inherited .sub-label {
-  color: var(--k-text-dim);
-  font-size: var(--k-text-xs);
-  opacity: 0.7;
-}
-
-.cap-override-grid {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(130px, 1fr);
-  gap: var(--k-space-2);
-  align-items: center;
-}
-
 /* Modal Dialog Overlay */
 .modal-overlay {
   position: fixed;
@@ -327,12 +297,6 @@
   color: var(--k-link);
   width: 18px;
   height: 18px;
-}
-
-.modal-head-title .warn-icon {
-  color: var(--k-danger);
-  width: 20px;
-  height: 20px;
 }
 
 .modal-title {
@@ -455,9 +419,6 @@
     grid-template-columns: 1fr;
     gap: var(--k-space-2);
   }
-  .cap-override-grid {
-    grid-template-columns: 1fr;
-  }
   .bulk-controls .ap {
     grid-template-columns: 1fr;
   }
@@ -496,18 +457,12 @@
   flex-wrap: wrap;
 }
 
-.matrix-search-input {
-  width: 200px;
-  max-width: 100%;
-}
-
 /* The search `Field` renders a `<label>` (wrapping the sr-only span) that
    carries the shell's global `label{margin}` plus `.k-field`'s flex gap —
    a box that pushes the input down off the pills' baseline. Pull the label
    out of flow so it neither participates in the gap nor adds a margin box,
    but keeps the caption in the accessibility tree (UI-R25). */
 .matrix-filter-controls .k-field > label,
-.preset-bulk-field > label,
 .cap-mode .k-field > label {
   position: absolute;
   margin: 0;
@@ -515,7 +470,6 @@
   line-height: 0;
 }
 
-.preset-bulk-field,
 .cap-mode .k-field {
   margin: 0;
 }
@@ -525,7 +479,6 @@
    fold extend the DOCUMENT and add a native scrollbar beside .content's own.
    Anchor them to their field so all overflow stays inside .content. */
 .matrix-filter-controls .k-field,
-.preset-bulk-field,
 .cap-mode .k-field {
   position: relative;
 }
@@ -571,10 +524,3 @@
 .cap-value {
   min-width: 0;
 }
-
-.cap-preview-inherited .cap-inherited {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
