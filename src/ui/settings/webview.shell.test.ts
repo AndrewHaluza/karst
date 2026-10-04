@@ -136,7 +136,6 @@ describe('settings v7 shared primitives', () => {
     expect(HTML).toContain('.select-trigger');
     expect(HTML).toContain('.select-shell');
     expect(HTML).toContain('.dropdown');
-    expect(HTML).toContain('.drop-item');
     expect(HTML).toContain('.chev');
   });
 
@@ -148,16 +147,13 @@ describe('settings v7 shared primitives', () => {
     expect(HTML).toContain('.provselect-opt.selected{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));');
     expect(HTML).toMatch(/\.provselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
     expect(HTML).toMatch(/\.agentselect-opt\.selected\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
-    expect(HTML).toMatch(/\.drop-item\.active,\.drop-item\[aria-selected="true"\]\{[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
     expect(HTML).toMatch(/\.model-item\.active[^}]*color:var\(--vscode-list-activeSelectionForeground,var\(--k-text\)\)/);
     expect(HTML).toContain('.model-item.active .model-sub,.model-item.active .model-tag{color:inherit;opacity:.8}');
-    expect(HTML).toContain('.drop-item.active .ident-meta{color:inherit;opacity:.8}');
   });
 
   it('keeps dropdown items readable on hover with an explicit foreground', () => {
     expect(HTML).toContain('.provselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
     expect(HTML).toContain('.agentselect-opt:hover{background:var(--k-surface-hover);color:var(--k-text)}');
-    expect(HTML).toContain('.drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}');
     expect(HTML).toContain('.model-item:hover .model-sub,.model-item:hover .model-tag{color:var(--k-text);opacity:.8}');
   });
 
@@ -168,10 +164,6 @@ describe('settings v7 shared primitives', () => {
     // pop's own div, open, never hidden) lives in the React component tests;
     // the shell keeps the CSS half — self-contained display:none, flipped by a
     // non-!important .open rule.
-    expect(HTML).toMatch(/\.helper-pop\{[^}]*display:none/);
-    expect(HTML).toContain('.helper-pop.open{display:block}');
-    expect(HTML).toMatch(/\.ctx-menu\{[^}]*display:none/);
-    expect(HTML).toContain('.ctx-menu.open{display:block}');
     expect(HTML).toMatch(/\.project-info-pop\{[^}]*display:none/);
     expect(HTML).toContain('.project-info-pop.open{display:block}');
   });

@@ -777,29 +777,6 @@
   .template-reset-link:hover{color:var(--k-text);text-decoration:underline}
   .template-reset-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
-  /* Contextual template helper popup (handoff §8): variables + transforms. */
-  .helper-pop{
-    position:fixed;z-index:var(--k-z-toast);width:min(calc(var(--k-space-8) * 26),92vw);
-    display:none;padding:var(--k-space-6);border-radius:var(--k-radius-lg);
-    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3);
-  }
-  .helper-pop.open{display:block}
-  .helper-title{font-size:var(--k-text-md);font-weight:600;margin-bottom:var(--k-space-4)}
-  .helper-section + .helper-section{margin-top:var(--k-space-5)}
-  .helper-label{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.07em;color:var(--k-text-faint);margin-bottom:var(--k-space-3)}
-  .token-grid{display:flex;flex-wrap:wrap;gap:var(--k-space-2)}
-  .token-btn{
-    font-family:var(--k-font-mono);font-size:var(--k-text-xs);cursor:pointer;
-    background:var(--vscode-input-background);color:var(--vscode-input-foreground);
-    border:var(--k-border-w) solid var(--vscode-input-border,var(--vscode-panel-border));
-    border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-3);
-  }
-  .token-btn:hover{border-color:var(--k-focus)}
-  .token-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .token-btn.is-active{background:var(--k-focus);border-color:transparent;color:var(--vscode-editor-background)}
-  .helper-example{margin-top:var(--k-space-4);font-size:var(--k-text-xs);color:var(--k-text-dim);line-height:var(--k-leading-normal)}
-  .helper-example code,.helper-example .mono{font-family:var(--k-font-mono)}
-
   /* ═══ shared select/combobox trigger (handoff §6.1) ═══════════════════════ */
   .select-shell{position:relative;min-width:0}
   .select-trigger{
@@ -829,20 +806,6 @@
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
   }
   .dropdown.open{display:block}
-  .drop-item{
-    display:flex;align-items:center;gap:var(--k-space-3);padding:var(--k-space-3) var(--k-space-4);
-    border-radius:var(--k-radius-sm);cursor:pointer;font-size:var(--k-text-base);
-  }
-  .drop-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
-  .drop-item:hover .ident-meta{color:var(--k-text);opacity:.7}
-  .drop-item.active,.drop-item[aria-selected="true"]{background:var(--vscode-list-activeSelectionBackground,var(--k-surface-hover));
-    color:var(--vscode-list-activeSelectionForeground,var(--k-text))}
-  /* Dim/faint descendant text must not re-grey itself on the paired selection
-     fill — the meta line inherits the selection foreground instead. */
-  .drop-item.active .ident-meta{color:inherit;opacity:.8}
-  .drop-item.is-disabled{opacity:.5;cursor:not-allowed}
-  .drop-item .mono{font-family:var(--k-font-mono)}
-  .drop-divider{height:var(--k-border-w);background:var(--vscode-panel-border);margin:var(--k-space-2) var(--k-space-0)}
 
   /* Identity option: [icon] name (handoff §6.2). */
   .identity{display:inline-flex;align-items:center;gap:var(--k-space-3);min-width:0}
@@ -979,38 +942,10 @@
   .proc-agent-cell{min-width:0}
   .proc-agent-cell .ap{width:100%}
 
-  /* Context / overflow menu (handoff §6.7). */
-  .ctx-menu{
-    position:fixed;z-index:var(--k-z-toast);display:none;min-width:calc(var(--k-space-8) * 9);
-    padding:var(--k-space-2);border-radius:var(--k-radius-md);
-    background:var(--k-surface);border:var(--k-border-w) solid var(--k-border-strong);box-shadow:var(--k-elev-3);
-  }
-  .ctx-menu.open{display:block}
-  .ctx-item{
-    display:block;width:100%;text-align:left;padding:var(--k-space-3) var(--k-space-4);
-    border-radius:var(--k-radius-sm);cursor:pointer;font:inherit;font-size:var(--k-text-base);
-    background:transparent;color:var(--k-text);border:none;
-  }
-  .ctx-item:hover{background:var(--k-surface-hover)}
-  .ctx-item:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .ctx-item.danger{color:var(--k-danger)}
-  .more-btn{
-    width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:grid;place-items:center;
-    padding:var(--k-space-0);border-radius:var(--k-radius-sm);cursor:pointer;letter-spacing:.05em;
-    background:transparent;color:var(--k-text-dim);border:none;font:inherit;
-  }
-  .more-btn:hover{background:var(--k-surface-hover);color:var(--k-text)}
-  .more-btn:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Overlay stacking: the shell, row and panel elevate only while a menu is open
      (handoff §17) — local elevation, never a blanket global z-index. */
   .select-shell.is-open{z-index:var(--k-z-scrim)}
-  .row.has-open-menu,.matrix-row.has-open-menu,.q-row.has-open-menu,.lifecycle-row.has-open-menu,
-  .roster-row.has-open-menu,.override-row.has-open-menu,.gate-row.has-open-menu{
-    position:relative;z-index:var(--k-z-scrim)
-  }
-  .panel.has-open-menu{position:relative;z-index:calc(var(--k-z-scrim) - 1)}
-  .drawer .ctx-menu{position:fixed}
 
   /* Quality policy panels (handoff §16): UAT policy, Review policy and
      Findings side by side, each a bordered box whose rows are hairline
