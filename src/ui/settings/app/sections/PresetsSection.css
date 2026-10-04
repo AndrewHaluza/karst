@@ -520,6 +520,16 @@
   margin: 0;
 }
 
+/* The pulled-out labels above are position:absolute; without a positioned
+   ancestor their containing block is the viewport, so labels in rows below the
+   fold extend the DOCUMENT and add a native scrollbar beside .content's own.
+   Anchor them to their field so all overflow stays inside .content. */
+.matrix-filter-controls .k-field,
+.preset-bulk-field,
+.cap-mode .k-field {
+  position: relative;
+}
+
 /* Override-mode picker: core | model | effort in one line, like the preview */
 .cap-value .ap {
   grid-template-columns: minmax(180px, 1.2fr) minmax(200px, 1.5fr) minmax(130px, 1fr);
