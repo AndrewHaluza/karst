@@ -262,6 +262,14 @@ function karstIcon(name, size, cls) {
     + paths + '</svg>';
 }
 
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
+}
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
   const el = (id) => document.getElementById(id);
@@ -830,6 +838,14 @@ function karstIcon(name, size, cls) {
   return '<svg class="' + k + '" width="' + size + '" height="' + size
     + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
     + paths + '</svg>';
+}
+
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
 }
 
   const vscode = acquireVsCodeApi();
@@ -1402,6 +1418,14 @@ function karstIcon(name, size, cls) {
     + paths + '</svg>';
 }
 
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
+}
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
   const el = (id) => document.getElementById(id);
@@ -1970,6 +1994,14 @@ function karstIcon(name, size, cls) {
   return '<svg class="' + k + '" width="' + size + '" height="' + size
     + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
     + paths + '</svg>';
+}
+
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
 }
 
   const vscode = acquireVsCodeApi();
@@ -2542,6 +2574,14 @@ function karstIcon(name, size, cls) {
     + paths + '</svg>';
 }
 
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
+}
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
   const el = (id) => document.getElementById(id);
@@ -3112,6 +3152,14 @@ function karstIcon(name, size, cls) {
     + paths + '</svg>';
 }
 
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
+}
+
   const vscode = acquireVsCodeApi();
   const post = (msg) => vscode.postMessage(msg);
   const el = (id) => document.getElementById(id);
@@ -3680,6 +3728,14 @@ function karstIcon(name, size, cls) {
   return '<svg class="' + k + '" width="' + size + '" height="' + size
     + '" viewBox="0 0 24 24" aria-hidden="true" focusable="false">'
     + paths + '</svg>';
+}
+
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
 }
 
   const vscode = acquireVsCodeApi();

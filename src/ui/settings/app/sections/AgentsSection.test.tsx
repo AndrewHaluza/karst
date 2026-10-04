@@ -159,8 +159,11 @@ function setValue(name: string, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
   if (!setter) throw new Error(`no value setter on ${name}`);
   setter.call(el, value);
-  el.dispatchEvent(new Event('input', { bubbles: true }));
-  el.dispatchEvent(new Event('change', { bubbles: true }));
+  // act() flushes the draft commit, which Field schedules as a transition.
+  act(() => {
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  });
 }
 
 describe('AgentsSection — the roster is the host pool, in host order', () => {

@@ -41,11 +41,10 @@ import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { Chip } from '../primitives/Chip.js';
 import { IconButton } from '../primitives/IconButton.js';
+import { InlineTextInput } from '../primitives/InlineTextInput.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
+import { AgentIconIsland } from './AgentIconIsland.js';
 
-function TablerIcon({ name }: { name: string }) {
-  const paths = (window as any).KARST_TABLER_ICONS?.[name] || '';
-  return <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" width={14} height={14} dangerouslySetInnerHTML={{ __html: paths }} />;
-}
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 import type { PresetInheritance } from '../../presetMatrix.js';
 import {
@@ -87,43 +86,6 @@ const EMPTY_CATALOG: Readonly<Record<string, unknown>> = {};
  * keystroke, which is precisely the mid-input teardown R-X3 exists to prevent.
  */
 const NO_INHERIT: { readonly core?: string; readonly model?: string; readonly effort?: string } = {};
-
-function InlineEditor({
-  initialValue,
-  onSave,
-  onCancel
-}: {
-  initialValue: string;
-  onSave: (val: string) => boolean;
-  onCancel: () => void;
-}) {
-  const [value, setValue] = useState(initialValue);
-  return (
-    <input
-      autoFocus
-      className="k-input"
-      style={{ minWidth: 0, padding: '2px 8px', height: 'auto', flex: 1 }}
-      value={value}
-      onChange={(e) => setValue(e.target.value)}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          if (onSave(value)) onCancel();
-        } else if (e.key === 'Escape') {
-          onCancel();
-        }
-      }}
-      onBlur={() => {
-        if (value !== initialValue) {
-          if (onSave(value)) onCancel();
-        } else {
-          onCancel();
-        }
-      }}
-    />
-  );
-}
 
 export function PresetsSection() {
   const { state, edit } = useSettingsApp();
@@ -175,9 +137,7 @@ export function PresetsSection() {
   // verdict and must not go through the shared banner.
   const [listError, setListError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
-    const [inlineEdit, setInlineEdit] = useState<string | null>(null);
-
-
+  const [inlineEdit, setInlineEdit] = useState<string | null>(null);
 
   /** Replace one preset in the draft map and clear the tab's fault lines. */
   const commitPresets = (next: Record<string, AgentPreset>): void => {
@@ -269,13 +229,11 @@ export function PresetsSection() {
 
   const select = (name: string): void => {
     setSelected(name);
-    setNameValue(name);
     setFormError(null);
     setListError(null);
   };
 
   const onSave = (name: string): boolean => {
-    
     const next = { ...presetMap(draft) };
     const renaming = editing !== NO_SELECTION && editing !== name;
 
@@ -310,7 +268,7 @@ export function PresetsSection() {
     if (fault) { setFormError(fault); return false; }
     setSelected(name);
     commitPresets(next);
-    return undefined;
+    return true;
   };
 
   const referencesOf = (name: string): readonly string[] =>
@@ -417,7 +375,7 @@ export function PresetsSection() {
               next[newName] = { slots: {} } as AgentPreset;
               commitPresets(next);
               setSelected(newName);
-                            setInlineEdit(newName);
+              setInlineEdit(newName);
               setFormError(null);
               setListError(null);
             }}
@@ -460,7 +418,7 @@ export function PresetsSection() {
         ) : (
           <>
             {formError && (
-              <div className="preset-yaml-notice" style={{ color: 'var(--k-danger)' }}>
+              <div className="preset-yaml-notice is-error">
                 {formError}
               </div>
             )}
@@ -484,10 +442,15 @@ export function PresetsSection() {
                   <div className="preset-card-row-top">
                     <div className="preset-name-cluster">
                       {inlineEdit === name ? (
-                        <InlineEditor initialValue={name} onSave={(val) => {
-                          setFormError(null); // Clear fault on save attempt
-                          return onSave(val);
-                        }} onCancel={() => setInlineEdit(null)} />
+                        <InlineTextInput
+                          initialValue={name}
+                          label="Preset name"
+                          onCommit={(val) => {
+                            setFormError(null); // UI-R25: a new attempt clears the stale fault
+                            return onSave(val);
+                          }}
+                          onCancel={() => setInlineEdit(null)}
+                        />
                       ) : (
                         <>
                           <span className="preset-card-name">{name}</span>
@@ -532,9 +495,9 @@ export function PresetsSection() {
                   <div className="preset-card-row-bottom">
                     <span className="preset-meta">{`${overridden}/${total} overrides`}</span>
                     {active ? (
-                      <span className="k-chip k-chip--success" title="Default preset applied to tickets">
+                      <Chip tone="success">
                         <TablerIcon name="check" /> Selected
-                      </span>
+                      </Chip>
                     ) : (
                       <button
                         type="button"
@@ -817,7 +780,7 @@ export function PresetsSection() {
                           <span className={`diff-tag ${slotA ? 'a' : 'diff-inherited'}`}>
                             {slotA ? (
                               <>
-                                <span dangerouslySetInnerHTML={{ __html: (window as any).agentIconHtml?.(slotA.provider) || '' }} />
+                                <AgentIconIsland provider={slotA.provider} />
                                 {textA}
                               </>
                             ) : (
@@ -829,7 +792,7 @@ export function PresetsSection() {
                           <span className={`diff-tag ${slotB ? 'b' : 'diff-inherited'}`}>
                             {slotB ? (
                               <>
-                                <span dangerouslySetInnerHTML={{ __html: (window as any).agentIconHtml?.(slotB.provider) || '' }} />
+                                <AgentIconIsland provider={slotB.provider} />
                                 {textB}
                               </>
                             ) : (

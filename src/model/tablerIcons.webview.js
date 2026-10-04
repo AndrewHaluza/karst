@@ -14,3 +14,11 @@ function karstIcon(name, size, cls) {
     + '" viewBox="0 0 __TABLER_VIEWBOX__ __TABLER_VIEWBOX__" aria-hidden="true" focusable="false">'
     + paths + '</svg>';
 }
+
+/**
+ * The MOUNTING form of karstIcon, for React islands that may not write markup
+ * themselves (settings R-X6). Replaces el's children with the glyph.
+ */
+function karstIconInto(el, name, size, cls) {
+  if (el) el.innerHTML = karstIcon(name, size, cls);
+}

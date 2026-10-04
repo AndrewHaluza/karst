@@ -14,7 +14,7 @@
  * `designComponents.webview.css`, so emitting it would be an undefined shared
  * class (UI-R10). When `.k-select` ships, only this file changes.
  */
-import { useId, useEffect, useState, type ReactNode, type RefObject } from 'react';
+import { startTransition, useId, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 
 export interface SelectOption {
   readonly value: string;
@@ -133,44 +133,44 @@ interface Wiring {
 }
 
 
-function DebouncedInput(props: React.InputHTMLAttributes<HTMLInputElement> & { onValueChange: (v: string) => void, initialValue: string | number | readonly string[] | undefined }) {
-  const { onValueChange, initialValue, ...rest } = props;
-  const [localValue, setLocalValue] = useState(String(initialValue || ''));
-  
-  useEffect(() => {
-    setLocalValue(String(initialValue || ''));
-  }, [initialValue]);
-
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localValue !== String(initialValue || '')) {
-        onValueChange(localValue);
-      }
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [localValue, initialValue, onValueChange]);
-
-  return <input {...rest} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+/**
+ * A text control's value, split in two: the input shows `local` (an urgent
+ * update, so typing stays instant), and the draft commit runs as a React
+ * transition — low priority, so a big tab re-render never blocks the next
+ * keystroke, but with no timer window in which Save or a caret transform
+ * could read a stale draft. An external change (Discard, host push) to `value`
+ * replaces `local`.
+ */
+function useCommittedText(
+  value: string,
+  onChange: (next: string) => void,
+): readonly [string, (next: string) => void] {
+  const [local, setLocal] = useState(value);
+  const [seen, setSeen] = useState(value);
+  if (value !== seen) {
+    setSeen(value);
+    setLocal(value);
+  }
+  const update = (next: string): void => {
+    setLocal(next);
+    startTransition(() => onChange(next));
+  };
+  return [local, update];
 }
 
-function DebouncedTextarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement> & { onValueChange: (v: string) => void, initialValue: string | number | readonly string[] | undefined }) {
-  const { onValueChange, initialValue, ...rest } = props;
-  const [localValue, setLocalValue] = useState(String(initialValue || ''));
-  
-  useEffect(() => {
-    setLocalValue(String(initialValue || ''));
-  }, [initialValue]);
+type TextProps<E> = Omit<E, 'value' | 'onChange'> & {
+  readonly value: string;
+  readonly onValueChange: (next: string) => void;
+};
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localValue !== String(initialValue || '')) {
-        onValueChange(localValue);
-      }
-    }, 150);
-    return () => clearTimeout(timer);
-  }, [localValue, initialValue, onValueChange]);
+function TextInput({ value, onValueChange, ...rest }: TextProps<ComponentProps<'input'>>) {
+  const [local, update] = useCommittedText(value, onValueChange);
+  return <input {...rest} value={local} onChange={(e) => update(e.target.value)} />;
+}
 
-  return <textarea {...rest} value={localValue} onChange={(e) => setLocalValue(e.target.value)} />;
+function TextArea({ value, onValueChange, ...rest }: TextProps<ComponentProps<'textarea'>>) {
+  const [local, update] = useCommittedText(value, onValueChange);
+  return <textarea {...rest} value={local} onChange={(e) => update(e.target.value)} />;
 }
 
 export function Field({
@@ -247,27 +247,27 @@ export function Field({
           {label}
         </label>
         <div className="row" role="group" aria-labelledby={labelId}>
-          <DebouncedInput
+          <TextInput
             {...shared}
             className="k-input"
             id={id}
             name={control.first.name}
             type={control.first.type ?? 'text'}
-            initialValue={control.first.value}
+            value={control.first.value}
             placeholder={control.first.placeholder}
-            onValueChange={(val) => control.first.onChange(val)}
+            onValueChange={control.first.onChange}
           />
           <span className="fixed muted">to</span>
-          <DebouncedInput
+          <TextInput
             {...shared}
             className="k-input"
             id={secondId}
             name={control.second.name}
             type={control.second.type ?? 'text'}
             aria-label={control.second.ariaLabel}
-            initialValue={control.second.value}
+            value={control.second.value}
             placeholder={control.second.placeholder}
-            onValueChange={(val) => control.second.onChange(val)}
+            onValueChange={control.second.onChange}
           />
         </div>
         {helpNode}
@@ -307,27 +307,27 @@ function renderControl(
   switch (control.kind) {
     case 'input':
       return (
-        <DebouncedInput
+        <TextInput
           {...shared}
           ref={control.inputRef}
           className={controlClass}
           type={control.type ?? 'text'}
-          initialValue={control.value}
+          value={control.value}
           placeholder={control.placeholder}
           readOnly={control.readOnly}
-          onValueChange={(val) => control.onChange(val)}
+          onValueChange={control.onChange}
         />
       );
     case 'textarea':
       return (
-        <DebouncedTextarea
+        <TextArea
           {...shared}
           ref={control.inputRef}
           className={controlClass}
-          initialValue={control.value}
+          value={control.value}
           rows={control.rows}
           placeholder={control.placeholder}
-          onValueChange={(val) => control.onChange(val)}
+          onValueChange={control.onChange}
         />
       );
     case 'select':

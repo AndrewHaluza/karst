@@ -283,6 +283,35 @@ describe('PresetsSection — legacy flat presets', () => {
   });
 });
 
+describe('PresetsSection — inline rename', () => {
+  function renameTo(next: string, key: 'Enter' | 'Escape' = 'Enter'): void {
+    fireEvent.click(screen.getByRole('button', { name: 'Rename preset' }));
+    const input = document.querySelector('.preset-name-cluster input') as HTMLInputElement;
+    expect(input).not.toBeNull();
+    fireEvent.change(input, { target: { value: next } });
+    fireEvent.keyDown(input, { key });
+  }
+
+  it('Enter renames the selected preset and closes the editor', () => {
+    mount();
+    const before = Object.keys(presets(live()));
+    const original = document.querySelector('.preset-card-name')?.textContent ?? '';
+    expect(before).toContain(original);
+    renameTo('renamed-preset');
+    expect(Object.keys(presets(live()))).toContain('renamed-preset');
+    expect(Object.keys(presets(live()))).not.toContain(original);
+    expect(document.querySelector('.preset-name-cluster input')).toBeNull();
+  });
+
+  it('Escape cancels without touching the draft', () => {
+    mount();
+    const before = Object.keys(presets(live()));
+    renameTo('never-saved', 'Escape');
+    expect(Object.keys(presets(live()))).toEqual(before);
+    expect(document.querySelector('.preset-name-cluster input')).toBeNull();
+  });
+});
+
 describe('PresetsSection — referenced presets are protected', () => {
   it('refuses a delete while the active selector names it, naming the referrer', () => {
     mount({ ...BASE, activeAgentPreset: 'smart' });

@@ -176,6 +176,10 @@ export function agentIdentityJs(): string {
     'function agentBadgeInto(el, provider) {\n' +
     '  if (el) el.innerHTML = agentBadgeHtml(provider);\n' +
     '}\n' +
+    // Icon-only mount form, for React islands (settings R-X6).
+    'function agentIconInto(el, provider) {\n' +
+    '  if (el) el.innerHTML = agentIconHtml(provider);\n' +
+    '}\n' +
     // THE identity component: [icon] Provider · Model. `model` is the already
     // resolved model label (''/null omits it); `compact` selects the small
     // terminal-friendly variant. Provider and model stay separate elements so
