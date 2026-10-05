@@ -19,6 +19,7 @@ import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/p
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
+import { DEFAULT_AUTOSTART_CAPS, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
@@ -595,6 +596,8 @@ const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
  * stacks.
  */
 const PR_SYNC_INTERVAL_MS = 60_000;
+/** Owner-window sub-task autostart tick (plan §A). */
+const SUBTASK_AUTOSTART_INTERVAL_MS = 2_000;
 
 /**
  * How often the graph coordinator sweep ticks, independent of `runPrSync`
@@ -1725,6 +1728,88 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // never re-fetches for a different panel on the same repo.
   const baseBranchCandidates = new Map<string, string[]>();
 
+  // Finish handoff: scope the ticket's selected repos (worktrees, no
+  // servers) and open the agent session seeded with its chosen approach.
+  // Servers stay deferred — they come up only when a stage needs to verify.
+  const startTicket = async (
+    ticketId: number,
+    { pullBase }: StartTicketOptions,
+  ): Promise<StartTicketResult> => {
+    const t = getTicket(localStore, ticketId);
+    const hot = t.selectedRepos;
+    // Nothing to scope → the ticket stays pending. Report it so the ticket form
+    // keeps the page open with the reason, instead of looking hung.
+    if (hot.length === 0) {
+      return { ok: false, message: 'Select at least one repository to start this ticket.' };
+    }
+    const manifest = currentManifest() ?? emptyManifest();
+    try {
+      // `pullBase` is the page's switch, honored as given. A pull that could
+      // not happen is REPORTED, never fatal — the worktree still exists, it
+      // just starts from what this clone already had.
+      await confirmScope(localStore, manifest, ticketId, hot, {
+        pullBase,
+        onPullFailed: warnBaseNotPulled,
+        debug: (message) => logger.debug(message),
+      });
+      // Scope is complete the moment its worktrees exist (scope has only a
+      // pass edge → impl; it is not a gate). Pass it so the ticket advances
+      // to impl running — the agent session opens in the impl worktree.
+      //
+      // Submit doubles as the edit surface for an already-started ticket
+      // (repos/approach changed after the fact), so `scope` may already
+      // have passed by the time this runs — mirror settleShipGate's
+      // idiom rather than let transition() throw its internal invariant
+      // string onto the page: only advance the run that is genuinely
+      // still at scope, a ticket already past it just needs its session
+      // opened.
+      if (getTicket(localStore, ticketId).stageCurrent === 'scope') {
+        transition(localStore, ticketId, 'scope', { kind: 'passed' });
+      }
+      provider.refresh();
+      // Await so a launch failure (missing worktree, terminal spawn throw)
+      // surfaces as a failed start instead of a silent stall with the ticket
+      // already advanced to impl.
+      await vscode.commands.executeCommand('karst.openSession', ticketId);
+      // The session is open and the ticket has already advanced to impl —
+      // the irreversible part succeeded, so a failed status push warns; it
+      // never turns a started ticket into a failed start (mirrors
+      // `advanceTicketOnShip`'s catch in `shipTicket` below).
+      try {
+        const res = await advanceTicketOnStart(
+          localStore,
+          ticketId,
+          manifest.ticketing,
+          makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
+          (message) => logger.debug(message),
+        );
+        const note = statusPushSkipNote('started', ticketId, res);
+        if (note) logger.debug(note.message);
+      } catch (e) {
+        logError('ticket status update failed', e);
+      }
+      return { ok: true };
+    } catch (err) {
+      const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
+      void vscode.window.showErrorMessage(message);
+      return { ok: false, message };
+    }
+  };
+  // Sub-task autostart (plan §A): only the window owning the parent's live
+  // session starts its queued children. Its own tick — never the external-change
+  // observer. The first sweep runs now, as the boot sweep.
+  const subtaskAutostart = makeSubtaskAutostart({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    caps: () => DEFAULT_AUTOSTART_CAPS,
+    ownsParent: (parentId) => sessions.isLive(parentId),
+    startTicket: (id, opts) => startTicket(id, opts),
+    notify,
+    debug: (message) => logger.debug(message),
+  });
+  const autostartTimer = setInterval(() => void subtaskAutostart.sweep(), SUBTASK_AUTOSTART_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(autostartTimer) });
+  void subtaskAutostart.sweep();
   const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
@@ -1774,73 +1859,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // reads as configured absence (the form's analyze refuses).
       resolveAnalysisProcess: analysisProcess,
       onChange: () => provider.refresh(),
-      // Finish handoff: scope the ticket's selected repos (worktrees, no
-      // servers) and open the agent session seeded with its chosen approach.
-      // Servers stay deferred — they come up only when a stage needs to verify.
-      startTicket: async (
-        ticketId: number,
-        { pullBase }: StartTicketOptions,
-      ): Promise<StartTicketResult> => {
-        const t = getTicket(localStore, ticketId);
-        const hot = t.selectedRepos;
-        // Nothing to scope → the ticket stays pending. Report it so the ticket form
-        // keeps the page open with the reason, instead of looking hung.
-        if (hot.length === 0) {
-          return { ok: false, message: 'Select at least one repository to start this ticket.' };
-        }
-        const manifest = currentManifest() ?? emptyManifest();
-        try {
-          // `pullBase` is the page's switch, honored as given. A pull that could
-          // not happen is REPORTED, never fatal — the worktree still exists, it
-          // just starts from what this clone already had.
-          await confirmScope(localStore, manifest, ticketId, hot, {
-            pullBase,
-            onPullFailed: warnBaseNotPulled,
-            debug: (message) => logger.debug(message),
-          });
-          // Scope is complete the moment its worktrees exist (scope has only a
-          // pass edge → impl; it is not a gate). Pass it so the ticket advances
-          // to impl running — the agent session opens in the impl worktree.
-          //
-          // Submit doubles as the edit surface for an already-started ticket
-          // (repos/approach changed after the fact), so `scope` may already
-          // have passed by the time this runs — mirror settleShipGate's
-          // idiom rather than let transition() throw its internal invariant
-          // string onto the page: only advance the run that is genuinely
-          // still at scope, a ticket already past it just needs its session
-          // opened.
-          if (getTicket(localStore, ticketId).stageCurrent === 'scope') {
-            transition(localStore, ticketId, 'scope', { kind: 'passed' });
-          }
-          provider.refresh();
-          // Await so a launch failure (missing worktree, terminal spawn throw)
-          // surfaces as a failed start instead of a silent stall with the ticket
-          // already advanced to impl.
-          await vscode.commands.executeCommand('karst.openSession', ticketId);
-          // The session is open and the ticket has already advanced to impl —
-          // the irreversible part succeeded, so a failed status push warns; it
-          // never turns a started ticket into a failed start (mirrors
-          // `advanceTicketOnShip`'s catch in `shipTicket` below).
-          try {
-            const res = await advanceTicketOnStart(
-              localStore,
-              ticketId,
-              manifest.ticketing,
-              makeTicketingProvider(manifest.ticketing, fetch, makeTokenProvider(context)),
-              (message) => logger.debug(message),
-            );
-            const note = statusPushSkipNote('started', ticketId, res);
-            if (note) logger.debug(note.message);
-          } catch (e) {
-            logError('ticket status update failed', e);
-          }
-          return { ok: true };
-        } catch (err) {
-          const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
-          void vscode.window.showErrorMessage(message);
-          return { ok: false, message };
-        }
-      },
+      startTicket,
+      requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.
       openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId),
       writeSignals: writeRepoSignals,
@@ -5591,7 +5611,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // when the CLI lands a marker, and stays silent for the host's own writes,
   // which already push state. Observer only: it must never trigger the stage
   // driver, or a change notification could start the same run in two windows
-  // at once (the DB is shared by every window).
+  // at once (the DB is shared by every window). Sub-task autostart is likewise
+  // NOT here: it runs on its own owner-window tick behind an atomic claim, so a
+  // CLI-queued child is started only by the window holding its parent's session.
   context.subscriptions.push(
     watchExternalChanges(localStore, () => {
       // Window-level first, and unconditionally: the sidebar reflects registry
