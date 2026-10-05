@@ -10,6 +10,7 @@ What the manifest models, and the rules that keep a Settings write from silently
 - A REPOSITORY is the primary entity; a SERVICE is an optional relation
 - Legacy services: manifests migrate IN MEMORY
 - `uat.testerObservations.blockingSeverity` is a manifest knob only
+- Sub-task auto-start concurrency caps
 - New Manifest field checklist
 
 ## A Settings process-assignment profile IS the process's prompt
@@ -53,6 +54,10 @@ Legacy `services:` manifests migrate IN MEMORY (`manifest/migrate.ts`) + warn; `
 ## `diffsInSourceControl` reroutes the changes UI, never the diff itself
 
 `diffsInSourceControl` (boolean, absent → off) decides only WHERE a ticket's changed-file list is listed: the "Ticket changes" webview panel (`TicketChangesManager`) or the `karst.diffs` section in the native Source Control view. The diff a click opens is the SAME code path either way — `openTicketDiff` → `vscode.diff` — so the flag can never produce a diff the other mode would not. The SCM path is vscode-free logic (`ui/diffs/treeController.ts` over the pure `ui/diffs/treeModel.ts`, adapted from `ui/diffs/scmModel.ts`); `extension/diffsHost.ts` binds `vscode.window.createTreeView` through the `DiffTreeProvider`/`makeDiffTreeHost` seam. The section leads with a ticket-selector row — a QuickPick of the project's active (non-`done`) tickets, scoped to `currentProject().id` and refusing to query when none is bound — and one tree of group / repository / commit / file nodes is rendered per shown ticket, rebuilt on show and on `karst.refreshDiffsTree`. Row actions reuse the diff targets: `karst.openTicketScmDiff` (Open Changes) and Open File on every file row, Unstage on staged rows, and Discard on unstaged/untracked rows. At most one tree is alive; showing a different ticket replaces its nodes, so stale rows from another ticket are unrepresentable.
+
+## Sub-task auto-start concurrency caps
+
+`subtasks:` block (manifest `types.ts`, `SubtaskLimits`) declares two numeric concurrency caps; `validateManifest` defaults them (manifest/schema.ts): `maxConcurrentPerParent: 2, maxConcurrentTotal: 4`. Both `0` means unlimited. **LIVE setting**: the sweep reads `autostartCapsFrom(manifest)` every tick, so a Settings save takes effect immediately on the next autostart sweep without a reload. The caps limit concurrently RUNNING sub-tasks (holding a stage slot) per parent's direct children and across the whole project (nested included); see `docs/arch/stages-and-gates.md`, "Sub-task autostart: queuing, claiming, and orphan requeue". General tab exposes the fields as readonly text when autostart is enabled (feature parity with the manifest value), and Help text explains what each cap means. No preset or per-ticket override — the caps are project-scoped; a ticket's `--no-start` flag in `karst subtask create` defers queuing but does not change the eventual slots consumed.
 
 ## New `Manifest` field checklist
 

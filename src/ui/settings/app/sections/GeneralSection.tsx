@@ -86,6 +86,8 @@ function set<K extends keyof Manifest>(key: K, value: Manifest[K] | undefined): 
 const SUBTASK_CAPS_DESC =
   'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.';
 
+const SUBTASK_CAP_ERROR = 'Enter a whole number, 0 or more (0 = unlimited).';
+
 /** Placeholders mirror the loader defaults (`DEFAULT_SUBTASK_LIMITS`). */
 const SUBTASK_CAP_PLACEHOLDERS: Readonly<Record<keyof SubtaskLimits, string>> = {
   maxConcurrentPerParent: '2',
@@ -170,15 +172,24 @@ export function GeneralSection() {
     edit(set('archiveDoneAfterDays', Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined));
   };
 
-  // A cap is a whole number >= 0 (0 = unlimited). Anything else clears that cap
-  // (it then loads as its default) and the block is removed once both are
-  // blank, so an untouched project keeps a clean yml.
+  // A cap is a whole number >= 0 (0 = unlimited). A blank clears that cap (it
+  // then loads as its default); a negative or fractional entry clears it too but
+  // is flagged inline so the snap-back is never silent. The block is removed
+  // once both caps are blank, so an untouched project keeps a clean yml.
+  // The draft holds a partial block while a cap is unset — hence `Partial`.
   const subtasks = readField<Partial<SubtaskLimits> | undefined>(draft, 'subtasks', undefined);
+  const [subtaskErrors, setSubtaskErrors] = useState<Partial<Record<keyof SubtaskLimits, string>>>({});
   const setSubtaskCap = (key: keyof SubtaskLimits) => (raw: string): void => {
+    const blank = raw.trim() === '';
     const parsed = Number(raw);
-    const valid = raw.trim() !== '' && Number.isInteger(parsed) && parsed >= 0;
+    const valid = !blank && Number.isInteger(parsed) && parsed >= 0;
+    setSubtaskErrors((current) => ({
+      ...current,
+      [key]: blank || valid ? undefined : SUBTASK_CAP_ERROR,
+    }));
     const { [key]: _dropped, ...rest } = subtasks ?? {};
     const next: Partial<SubtaskLimits> = valid ? { ...rest, [key]: parsed } : rest;
+    // The loader fills any cap the block omits, so a partial block is valid.
     edit(set('subtasks', Object.keys(next).length === 0 ? undefined : (next as SubtaskLimits)));
   };
   const subtaskCapText = (key: keyof SubtaskLimits): string =>
@@ -403,11 +414,14 @@ export function GeneralSection() {
         <div className="form-grid">
           <Field
             label="Running sub-tasks per parent"
+            error={subtaskErrors.maxConcurrentPerParent}
             help="Blank = 2. Extra sub-tasks wait, queued, until a slot frees."
             control={{
               kind: 'input',
               name: 'subtasksMaxConcurrentPerParent',
               type: 'number',
+              min: 0,
+              step: 1,
               value: subtaskCapText('maxConcurrentPerParent'),
               placeholder: SUBTASK_CAP_PLACEHOLDERS.maxConcurrentPerParent,
               onChange: setSubtaskCap('maxConcurrentPerParent'),
@@ -415,11 +429,14 @@ export function GeneralSection() {
           />
           <Field
             label="Running sub-tasks per project"
+            error={subtaskErrors.maxConcurrentTotal}
             help="Blank = 4. Counts every level of nesting."
             control={{
               kind: 'input',
               name: 'subtasksMaxConcurrentTotal',
               type: 'number',
+              min: 0,
+              step: 1,
               value: subtaskCapText('maxConcurrentTotal'),
               placeholder: SUBTASK_CAP_PLACEHOLDERS.maxConcurrentTotal,
               onChange: setSubtaskCap('maxConcurrentTotal'),

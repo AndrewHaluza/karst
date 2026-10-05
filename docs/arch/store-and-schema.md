@@ -12,6 +12,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - The per-ticket base-branch columns
 - The per-ticket env overrides column
 - One worktrees row per (ticket, path)
+- v64: sub-task autostart and parent–child mailbox schema
 - New schema column checklist
 
 ## SQLite is source of truth
@@ -80,6 +81,27 @@ Two deliberate, documented exceptions remain:
 ## One worktrees row per (ticket, path)
 
 `worktrees` carries a UNIQUE index on `(ticket_id, path)` (schema v61). The pair is the checkout's identity: `createWorktree` adopts the existing row when git still lists the checkout, but when the checkout was pruned from git while the row survived it took the create path and INSERTed a second row for the same path — once per re-spin, which rendered as duplicated dashboard worktree cards. Both inserts are now UPSERTs (the adopt path DO NOTHING; the freshly cut checkout refreshes `branch`/`base_ref`, keeping the original `created_at`), and the v61 migration collapses pre-existing duplicates, earliest row wins.
+
+## v64: sub-task autostart and parent–child mailbox schema
+
+**Sub-task autostart columns** (tickets table):
+- `autostart_pending` (INTEGER NOT NULL DEFAULT 0): tri-state (0 none, 1 queued, 2 starting); see `docs/arch/stages-and-gates.md`, "Sub-task autostart".
+- `autostart_claimed_at` (TEXT): timestamp when state transitioned to 2 (starting); NULL when not claimed. Stale claims (> 10 min) are re-queued to 1.
+
+**Parent–child mailbox** (`ticket_messages` table, new in v64, AUTOINCREMENT):
+- `id`: unique row id; ids never reused, used as watermark by delivery sweep.
+- `project_id`: scopes message to project (NULL only for pre-v6 unassigned tickets); foreign key to projects.
+- `from_ticket_id`: sender (NULL = host event); foreign key to tickets.
+- `to_ticket_id`: recipient (always a parent); foreign key to tickets.
+- `kind`: `'message'` (agent-posted) or `'event'` (host-written).
+- `body`: untrusted text (<= 4 KB for messages; event type name for events).
+- `created_at`: row write timestamp.
+- `read_at`: NULL = unread; set by `karst inbox` and manually by the host.
+- `woke_at`: for event rows only (host-written messages leave NULL); set atomically once by delivery sweep when parent-wake decision is taken.
+
+Indexes: `(to_ticket_id, read_at)` for inbox queries; `(project_id, kind, woke_at, id)` for delivery sweep. Scoped by project and foreign-keyed to parents so unscoped queries never cross projects.
+
+**Migration note** (`ticketMessagesRepair`): early v64 deployments may lack the table. Repair is run at first open if table is missing: it creates `ticket_messages` and populates it from stage-event evidence if the table is empty (idempotent; if already populated from a prior run, this is a no-op). Early graph builds (pre-v64 in other windows) will assert exact schema with `assertExactSchema` in `writableStore.ts`, so they block in those windows until they see v64. CLI verbs accept v64 via `assertMigrated` (never require it), so older CLI invocations from pre-v64 extension builds stay safe.
 
 ## New schema column checklist
 
