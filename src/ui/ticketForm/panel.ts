@@ -16,6 +16,7 @@ import {
 } from '../../agent/modelCatalog.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
 import { compactTicketLabel } from '../../model/followUp.js';
+import { tabTitle } from '../../model/tabTitle.js';
 
 /**
  * The subset of a `vscode.WebviewPanel` the ticket-form manager touches. Modeled
@@ -207,7 +208,7 @@ export class TicketFormManager {
     let title = 'New ticket';
     if (mode === 'edit') {
       const ticket = getTicket(this.store, ticketId!);
-      title = compactTicketLabel(ticket, ticketLabel(ticket, this.manifest().ticketLabelTemplate));
+      title = tabTitle(compactTicketLabel(ticket, ticketLabel(ticket, this.manifest().ticketLabelTemplate)));
     }
     const panel = this.host.createPanel(title);
     this.panels.set(key, panel);
