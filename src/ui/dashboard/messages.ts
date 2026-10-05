@@ -248,6 +248,11 @@ export type WebviewMessage =
    */
   | { type: 'server-logs-tab'; tab: string }
   /**
+   * Ask for the xterm bundle (first console open). Answered by the panel host
+   * with an `xterm` message, never by a ticket action — see xtermAssets.ts.
+   */
+  | { type: 'xterm-request' }
+  /**
    * Save ONE scope of this ticket's env overrides. `scope` is a manifest
    * repository name or `*` (every service); `text` is the `.env`-shaped body the
    * editor holds, parsed host-side by the SAME parser that reads a repository's
@@ -298,6 +303,8 @@ export type HostMessage =
    * cut at the read cap (defensive; the recording itself caps at 1 MiB).
    */
   | { type: 'stage-log'; stage: GateStage; result: StageLogResult }
+  /** The answer to `xterm-request`: the bundle text, or null when unavailable. */
+  | { type: 'xterm'; js: string | null }
   /**
    * The answer to `agent-log-request`: the console tail for one gate-lane AI
    * process, or a named refusal. Same closed `result` union as `stage-log`.
@@ -752,6 +759,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'server-logs-close' };
     case 'server-logs-detach':
       return { type: 'server-logs-detach' };
+    case 'xterm-request':
+      return { type: 'xterm-request' };
     case 'server-logs-tab': {
       const tab = typeof m.tab === 'string' ? m.tab : '';
       return tab.length > 0 && tab.length <= MAX_GATE_NAME_CHARS
@@ -934,6 +943,9 @@ export function routeAction(
     case 'server-logs-detach':
       return actions.onServerLogsDetach?.();
     case 'server-logs-tab':
+      return;
+    // Answered by the panel host itself (it owns the vendored bundle).
+    case 'xterm-request':
       return;
     case 'env-overrides-save':
       return actions.saveEnvOverrides(msg.scope, msg.text);

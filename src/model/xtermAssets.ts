@@ -2,17 +2,22 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
- * xterm.js delivery — the SAME mechanism as the design system: a marker in the
- * HTML, a module emitting text, one host-side inject call. No second delivery
- * mechanism (CSP `default-src 'none'` + nonce-only scripts forbid a `<link>` or
- * `<script src>`; the asWebviewUri path is documented as deliberately unused in
- * designSystem.ts). The vendored files are npm devDependencies copied to
- * `dist/vendor/xterm/` by scripts/copy-assets.mjs; `dashboardWebviewHtml()`
- * reads them and injects BEFORE `injectCsp`, so the nonce pass tags the script.
+ * xterm.js delivery. Still no `<link>` or `<script src>` (CSP `default-src
+ * 'none'` + nonce-only scripts; the asWebviewUri path is documented as
+ * deliberately unused in designSystem.ts), but split by size:
+ *
+ *  - the small stylesheet is inlined at a marker, like the design system;
+ *  - the ~490 KB bundle is NOT in the document. Over Remote-SSH the document
+ *    crosses the network on every panel open, and only the console uses
+ *    xterm, so the webview asks for it on first console open
+ *    (`xterm-request`) and runs the `xterm` answer as an inline script tagged
+ *    with its own nonce.
+ *
+ * The vendored files are npm devDependencies copied to `dist/vendor/xterm/` by
+ * scripts/copy-assets.mjs and read once per dashboard host.
  */
 
 export const XTERM_CSS_MARKER = '/*KARST_XTERM_CSS*/';
-export const XTERM_JS_MARKER = '/*KARST_XTERM_JS*/';
 
 export interface XtermAssets {
   css: string;
@@ -46,12 +51,18 @@ export function readXtermAssets(dir: string): XtermAssets {
 }
 
 /**
- * Replace both markers. Function replacers, never strings: `String.replace`
+ * Replace the css marker. A function replacer, never a string: `String.replace`
  * treats `$&`, `$'` and friends in a string replacement as substitutions, and
- * the vendored JS must land verbatim. No-op per marker if absent.
+ * the vendored text must land verbatim. No-op if the marker is absent.
  */
-export function injectXterm(html: string, assets: XtermAssets): string {
-  return html
-    .replace(XTERM_CSS_MARKER, () => assets.css)
-    .replace(XTERM_JS_MARKER, () => assets.js);
+export function injectXtermCss(html: string, css: string): string {
+  return html.replace(XTERM_CSS_MARKER, () => css);
+}
+
+/**
+ * The host's answer to `xterm-request`. `null` assets (a packaging regression)
+ * answer `js: null`, which the console renders as its visible refusal.
+ */
+export function xtermMessage(assets: XtermAssets | null): { type: 'xterm'; js: string | null } {
+  return { type: 'xterm', js: assets ? assets.js : null };
 }

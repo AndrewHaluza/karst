@@ -152,6 +152,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'server-logs-close' });
     sender.serverLogsDetach();
     expect(posted.at(-1)).toEqual({ type: 'server-logs-detach' });
+    sender.xtermRequest();
+    expect(posted.at(-1)).toEqual({ type: 'xterm-request' });
     sender.serverLogsTab('api');
     expect(posted.at(-1)).toEqual({ type: 'server-logs-tab', tab: 'api' });
 
@@ -163,7 +165,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(49);
+    expect(posted).toHaveLength(50);
   });
 
   it('rejects a wrong argument type at compile time', () => {

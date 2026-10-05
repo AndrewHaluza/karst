@@ -2525,9 +2525,20 @@ interface PreviewHarness {
   fits(): number[];
   /** Type into the env editor's textarea for one scope (what Save then reads). */
   typeEnv(scope: string, text: string): void;
+  /** Every `<script>` the webview appended to `document.head` (lazy xterm delivery). */
+  appendedScripts(): Array<{ nonce: string; textContent: string }>;
 }
 
-function bootPreviewHarness(): PreviewHarness {
+interface PreviewHarnessOptions {
+  /**
+   * Boot WITHOUT the xterm globals, as production now does: the bundle arrives
+   * by `xterm` message and runs as an appended nonce'd `<script>`. Appending one
+   * stands in for the browser executing it — it installs the fakes.
+   */
+  lazyXterm?: boolean;
+}
+
+function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
   const elements: Record<string, PreviewElement> = {};
   const envTextareas: Record<string, string> = {};
   for (const id of [
@@ -2619,6 +2630,7 @@ function bootPreviewHarness(): PreviewHarness {
   const dispatched: Array<{ type: string; state?: DashboardState }> = [];
   const posted: unknown[] = [];
 
+  const appendedScripts: Array<{ nonce: string; textContent: string }> = [];
   const lane = { scrollWidth: 100, clientWidth: 100 };
   const track = { classList: previewElement('track').classList, querySelector: (sel: string) => (sel === '.lane' ? lane : null) };
 
@@ -2633,12 +2645,20 @@ function bootPreviewHarness(): PreviewHarness {
     // answers with a stub carrying whatever the test typed into that scope.
     querySelector: (sel: string) => {
       if (sel === '.track') return track;
+      if (sel === 'script[nonce]') return { nonce: 'HARNESS-NONCE' };
       const m = /^\[data-env-scope="(.*)"\]$/.exec(sel);
       if (m) return { value: envTextareas[m[1]!] ?? '' };
       return null;
     },
     querySelectorAll: () => [],
     body: { classList: bodyClassList, dataset: bodyDataset, appendChild: () => {} },
+    head: {
+      appendChild: (node: { nonce: string; textContent: string }) => {
+        appendedScripts.push({ nonce: node.nonce, textContent: node.textContent });
+        sandbox.Terminal = FakeTerminal;
+        sandbox.FitAddon = { FitAddon: FakeFitAddon };
+      },
+    },
     createElement: () => previewElement('__created'),
   };
   const windowDouble = {
@@ -2689,7 +2709,7 @@ function bootPreviewHarness(): PreviewHarness {
     dispose() {}
   }
 
-  runInNewContext(`${previewScriptSource()}\n;globalThis.__karst = { esc };`, {
+  const sandbox: Record<string, unknown> = {
     acquireVsCodeApi: () => ({
       getState: () => null,
       setState: () => {},
@@ -2697,14 +2717,14 @@ function bootPreviewHarness(): PreviewHarness {
     }),
     document: documentDouble,
     window: windowDouble,
-    Terminal: FakeTerminal,
-    FitAddon: { FitAddon: FakeFitAddon },
+    ...(opts.lazyXterm ? {} : { Terminal: FakeTerminal, FitAddon: { FitAddon: FakeFitAddon } }),
     setTimeout: () => 1,
     clearTimeout: () => {},
     // The env editor (like the base-change form) escapes a scope before
     // querying for its control; the VM has no DOM globals of its own.
     CSS: { escape: (v: string) => v },
-  });
+  };
+  runInNewContext(`${previewScriptSource()}\n;globalThis.__karst = { esc };`, sandbox);
 
   const fireDocumentClick = (event: unknown) => {
     for (const handler of docListeners.get('click') ?? []) handler(event);
@@ -2787,6 +2807,7 @@ function bootPreviewHarness(): PreviewHarness {
     lastDispatched: () => dispatched.at(-1),
     posted,
     terminals: () => terminalInstances,
+    appendedScripts: () => appendedScripts,
     fits: () => terminalInstances.map((t) => t.addon?.fitCalls ?? 0),
     typeEnv: (scope: string, text: string) => {
       envTextareas[scope] = text;
@@ -5349,6 +5370,55 @@ describe('passive store-state refreshes', () => {
     h.click('[data-act]', { act: 'refresh-prs' });
     h.click('[data-act]', { act: 'send-back-to-implement' });
     expect(h.posted).toHaveLength(4);
+  });
+});
+
+describe('terminal console view — lazy xterm delivery (VM)', () => {
+  // Over Remote-SSH the panel document crosses the network on every open, so
+  // the ~490 KB xterm bundle is no longer inlined: the first console open asks
+  // for it, and the host answers with the text the webview runs under its own
+  // nonce (the CSP stays nonce-only — no `<script src>`).
+  it('asks the host for xterm on first console open and shows a loading line', () => {
+    const h = bootPreviewHarness({ lazyXterm: true });
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    expect(h.posted).toContainEqual({ type: 'xterm-request' });
+    expect(h.posted).toContainEqual({ type: 'stage-log-request', stage: 'uat' });
+    expect(h.terminals()).toHaveLength(0);
+    expect(h.htmlOf('termHost')).not.toContain('unavailable');
+  });
+
+  it('runs the delivered bundle under the page nonce, then opens and fills the terminal', () => {
+    const h = bootPreviewHarness({ lazyXterm: true });
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    // The log answer can win the race against the bundle: it must be kept.
+    h.receive({ type: 'stage-log', stage: 'uat', result: { kind: 'ok', content: 'early\n', truncated: false } });
+    h.receive({ type: 'xterm', js: 'XTERM_BUNDLE' });
+    expect(h.appendedScripts()).toEqual([{ nonce: 'HARNESS-NONCE', textContent: 'XTERM_BUNDLE' }]);
+    expect(h.terminals()).toHaveLength(1);
+    expect(h.terminals()[0]!.written).toBe('early\n');
+  });
+
+  it('requests the bundle once — a later console open reuses it', () => {
+    const h = bootPreviewHarness({ lazyXterm: true });
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'xterm', js: 'XTERM_BUNDLE' });
+    h.key('Escape');
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    expect(h.posted.filter((m) => (m as { type: string }).type === 'xterm-request')).toHaveLength(1);
+    expect(h.appendedScripts()).toHaveLength(1);
+    expect(h.terminals()).toHaveLength(2);
+  });
+
+  it('degrades to the visible refusal when the host has no bundle', () => {
+    const h = bootPreviewHarness({ lazyXterm: true });
+    h.receive({ type: 'state', state: renderStateFor('uat') });
+    h.click('[data-act]', { act: 'console', console: 'uat' });
+    h.receive({ type: 'xterm', js: null });
+    expect(h.appendedScripts()).toHaveLength(0);
+    expect(h.htmlOf('termHost')).toContain('Console rendering is unavailable');
   });
 });
 

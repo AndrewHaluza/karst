@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { DashboardPanel, PanelHost } from './panel.js';
 import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
-import { injectXterm, readXtermAssets } from '../../model/xtermAssets.js';
+import { injectXtermCss, readXtermAssets, xtermMessage, type XtermAssets } from '../../model/xtermAssets.js';
 import type { Logger } from '../../logging/logger.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
@@ -18,28 +18,31 @@ import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
 
 /**
  * The injected dashboard webview asset, built once per call: design system,
- * status palette, provider identity, agent-core identity, and the vendored
- * xterm bundles are all substituted host-side (CSP forbids a shared
- * stylesheet/script). Shared by the production dashboard panels and the
- * development-only Inside preview, so the preview renders the exact asset
- * production does (Finding 1). The agent identity injection is applied
- * outermost, in the same order the settings and ticket form hosts use it.
+ * status palette, provider identity, agent-core identity, and the xterm
+ * stylesheet are all substituted host-side (CSP forbids a shared
+ * stylesheet/script). The agent identity injection is applied outermost, in
+ * the same order the settings and ticket form hosts use it.
  *
- * xterm is injected HERE, before `injectCsp` runs at panel creation: the
- * vendored JS lands inside the document's own `<script>` block, so the nonce
- * pass tags it along with the dashboard script. A missing vendor asset (a
- * packaging regression) degrades to the marker comments the webview already
- * guards — the console view reports "unavailable" instead of the dashboard
+ * The xterm BUNDLE is returned beside the document, not inlined: each panel
+ * answers the webview's `xterm-request` with it on first console open (see
+ * xtermAssets.ts — the document crosses the network on every open over
+ * Remote-SSH). A missing vendor asset (a packaging regression) yields a null
+ * bundle — the console view reports "unavailable" instead of the dashboard
  * failing to open at all.
  */
-export function dashboardWebviewHtml(warn: (message: string) => void): string {
+export function dashboardWebviewAssets(warn: (message: string) => void): {
+  html: string;
+  xterm: XtermAssets | null;
+} {
   let html = hydrateWebview('dashboard', readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui', 'dashboard', 'webview.html'), 'utf8'));
+  let xterm: XtermAssets | null = null;
   try {
-    html = injectXterm(html, readXtermAssets(join(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm')));
+    xterm = readXtermAssets(join(RUNTIME_ASSETS_ROOT, 'vendor', 'xterm'));
+    html = injectXtermCss(html, xterm.css);
   } catch (e) {
     warn(`xterm vendor assets unavailable — console view disabled (${(e as Error).message})`);
   }
-  return html;
+  return { html, xterm };
 }
 
 /** Real webview panels, wrapped in the `DashboardPanel` interface. */
@@ -49,7 +52,7 @@ export function makeDashboardPanelHost(
   warn: (message: string) => void = () => {},
   debug?: Pick<Logger, 'debug' | 'isDebugEnabled'>,
 ): PanelHost {
-  const html = dashboardWebviewHtml(warn);
+  const { html, xterm } = dashboardWebviewAssets(warn);
   // Payload sizes, measured only in debug mode: over Remote-SSH every byte of
   // the document and of each message crosses the network, so these lines name
   // what a slow panel is actually shipping. Serializing to measure is skipped
@@ -73,6 +76,16 @@ export function makeDashboardPanelHost(
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce());
       traceSize('html', () => panel.webview.html);
+      panel.webview.onDidReceiveMessage(
+        (message: { type?: unknown } | null) => {
+          if (message?.type !== 'xterm-request') return;
+          const answer = xtermMessage(xterm);
+          traceSize('post xterm', () => answer.js ?? '');
+          void panel.webview.postMessage(answer);
+        },
+        undefined,
+        context.subscriptions,
+      );
       return {
         reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
         postMessage: (message) => {

@@ -2,26 +2,31 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { injectXterm, readXtermAssets, XTERM_CSS_MARKER, XTERM_JS_MARKER } from './xtermAssets.js';
+import { injectXtermCss, readXtermAssets, xtermMessage, XTERM_CSS_MARKER } from './xtermAssets.js';
 
 describe('xterm asset injection', () => {
-  it('replaces both markers with the asset text via function replacers ($&-safe)', () => {
+  it('replaces the css marker with the stylesheet via a function replacer ($&-safe)', () => {
     // The replacement must land VERBATIM: String.replace would treat `$&`/`$'`
-    // in a string replacement as substitutions, and the vendored JS is full of
-    // `$'`-shaped text (minified source).
-    const html = `<style>${XTERM_CSS_MARKER}</style><script>${XTERM_JS_MARKER}</script>`;
-    const css = '.xterm{color:red}';
-    const js = "var a = '$&'; var b = \"$'\";";
-    const out = injectXterm(html, { css, js });
-    expect(out).toContain('<style>.xterm{color:red}</style>');
-    expect(out).toContain(`var a = '$&'; var b = "$'";`);
-    expect(out).not.toContain(XTERM_JS_MARKER);
+    // in a string replacement as substitutions.
+    const html = `<style>${XTERM_CSS_MARKER}</style>`;
+    const out = injectXtermCss(html, ".xterm{content:'$&'}");
+    expect(out).toBe(".xterm{content:'$&'}".replace(/^/, '<style>') + '</style>');
     expect(out).not.toContain(XTERM_CSS_MARKER);
   });
 
-  it('is a no-op per marker when absent (same contract as injectPalette)', () => {
+  it('is a no-op when the marker is absent (same contract as injectPalette)', () => {
     const html = '<style>/*KARST_DS_CSS*/</style><script>run();</script>';
-    expect(injectXterm(html, { css: 'c', js: 'j' })).toBe(html);
+    expect(injectXtermCss(html, 'c')).toBe(html);
+  });
+});
+
+describe('xtermMessage', () => {
+  it('answers an xterm-request with the bundle text', () => {
+    expect(xtermMessage({ css: 'c', js: 'var t = 1;' })).toEqual({ type: 'xterm', js: 'var t = 1;' });
+  });
+
+  it('answers with js: null when the vendor assets are missing (console degrades visibly)', () => {
+    expect(xtermMessage(null)).toEqual({ type: 'xterm', js: null });
   });
 });
 

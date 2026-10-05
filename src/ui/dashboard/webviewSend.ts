@@ -161,6 +161,7 @@ export function createSender(api: WebviewApi) {
     serverLogsRequest: (requestId?: string) => send({ type: 'server-logs-request' }, requestId),
     serverLogsClose: (requestId?: string) => send({ type: 'server-logs-close' }, requestId),
     serverLogsDetach: (requestId?: string) => send({ type: 'server-logs-detach' }, requestId),
+    xtermRequest: (requestId?: string) => send({ type: 'xterm-request' }, requestId),
     serverLogsTab: (tab: Msg<'server-logs-tab'>['tab'], requestId?: string) =>
       send({ type: 'server-logs-tab', tab }, requestId),
     envOverridesSave: (

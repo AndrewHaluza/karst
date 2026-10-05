@@ -2057,8 +2057,6 @@
   // strip, search, run scoping and ANSI rendering both hosts include.
   /*KARST_SERVER_LOGS_VIEW_JS*/
 
-  /*KARST_XTERM_JS*/
-
   // Type-checked webview message senders (NDL-39). The bundle below is the ONE
   // caller of the VS Code webview API and defines the `vscode` + `karstSend`
   // globals; every control posts through a typed `karstSend.<name>(...)`
@@ -2238,6 +2236,12 @@
   // finishes), so live gate output arriving afterwards must rebuild the
   // terminal rather than write into a host that is no longer on the page.
   let termBlurbed = false;
+  // The xterm bundle is NOT part of this document: over Remote-SSH the whole
+  // document crosses the network on every panel open, and ~490 KB of it would
+  // be a library only the console uses. The first console open asks the host
+  // for it (`xterm-request`); the answer runs as a nonce'd inline script, so the
+  // CSP stays nonce-only. 'absent' → 'loading' → 'ready' | 'failed'.
+  let xtermState = typeof Terminal !== 'undefined' ? 'ready' : 'absent';
   // The console action is webview-LOCAL: it opens the terminal surface and
   // posts `stage-log-request`; it never reaches the host, so it has no
   // `routeAction` case. The literal is declared ONCE here and interpolated at
@@ -4656,6 +4660,10 @@
     termProcess = processId || null;
     termLoading = true;
     termBlurbed = false;
+    if (xtermState === 'absent') {
+      xtermState = 'loading';
+      karstSend.xtermRequest();
+    }
     renderTermView();
     if (processId) karstSend.agentLogRequest(processId);
     else karstSend.stageLogRequest(stage);
@@ -4816,6 +4824,9 @@
   function initTerminal() {
     if (term) return;
     if (typeof Terminal === 'undefined' || typeof FitAddon === 'undefined') {
+      // Still arriving: the `xterm` answer re-runs this. Anything else is a
+      // build without the bundle.
+      if (xtermState === 'loading') return;
       const host = el('termHost');
       if (host) host.innerHTML = '<div class="blurb">Console rendering is unavailable in this build.</div>';
       return;
@@ -5781,6 +5792,29 @@
     // (ok or error) — this message is the terminal outcome (UI-R13). A stale
     // answer for a view that has since closed (or moved to another stage) is
     // dropped, not rendered.
+    // The lazily delivered xterm bundle (see `xtermState`). Appended as an
+    // inline script carrying this page's nonce — the only script the CSP runs.
+    // `js: null` means the host has no bundle: the console degrades to its
+    // visible refusal. A console still open gets its terminal now, with any
+    // output that arrived while the bundle was in flight.
+    if (msg.type === 'xterm') {
+      if (typeof msg.js === 'string' && msg.js) {
+        const script = document.createElement('script');
+        const tagged = document.querySelector('script[nonce]');
+        script.nonce = tagged ? tagged.nonce : '';
+        script.textContent = msg.js;
+        document.head.appendChild(script);
+      }
+      xtermState = typeof Terminal !== 'undefined' ? 'ready' : 'failed';
+      if (termView && !termBlurbed) {
+        initTerminal();
+        if (term && termPending) {
+          term.write(termPending);
+          termPending = '';
+        }
+      }
+      return;
+    }
     if (msg.type === 'stage-log') {
       if (!termView || termView !== msg.stage || termProcess) return;
       termLoading = false;
@@ -5788,6 +5822,7 @@
       if (msg.result.kind === 'ok') {
         if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
         if (term) term.write(msg.result.content);
+        else if (xtermState === 'loading') termPending = msg.result.content + termPending;
       } else {
         if (status) status.textContent = '';
         const host = el('termHost');
@@ -5812,6 +5847,7 @@
       if (msg.result.kind === 'ok') {
         if (status) status.textContent = msg.result.truncated ? 'Console output truncated' : '';
         if (term) term.write(msg.result.content);
+        else if (xtermState === 'loading') termPending = msg.result.content + termPending;
       } else {
         if (status) status.textContent = '';
         const host = el('termHost');
@@ -5844,6 +5880,7 @@
       // the stage console does.
       if (termBlurbed) restoreTerminal();
       if (term) term.write(msg.text);
+      else if (xtermState === 'loading') termPending += msg.text;
       return;
     }
     // A live chunk of the open STAGE console's deterministic gate output:
@@ -5855,6 +5892,7 @@
       if (termLoading) { termPending += msg.text; return; }
       if (termBlurbed) restoreTerminal();
       if (term) term.write(msg.text);
+      else if (xtermState === 'loading') termPending += msg.text;
       return;
     }
     // The combined server logs initial answer: all server log contents for this

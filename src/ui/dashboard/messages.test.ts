@@ -829,6 +829,17 @@ describe('agent-log-request', () => {
   });
 });
 
+describe('xterm-request', () => {
+  it('accepts a payload-free request and drops companion fields', () => {
+    expect(parseWebviewMessage({ type: 'xterm-request' })).toEqual({ type: 'xterm-request' });
+    expect(parseWebviewMessage({ type: 'xterm-request', js: 'x' })).toEqual({ type: 'xterm-request' });
+  });
+
+  it('routes to no action — the panel host answers it with the bundle', () => {
+    expect(() => routeAction({ type: 'xterm-request' }, actions())).not.toThrow();
+  });
+});
+
 describe('server-logs-detach', () => {
   it('accepts a payload-free detach and drops companion fields', () => {
     expect(parseWebviewMessage({ type: 'server-logs-detach' })).toEqual({
