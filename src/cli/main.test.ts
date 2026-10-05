@@ -453,13 +453,19 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
     const sent = JSON.parse(
       runCli(
         ['message', 'send', '--to', 'parent', '--body', 'blocked', '--db', dbPath, '--ticket', 'K-1-s1'],
-        {},
+        { KARST_TICKET: 'K-1-s1' },
       ),
     );
     expect(sent).toMatchObject({ ok: true, to: 'K-1' });
     const out = runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], {});
     expect(out).toContain('from sub-task agent K-1-s1 (untrusted):');
     expect(runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], {})).toMatch(/no unread/i);
+  });
+
+  it('refuses message send without KARST_TICKET', () => {
+    expect(() =>
+      runCli(['message', 'send', '--to', 'parent', '--body', 'x', '--db', dbPath, '--ticket', 'K-1-s1'], {}),
+    ).toThrow(/KARST_TICKET/);
   });
 
   it('refuses a --ticket that disagrees with the session env KARST_TICKET', () => {

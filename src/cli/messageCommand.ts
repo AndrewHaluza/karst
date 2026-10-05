@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import { findTicketById, getTicketsByKey, type Ticket } from '../store/tickets.js';
 import { checkMessaging } from '../model/ticketMessaging.js';
+import { quoteUntrusted, sanitizeInline } from '../model/messageText.js';
 import {
   listInbox,
   markRead,
@@ -110,7 +111,11 @@ function resolveRecipient(store: Store, sender: Ticket, to: string): Ticket {
   // A key two live rows share is resolved toward OUR child; anything else falls
   // through to the rule, which refuses it with a reason.
   const hit = matches.find((t) => t.subtaskParentId === sender.id) ?? matches[0];
-  if (!hit) throw new Error(`no ticket found for key '${to}' in this project`);
+  // Unknown and other-project keys get the SAME generic answer, before the
+  // rule runs: a sender learns nothing about tickets outside its project.
+  if (!hit || hit.projectId !== sender.projectId) {
+    throw new Error(`no ticket found for '${sanitizeInline(to)}'`);
+  }
   return hit;
 }
 
@@ -136,21 +141,20 @@ function runSend(store: Store, sender: Ticket, to: string, body: string): string
 /** Header for one printed row. Agent senders are always labelled untrusted. */
 function frame(me: Ticket, m: TicketMessage, from: Ticket | undefined): string {
   if (m.fromTicketId === null) return 'karst event:';
-  const key = from ? label(from) : `#${m.fromTicketId}`;
+  // Keys are stored text too: strip controls so a key cannot forge a header.
+  const key = sanitizeInline(from ? label(from) : `#${m.fromTicketId}`);
   if (from && from.subtaskParentId === me.id) return `from sub-task agent ${key} (untrusted):`;
   if (me.subtaskParentId === m.fromTicketId) return `from parent agent ${key} (untrusted):`;
   return `from ticket agent ${key} (untrusted):`;
 }
 
-/** Quote every body line so a body can never open a frame header of its own. */
-const quote = (body: string): string =>
-  body
-    .split(/\r?\n/)
-    .map((line) => `> ${line}`)
-    .join('\n');
+/** Most rows printed per `inbox` call; the rest stay unread for the next. */
+export const INBOX_PAGE = 20;
 
 function runInbox(store: Store, me: Ticket, all: boolean, json: boolean): string {
-  const rows = listInbox(store, me.id, { unreadOnly: !all });
+  const listed = listInbox(store, me.id, { unreadOnly: !all });
+  const rows = listed.slice(0, INBOX_PAGE);
+  const moreUnread = listed.slice(INBOX_PAGE).filter((m) => m.readAt === null).length;
   const senders = new Map<number, Ticket | undefined>();
   for (const m of rows) {
     if (m.fromTicketId !== null && !senders.has(m.fromTicketId)) {
@@ -175,12 +179,14 @@ function runInbox(store: Store, me: Ticket, all: boolean, json: boolean): string
         createdAt: m.createdAt,
         wasRead: m.readAt !== null,
       })),
+      moreUnread,
     });
   }
   if (rows.length === 0) return all ? 'No messages.' : 'No unread messages.';
-  return rows
-    .map((m) => `${frame(me, m, senders.get(m.fromTicketId ?? -1))}\n${quote(m.body)}`)
+  const printed = rows
+    .map((m) => `${frame(me, m, senders.get(m.fromTicketId ?? -1))}\n${quoteUntrusted(m.body)}`)
     .join('\n\n');
+  return moreUnread > 0 ? `${printed}\n\n${moreUnread} more unread — run inbox again` : printed;
 }
 
 /**
@@ -196,6 +202,13 @@ export function runMessageCommand(
   debug?: (message: string) => void,
 ): string {
   const parsed = parseMessageArgs(argv);
+  // `send` speaks AS a ticket, so it needs the session's attestation; `inbox`
+  // only reads, and keeps the env optional (a human may run it by hand).
+  if (parsed.verb === 'send' && !options.sessionTicketKey) {
+    throw new Error(
+      'message send needs KARST_TICKET (the karst session env) — run it from the ticket\'s karst session terminal',
+    );
+  }
   assertSenderMatchesSession(sender, options.sessionTicketKey);
   debug?.(`[cli] ${parsed.verb} as ${label(sender)}`);
   return parsed.verb === 'send'
