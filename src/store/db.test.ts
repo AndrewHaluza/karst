@@ -386,6 +386,10 @@ describe('openStore', () => {
         .get('idx_tickets_autostart'),
     ).toBeTruthy();
     expect(tableNames(migrated)).toContain('ticket_messages');
+    const msgCols = (migrated.db.prepare('PRAGMA table_info(ticket_messages)').all() as { name: string }[]).map(
+      (c) => c.name,
+    );
+    expect(msgCols).toContain('woke_at');
     expect(
       migrated.db
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")

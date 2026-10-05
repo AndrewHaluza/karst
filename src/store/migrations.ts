@@ -2423,7 +2423,8 @@ function migrateLocked(db: Database): void {
         kind           TEXT NOT NULL CHECK (kind IN ('message', 'event')),
         body           TEXT NOT NULL,
         created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-        read_at        TEXT
+        read_at        TEXT,
+        woke_at        TEXT
       )`);
     db.exec(
       'CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at)',

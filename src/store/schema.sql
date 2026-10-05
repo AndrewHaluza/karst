@@ -1197,7 +1197,8 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   kind           TEXT NOT NULL CHECK (kind IN ('message', 'event')),
   body           TEXT NOT NULL,
   created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-  read_at        TEXT
+  read_at        TEXT,
+  woke_at        TEXT  -- event rows: the parent-wake decision was taken (atomic claim, one per row)
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at);
 CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending);
