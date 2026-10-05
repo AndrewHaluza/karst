@@ -16,6 +16,17 @@ describe('extension activation', () => {
   // GitHub. The PR sweep is the only path that notices, so the wiring is pinned
   // here: without it a merged ticket sits at `ship`, blocked, until someone
   // reopens the dashboard, and its provider status is never pushed at all.
+  // A ship step and an agent hook are store news, not the answer to a click:
+  // a settling `pushState` re-mints every action id (so the snapshot never
+  // dedupes) and re-runs the git/gate loaders — ~9 full snapshots per ship on
+  // the VM trace. The click's own final push (and every catch) still settles.
+  it('pushes ship steps and agent hooks as store news', () => {
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+
+    expect(source).toMatch(/if \(event\) dashboard\.postInsideProgress\(ticketId, event\);[\s\S]{0,1200}?dashboard\.pushStoreState\(ticketId\);\s*\},/);
+    expect(source).toMatch(/provider\.refresh\(\);[\s\S]{0,200}?dashboard\.pushStoreState\(ticketId\);\s*maybeDrive\(ticketId, 'hook'\);/);
+  });
+
   it('settles the merge gate on the PR sweep, and pushes the status of what landed', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 

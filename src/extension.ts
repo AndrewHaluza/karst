@@ -3499,7 +3499,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (ownership === 'remove') ownedSessionTickets.delete(ticketId);
     if (ownershipChanged) void persistOwnedSessionTickets();
     provider.refresh();
-    dashboard.pushState(ticketId);
+    // Store news (a session turned amber, a run closed), not an action's answer.
+    dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
   };
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
@@ -5298,7 +5299,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // opened or closed). Push the snapshot now so a subprocess's checkmark
         // lands the instant that subprocess finishes — not once the whole saga
         // ends. The live tick keeps it moving while a step reads `run`.
-        dashboard.pushState(ticketId);
+        // A STORE push: a step is news, not the answer to the Ship click. The
+        // settling push is the one after the saga (or a caller's catch); a
+        // settling push per step re-minted every action id and re-ran the
+        // git/gate loaders, ~9 full snapshots per ship over Remote-SSH.
+        dashboard.pushStoreState(ticketId);
       },
       (event) => dashboard.postInsideProgress(ticketId, event),
     );

@@ -83,6 +83,8 @@ export class DashboardManager {
   private readonly sentStructure = new Map<number, string>();
   /** Debug only: the last full snapshot each panel was sent, for `changedPaths`. */
   private readonly sentState = new Map<number, DashboardState>();
+  /** The tab icon path last set on each panel, so an unchanged glyph costs no IPC. */
+  private readonly iconSet = new Map<number, string>();
   /** Panel-only selection memory (round switcher + findings repo scope). */
   private readonly selections = new DashboardSelections();
   /** Per-snapshot action capabilities + the grace window for superseded ones. */
@@ -325,6 +327,7 @@ export class DashboardManager {
       this.liveTicks.delete(ticketId);
       this.sentStructure.delete(ticketId);
       this.sentState.delete(ticketId);
+      this.iconSet.delete(ticketId);
       this.panels.delete(ticketId);
       // The async loaders abort and drop their per-ticket state; the round
       // switcher selection and findings repo scope die with the panel too (a
@@ -545,10 +548,12 @@ export class DashboardManager {
         ...(!settlesActions ? { settlesActions: false } : {}),
       });
     }
+    // Every real push may carry a status change (a hook flips needs-you amber),
+    // so the tab glyph follows it; a live tick only moves clocks.
+    if (!live) this.refreshIcon(ticketId, panel);
     if (supplemental) {
       this.loaders.pushWorktreeStats(ticketId, panel, state.worktrees, this.supplementalHost);
       this.loaders.prefetchBranchCandidates(ticketId, panel, state.worktrees, this.supplementalHost);
-      this.refreshIcon(ticketId, panel);
       this.loaders.pushGateOptions(ticketId, panel, settlesActions, this.supplementalHost);
     }
     this.scheduleLiveTick(ticketId, state);
@@ -706,7 +711,9 @@ export class DashboardManager {
   /** Re-point the tab icon at the ticket's current status glyph. */
   private refreshIcon(ticketId: number, panel: DashboardPanel): void {
     const icon = this.iconFor?.(ticketId);
-    if (icon) panel.setIcon(icon);
+    if (!icon || this.iconSet.get(ticketId) === icon) return;
+    this.iconSet.set(ticketId, icon);
+    panel.setIcon(icon);
   }
 
   /** Whether a panel is currently open for a ticket (for the caller/tests). */
