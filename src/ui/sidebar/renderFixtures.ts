@@ -40,7 +40,7 @@ function fixtureCounts(overrides?: Partial<Record<FacetKey, number>>): Record<Fa
   return { ...base, ...overrides };
 }
 
-const HOSTILE_LABEL = '<script>alert(1)</script>';
+export const HOSTILE_LABEL = '<script>alert(1)</script>';
 const HOSTILE_LONG = 'W'.repeat(300);
 
 function fixturePeek(overrides?: Partial<TicketPeek>): TicketPeek {
@@ -153,7 +153,7 @@ function archivedFacetState(): SidebarState {
       fixtureRow(1, { label: 'DELETED-2', glyph: 'gray' }),
       fixtureRow(2, { label: 'DELETED-3', glyph: 'gray' }),
     ],
-    planning: [],
+    planning: [fixturePlanningRow(77, { title: 'Old plan', status: 'archived' })],
   };
 }
 
@@ -248,7 +248,7 @@ function hostileState(): SidebarState {
     },
     done: [],
     rows: [],
-    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL })],
+    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
   };
 }
 

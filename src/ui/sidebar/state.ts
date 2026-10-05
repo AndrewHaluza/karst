@@ -150,7 +150,7 @@ export interface SidebarState {
    * list, exactly as before the sectioning.
    */
   rows: TicketRow[];
-  /** The All view's Planning group, newest first; empty for every other facet. */
+  /** Planning sessions, newest first: live ones in the All view, archived ones under the Archived facet; empty otherwise. */
   planning: PlanningRow[];
 }
 
@@ -333,13 +333,14 @@ export function buildSidebarState(
     };
   }
 
-  const source = facets.includes('archived') ? archived : filterBySelection(active, facets);
+  const showArchived = facets.includes('archived');
+  const source = showArchived ? archived : filterBySelection(active, facets);
   return {
     ...base,
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: enrich(filterTickets(source, query)),
-    planning: [],
+    planning: showArchived ? planningRows(store, opts.projectId, query, opts.planningLive, true) : [],
   };
 }
 
@@ -348,10 +349,13 @@ function planningRows(
   projectId: number | undefined,
   query: string,
   isLive: ((sessionId: number) => boolean) | undefined,
+  archived = false,
 ): PlanningRow[] {
   if (projectId === undefined) return [];
   const needle = query.trim().toLowerCase();
-  return listPlanningSessions(store, projectId)
+  // The All view lists live sessions; the Archived facet lists ONLY archived ones.
+  return listPlanningSessions(store, projectId, { includeArchived: archived })
+    .filter((s) => (s.status === 'archived') === archived)
     .filter((s) => needle === '' || s.title.toLowerCase().includes(needle))
     .map((s) => ({
       sessionId: s.id,

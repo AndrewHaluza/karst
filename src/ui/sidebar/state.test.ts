@@ -6,7 +6,7 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
 import { upsertProject } from '../../store/projects.js';
-import { createPlanningSession, linkPlanningTicket } from '../../store/planningSessions.js';
+import { createPlanningSession, linkPlanningTicket, setPlanningSessionStatus } from '../../store/planningSessions.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
 function markDone(store: Store, id: number, doneAt: string): void {
@@ -560,6 +560,17 @@ describe('buildSidebarState — planning sessions', () => {
     expect(buildSidebarState(store, { facets: ['all'], filter: 'billing', projectId }).planning).toEqual([]);
     expect(buildSidebarState(store, { facets: ['all'], filter: 'AUTH', projectId }).planning).toHaveLength(1);
     expect(buildSidebarState(store, { facets: ['done'], filter: '', projectId }).planning).toEqual([]);
+  });
+
+  it('lists only archived planning sessions under the Archived facet, and hides them from All', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const live = createPlanningSession(store, { projectId, title: 'Live plan', core: 'claude', model: null });
+    const gone = createPlanningSession(store, { projectId, title: 'Old plan', core: 'claude', model: null });
+    setPlanningSessionStatus(store, gone.id, 'archived');
+    expect(buildSidebarState(store, { facets: ['all'], filter: '', projectId }).planning.map((p) => p.sessionId)).toEqual([live.id]);
+    const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
+    expect(archived.map((p) => [p.sessionId, p.status])).toEqual([[gone.id, 'archived']]);
+    expect(buildSidebarState(store, { facets: ['archived'], filter: 'zzz', projectId }).planning).toEqual([]);
   });
 
   it('shows no planning sessions before a project is bound', () => {

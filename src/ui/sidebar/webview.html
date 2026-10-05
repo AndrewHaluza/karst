@@ -371,7 +371,7 @@
 
 <div class="search">
   <svg class="search-icon k-icon" width="13" height="13" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10a7 7 0 1 0 14 0a7 7 0 1 0 -14 0"/><path d="M21 21l-6 -6"/></svg>
-  <input type="text" id="search" class="k-input search-input" aria-label="Search tickets" placeholder="Search tickets…"/>
+  <input type="text" id="search" class="k-input search-input" aria-label="Search tickets and plans" placeholder="Search tickets and plans…"/>
 </div>
 <div class="facets" id="facets"></div>
 <div class="list" id="list"></div>
@@ -857,18 +857,24 @@
   }
 
   // A planning session row: the whole row opens (or focuses) its read-only
-  // agent terminal; archive sits beside it. The core is the shared identity
-  // component (UI-R10c); "open" is a word, never colour alone (UI-R28).
+  // agent terminal; archive (or, once archived, unarchive) sits beside it. The
+  // core is the shared identity component (UI-R10c); "terminal open" and a
+  // non-active status are words, never colour alone (UI-R28).
   function planRowHtml(p) {
     const drafts = p.ticketCount === 1 ? '1 draft' : `${p.ticketCount} drafts`;
     const meta = [agentIdentityHtml(p.agent.provider, p.agent.model, true), esc(drafts)];
-    if (p.live) meta.push('open');
+    if (p.status && p.status !== 'active') meta.push(esc(p.status));
+    if (p.live) meta.push('terminal open');
+    const t = esc(p.title);
+    const side = p.status === 'archived'
+      ? `<button type="button" class="k-iconbtn" data-act="plan-unarchive" data-plan="${p.sessionId}" aria-label="Unarchive ${t}" title="Unarchive ${t}">${ic.unarch}</button>`
+      : `<button type="button" class="k-iconbtn" data-act="plan-archive" data-plan="${p.sessionId}" aria-label="Archive ${t}" title="Archive ${t}">${ic.arch}</button>`;
     return `<div class="planrow">`
-      + `<button type="button" class="planopen" data-act="plan-open" data-plan="${p.sessionId}" title="Open planning session">`
-      + `<span class="plan-title">${esc(p.title)}</span>`
+      + `<button type="button" class="planopen" data-act="plan-open" data-plan="${p.sessionId}" aria-label="Open planning session: ${t}" title="Open planning session: ${t}">`
+      + `<span class="plan-title">${t}</span>`
       + `<span class="plan-meta">${meta.join('<span aria-hidden="true">·</span>')}</span>`
       + `</button>`
-      + `<button type="button" class="k-iconbtn" data-act="plan-archive" data-plan="${p.sessionId}" aria-label="Archive planning session" title="Archive planning session">${ic.arch}</button>`
+      + side
       + `</div>`;
   }
 
@@ -887,10 +893,14 @@
     const sel = new Set(state.facets || ['all']);
     if (sel.size === 1 && sel.has('all')) { renderAll(L); return; }
     if (sel.size === 1 && sel.has('done')) { renderDone(L); return; }
-    // Archived facet + derived-status unions: the flat list, as before.
+    // Archived facet + derived-status unions: the flat list, as before. The
+    // Archived facet also lists archived planning sessions (state.planning is
+    // empty for every other non-All facet).
     const rows = visibleRows(state.rows || []);
-    if (!rows.length) { L.innerHTML = emptyHtml(sel.has('archived') ? 'archived' : ''); return; }
-    L.innerHTML = rows.map((r) => rowHtml(r, {})).join('');
+    const plans = state.planning || [];
+    if (!rows.length && !plans.length) { L.innerHTML = emptyHtml(sel.has('archived') ? 'archived' : ''); return; }
+    const plansHtml = plans.length ? secHtml('Planning', plans.length) + plans.map(planRowHtml).join('') : '';
+    L.innerHTML = plansHtml + rows.map((r) => rowHtml(r, {})).join('');
   }
 
   // ---- interactions ----
@@ -912,6 +922,27 @@
       for (const r of list || []) if (r.ticketId === id) return r;
     }
     return null;
+  }
+
+  // Planning outcomes are announced through the action-result live region
+  // (karstSettle's success toast). Archive/unarchive succeed when the host
+  // acks; plan-create acks as soon as its input box opens, so its result is the
+  // new row arriving — a cancelled box adds no row and announces nothing.
+  const successSay = {};
+  let planWatch = null;
+  function noteSuccess(type, requestId, plan) {
+    const row = (state.planning || []).find((p) => String(p.sessionId) === plan);
+    const name = row ? `: ${row.title}` : '';
+    if (type === 'plan-archive') successSay[requestId] = `Planning session archived${name}`;
+    if (type === 'plan-unarchive') successSay[requestId] = `Planning session restored${name}`;
+    if (type === 'plan-create') planWatch = new Set((state.planning || []).map((p) => p.sessionId));
+  }
+  function announceNewPlan() {
+    if (!planWatch) return;
+    const fresh = (state.planning || []).find((p) => !planWatch.has(p.sessionId) && p.status !== 'archived');
+    if (!fresh) return;
+    planWatch = null;
+    karstToast('success', `Planning session started: ${fresh.title}`);
   }
 
   // Every posting control is delegated here — rows render by full innerHTML
@@ -952,6 +983,7 @@
       // Planning rows carry a session id, never a ticket id.
       if (t.dataset.plan) payload.sessionId = Number(t.dataset.plan);
       if (t.dataset.repo) payload.repo = t.dataset.repo;
+      noteSuccess(type, requestId, t.dataset.plan);
       post(payload);
       return;
     }
@@ -1020,12 +1052,15 @@
       // so a state push always closes it (the popup's settled state is never a
       // ticket fact, and the anchor is gone the moment the list redraws).
       closeCtxMenu(false);
+      announceNewPlan();
       // Keep the search box in sync only when the host changed the filter.
       if (el('search').value !== state.filter) el('search').value = state.filter;
       renderFacets();
       renderList();
     } else if (msg.type === 'action-result') {
-      karstSettle(msg.requestId, msg.ok, msg.message);
+      const said = successSay[msg.requestId];
+      delete successSay[msg.requestId];
+      karstSettle(msg.requestId, msg.ok, msg.message || (msg.ok === true ? said : undefined));
     }
   });
 

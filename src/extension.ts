@@ -745,7 +745,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     projectId: () => currentProject()?.id,
     manifest: () => currentManifest(),
     scratchDir: (id) => join(storageDir, 'planning', String(id)),
-    defaultAgent: () => ({ provider: currentManifest()?.agentProvider ?? 'claude', model: null }),
+    // Same resolution as an interactive session's default (preset slot, else
+    // the manifest's core + defaultModel), so planning launches the model the
+    // user configured instead of the CLI's own default.
+    defaultAgent: () => {
+      const d = resolvePresetDefaults(currentManifest() ?? emptyManifest(), 'implementation');
+      return { provider: d.provider, model: d.model ?? null };
+    },
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
     cli: () => cliSessionInput(cliLiteral(context, dbPath)),
     notify,
@@ -798,12 +804,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
     },
-    planCreate: async () => {
-      const title = await vscode.window.showInputBox({ prompt: 'What do you want to plan?', ignoreFocusOut: true });
-      if (title?.trim()) planning.create(title.trim());
-    },
+    // Acks at once (UI-R13/R14): the input box is not the action — the new
+    // Planning row arriving is the result, and a cancelled box adds none.
+    planCreate: () => void vscode.window.showInputBox({ prompt: 'What do you want to plan?', ignoreFocusOut: true })
+      .then((title) => { if (title?.trim()) planning.create(title.trim()); }, (e) => logError('planning: create failed', e)),
     planOpen: (id) => planning.open(id),
     planArchive: (id) => planning.archive(id),
+    planUnarchive: (id) => planning.unarchive(id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
@@ -6683,6 +6690,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await Promise.all(
     vscode.window.terminals.map((terminal) => terminalIdentity.resolve(terminal)),
   );
+  // Planning terminals survive a reload but the ops' live map does not —
+  // re-register them so open focuses (not duplicates) and archive disposes.
+  planning.adopt(vscode.window.terminals.map((terminal) => ({
+    name: terminal.name,
+    env: terminalEnv(terminal),
+    cwd: graphTerminalCwd(terminal) || undefined,
+    exited: terminal.exitStatus !== undefined,
+    terminal: wrapTerminal(terminal),
+  })));
 
   const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));

@@ -516,9 +516,13 @@ describe('runCli — draft create (planning sessions)', () => {
     writeFileSync(join(dir, 'summary.md'), 'Decided: JWT');
   });
 
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   it('files a draft through node:sqlite and links it to the session', () => {
+    vi.spyOn(process, 'cwd').mockReturnValue(dir);
     const out = runCli(
       ['draft', 'create', '--session', String(sessionId), '--title', 'Add auth',
         '--summary-file', join(dir, 'summary.md'), '--db', dbPath],
@@ -531,6 +535,53 @@ describe('runCli — draft create (planning sessions)', () => {
     expect(getTicket(check, parsed.id).brief).toBe('Decided: JWT');
     expect(listPlanningTickets(check, sessionId)).toEqual([parsed.id]);
     check.close();
+  });
+
+  it('refuses a draft file outside the session cwd', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'karst-cli-draft-cwd-'));
+    vi.spyOn(process, 'cwd').mockReturnValue(outside);
+    try {
+      expect(() =>
+        runCli(
+          ['draft', 'create', '--session', String(sessionId), '--title', 'x',
+            '--summary-file', join(dir, 'summary.md'), '--db', dbPath],
+          { KARST_PLANNING_SESSION: String(sessionId) },
+        ),
+      ).toThrow(/outside/);
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed on --repos with no loadable manifest', () => {
+    expect(() =>
+      runCli(
+        ['draft', 'create', '--session', String(sessionId), '--title', 'x', '--repos', 'api', '--db', dbPath],
+        { KARST_PLANNING_SESSION: String(sessionId), KARST_MANIFEST: join(dir, 'missing.yml') },
+      ),
+    ).toThrow(/manifest/);
+  });
+
+  it('prefers KARST_MANIFEST over an argv --manifest, and refuses a session of another project', () => {
+    const manifest = (id: string): string =>
+      `id: ${id}\nhost: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nrepositories:\n  api:\n    repoPath: ../api\n`;
+    writeFileSync(join(dir, 'mine.yml'), manifest('p'));
+    writeFileSync(join(dir, 'other.yml'), manifest('other'));
+    vi.spyOn(process, 'cwd').mockReturnValue(dir);
+    const args = ['draft', 'create', '--session', String(sessionId), '--title', 'x', '--repos', 'api', '--db', dbPath];
+    expect(() =>
+      runCli([...args, '--manifest', join(dir, 'mine.yml')], {
+        KARST_PLANNING_SESSION: String(sessionId),
+        KARST_MANIFEST: join(dir, 'other.yml'),
+      }),
+    ).toThrow(/project/);
+    const ok = JSON.parse(
+      runCli([...args, '--manifest', join(dir, 'other.yml')], {
+        KARST_PLANNING_SESSION: String(sessionId),
+        KARST_MANIFEST: join(dir, 'mine.yml'),
+      }),
+    );
+    expect(ok.ok).toBe(true);
   });
 
   it('requires --db and the session env', () => {

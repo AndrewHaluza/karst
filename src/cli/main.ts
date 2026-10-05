@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
@@ -56,13 +56,16 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
   }
 }
 
-/** The manifest's repository names, or undefined when no manifest is loadable. */
-function loadRepoNames(manifestPath: string | undefined): string[] | undefined {
-  if (!manifestPath) return undefined;
+/** The manifest's repository names and project slug; both undefined when no manifest loads. */
+function loadDraftManifestFacts(
+  manifestPath: string | undefined,
+): { knownRepos: string[] | undefined; projectSlug: string | undefined } {
+  if (!manifestPath) return { knownRepos: undefined, projectSlug: undefined };
   try {
-    return Object.keys(loadManifestWithDiagnostics(manifestPath).manifest.repositories);
+    const { manifest } = loadManifestWithDiagnostics(manifestPath);
+    return { knownRepos: Object.keys(manifest.repositories), projectSlug: manifest.id };
   } catch {
-    return undefined;
+    return { knownRepos: undefined, projectSlug: undefined };
   }
 }
 
@@ -378,15 +381,25 @@ export function runCli(
   // `karst draft create` — a PLANNING session files a draft ticket. Its OWN
   // parse path (draftCommand.ts): the project comes from the session row, the
   // session is cross-checked against `KARST_PLANNING_SESSION` (read HERE and
-  // injected), and repository names are checked against the manifest.
+  // injected), and repository names / project are checked against the
+  // manifest — the planning terminal's KARST_MANIFEST wins over argv, and
+  // `--repos` fails closed when neither loads.
   if (subcommand === 'draft') {
     if (!db) throw new Error('missing --db <path>');
     const store = openWritableStore(db);
     try {
       return runDraftCommand(store, rest, {
         sessionEnv: env.KARST_PLANNING_SESSION,
-        knownRepos: loadRepoNames(manifestPath),
-        readFile: (path) => readFileSync(path, 'utf8'),
+        ...loadDraftManifestFacts(env.KARST_MANIFEST || manifestPath),
+        fs: {
+          cwd: () => process.cwd(),
+          lstat: (path) => {
+            const st = lstatSync(path);
+            return { isFile: st.isFile(), isSymbolicLink: st.isSymbolicLink(), size: st.size };
+          },
+          realpath: (path) => realpathSync(path),
+          readFile: (path) => readFileSync(path, 'utf8'),
+        },
       });
     } finally {
       store.close();

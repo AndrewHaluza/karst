@@ -17,8 +17,6 @@ CREATE TABLE IF NOT EXISTS planning_sessions (
   title            TEXT NOT NULL,
   core             TEXT NOT NULL,
   model            TEXT,
-  agent_session_id TEXT,
-  transcript_path  TEXT,
   status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'filed', 'archived')),
   created_at       TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
@@ -40,8 +38,6 @@ export interface PlanningSession {
   title: string;
   core: string;
   model: string | null;
-  agentSessionId: string | null;
-  transcriptPath: string | null;
   status: PlanningStatus;
   createdAt: string;
   updatedAt: string;
@@ -60,15 +56,13 @@ interface PlanningSessionRow {
   title: string;
   core: string;
   model: string | null;
-  agent_session_id: string | null;
-  transcript_path: string | null;
   status: PlanningStatus;
   created_at: string;
   updated_at: string;
 }
 
 const COLUMNS =
-  'id, project_id, title, core, model, agent_session_id, transcript_path, status, created_at, updated_at';
+  'id, project_id, title, core, model, status, created_at, updated_at';
 
 function toSession(r: PlanningSessionRow): PlanningSession {
   return {
@@ -77,8 +71,6 @@ function toSession(r: PlanningSessionRow): PlanningSession {
     title: r.title,
     core: r.core,
     model: r.model,
-    agentSessionId: r.agent_session_id,
-    transcriptPath: r.transcript_path,
     status: r.status,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -98,8 +90,21 @@ function requireSession(store: Store, id: number): PlanningSession {
   return s;
 }
 
+/** Longest stored title; it becomes a terminal tab name and a sidebar row. */
+export const PLANNING_TITLE_MAX = 120;
+
+/**
+ * The ONE title normalizer: control characters (incl. ESC, so no terminal
+ * escape reaches a tab name) and whitespace runs collapse to one space, then
+ * the result is trimmed and capped.
+ */
+function sanitizeTitle(raw: string): string {
+  // eslint-disable-next-line no-control-regex
+  return raw.replace(/[\s\u0000-\u001f\u007f-\u009f]+/g, ' ').trim().slice(0, PLANNING_TITLE_MAX).trim();
+}
+
 export function createPlanningSession(store: Store, input: NewPlanningSession): PlanningSession {
-  const title = input.title.trim();
+  const title = sanitizeTitle(input.title);
   if (!title) throw new Error('planning session title must not be blank');
   const { lastInsertRowid } = store.db
     .prepare('INSERT INTO planning_sessions (project_id, title, core, model) VALUES (?, ?, ?, ?)')
@@ -127,18 +132,9 @@ export function setPlanningSessionStatus(store: Store, id: number, status: Plann
   return requireSession(store, id);
 }
 
-export function setPlanningAgentSession(
-  store: Store,
-  id: number,
-  facts: { agentSessionId: string; transcriptPath: string | null },
-): PlanningSession {
-  requireSession(store, id);
-  store.db
-    .prepare(
-      "UPDATE planning_sessions SET agent_session_id = ?, transcript_path = ?, updated_at = datetime('now') WHERE id = ?",
-    )
-    .run(facts.agentSessionId, facts.transcriptPath, id);
-  return requireSession(store, id);
+/** Remove a session outright — only for a create whose first launch failed. */
+export function deletePlanningSession(store: Store, id: number): void {
+  store.db.prepare('DELETE FROM planning_sessions WHERE id = ?').run(id);
 }
 
 /**

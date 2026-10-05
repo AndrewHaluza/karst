@@ -31,7 +31,8 @@ export type SidebarWebviewMessage =
   // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
   | { type: 'plan-create' }
   | { type: 'plan-open'; sessionId: number }
-  | { type: 'plan-archive'; sessionId: number };
+  | { type: 'plan-archive'; sessionId: number }
+  | { type: 'plan-unarchive'; sessionId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -71,6 +72,7 @@ export interface SidebarActions {
   planCreate(): void | Promise<void>;
   planOpen(sessionId: number): void | Promise<void>;
   planArchive(sessionId: number): void | Promise<void>;
+  planUnarchive(sessionId: number): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -96,6 +98,7 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
       return { type: m.type };
     case 'plan-open':
     case 'plan-archive':
+    case 'plan-unarchive':
       return typeof m.sessionId === 'number' && Number.isFinite(m.sessionId)
         ? { type: m.type, sessionId: m.sessionId }
         : null;
@@ -176,5 +179,7 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.planOpen(msg.sessionId);
     case 'plan-archive':
       return actions.planArchive(msg.sessionId);
+    case 'plan-unarchive':
+      return actions.planUnarchive(msg.sessionId);
   }
 }

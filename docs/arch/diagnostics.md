@@ -7,6 +7,7 @@ Reporting observes the system; it never reaches back into it. Related: `docs/arc
 - Issue reporting OBSERVES
 - A hook failure has two halves and the report carries both
 - The GitHub handoff form is prefilled from the FINALIZED snapshot
+- Planning agents are invisible to metering and the resource monitor
 
 ## Issue reporting OBSERVES; it never reaches back into the system it describes
 
@@ -19,3 +20,7 @@ Reporting observes the system; it never reaches back into it. Related: `docs/arc
 ## The GitHub handoff form is prefilled from the FINALIZED snapshot, never the draft
 
 `diagnostics/issuePrefill.ts` reads back the bytes the reporter already reviewed and that `finalizeReport` proved carry no sensitive value; the optional session context is never read. It is operational metadata only — editor fork and version, platform/arch, Node/Electron/ABI (the native `better-sqlite3` addon loads by ABI), the registry's `user_version` beside `SCHEMA_VERSION`, resolved provider/model, and the hook counters. Every cell is pipe-stripped, whitespace-collapsed and length-capped, and the whole body is capped at `MAX_PREFILL_BODY_CHARS`. **The report's `cores` section is the whole history of agent cores used on a ticket** — headless calls (`token_usage`), interactive usage (`interactive_usage_samples`), and confirmed sessions (`session_launch_intents`) merged per provider by `readCoreUsage` (`diagnostics/storeEvidence.ts`) — read from append-only evidence, so a core switched mid-session still reports its rows; it never relies on the last-writer-wins `tickets.session_provider`. `NULL`-provider rows are bucketed as `unknown`, never dropped. `coreLines` (`issuePrefill.ts`) renders the summary/prefill line, `buildReviewSummary` shows it in the review popup, and DISCLOSURE names the evidence.
+
+## Planning agents are invisible to metering and the resource monitor
+
+A planning-session terminal (`extension/ops/planningOps.ts`) carries no ticket id, so it is NOT token-metered (no `token_usage` rows, nothing on the usage view) and NOT registered with the resource monitor. A report taken while one runs shows neither its tokens nor its process; that absence is expected, not a capture bug.

@@ -20,8 +20,10 @@ describe('planningPreamble', () => {
     expect(text).not.toContain('/src/old');
   });
 
-  it('states the session is read-only and names the filing verb with its session id', () => {
-    expect(text).toMatch(/read-only/i);
+  it('does not promise a hard read-only boundary, and names the filing verb with its session id', () => {
+    expect(text).not.toMatch(/session is read-only/i);
+    expect(text).toMatch(/blocked or need your approval/);
+    expect(text).toMatch(/--repos needs the manifest/);
     expect(text).toContain('draft create --session 7');
     expect(text).toContain('"$KARST_CLI"');
     expect(text).toContain('--summary-file');

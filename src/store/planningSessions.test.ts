@@ -7,9 +7,10 @@ import {
   getPlanningSession,
   listPlanningSessions,
   setPlanningSessionStatus,
-  setPlanningAgentSession,
   linkPlanningTicket,
   listPlanningTickets,
+  PLANNING_TITLE_MAX,
+  deletePlanningSession,
 } from './planningSessions.js';
 
 describe('planning sessions', () => {
@@ -24,7 +25,7 @@ describe('planning sessions', () => {
   it('creates an active session scoped to its project', () => {
     const s = createPlanningSession(store, { projectId, title: 'Investigate auth', core: 'claude', model: 'opus' });
     expect(s).toMatchObject({ projectId, title: 'Investigate auth', core: 'claude', model: 'opus', status: 'active' });
-    expect(s.agentSessionId).toBeNull();
+    expect(s).not.toHaveProperty('agentSessionId');
     expect(getPlanningSession(store, s.id)).toEqual(s);
   });
 
@@ -42,10 +43,21 @@ describe('planning sessions', () => {
     expect(listPlanningSessions(store, projectId, { includeArchived: true }).map((s) => s.id)).toEqual([b.id, a.id]);
   });
 
-  it('records the agent session id and transcript path', () => {
-    const s = createPlanningSession(store, { projectId, title: 't', core: 'claude', model: null });
-    const next = setPlanningAgentSession(store, s.id, { agentSessionId: 'sess-1', transcriptPath: '/t.jsonl' });
-    expect(next).toMatchObject({ agentSessionId: 'sess-1', transcriptPath: '/t.jsonl' });
+  it('collapses whitespace and control characters in the title and caps its length', () => {
+    const s = createPlanningSession(store, { projectId, title: '  a\n\tb\u0007  c\u001b[31m ', core: 'claude', model: null });
+    expect(s.title).toBe('a b c [31m');
+    const long = createPlanningSession(store, { projectId, title: 'x'.repeat(500), core: 'claude', model: null });
+    expect(long.title).toHaveLength(PLANNING_TITLE_MAX);
+  });
+
+  it('rejects a title made only of control characters', () => {
+    expect(() => createPlanningSession(store, { projectId, title: '\u0000\u0007', core: 'claude', model: null })).toThrow(/title/);
+  });
+
+  it('has no resume columns (resume is out of scope for v65)', () => {
+    const cols = (store.db.prepare('PRAGMA table_info(planning_sessions)').all() as { name: string }[]).map((c) => c.name);
+    expect(cols).not.toContain('agent_session_id');
+    expect(cols).not.toContain('transcript_path');
   });
 
   it('links tickets idempotently and marks the session filed', () => {
@@ -61,5 +73,11 @@ describe('planning sessions', () => {
 
   it('throws on an unknown session', () => {
     expect(() => setPlanningSessionStatus(store, 999, 'archived')).toThrow(/999/);
+  });
+
+  it('deletes a session (a create whose launch failed)', () => {
+    const s = createPlanningSession(store, { projectId, title: 't', core: 'claude', model: null });
+    deletePlanningSession(store, s.id);
+    expect(getPlanningSession(store, s.id)).toBeUndefined();
   });
 });

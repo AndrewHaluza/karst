@@ -13,6 +13,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - The per-ticket env overrides column
 - One worktrees row per (ticket, path)
 - v64: sub-task autostart and parent–child mailbox schema
+- Planning sessions (v65)
 - New schema column checklist
 
 ## SQLite is source of truth
@@ -102,11 +103,11 @@ Indexes: `idx_ticket_messages_inbox (to_ticket_id, read_at)` for inbox reads; `i
 
 **Repair** (`repairTicketMessages`): early (unreleased) v64 DBs carry `ticket_messages` without `woke_at` or AUTOINCREMENT. `migrate` runs the repair at the end of the v64 step and, on a DB already at 64, whenever `ticketMessagesNeedsRepair` is true (in an immediate transaction with foreign keys off): rename, recreate, copy every row with its id (`woke_at` kept if it existed, else NULL), drop the old table, ensure the indexes. A no-op when the table is absent or current. Nothing is derived from stage evidence.
 
-**Cross-window risk (L1).** Bumping to v64 makes the graph verbs of every OLDER build refuse this DB: `openGraphWritableStore` calls `assertExactSchema` (`cli/assertMigrated.ts`, `user_version !== SCHEMA_VERSION` throws), so `karst graph submit` and `karst node complete|block|replan` from a v63 window sharing the same global-storage registry fail with "requires exactly v63" until that window's extension is updated. The non-graph verbs use `assertMigratedSchema`, which only refuses an OLDER registry.
+**Cross-window risk (L1) — applies to EVERY version bump.** `openGraphWritableStore` calls `assertExactSchema` (`cli/assertMigrated.ts`, `user_version !== SCHEMA_VERSION` throws), so any bump makes the graph verbs of every OLDER build refuse this DB: `karst graph submit` and `karst node complete|block|replan` from a window still on the previous build (sharing the same global-storage registry) fail with "requires exactly v<N-1>" until that window's extension is updated. v64 did this to v63 windows; v65 (planning sessions) does it to v64 windows. The non-graph verbs use `assertMigratedSchema`, which only refuses an OLDER registry.
 
 ## Planning sessions (v65)
 
-`planning_sessions` (`src/store/planningSessions.ts`) holds a read-only, stack-aware agent conversation that investigates before a ticket exists. It is project-scoped, is NOT a ticket, and has no stage: planning has no deterministic verdict, so it stays out of the stage graph. `status` is `active` | `filed` | `archived`. `planning_session_tickets(session_id, ticket_id)` records the drafts a session filed, and linking the first one moves `active` to `filed`. The migration step is purely additive (`CREATE TABLE IF NOT EXISTS`) and backfills nothing.
+`planning_sessions` (`src/store/planningSessions.ts`) holds a read-only, stack-aware agent conversation that investigates before a ticket exists. It is project-scoped, is NOT a ticket, and has no stage: planning has no deterministic verdict, so it stays out of the stage graph. `status` is `active` | `filed` | `archived`. `planning_session_tickets(session_id, ticket_id)` records the drafts a session filed, and linking the first one moves `active` to `filed`; unarchiving returns to `filed` if any ticket is linked, else `active`. The title is normalized in ONE place, `createPlanningSession` (control chars and whitespace runs collapse to one space, capped at `PLANNING_TITLE_MAX` = 120), because it becomes a terminal tab name. There are no resume columns (agent session id, transcript path): resume is out of scope, and a reload re-adopts the still-running terminal instead (`planningOps.adopt`, matched by env, then the scratch cwd, then the `Karst plan #<id>:` tab name). The migration step is purely additive (`CREATE TABLE IF NOT EXISTS`) and backfills nothing.
 
 ## New schema column checklist
 

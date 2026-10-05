@@ -5,8 +5,8 @@ import { karstCliRefs } from '../agent/cliEnv.js';
 export const KARST_PLANNING_SESSION_ENV = 'KARST_PLANNING_SESSION';
 
 /**
- * The seed of a planning session: what the stack is, that the session is
- * read-only, and how it files its outcome. Pure — the launcher in
+ * The seed of a planning session: what the stack is, that it must not edit
+ * (enforcement differs per core — see agent-cores.md), and how it files its outcome. Pure — the launcher in
  * `extension/ops/planning.ts` passes it as the agent's initial prompt.
  */
 
@@ -35,9 +35,9 @@ export function planningPreamble(input: PreambleInput): string {
   );
   return [
     `You are in a karst PLANNING session: "${title}".`,
-    'This session is read-only. Investigate, ask the user clarifying questions, and agree on the work.',
-    'Do not edit repository files, create branches, or start implementation. Your edit tools are',
-    'blocked or need approval; the repositories are listed below — read them by absolute path.',
+    'Investigate, ask the user clarifying questions, and agree on the work.',
+    'Do not edit repository files, create branches, or start implementation. Depending on the agent,',
+    'edit tools are blocked or need your approval; the repositories are listed below — read them by absolute path.',
     '',
     'The stack (repository: path, base branch):',
     ...repos,
@@ -48,6 +48,8 @@ export function planningPreamble(input: PreambleInput): string {
     'Write the description and summary files in your current directory (a karst scratch directory,',
     'never a repository) and file them in ONE shell command, e.g. `cat > d.md <<\'EOF\' ... EOF && node ...`,',
     'so the user approves filing once.',
+    '--repos needs the manifest ($KARST_MANIFEST); if it is unavailable, filing with --repos fails —',
+    'omit --repos and name the repositories in the description instead.',
     'The summary holds the decisions reached and the options rejected, with reasons;',
     'it becomes the ticket brief the implementing agent reads. File one draft per piece of work,',
     'and state any ordering between them in each description.',

@@ -148,13 +148,15 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   /**
    * The read-only planning launch, per core. Each mechanism was verified
    * against the installed CLI (claude/codex by live probe, opencode by its
-   * effective `agent list` rules, agy by its mode docs): edits must be blocked
+   * effective `agent list` rules, agy by `agy --help`): edits must be blocked
    * or approval-gated, the stack repos readable, and the karst CLI's own write
    * (`draft create`) must still be possible.
    *
-   * Native "plan" modes are deliberately NOT used: claude's and agy's refuse
-   * the filing command outright (leaving the mode makes the session writable),
-   * and opencode's plan agent is overridden by a project `opencode.json`.
+   * Native "plan" modes are deliberately NOT used: claude's refuses the filing
+   * command outright (leaving the mode makes the session writable), and
+   * opencode's plan agent is overridden by a project `opencode.json`. agy is
+   * the exception: `plan` is its only non-editing mode, so it is used and
+   * readOnlyInteractive is DECLARED unsupported.
    */
   type Launch = { args: string[]; env: Record<string, string> };
   const opencodePermission = (l: Launch): Record<string, unknown> =>
@@ -176,8 +178,11 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     opencode: (l) => {
       expect(opencodePermission(l)).toMatchObject({ edit: 'deny', bash: 'ask' });
     },
+    // agy 1.2.17 accepts only `accept-edits` | `plan` (anything else falls back
+    // to the SAVED mode). `plan` is the only non-editing one; nothing verifies it
+    // enforces read-only, so agy DECLARES readOnlyInteractive unsupported.
     antigravity: ({ args }) => {
-      expect(after(args, '--mode')).toBe('default');
+      expect(after(args, '--mode')).toBe('plan');
     },
   };
 
@@ -190,7 +195,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   };
 
   it('launches a read-only planning session by its verified mechanism', () => {
-    expect(surfacesOf(provider).readOnlyInteractive.supported).toBe(true);
+    expect(surfacesOf(provider).readOnlyInteractive.supported).toBe(provider !== 'antigravity');
     const launch = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/karst/scratch',
       readOnly: true,

@@ -1212,8 +1212,6 @@ CREATE TABLE IF NOT EXISTS planning_sessions (
   title            TEXT NOT NULL,
   core             TEXT NOT NULL,
   model            TEXT,
-  agent_session_id TEXT,
-  transcript_path  TEXT,
   status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'filed', 'archived')),
   created_at       TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at       TEXT NOT NULL DEFAULT (datetime('now'))

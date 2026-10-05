@@ -191,7 +191,11 @@ export class AntigravityAdapter implements AgentAdapter {
     ),
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
-    readOnlyInteractive: SUPPORTED,
+    readOnlyInteractive: unsupported(
+      'agy has no deny or ask-everything mode: `--mode` accepts only accept-edits | plan. ' +
+        'A readOnly launch passes `--mode plan` (overriding a saved accept-edits), but plan ' +
+        'mode is unverified as an enforced read-only boundary and may refuse the draft-create filing',
+    ),
     addDirsInteractive: SUPPORTED,
   };
 
@@ -216,10 +220,11 @@ export class AntigravityAdapter implements AgentAdapter {
     if (opts.extraArgs && opts.extraArgs.length > 0) {
       args.push(...opts.extraArgs);
     }
-    // Not `plan`: per agy's docs it researches "without making changes", so
-    // it would refuse `draft create`. agy has no deny mechanism; `default`
-    // (overriding a saved accept-edits) asks before every write and command.
-    if (opts.readOnly) args.push('--mode', 'default');
+    // agy 1.2.17 accepts only `accept-edits` | `plan`; any other value is
+    // rejected and agy falls back to the SAVED mode (possibly accept-edits).
+    // `plan` is the only non-editing mode — declared unsupported on `surfaces`
+    // because it is not verified to enforce read-only and may refuse filing.
+    if (opts.readOnly) args.push('--mode', 'plan');
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     if (opts.initialPrompt && opts.initialPrompt.length > 0) {
       args.push('-i', opts.initialPrompt);

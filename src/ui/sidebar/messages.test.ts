@@ -12,6 +12,8 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'plan-create' })).toEqual({ type: 'plan-create' });
     expect(parseSidebarMessage({ type: 'plan-open', sessionId: 3 })).toEqual({ type: 'plan-open', sessionId: 3 });
     expect(parseSidebarMessage({ type: 'plan-archive', sessionId: 3 })).toEqual({ type: 'plan-archive', sessionId: 3 });
+    expect(parseSidebarMessage({ type: 'plan-unarchive', sessionId: 3 })).toEqual({ type: 'plan-unarchive', sessionId: 3 });
+    expect(parseSidebarMessage({ type: 'plan-unarchive', sessionId: Infinity })).toBeNull();
     expect(parseSidebarMessage({ type: 'plan-open', sessionId: '3' })).toBeNull();
     expect(parseSidebarMessage({ type: 'plan-archive', ticketId: 3 })).toBeNull();
   });
@@ -94,6 +96,7 @@ describe('routeSidebarAction', () => {
       planCreate: vi.fn(),
       planOpen: vi.fn(),
       planArchive: vi.fn(),
+      planUnarchive: vi.fn(),
     };
   }
 
@@ -127,6 +130,8 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'plan-create' }, a);
     routeSidebarAction({ type: 'plan-open', sessionId: 4 }, a);
     routeSidebarAction({ type: 'plan-archive', sessionId: 5 }, a);
+    routeSidebarAction({ type: 'plan-unarchive', sessionId: 6 }, a);
+    expect(a.planUnarchive).toHaveBeenCalledWith(6);
     expect(a.planCreate).toHaveBeenCalledOnce();
     expect(a.planOpen).toHaveBeenCalledWith(4);
     expect(a.planArchive).toHaveBeenCalledWith(5);
