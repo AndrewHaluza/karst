@@ -2552,7 +2552,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const dashboard = new DashboardManager(
     localStore,
-    makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m)),
+    makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
     (ticketId) =>
       makeDashboardActions(
         localStore,

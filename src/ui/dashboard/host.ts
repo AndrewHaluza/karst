@@ -5,6 +5,7 @@ import type { DashboardPanel, PanelHost } from './panel.js';
 import { hydrateWebview } from '../../model/webviewChains.js';
 import { injectCsp, newNonce } from '../../model/csp.js';
 import { injectXterm, readXtermAssets } from '../../model/xtermAssets.js';
+import type { Logger } from '../../logging/logger.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
@@ -46,8 +47,16 @@ export function makeDashboardPanelHost(
   context: vscode.ExtensionContext,
   brandIcon?: BrandIconPaths,
   warn: (message: string) => void = () => {},
+  debug?: Pick<Logger, 'debug' | 'isDebugEnabled'>,
 ): PanelHost {
   const html = dashboardWebviewHtml(warn);
+  // Payload sizes, measured only in debug mode: over Remote-SSH every byte of
+  // the document and of each message crosses the network, so these lines name
+  // what a slow panel is actually shipping. Serializing to measure is skipped
+  // entirely while debug is off.
+  const traceSize = (what: string, payload: () => string): void => {
+    if (debug?.isDebugEnabled()) debug.debug(`[dashboard] ${what} ${payload().length} chars`);
+  };
   return {
     createPanel(title, _ticketId, preserveFocus): DashboardPanel {
       const panel = vscode.window.createWebviewPanel(
@@ -63,9 +72,13 @@ export function makeDashboardPanelHost(
       panel.iconPath = brandIconUri(brandIcon);
       // Nonce per panel, not per host (the html above is built once and reused).
       panel.webview.html = injectCsp(html, newNonce());
+      traceSize('html', () => panel.webview.html);
       return {
         reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
-        postMessage: (message) => void panel.webview.postMessage(message),
+        postMessage: (message) => {
+          traceSize(`post ${messageLabel(message)}`, () => JSON.stringify(message) ?? '');
+          void panel.webview.postMessage(message);
+        },
         onDidReceiveMessage: (handler) =>
           panel.webview.onDidReceiveMessage(handler, undefined, context.subscriptions),
         // `active` — not `visible`: a preserve-focus reveal makes the panel
@@ -88,4 +101,10 @@ export function makeDashboardPanelHost(
       };
     },
   };
+}
+
+/** `type` (plus `live` for a clock repaint) of an outgoing message, for the size trace. */
+function messageLabel(message: unknown): string {
+  const m = message as { type?: unknown; live?: unknown } | null;
+  return `${String(m?.type ?? '?')}${m?.live === true ? ' live' : ''}`;
 }
