@@ -367,6 +367,8 @@ export class CodexAdapter implements AgentAdapter {
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -381,6 +383,8 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+    if (opts.readOnly) args.push('--sandbox', 'read-only');
+    for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     if (opts.hookChannel) {
       appendHookArgs(

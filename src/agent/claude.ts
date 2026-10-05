@@ -161,6 +161,8 @@ export class ClaudeAdapter implements AgentAdapter {
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -221,6 +223,10 @@ export class ClaudeAdapter implements AgentAdapter {
       // dir). Appended before the `--`/positional so they parse as options.
       args.push(...opts.extraArgs);
     }
+    if (opts.readOnly) args.push('--permission-mode', 'plan');
+    // `--add-dir` is variadic in claude; one flag per dir keeps each value
+    // unambiguous, and the `--` below stops it swallowing the prompt.
+    for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     if (opts.initialPrompt && opts.initialPrompt.length > 0) {
       // `--` ends option parsing so the prompt is always a positional, even when
       // it starts with dashes (e.g. a doc's `---` YAML frontmatter) — otherwise

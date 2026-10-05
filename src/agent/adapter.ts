@@ -165,6 +165,13 @@ export interface InteractiveCommandOpts {
    * `--plugin-dir <dir>`). Opaque to the launcher; appended by the adapter.
    */
   extraArgs?: string[];
+  /**
+   * Launch in the core's read-only / plan mode: the agent may read and run
+   * read-only commands but never edits. Used by planning sessions.
+   */
+  readOnly?: boolean;
+  /** Extra directories the session may read beyond `cwd` (a planning session's stack repos). */
+  addDirs?: string[];
 }
 
 export interface HookChannel {

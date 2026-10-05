@@ -97,6 +97,8 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'toolActivity',
       'skillDiscovery',
       'entryOrchestrators',
+      'readOnlyInteractive',
+      'addDirsInteractive',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -141,6 +143,52 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
     await adapter.runHeadless({ ...baseOpts(), resume: 'ses_prev' });
     expect(calls[0]!.args, `${provider} headless resume`).toContain('ses_prev');
+  });
+
+  /**
+   * The verified read-only switch per core (checked against each installed
+   * CLI's --help): a planning session must not be able to edit anything.
+   */
+  const READ_ONLY_ARGS: Record<AgentProvider, readonly string[]> = {
+    claude: ['--permission-mode', 'plan'],
+    codex: ['--sandbox', 'read-only'],
+    opencode: ['--agent', 'plan'],
+    antigravity: ['--mode', 'plan'],
+  };
+
+  it('launches an interactive session read-only when asked and declared supported', () => {
+    const surfaces = surfacesOf(provider);
+    const { args } = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/stack',
+      readOnly: true,
+      initialPrompt: 'plan it',
+    });
+    const [flag, value] = READ_ONLY_ARGS[provider];
+    if (surfaces.readOnlyInteractive.supported) {
+      expect(args[args.indexOf(flag!) + 1], `${provider} read-only argv`).toBe(value);
+    } else {
+      expect(args).not.toContain(flag);
+    }
+    const plain = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/stack' }).args;
+    expect(plain, `${provider} must stay writable by default`).not.toContain(flag);
+  });
+
+  it('adds every extra directory before the prompt when declared supported', () => {
+    const surfaces = surfacesOf(provider);
+    const { args } = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/stack',
+      addDirs: ['/repos/api', '/repos/web'],
+      initialPrompt: 'plan it',
+    });
+    if (surfaces.addDirsInteractive.supported) {
+      for (const dir of ['/repos/api', '/repos/web']) {
+        const i = args.indexOf(dir);
+        expect(args[i - 1], `${provider} ${dir}`).toBe('--add-dir');
+        expect(i).toBeLessThan(args.indexOf('plan it'));
+      }
+    } else {
+      expect(args).not.toContain('/repos/api');
+    }
   });
 
   const MCP_ISOLATION_FLAG: Record<AgentProvider, string | null> = {

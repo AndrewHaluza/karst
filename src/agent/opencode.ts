@@ -797,6 +797,10 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: unsupported(
+      'the opencode TUI is scoped to its launch directory and has no extra-directory flag',
+    ),
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -839,6 +843,9 @@ export class OpencodeAdapter implements AgentAdapter {
     }
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+    // opencode's built-in `plan` primary agent is its read-only mode.
+    // `opts.addDirs` is declared unsupported on `surfaces` — never silently dropped.
+    if (opts.readOnly) args.push('--agent', 'plan');
     if (opts.initialPrompt) args.push('--prompt', opts.initialPrompt);
     return {
       command: OPENCODE_BIN,

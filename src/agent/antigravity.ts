@@ -191,6 +191,8 @@ export class AntigravityAdapter implements AgentAdapter {
     ),
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -214,6 +216,8 @@ export class AntigravityAdapter implements AgentAdapter {
     if (opts.extraArgs && opts.extraArgs.length > 0) {
       args.push(...opts.extraArgs);
     }
+    if (opts.readOnly) args.push('--mode', 'plan');
+    for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     if (opts.initialPrompt && opts.initialPrompt.length > 0) {
       args.push('-i', opts.initialPrompt);
     }
