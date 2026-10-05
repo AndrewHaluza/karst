@@ -217,6 +217,7 @@ import {
 } from './approaches/graph/transport/supervisedCliTransport.js';
 import {
   activeGraphRunFor,
+  graphTicketSurface,
   nudgeSurface,
   shouldDriveGraphTicket,
   stoppableGraphRunFor,
@@ -332,7 +333,7 @@ import { mergeTicketPr } from './workflow/mergePr.js';
 import { dismissTicketPr, undismissTicketPr } from './workflow/dismissPr.js';
 import { nowIso } from './model/time.js';
 import { settleShipGates } from './workflow/mergeGate.js';
-import { integrateAndReleaseParent, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
+import { integrateAndReleaseParent, isIntegrating, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
 import { autoArchiveDoneTickets } from './store/doneArchive.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
@@ -1821,23 +1822,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   void subtaskAutostart.sweep();
   // Mailbox delivery (Wave 3): pointer nudges to live recipients in this
-  // window, and a background (unrevealed) open for a woken parent.
-  const graphOwned = (id: number): boolean => nudgeSurface(localStore.db, id) === 'no-op';
+  // window, and a background (unrevealed, recovery) open for a woken parent.
   const messageDelivery = makeMessageDeliverySweep({
     store: localStore,
     projectId: () => currentProject()?.id,
     delivery: makeTerminalDelivery({
       isLive: (id) => sessions.isLive(id),
-      graphOwned,
+      graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
       nudge: (id, line) => sessions.nudge(id, line),
       sessionCliEnv: (id) => sessions.sessionCliEnv(id),
       literal: () => cliLiteral(context, dbPath),
     }),
     isLive: (id) => sessions.isLive(id),
-    graphOwned,
-    wake: (id) => void vscode.commands.executeCommand('karst.openSession', id, { reveal: false }),
+    // openSession on a graph-approach ticket starts a graph run — never wake one.
+    isGraphTicket: (id) =>
+      graphTicketSurface(localStore.db, id) !== 'none' ||
+      Boolean(
+        withBuiltInApproaches(currentManifest() ?? emptyManifest()).approaches?.find(
+          (a) => a.id === getTicket(localStore, id).approach,
+        )?.graph,
+      ),
+    integrating: (id) => isIntegrating(id),
+    // `recovery: true`: the sweep never scopes or transitions a ticket.
+    wake: async (id) => {
+      await vscode.commands.executeCommand('karst.openSession', id, { reveal: false, recovery: true });
+    },
     now: () => Date.now(),
     debug: (message) => logger.debug(message),
+    warn: (message) => logger.warn(message),
   });
   const deliveryTimer = setInterval(() => messageDelivery.sweep(), MESSAGE_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({
