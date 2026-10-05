@@ -14,18 +14,26 @@ import type { AgyUsageState } from '../../agent/agyUsageWatch.js';
  * `resolveAgyAppDataDir()` — called with no args by the loop, exactly as the
  * pre-extraction inline code called it — never reads `ANTIGRAVITY_EXECUTABLE_DATA_DIR`
  * (that requires an explicit `env` argument neither call site passes); it
- * resolves to `homedir()/.gemini/antigravity-cli`. `homedir()` itself reads
- * `$HOME`, so redirecting `$HOME` is how these tests aim the sweep at a
- * fixture tree without changing the loop's (preserved) behavior.
+ * resolves to `homedir()/.gemini/antigravity-cli`. `os.homedir()` is mocked
+ * rather than redirecting `$HOME`: under worker threads (Stryker's vitest
+ * runner) a `process.env.HOME` write only touches the worker's env copy while
+ * libuv's `homedir()` reads the real process env, so the sweep would miss the
+ * fixture tree.
  */
+const homeRef = vi.hoisted(() => ({ current: null as string | null }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  const homedir = (): string => homeRef.current ?? actual.homedir();
+  return { ...actual, homedir, default: { ...actual, homedir } };
+});
+
 function withHome<T>(home: string, fn: () => T): T {
-  const prev = process.env.HOME;
-  process.env.HOME = home;
+  const prev = homeRef.current;
+  homeRef.current = home;
   try {
     return fn();
   } finally {
-    if (prev === undefined) delete process.env.HOME;
-    else process.env.HOME = prev;
+    homeRef.current = prev;
   }
 }
 
