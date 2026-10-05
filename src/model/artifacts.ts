@@ -30,7 +30,7 @@ import type { GateRun } from '../store/gateRuns.js';
 import type { Finding } from '../store/reviewFindings.js';
 import type { UatFinding } from '../store/uatFindings.js';
 import type { ProcessRun } from '../store/processRuns.js';
-import type { ShipEvidence } from '../store/shipRuns.js';
+import type { ShipCommitOrigin, ShipEvidence } from '../store/shipRuns.js';
 import type { PhaseMark } from '../store/phaseMarks.js';
 import type { PrView } from '../store/dashboard.js';
 import { getTicket } from '../store/tickets.js';
@@ -116,6 +116,8 @@ export interface ArtifactCommit {
   repo: string;
   sha: string;
   message: string;
+  /** Whether ship made this commit or found it on the branch. */
+  origin: ShipCommitOrigin;
   /**
    * The opaque open-commit capability, minted host-side through the same
    * `attach` seam the inside evidence uses. Absent → the SHA renders as plain
@@ -795,7 +797,7 @@ function shipSummary(input: ArtifactInput): ArtifactSummary | null {
     scope: null,
     summary: running
       ? `Shipping across ${repoCount} repo${repoCount === 1 ? '' : 's'}…`
-      : `${prCount} PR${prCount === 1 ? '' : 's'} opened · ${created.length} commit${created.length === 1 ? '' : 's'}`,
+      : `${prCount} PR${prCount === 1 ? '' : 's'} · ${created.length} new commit${created.length === 1 ? '' : 's'}`,
     status:
       run.status === 'passed' ? 'passed' : run.status === 'running' ? 'info' : 'failed',
     freshness: 'current',
@@ -806,7 +808,7 @@ function shipSummary(input: ArtifactInput): ArtifactSummary | null {
     metrics: [
       { label: 'repos', value: String(repoCount) },
       { label: 'PRs', value: String(prCount) },
-      { label: 'commits', value: String(created.length) },
+      { label: 'new commits', value: String(created.length) },
     ],
     gates: [],
     findings: [],
@@ -822,6 +824,7 @@ function shipSummary(input: ArtifactInput): ArtifactSummary | null {
         repo: c.repo,
         sha: c.sha,
         message: c.message,
+        origin: c.origin as ShipCommitOrigin,
         // The SHA's open-commit capability — the SAME host seam the inside
         // evidence uses, so a click re-loads the recorded ship commit by id
         // and reveals it. An artifact snapshot built without an attach

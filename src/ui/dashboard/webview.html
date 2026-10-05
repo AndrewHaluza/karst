@@ -1708,8 +1708,9 @@
   .artdetail .artheading .sp{margin-left:auto}
   .arthero{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
   .arthero .art-title{font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold)}
-  .artmetrics{display:flex;gap:var(--k-space-6);flex-wrap:wrap;margin-top:var(--k-space-3)}
-  .artmetric{font-family:var(--k-font-mono);font-size:var(--k-text-md);color:var(--k-text)}
+  .artmetrics{display:flex;gap:var(--k-space-7);flex-wrap:wrap;margin:var(--k-space-5) 0 var(--k-space-7);
+    padding:var(--k-space-4) var(--k-space-5);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md)}
+  .artmetric{font-family:var(--k-font-mono);font-size:var(--k-text-lg);font-weight:var(--k-weight-semibold);color:var(--k-text)}
   .artmetric .am-label{display:block;font-family:var(--k-font-normal);font-size:var(--k-text-2xs);
     text-transform:uppercase;letter-spacing:.4px;color:var(--k-text-faint)}
   .artfinding{border-left:2px solid var(--k-border);padding:var(--k-space-2) var(--k-space-4);
@@ -1795,6 +1796,15 @@
   .artfiles .pr-status.merged{color:var(--k-passed);border-color:var(--k-border)}
   .artfiles .pr-status.closed{color:var(--k-failed);border-color:var(--k-border)}
   .artfiles .commit-sha{color:var(--k-text-dim)}
+  .artfiles .af-repo{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text);flex:none}
+  .artfiles .af-ref{flex:1}
+  .artfiles .af-msg{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    font-size:var(--k-text-sm);color:var(--k-text)}
+  .artfiles .af-msg--empty{color:var(--k-text-faint);font-style:italic}
+  .artfiles li > .af-repo:not(:first-child){color:var(--k-text-dim)}
+  .artfiles .commit-origin{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
+    padding:var(--k-space-0) var(--k-space-2);font-family:var(--k-font-mono);font-size:var(--k-text-2xs);
+    color:var(--k-text-dim);white-space:nowrap}
 
   /* The terminal console surface (xterm "detailed mode"): a full-body swap via
      body.term-nav, exactly like the artifact surface — the SAME webview hosts
@@ -4510,6 +4520,16 @@
       + `${rows}</section>`;
   }
 
+  // A repo's display name: its last path segment (trailing slash ignored). The
+  // full path stays available as the hover title — never dropped.
+  function repoName(path) {
+    const parts = String(path || '').split('/').filter(Boolean);
+    return parts.length ? parts[parts.length - 1] : String(path || '');
+  }
+  function repoHtml(path) {
+    return `<span class="af-repo" title="${esc(path)}">${esc(repoName(path))}</span>`;
+  }
+
   function artifactPrsHtml(a) {
     if (!a.prs || !a.prs.length) return '';
     const rows = a.prs.map((p) => {
@@ -4523,7 +4543,7 @@
             + ` title="Open this pull request on the host">#${esc(String(p.number))}</a>`
           : `<span class="pr-link">#${esc(String(p.number))}</span>`)
         : '';
-      return `<li><span class="af-name">${esc(p.repo)}${number ? ` · ${number}` : ''}</span>`
+      return `<li>${repoHtml(p.repo)}${number ? `<span class="af-ref">${number}</span>` : ''}`
         + (p.status ? `<span class="pr-status ${esc(p.status)}">${esc(p.status)}</span>` : '')
         + `</li>`;
     }).join('');
@@ -4539,7 +4559,12 @@
         ? `<a class="obj-link commit-link" href="#" data-act="inside-action"`
           + ` data-action-id="${esc(c.action.actionId)}" title="Open this commit on the host">${esc(c.sha.slice(0, 7))}</a>`
         : `<span class="commit-sha">${esc(c.sha.slice(0, 7))}</span>`;
-      return `<li><span class="af-name">${sha} · ${esc(c.message)}</span></li>`;
+      const msg = c.message
+        ? `<span class="af-msg">${esc(c.message)}</span>`
+        : `<span class="af-msg af-msg--empty">No message</span>`;
+      const tag = c.origin === 'before-ship'
+        ? `<span class="commit-origin" title="Already on the branch before ship ran">existing</span>` : '';
+      return `<li>${sha}${msg}${repoHtml(c.repo)}${tag}</li>`;
     }).join('');
     return `<section class="artsection" aria-label="Commits"><div class="artheading">Commits</div><ul class="artfiles">${rows}</ul></section>`;
   }
