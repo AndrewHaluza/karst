@@ -24,6 +24,15 @@ describe('messagePointer', () => {
     expect(p).not.toContain('\n');
   });
 
+  it.each(['/a"b', '/a$b', '/a`b', '/a\\b', "/a'b"])('refuses a literal path with shell metacharacters (%s)', (bad) => {
+    expect(messagePointer(1, 7, undefined, { ...LITERAL, db: bad })).toBeNull();
+    expect(messagePointer(1, 7, undefined, { ...LITERAL, manifest: bad })).toBeNull();
+  });
+
+  it('env refs make an unsafe literal irrelevant', () => {
+    expect(messagePointer(1, 7, { cli: true, manifest: true, ticket: true }, { cli: '/a"b', db: '/x$' })).not.toBeNull();
+  });
+
   it('carries digits only for the count and id', () => {
     expect(() => messagePointer(-1, 7, undefined, LITERAL)).toThrow();
     expect(() => messagePointer(1.5, 7, undefined, LITERAL)).toThrow();
@@ -58,6 +67,12 @@ describe('makeTerminalDelivery', () => {
   it('defers a graph-owned recipient', () => {
     const d = deps({ graphOwned: vi.fn(() => true) });
     expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('deferred');
+    expect(d.nudge).not.toHaveBeenCalled();
+  });
+
+  it('defers (types nothing) when a literal path is unsafe', () => {
+    const d = deps({ literal: () => ({ ...LITERAL, cli: '/x/$(rm)/cli.js' }) });
+    expect(makeTerminalDelivery(d).deliver(5, 1)).toBe('deferred');
     expect(d.nudge).not.toHaveBeenCalled();
   });
 

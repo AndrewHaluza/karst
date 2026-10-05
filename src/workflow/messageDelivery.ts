@@ -26,20 +26,29 @@ function assertPositiveInt(n: number, what: string): void {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error(`message pointer: ${what} must be a positive integer`);
 }
 
+/** Characters a literal path may not carry into a typed line. */
+const SHELL_META = /["$`\\']/;
+
 /**
  * The pointer line: fixed text, the unread count, and the `inbox` command in
  * the recipient session's env (refs when it exported them, literal host paths
- * and the numeric id otherwise).
+ * and the numeric id otherwise). `null` when a literal path carries a shell
+ * metacharacter — nothing is typed then.
  */
 export function messagePointer(
   unread: number,
   toTicketId: number,
   exported: ExportedCliEnv | undefined,
   literal: CliTokens,
-): string {
+): string | null {
   assertPositiveInt(unread, 'unread count');
   assertPositiveInt(toTicketId, 'ticket id');
   const tok = cliTokensFor(exported, { ...literal, ticket: String(toTicketId) });
+  const literals = [tok.cli, tok.db, tok.manifest].filter(
+    (t): t is string => t !== undefined && (t === literal.cli || t === literal.db || t === literal.manifest),
+  );
+  // A literal is typed into a shell as-is: refuse rather than escape.
+  if (literals.some((t) => SHELL_META.test(t))) return null;
   const arg = (t: string): string => quoteArg(printable(t));
   const ticket = tok.ticket === String(toTicketId) ? String(toTicketId) : arg(tok.ticket ?? '');
   const parts = [
@@ -71,6 +80,7 @@ export function makeTerminalDelivery(deps: TerminalDeliveryDeps): MessageDeliver
     deliver(toTicketId, unread) {
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
       const line = messagePointer(unread, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
+      if (line === null) return 'deferred';
       return deps.nudge(toTicketId, line) ? 'delivered' : 'deferred';
     },
   };
