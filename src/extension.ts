@@ -2882,6 +2882,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     new ServerLogsReader((m) => logger.debug(m)),
     // "Open in Window": reveal or mint this ticket's standalone panel.
     (ticketId) => serverLogsManager.open(ticketId),
+    logger,
   );
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),

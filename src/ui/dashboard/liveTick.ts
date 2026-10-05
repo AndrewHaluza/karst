@@ -55,6 +55,23 @@ export function structureKey(state: DashboardState): string {
   return JSON.stringify(state, (key, value: unknown) => (CLOCK_KEYS.has(key) ? undefined : value));
 }
 
+const DIFF_DEPTH = 3;
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const stripClocks = (v: unknown): string =>
+  JSON.stringify(v, (key, value: unknown) => (CLOCK_KEYS.has(key) ? undefined : value)) ?? '';
+
+/**
+ * Dotted paths (at most `DIFF_DEPTH` deep) where two snapshots differ, clocks
+ * ignored — debug only, to name what made a push ship in full.
+ */
+export function changedPaths(prev: unknown, next: unknown, prefix = '', depth = 1): string[] {
+  if (stripClocks(prev) === stripClocks(next)) return [];
+  if (!isRecord(prev) || !isRecord(next) || depth > DIFF_DEPTH) return [prefix];
+  const keys = [...new Set([...Object.keys(prev), ...Object.keys(next)])].filter((k) => !CLOCK_KEYS.has(k));
+  return keys.flatMap((k) => changedPaths(prev[k], next[k], prefix ? `${prefix}.${k}` : k, depth + 1));
+}
+
 /** One running process row's clock text. */
 export interface ProcessClocks {
   time?: string;

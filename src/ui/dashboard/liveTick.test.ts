@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
+import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
 import type { DashboardState } from './state.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
@@ -117,5 +117,23 @@ describe('liveClocks', () => {
       processes: { tester: { duration: '4s', durationExact: '4.0s', time: '12:00:00' } },
     });
     expect(clocks.scope).toEqual({ clock: 'has not run yet', processes: {} });
+  });
+});
+
+describe('changedPaths', () => {
+  it('names the nested fields that differ, ignoring clocks', () => {
+    const prev = { a: { b: 1, c: { d: 'x' } }, clock: '1s', e: [1] };
+    const next = { a: { b: 2, c: { d: 'x' } }, clock: '2s', e: [1, 2] };
+    expect(changedPaths(prev, next)).toEqual(['a.b', 'e']);
+  });
+
+  it('is empty for structurally equal snapshots', () => {
+    expect(changedPaths({ a: { duration: '1s' } }, { a: { duration: '9s' } })).toEqual([]);
+  });
+
+  it('stops at a bounded depth and reports added or removed keys', () => {
+    const prev = { a: { b: { c: { d: { e: 1 } } } } };
+    const next = { a: { b: { c: { d: { e: 2 } } } }, f: true };
+    expect(changedPaths(prev, next)).toEqual(['a.b.c', 'f']);
   });
 });

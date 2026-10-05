@@ -1276,6 +1276,69 @@ describe('DashboardManager', () => {
       expect((clocks[0] as { clocks: Record<string, unknown> }).clocks.uat).toBeDefined();
     });
 
+    it('the gate-options follow-up neither restarts the loaders nor drops worktree stats', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const loadStats: WorktreeStatsLoader = vi.fn(async () => []);
+      const loadGateOptions: GateOptionsLoader = vi.fn(async () => ({
+        uat: [{ name: 'e2e', disabled: false }],
+        review: [],
+      }));
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
+      );
+
+      mgr.openDashboard(t.id);
+      await vi.waitFor(() => expect(fullStates(panels[0]!)).toHaveLength(2));
+      await Promise.resolve();
+
+      const followUp = fullStates(panels[0]!)[1] as { supplemental?: boolean };
+      expect(followUp.supplemental).toBe(false);
+      expect(loadStats).toHaveBeenCalledOnce();
+      expect(loadGateOptions).toHaveBeenCalledOnce();
+    });
+
+    it('a follow-up that changes nothing visible sends only the clocks', async () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const loadGateOptions: GateOptionsLoader = vi.fn(async () => ({ uat: [], review: [] }));
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, loadGateOptions,
+      );
+
+      mgr.openDashboard(t.id);
+      await vi.waitFor(() =>
+        expect(panels[0]!.posted.some((m) => (m as { type?: string }).type === 'gate-options')).toBe(true),
+      );
+
+      expect(fullStates(panels[0]!)).toHaveLength(1);
+    });
+
+    it('debug names each push: its kind, what changed, and who asked', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host } = fakeHost();
+      const debug = vi.fn();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { debug, isDebugEnabled: () => true },
+      );
+
+      mgr.openDashboard(t.id);
+      openProcessRun(store, { ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 1, startedAt: new Date().toISOString() });
+      mgr.pushPassiveState(t.id);
+
+      const line = debug.mock.calls.map((c) => c[0] as string).find((m) => m.includes('passive'));
+      expect(line).toMatch(/^\[dashboard\] ticket \d+ push passive → state; changed: .*insideViews/);
+      expect(line).toMatch(/from .*panel\.test\.ts/);
+    });
+
     it('a passive push that finds nothing new sends only the clocks', () => {
       // A CLI or usage write re-pushes every open panel; when the snapshot
       // matches the last one sent but for time, 100 KB+ would repaint nothing.

@@ -17,7 +17,10 @@ import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
-import { hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
+import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
+
+/** Why a snapshot was pushed — debug tracing names it. */
+type PushKind = 'action' | 'passive' | 'store' | 'live' | 'follow-up';
 import { compactTicketLabel } from '../../model/followUp.js';
 import type { InsideActionHost } from './insideActions.js';
 import {
@@ -78,6 +81,8 @@ export class DashboardManager {
   private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
   /** `structureKey` of the last FULL snapshot each panel was sent. */
   private readonly sentStructure = new Map<number, string>();
+  /** Debug only: the last full snapshot each panel was sent, for `changedPaths`. */
+  private readonly sentState = new Map<number, DashboardState>();
   /** Panel-only selection memory (round switcher + findings repo scope). */
   private readonly selections = new DashboardSelections();
   /** Per-snapshot action capabilities + the grace window for superseded ones. */
@@ -89,9 +94,16 @@ export class DashboardManager {
   /** The manager side of the loaders' contract (live-panel check + re-push). */
   private readonly supplementalHost: SupplementalHost = {
     isCurrentPanel: (ticketId, panel) => this.panels.get(ticketId) === panel,
+    // A loader's follow-up only folds its result into the snapshot: it must
+    // not restart the loaders (a second git/repo walk per open) nor tell the
+    // webview to drop the worktree stats it just received.
     repush: (ticketId, settlesActions) => {
-      if (settlesActions) this.pushState(ticketId);
-      else this.pushPassiveState(ticketId);
+      this.pushSnapshot(ticketId, {
+        kind: 'follow-up',
+        supplemental: false,
+        live: false,
+        settlesActions,
+      });
     },
   };
 
@@ -218,6 +230,8 @@ export class DashboardManager {
      * panel's own ticket id. Absent → the "Open in Window" control is a no-op.
      */
     private readonly onServerLogsDetach?: (ticketId: number) => void,
+    /** Debug sink (`[dashboard]` lines); absent or disabled → no tracing work at all. */
+    private readonly debug?: { debug(msg: string): void; isDebugEnabled(): boolean },
   ) {
     this.loaders = new SupplementalLoaders(
       loadStats,
@@ -292,6 +306,7 @@ export class DashboardManager {
       if (this.liveTicks.has(ticketId)) return; // still ticking; nothing to catch up
       try {
         this.pushSnapshot(ticketId, {
+          kind: 'live',
           supplemental: false,
           live: true,
           settlesActions: false,
@@ -309,6 +324,7 @@ export class DashboardManager {
       if (tick) clearTimeout(tick);
       this.liveTicks.delete(ticketId);
       this.sentStructure.delete(ticketId);
+      this.sentState.delete(ticketId);
       this.panels.delete(ticketId);
       // The async loaders abort and drop their per-ticket state; the round
       // switcher selection and findings repo scope die with the panel too (a
@@ -345,6 +361,7 @@ export class DashboardManager {
   /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
   pushState(ticketId: number): void {
     this.pushSnapshot(ticketId, {
+      kind: 'action',
       supplemental: true,
       live: false,
       settlesActions: true,
@@ -357,6 +374,7 @@ export class DashboardManager {
    */
   pushPassiveState(ticketId: number): void {
     this.pushSnapshot(ticketId, {
+      kind: 'passive',
       supplemental: true,
       live: false,
       settlesActions: false,
@@ -371,6 +389,7 @@ export class DashboardManager {
    */
   pushStoreState(ticketId: number): void {
     this.pushSnapshot(ticketId, {
+      kind: 'store',
       supplemental: false,
       live: false,
       settlesActions: false,
@@ -397,9 +416,9 @@ export class DashboardManager {
    */
   private pushSnapshot(
     ticketId: number,
-    mode: { supplemental: boolean; live: boolean; settlesActions: boolean },
+    mode: { kind: PushKind; supplemental: boolean; live: boolean; settlesActions: boolean },
   ): void {
-    const { supplemental, live, settlesActions } = mode;
+    const { kind, supplemental, live, settlesActions } = mode;
     const panel = this.panels.get(ticketId);
     if (!panel) return;
     // A fresh action registry PER SNAPSHOT: every state push is authoritative,
@@ -508,8 +527,13 @@ export class DashboardManager {
     // The same holds for a passive push (a CLI or usage write re-pushing every
     // open panel) that turned up nothing new. Only a push that settles an
     // action always ships whole: the webview clears its pending action on it.
+    // A loader follow-up that changed nothing visible is clocks too, even when
+    // it carries settlement authority: the snapshot it follows already settled.
     const structure = structureKey(state);
-    if (!settlesActions && this.sentStructure.get(ticketId) === structure) {
+    const unchanged = this.sentStructure.get(ticketId) === structure;
+    const clocksOnly = unchanged && (!settlesActions || kind === 'follow-up');
+    this.tracePush(ticketId, kind, clocksOnly, state);
+    if (clocksOnly) {
       panel.postMessage({ type: 'clocks', clocks: liveClocks(state) });
     } else {
       this.sentStructure.set(ticketId, structure);
@@ -567,6 +591,7 @@ export class DashboardManager {
       if (!this.panels.has(ticketId)) return;
       try {
         this.pushSnapshot(ticketId, {
+          kind: 'live',
           supplemental: false,
           live: true,
           settlesActions: false,
@@ -658,6 +683,20 @@ export class DashboardManager {
    * status sync) whose result may touch any open ticket, so the caller need not
    * track which ticket changed.
    */
+  /**
+   * Debug only: one line per push naming its kind, whether it shipped whole,
+   * which fields changed since the last full snapshot, and the caller frame —
+   * enough to trace an unexplained stream of full snapshots to its source.
+   */
+  private tracePush(ticketId: number, kind: PushKind, clocksOnly: boolean, state: DashboardState): void {
+    if (!this.debug?.isDebugEnabled()) return;
+    const prev = this.sentState.get(ticketId);
+    if (!clocksOnly) this.sentState.set(ticketId, state);
+    const changed = clocksOnly ? '' : `; changed: ${prev ? changedPaths(prev, state).slice(0, 8).join(', ') || 'none' : 'first'}`;
+    const caller = new Error().stack?.split('\n')[4]?.trim() ?? '?';
+    this.debug.debug(`[dashboard] ticket ${ticketId} push ${kind} → ${clocksOnly ? 'clocks' : 'state'}${changed} from ${caller}`);
+  }
+
   pushAll(): void {
     for (const ticketId of this.panels.keys()) this.pushState(ticketId);
   }
