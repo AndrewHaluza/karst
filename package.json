@@ -51,6 +51,15 @@
     "typecheck:visual": "tsc -p tsconfig.visual.json"
   },
   "contributes": {
+    "icons": {
+      "karst-mark": {
+        "description": "Karst mark",
+        "default": {
+          "fontPath": "media/karst-icons.woff",
+          "fontCharacter": "\\E000"
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

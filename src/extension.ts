@@ -174,7 +174,7 @@ import { compactTicketLabel } from './model/followUp.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
-import { terminalNaming } from './ui/terminalNaming.js';
+import { KARST_TERMINAL_ICON_ID, terminalNaming } from './ui/terminalNaming.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
@@ -7118,7 +7118,10 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
         hideFromUser: opts.hideFromUser,
         // Name/icon/color are frozen at creation — `Terminal.creationOptions` is
         // readonly, so the launch glyph is what the tab keeps for its lifetime.
-        ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
+        // A ThemeIcon (the contributed `karst-mark` font glyph), NOT a Uri: VS Code
+        // persists only ThemeIcon ids for revived terminals, so a Uri icon is lost
+        // on window reload. `opts.iconPath` stays the opt-in switch.
+        ...(opts.iconPath ? { iconPath: new vscode.ThemeIcon(KARST_TERMINAL_ICON_ID) } : {}),
         ...(opts.color ? { color: new vscode.ThemeColor(opts.color) } : {}),
       });
       // Capture the launch pid NOW: it is what re-identifies this terminal
@@ -7146,8 +7149,9 @@ function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTer
         env: opts.env,
         hideFromUser: opts.hideFromUser,
         // The brand mark rides the graph tab exactly like a regular session's
-        // (Terminal.creationOptions is readonly — the launch glyph is frozen).
-        ...(opts.iconPath ? { iconPath: vscode.Uri.file(opts.iconPath) } : {}),
+        // (Terminal.creationOptions is readonly — the launch glyph is frozen). A
+        // ThemeIcon so it survives reload revival (a Uri icon does not persist).
+        ...(opts.iconPath ? { iconPath: new vscode.ThemeIcon(KARST_TERMINAL_ICON_ID) } : {}),
       });
       // Remembered in the same per-window registry the session terminals use:
       // the graph env carries KARST_TICKET_ID + KARST_LAUNCH_ID, so a reload
