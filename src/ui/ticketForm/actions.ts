@@ -79,6 +79,11 @@ export interface StartTicketOptions {
    * carries what the user actually left it on, not the default.
    */
   pullBase: boolean;
+  /**
+   * Suppress the host's own error popup on failure. Set by the sub-task
+   * autostart op, which owns the single user-facing warning (naming the key).
+   */
+  quiet?: boolean;
 }
 
 export interface TicketFormActionsDeps {

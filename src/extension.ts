@@ -1733,7 +1733,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Servers stay deferred — they come up only when a stage needs to verify.
   const startTicket = async (
     ticketId: number,
-    { pullBase }: StartTicketOptions,
+    { pullBase, quiet }: StartTicketOptions,
   ): Promise<StartTicketResult> => {
     const t = getTicket(localStore, ticketId);
     const hot = t.selectedRepos;
@@ -1791,7 +1791,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return { ok: true };
     } catch (err) {
       const message = `Could not start ticket: ${err instanceof Error ? err.message : String(err)}`;
-      void vscode.window.showErrorMessage(message);
+      if (!quiet) void vscode.window.showErrorMessage(message);
       return { ok: false, message };
     }
   };
@@ -1808,7 +1808,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     debug: (message) => logger.debug(message),
   });
   const autostartTimer = setInterval(() => void subtaskAutostart.sweep(), SUBTASK_AUTOSTART_INTERVAL_MS);
-  context.subscriptions.push({ dispose: () => clearInterval(autostartTimer) });
+  context.subscriptions.push({
+    dispose: () => {
+      clearInterval(autostartTimer);
+      subtaskAutostart.dispose();
+    },
+  });
   void subtaskAutostart.sweep();
   const ticketForm = new TicketFormManager(
     localStore,
