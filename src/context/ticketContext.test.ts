@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields } from '../store/tickets.js';
+import { listInbox, markRead, postMessage } from '../store/ticketMessages.js';
 import { insertAttachment } from '../store/attachments.js';
 import { setStage } from '../store/stages.js';
 import { recordGateRun } from '../store/gateRuns.js';
@@ -241,14 +242,41 @@ describe('buildTicketContext', () => {
 
       const ctx = buildTicketContext(store, undefined, parent.id);
       expect(ctx.subtasks).toEqual([
-        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true },
-        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false },
+        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true, autostartPending: false, queued: false },
+        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false, autostartPending: false, queued: false },
       ]);
 
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Sub-tasks');
       expect(md).toContain('- PROJ-1-s1: Schema first (stage: review) [blocking]');
       expect(md).toContain('- PROJ-1-s2: Docs polish (stage: impl)');
+    });
+
+    it('marks a sub-task queued only while autostart is pending at scope', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      const queued = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Waiting',
+        subtaskParentId: parent.id,
+        autostartPending: true,
+      });
+      const started = createTicket(store, {
+        key: 'PROJ-1-s2',
+        title: 'Running',
+        subtaskParentId: parent.id,
+        autostartPending: true,
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(started.id);
+
+      const ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.subtasks.map((s) => [s.key, s.autostartPending, s.queued])).toEqual([
+        ['PROJ-1-s1', true, true],
+        ['PROJ-1-s2', true, false],
+      ]);
+      expect(queued.id).toBeGreaterThan(0);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('- PROJ-1-s1: Waiting (stage: scope, queued)');
+      expect(md).toContain('- PROJ-1-s2: Running (stage: impl)');
     });
 
     it('omits the sub-tasks section when there are none, and ignores archived ones', () => {
@@ -1151,6 +1179,40 @@ describe('renderTicketContext', () => {
       expect(md.match(/q/g)!.length).toBe(10_000);
       expect(md).not.toContain('truncated --');
       expect(seen).toEqual([]);
+    });
+  });
+
+  describe('inbox', () => {
+    it('reports the unread mailbox count and renders a line only when non-zero', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      const child = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Piece',
+        subtaskParentId: parent.id,
+      });
+      let ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.inbox).toEqual({ unread: 0 });
+      expect(renderTicketContext(ctx)).not.toContain('## Inbox');
+
+      for (const body of ['a', 'b']) {
+        postMessage(store, {
+          projectId: null,
+          fromTicketId: child.id,
+          toTicketId: parent.id,
+          kind: 'message',
+          body,
+        });
+      }
+      markRead(store, [listInbox(store, parent.id, { unreadOnly: true })[0]!.id]);
+
+      ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.inbox).toEqual({ unread: 1 });
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Inbox');
+      expect(md).toContain('1 unread message');
+      expect(md).toContain('karst inbox');
+      // The count is a pointer, never the bodies.
+      expect(md).not.toContain('\nb\n');
     });
   });
 });

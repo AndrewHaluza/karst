@@ -17,6 +17,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
+import { unreadCount } from '../store/ticketMessages.js';
 import { getTicket, listSubtasks, type TicketWithStages } from '../store/tickets.js';
 import {
   listWorktreesByTicket,
@@ -218,6 +219,15 @@ export interface TicketContextSubtask {
   stageCurrent: string | null;
   /** True when this sub-task holds the parent before it leaves `impl`/`fix`. */
   blocksParent: boolean;
+  /** The raw auto-start queue flag (`autostart_pending`, v64). */
+  autostartPending: boolean;
+  /** Waiting to be auto-started: `autostartPending` while still at `scope`. */
+  queued: boolean;
+}
+
+/** This ticket's mailbox, as a pointer: a count, never the bodies (untrusted). */
+export interface TicketContextInbox {
+  unread: number;
 }
 
 /**
@@ -268,6 +278,8 @@ export interface TicketContext {
   subtaskParent: TicketContextSubtaskParent | null;
   /** Direct sub-tasks of this ticket, when it has any (design NDL-70 §7). */
   subtasks: TicketContextSubtask[];
+  /** Unread parent<->child mailbox rows; read them with `karst inbox`. */
+  inbox: TicketContextInbox;
   repos: TicketContextRepo[];
   /**
    * The ticket's CURRENT stage key — the stage a session is actually sitting
@@ -400,6 +412,8 @@ export function buildTicketContext(
     title: s.title,
     stageCurrent: s.stageCurrent,
     blocksParent: s.blocksParent,
+    autostartPending: s.autostartPending,
+    queued: s.autostartPending && s.stageCurrent === 'scope',
   }));
 
   const stageRow = relevantStageRow(t);
@@ -508,6 +522,7 @@ export function buildTicketContext(
     parent,
     subtaskParent,
     subtasks,
+    inbox: { unread: unreadCount(store, ticketId) },
     repos,
     stage,
   };
@@ -791,10 +806,20 @@ export function renderTicketContext(
       const title = s.title?.trim();
       const named = title ? `: ${title}` : '';
       const flag = s.blocksParent ? ' [blocking]' : '';
-      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'})${flag}`;
+      const queued = s.queued ? ', queued' : '';
+      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued})${flag}`;
     });
     parts.push(
       `## Sub-tasks\nThis ticket's work is delegated to the following sub-tasks — do not redo them.\n${rows.join('\n')}`,
+    );
+  }
+
+  // The mailbox is a pointer only: bodies are untrusted agent prose and are
+  // framed by `karst inbox`, never inlined into a seed.
+  if (ctx.inbox.unread > 0) {
+    const n = ctx.inbox.unread;
+    parts.push(
+      `## Inbox\n${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`,
     );
   }
 
