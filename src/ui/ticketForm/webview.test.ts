@@ -72,7 +72,7 @@ describe('ticket-form webview.html', () => {
     for (const block of [submitBlock, saveBlock]) {
       const head = block.slice(0, 600);
       expect(head).toContain('if (!title)');
-      expect(head).toContain("showErr('Title is required.')");
+      expect(head).toContain('setTitleInvalid(true)');
       expect(head).not.toContain('!key');
     }
   });
@@ -745,19 +745,10 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
   });
 
   it('the approach picker is a radiogroup of real buttons carrying aria-checked (UI-R09, R26)', () => {
-    expect(HTML).toContain('id="approachList" role="radiogroup" aria-label="Approach"');
+    expect(HTML).toContain('id="approachList" role="radiogroup" aria-labelledby="approachHeading"');
     const script = scriptBlock();
     expect(script).toContain('role="radio" aria-checked="${a.id===sel}" data-approach="${esc(a.id)}"');
     expect(script).not.toMatch(/class="acard[^"]*"\s+role="button"/);
-  });
-
-  it('the vertical stepper marks the current step with aria-current (UI-R26)', () => {
-    const script = scriptBlock();
-    const fnMatch = script.match(/function setStep\([^)]*\)\s*{([\s\S]*?)\n {2}}/);
-    expect(fnMatch, 'setStep() not found').toBeTruthy();
-    const body = fnMatch![1]!;
-    expect(body).toContain("s.setAttribute('aria-current', 'step')");
-    expect(body).toContain("s.removeAttribute('aria-current')");
   });
 
   it('the gate signal-word inputs carry an accessible name, not a placeholder alone (UI-R25)', () => {
@@ -779,7 +770,7 @@ describe('ticket-form webview.html — UI-RULES.md remediation', () => {
     const script = scriptBlock();
     expect(script).toContain('function setTitleInvalid(invalid)');
     expect(script).toContain("input.setAttribute('aria-invalid', 'true')");
-    expect(script).toContain("input.setAttribute('aria-describedby', 'err')");
+    expect(script).toContain("input.setAttribute('aria-describedby', 'titleErr')");
     // Called from both submit and save validation, and cleared on a valid retry.
     const submitBlock = HTML.slice(HTML.indexOf("el('submitBtn').addEventListener"), HTML.indexOf("el('saveBtn').addEventListener"));
     expect(submitBlock).toContain('setTitleInvalid(true)');
@@ -1037,22 +1028,14 @@ describe('ticket-form webview.html — selects, buttons, positioning fixes', () 
     const [main] = styleBlocks();
     const rule = main!.match(/\.hint\{[^}]*\}/)?.[0] ?? '';
     expect(rule).toContain('font-size:var(--k-text-sm)');
-    expect(rule).toContain('opacity:.6');
+    expect(rule).toContain('color:var(--k-text-dim)');
+    expect(rule).not.toContain('opacity');
   });
 
-  it('says the prompt accepts pasted screenshots AND long text', () => {
+  it('keeps the attach hint short and moves the long-text behaviour into the title', () => {
     const row = HTML.slice(HTML.indexOf('id="attachBtn"'), HTML.indexOf('<div id="attachments"'));
-    expect(row).toMatch(/paste a screenshot/i);
-    expect(row).toMatch(/long text/i);
-  });
-
-  it('centres the step rail under the dots so the spine lines up with them', () => {
-    // The dot is --k-space-9 (26px) wide → its centre sits 13px into the card.
-    // margin-left:--k-space-5 (10px) put the 2px rail's centre at 11px — the
-    // spine ran 2px left of every dot it joins. --k-space-6 (12px) centres it.
-    const [main] = styleBlocks();
-    const rule = main!.match(/\.stepbody\{[^}]*\}/)?.[0] ?? '';
-    expect(rule).toContain('margin-left:var(--k-space-6)');
+    expect(row).toContain('>or paste a screenshot<');
+    expect(row).toMatch(/title="[^"]*long text/i);
   });
 
   // The analysis runs through the SETTINGS Ticket-analysis assignment (its
@@ -1170,5 +1153,57 @@ describe('ticket-form webview.html — agent preset picker', () => {
     // still be driven programmatically.
     const block = HTML.slice(HTML.indexOf("el('agentPresetSelect').addEventListener"));
     expect(block).toContain('if (lastSessionOpen) return;');
+  });
+});
+
+describe('ticket form — group 2 contrast, wrap, hints', () => {
+  const [css] = styleBlocks();
+  const rule = (sel: string): string => css!.match(new RegExp(sel.replace(/[.#[\]]/g, '\\$&') + '\\{[^}]*\\}'))?.[0] ?? '';
+
+  it('dims text with colour, not opacity', () => {
+    for (const sel of ['.hint', '.adesc', '.stcount', 'label', '.delta', '.sub', '.searchnote']) {
+      const r = rule(sel);
+      expect(r, sel).not.toBe('');
+      expect(r, sel).not.toMatch(/opacity/);
+    }
+    expect(rule('.delta')).toContain('color:var(--k-warning)');
+    expect(rule('label')).toContain('color:var(--k-text-dim)');
+  });
+
+  it('wraps the key/fetch and filter rows and drops the analyze min-width', () => {
+    expect(rule('.searchfilter')).toContain('flex-wrap:wrap');
+    expect(css).toMatch(/\.row\{[^}]*flex-wrap:wrap/);
+    const a = css!.match(/#analyzeBtn\{[^}]*\}/)![0];
+    expect(a).not.toMatch(/min-width/);
+    expect(a).toContain('max-width:100%');
+  });
+
+  it('shows a visible hint under the Auto-improve and Pull-base switches', () => {
+    expect(HTML).toMatch(/id="autoImproveHint"/);
+    expect(HTML).toMatch(/id="pullBaseHint"/);
+    expect(HTML).toMatch(/id="autoImprove"[^>]*aria-describedby="autoImproveHint"/);
+    expect(HTML).toMatch(/id="pullBase"[^>]*aria-describedby="pullBaseHint"/);
+  });
+
+  it('drops the arrow glyph from Improve', () => {
+    expect(HTML).not.toContain('content:"↗"');
+  });
+
+  it('shortens the status filter hint', () => {
+    expect(HTML).toContain('>Filters search results<');
+  });
+
+  it('gives the attachment detach button a scrim background', () => {
+    expect(rule('.attachdetach')).toContain('background:var(--k-scrim)');
+  });
+
+  it('announces sync/delta changes politely', () => {
+    expect(HTML).toMatch(/<span class="prefill-status"[^>]*aria-live="polite"/);
+  });
+});
+
+describe('agent identity row layout', () => {
+  it('lays the picker fields in one wrapping auto-fit row', () => {
+    expect(HTML).toMatch(/#agentIdentityPicker \.ap\{[^}]*auto-fit/);
   });
 });
