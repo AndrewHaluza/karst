@@ -22,6 +22,7 @@ import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } fro
 /** Why a snapshot was pushed — debug tracing names it. */
 type PushKind = 'action' | 'passive' | 'store' | 'live' | 'follow-up';
 import { compactTicketLabel } from '../../model/followUp.js';
+import { tabTitle } from '../../model/tabTitle.js';
 import type { InsideActionHost } from './insideActions.js';
 import {
   NOOP_INSIDE_HOST,
@@ -268,7 +269,7 @@ export class DashboardManager {
 
     const ticket = getTicket(this.store, ticketId);
     const panel = this.host.createPanel(
-      compactTicketLabel(ticket, ticketLabel(ticket, this.labelTemplate?.())),
+      tabTitle(compactTicketLabel(ticket, ticketLabel(ticket, this.labelTemplate?.()))),
       ticketId,
       opts?.preserveFocus,
     );

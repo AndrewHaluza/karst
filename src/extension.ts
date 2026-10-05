@@ -174,6 +174,7 @@ import { buildTicketContext, renderTicketContext } from './context/ticketContext
 import { resolveModelChain } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
+import { tabTitle } from './model/tabTitle.js';
 import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
@@ -2352,7 +2353,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     makeChangesPanelHost(context, brandIcon),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
-      return `${compactTicketLabel(t, ticketLabel(t))} — Changes`;
+      return `${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
     },
     wrapLoadForChanges,
     openTicketDiff,
@@ -2638,7 +2639,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     new ServerLogsReader((m) => logger.debug(m)),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
-      return `Server Logs — ${compactTicketLabel(t, ticketLabel(t))}`;
+      return `Server Logs — ${tabTitle(compactTicketLabel(t, ticketLabel(t)))}`;
     },
     (ticketId) => listServersByTicket(localStore, ticketId).map((s) => ({ service: s.service, logPath: s.logPath })),
   );

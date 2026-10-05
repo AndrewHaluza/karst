@@ -15,6 +15,7 @@ import { attemptKey } from '../../model/inside/rounds.js';
 import { DashboardManager, type PanelHost, type FakePanel, type StageLogReader, type AgentLogReader } from './panel.js';
 import { buildGraphInsideInput } from './graphInside.js';
 import { LIVE_TICK_MS } from './liveTick.js';
+import { TAB_TITLE_MAX } from '../../model/tabTitle.js';
 import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
@@ -180,6 +181,17 @@ describe('DashboardManager', () => {
 
     // A constant glyph is set once: a usage or hook stream must cost no IPC.
     expect(panels[0]!.icons).toEqual(['/store/icons/karst-blue.svg']);
+  });
+
+  it('caps the tab title so a long ticket title cannot crowd the tab strip', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'a very long ticket title '.repeat(6) });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+    mgr.openDashboard(t.id);
+
+    expect(panels[0]!.title.length).toBeLessThanOrEqual(TAB_TITLE_MAX);
+    expect(panels[0]!.title.startsWith('A-1')).toBe(true);
   });
 
   it('separate tickets get separate panels', () => {
