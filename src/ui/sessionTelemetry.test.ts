@@ -79,4 +79,102 @@ describe('guide-attribution terminal env (Task 4)', () => {
     expect(env[KARST_DB_ENV]).toBeUndefined();
     expect(env[KARST_PROVIDER_ENV]).toBeUndefined();
   });
+
+  it('exports KARST_CLI, KARST_DB, KARST_MANIFEST, KARST_TICKET when supplied; KARST_TICKET_ID unchanged', () => {
+    const { host, opts } = recordingHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, undefined, undefined, [], {
+      dbPath: '/storage/karst.db',
+      cliEntry: '/ext/dist/cli/main.js',
+      manifestPath: '/repo/karst.yml',
+      ticketKey: 'NDL-7',
+    });
+    const env = opts[0]!.env;
+    expect(env['KARST_CLI']).toBe('/ext/dist/cli/main.js');
+    expect(env['KARST_DB']).toBe('/storage/karst.db');
+    expect(env['KARST_MANIFEST']).toBe('/repo/karst.yml');
+    expect(env['KARST_TICKET']).toBe('NDL-7');
+    expect(env[KARST_TICKET_ENV]).toBe('7');
+  });
+
+  it('omits the CLI env when cliEntry/manifestPath/ticketKey are absent', () => {
+    const { host, opts } = recordingHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, undefined, undefined, [], {
+      dbPath: '/storage/karst.db',
+    });
+    const env = opts[0]!.env;
+    expect(env['KARST_DB']).toBe('/storage/karst.db');
+    expect(env['KARST_CLI']).toBeUndefined();
+    expect(env['KARST_MANIFEST']).toBeUndefined();
+    expect(env['KARST_TICKET']).toBeUndefined();
+  });
+
+  it('cliEntry without dbPath exports nothing CLI-related and debug-logs it', () => {
+    const { host, opts } = recordingHost();
+    const lines: string[] = [];
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, undefined, undefined, [], {
+      cliEntry: '/ext/dist/cli/main.js',
+      manifestPath: '/repo/karst.yml',
+      ticketKey: 'NDL-7',
+      debug: (m) => lines.push(m),
+    });
+    const env = opts[0]!.env;
+    expect(env['KARST_CLI']).toBeUndefined();
+    expect(env['KARST_DB']).toBeUndefined();
+    expect(env['KARST_MANIFEST']).toBeUndefined();
+    expect(env['KARST_TICKET']).toBeUndefined();
+    expect(lines.some((l) => l.includes('KARST_CLI'))).toBe(true);
+    expect(mgr.sessionCliEnv(7)).toEqual({ cli: false, manifest: false, ticket: false });
+  });
+
+  it('dbPath without cliEntry exports only KARST_DB', () => {
+    const { host, opts } = recordingHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, undefined, undefined, [], {
+      dbPath: '/storage/karst.db',
+      manifestPath: '/repo/karst.yml',
+      ticketKey: 'NDL-7',
+    });
+    const env = opts[0]!.env;
+    expect(env['KARST_DB']).toBe('/storage/karst.db');
+    expect(env['KARST_CLI']).toBeUndefined();
+    expect(env['KARST_MANIFEST']).toBeUndefined();
+    expect(env['KARST_TICKET']).toBeUndefined();
+  });
+});
+
+describe('recorded CLI export per live session (H1/H2)', () => {
+  it('records what the launch exported', () => {
+    const { host } = recordingHost();
+    const mgr = new SessionManager(host, channelFor);
+    mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, undefined, undefined, [], {
+      dbPath: '/d',
+      cliEntry: '/c',
+      ticketKey: 'NDL-7',
+    });
+    expect(mgr.sessionCliEnv(7)).toEqual({ cli: true, manifest: false, ticket: true });
+  });
+
+  it('no session → undefined', () => {
+    const mgr = new SessionManager(recordingHost().host, channelFor);
+    expect(mgr.sessionCliEnv(7)).toBeUndefined();
+  });
+
+  it('an adopted revived session has no export record → undefined (literal fallback)', () => {
+    const terminal: SessionTerminal = {
+      show: () => {},
+      sendText: () => {},
+      dispose: () => {},
+      onDidClose: () => {},
+    };
+    const host: TerminalHost = {
+      createTerminal: () => terminal,
+      restoredSessions: () => [{ ticketId: 7, terminal, launchId: 'old' }],
+    };
+    const mgr = new SessionManager(host, channelFor);
+    expect(mgr.nudge(7, 'hi')).toBe(true);
+    expect(mgr.sessionCliEnv(7)).toBeUndefined();
+  });
 });

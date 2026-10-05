@@ -443,6 +443,7 @@ export class AntigravityAdapter implements AgentAdapter {
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
       onSpawned: opts.onSpawned,
+      env: opts.env,
       onOutput: opts.onOutput,
     });
     if (r.exitCode !== 0) {

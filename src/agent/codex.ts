@@ -679,6 +679,7 @@ export class CodexAdapter implements AgentAdapter {
         timeoutMs: opts.timeoutMs,
         onDebug: opts.debug,
         onSpawned: opts.onSpawned,
+        env: opts.env,
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
       });
     } finally {

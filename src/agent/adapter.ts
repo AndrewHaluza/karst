@@ -121,6 +121,12 @@ export interface RunHeadlessOpts {
    * prompt, exactly as a non-structured core needs.
    */
   outputSchema?: JsonSchemaDocument;
+  /**
+   * Extra environment for the headless child (e.g. the karst CLI refs from
+   * `cliEnv.ts`), forwarded verbatim to `HeadlessSpawnOptions.env` and merged
+   * over the host env there. Absent → the child inherits the host env.
+   */
+  env?: Readonly<Record<string, string>>;
 }
 
 export interface HeadlessResult {
@@ -188,22 +194,24 @@ export interface MaterializeOpts {
   /**
    * Shell command prefix the generated `/karst:<id>` command runs (with the
    * ticket key appended) to re-pull live ticket context (§ context loader),
-   * e.g. `node "<ext>/dist/cli/main.js" context --db "<db>" --manifest "<yml>"`.
+   * e.g. `node "$KARST_CLI" context --db "$KARST_DB" --manifest "$KARST_MANIFEST"`
+   * (env refs the karst-launched terminal exports; literal paths only where
+   * that env lacks them — see `cliTokensFor`).
    * Absent → the command falls back to a generic "read the ticket" instruction.
    */
   cliContextPrefix?: string;
   /**
    * Shell command prefix the generated `/karst:<id>` command runs (with the
    * ticket key appended) to fire the impl→uat marker when implementation is
-   * done (§5.4), e.g. `node "<ext>/dist/cli/main.js" stage impl pass --db
-   * "<db>" --ticket`. Absent → no marker step (the impl boundary stays manual).
+   * done (§5.4), e.g. `node "$KARST_CLI" stage impl pass --db "$KARST_DB"
+   * --manifest "$KARST_MANIFEST" --ticket`. Absent → no marker step (the impl boundary stays manual).
    */
   cliStagePrefix?: string;
   /**
    * Builds, for one phase name, the shell command prefix a workflow step runs
    * (with the ticket key appended) to report that the agent has ENTERED that
-   * phase, e.g. `node "<ext>/dist/cli/main.js" phase research --db "<db>"
-   * --manifest "<yml>" --ticket`. A function rather than a fixed prefix because
+   * phase, e.g. `node "$KARST_CLI" phase research --db "$KARST_DB"
+   * --manifest "$KARST_MANIFEST" --ticket`. A function rather than a fixed prefix because
    * the name is baked into the command, one per phase. Absent → no phase
    * markers (karst records no per-phase state, exactly as before).
    */
@@ -211,13 +219,13 @@ export interface MaterializeOpts {
   /**
    * Shell command the generated `/karst:<id>` command runs to read the
    * agent-facing manual (how Karst works, the flow, the verbs), e.g.
-   * `node "<ext>/dist/cli/main.js" guide`. Absent → the command does not point
+   * `node "$KARST_CLI" guide`. Absent → the command does not point
    * at the guide (a host too old to serve it must not hand out a dead verb).
    */
   cliGuidePrefix?: string;
   /**
    * Shell command prefix for `karst test` subcommands, e.g.
-   * `node "<ext>/dist/cli/main.js" test --db "<db>" --manifest "<yml>"`.
+   * `node "$KARST_CLI" test --db "$KARST_DB" --manifest "$KARST_MANIFEST"`.
    * Embedded in the test-family skill body so the agent never composes the
    * `--db`/`--manifest` boilerplate itself. Absent → the test skill is not
    * injected (a host too old to serve it must not hand out a dead verb).

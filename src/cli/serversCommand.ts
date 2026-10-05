@@ -4,6 +4,7 @@ import { spinTicket } from '../runtime/spin.js';
 import { stopTicketServers } from '../runtime/supervisor.js';
 import { listServersByTicket, listWorktreesByTicket } from '../store/dashboard.js';
 import { SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
+import { quoteArg } from '../agent/cliEnv.js';
 
 export type ServersAction = 'list' | 'spin' | 'restart' | 'stop';
 
@@ -163,8 +164,7 @@ export function composeServersPrefix(
   manifestPath: string,
   ticketKey: string,
 ): string {
-  const q = (s: string): string => `"${s}"`;
-  return ['node', q(cliEntry), '--db', q(dbPath), '--manifest', q(manifestPath), '--ticket', q(ticketKey)].join(' ');
+  return ['node', quoteArg(cliEntry), '--db', quoteArg(dbPath), '--manifest', quoteArg(manifestPath), '--ticket', quoteArg(ticketKey)].join(' ');
 }
 
 /**

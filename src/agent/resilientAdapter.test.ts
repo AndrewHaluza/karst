@@ -85,6 +85,16 @@ describe('resilientAdapter', () => {
     expect(spy).toHaveBeenCalledTimes(1);
   });
 
+  it('passes the run env through to the inner adapter untouched', async () => {
+    const spy = vi.fn(async (_o: RunHeadlessOpts): Promise<HeadlessResult> => ({
+      sessionId: 's1', verdict: null, raw: 'answer',
+    }));
+    const adapter = resilientAdapter(fakeAdapter({ runHeadless: spy }), opts());
+    const env = { KARST_DB: '/x/karst.db' };
+    await adapter.runHeadless({ prompt: 'hi', cwd: '.', env });
+    expect(spy.mock.calls[0]![0].env).toBe(env);
+  });
+
   it('transient then success', async () => {
     let calls = 0;
     const spy = vi.fn(async (): Promise<HeadlessResult> => {

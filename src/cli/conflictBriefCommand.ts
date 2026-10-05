@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import { buildConflictBrief } from '../workflow/conflictSession.js';
 import { resolveTicketByKey } from './resolveTicket.js';
+import { quoteArg } from '../agent/cliEnv.js';
 
 /**
  * The `karst conflict-brief <key> <repo>` CLI verb — human-readable summary
@@ -22,9 +23,8 @@ export function composeConflictBriefCommand(
   dbPath: string,
   manifestPath?: string,
 ): string {
-  const q = (s: string): string => `"${s}"`;
-  const parts = ['node', q(cliEntry), 'conflict-brief', '--db', q(dbPath)];
-  if (manifestPath) parts.push('--manifest', q(manifestPath));
+  const parts = ['node', quoteArg(cliEntry), 'conflict-brief', '--db', quoteArg(dbPath)];
+  if (manifestPath) parts.push('--manifest', quoteArg(manifestPath));
   return parts.join(' ');
 }
 

@@ -13,6 +13,7 @@ import { parseGetStageArgs, runGetStage } from './getStage.js';
 import { parseGetLogsArgs, runGetLogs } from './getLogs.js';
 import { parseGetHooksArgs, runGetHooks } from './getHooks.js';
 import { parseAssertArgs, runAssert } from './assert.js';
+import { quoteArg } from '../../agent/cliEnv.js';
 
 /**
  * The `karst test <command>` CLI verb — the agent test driver (Phase 1 of the
@@ -40,9 +41,8 @@ export function composeTestCommand(
   dbPath: string,
   manifestPath?: string,
 ): string {
-  const q = (s: string): string => `"${s}"`;
-  const parts = ['node', q(cliEntry), 'test', '--db', q(dbPath)];
-  if (manifestPath) parts.push('--manifest', q(manifestPath));
+  const parts = ['node', quoteArg(cliEntry), 'test', '--db', quoteArg(dbPath)];
+  if (manifestPath) parts.push('--manifest', quoteArg(manifestPath));
   return parts.join(' ');
 }
 

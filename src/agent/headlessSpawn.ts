@@ -60,6 +60,29 @@ export interface HeadlessSpawnOptions {
    * the caller still gets the full output on settle, exactly as before.
    */
   onOutput?: (chunk: HeadlessOutputChunk) => void;
+  /**
+   * Extra environment for the child, layered over the host's `process.env`
+   * into a NEW object (the host env is never mutated). Absent → the child
+   * inherits the host env exactly as before. Only `KARST_*` keys are applied —
+   * any other key (PATH, NODE_OPTIONS, ...) is dropped with a debug line naming
+   * it. Only the KEYS are ever logged.
+   */
+  env?: Readonly<Record<string, string>>;
+}
+
+/** Overlay keys the headless env accepts: karst's own namespace only. */
+const OVERLAY_KEY_PREFIX = 'KARST_';
+
+function karstOnly(
+  env: Readonly<Record<string, string>>,
+  onDebug: ((message: string) => void) | undefined,
+): Record<string, string> {
+  const kept = Object.entries(env).filter(([k]) => k.startsWith(OVERLAY_KEY_PREFIX));
+  const dropped = Object.keys(env).filter((k) => !k.startsWith(OVERLAY_KEY_PREFIX));
+  if (dropped.length > 0) {
+    onDebug?.(`[agent] headless run: dropped non-KARST_ env overlay keys [${dropped.join(', ')}]`);
+  }
+  return Object.fromEntries(kept);
 }
 
 function abortError(): Error {
@@ -121,12 +144,17 @@ export function spawnHeadlessCli(
       return;
     }
 
+    const extraEnv = options.env ? karstOnly(options.env, onDebug) : undefined;
+    if (extraEnv) {
+      onDebug?.(`[agent] headless run: env overlay keys [${Object.keys(extraEnv).join(', ')}]`);
+    }
     let child: ChildProcess;
     try {
       child = spawnImpl(command, args, {
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: true,
+        ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
       });
     } catch (err) {
       onDebug?.(

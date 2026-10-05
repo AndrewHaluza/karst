@@ -6,6 +6,7 @@ import { activeRecoverySeries } from '../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../store/prFeedback.js';
 import { renderFixBrief } from '../agent/fixBrief.js';
 import { resolveTicketByKey } from './resolveTicket.js';
+import { quoteArg } from '../agent/cliEnv.js';
 
 /**
  * The `karst fix-brief <key>` CLI verb — human-readable summary of the failing
@@ -25,9 +26,8 @@ export function composeFixBriefCommand(
   dbPath: string,
   manifestPath?: string,
 ): string {
-  const q = (s: string): string => `"${s}"`;
-  const parts = ['node', q(cliEntry), 'fix-brief', '--db', q(dbPath)];
-  if (manifestPath) parts.push('--manifest', q(manifestPath));
+  const parts = ['node', quoteArg(cliEntry), 'fix-brief', '--db', quoteArg(dbPath)];
+  if (manifestPath) parts.push('--manifest', quoteArg(manifestPath));
   return parts.join(' ');
 }
 

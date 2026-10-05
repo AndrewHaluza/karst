@@ -19,6 +19,7 @@
  */
 
 import { MARKER_REFUSED, GUIDE_POINTER_INTRO, SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
+import { quoteArg } from '../agent/cliEnv.js';
 
 /**
  * The agent-facing manual. Karst-authored, trusted content — it may be
@@ -164,7 +165,7 @@ ticket would park with no way out.
  * with spaces survive, matching the sibling compose helpers.
  */
 export function composeGuideCommand(cliEntry: string): string {
-  return `node "${cliEntry}" guide`;
+  return `node ${quoteArg(cliEntry)} guide`;
 }
 
 /**

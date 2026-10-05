@@ -71,6 +71,14 @@ export interface InstrumentOptions {
    * spawned it. The host binds it to `ResourceMonitor.registerPid`.
    */
   onSpawned?: (pid: number, tracking?: UsageTracking) => (() => void) | void;
+  /**
+   * Host env for every headless child (e.g. the karst CLI refs from
+   * `cliEnv.ts`), resolved per call from its `tracking` and merged UNDER the
+   * call's own `RunHeadlessOpts.env` (the caller wins). Injected at this seam
+   * so any prompt carrying `"$KARST_CLI"` resolves in a headless run by
+   * construction.
+   */
+  env?: (tracking?: UsageTracking) => Readonly<Record<string, string>> | undefined;
   /** Injected clock, for tests. */
   now?: () => string;
 }
@@ -139,10 +147,13 @@ export function instrumentAdapter(
       options.debug?.(
         `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'} for ticket ${opts.tracking?.ticketId ?? '?'})`,
       );
+      const hostEnv = options.env?.(opts.tracking);
+      const env = hostEnv ? { ...hostEnv, ...opts.env } : opts.env;
       let result: HeadlessResult;
       try {
         result = await adapter.runHeadless({
           ...opts,
+          ...(env ? { env } : {}),
           debug: options.debug,
           ...(options.onSpawned
             ? { onSpawned: (pid: number) => options.onSpawned!(pid, opts.tracking) }

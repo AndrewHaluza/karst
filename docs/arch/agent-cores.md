@@ -12,6 +12,7 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - A SILENT run is an empty answer, never a failure
 - A FIX TO ONE AGENT CORE IS A FIX TO THE SEAM
 - A headless agent run is BOUNDED
+- Session and headless runs receive env refs for CLI invocation
 - Retry and model fallback
 - Token spend is measured ONCE, at the agent seam
 - A terminal's ticket is carried by its ENV and its PID
@@ -55,6 +56,10 @@ A change that is NOT a translation of one CLI's own flag vocabulary lands on eve
 ## A headless agent run is BOUNDED, and the bounds live in ONE spawner
 
 `agent/headlessSpawn.ts` (`spawnHeadlessCli`) is now THE spawner every adapter's `defaultSpawn`/`makeDefaultSpawn` delegates to: the child is spawned `detached` (its own group), an abort or the 15-minute `timeoutMs` backstop kills the WHOLE group via `killTree` (a killed run's `close` arrives a moment later and must never read as a clean exit — the `killReason` flag makes abort/timeout rejections win over it), and stdout/stderr drain into `BoundedOutput` (8 MB default) instead of unbounded string concat. An abort rejects with `name === 'AbortError'`; a timeout rejects naming the deadline. Adding a fifth core means routing its spawn through `spawnHeadlessCli`, never a third copy of the loop.
+
+## Session and headless runs receive env refs for CLI invocation
+
+An interactive session's launch env (`src/ui/session.ts`, via `cliEnv.ts`'s `sessionCliEnv`) exports `KARST_CLI` + `KARST_DB` — plus `KARST_MANIFEST` / `KARST_TICKET` (the ticket KEY) when known — ONLY when both `cliEntry` and `dbPath` are given; `dbPath` alone exports just `KARST_DB`, and `cliEntry` without `dbPath` exports nothing CLI-related (debug-logged). `KARST_TICKET_ID` (numeric id, terminal restore) is pre-existing and unrelated. The env is fixed at launch: the `SessionManager` records per live session which refs it exported (`sessionCliEnv(ticketId)`), and text later delivered INTO that session (e.g. the fix marker nudge) is composed with `cliTokensFor(recorded, literal)` — refs only where that session exported them, literal paths otherwise (an adopted/revived terminal has no record → literal). The launch seed and `/karst:<id>` command files derive their refs from the SAME literal set exported into the session (one `cliLiteral` resolution). Headless runs merge in two layers: `instrumentAdapter`'s injected host env (`InstrumentOptions.env`, per call from `tracking`) goes UNDER the call's own `RunHeadlessOpts.env` (caller wins), then `spawnHeadlessCli` layers that over `process.env` into a new object — after dropping every overlay key not prefixed `KARST_` (a debug line names the dropped keys). Debug lines log keys only, never values. Composers quote via `quoteArg`, which leaves an exact `"$VAR"` token alone and does NOT escape `"`/`$` inside a literal.
 
 ## Retry and model fallback
 

@@ -119,6 +119,17 @@ describe('AntigravityAdapter', () => {
       expect(seenOpts?.timeoutMs).toBe(456_789);
     });
 
+    it('forwards the run env into the spawn', async () => {
+      let seenOpts: { env?: Readonly<Record<string, string>> } | undefined;
+      const spawnFn: SpawnHeadless = async (_cmd, _args, _cwd, o) => {
+        seenOpts = o;
+        return { stdout: 'success', stderr: '', exitCode: 0 };
+      };
+      const env = { KARST_DB: '/x/karst.db' };
+      await new AntigravityAdapter(spawnFn).runHeadless({ prompt: 'go', cwd: '/wt/a', env });
+      expect(seenOpts?.env).toEqual(env);
+    });
+
     it('spawns agy -p and returns output', async () => {
       const spawner = vi.fn(fakeSpawn({ stdout: 'success', exitCode: 0 }));
       const adapter = new AntigravityAdapter(spawner);

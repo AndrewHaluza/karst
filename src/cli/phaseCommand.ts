@@ -1,4 +1,5 @@
 import { isSafePhaseName, phaseNameFault } from '../approaches/phaseName.js';
+import { quoteArg } from '../agent/cliEnv.js';
 
 /**
  * Compose the `node <cli> phase <name> --db <db> [--manifest <yml>] --ticket`
@@ -36,15 +37,14 @@ export function composePhaseCommand(
   if (!isSafePhaseName(phaseName)) {
     throw new Error(phaseNameFault('phase name', phaseName));
   }
-  const q = (s: string): string => `"${s}"`;
   return [
     'node',
-    q(cliEntry),
+    quoteArg(cliEntry),
     'phase',
     phaseName,
     '--db',
-    q(dbPath),
-    ...(manifestPath ? ['--manifest', q(manifestPath)] : []),
+    quoteArg(dbPath),
+    ...(manifestPath ? ['--manifest', quoteArg(manifestPath)] : []),
     '--ticket',
   ].join(' ');
 }

@@ -953,6 +953,17 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(seenOpts?.timeoutMs).toBe(345_678);
   });
 
+  it('forwards the run env into the spawn', async () => {
+    let seenOpts: { env?: Readonly<Record<string, string>> } | undefined;
+    const spawnFn: SpawnHeadless = async (_cmd, _args, _cwd, o) => {
+      seenOpts = o;
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const env = { KARST_DB: '/x/karst.db' };
+    await new ClaudeAdapter(spawnFn).runHeadless({ prompt: 'go', cwd: '/wt/a', env });
+    expect(seenOpts?.env).toEqual(env);
+  });
+
   it('parses the session id and result text from claude JSON output', async () => {
     const json = JSON.stringify({ session_id: 'sess-9', result: '["api"]' });
     const adapter = new ClaudeAdapter(fakeSpawn({ stdout: json, exitCode: 0 }));

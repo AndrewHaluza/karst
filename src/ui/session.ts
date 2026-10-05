@@ -1,6 +1,12 @@
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
+import {
+  KARST_DB_ENV,
+  exportedCliEnv,
+  sessionCliEnv,
+  type ExportedCliEnv,
+} from '../agent/cliEnv.js';
 import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
 
 /**
@@ -31,8 +37,7 @@ export interface SessionTerminal {
 export const KARST_TICKET_ENV = 'KARST_TICKET_ID';
 /** Environment key that preserves the terminal's provider-neutral generation. */
 export const KARST_LAUNCH_ENV = 'KARST_LAUNCH_ID';
-/** Env key pointing the agent at the registry so a `karst guide` pull is attributable. */
-export const KARST_DB_ENV = 'KARST_DB';
+export { KARST_DB_ENV };
 /** Env key naming the core so a `karst guide` pull is attributed per core. */
 export const KARST_PROVIDER_ENV = 'KARST_PROVIDER';
 
@@ -127,6 +132,19 @@ export interface OpenSessionOptions {
    * `KARST_DB`. Host-internal — never accepted from a webview message.
    */
   dbPath?: string | null;
+  /**
+   * Absolute path of the karst CLI entry, exported as `KARST_CLI` (with
+   * `KARST_MANIFEST` / `KARST_TICKET`) so agent commands reference env vars
+   * instead of machine paths. Requires `dbPath` (without it nothing CLI-related
+   * is exported). Host-internal.
+   */
+  cliEntry?: string;
+  /** Manifest path, exported as `KARST_MANIFEST` (only alongside `KARST_CLI`). */
+  manifestPath?: string;
+  /** Ticket key (e.g. `NDL-7`), exported as `KARST_TICKET`. */
+  ticketKey?: string;
+  /** Injected debug sink (no global logger in this vscode-free module). */
+  debug?: (message: string) => void;
 }
 
 /**
@@ -267,6 +285,12 @@ interface TrackedSession {
   launchId?: string;
   /** The recorded active provider/model snapshot of this session's launch. */
   identity?: SessionIdentity;
+  /**
+   * Which karst CLI refs this session's env exported at launch. Absent for a
+   * session this window did not launch (revived/adopted): text sent into it
+   * must use literal paths.
+   */
+  cliEnv?: ExportedCliEnv;
 }
 
 /**
@@ -349,12 +373,14 @@ export class SessionManager {
     wasResume = false,
     options: OpenSessionOptions = {},
     identity?: SessionIdentity,
+    cliEnv?: ExportedCliEnv,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
     this.terminals.set(ticketId, {
       terminal,
       ...(launchId ? { launchId } : {}),
       ...(identity ? { identity } : {}),
+      ...(cliEnv ? { cliEnv } : {}),
     });
     terminal.onDidClose((exitCode) => {
       // A recovery timeout can dispose one terminal and immediately create its
@@ -464,6 +490,15 @@ export class SessionManager {
       });
     }
 
+    const cliEnv = sessionCliEnv(
+      {
+        ...(options.cliEntry ? { cliEntry: options.cliEntry } : {}),
+        ...(options.dbPath ? { dbPath: options.dbPath } : {}),
+        ...(options.manifestPath ? { manifestPath: options.manifestPath } : {}),
+        ...(options.ticketKey ? { ticketKey: options.ticketKey } : {}),
+      },
+      options.debug,
+    );
     let terminal: SessionTerminal;
     try {
       terminal = this.host.createTerminal({
@@ -476,7 +511,7 @@ export class SessionManager {
           ...cmd.env,
           [KARST_TICKET_ENV]: String(ticketId),
           ...(launchId ? { [KARST_LAUNCH_ENV]: launchId } : {}),
-          ...(options.dbPath ? { [KARST_DB_ENV]: options.dbPath } : {}),
+          ...cliEnv,
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
         ...(identity ? { identity } : {}),
@@ -501,6 +536,7 @@ export class SessionManager {
       Boolean(resume),
       options,
       identity,
+      exportedCliEnv(cliEnv),
     );
     if (options.reveal !== false) terminal.show();
   }
@@ -676,6 +712,16 @@ export class SessionManager {
    */
   sessionIdentity(ticketId: number): SessionIdentity | null {
     return this.terminals.get(ticketId)?.identity ?? null;
+  }
+
+  /**
+   * Which karst CLI refs the ticket's live session exported at launch, or
+   * `undefined` when there is no session or this window did not launch it
+   * (revived/adopted) — the caller then composes literal paths
+   * (`cliTokensFor`). Text nudged into a session must resolve in ITS env.
+   */
+  sessionCliEnv(ticketId: number): ExportedCliEnv | undefined {
+    return this.terminals.get(ticketId)?.cliEnv;
   }
 
   /**

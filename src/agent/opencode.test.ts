@@ -936,6 +936,17 @@ describe('OpencodeAdapter headless execution', () => {
     expect(seenOpts?.timeoutMs).toBe(123_456);
   });
 
+  it('forwards the run env into the spawn', async () => {
+    let seenOpts: { env?: Readonly<Record<string, string>> } | undefined;
+    const spawnFn: SpawnHeadless = async (_cmd, _args, _cwd, o) => {
+      seenOpts = o;
+      return { stdout: okNdjson, stderr: '', exitCode: 0 };
+    };
+    const env = { KARST_DB: '/x/karst.db' };
+    await new OpencodeAdapter(spawnFn).runHeadless({ prompt: 'go', cwd: '/wt/a', env });
+    expect(seenOpts?.env).toEqual(env);
+  });
+
   it('runs a fresh NDJSON run with --auto under bypassPermissions', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     const result = await new OpencodeAdapter(spawn).runHeadless({

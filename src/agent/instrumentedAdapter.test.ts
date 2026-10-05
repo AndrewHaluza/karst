@@ -68,6 +68,42 @@ describe('instrumentAdapter', () => {
     expect(seenDebug!('[AGENT:CLAUDE] x')).toBe('[agent:claude] x');
   });
 
+  it('injects the host env (per tracking) into every headless call, caller env winning', async () => {
+    const seen: Array<Readonly<Record<string, string>> | undefined> = [];
+    const inner = fakeAdapter({
+      runHeadless: async (opts) => {
+        seen.push(opts.env);
+        return { sessionId: 's1', verdict: null, raw: 'answer' };
+      },
+    });
+    const adapter = instrumentAdapter(inner, {
+      sink: sink(),
+      env: (tracking) => ({ KARST_CLI: '/cli.js', KARST_TICKET: String(tracking?.ticketId ?? '') }),
+    });
+
+    await adapter.runHeadless({
+      prompt: 'hi',
+      cwd: '.',
+      tracking: { ticketId: 7, callSite: 'uat-tester' },
+    });
+    await adapter.runHeadless({ prompt: 'hi', cwd: '.', env: { KARST_CLI: '/mine.js' } });
+
+    expect(seen[0]).toEqual({ KARST_CLI: '/cli.js', KARST_TICKET: '7' });
+    expect(seen[1]).toEqual({ KARST_CLI: '/mine.js', KARST_TICKET: '' });
+  });
+
+  it('leaves env untouched when no host env is injected', async () => {
+    let seen: unknown = 'unset';
+    const inner = fakeAdapter({
+      runHeadless: async (opts) => {
+        seen = opts.env;
+        return { sessionId: 's1', verdict: null, raw: 'answer' };
+      },
+    });
+    await instrumentAdapter(inner, { sink: sink() }).runHeadless({ prompt: 'hi', cwd: '.' });
+    expect(seen).toBeUndefined();
+  });
+
   it('emits its own entry, decision, and exit debug lines via the host callback', async () => {
     const s = sink();
     const lines: string[] = [];
@@ -308,6 +344,16 @@ describe('instrumentAdapter', () => {
     expect(runHeadless).toHaveBeenCalledWith(opts);
     expect(result.raw).toBe('body');
     expect(result.sessionId).toBe('sess');
+  });
+
+  it('passes the run env through to the inner adapter untouched', async () => {
+    const runHeadless = vi.fn(async (_opts: RunHeadlessOpts) => ({
+      sessionId: 'sess', verdict: null, raw: 'body',
+    }));
+    const adapter = instrumentAdapter(fakeAdapter({ runHeadless }), { sink: sink() });
+    const env = { KARST_DB: '/x/karst.db' };
+    await adapter.runHeadless({ prompt: 'p', cwd: '/w', env });
+    expect(runHeadless.mock.calls[0]![0].env).toBe(env);
   });
 
   it('delegates every non-headless part of the adapter contract', () => {

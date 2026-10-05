@@ -300,6 +300,58 @@ describe('renderStageEnding', () => {
   });
 });
 
+describe('renderStageEnding — env refs', () => {
+  const ENV = { KARST_CLI: '/cli.js', KARST_DB: '/db' };
+
+  it('uses env refs when KARST_CLI and KARST_DB are set', () => {
+    const result = renderStageEnding('impl', '/real/cli.js', '/real/db', '/real/m.yml', 'PROJ-1', ENV);
+    expect(result).toContain('node "$KARST_CLI" stage impl pass --db "$KARST_DB" --ticket PROJ-1');
+    expect(result).not.toContain('/real/');
+    expect(result).not.toContain('--manifest');
+  });
+
+  it('adds a manifest ref only when KARST_MANIFEST is set', () => {
+    const result = renderStageEnding('impl', '/c', '/d', '/m.yml', 'PROJ-1', {
+      ...ENV,
+      KARST_MANIFEST: '/m.yml',
+    });
+    expect(result).toContain('--db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket PROJ-1');
+  });
+
+  it('falls back to literal paths when the env lacks KARST_CLI or KARST_DB', () => {
+    const result = renderStageEnding('impl', '/real/cli.js', '/real/db', undefined, 'PROJ-1', {
+      KARST_DB: '/db',
+    });
+    expect(result).toContain('node "/real/cli.js" stage impl pass --db "/real/db"');
+    expect(result).not.toContain('$KARST');
+  });
+
+  it('still returns undefined without a cliEntry and no env refs', () => {
+    expect(renderStageEnding('impl', undefined, '/db', undefined, 'PROJ-1', {})).toBeUndefined();
+  });
+});
+
+describe('runContextCommand — env refs', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('renders the stage ending with env refs when the injected env carries them', () => {
+    const t = createTicket(store, { key: 'PROJ-7', title: 'x' });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('impl', t.id);
+    const out = runContextCommand(
+      store,
+      undefined,
+      { key: 'PROJ-7', format: 'md' },
+      '/real/db',
+      '/real/cli.js',
+      undefined,
+      { KARST_CLI: '/real/cli.js', KARST_DB: '/real/db' },
+    );
+    expect(out).toContain('node "$KARST_CLI" stage impl pass --db "$KARST_DB" --ticket PROJ-7');
+  });
+});
+
 describe('runContextCommand — stage ending', () => {
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));

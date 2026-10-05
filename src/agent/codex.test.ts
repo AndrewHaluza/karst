@@ -1382,6 +1382,17 @@ describe('CodexAdapter headless execution', () => {
     expect(seenOpts?.timeoutMs).toBe(234_567);
   });
 
+  it('forwards the run env into the spawn', async () => {
+    let seenOpts: { env?: Readonly<Record<string, string>> } | undefined;
+    const spawnFn: SpawnHeadless = async (_cmd, _args, _cwd, o) => {
+      seenOpts = o;
+      return { stdout: okJsonl, stderr: '', exitCode: 0 };
+    };
+    const env = { KARST_DB: '/x/karst.db' };
+    await new CodexAdapter(spawnFn).runHeadless({ prompt: 'go', cwd: '/wt/a', env });
+    expect(seenOpts?.env).toEqual(env);
+  });
+
   it('forwards onOutput into the headless spawn, rendering JSONL as readable lines', async () => {
     let seenOpts: { onOutput?: (chunk: { stream: 'stdout' | 'stderr'; text: string }) => void } | undefined;
     const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {

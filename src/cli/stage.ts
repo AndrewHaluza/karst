@@ -9,6 +9,7 @@ import { markImplementDone } from '../workflow/stages/implement.js';
 import { markFixDone } from '../workflow/fixExecution.js';
 import { assertMarkerNotWhileWaiting } from '../workflow/markerGuard.js';
 import { settleSubtaskGate } from '../workflow/subtaskGate.js';
+import { quoteArg } from '../agent/cliEnv.js';
 
 export { assertMarkerNotWhileWaiting };
 
@@ -53,16 +54,15 @@ export function composeStageCommand(
   stage: MarkerStage = 'impl',
   manifestPath?: string,
 ): string {
-  const q = (s: string): string => `"${s}"`;
   return [
     'node',
-    q(cliEntry),
+    quoteArg(cliEntry),
     'stage',
     stage,
     'pass',
     '--db',
-    q(dbPath),
-    ...(manifestPath ? ['--manifest', q(manifestPath)] : []),
+    quoteArg(dbPath),
+    ...(manifestPath ? ['--manifest', quoteArg(manifestPath)] : []),
     '--ticket',
   ].join(' ');
 }

@@ -44,6 +44,56 @@ describe('spawnHeadlessCli', () => {
     });
   });
 
+  it('merges an explicit env over the host env into a new object, logging keys only', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    }) as unknown as typeof spawn;
+    const env = { KARST_DB: '/secret/karst.db' };
+    const lines: string[] = [];
+    await spawnHeadlessCli('codex', [], '/wt/a', { env, onDebug: (m) => lines.push(m) }, spawnImpl);
+    const spawnOpts = (spawnImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![2] as {
+      env?: Record<string, string>;
+    };
+    expect(spawnOpts.env).toEqual({ ...process.env, KARST_DB: '/secret/karst.db' });
+    expect(spawnOpts.env).not.toBe(process.env);
+    expect(process.env.KARST_DB).toBeUndefined();
+    expect(lines.some((l) => l.startsWith('[agent]') && l.includes('KARST_DB'))).toBe(true);
+    expect(lines.join('\n')).not.toContain('/secret/karst.db');
+  });
+
+  it('drops any overlay key not starting with KARST_ and names the dropped keys', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    }) as unknown as typeof spawn;
+    const lines: string[] = [];
+    await spawnHeadlessCli(
+      'codex',
+      [],
+      '/wt/a',
+      {
+        env: { KARST_CLI: '/c', PATH: '/evil', NODE_OPTIONS: '--require x', karst_lower: 'y' },
+        onDebug: (m) => lines.push(m),
+      },
+      spawnImpl,
+    );
+    const spawnOpts = (spawnImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![2] as {
+      env?: Record<string, string | undefined>;
+    };
+    expect(spawnOpts.env!.KARST_CLI).toBe('/c');
+    expect(spawnOpts.env!.PATH).toBe(process.env.PATH);
+    expect(spawnOpts.env!.NODE_OPTIONS).toBe(process.env.NODE_OPTIONS);
+    expect(spawnOpts.env!.karst_lower).toBeUndefined();
+    const dropped = lines.find((l) => l.includes('dropped'));
+    expect(dropped).toContain('PATH');
+    expect(dropped).toContain('NODE_OPTIONS');
+    expect(dropped).toContain('karst_lower');
+    expect(dropped).not.toContain('/evil');
+  });
+
   it('rejects with an AbortError when the signal fires mid-run and kills the group', async () => {
     const child = fakeChild();
     const killed = vi.spyOn(process, 'kill');

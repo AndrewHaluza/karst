@@ -7,6 +7,13 @@ import { buildTicketContext, renderTicketContext } from '../context/ticketContex
 import { composeStageCommand } from './stage.js';
 import { markerStageFor } from '../agent/markerStage.js';
 import { renderDoneMarkerInstruction, renderGateOnlyInstruction } from '../agent/workflowCommand.js';
+import {
+  KARST_CLI_ENV,
+  KARST_DB_ENV,
+  KARST_MANIFEST_ENV,
+  karstCliRefs,
+  quoteArg,
+} from '../agent/cliEnv.js';
 
 /**
  * The `karst context <key> [--json|--md]` CLI — a thin wrapper over the shared
@@ -27,9 +34,8 @@ export function composeContextCommand(
   dbPath: string,
   manifestPath?: string,
 ): string {
-  const q = (s: string): string => `"${s}"`;
-  const parts = ['node', q(cliEntry), 'context', '--db', q(dbPath)];
-  if (manifestPath) parts.push('--manifest', q(manifestPath));
+  const parts = ['node', quoteArg(cliEntry), 'context', '--db', quoteArg(dbPath)];
+  if (manifestPath) parts.push('--manifest', quoteArg(manifestPath));
   return parts.join(' ');
 }
 
@@ -50,9 +56,24 @@ export function renderStageEnding(
   dbPath: string,
   manifestPath: string | undefined,
   ticketKey: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): string | undefined {
   const markerStage = markerStageFor(stageCurrent);
   if (markerStage === null) return renderGateOnlyInstruction();
+  // A karst terminal session exports KARST_CLI/KARST_DB (+ KARST_MANIFEST), so the
+  // command reads as env refs; a foreign session lacks them and gets literal paths.
+  if (env[KARST_CLI_ENV] && env[KARST_DB_ENV]) {
+    const refs = karstCliRefs();
+    return renderDoneMarkerInstruction(
+      composeStageCommand(
+        refs.cli,
+        refs.db,
+        markerStage,
+        env[KARST_MANIFEST_ENV] ? refs.manifest : undefined,
+      ),
+      ticketKey,
+    );
+  }
   if (cliEntry === undefined) return undefined;
   return renderDoneMarkerInstruction(
     composeStageCommand(cliEntry, dbPath, markerStage, manifestPath),
@@ -112,6 +133,8 @@ export function runContextCommand(
    * `composeStageCommand` needs the path to quote into the marker command.
    */
   manifestPath?: string,
+  /** Environment consulted for `KARST_*` refs; injected for testability. */
+  env: Readonly<Record<string, string | undefined>> = process.env,
 ): string {
   const ticket = resolveTicketByKey(store, parsed.key, manifest?.id);
   if (!ticket) {
@@ -123,7 +146,7 @@ export function runContextCommand(
   const ending =
     dbPath === undefined
       ? undefined
-      : renderStageEnding(ctx.stageCurrent as StageKey | null, cliEntry, dbPath, manifestPath, key);
+      : renderStageEnding(ctx.stageCurrent as StageKey | null, cliEntry, dbPath, manifestPath, key, env);
   if (parsed.format === 'md') {
     const base = renderTicketContext(ctx, undefined, { bounded: false });
     return ending ? `${base}\n\n## How this stage ends\n${ending}` : base;

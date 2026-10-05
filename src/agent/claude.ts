@@ -563,6 +563,7 @@ export class ClaudeAdapter implements AgentAdapter {
       timeoutMs: opts.timeoutMs,
       onDebug: opts.debug,
       onSpawned: opts.onSpawned,
+      env: opts.env,
       onOutput: consoleOutput
         ? (chunk) => {
             if (chunk.stream !== 'stderr' || chunk.text.length === 0) return;

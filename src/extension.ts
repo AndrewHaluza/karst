@@ -274,6 +274,13 @@ import {
 } from './approaches/graph/driver.js';
 import { runGraphCommand } from './cli/graph.js';
 import { buildGraphSessionEnv, isGraphSessionEnv } from './approaches/graph/transport/env.js';
+import {
+  cliTokensFor,
+  envRef,
+  exportedCliEnv,
+  sessionCliEnv,
+  type CliTokens,
+} from './agent/cliEnv.js';
 import { createNodeWorkspace } from './approaches/graph/workspace/provider.js';
 import type {
   CommandDefinition,
@@ -1137,6 +1144,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * `projectId` is a getter: the DB is shared by every IDE window, so a spend
    * row that is not project-scoped shows up in another project's totals.
    */
+  const headlessTicketKey = (ticketId: number | null | undefined): string | undefined => {
+    if (ticketId == null) return undefined;
+    try {
+      const key = getTicket(localStore, ticketId).key;
+      if (!key) logger.debug(`[agent] headless env: ticket ${ticketId} has no key — KARST_TICKET unset`);
+      return key || undefined;
+    } catch (err) {
+      logger.debug(`[agent] headless env: ticket ${ticketId} unreadable — KARST_TICKET unset (${String(err)})`);
+      return undefined;
+    }
+  };
   const instrument = (adapter: AgentAdapter, provider: AgentProvider): AgentAdapter => {
     const metered = instrumentAdapter(adapter, {
       sink: { record: (entry) => recordTokenUsage(localStore, entry) },
@@ -1146,6 +1164,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Injected ONCE here, threaded into every headless call's opts — a new
       // adapter gets debug logging by construction (gated inside the logger).
       debug: (message) => logger.debug(message),
+      // The karst CLI env (`"$KARST_CLI"`/`"$KARST_DB"`/...), injected at the
+      // same seam: a headless prompt carrying a `buildCli*Prefix` command
+      // (UAT tester context, review/fix markers) resolves by construction.
+      env: (tracking) =>
+        sessionCliEnv(
+          cliSessionInput(cliLiteral(context, dbPath, headlessTicketKey(tracking?.ticketId))),
+          (message) => logger.debug(message),
+        ),
       // Live-pid registry hook, injected at the same seam: every agent process
       // this window spawns is registered the moment it exists and unregistered
       // wherever the run settles, attributed to the call that spawned it.
@@ -3201,7 +3227,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
-          contextCommand: buildCliContextPrefix(context, dbPath),
+          contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))),
           log: (message) => logger.info(message),
           // Verbose decision-point lines (manifest `debug` flag): gated inside
           // the logger, so this binding is a no-op unless debug is on. Surfaces
@@ -3277,7 +3303,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       fixBriefForTicket(localStore, ticketId, label) ??
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
     const marker = renderDoneMarkerInstruction(
-      buildCliStagePrefix(context, dbPath, 'fix'),
+      // Delivered INTO a live session: env refs only if THAT session exported them.
+      buildCliStagePrefix(cliTokensFor(sessions.sessionCliEnv(ticketId), cliLiteral(context, dbPath)), 'fix'),
       t.key || String(ticketId),
     );
     // Task 3: the Fix execution carries the CONFIGURED identity — the bundle's
@@ -4201,8 +4228,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
         return terminalNaming({ name, brandIcon });
       },
-      cliNodeCompletionCommand: () =>
-        `node "${join(context.extensionUri.fsPath, 'dist', 'cli', 'main.js')}" node complete`,
+      cliNodeCompletionCommand: () => `node ${envRef('KARST_GRAPH_CLI')} node complete`,
     };
   };
 
@@ -5839,11 +5865,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // composition. The marker names the stage the session is actually working
       // on; gate stages (uat/review/ship) carry no marker.
       const markerStage = markerStageFor(t.stageCurrent as StageKey | null);
+      // ONE resolution of the CLI/DB/manifest/ticket paths: the same literal
+      // set is exported into the session env (below) and decides which env
+      // refs the seed and command files may use.
+      const cliLit = cliLiteral(context, dbPath, t.key || String(ticketId));
+      const cliTok = launchTokens(cliLit);
       const markerInstruction =
         markerStage === null
           ? renderGateOnlyInstruction()
           : renderDoneMarkerInstruction(
-              buildCliStagePrefix(context, dbPath, markerStage),
+              buildCliStagePrefix(cliTok, markerStage),
               t.key || String(ticketId),
             );
 
@@ -5868,16 +5899,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             baseDir: approachesDirOrThrow(),
             sessionDir: wt.path,
             soloAgent,
-            cliContextPrefix: buildCliContextPrefix(context, dbPath),
+            cliContextPrefix: buildCliContextPrefix(cliTok),
             cliStagePrefix:
               markerStage === null
                 ? undefined
-                : buildCliStagePrefix(context, dbPath, markerStage),
-            cliPhasePrefix: buildCliPhasePrefix(context, dbPath),
-            cliGuidePrefix: buildCliGuidePrefix(context),
-            cliTestPrefix: buildCliTestPrefix(context, dbPath),
-            cliFixBriefPrefix: buildCliFixBriefPrefix(context, dbPath),
-            cliConflictBriefPrefix: buildCliConflictBriefPrefix(context, dbPath),
+                : buildCliStagePrefix(cliTok, markerStage),
+            cliPhasePrefix: buildCliPhasePrefix(cliTok),
+            cliGuidePrefix: buildCliGuidePrefix(cliTok),
+            cliTestPrefix: buildCliTestPrefix(cliTok),
+            cliFixBriefPrefix: buildCliFixBriefPrefix(cliTok),
+            cliConflictBriefPrefix: buildCliConflictBriefPrefix(cliTok),
           });
         }
       } catch (error) {
@@ -5932,15 +5963,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ),
         (msg) => logger.debug(msg),
       );
-      const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(context));
+      const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok));
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
       // `hasRunnableRepos` applies (`ui/dashboard/state.ts`).
-      const serversTicketKey = t.key || String(ticketId);
       const seedServersPrefix = (t.selectedRepos ?? []).some(
         (r) => currentManifest()?.repositories?.[r]?.service !== undefined,
       )
-        ? buildCliServersPrefix(context, dbPath, serversTicketKey)
+        ? buildCliServersPrefix(cliTok)
         : undefined;
       const serversInstruction = seedServersPrefix
         ? renderServersInstruction(seedServersPrefix)
@@ -6069,7 +6099,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           resumeId,
           naming,
           materialized.ownedPaths,
-          { ...options, ...(effort ? { effort } : {}), dbPath },
+          {
+            ...options,
+            ...(effort ? { effort } : {}),
+            // Carries `dbPath` too — the same literal set the seed was composed from.
+            ...cliSessionInput(cliLit),
+            debug: (message: string) => logger.debug(message),
+          },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
           // session — not the one a manifest edit resolves today. A host-only
@@ -6776,9 +6812,49 @@ function cliEntryAndManifest(context: vscode.ExtensionContext): {
  * ships in `dist/cli/main.js`; the manifest path is best-effort (omitted when
  * unresolved — the CLI then renders without the services section).
  */
-function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string): string {
+/**
+ * The LITERAL tokens (machine paths) for a karst command, resolved ONCE per
+ * composition: the CLI entry, the DB, the best-effort manifest and, when given,
+ * the ticket key. `cliTokensFor` swaps in env refs only where the receiving
+ * agent's env exported the value; this same object feeds that env
+ * (`cliSessionInput`), so the refs and the export can never disagree.
+ */
+function cliLiteral(
+  context: vscode.ExtensionContext,
+  dbPath: string,
+  ticketKey?: string,
+): CliTokens {
   const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  return composeContextCommand(cliEntry, dbPath, manifestPath);
+  return {
+    cli: cliEntry,
+    db: dbPath,
+    ...(manifestPath ? { manifest: manifestPath } : {}),
+    ...(ticketKey ? { ticket: ticketKey } : {}),
+  };
+}
+
+/** The `sessionCliEnv` input that exports exactly `lit`. */
+function cliSessionInput(lit: CliTokens): {
+  cliEntry: string;
+  dbPath: string;
+  manifestPath?: string;
+  ticketKey?: string;
+} {
+  return {
+    cliEntry: lit.cli,
+    dbPath: lit.db,
+    ...(lit.manifest ? { manifestPath: lit.manifest } : {}),
+    ...(lit.ticket ? { ticketKey: lit.ticket } : {}),
+  };
+}
+
+/** Tokens for a prompt delivered to an agent launched with `lit` exported. */
+function launchTokens(lit: CliTokens): CliTokens {
+  return cliTokensFor(exportedCliEnv(sessionCliEnv(cliSessionInput(lit))), lit);
+}
+
+function buildCliContextPrefix(tok: CliTokens): string {
+  return composeContextCommand(tok.cli, tok.db, tok.manifest);
 }
 
 /**
@@ -6794,13 +6870,8 @@ function buildCliContextPrefix(context: vscode.ExtensionContext, dbPath: string)
  * stage, so a resume at `fix` fires `fix pass` instead of the impl marker (which
  * would throw: there is no impl→? edge from fix).
  */
-function buildCliStagePrefix(
-  context: vscode.ExtensionContext,
-  dbPath: string,
-  stage: MarkerStage = 'impl',
-): string {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  return composeStageCommand(cliEntry, dbPath, stage, manifestPath);
+function buildCliStagePrefix(tok: CliTokens, stage: MarkerStage = 'impl'): string {
+  return composeStageCommand(tok.cli, tok.db, stage, tok.manifest);
 }
 
 /**
@@ -6812,13 +6883,9 @@ function buildCliStagePrefix(
  * Returned as a function because the phase name is baked into each command, so
  * the renderer needs one per declared phase rather than a single prefix.
  */
-function buildCliPhasePrefix(
-  context: vscode.ExtensionContext,
-  dbPath: string,
-): (phaseName: string) => string {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
+function buildCliPhasePrefix(tok: CliTokens): (phaseName: string) => string {
   return (phaseName: string): string =>
-    composePhaseCommand(cliEntry, dbPath, phaseName, manifestPath);
+    composePhaseCommand(tok.cli, tok.db, phaseName, tok.manifest);
 }
 
 /**
@@ -6827,8 +6894,8 @@ function buildCliPhasePrefix(
  * context/stage/phase prefixes; no DB, no manifest, no ticket — the guide is
  * static karst-authored content.
  */
-function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
-  return composeGuideCommand(cliEntryAndManifest(context).cliEntry);
+function buildCliGuidePrefix(tok: CliTokens): string {
+  return composeGuideCommand(tok.cli);
 }
 
 /**
@@ -6837,15 +6904,15 @@ function buildCliGuidePrefix(context: vscode.ExtensionContext): string {
  * `undefined` when the manifest path cannot be resolved: `servers
  * list|spin|restart` REFUSE without `--manifest`, so a prefix without it would
  * hand the session commands that throw — no block is better than a broken one.
+ *
+ * TERMINAL-ONLY: composed solely for an interactive session's launch seed
+ * (servers are long-lived and belong to the ticket's terminal), never for a
+ * headless prompt. It needs a ticket token too — a headless run's env carries
+ * no reliable ticket key — so a token set without one yields `undefined`.
  */
-function buildCliServersPrefix(
-  context: vscode.ExtensionContext,
-  dbPath: string,
-  ticketKey: string,
-): string | undefined {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  if (!manifestPath) return undefined;
-  return composeServersPrefix(cliEntry, dbPath, manifestPath, ticketKey);
+function buildCliServersPrefix(tok: CliTokens): string | undefined {
+  if (!tok.manifest || !tok.ticket) return undefined;
+  return composeServersPrefix(tok.cli, tok.db, tok.manifest, tok.ticket);
 }
 
 /**
@@ -6853,9 +6920,8 @@ function buildCliServersPrefix(
  * skill embeds so the agent never composes the `--db`/`--manifest` boilerplate
  * itself. Same CLI entry and best-effort manifest as the other prefixes.
  */
-function buildCliTestPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  return composeTestCommand(cliEntry, dbPath, manifestPath);
+function buildCliTestPrefix(tok: CliTokens): string {
+  return composeTestCommand(tok.cli, tok.db, tok.manifest);
 }
 
 /**
@@ -6864,9 +6930,8 @@ function buildCliTestPrefix(context: vscode.ExtensionContext, dbPath: string): s
  * failing-gate brief. Same CLI entry and best-effort manifest as the other
  * prefixes.
  */
-function buildCliFixBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  return composeFixBriefCommand(cliEntry, dbPath, manifestPath);
+function buildCliFixBriefPrefix(tok: CliTokens): string {
+  return composeFixBriefCommand(tok.cli, tok.db, tok.manifest);
 }
 
 /**
@@ -6875,9 +6940,8 @@ function buildCliFixBriefPrefix(context: vscode.ExtensionContext, dbPath: string
  * appended) to pull the merge-conflict brief. Same CLI entry and best-effort
  * manifest as the other prefixes.
  */
-function buildCliConflictBriefPrefix(context: vscode.ExtensionContext, dbPath: string): string {
-  const { cliEntry, manifestPath } = cliEntryAndManifest(context);
-  return composeConflictBriefCommand(cliEntry, dbPath, manifestPath);
+function buildCliConflictBriefPrefix(tok: CliTokens): string {
+  return composeConflictBriefCommand(tok.cli, tok.db, tok.manifest);
 }
 
 /**
