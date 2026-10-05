@@ -648,6 +648,8 @@ export interface SubtaskListing {
   title: string | null;
   stageCurrent: string | null;
   blocksParent: boolean;
+  /** Queued to auto-start (`autostart_pending = 1`, v64). */
+  autostartPending: boolean;
 }
 
 /**
@@ -660,7 +662,7 @@ export interface SubtaskListing {
 export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
   const rows = store.db
     .prepare(
-      'SELECT id, key, title, stage_current, blocks_parent FROM tickets WHERE subtask_parent_id = ? AND archived_at IS NULL ORDER BY id',
+      'SELECT id, key, title, stage_current, blocks_parent, autostart_pending FROM tickets WHERE subtask_parent_id = ? AND archived_at IS NULL ORDER BY id',
     )
     .all(ticketId) as {
     id: number;
@@ -668,6 +670,7 @@ export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
     title: string | null;
     stage_current: string | null;
     blocks_parent: number | null;
+    autostart_pending: number | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
@@ -675,6 +678,7 @@ export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
     title: r.title,
     stageCurrent: r.stage_current,
     blocksParent: r.blocks_parent === 1,
+    autostartPending: r.autostart_pending === 1,
   }));
 }
 
