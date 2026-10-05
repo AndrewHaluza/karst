@@ -187,7 +187,8 @@ export function GeneralSection() {
       ...current,
       [key]: blank || valid ? undefined : SUBTASK_CAP_ERROR,
     }));
-    const { [key]: _dropped, ...rest } = subtasks ?? {};
+    const rest: Partial<SubtaskLimits> = { ...subtasks };
+    delete rest[key];
     const next: Partial<SubtaskLimits> = valid ? { ...rest, [key]: parsed } : rest;
     // The loader fills any cap the block omits, so a partial block is valid.
     edit(set('subtasks', Object.keys(next).length === 0 ? undefined : (next as SubtaskLimits)));
