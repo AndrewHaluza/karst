@@ -128,7 +128,7 @@ describe('pickSubtasksToStart', () => {
     const p2 = ticket({ stage: 'impl' });
     ticket({ parent: p1, queued: true });
     const b = ticket({ parent: p2, queued: true });
-    expect(pickSubtasksToStart(store, projectId, { ...caps, ownedParentIds: new Set([p2]) })).toEqual([b]);
-    expect(pickSubtasksToStart(store, projectId, { ...caps, ownedParentIds: new Set() })).toEqual([]);
+    expect(pickSubtasksToStart(store, projectId, { ...caps, ownsParent: (id) => id === p2 })).toEqual([b]);
+    expect(pickSubtasksToStart(store, projectId, { ...caps, ownsParent: () => false })).toEqual([]);
   });
 });

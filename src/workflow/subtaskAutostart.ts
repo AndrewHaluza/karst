@@ -20,8 +20,12 @@ export interface AutostartCaps {
 }
 
 export interface PickOptions extends AutostartCaps {
-  /** Only parents whose live session this window owns; omitted = any parent. */
-  ownedParentIds?: ReadonlySet<number>;
+  /**
+   * Only parents whose live session this window owns; omitted = any parent.
+   * A predicate (not a set) so the host can bind it to the session manager's
+   * liveness check, which also adopts a terminal revived across a reload.
+   */
+  ownsParent?: (parentId: number) => boolean;
 }
 
 interface CandidateRow {
@@ -62,7 +66,7 @@ export function pickSubtasksToStart(store: Store, projectId: number, opts: PickO
   const picked: number[] = [];
   for (const c of candidates) {
     const parentId = Number(c.parent_id);
-    if (opts.ownedParentIds && !opts.ownedParentIds.has(parentId)) continue;
+    if (opts.ownsParent && !opts.ownsParent(parentId)) continue;
     if (!underCap(total, opts.total)) break;
     const used = perParent.get(parentId) ?? 0;
     if (!underCap(used, opts.perParent)) continue;
