@@ -10,6 +10,7 @@ What the manifest models, and the rules that keep a Settings write from silently
 - A REPOSITORY is the primary entity; a SERVICE is an optional relation
 - Legacy services: manifests migrate IN MEMORY
 - `uat.testerObservations.blockingSeverity` is a manifest knob only
+- Sub-task auto-start concurrency caps
 - New Manifest field checklist
 
 ## A Settings process-assignment profile IS the process's prompt
@@ -53,6 +54,10 @@ Legacy `services:` manifests migrate IN MEMORY (`manifest/migrate.ts`) + warn; `
 ## `diffsInSourceControl` reroutes the changes UI, never the diff itself
 
 `diffsInSourceControl` (boolean, absent → off) decides only WHERE a ticket's changed-file list is listed: the "Ticket changes" webview panel (`TicketChangesManager`) or the `karst.diffs` section in the native Source Control view. The diff a click opens is the SAME code path either way — `openTicketDiff` → `vscode.diff` — so the flag can never produce a diff the other mode would not. The SCM path is vscode-free logic (`ui/diffs/treeController.ts` over the pure `ui/diffs/treeModel.ts`, adapted from `ui/diffs/scmModel.ts`); `extension/diffsHost.ts` binds `vscode.window.createTreeView` through the `DiffTreeProvider`/`makeDiffTreeHost` seam. The section leads with a ticket-selector row — a QuickPick of the project's active (non-`done`) tickets, scoped to `currentProject().id` and refusing to query when none is bound — and one tree of group / repository / commit / file nodes is rendered per shown ticket, rebuilt on show and on `karst.refreshDiffsTree`. Row actions reuse the diff targets: `karst.openTicketScmDiff` (Open Changes) and Open File on every file row, Unstage on staged rows, and Discard on unstaged/untracked rows. At most one tree is alive; showing a different ticket replaces its nodes, so stale rows from another ticket are unrepresentable.
+
+## Sub-task auto-start concurrency caps
+
+`subtasks:` (`SubtaskLimits` in manifest `types.ts`) holds two caps, `maxConcurrentPerParent` and `maxConcurrentTotal`. `validateSubtasks` (manifest `schema.ts`) fills each independently from `DEFAULT_SUBTASK_LIMITS` (`2` / `4`) when the block or the key is absent OR `null` (a bare `key:`), and throws `ManifestError` unless the value is a whole number `>= 0`; `0` means unlimited. So a validated manifest always carries the block, and `emptyManifest()` carries the defaults too. **Live:** `autostartCapsFrom(currentManifest())` is read on every autostart sweep, so a Settings save applies on the next tick without a reload. Per-parent counts a parent's direct children holding a slot; total counts every sub-task in the project holding a slot, nested included — see `docs/arch/stages-and-gates.md`, "Sub-task autostart". **Write:** `manifest/write.ts` writes `subtasks` when the manifest carries it and omits it (overriding a stale raw value) when it is undefined. **Settings → General** ("Sub-tasks") exposes both as editable number inputs (`min 0`, `step 1`, placeholders `2`/`4`, help "Blank = 2"/"Blank = 4"): a blank clears that cap (it reloads as its default), a negative or fractional entry clears it AND shows the inline error "Enter a whole number, 0 or more (0 = unlimited).", and the block is dropped from the draft once both caps are blank. No preset or per-ticket override; `karst subtask create --no-start` only skips queuing.
 
 ## New `Manifest` field checklist
 

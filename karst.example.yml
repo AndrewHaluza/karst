@@ -126,6 +126,14 @@ agentProvider: claude
 # number of days.
 archiveDoneAfterDays: 3
 
+# Sub-task auto-start caps (Settings → General). A queued sub-task starts only
+# while both counts of RUNNING sub-tasks are under their cap; 0 = unlimited
+# (not recommended — every running sub-task is a full agent session with its
+# own worktree, servers and token spend). Omit for 2 per parent / 4 per project.
+subtasks:
+  maxConcurrentPerParent: 2
+  maxConcurrentTotal: 4
+
 # How an AI call recovers when the provider fails it (optional).
 #
 # A TRANSIENT failure — a 429, a 5xx, a dropped connection — is retried on

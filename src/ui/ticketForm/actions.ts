@@ -11,6 +11,7 @@ import {
   updateTicketFields,
   generateTicketKey,
 } from '../../store/tickets.js';
+import { queueAutostart } from '../../store/autostart.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
@@ -78,6 +79,11 @@ export interface StartTicketOptions {
    * carries what the user actually left it on, not the default.
    */
   pullBase: boolean;
+  /**
+   * Suppress the host's own error popup on failure. Set by the sub-task
+   * autostart op, which owns the single user-facing warning (naming the key).
+   */
+  quiet?: boolean;
 }
 
 export interface TicketFormActionsDeps {
@@ -123,6 +129,12 @@ export interface TicketFormActionsDeps {
    * running. Injected (real: the `karst.openDashboard` command).
    */
   openDashboard: (ticketId: number) => void;
+  /**
+   * Run the sub-task autostart sweep now (plan §A). A sub-task submitted at
+   * `scope` is QUEUED rather than started so it obeys the concurrency caps;
+   * this asks the owner window's sweep to pick it up without waiting a tick.
+   */
+  requestSubtaskAutostart?: () => void;
   /** Injected manifest signal writer (real: writeServiceSignals). */
   writeSignals: (path: string, service: string, signals: string[]) => void;
   /**
@@ -299,6 +311,37 @@ function persistDraft(
   });
   deps.onChange();
   return ticketId;
+}
+
+/** The start refusal for a ticket with no selected repositories (shared with the host's start path). */
+export const NO_REPOS_MESSAGE = 'Select at least one repository to start this ticket.';
+
+/**
+ * Submit of a sub-task still at `scope`: queue it for the autostart sweep
+ * instead of starting it here, so dashboard-created sub-tasks obey the same
+ * caps as CLI ones. The autostart op starts with `pullBase: false` (the child
+ * cuts from its parent's branch, not a fresh remote base), so the page's pull
+ * switch is deliberately not carried. Runs the direct path's repo guard first.
+ *
+ * Returns `'not-subtask'` for the direct start path (ordinary tickets, and
+ * sub-tasks already past scope — submit as the edit surface), or the error to
+ * show on the form, or `'queued'`. A sub-task already queued or starting is
+ * left as is (never re-queued, never touched while starting).
+ */
+function queueSubtaskInsteadOfStart(
+  deps: TicketFormActionsDeps,
+  ticketId: number,
+): 'not-subtask' | 'queued' | { error: string } {
+  const t = getTicket(deps.store, ticketId);
+  if (t.subtaskParentId === null || t.stageCurrent !== 'scope') return 'not-subtask';
+  if (t.selectedRepos.length === 0) return { error: NO_REPOS_MESSAGE };
+  try {
+    queueAutostart(deps.store, ticketId);
+    deps.requestSubtaskAutostart?.();
+  } catch (e) {
+    return { error: `Could not queue the sub-task to start: ${errorMessage(e)}` };
+  }
+  return 'queued';
 }
 
 export function buildTicketFormActions(
@@ -1042,6 +1085,19 @@ export function buildTicketFormActions(
       // selected repos (worktrees, no servers) and launch the agent session.
       // Awaited so the page stays put (busy) while the launch runs, and the
       // handoff only happens once the ticket is really running.
+      const queued = queueSubtaskInsteadOfStart(deps, ticketId);
+      if (queued !== 'not-subtask') {
+        deps.onChange();
+        if (queued !== 'queued') {
+          ctx.post({ type: 'error', message: queued.error });
+          ctx.pushState(); // the ticket exists now — re-seed the page for a retry
+          return;
+        }
+        deps.openDashboard(ticketId);
+        ctx.close();
+        return;
+      }
+
       ctx.post({ type: 'busy', what: 'submit', on: true });
       try {
         // Only an explicit `false` opts out of the pull — an older page that

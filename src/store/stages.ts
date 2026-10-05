@@ -1,4 +1,7 @@
 import type { Store } from './db.js';
+import { subtaskStageEvent } from './stageEvents.js';
+import { clearAutostartOnScopePass } from './autostart.js';
+import { postMessage, type PostMessageInput } from './ticketMessages.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 
 export interface Stage {
@@ -94,6 +97,14 @@ export function stageAttempt(store: Store, ticketId: number, stageKey: StageKey)
   return row?.attempt ?? 0;
 }
 
+export interface SetStageOptions {
+  /**
+   * Told when the sub-task event derived from this write could not be stored.
+   * The stage write still stands. Injected, never a global logger.
+   */
+  onEventError?: (err: unknown) => void;
+}
+
 /**
  * Patch a single stage row (single-writer discipline — all stage mutation goes
  * through here). Only the fields present in `patch` are written; the rest are
@@ -104,6 +115,7 @@ export function setStage(
   ticketId: number,
   stageKey: StageKey,
   patch: StagePatch,
+  opts: SetStageOptions = {},
 ): void {
   const keys = (Object.keys(patch) as (keyof StagePatch)[]).filter(
     (k) => patch[k] !== undefined,
@@ -112,7 +124,68 @@ export function setStage(
 
   const assignments = keys.map((k) => `${COLUMN[k]} = ?`).join(', ');
   const values = keys.map((k) => patch[k] as string | number | null);
-  store.db
-    .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
-    .run(...values, ticketId, stageKey);
+
+  // Outer savepoint: the pre-write read that derives a sub-task event and the
+  // write itself are one atomic unit. SAVEPOINT (not `db.transaction`) nests
+  // inside a caller's transaction on both drivers — the CLI's node:sqlite shim
+  // would reject a nested BEGIN.
+  exec(store, 'SAVEPOINT stage_write');
+  try {
+    const event = subtaskStageEvent(store, ticketId, stageKey, patch);
+    store.db
+      .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
+      .run(...values, ticketId, stageKey);
+    // Leaving scope ends any autostart lifecycle (queued or starting) — the
+    // single place it is cleared, so a CLI start and a host start agree.
+    if (stageKey === 'scope' && (patch.status === 'passed' || patch.status === 'bypassed')) clearAutostartOnScopePass(store, ticketId);
+    if (event !== null) postEventBestEffort(store, event, opts.onEventError);
+  } catch (err) {
+    rollbackQuietly(store, 'stage_write');
+    throw err;
+  }
+  exec(store, 'RELEASE stage_write');
+}
+
+function exec(store: Store, sql: string): void {
+  store.db.prepare(sql).run();
+}
+
+/** Roll back to and release a savepoint without ever masking the caller's error. */
+function rollbackQuietly(store: Store, name: string): void {
+  try {
+    exec(store, `ROLLBACK TO ${name}`);
+  } catch {
+    // The original error is what the caller needs; a failed rollback here
+    // means the savepoint is already gone with the enclosing transaction.
+  }
+  try {
+    exec(store, `RELEASE ${name}`);
+  } catch {
+    // Same: nothing to release.
+  }
+}
+
+/**
+ * A notification must never fail or undo the stage write: the event runs in
+ * its own nested savepoint, and any failure is rolled back, reported through
+ * the injected callback, and swallowed.
+ */
+function postEventBestEffort(
+  store: Store,
+  event: PostMessageInput,
+  onEventError: ((err: unknown) => void) | undefined,
+): void {
+  try {
+    exec(store, 'SAVEPOINT stage_event');
+  } catch (err) {
+    onEventError?.(err);
+    return;
+  }
+  try {
+    postMessage(store, event);
+    exec(store, 'RELEASE stage_event');
+  } catch (err) {
+    rollbackQuietly(store, 'stage_event');
+    onEventError?.(err);
+  }
 }

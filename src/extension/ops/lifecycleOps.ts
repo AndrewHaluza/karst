@@ -108,7 +108,10 @@ export async function createSubtaskOp(
 ): Promise<void> {
   let child;
   try {
-    child = createSubtask(deps.store, parentId, input, { projectId: deps.projectId() },
+    // Not queued yet: the description is written in the edit form opened
+    // below, and an agent must never launch before its ask exists. Saving the
+    // form is what queues it (`setAutostartPending`).
+    child = createSubtask(deps.store, parentId, { ...input, start: false }, { projectId: deps.projectId() },
       (message) => deps.log.debug(message));
   } catch (err) {
     // Every Subtask*Error message is user-ready (it names the rule and the

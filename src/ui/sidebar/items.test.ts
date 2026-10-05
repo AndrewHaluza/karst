@@ -43,6 +43,9 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     parentTicketId: null,
     subtaskParentId: null,
     blocksParent: false,
+    autostartPending: false,
+    autostartStarting: false,
+    autostartClaimedAt: null,
     priority: null,
     stages: [
       { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
@@ -389,6 +392,19 @@ describe('completedAt', () => {
 });
 
 describe('sub-task identity on the sidebar node', () => {
+  it('flags a queued sub-task at scope (host-derived, UI-R31)', () => {
+    const [q, plain, started] = buildTicketNodes([
+      ticket({ subtaskParentId: 7, autostartPending: true, stageCurrent: 'scope' }),
+      ticket({ subtaskParentId: null, autostartPending: true, stageCurrent: 'scope' }),
+      ticket({ subtaskParentId: 7, autostartPending: true, stageCurrent: 'impl' }),
+    ]);
+    expect([q!.autostart, plain!.autostart, started!.autostart]).toEqual(['queued', null, null]);
+    const [claimed] = buildTicketNodes([
+      ticket({ subtaskParentId: 7, autostartPending: false, autostartStarting: true, stageCurrent: 'scope' }),
+    ]);
+    expect(claimed!.autostart).toBe('starting');
+  });
+
   it('carries no sub-task parent for an ordinary ticket', () => {
     const [node] = buildTicketNodes([ticket({ subtaskParentId: null })]);
     expect(node!.subtaskParentId).toBeNull();
@@ -433,6 +449,7 @@ describe('nestSubtasks', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      autostart: null,
       collapsible: true,
       ...over,
     };
@@ -528,6 +545,7 @@ describe('visibleTicketRows', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      autostart: null,
       collapsible: true,
       ...over,
     };

@@ -88,6 +88,18 @@ export interface Ticket {
    */
   blocksParent: boolean;
   /**
+   * Queued to auto-start implementation (`autostart_pending = 1`, v64). Set in
+   * the creating INSERT; cleared only by the autostart op's atomic claim.
+   */
+  autostartPending: boolean;
+  /**
+   * Claimed by an autostart sweep and being started (`autostart_pending = 2`).
+   * `store/autostart.ts` owns the state machine.
+   */
+  autostartStarting: boolean;
+  /** When the autostart claim was taken; `null` unless starting. */
+  autostartClaimedAt: string | null;
+  /**
    * Provider-native priority label (e.g. 'urgent', 'high', 'normal'), populated
    * from the ticketing provider when the ticket is fetched; `null` when the
    * provider did not expose one (a manual ticket, or an unfetched one).
@@ -129,6 +141,8 @@ interface TicketRow {
   parent_ticket_id: number | null;
   subtask_parent_id: number | null;
   blocks_parent: number | null;
+  autostart_pending: number;
+  autostart_claimed_at?: string | null;
   priority: string | null;
   paused_at: string | null;
 }
@@ -201,6 +215,9 @@ function rowToTicket(r: TicketRow): Ticket {
     parentTicketId: r.parent_ticket_id,
     subtaskParentId: r.subtask_parent_id ?? null,
     blocksParent: r.blocks_parent === 1,
+    autostartPending: r.autostart_pending === 1,
+    autostartStarting: r.autostart_pending === 2,
+    autostartClaimedAt: r.autostart_claimed_at ?? null,
     priority: r.priority,
     pausedAt: r.paused_at ?? null,
   };
@@ -226,13 +243,15 @@ export function createTicket(
     subtaskParentId?: number;
     /** Whether the sub-task blocks its parent from leaving `impl`/`fix`. */
     blocksParent?: boolean;
+    /** Queue the ticket for auto-start (v64); written in the same INSERT. */
+    autostartPending?: boolean;
   },
 ): Ticket {
   const create = store.db.transaction((): Ticket => {
     const info = store.db
       .prepare(
-        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, subtask_parent_id, blocks_parent, stage_current, agent_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scope', 'none')`,
+        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, subtask_parent_id, blocks_parent, autostart_pending, stage_current, agent_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scope', 'none')`,
       )
       .run(
         input.key,
@@ -243,6 +262,7 @@ export function createTicket(
         input.parentTicketId ?? null,
         input.subtaskParentId ?? null,
         input.blocksParent ? 1 : null,
+        input.autostartPending ? 1 : 0,
       );
     const id = Number(info.lastInsertRowid);
 
@@ -426,6 +446,16 @@ export function setStageCurrent(store: Store, ticketId: number, stage: StageKey)
   store.db
     .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
     .run(stage, ticketId);
+}
+
+/**
+ * Queue (true) or unqueue (false) a ticket for auto-start — the single writer
+ * of `autostart_pending` after creation, apart from the atomic claim.
+ */
+export function setAutostartPending(store: Store, ticketId: number, pending: boolean): void {
+  store.db
+    .prepare("UPDATE tickets SET autostart_pending = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(pending ? 1 : 0, ticketId);
 }
 
 /**
@@ -614,6 +644,10 @@ export interface SubtaskListing {
   title: string | null;
   stageCurrent: string | null;
   blocksParent: boolean;
+  /** Queued to auto-start (`autostart_pending = 1`, v64). */
+  autostartPending: boolean;
+  /** Claimed and being started (`autostart_pending = 2`). */
+  autostartStarting: boolean;
 }
 
 /**
@@ -626,7 +660,7 @@ export interface SubtaskListing {
 export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
   const rows = store.db
     .prepare(
-      'SELECT id, key, title, stage_current, blocks_parent FROM tickets WHERE subtask_parent_id = ? AND archived_at IS NULL ORDER BY id',
+      'SELECT id, key, title, stage_current, blocks_parent, autostart_pending FROM tickets WHERE subtask_parent_id = ? AND archived_at IS NULL ORDER BY id',
     )
     .all(ticketId) as {
     id: number;
@@ -634,6 +668,7 @@ export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
     title: string | null;
     stage_current: string | null;
     blocks_parent: number | null;
+    autostart_pending: number | null;
   }[];
   return rows.map((r) => ({
     id: r.id,
@@ -641,6 +676,8 @@ export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
     title: r.title,
     stageCurrent: r.stage_current,
     blocksParent: r.blocks_parent === 1,
+    autostartPending: r.autostart_pending === 1,
+    autostartStarting: r.autostart_pending === 2,
   }));
 }
 
@@ -662,7 +699,9 @@ export function assertNoOpenSubtasks(store: Store, ticketId: number): void {
  *
  * `blocks_parent` is zeroed in the SAME statement: the leave-impl gate only
  * exists for a sub-task, so a detached top-level ticket must not carry the flag.
- * A single statement keeps the two facts from ever disagreeing.
+ * A single statement keeps the two facts from ever disagreeing. The autostart
+ * queue flag is cleared the same way: a detached ticket is no longer a sub-task
+ * the parent's sweep may start.
  */
 export function detachSubtaskParent(
   store: Store,
@@ -671,7 +710,7 @@ export function detachSubtaskParent(
 ): boolean {
   const info = store.db
     .prepare(
-      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0 WHERE id = ? AND subtask_parent_id = ?',
+      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0, autostart_pending = 0, autostart_claimed_at = NULL WHERE id = ? AND subtask_parent_id = ?',
     )
     .run(ticketId, expectedParentId);
   return info.changes > 0;
@@ -720,7 +759,8 @@ export function clearApproachFromTickets(
 export function archiveTicket(store: Store, ticketId: number): void {
   assertNoOpenSubtasks(store, ticketId);
   store.db
-    .prepare("UPDATE tickets SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+    // Unqueued in the same write: archived work must never auto-start.
+    .prepare("UPDATE tickets SET archived_at = datetime('now'), autostart_pending = 0, autostart_claimed_at = NULL, updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
 }
 
@@ -861,6 +901,11 @@ export function deleteTicket(
     for (const graphRunId of graphRunIdsForTicket(store.db, ticketId)) {
       deleteGraphRunData(store.db, graphRunId);
     }
+    // Mailbox rows name the ticket on either side; deleted explicitly (the
+    // v64 FKs also cascade, but correctness never depends on a cascade).
+    store.db
+      .prepare('DELETE FROM ticket_messages WHERE to_ticket_id = ? OR from_ticket_id = ?')
+      .run(ticketId, ticketId);
     for (const table of TICKET_CHILD_TABLES) {
       store.db.prepare(`DELETE FROM ${table} WHERE ticket_id = ?`).run(ticketId);
     }

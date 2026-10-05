@@ -18,6 +18,8 @@ import {
   updateTicketCore,
   updateTicketFields,
   archiveTicket,
+  detachSubtaskParent,
+  setAutostartPending,
   unarchiveTicket,
   pauseTicket,
   unpauseTicket,
@@ -72,6 +74,9 @@ describe('ticketLabel', () => {
     parentTicketId: null,
     subtaskParentId: null,
     blocksParent: false,
+    autostartPending: false,
+    autostartStarting: false,
+    autostartClaimedAt: null,
     priority: null,
   };
 
@@ -259,6 +264,42 @@ describe('ticket + stage persistence', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'root' });
     expect(t.subtaskParentId).toBeNull();
     expect(t.blocksParent).toBe(false);
+    expect(t.autostartPending).toBe(false);
+  });
+
+  it('setAutostartPending queues and unqueues a ticket', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'q' });
+    setAutostartPending(store, t.id, true);
+    expect(getTicket(store, t.id).autostartPending).toBe(true);
+    setAutostartPending(store, t.id, false);
+    expect(getTicket(store, t.id).autostartPending).toBe(false);
+  });
+
+  it('archiving a queued ticket unqueues it in the same write', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'q', autostartPending: true });
+    archiveTicket(store, t.id);
+    expect(getTicket(store, t.id).autostartPending).toBe(false);
+  });
+
+  it('detaching a queued sub-task unqueues it in the same write', () => {
+    const parent = createTicket(store, { key: 'PROJ-1', title: 'p' });
+    const child = createTicket(store, {
+      key: 'PROJ-1-s1',
+      title: 'c',
+      subtaskParentId: parent.id,
+      autostartPending: true,
+    });
+    expect(detachSubtaskParent(store, child.id, parent.id)).toBe(true);
+    expect(getTicket(store, child.id).autostartPending).toBe(false);
+  });
+
+  it('createTicket writes autostartPending in the INSERT, readable via getTicket', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'queued', autostartPending: true });
+    expect(t.autostartPending).toBe(true);
+    expect(getTicket(store, t.id).autostartPending).toBe(true);
+    expect(
+      store.db.prepare('SELECT autostart_pending FROM tickets WHERE id = ?').get(t.id),
+    ).toEqual({ autostart_pending: 1 });
   });
 
   it('createTicket persists subtaskParentId and blocksParent, readable via getTicket', () => {

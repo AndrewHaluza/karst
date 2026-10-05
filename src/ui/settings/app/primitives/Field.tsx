@@ -42,6 +42,9 @@ export interface InputControl extends CommonControl {
   onChange: (value: string) => void;
   placeholder?: string;
   readOnly?: boolean;
+  /** Native bounds for `type: 'number'` (spinner and keyboard constraint). */
+  min?: number;
+  step?: number;
   /**
    * Optional ref to the rendered element. A caret-aware helper (inserting a
    * transform at the selection) needs the LIVE control — this stays optional so
@@ -323,6 +326,8 @@ function renderControl(
           value={control.value}
           placeholder={control.placeholder}
           readOnly={control.readOnly}
+          min={control.min}
+          step={control.step}
           onValueChange={control.onChange}
         />
       );

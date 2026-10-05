@@ -116,3 +116,29 @@ export function canDetachSubtask(
     openChildren === 0
   );
 }
+
+/** Where a sub-task is in the autostart lifecycle, as the UI names it. */
+export type SubtaskAutostartPhase = 'queued' | 'starting';
+
+interface AutostartFacts {
+  subtaskParentId: number | null;
+  autostartPending: boolean;
+  autostartStarting: boolean;
+  stageCurrent: string | null;
+}
+
+/**
+ * The one derivation every surface renders (plan §A): `queued` while waiting
+ * at `scope` for the sweep (`autostart_pending = 1`), `starting` once a sweep
+ * claimed it (`= 2`), `null` otherwise — after scope it is an ordinary stage.
+ */
+export function subtaskAutostartPhase(ticket: AutostartFacts): SubtaskAutostartPhase | null {
+  if (ticket.subtaskParentId === null || ticket.stageCurrent !== 'scope') return null;
+  if (ticket.autostartStarting) return 'starting';
+  return ticket.autostartPending ? 'queued' : null;
+}
+
+/** Waiting for the autostart sweep (`subtaskAutostartPhase` is `queued`). */
+export function isQueuedSubtask(ticket: AutostartFacts): boolean {
+  return subtaskAutostartPhase(ticket) === 'queued';
+}

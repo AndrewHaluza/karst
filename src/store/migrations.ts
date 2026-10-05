@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
+import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -650,6 +651,16 @@ CREATE INDEX IF NOT EXISTS idx_pr_feedback_ticket
  */
 export function migrate(db: Database): void {
   if ((db.pragma('user_version', { simple: true }) as number) >= SCHEMA_VERSION) {
+    // A DB already at the current version skips the gated steps, so the one
+    // shape repair for unreleased v64 runs here (cheap read when current).
+    if (ticketMessagesNeedsRepair(db)) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => repairTicketMessages(db)).immediate();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
     return;
   }
 
@@ -2394,6 +2405,31 @@ function migrateLocked(db: Database): void {
       );
     }
   }
+
+  if (current < 64) {
+    // v64: sub-task autostart queue + parent<->child mailbox. Every pre-v64 row
+    // is honestly NOT queued (0): nothing was ever auto-started before the
+    // column existed. The guard reads the CURRENT columns; the table/index use
+    // IF NOT EXISTS, so a fresh DB (schema.sql carries both) is a no-op.
+    // `cols64` is empty only when `tickets` does not exist — impossible for a
+    // real registry (the v1 step creates it) and seen only in partial legacy
+    // fixtures. Skipping the ALTER there and still stamping the version is the
+    // v63 precedent: with no table there is no row to backfill or column to add.
+    const cols64 = ticketColumns(db);
+    if (cols64.size > 0 && !cols64.has('autostart_pending')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN autostart_pending INTEGER NOT NULL DEFAULT 0');
+    }
+    if (cols64.size > 0 && !cols64.has('autostart_claimed_at')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN autostart_claimed_at TEXT');
+    }
+    if (cols64.size > 0) {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending)');
+    }
+    db.exec(TICKET_MESSAGES_DDL);
+  }
+
+  // Ungated: v64 is unreleased and early v64 DBs lack woke_at/AUTOINCREMENT.
+  repairTicketMessages(db);
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

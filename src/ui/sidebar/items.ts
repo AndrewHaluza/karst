@@ -8,6 +8,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
+import { subtaskAutostartPhase, type SubtaskAutostartPhase } from '../../model/subtask.js';
 
 /** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
 export interface SidebarPr {
@@ -111,6 +112,12 @@ export interface TicketNode {
    * webview only hides/show its descendants — it never re-derives the tree.
    */
   subtaskChildCount: number;
+  /**
+   * Autostart phase at `scope` (`model/subtask.ts` `subtaskAutostartPhase`):
+   * `queued` / `starting` / null. Host-derived (UI-R31); the webview renders
+   * "Queued" / "Starting" in place of the stage chip.
+   */
+  autostart: SubtaskAutostartPhase | null;
   collapsible: true;
 }
 
@@ -159,6 +166,7 @@ export function buildTicketNodes(
         t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      autostart: subtaskAutostartPhase(t),
       collapsible: true,
     };
   });

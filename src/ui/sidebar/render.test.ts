@@ -86,6 +86,14 @@ describe('sidebar render', () => {
       return h;
     }
 
+    it('renders a host-flagged queued sub-task chip as Queued', () => {
+      const h = render();
+      try {
+        const chips = h.queryAll('.ticket .stage').map((el) => el.textContent);
+        expect(chips).toEqual(['impl', 'impl', 'Queued', 'impl']);
+      } finally { h.close(); }
+    });
+
     it('renders a collapse control only on rows that have sub-tasks', () => {
       const h = render();
       try {

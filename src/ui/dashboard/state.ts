@@ -21,7 +21,7 @@ import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.j
 import { needsUser } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
-import { subtaskProgress, canAddSubtask, canDetachSubtask } from '../../model/subtask.js';
+import { subtaskProgress, canAddSubtask, canDetachSubtask, subtaskAutostartPhase } from '../../model/subtask.js';
 import { railNeeds } from '../../model/railNeeds.js';
 import { reportedPhases } from '../../model/inside/agent.js';
 import { listProcessRuns } from '../../store/processRuns.js';
@@ -238,7 +238,8 @@ export function buildDashboardState(
   // the one `stageBadge` every other surface paints with.
   const subtaskList = listSubtasks(store, ticketId);
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
-    const badge = stageBadge(getTicket(store, s.id));
+    const child = getTicket(store, s.id);
+    const badge = stageBadge(child);
     return {
       id: s.id,
       key: s.key ?? `#${s.id}`,
@@ -248,6 +249,7 @@ export function buildDashboardState(
       stageClass: stageColorClass(badge.stage),
       blocking: s.blocksParent,
       done: s.stageCurrent === 'done',
+      autostart: subtaskAutostartPhase(child),
     };
   });
   const rounds = listRecoveryRounds(store, ticketId);

@@ -755,6 +755,11 @@ export interface Manifest {
    */
   archiveDoneAfterDays?: number;
   /**
+   * Sub-task auto-start concurrency caps (`0` = unlimited). Always set by
+   * `validateManifest` (2 per parent / 4 per project when absent).
+   */
+  subtasks?: SubtaskLimits;
+  /**
    * Enable verbose debug-level logging (`logger.debug`, § debug logging).
    * Defaults to false. The host reads this at manifest (re)load and toggles
    * the logger's gated debug flag at runtime; when false, `logger.debug()` is
@@ -798,4 +803,10 @@ export interface Manifest {
    * the block is absent.
    */
   processes?: ProcessAssignmentsConfig;
+}
+
+/** Caps on concurrently RUNNING sub-tasks; `0` = unlimited. */
+export interface SubtaskLimits {
+  maxConcurrentPerParent: number;
+  maxConcurrentTotal: number;
 }
