@@ -47,6 +47,8 @@ if (!existsSync(ROOT) || readdirSync(ROOT).length === 0) {
     execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
       cwd: __dirname,
       stdio: 'inherit',
+      // tsx creates an IPC socket below TMPDIR; macOS limits its path length.
+      env: { ...process.env, TMPDIR: '/tmp' },
       timeout: 60_000,
     });
   } catch (err) {

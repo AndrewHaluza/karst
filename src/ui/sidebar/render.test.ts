@@ -37,6 +37,7 @@ describe('sidebar render', () => {
           h.receive({ type: 'state', state: fixture.state });
           const allRows = h.queryAll('[data-ticket], .row');
           const populatedCount = fixture.state.sections.current.length
+            + fixture.state.sections.awaitingReview.length
             + fixture.state.sections.recentlyDone.length
             + fixture.state.sections.olderDone.length
             + fixture.state.done.length
@@ -84,6 +85,14 @@ describe('sidebar render', () => {
       h.receive({ type: 'state', state: subtaskState });
       return h;
     }
+
+    it('renders a host-flagged queued sub-task chip as Queued', () => {
+      const h = render();
+      try {
+        const chips = h.queryAll('.ticket .stage').map((el) => el.textContent);
+        expect(chips).toEqual(['impl', 'impl', 'Queued', 'impl']);
+      } finally { h.close(); }
+    });
 
     it('renders a collapse control only on rows that have sub-tasks', () => {
       const h = render();

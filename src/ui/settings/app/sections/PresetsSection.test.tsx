@@ -405,14 +405,6 @@ describe('PresetsSection — active preset status in preset deck', () => {
 });
 
 describe('PresetsSection — the capability groups are foldable', () => {
-  /** The group-header disclosure button (a real `<button aria-expanded>`). */
-  function groupToggle(groupLabelFragment: string): HTMLButtonElement {
-    const toggles = Array.from(document.querySelectorAll('.cap-group-toggle')) as HTMLButtonElement[];
-    const toggle = toggles.find((t) => (t.textContent ?? '').includes(groupLabelFragment));
-    if (!toggle) throw new Error(`no group toggle matching "${groupLabelFragment}"`);
-    return toggle;
-  }
-
   it('renders every group expanded by default', () => {
     mount();
     const toggles = Array.from(document.querySelectorAll('.cap-group-toggle'));

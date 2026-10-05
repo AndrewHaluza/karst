@@ -206,6 +206,21 @@ describe('rendered Settings — the dirty markers are derived from the reducer (
   });
 });
 
+describe('rendered Settings — sub-task caps in the real document', () => {
+  it('saves an edited cap under the general section, marks the tab dirty (R26)', async () => {
+    const { view } = await mount();
+    expect(root(view).querySelector('[name="subtasksMaxConcurrentPerParent"]')).not.toBeNull();
+    await type(view, 'subtasksMaxConcurrentPerParent', '0');
+    expect(dirtyVisible(view)).toBe(true);
+    saveButton(view).click();
+    await view.settle();
+    const save = view.last('save');
+    expect(save).toMatchObject({ type: 'save', section: 'general' });
+    expect(manifestOf(save)).toMatchObject({ subtasks: { maxConcurrentPerParent: 0 } });
+    expect(view.errors).toEqual([]);
+  });
+});
+
 describe('rendered Settings — tab-scoped Save through useHostMutation (R11–R18)', () => {
   it('posts the whole draft scoped to the tab on screen', async () => {
     const { view } = await mount();

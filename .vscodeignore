@@ -44,6 +44,18 @@ scripts/**
 # packaged unless named explicitly.
 reports/**
 
+# Stryker's per-run sandbox: a full copy of the repo (3GB here) including nested
+# node_modules and .claude/worktrees. vsce's own walk chokes on it
+# (`currentLevel is undefined for Users in ...`) and it was 36042 of 36721 files.
+.stryker-tmp/**
+
+# Playwright visual sweep: tests, config and generated results. Dev-only.
+tests/**
+test-results/**
+playwright.config.ts
+tsconfig.visual.json
+.github/**
+
 # Marketing media: the launch film, the short cut, the README lockup and the
 # screenshot gallery. The README references all of them by absolute
 # raw.githubusercontent URL (the Marketplace does not resolve relative paths),

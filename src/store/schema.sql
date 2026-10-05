@@ -49,6 +49,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   -- v63 sub-task composition (kept in sync with migrations.ts v63 ALTERs):
   subtask_parent_id INTEGER,              -- -> tickets.id; this ticket is PART OF that open ticket. NULL = top-level
   blocks_parent     INTEGER,              -- 1 = parent may not leave impl/fix until this is done; NULL/0 = non-blocking
+  -- v64 sub-task autostart queue (kept in sync with migrations.ts v64 ALTER):
+  autostart_pending INTEGER NOT NULL DEFAULT 0, -- 0 none | 1 queued at scope | 2 starting (claimed); leaving scope clears to 0
+  autostart_claimed_at TEXT,              -- when the claim set 2; a stale claim at scope is re-queued
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
@@ -1182,3 +1185,21 @@ CREATE TABLE IF NOT EXISTS test_hooks (
   recorded_at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_test_hooks_ticket ON test_hooks(ticket_id, id);
+
+-- v64 parent<->child mailbox (kept in sync with migrations.ts v64 CREATE).
+-- `kind='event'` rows are written at the source by the stage writer (from = NULL,
+-- host event); `kind='message'` rows are agent-posted. Bodies are untrusted text.
+CREATE TABLE IF NOT EXISTS ticket_messages (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT, -- ids never reused: the delivery sweep watermarks on them
+  project_id     INTEGER REFERENCES projects(id) ON DELETE CASCADE, -- NULL only for a pre-v6 unassigned ticket
+  from_ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,  -- NULL = host event
+  to_ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  kind           TEXT NOT NULL CHECK (kind IN ('message', 'event')),
+  body           TEXT NOT NULL,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  read_at        TEXT,
+  woke_at        TEXT  -- event rows: the parent-wake decision was taken (atomic claim, one per row)
+);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_wake ON ticket_messages(project_id, kind, woke_at, id);
+CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending);

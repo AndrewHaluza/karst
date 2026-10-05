@@ -322,6 +322,8 @@ describe('writeManifest', () => {
         // Same reason: absent diffsInSourceControl would round-trip regardless of
         // the overlay, so the populated manifest pins the explicit value.
         diffsInSourceControl: true,
+        // Non-default on purpose, same reason as archiveDoneAfterDays.
+        subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 9 },
         id: 'karst-extension',
       };
       writeManifest(path, full);
@@ -803,6 +805,31 @@ approaches:
       writeManifest(path, { ...first, host: '0.0.0.0' });
       const second = loadManifest(path);
       expect(second.approaches![0]!.graph).toEqual(first.approaches![0]!.graph);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('writeManifest — subtasks overlay', () => {
+  it('omits the subtasks block when the manifest never had one', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const { subtasks: _drop, ...bare } = loadManifest(path);
+      writeManifest(path, bare as Manifest);
+      expect(readFileSync(path, 'utf8')).not.toMatch(/subtasks/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('writes the caps when the manifest has them', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, { ...m, subtasks: { maxConcurrentPerParent: 5, maxConcurrentTotal: 0 } });
+      expect(loadManifest(path).subtasks).toEqual({ maxConcurrentPerParent: 5, maxConcurrentTotal: 0 });
+      expect(readFileSync(path, 'utf8')).toMatch(/maxConcurrentTotal: 0/);
     } finally {
       cleanup();
     }

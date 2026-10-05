@@ -38,7 +38,6 @@ import type { AgentPreset, AgentProvider, Manifest } from '../../../../manifest/
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
-import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { Chip } from '../primitives/Chip.js';
 import { IconButton } from '../primitives/IconButton.js';
 import { InlineTextInput } from '../primitives/InlineTextInput.js';
@@ -427,10 +426,6 @@ export function PresetsSection() {
               const record = presetMap(draft)[name];
               const overridden = overriddenCount(record, capabilityIds);
               const active = name === activePresetName(draft);
-              const meta =
-                `${record?.label ? `${record.label} · ` : ''}` +
-                `${overridden}/${total} overridden` +
-                (active ? ' · active' : '');
               const isSelected = name === editing;
               return (
                 <div

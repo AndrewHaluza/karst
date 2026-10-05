@@ -243,6 +243,17 @@ export async function integrateLandedSubtasks(
 }
 
 /**
+ * Parents whose integrate-and-release is running in THIS extension host. The
+ * mailbox wake sweep reads it so it never launches an agent mid-integration
+ * before any park has been written (H1).
+ */
+const integrating = new Map<number, number>();
+
+export function isIntegrating(parentId: number): boolean {
+  return (integrating.get(parentId) ?? 0) > 0;
+}
+
+/**
  * Integrate the parent's landed sub-tasks, then release its `awaiting-subtask`
  * gate — in that order, so the gate is never cleared while the child's work is
  * still unmerged. A park from integration holds the gate; the caller must check
@@ -251,6 +262,22 @@ export async function integrateLandedSubtasks(
  * The one async seam every landing path and driver boundary funnels through.
  */
 export async function integrateAndReleaseParent(
+  store: Store,
+  parentId: number,
+  git?: GitRunner,
+  debug?: (message: string) => void,
+): Promise<IntegrateOutcome> {
+  integrating.set(parentId, (integrating.get(parentId) ?? 0) + 1);
+  try {
+    return await integrateAndReleaseParentInner(store, parentId, git, debug);
+  } finally {
+    const left = (integrating.get(parentId) ?? 1) - 1;
+    if (left > 0) integrating.set(parentId, left);
+    else integrating.delete(parentId);
+  }
+}
+
+async function integrateAndReleaseParentInner(
   store: Store,
   parentId: number,
   git?: GitRunner,

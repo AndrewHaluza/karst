@@ -2931,3 +2931,78 @@ activeAgentPreset: smart
   });
 });
 
+
+describe('subtasks caps', () => {
+  it('defaults to 2 per parent / 4 total when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).subtasks).toEqual({
+        maxConcurrentPerParent: 2,
+        maxConcurrentTotal: 4,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses explicit caps, with 0 meaning unlimited', () => {
+    const { path, cleanup } = fixture(
+      `${VALID}\nsubtasks:\n  maxConcurrentPerParent: 0\n  maxConcurrentTotal: 9\n`,
+    );
+    try {
+      expect(loadManifest(path).subtasks).toEqual({
+        maxConcurrentPerParent: 0,
+        maxConcurrentTotal: 9,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('defaults a single omitted cap independently', () => {
+    const { path, cleanup } = fixture(`${VALID}\nsubtasks:\n  maxConcurrentTotal: 7\n`);
+    try {
+      expect(loadManifest(path).subtasks).toEqual({
+        maxConcurrentPerParent: 2,
+        maxConcurrentTotal: 7,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['maxConcurrentPerParent: -1', /subtasks\.maxConcurrentPerParent must be a whole number/],
+    ['maxConcurrentTotal: -3', /subtasks\.maxConcurrentTotal must be a whole number/],
+    ['maxConcurrentPerParent: 1.5', /subtasks\.maxConcurrentPerParent must be a whole number/],
+    ['maxConcurrentTotal: "4"', /subtasks\.maxConcurrentTotal must be a whole number/],
+  ])('rejects %s', (line, pattern) => {
+    const { path, cleanup } = fixture(`${VALID}\nsubtasks:\n  ${line}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(pattern);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-mapping subtasks block', () => {
+    const { path, cleanup } = fixture(`${VALID}\nsubtasks: 3\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/subtasks must be a mapping/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('treats a cap key with no value (null) as its default', () => {
+    const { path, cleanup } = fixture(`${VALID}\nsubtasks:\n  maxConcurrentPerParent:\n  maxConcurrentTotal: 6\n`);
+    try {
+      expect(loadManifest(path).subtasks).toEqual({
+        maxConcurrentPerParent: 2,
+        maxConcurrentTotal: 6,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+});

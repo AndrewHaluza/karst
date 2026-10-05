@@ -25,6 +25,8 @@ export interface ParsedSubtaskCreate {
   blocking: boolean;
   /** Optional subset of the parent's repos; omitted means all of them. */
   repos?: string[];
+  /** Queue the sub-task to auto-start; `--no-start` makes it false. */
+  start: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export function parseSubtaskCreateArgs(argv: string[]): ParsedSubtaskCreate {
   let description: string | undefined;
   let blocking = false;
   let repos: string[] | undefined;
+  let start = true;
 
   for (let i = 0; i < rest.length; i++) {
     const token = rest[i]!;
@@ -58,6 +61,8 @@ export function parseSubtaskCreateArgs(argv: string[]): ParsedSubtaskCreate {
       }
     } else if (token === '--blocking') {
       blocking = true;
+    } else if (token === '--no-start') {
+      start = false;
     } else if (token === '--repos') {
       const raw = rest[++i];
       if (raw === undefined) throw new Error('karst subtask create: --repos needs a value');
@@ -70,18 +75,18 @@ export function parseSubtaskCreateArgs(argv: string[]): ParsedSubtaskCreate {
       }
     } else {
       throw new Error(
-        `unknown flag '${token}' (want --title, --description, --blocking or --repos)`,
+        `unknown flag '${token}' (want --title, --description, --blocking, --repos or --no-start)`,
       );
     }
   }
 
   if (title === undefined || title.trim() === '') {
     throw new Error(
-      "missing --title (usage: subtask create --title <title> [--description <desc>] [--blocking] [--repos a,b])",
+      "missing --title (usage: subtask create --title <title> [--description <desc>] [--blocking] [--repos a,b] [--no-start])",
     );
   }
 
-  return { title: title.trim(), description, blocking, repos };
+  return { title: title.trim(), description, blocking, repos, start };
 }
 
 /**
@@ -106,6 +111,7 @@ export function runSubtaskCommand(
       description: parsed.description,
       blocking: parsed.blocking,
       repos: parsed.repos,
+      start: parsed.start,
     },
     {},
     debug,
@@ -120,5 +126,6 @@ export function runSubtaskCommand(
     blocking: child.blocksParent,
     repos: child.selectedRepos,
     stage: child.stageCurrent,
+    autostart: child.autostartPending,
   });
 }

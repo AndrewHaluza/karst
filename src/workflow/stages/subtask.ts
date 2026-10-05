@@ -29,6 +29,11 @@ export interface SubtaskFields {
    * Defaults to all of the parent's repos.
    */
   repos?: string[];
+  /**
+   * Queue the sub-task to auto-start implementation (default true). `false`
+   * (CLI `--no-start`) leaves it at `scope` for a manual Start.
+   */
+  start?: boolean;
 }
 
 /** No ticket with `parentId` exists (readers must tolerate a missing row). */
@@ -201,6 +206,7 @@ export function createSubtask(
     projectId: parent.projectId ?? scope.projectId,
     subtaskParentId: parent.id,
     blocksParent: fields.blocking ?? false,
+    autostartPending: fields.start ?? true,
   });
 
   updateTicketFields(store, child.id, {

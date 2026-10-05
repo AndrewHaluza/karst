@@ -72,9 +72,36 @@ test.describe('buildFixture', () => {
     expect(html).toContain('MessageEvent');
   });
 
-  test('body class is set by the seed script', () => {
-    const html = buildFixture('dashboard', 'light', [{ type: 'state', state: {} }]);
-    expect(html).toContain('vscode-light');
+  // The old assertion here was `expect(html).toContain('vscode-light')`, which
+  // the injected palette CSS satisfies on its own — the literal string
+  // `body.vscode-light{...}` is in every fixture regardless of whether the
+  // class ever reaches the element. Seven of the nine webview fragments carry
+  // no `<body>` tag, so gating the injection on one silently skipped them and
+  // they rendered :root's dark stage palette in every theme (NDL-219). Assert
+  // the assignment itself, that it exists for both markup shapes, and that it
+  // runs before readiness so nothing paints unthemed.
+  test('body class script is emitted unconditionally, before data-karst-ready', () => {
+    const lightClass =
+      'vscode-light vscode-theme-defaults-themes-light_modern-json';
+    const hcClass = 'vscode-high-contrast vscode-theme-defaults-themes-hc_black-json';
+
+    // dashboard's markup has no <body> tag — the case that used to be skipped.
+    const noBodyTag = buildFixture('dashboard', 'light', [{ type: 'state', state: {} }]);
+    expect(noBodyTag).not.toMatch(/<body[\s>]/i);
+    expect(noBodyTag).toContain(`document.body.className="${lightClass}"`);
+
+    // diffs does carry a <body> tag and must keep the same script.
+    const withBodyTag = buildFixture('diffs', 'hc', [{ type: 'state', state: {} }]);
+    expect(withBodyTag).toMatch(/<body[\s>]/i);
+    expect(withBodyTag).toContain(`document.body.className="${hcClass}"`);
+
+    for (const html of [noBodyTag, withBodyTag]) {
+      const assign = html.indexOf('document.body.className=');
+      expect(assign).toBeGreaterThanOrEqual(0);
+      // The class must be on <body> before the seed dispatches a message and
+      // before it sets data-karst-ready — never after.
+      expect(assign).toBeLessThan(html.indexOf('data-karst-ready'));
+    }
   });
 
   // A corpus containing a literal `</script>` substring (the XSS-probe

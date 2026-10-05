@@ -132,6 +132,23 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, parent.id).subtaskParent).toBeNull();
   });
 
+  it('marks a sub-task queued only while autostart is pending at scope', () => {
+    const parent = createTicket(store, { key: 'PROJ-9', title: 'root' });
+    const queued = createTicket(store, { key: 'PROJ-9-s1', title: 'q', subtaskParentId: parent.id, autostartPending: true });
+    createTicket(store, { key: 'PROJ-9-s2', title: 'idle', subtaskParentId: parent.id });
+    const started = createTicket(store, { key: 'PROJ-9-s3', title: 's', subtaskParentId: parent.id, autostartPending: true });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(started.id);
+
+    const rows = buildDashboardState(store, parent.id).subtasks;
+    expect(rows.map((r) => [r.id, r.autostart])).toEqual([
+      [queued.id, 'queued'],
+      [queued.id + 1, null],
+      [started.id, null],
+    ]);
+    store.db.prepare('UPDATE tickets SET autostart_pending = 2 WHERE id = ?').run(queued.id);
+    expect(buildDashboardState(store, parent.id).subtasks[0]!.autostart).toBe('starting');
+  });
+
   it('lists direct sub-tasks with glyph, stage, blocking and n/m progress (NDL-76)', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
     const first = createTicket(store, {

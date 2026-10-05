@@ -183,6 +183,63 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
     expect(probe().draft).not.toHaveProperty('archiveDoneAfterDays');
   });
 
+  it('writes each sub-task cap as a whole number >= 0, 0 meaning unlimited', () => {
+    const { probe } = mountGeneral();
+    const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    const total = screen.getByLabelText('Running sub-tasks per project') as HTMLInputElement;
+    fireEvent.change(perParent, { target: { value: '3' } });
+    expect(probe().draft).toMatchObject({ subtasks: { maxConcurrentPerParent: 3 } });
+    fireEvent.change(total, { target: { value: '0' } });
+    expect(probe().draft).toMatchObject({
+      subtasks: { maxConcurrentPerParent: 3, maxConcurrentTotal: 0 },
+    });
+  });
+
+  it('constrains the sub-task inputs to whole numbers from 0', () => {
+    mountGeneral();
+    const el = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    expect(el.getAttribute('min')).toBe('0');
+    expect(el.getAttribute('step')).toBe('1');
+  });
+
+  it('flags a negative or fractional cap inline (UI-R25) and clears it from the draft', () => {
+    const { probe } = mountGeneral();
+    const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    for (const bad of ['-1', '1.5']) {
+      fireEvent.change(perParent, { target: { value: '3' } });
+      fireEvent.change(perParent, { target: { value: bad } });
+      expect(perParent.getAttribute('aria-invalid')).toBe('true');
+      const errId = perParent.getAttribute('aria-describedby')?.split(' ').find((t) => t.endsWith('-error'));
+      expect(document.getElementById(errId ?? 'none')?.textContent).toMatch(/whole number, 0 or more/);
+      expect(probe().draft).not.toHaveProperty('subtasks');
+    }
+  });
+
+  it('treats a blank cap as unset, with no error', () => {
+    const { probe } = mountGeneral();
+    const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    fireEvent.change(perParent, { target: { value: '3' } });
+    fireEvent.change(perParent, { target: { value: '' } });
+    expect(perParent.getAttribute('aria-invalid')).toBeNull();
+    expect(probe().draft).not.toHaveProperty('subtasks');
+  });
+
+  it('clears the error once the cap is valid again', () => {
+    mountGeneral();
+    const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    fireEvent.change(perParent, { target: { value: '-2' } });
+    expect(perParent.getAttribute('aria-invalid')).toBe('true');
+    fireEvent.change(perParent, { target: { value: '2' } });
+    expect(perParent.getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('explains the cost of high or unlimited sub-task caps', () => {
+    mountGeneral();
+    expect(document.querySelector('#section-general')?.textContent).toContain(
+      'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.',
+    );
+  });
+
   it('removes a toggle key when it is switched off, rather than storing false', () => {
     const { probe } = mountGeneral();
     const done = input('closeDoneTerminalsWithTicket');

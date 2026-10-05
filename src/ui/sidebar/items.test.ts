@@ -3,12 +3,13 @@ import {
   buildTicketNodes,
   filterTickets,
   isDoneTicket,
+  isAwaitingReview,
   completedAt,
   nestSubtasks,
   visibleTicketRows,
   MAX_SUBTASK_INDENT,
 } from './items.js';
-import type { TicketNode } from './items.js';
+import type { TicketNode, SidebarPr } from './items.js';
 import type { TicketWithStages } from '../../store/tickets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 
@@ -42,6 +43,9 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     parentTicketId: null,
     subtaskParentId: null,
     blocksParent: false,
+    autostartPending: false,
+    autostartStarting: false,
+    autostartClaimedAt: null,
     priority: null,
     stages: [
       { ticketId: 1, stageKey: 'scope', status: 'passed', attempt: 0, verdict: 'passed', artifactPath: null, startedAt: null, endedAt: null, blockedKind: null, blockedReason: null, blockedAt: null },
@@ -279,6 +283,67 @@ describe('isDoneTicket', () => {
   });
 });
 
+describe('isAwaitingReview', () => {
+  const pr = (number: number | null, status: string | null = 'open'): SidebarPr => ({
+    repo: 'backend',
+    number,
+    url: number !== null ? `https://github.com/x/pull/${number}` : null,
+    status,
+  });
+
+  it('is false when the open PR has a merge conflict (stays actionable in Current)', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1)], true)).toBe(false);
+  });
+
+  it('is true when the ticket is at ship with at least one open PR', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1)], false)).toBe(true);
+  });
+
+  it('is true with multiple open PRs', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1), pr(2)], false)).toBe(true);
+  });
+
+  it('is false when at ship but all PRs have number === null', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(null)], false)).toBe(false);
+  });
+
+  it('is false when at ship with an empty PR list', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [], false)).toBe(false);
+  });
+
+  it('is false for non-ship stages even with open PRs', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'impl' }), [pr(1)], false)).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'review' }), [pr(1)], false)).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'uat' }), [pr(1)], false)).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'done' }), [pr(1)], false)).toBe(false);
+  });
+
+  it('is false when there is no current stage at all', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: null, stages: [] }), [pr(1)], false)).toBe(false);
+  });
+
+  it('is false when the only PR is merged — a landed PR awaits no review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'merged')], false)).toBe(false);
+  });
+
+  it('is false when the only PR is closed — a closed PR awaits no review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'closed')], false)).toBe(false);
+  });
+
+  it('is true when one open PR remains beside a merged sibling', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'merged'), pr(2)], false)).toBe(true);
+  });
+
+  it('is false when the only PR is a draft — a draft is not yet up for review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'draft')], false)).toBe(false);
+  });
+
+  it('is false when the only PR status is unknown — an unanswered probe is not review', () => {
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, 'unknown')], false)).toBe(false);
+    expect(isAwaitingReview(ticket({ stageCurrent: 'ship' }), [pr(1, null)], false)).toBe(false);
+  });
+});
+
 describe('completedAt', () => {
   function doneStage(over: { endedAt: string | null; startedAt?: string | null }): TicketWithStages['stages'][number] {
     return {
@@ -327,6 +392,19 @@ describe('completedAt', () => {
 });
 
 describe('sub-task identity on the sidebar node', () => {
+  it('flags a queued sub-task at scope (host-derived, UI-R31)', () => {
+    const [q, plain, started] = buildTicketNodes([
+      ticket({ subtaskParentId: 7, autostartPending: true, stageCurrent: 'scope' }),
+      ticket({ subtaskParentId: null, autostartPending: true, stageCurrent: 'scope' }),
+      ticket({ subtaskParentId: 7, autostartPending: true, stageCurrent: 'impl' }),
+    ]);
+    expect([q!.autostart, plain!.autostart, started!.autostart]).toEqual(['queued', null, null]);
+    const [claimed] = buildTicketNodes([
+      ticket({ subtaskParentId: 7, autostartPending: false, autostartStarting: true, stageCurrent: 'scope' }),
+    ]);
+    expect(claimed!.autostart).toBe('starting');
+  });
+
   it('carries no sub-task parent for an ordinary ticket', () => {
     const [node] = buildTicketNodes([ticket({ subtaskParentId: null })]);
     expect(node!.subtaskParentId).toBeNull();
@@ -371,6 +449,7 @@ describe('nestSubtasks', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      autostart: null,
       collapsible: true,
       ...over,
     };
@@ -466,6 +545,7 @@ describe('visibleTicketRows', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      autostart: null,
       collapsible: true,
       ...over,
     };

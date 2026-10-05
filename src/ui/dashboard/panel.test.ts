@@ -15,6 +15,7 @@ import { attemptKey } from '../../model/inside/rounds.js';
 import { DashboardManager, type PanelHost, type FakePanel, type StageLogReader, type AgentLogReader } from './panel.js';
 import { buildGraphInsideInput } from './graphInside.js';
 import { LIVE_TICK_MS } from './liveTick.js';
+import { TAB_TITLE_MAX } from '../../model/tabTitle.js';
 import { ACTION_GRACE_MS } from './panel.js';
 import type { WorktreeStats, WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
@@ -160,7 +161,7 @@ describe('DashboardManager', () => {
     expect(uat.retry).toMatchObject({ spent: 1, cap: 1 });
   });
 
-  it('sets the tab icon on open and on each state push, from iconFor', () => {
+  it('sets the tab icon on open and only again when its path changes, from iconFor', () => {
     const t = createTicket(store, { key: 'PROJ-9', title: 'ship it' });
     const { host, panels } = fakeHost();
     const mgr = new DashboardManager(
@@ -178,9 +179,19 @@ describe('DashboardManager', () => {
     mgr.openDashboard(t.id);
     mgr.pushState(t.id);
 
-    expect(panels[0]!.icons).toContain('/store/icons/karst-blue.svg');
-    // Open pushes state once, then the explicit push — the icon re-points each time.
-    expect(panels[0]!.icons.length).toBeGreaterThanOrEqual(2);
+    // A constant glyph is set once: a usage or hook stream must cost no IPC.
+    expect(panels[0]!.icons).toEqual(['/store/icons/karst-blue.svg']);
+  });
+
+  it('caps the tab title so a long ticket title cannot crowd the tab strip', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'a very long ticket title '.repeat(6) });
+    const { host, panels } = fakeHost();
+    const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+    mgr.openDashboard(t.id);
+
+    expect(panels[0]!.title.length).toBeLessThanOrEqual(TAB_TITLE_MAX);
+    expect(panels[0]!.title.startsWith('A-1')).toBe(true);
   });
 
   it('separate tickets get separate panels', () => {
@@ -1337,6 +1348,55 @@ describe('DashboardManager', () => {
       const line = debug.mock.calls.map((c) => c[0] as string).find((m) => m.includes('passive'));
       expect(line).toMatch(/^\[dashboard\] ticket \d+ push passive → state; changed: .*insideViews/);
       expect(line).toMatch(/from .*panel\.test\.ts/);
+    });
+
+    it('a store push re-points the tab icon when the glyph changed; a live tick never does', () => {
+      const t = createTicket(store, { key: 'PROJ-9', title: 'ship it' });
+      openProcessRun(store, { ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 1, startedAt: new Date().toISOString() });
+      const { host, panels } = fakeHost();
+      let icon = '/store/icons/karst-blue.svg';
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined,
+        () => icon,
+      );
+
+      mgr.openDashboard(t.id);
+      icon = '/store/icons/karst-amber.svg';
+      vi.advanceTimersByTime(LIVE_TICK_MS * 2);
+      expect(panels[0]!.icons).toEqual(['/store/icons/karst-blue.svg']);
+
+      mgr.pushStoreState(t.id);
+      expect(panels[0]!.icons).toEqual(['/store/icons/karst-blue.svg', '/store/icons/karst-amber.svg']);
+    });
+
+    it('a store push keeps the action ids of the snapshot before it', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(t.id);
+      store.db
+        .prepare(
+          `INSERT INTO prs (ticket_id, repo, number, url, status, merged_at)
+           VALUES (?, ?, ?, ?, 'merged', ?)`,
+        )
+        .run(t.id, '/repo/a', 12, 'https://github.com/o/r/pull/12', new Date().toISOString());
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined,
+        { openPr: () => {} } as never,
+      );
+
+      mgr.openDashboard(t.id);
+      mgr.pushState(t.id);
+      openProcessRun(store, { ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 1, startedAt: new Date().toISOString() });
+      mgr.pushStoreState(t.id);
+
+      const generations = fullStates(panels[0]!)
+        .map((m) => JSON.stringify(m).match(/snapshot-(\d+):/)?.[1])
+        .filter(Boolean);
+    expect(generations.length).toBeGreaterThanOrEqual(2);
+    expect(generations.at(-1)).toBe(generations.at(-2));
     });
 
     it('a passive push that finds nothing new sends only the clocks', () => {

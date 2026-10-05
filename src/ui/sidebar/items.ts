@@ -8,6 +8,15 @@ import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
+import { subtaskAutostartPhase, type SubtaskAutostartPhase } from '../../model/subtask.js';
+
+/** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
+export interface SidebarPr {
+  repo: string;
+  number: number | null;
+  url: string | null;
+  status: string | null;
+}
 
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
@@ -103,6 +112,12 @@ export interface TicketNode {
    * webview only hides/show its descendants — it never re-derives the tree.
    */
   subtaskChildCount: number;
+  /**
+   * Autostart phase at `scope` (`model/subtask.ts` `subtaskAutostartPhase`):
+   * `queued` / `starting` / null. Host-derived (UI-R31); the webview renders
+   * "Queued" / "Starting" in place of the stage chip.
+   */
+  autostart: SubtaskAutostartPhase | null;
   collapsible: true;
 }
 
@@ -151,6 +166,7 @@ export function buildTicketNodes(
         t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      autostart: subtaskAutostartPhase(t),
       collapsible: true,
     };
   });
@@ -270,6 +286,30 @@ export function filterTickets(
  */
 export function isDoneTicket(t: TicketWithStages): boolean {
   return t.stageCurrent === 'done';
+}
+
+/**
+ * A ticket is AWAITING REVIEW when it has reached the `ship` stage and has at
+ * least one OPEN PR — the only remaining step is a team review on GitHub.
+ *
+ * The PR must be a real, literally `open` PR: `merged` and `closed` are terminal
+ * (no review is coming), `draft` is not yet up for review, and `unknown`/null is
+ * the absence of an answer, never a claim that review has started. A row with no
+ * number is not an opened PR either. A ship ticket with no such PR (still
+ * shipping, parked, or already landed) stays in the main Current list, and so
+ * does one whose open PR has a merge conflict (`conflicted`): that is an
+ * actionable item (Resolve conflicts), not a wait on reviewers.
+ */
+export function isAwaitingReview(
+  t: Pick<TicketWithStages, 'stageCurrent'>,
+  prs: readonly SidebarPr[],
+  conflicted: boolean,
+): boolean {
+  return (
+    t.stageCurrent === 'ship' &&
+    !conflicted &&
+    prs.some((p) => p.number !== null && p.status === 'open')
+  );
 }
 
 /**

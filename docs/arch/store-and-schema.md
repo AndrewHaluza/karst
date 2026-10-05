@@ -12,6 +12,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - The per-ticket base-branch columns
 - The per-ticket env overrides column
 - One worktrees row per (ticket, path)
+- v64: sub-task autostart and parent–child mailbox schema
 - New schema column checklist
 
 ## SQLite is source of truth
@@ -80,6 +81,28 @@ Two deliberate, documented exceptions remain:
 ## One worktrees row per (ticket, path)
 
 `worktrees` carries a UNIQUE index on `(ticket_id, path)` (schema v61). The pair is the checkout's identity: `createWorktree` adopts the existing row when git still lists the checkout, but when the checkout was pruned from git while the row survived it took the create path and INSERTed a second row for the same path — once per re-spin, which rendered as duplicated dashboard worktree cards. Both inserts are now UPSERTs (the adopt path DO NOTHING; the freshly cut checkout refreshes `branch`/`base_ref`, keeping the original `created_at`), and the v61 migration collapses pre-existing duplicates, earliest row wins.
+
+## v64: sub-task autostart and parent–child mailbox schema
+
+**Sub-task autostart columns** (tickets table):
+- `autostart_pending` (INTEGER NOT NULL DEFAULT 0, indexed `idx_tickets_autostart`): tri-state (0 none, 1 queued, 2 starting); semantics in `docs/arch/stages-and-gates.md`, "Sub-task autostart".
+- `autostart_claimed_at` (TEXT): set by `claimAutostart` (→ 2), cleared on release, scope pass, detach and archive; a 2 at scope whose claim is NULL or older than 10 min is re-queued to 1.
+
+**Parent–child mailbox** (`ticket_messages`, new in v64, `TICKET_MESSAGES_DDL` in `store/ticketMessagesRepair.ts`):
+- `id`: INTEGER PRIMARY KEY AUTOINCREMENT — ids are never reused, which the delivery sweep's in-memory watermarks and wake baseline depend on.
+- `project_id`: the sender's/child's project (FK, ON DELETE CASCADE); NULL when the ticket is unscoped.
+- `from_ticket_id`: the sending ticket; NULL = host event.
+- `to_ticket_id`: the recipient — the sender's direct parent OR a direct child for a message; always the child's parent for an event.
+- `kind`: `'message'` (agent-posted) or `'event'` (host-written), CHECK-constrained.
+- `body`: prose for BOTH kinds, trimmed, ≤ 4096 (`MAX_MESSAGE_BODY`); events read e.g. `<key> landed (done)`, `<key> blocked at <stage>: <reason>`, `<key> autostart failed: …`. Untrusted for messages.
+- `created_at`, `read_at` (NULL = unread; set only by `karst inbox`'s `markRead`).
+- `woke_at`: the wake-claim timestamp — set once, atomically, by `claimWake` when a sweep takes a terminal wake decision (wake or skip) on an event row; NULL = undecided.
+
+Indexes: `idx_ticket_messages_inbox (to_ticket_id, read_at)` for inbox reads; `idx_ticket_messages_wake (project_id, kind, woke_at, id)` for the delivery sweep.
+
+**Repair** (`repairTicketMessages`): early (unreleased) v64 DBs carry `ticket_messages` without `woke_at` or AUTOINCREMENT. `migrate` runs the repair at the end of the v64 step and, on a DB already at 64, whenever `ticketMessagesNeedsRepair` is true (in an immediate transaction with foreign keys off): rename, recreate, copy every row with its id (`woke_at` kept if it existed, else NULL), drop the old table, ensure the indexes. A no-op when the table is absent or current. Nothing is derived from stage evidence.
+
+**Cross-window risk (L1).** Bumping to v64 makes the graph verbs of every OLDER build refuse this DB: `openGraphWritableStore` calls `assertExactSchema` (`cli/assertMigrated.ts`, `user_version !== SCHEMA_VERSION` throws), so `karst graph submit` and `karst node complete|block|replan` from a v63 window sharing the same global-storage registry fail with "requires exactly v63" until that window's extension is updated. The non-graph verbs use `assertMigratedSchema`, which only refuses an OLDER registry.
 
 ## New schema column checklist
 

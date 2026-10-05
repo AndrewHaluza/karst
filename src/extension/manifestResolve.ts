@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { loadManifestWithDiagnostics, type Manifest } from '../manifest/load.js';
-import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from '../manifest/schema.js';
+import { DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_SUBTASK_LIMITS } from '../manifest/schema.js';
 import { generateProjectSlug } from '../project/slug.js';
 import { SETUP_GUIDE_FILENAME, writeSetupGuide } from '../manifest/setupGuide.js';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
@@ -169,5 +169,6 @@ export function emptyManifest(): Manifest {
     ticketing: { provider: 'manual' },
     agentProvider: 'claude',
     archiveDoneAfterDays: DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
+    subtasks: { ...DEFAULT_SUBTASK_LIMITS },
   };
 }

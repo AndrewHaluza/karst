@@ -5,8 +5,10 @@
  * 1. Prepends the theme's `:root` block BEFORE the webview's own `<style>`
  *    (so the webview's rules and the injected palette still win the cascade).
  * 2. Runs the real injector chain (through `CHAINS[view].render`).
- * 3. Appends a nonced `<script>` that stubs `acquireVsCodeApi()` and
- *    dispatches the corpus payload as a `message` event.
+ * 3. Appends a nonced `<script>` that puts the theme class on `document.body`
+ *    (unconditionally, whether or not the markup has a `<body>` tag), stubs
+ *    `acquireVsCodeApi()` and dispatches the corpus payload as a `message`
+ *    event.
  * 4. Sets `data-karst-ready` after dispatching, so the test helper knows
  *    when the page is rendered.
  *
@@ -82,22 +84,27 @@ export function buildFixture(
     html += '\n' + vsApiStub;
   }
 
-  // Set body class for the theme.
+  // Set the theme's body class — UNCONDITIONALLY, for every fixture.
+  //
+  // Only `diffs` and `gettingStarted` carry a literal `<body>` tag; the other
+  // seven webview fragments are headless markup, so gating on `<body>` (as
+  // this did) silently skipped the class for them and every one of those views
+  // rendered `:root`'s dark stage palette in all three themes. The parser
+  // builds an implicit `<body>` either way, so a script appended with the seed
+  // — which is by definition after the body exists — can set the class with or
+  // without a tag in the source. Emitting it immediately before the seed also
+  // fixes the cascade position: the class is on `document.body` before the
+  // first corpus message dispatches and synchronously before `data-karst-ready`.
   const bodyClassScript = `<script nonce="${FIXED_NONCE}">document.body.className=${jsonForInlineScript(themeData.bodyClass)};</script>`;
 
-  // Insert body class script right after <body> tag.
-  const bodyMatch = html.match(/<body[^>]*>/i);
-  if (bodyMatch) {
-    const insertPos = html.indexOf(bodyMatch[0]) + bodyMatch[0].length;
-    html = html.slice(0, insertPos) + '\n' + bodyClassScript + html.slice(insertPos);
-  }
-
-  // Append the message dispatch + readiness signal before </body>.
+  // Append the body class, then the message dispatch + readiness signal,
+  // before </body> (or at the end of a fragment that has no </body>).
+  const seedAndClass = `${bodyClassScript}\n${seedScript}`;
   const bodyClose = html.lastIndexOf('</body>');
   if (bodyClose !== -1) {
-    html = html.slice(0, bodyClose) + seedScript + '\n' + html.slice(bodyClose);
+    html = html.slice(0, bodyClose) + seedAndClass + '\n' + html.slice(bodyClose);
   } else {
-    html += '\n' + seedScript;
+    html += '\n' + seedAndClass;
   }
 
   return html;
