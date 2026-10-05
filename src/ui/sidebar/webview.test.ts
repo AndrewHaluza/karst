@@ -29,7 +29,7 @@ describe('sidebar webview.html', () => {
 
   it('states the stage (not status) in the chip, with the full phrase in the tooltip', () => {
     expect(HTML).toContain('title="${esc(stageText)}">${esc(stageChip)}');
-    expect(HTML).toContain("const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);");
+    expect(HTML).toContain('const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;');
   });
 
   it('does NOT repeat the stage as a rail — the collapsed row chip already states it', () => {

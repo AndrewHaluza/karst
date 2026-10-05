@@ -3973,10 +3973,12 @@
   // signal yet) keeps the ringless default.
   const SUBTASK_DOT = { blue: 'k-dot--running', amber: 'k-dot--attention', green: 'k-dot--passed', red: 'k-dot--failed' };
 
+  const SUBTASK_AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function subtaskRowHtml(s) {
-    // `queued` is host-derived (UI-R31): waiting at scope for the autostart
-    // sweep reads "Queued" rather than the bare stage.
-    const stage = s.queued ? 'Queued' : (s.stage || 'none');
+    // `autostart` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stage = SUBTASK_AUTOSTART_WORD[s.autostart] || s.stage || 'none';
     const dot = SUBTASK_DOT[s.glyph] || '';
     const word = s.done ? 'done' : stage;
     const block = s.blocking

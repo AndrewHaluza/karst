@@ -140,11 +140,13 @@ describe('buildDashboardState', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(started.id);
 
     const rows = buildDashboardState(store, parent.id).subtasks;
-    expect(rows.map((r) => [r.id, r.queued])).toEqual([
-      [queued.id, true],
-      [queued.id + 1, false],
-      [started.id, false],
+    expect(rows.map((r) => [r.id, r.autostart])).toEqual([
+      [queued.id, 'queued'],
+      [queued.id + 1, null],
+      [started.id, null],
     ]);
+    store.db.prepare('UPDATE tickets SET autostart_pending = 2 WHERE id = ?').run(queued.id);
+    expect(buildDashboardState(store, parent.id).subtasks[0]!.autostart).toBe('starting');
   });
 
   it('lists direct sub-tasks with glyph, stage, blocking and n/m progress (NDL-76)', () => {

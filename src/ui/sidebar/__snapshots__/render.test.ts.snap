@@ -491,6 +491,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -503,9 +505,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -1355,6 +1357,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -1367,9 +1371,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -2219,6 +2223,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -2231,9 +2237,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -3083,6 +3089,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -3095,9 +3103,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -3947,6 +3955,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -3959,9 +3969,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -4811,6 +4821,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -4823,9 +4835,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -5675,6 +5687,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -5687,9 +5701,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade
@@ -6539,6 +6553,8 @@ function agentIdentityHtml(provider, model, compact) {
   // the relative completion time. The expanded body, the hover actions and
   // the open/active marks are identical either way: selecting a completed
   // ticket behaves exactly like selecting a Current one.
+  const AUTOSTART_WORD = { queued: 'Queued', starting: 'Starting' };
+
   function rowHtml(row, opts) {
     opts = opts || {};
     const compact = !!opts.compact;
@@ -6551,9 +6567,9 @@ function agentIdentityHtml(provider, model, compact) {
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    // \`queued\` is host-derived (UI-R31): a sub-task waiting at scope for the
-    // autostart sweep reads "Queued" instead of its bare stage.
-    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
+    // \`autostart\` is host-derived (UI-R31): a sub-task waiting at scope for
+    // the autostart sweep reads "Queued", one being started reads "Starting".
+    const stageChip = AUTOSTART_WORD[row.autostart] || row.stageChip || stageText;
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade

@@ -16,7 +16,7 @@ import type { RetryGateState } from '../../workflow/retryGate.js';
 import type { PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import type { PathContext } from '../worktreePath.js';
 import type { Glyph } from '../../model/glyph.js';
-import type { SubtaskProgress } from '../../model/subtask.js';
+import type { SubtaskAutostartPhase, SubtaskProgress } from '../../model/subtask.js';
 
 export type { PathContext } from '../worktreePath.js';
 export type { StepperCell } from '../../model/stepper.js';
@@ -85,10 +85,11 @@ export interface DashboardSubtaskRow {
   /** True once the sub-task reaches the terminal `done` stage. */
   done: boolean;
   /**
-   * True while the sub-task waits at `scope` for the autostart sweep (plan §A).
-   * Host-derived (UI-R31): the webview only renders it, never re-derives it.
+   * Autostart phase at `scope` (plan §A): `queued` waiting for the sweep,
+   * `starting` once claimed, else null. Host-derived (UI-R31): the webview
+   * only renders it, never re-derives it.
    */
-  queued: boolean;
+  autostart: SubtaskAutostartPhase | null;
 }
 
 /** Fully serializable dashboard state pushed to the webview via postMessage. */

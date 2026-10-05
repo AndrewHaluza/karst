@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   isQueuedSubtask,
+  subtaskAutostartPhase,
   SUBTASK_TEXT_MARKER,
   isSubtask,
   subtaskTextPrefix,
@@ -108,9 +109,20 @@ describe('canDetachSubtask', () => {
   });
 });
 
+describe('subtaskAutostartPhase', () => {
+  const base = { subtaskParentId: 1, autostartPending: true, autostartStarting: false, stageCurrent: 'scope' };
+  it('queued (1) and starting (2) at scope; null otherwise', () => {
+    expect(subtaskAutostartPhase(base)).toBe('queued');
+    expect(subtaskAutostartPhase({ ...base, autostartPending: false, autostartStarting: true })).toBe('starting');
+    expect(subtaskAutostartPhase({ ...base, autostartPending: false })).toBeNull();
+    expect(subtaskAutostartPhase({ ...base, stageCurrent: 'impl' })).toBeNull();
+    expect(subtaskAutostartPhase({ ...base, subtaskParentId: null })).toBeNull();
+  });
+});
+
 describe('isQueuedSubtask', () => {
   it('is true only for a queued sub-task at scope', () => {
-    const base = { subtaskParentId: 1, autostartPending: true, stageCurrent: 'scope' };
+    const base = { subtaskParentId: 1, autostartPending: true, autostartStarting: false, stageCurrent: 'scope' };
     expect(isQueuedSubtask(base)).toBe(true);
     expect(isQueuedSubtask({ ...base, stageCurrent: 'impl' })).toBe(false);
     expect(isQueuedSubtask({ ...base, autostartPending: false })).toBe(false);

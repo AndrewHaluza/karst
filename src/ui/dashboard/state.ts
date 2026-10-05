@@ -21,7 +21,7 @@ import { FIX_ATTEMPT_CAP, type GateStageKey } from '../../workflow/fixAttempts.j
 import { needsUser } from '../../model/ticketGlyph.js';
 import { stageBadge } from '../../model/stageBadge.js';
 import { stageColorClass } from '../../model/stagePalette.js';
-import { subtaskProgress, canAddSubtask, canDetachSubtask, isQueuedSubtask } from '../../model/subtask.js';
+import { subtaskProgress, canAddSubtask, canDetachSubtask, subtaskAutostartPhase } from '../../model/subtask.js';
 import { railNeeds } from '../../model/railNeeds.js';
 import { reportedPhases } from '../../model/inside/agent.js';
 import { listProcessRuns } from '../../store/processRuns.js';
@@ -249,7 +249,7 @@ export function buildDashboardState(
       stageClass: stageColorClass(badge.stage),
       blocking: s.blocksParent,
       done: s.stageCurrent === 'done',
-      queued: isQueuedSubtask(child),
+      autostart: subtaskAutostartPhase(child),
     };
   });
   const rounds = listRecoveryRounds(store, ticketId);

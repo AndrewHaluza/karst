@@ -1099,7 +1099,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         stageClass: 'stg-done',
         blocking: false,
         done: true,
-        queued: false,
+        autostart: null,
       },
       {
         id: 942019,
@@ -1110,7 +1110,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         stageClass: 'stg-impl',
         blocking: true,
         done: false,
-        queued: false,
+        autostart: null,
       },
       {
         id: 942020,
@@ -1121,7 +1121,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         stageClass: 'stg-scope',
         blocking: false,
         done: false,
-        queued: true,
+        autostart: 'queued',
       },
     ],
     subtaskProgress: { done: 1, total: 3 },

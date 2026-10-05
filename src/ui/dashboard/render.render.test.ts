@@ -272,6 +272,13 @@ describe('dashboard render — queued sub-task', () => {
     expect(queued!.querySelector('.stage')!.textContent).toBe('Queued');
     expect(queued!.querySelector('.k-dot')!.getAttribute('aria-label')).toBe('Queued');
     const running = h.query('.subtask[data-id="942019"]')!;
+    const state = populatedStateFor('impl');
+    const starting = {
+      ...state,
+      subtasks: state.subtasks.map((s) => (s.id === 942020 ? { ...s, autostart: 'starting' as const } : s)),
+    };
+    h.receive({ type: 'state', state: starting });
+    expect(h.query('.subtask[data-id="942020"] .stage')!.textContent).toBe('Starting');
     expect(running.querySelector('.stage')!.textContent).toBe('impl');
     expect(h.errors).toEqual([]);
     h.close();

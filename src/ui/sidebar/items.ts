@@ -8,7 +8,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
-import { isQueuedSubtask } from '../../model/subtask.js';
+import { subtaskAutostartPhase, type SubtaskAutostartPhase } from '../../model/subtask.js';
 
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
@@ -105,11 +105,11 @@ export interface TicketNode {
    */
   subtaskChildCount: number;
   /**
-   * True while this sub-task waits at `scope` for the autostart sweep
-   * (`model/subtask.ts` `isQueuedSubtask`). Host-derived (UI-R31); the webview
-   * renders "Queued" in place of the stage chip.
+   * Autostart phase at `scope` (`model/subtask.ts` `subtaskAutostartPhase`):
+   * `queued` / `starting` / null. Host-derived (UI-R31); the webview renders
+   * "Queued" / "Starting" in place of the stage chip.
    */
-  queued: boolean;
+  autostart: SubtaskAutostartPhase | null;
   collapsible: true;
 }
 
@@ -158,7 +158,7 @@ export function buildTicketNodes(
         t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
-      queued: isQueuedSubtask(t),
+      autostart: subtaskAutostartPhase(t),
       collapsible: true,
     };
   });
