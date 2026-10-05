@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
-import { claimAutostart, findTicketById } from '../../store/tickets.js';
+import { findTicketById } from '../../store/tickets.js';
+import { claimAutostart, releaseAutostart, requeueStaleClaims } from '../../store/autostart.js';
 import { postMessage } from '../../store/ticketMessages.js';
 import { pickSubtasksToStart, type AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import type { Notify } from './notify.js';
@@ -19,6 +20,9 @@ export const DEFAULT_AUTOSTART_CAPS: AutostartCaps = { perParent: 2, total: 4 };
 /** Upper bound on the failure reason carried into the parent's event. */
 const MAX_REASON = 300;
 
+/** A starting claim older than this at scope is an orphan (its window died). */
+export const STALE_CLAIM_MS = 10 * 60_000;
+
 export type AutostartStartResult = { ok: true } | { ok: false; message: string };
 
 export interface SubtaskAutostartDeps {
@@ -27,7 +31,12 @@ export interface SubtaskAutostartDeps {
   projectId: () => number | undefined;
   caps: () => AutostartCaps;
   ownsParent: (parentId: number) => boolean;
-  startTicket: (ticketId: number, opts: { pullBase: boolean }) => Promise<AutostartStartResult>;
+  /**
+   * The host start path. Autostart always passes `pullBase: false` (the child's
+   * base is its parent's branch, not a remote) and `quiet: true` — this op owns
+   * the single user-facing warning, so the host must not pop its own.
+   */
+  startTicket: (ticketId: number, opts: { pullBase: boolean; quiet: boolean }) => Promise<AutostartStartResult>;
   notify: Notify;
   debug: (message: string) => void;
 }
@@ -35,6 +44,8 @@ export interface SubtaskAutostartDeps {
 export interface SubtaskAutostart {
   /** Start what the caps admit; resolves to the ids started. Never throws. */
   sweep(): Promise<number[]>;
+  /** Stop for good: no further child is started, even mid-sweep. */
+  dispose(): void;
 }
 
 function errorText(err: unknown): string {
@@ -43,16 +54,17 @@ function errorText(err: unknown): string {
 
 export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutostart {
   let running = false;
+  let disposed = false;
 
-  async function startOne(id: number): Promise<boolean> {
-    if (!claimAutostart(deps.store, id)) {
-      deps.debug(`[driver] autostart #${id}: already claimed elsewhere — skipping`);
+  async function startOne(id: number, caps: AutostartCaps): Promise<boolean> {
+    if (!claimAutostart(deps.store, id, caps)) {
+      deps.debug(`[driver] autostart #${id}: not claimed (claimed elsewhere or cap reached) — skipping`);
       return false;
     }
     deps.debug(`[driver] autostart #${id}: claimed — starting`);
     let reason: string;
     try {
-      const res = await deps.startTicket(id, { pullBase: false });
+      const res = await deps.startTicket(id, { pullBase: false, quiet: true });
       if (res.ok) {
         deps.debug(`[driver] autostart #${id}: started`);
         return true;
@@ -66,6 +78,9 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
   }
 
   function reportFailure(id: number, reason: string): void {
+    // Before scope passed the claim is still 2: release it to 0 (no retry —
+    // the user starts it manually). After, setStage already cleared it.
+    releaseAutostart(deps.store, id);
     const child = findTicketById(deps.store, id);
     const key = child?.key ?? `#${id}`;
     const where =
@@ -90,6 +105,7 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
   }
 
   async function sweep(): Promise<number[]> {
+    if (disposed) return [];
     if (running) {
       deps.debug('[driver] autostart: sweep already running — skipping');
       return [];
@@ -98,15 +114,19 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
     try {
       const projectId = deps.projectId();
       if (projectId === undefined) return [];
-      const picked = pickSubtasksToStart(deps.store, projectId, {
-        ...deps.caps(),
-        ownsParent: deps.ownsParent,
-      });
+      const requeued = requeueStaleClaims(deps.store, projectId, STALE_CLAIM_MS);
+      if (requeued > 0) deps.debug(`[driver] autostart: re-queued ${requeued} orphaned claim(s)`);
+      const caps = deps.caps();
+      const picked = pickSubtasksToStart(deps.store, projectId, { ...caps, ownsParent: deps.ownsParent });
       if (picked.length === 0) return [];
       deps.debug(`[driver] autostart: picked ${picked.join(', ')}`);
       const started: number[] = [];
       for (const id of picked) {
-        if (await startOne(id)) started.push(id);
+        if (disposed) {
+          deps.debug('[driver] autostart: disposed — stopping sweep');
+          break;
+        }
+        if (await startOne(id, caps)) started.push(id);
       }
       deps.debug(`[driver] autostart: started ${started.length}/${picked.length}`);
       return started;
@@ -118,5 +138,10 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
     }
   }
 
-  return { sweep };
+  return {
+    sweep,
+    dispose: () => {
+      disposed = true;
+    },
+  };
 }

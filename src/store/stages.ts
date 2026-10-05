@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import { subtaskStageEvent } from './stageEvents.js';
+import { clearAutostartOnScopePass } from './autostart.js';
 import { postMessage, type PostMessageInput } from './ticketMessages.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 
@@ -134,6 +135,9 @@ export function setStage(
     store.db
       .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
       .run(...values, ticketId, stageKey);
+    // Leaving scope ends any autostart lifecycle (queued or starting) — the
+    // single place it is cleared, so a CLI start and a host start agree.
+    if (stageKey === 'scope' && (patch.status === 'passed' || patch.status === 'bypassed')) clearAutostartOnScopePass(store, ticketId);
     if (event !== null) postEventBestEffort(store, event, opts.onEventError);
   } catch (err) {
     rollbackQuietly(store, 'stage_write');

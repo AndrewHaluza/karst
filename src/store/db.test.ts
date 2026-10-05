@@ -378,8 +378,13 @@ describe('openStore', () => {
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
     expect(
-      migrated.db.prepare('SELECT autostart_pending FROM tickets WHERE id = 1').get(),
-    ).toEqual({ autostart_pending: 0 });
+      migrated.db.prepare('SELECT autostart_pending, autostart_claimed_at FROM tickets WHERE id = 1').get(),
+    ).toEqual({ autostart_pending: 0, autostart_claimed_at: null });
+    expect(
+      migrated.db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
+        .get('idx_tickets_autostart'),
+    ).toBeTruthy();
     expect(tableNames(migrated)).toContain('ticket_messages');
     expect(
       migrated.db

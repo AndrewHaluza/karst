@@ -42,6 +42,8 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     subtaskParentId: null,
     blocksParent: false,
     autostartPending: false,
+    autostartStarting: false,
+    autostartClaimedAt: null,
     priority: null,
     stages: [
       {

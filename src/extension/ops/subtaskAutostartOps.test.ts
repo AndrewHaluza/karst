@@ -58,10 +58,10 @@ describe('subtask autostart op', () => {
     const d = deps();
     const started = await makeSubtaskAutostart(d).sweep();
     expect(started).toEqual([a, b]);
-    expect(d.startTicket).toHaveBeenCalledWith(a, { pullBase: false });
+    expect(d.startTicket).toHaveBeenCalledWith(a, { pullBase: false, quiet: true });
     expect(d.startTicket).toHaveBeenCalledTimes(2);
     expect(findTicketById(store, c)?.autostartPending).toBe(true);
-    expect(findTicketById(store, a)?.autostartPending).toBe(false);
+    expect(findTicketById(store, a)?.autostartStarting).toBe(true);
     expect(d.debug).toHaveBeenCalledWith(expect.stringContaining('[driver] autostart'));
   });
 
@@ -80,9 +80,19 @@ describe('subtask autostart op', () => {
 
   it('skips a child another window already claimed', async () => {
     const a = child('P-1-s1');
-    store.db.prepare('UPDATE tickets SET autostart_pending = 0 WHERE id = ?').run(a);
+    store.db.prepare('UPDATE tickets SET autostart_pending = 2, autostart_claimed_at = datetime(\'now\') WHERE id = ?').run(a);
     const d = deps();
     expect(await makeSubtaskAutostart(d).sweep()).toEqual([]);
+    expect(d.startTicket).not.toHaveBeenCalled();
+  });
+
+  it('re-queues an orphaned claim older than 10 minutes and starts it', async () => {
+    const a = child('P-1-s1');
+    store.db
+      .prepare("UPDATE tickets SET autostart_pending = 2, autostart_claimed_at = datetime('now', '-11 minutes') WHERE id = ?")
+      .run(a);
+    const d = deps();
+    expect(await makeSubtaskAutostart(d).sweep()).toEqual([a]);
   });
 
   it('a failure before the scope transition warns and posts an event saying it stayed at scope', async () => {
@@ -95,7 +105,9 @@ describe('subtask autostart op', () => {
     expect(msg?.fromTicketId).toBeNull();
     expect(msg?.body).toContain('P-1-s1 autostart failed: no repos');
     expect(msg?.body).toContain('stayed at scope');
-    expect(findTicketById(store, a)?.autostartPending).toBe(false);
+    const after = findTicketById(store, a);
+    expect(after?.autostartPending).toBe(false);
+    expect(after?.autostartStarting).toBe(false);
   });
 
   it('a failure after the scope transition reports the child at impl without a session', async () => {
@@ -139,9 +151,33 @@ describe('subtask autostart op', () => {
     expect(d.startTicket).toHaveBeenCalledTimes(1);
   });
 
-  it('a throwing picker/store is caught, logged and warned', async () => {
+  it('a throwing caps getter is caught and logged, never thrown', async () => {
     const d = deps({ caps: () => { throw new Error('boom'); } });
     expect(await makeSubtaskAutostart(d).sweep()).toEqual([]);
     expect(d.debug).toHaveBeenCalledWith(expect.stringContaining('boom'));
+  });
+
+  it('the failure warning names the sub-task key', async () => {
+    child('P-1-s1');
+    const d = deps({ startTicket: vi.fn(async () => ({ ok: false as const, message: 'nope' })) });
+    await makeSubtaskAutostart(d).sweep();
+    expect(d.notify.warn).toHaveBeenCalledTimes(1);
+    expect(d.notify.warn).toHaveBeenCalledWith(expect.stringMatching(/P-1-s1.*nope/));
+  });
+
+  it('dispose mid-sweep starts nothing further', async () => {
+    child('P-1-s1');
+    child('P-1-s2');
+    const op = makeSubtaskAutostart(
+      deps({
+        startTicket: vi.fn(async (id: number) => {
+          op.dispose();
+          setStageCurrent(store, id, 'impl');
+          return { ok: true as const };
+        }),
+      }),
+    );
+    expect(await op.sweep()).toEqual([expect.any(Number)]);
+    expect(await op.sweep()).toEqual([]);
   });
 });

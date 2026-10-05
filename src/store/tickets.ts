@@ -93,6 +93,13 @@ export interface Ticket {
    */
   autostartPending: boolean;
   /**
+   * Claimed by an autostart sweep and being started (`autostart_pending = 2`).
+   * `store/autostart.ts` owns the state machine.
+   */
+  autostartStarting: boolean;
+  /** When the autostart claim was taken; `null` unless starting. */
+  autostartClaimedAt: string | null;
+  /**
    * Provider-native priority label (e.g. 'urgent', 'high', 'normal'), populated
    * from the ticketing provider when the ticket is fetched; `null` when the
    * provider did not expose one (a manual ticket, or an unfetched one).
@@ -135,6 +142,7 @@ interface TicketRow {
   subtask_parent_id: number | null;
   blocks_parent: number | null;
   autostart_pending: number;
+  autostart_claimed_at?: string | null;
   priority: string | null;
   paused_at: string | null;
 }
@@ -208,6 +216,8 @@ function rowToTicket(r: TicketRow): Ticket {
     subtaskParentId: r.subtask_parent_id ?? null,
     blocksParent: r.blocks_parent === 1,
     autostartPending: r.autostart_pending === 1,
+    autostartStarting: r.autostart_pending === 2,
+    autostartClaimedAt: r.autostart_claimed_at ?? null,
     priority: r.priority,
     pausedAt: r.paused_at ?? null,
   };
@@ -446,20 +456,6 @@ export function setAutostartPending(store: Store, ticketId: number, pending: boo
   store.db
     .prepare("UPDATE tickets SET autostart_pending = ?, updated_at = datetime('now') WHERE id = ?")
     .run(pending ? 1 : 0, ticketId);
-}
-
-/**
- * Atomically claim a queued ticket for auto-start: clears `autostart_pending`
- * only if it is still set, so across windows and overlapping sweeps exactly one
- * caller sees `true` and proceeds to start the ticket.
- */
-export function claimAutostart(store: Store, ticketId: number): boolean {
-  const info = store.db
-    .prepare(
-      "UPDATE tickets SET autostart_pending = 0, updated_at = datetime('now') WHERE id = ? AND autostart_pending = 1",
-    )
-    .run(ticketId);
-  return info.changes === 1;
 }
 
 /**
@@ -711,7 +707,7 @@ export function detachSubtaskParent(
 ): boolean {
   const info = store.db
     .prepare(
-      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0, autostart_pending = 0 WHERE id = ? AND subtask_parent_id = ?',
+      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0, autostart_pending = 0, autostart_claimed_at = NULL WHERE id = ? AND subtask_parent_id = ?',
     )
     .run(ticketId, expectedParentId);
   return info.changes > 0;
@@ -761,7 +757,7 @@ export function archiveTicket(store: Store, ticketId: number): void {
   assertNoOpenSubtasks(store, ticketId);
   store.db
     // Unqueued in the same write: archived work must never auto-start.
-    .prepare("UPDATE tickets SET archived_at = datetime('now'), autostart_pending = 0, updated_at = datetime('now') WHERE id = ?")
+    .prepare("UPDATE tickets SET archived_at = datetime('now'), autostart_pending = 0, autostart_claimed_at = NULL, updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
 }
 

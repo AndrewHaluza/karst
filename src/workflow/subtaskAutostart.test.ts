@@ -131,4 +131,41 @@ describe('pickSubtasksToStart', () => {
     expect(pickSubtasksToStart(store, projectId, { ...caps, ownsParent: (id) => id === p2 })).toEqual([b]);
     expect(pickSubtasksToStart(store, projectId, { ...caps, ownsParent: () => false })).toEqual([]);
   });
+
+  it('a child skipped by ownsParent leaves the budget untouched', () => {
+    const p1 = ticket({ stage: 'impl' });
+    const p2 = ticket({ stage: 'impl' });
+    ticket({ parent: p1, queued: true });
+    const b = ticket({ parent: p2, queued: true });
+    expect(
+      pickSubtasksToStart(store, projectId, { perParent: 0, total: 1, ownsParent: (id) => id === p2 }),
+    ).toEqual([b]);
+  });
+
+  it('per-parent boundary: at cap-1 admits one, at cap admits none', () => {
+    const p = ticket({ stage: 'impl' });
+    ticket({ parent: p, stage: 'impl' });
+    const q = ticket({ parent: p, queued: true });
+    ticket({ parent: p, queued: true });
+    expect(pickSubtasksToStart(store, projectId, { perParent: 2, total: 0 })).toEqual([q]);
+    expect(pickSubtasksToStart(store, projectId, { perParent: 1, total: 0 })).toEqual([]);
+  });
+
+  it('stops at the total cap even when a later parent has room', () => {
+    const p1 = ticket({ stage: 'impl' });
+    const p2 = ticket({ stage: 'impl' });
+    const a = ticket({ parent: p1, queued: true });
+    ticket({ parent: p1, queued: true });
+    ticket({ parent: p2, queued: true });
+    expect(pickSubtasksToStart(store, projectId, { perParent: 1, total: 1 })).toEqual([a]);
+  });
+
+  it('a starting claim (pending 2) holds a slot', () => {
+    const p = ticket({ stage: 'impl' });
+    const s1 = ticket({ parent: p, queued: true });
+    store.db.prepare('UPDATE tickets SET autostart_pending = 2 WHERE id = ?').run(s1);
+    const q = ticket({ parent: p, queued: true });
+    ticket({ parent: p, queued: true });
+    expect(pickSubtasksToStart(store, projectId, caps)).toEqual([q]);
+  });
 });

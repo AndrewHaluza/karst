@@ -75,6 +75,8 @@ describe('ticketLabel', () => {
     subtaskParentId: null,
     blocksParent: false,
     autostartPending: false,
+    autostartStarting: false,
+    autostartClaimedAt: null,
     priority: null,
   };
 

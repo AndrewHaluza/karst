@@ -50,7 +50,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   subtask_parent_id INTEGER,              -- -> tickets.id; this ticket is PART OF that open ticket. NULL = top-level
   blocks_parent     INTEGER,              -- 1 = parent may not leave impl/fix until this is done; NULL/0 = non-blocking
   -- v64 sub-task autostart queue (kept in sync with migrations.ts v64 ALTER):
-  autostart_pending INTEGER NOT NULL DEFAULT 0, -- 1 = queued to auto-start at scope; cleared by the atomic claim
+  autostart_pending INTEGER NOT NULL DEFAULT 0, -- 0 none | 1 queued at scope | 2 starting (claimed); leaving scope clears to 0
+  autostart_claimed_at TEXT,              -- when the claim set 2; a stale claim at scope is re-queued
   -- v15 conventional-commit type (kept in sync with migrations.ts v15 ALTER):
   type              TEXT,                 -- feat | fix | … ; NULL = inherit conventions.defaultType
   -- v24 per-ticket gate disable (kept in sync with migrations.ts v24 ALTER):
@@ -1199,3 +1200,4 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   read_at        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending);

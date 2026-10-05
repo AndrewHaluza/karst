@@ -2408,6 +2408,12 @@ function migrateLocked(db: Database): void {
     if (cols64.size > 0 && !cols64.has('autostart_pending')) {
       db.exec('ALTER TABLE tickets ADD COLUMN autostart_pending INTEGER NOT NULL DEFAULT 0');
     }
+    if (cols64.size > 0 && !cols64.has('autostart_claimed_at')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN autostart_claimed_at TEXT');
+    }
+    if (cols64.size > 0) {
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending)');
+    }
     db.exec(`
       CREATE TABLE IF NOT EXISTS ticket_messages (
         id             INTEGER PRIMARY KEY,
