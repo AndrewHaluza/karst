@@ -12,9 +12,11 @@ import {
   buildTicketNodes,
   filterTickets,
   isDoneTicket,
+  isAwaitingReview,
   completedAt,
   nestSubtasks,
   type TicketNode,
+  type SidebarPr,
 } from './items.js';
 import {
   filterBySelection,
@@ -50,16 +52,17 @@ export const RECENT_DONE_LIMIT = 3;
  * postMessage boundary, so no class instances — only data.
  */
 
-/** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
-export interface SidebarPr {
-  repo: string;
-  number: number | null;
-  url: string | null;
-  status: string | null;
-}
+export type { SidebarPr };
 
 /** One ticket row: the collapsed node fields plus its expanded-body detail. */
 export interface TicketRow extends TicketNode {
+  /** The ticket's current stage key (null when stageless) — a source fact, not a label. */
+  stageCurrent: TicketWithStages['stageCurrent'];
+  /**
+   * True when the ship-stage merge gate reports a conflict. Read once from the
+   * same `mergeGateState` that feeds the peek; never true off the ship stage.
+   */
+  conflicted: boolean;
   /** Running servers backing the expanded meta line. */
   servers: ServerView[];
   /** Worktrees backing the expanded meta line. */
@@ -88,15 +91,17 @@ export interface TicketRow extends TicketNode {
 }
 
 /**
- * The three sections of the default All view. `current` preserves the canonical
- * ticket order verbatim — completing a ticket REMOVES it from this list and
- * must never reorder what remains; the two completed sections sort by
- * completion time, newest first, and are projections of the same ticket
- * source, never separate stores.
+ * The four sections of the default All view. `current` holds every non-done,
+ * non-archived ticket not awaiting review; `awaitingReview` holds ship-stage
+ * tickets with open PRs and no merge conflict (waiting on team review). Both
+ * preserve the canonical ticket order verbatim. The two completed sections sort by completion time, newest first,
+ * and are projections of the same ticket source, never separate stores.
  */
 export interface SidebarSections {
-  /** Every non-Done, non-Archived ticket, in canonical order. */
+  /** Every non-done, non-archived ticket not awaiting review, in canonical order. */
   current: TicketRow[];
+  /** Ship-stage tickets with an open PR and no merge conflict, in canonical order. */
+  awaitingReview: TicketRow[];
   /** The `RECENT_DONE_LIMIT` most recently completed tickets, newest first. */
   recentlyDone: TicketRow[];
   /** Every other completed ticket, newest first (behind the history control). */
@@ -223,8 +228,11 @@ export function buildSidebarState(
       const prs = listPrsByTicket(store, node.ticketId).map(
         (p): SidebarPr => ({ repo: p.repo, number: p.number, url: p.url, status: p.status }),
       );
+      const mergeGate = t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null;
       return {
         ...node,
+        stageCurrent: t.stageCurrent,
+        conflicted: mergeGate?.kind === 'conflicted',
         isActive: node.ticketId === (opts.activeTicketId ?? null),
         servers,
         worktrees,
@@ -244,7 +252,7 @@ export function buildSidebarState(
             t.stageCurrent === 'uat' || t.stageCurrent === 'review'
               ? listGateRuns(store, t.id)
               : [],
-          mergeGate: t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null,
+          mergeGate,
           provider: resolveProvider(
             t.agentProvider,
             agentDefaults?.(t.agentPreset, t.agentProvider)?.provider ?? opts.defaultProvider,
@@ -273,10 +281,20 @@ export function buildSidebarState(
     const done = active.filter(isDoneTicket).sort(byCompletedAtDesc);
     const recent = done.slice(0, RECENT_DONE_LIMIT);
     const older = done.slice(RECENT_DONE_LIMIT);
+    const currentTickets = active.filter((t) => !isDoneTicket(t));
+    // Enriched once (PRs and merge gate are read once per ticket), then split
+    // in a stable pass. A conflicted ship stays in Current: Resolve conflicts
+    // is actionable, not a wait on reviewers. Each section is re-nested so a
+    // sub-task split from its parent becomes a root instead of a dangling child.
+    const rows = enrich(filterTickets(currentTickets, query));
+    const isAwaiting = (r: TicketRow): boolean => isAwaitingReview(r, r.prs, r.conflicted);
+    const awaitingReview = nestSubtasks(rows.filter(isAwaiting));
+    const current = nestSubtasks(rows.filter((r) => !isAwaiting(r)));
     return {
       ...base,
       sections: {
-        current: enrich(filterTickets(active.filter((t) => !isDoneTicket(t)), query)),
+        current,
+        awaitingReview,
         recentlyDone: enrich(filterTickets(recent, query)),
         olderDone: enrich(filterTickets(older, query)),
       },
@@ -288,7 +306,7 @@ export function buildSidebarState(
   if (isDone) {
     return {
       ...base,
-      sections: { current: [], recentlyDone: [], olderDone: [] },
+      sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
       done: enrich(filterTickets(active.filter(isDoneTicket).sort(byCompletedAtDesc), query)),
       rows: [],
     };
@@ -297,7 +315,7 @@ export function buildSidebarState(
   const source = facets.includes('archived') ? archived : filterBySelection(active, facets);
   return {
     ...base,
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: enrich(filterTickets(source, query)),
   };
