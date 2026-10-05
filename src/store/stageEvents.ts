@@ -1,5 +1,5 @@
 import type { Store } from './db.js';
-import type { StageKey } from '../model/types.js';
+import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { PostMessageInput } from './ticketMessages.js';
 import { blockNotifiesParent } from '../model/blockerNotify.js';
 
@@ -16,6 +16,39 @@ import { blockNotifiesParent } from '../model/blockerNotify.js';
 
 /** Bound on the block reason quoted into an event body. */
 export const EVENT_REASON_MAX = 300;
+
+const LANDED_SUFFIX = ' landed (done)';
+const BLOCKED_INFIX = ' blocked at ';
+
+/** The body of a child's "landed" event. */
+export function landedEventBody(childKey: string): string {
+  return `${childKey}${LANDED_SUFFIX}`;
+}
+
+/** The body of a child's "blocked" event (`reason` already bounded). */
+export function blockedEventBody(childKey: string, stageKey: StageKey, reason: string): string {
+  return `${childKey}${BLOCKED_INFIX}${stageKey}: ${reason}`;
+}
+
+export type StageEventClass = 'landed' | 'blocked' | 'other';
+
+/**
+ * Which builder wrote an event body. Keys carry no whitespace, so the first
+ * token is the key; the reason (untrusted) only ever FOLLOWS the frame.
+ */
+export function classifyStageEvent(body: string): StageEventClass {
+  const space = body.indexOf(' ');
+  if (space <= 0) return 'other';
+  const rest = body.slice(space);
+  if (rest === LANDED_SUFFIX) return 'landed';
+  if (rest.startsWith(BLOCKED_INFIX)) {
+    const stage = rest.slice(BLOCKED_INFIX.length).split(':', 1)[0] ?? '';
+    if ((STAGE_KEYS as readonly string[]).includes(stage) && rest.startsWith(`${BLOCKED_INFIX}${stage}: `)) {
+      return 'blocked';
+    }
+  }
+  return 'other';
+}
 
 /** The fields of a stage patch that can trigger an event. */
 export interface EventPatch {
@@ -87,7 +120,7 @@ function eventBody(
   prior: PriorStageRow,
   entersDone: boolean,
 ): string | null {
-  if (entersDone && prior.status !== 'passed') return `${childKey} landed (done)`;
+  if (entersDone && prior.status !== 'passed') return landedEventBody(childKey);
   if (
     typeof patch.blockedKind === 'string' &&
     blockNotifiesParent(patch.blockedKind) &&
@@ -96,7 +129,7 @@ function eventBody(
     const reason = (patch.blockedReason ?? '').trim() || patch.blockedKind;
     // By code points, so a bound never splits a surrogate pair.
     const bounded = Array.from(reason).slice(0, EVENT_REASON_MAX).join('');
-    return `${childKey} blocked at ${stageKey}: ${bounded}`;
+    return blockedEventBody(childKey, stageKey, bounded);
   }
   return null;
 }

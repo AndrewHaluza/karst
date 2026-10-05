@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { classifyStageEvent, makeTerminalDelivery, messagePointer } from './messageDelivery.js';
+import { makeTerminalDelivery, messagePointer } from './messageDelivery.js';
 
 const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
 
@@ -28,15 +28,6 @@ describe('messagePointer', () => {
     expect(() => messagePointer(-1, 7, undefined, LITERAL)).toThrow();
     expect(() => messagePointer(1.5, 7, undefined, LITERAL)).toThrow();
     expect(() => messagePointer(1, 0, undefined, LITERAL)).toThrow();
-  });
-});
-
-describe('classifyStageEvent', () => {
-  it('reads landed and blocked bodies; anything else is other', () => {
-    expect(classifyStageEvent('P-1-s1 landed (done)')).toBe('landed');
-    expect(classifyStageEvent('P-1-s1 blocked at impl: needs creds')).toBe('blocked');
-    expect(classifyStageEvent('P-1-s1 autostart failed: x (stayed at scope)')).toBe('other');
-    expect(classifyStageEvent('evil landed (done) blocked at impl: x')).toBe('other');
   });
 });
 

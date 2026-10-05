@@ -55,18 +55,6 @@ export function messagePointer(
   return printable(`karst: ${unread} new message(s) - run ${parts.join(' ')}`);
 }
 
-export type StageEventClass = 'landed' | 'blocked' | 'other';
-
-const LANDED = /^\S+ landed \(done\)$/;
-const BLOCKED = /^\S+ blocked at [a-z]+: /;
-
-/** Which `stageEvents` body shape an event row carries (host-written prefix). */
-export function classifyStageEvent(body: string): StageEventClass {
-  if (LANDED.test(body)) return 'landed';
-  if (BLOCKED.test(body)) return 'blocked';
-  return 'other';
-}
-
 export interface TerminalDeliveryDeps {
   /** Live in THIS window (open or adoptable terminal). */
   isLive: (ticketId: number) => boolean;

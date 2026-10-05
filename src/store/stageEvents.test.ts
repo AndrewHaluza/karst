@@ -241,3 +241,32 @@ describe('sub-task events through the CLI node:sqlite store', () => {
     }
   });
 });
+
+describe('classifyStageEvent pairs with the body builders', () => {
+  it('reads what the builders write, and nothing else', async () => {
+    const { blockedEventBody, classifyStageEvent, landedEventBody } = await import('./stageEvents.js');
+    expect(classifyStageEvent(landedEventBody('P-1-s1'))).toBe('landed');
+    expect(classifyStageEvent(blockedEventBody('P-1-s1', 'impl', 'needs creds'))).toBe('blocked');
+    expect(classifyStageEvent('P-1-s1 autostart failed: x')).toBe('other');
+    expect(classifyStageEvent(`evil ${landedEventBody('x')}`)).toBe('other');
+    expect(classifyStageEvent('P-1 blocked at nowhere: x')).toBe('other');
+  });
+
+  it('classifies the rows setStage actually writes', async () => {
+    const { classifyStageEvent } = await import('./stageEvents.js');
+    const s = openStore(':memory:');
+    try {
+      const pid = upsertProject(s, { slug: 'p' }).id;
+      const parent = createTicket(s, { key: 'P-1', title: 'p', projectId: pid }).id;
+      const kid = createTicket(s, { key: 'P-1-s1', title: 'c', projectId: pid, subtaskParentId: parent }).id;
+      setStage(s, kid, 'impl', { blockedKind: 'boot-failed', blockedReason: 'x' });
+      setStage(s, kid, 'done', { status: 'passed' });
+      expect(listInbox(s, parent, { unreadOnly: true }).map((m) => classifyStageEvent(m.body))).toEqual([
+        'blocked',
+        'landed',
+      ]);
+    } finally {
+      s.close();
+    }
+  });
+});

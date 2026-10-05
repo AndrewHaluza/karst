@@ -1,6 +1,6 @@
 import type { Store } from '../store/db.js';
 import { openGatingSubtasks } from './subtaskGate.js';
-import { classifyStageEvent } from './messageDelivery.js';
+import { classifyStageEvent } from '../store/stageEvents.js';
 
 /**
  * Whether a sub-task event should wake its parent's agent (plan Wave 3).
