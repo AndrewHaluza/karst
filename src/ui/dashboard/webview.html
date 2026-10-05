@@ -3974,7 +3974,9 @@
   const SUBTASK_DOT = { blue: 'k-dot--running', amber: 'k-dot--attention', green: 'k-dot--passed', red: 'k-dot--failed' };
 
   function subtaskRowHtml(s) {
-    const stage = s.stage || 'none';
+    // `queued` is host-derived (UI-R31): waiting at scope for the autostart
+    // sweep reads "Queued" rather than the bare stage.
+    const stage = s.queued ? 'Queued' : (s.stage || 'none');
     const dot = SUBTASK_DOT[s.glyph] || '';
     const word = s.done ? 'done' : stage;
     const block = s.blocking

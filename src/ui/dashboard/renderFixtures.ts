@@ -1099,6 +1099,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         stageClass: 'stg-done',
         blocking: false,
         done: true,
+        queued: false,
       },
       {
         id: 942019,
@@ -1109,9 +1110,21 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
         stageClass: 'stg-impl',
         blocking: true,
         done: false,
+        queued: false,
+      },
+      {
+        id: 942020,
+        key: 'FEAT-142-s3',
+        title: 'Waiting for a free sub-task slot',
+        stage: 'scope',
+        glyph: 'gray',
+        stageClass: 'stg-scope',
+        blocking: false,
+        done: false,
+        queued: true,
       },
     ],
-    subtaskProgress: { done: 1, total: 2 },
+    subtaskProgress: { done: 1, total: 3 },
     canAddSubtask: true,
   };
 }

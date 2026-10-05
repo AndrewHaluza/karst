@@ -116,3 +116,16 @@ export function canDetachSubtask(
     openChildren === 0
   );
 }
+
+/**
+ * A sub-task waiting for the autostart sweep (plan §A): queued and still at
+ * `scope`. The one derivation both the sidebar and the dashboard render as
+ * "Queued" — once started (or unqueued) it is an ordinary stage again.
+ */
+export function isQueuedSubtask(ticket: {
+  subtaskParentId: number | null;
+  autostartPending: boolean;
+  stageCurrent: string | null;
+}): boolean {
+  return ticket.subtaskParentId !== null && ticket.autostartPending && ticket.stageCurrent === 'scope';
+}

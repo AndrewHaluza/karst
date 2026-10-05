@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  isQueuedSubtask,
   SUBTASK_TEXT_MARKER,
   isSubtask,
   subtaskTextPrefix,
@@ -104,5 +105,15 @@ describe('canDetachSubtask', () => {
   it('refuses while the agent is running or a child sub-task is open', () => {
     expect(canDetachSubtask({ ...base, agentState: 'running' }, 0)).toBe(false);
     expect(canDetachSubtask(base, 1)).toBe(false);
+  });
+});
+
+describe('isQueuedSubtask', () => {
+  it('is true only for a queued sub-task at scope', () => {
+    const base = { subtaskParentId: 1, autostartPending: true, stageCurrent: 'scope' };
+    expect(isQueuedSubtask(base)).toBe(true);
+    expect(isQueuedSubtask({ ...base, stageCurrent: 'impl' })).toBe(false);
+    expect(isQueuedSubtask({ ...base, autostartPending: false })).toBe(false);
+    expect(isQueuedSubtask({ ...base, subtaskParentId: null })).toBe(false);
   });
 });

@@ -14,6 +14,7 @@ import {
   renderFixtures,
   renderStateFor,
   implementationPrototypeFixture,
+  populatedStateFor,
   type InsideRenderFixture,
 } from './renderFixtures.js';
 
@@ -258,6 +259,21 @@ describe('dashboard render — fixture corpus', () => {
     expect(reviewCapability).toBeTruthy();
     expect(reviewCapability!.textContent).toContain('review: anthropic/claude-opus');
 
+    h.close();
+  });
+});
+
+describe('dashboard render — queued sub-task', () => {
+  it('renders a host-flagged queued sub-task as Queued, others by stage', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: populatedStateFor('impl') });
+    const queued = h.query('.subtask[data-id="942020"]');
+    expect(queued, 'queued sub-task row missing').toBeTruthy();
+    expect(queued!.querySelector('.stage')!.textContent).toBe('Queued');
+    expect(queued!.querySelector('.k-dot')!.getAttribute('aria-label')).toBe('Queued');
+    const running = h.query('.subtask[data-id="942019"]')!;
+    expect(running.querySelector('.stage')!.textContent).toBe('impl');
+    expect(h.errors).toEqual([]);
     h.close();
   });
 });
