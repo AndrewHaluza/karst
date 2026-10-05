@@ -18,6 +18,7 @@ import { runCompactCommand } from './compact.js';
 import { runEnvCommand } from './envCommand.js';
 import { runServersCommand } from './serversCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
+import { runMessageCommand } from './messageCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -103,6 +104,12 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             ticket, resolved via `--manifest` like `stage`/`env`; writes
  *             through the shared `createSubtask` writer (see subtaskCommand.ts).
  *
+ *   message / inbox: `… message send --to parent|<child-key> --body <t> --db <db> --ticket <key>`
+ *             `… inbox [--all] [--json] --db <db> --ticket <key>`
+ *             the async parent<->child mailbox (see messageCommand.ts). The
+ *             sender is `--ticket`, refused when the session env's
+ *             `KARST_TICKET` names a different ticket.
+ *
  * Self-contained: every path it needs is passed as a flag, so it does no
  * workspace discovery.
  */
@@ -143,7 +150,10 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
  * process wrapper turns it into `karst: <message>` + exit 1). Pure of
  * process/stdout side effects so it is unit-testable end-to-end.
  */
-export function runCli(argv: string[]): string {
+export function runCli(
+  argv: string[],
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
   const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
 
@@ -352,6 +362,24 @@ export function runCli(argv: string[]): string {
     }
   }
 
+  // `karst message send` / `karst inbox` — the parent<->child mailbox. Its OWN
+  // parse path (messageCommand.ts), like `subtask`: the sender is `--ticket`,
+  // resolved project-scoped, then cross-checked against the session env's
+  // `KARST_TICKET` (read HERE and injected, so parseGlobalFlags is unchanged and
+  // tests need no process.env). Attested identity, not unforgeable — see cli.md.
+  if (subcommand === 'message' || subcommand === 'inbox') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+      return runMessageCommand(store, found, rest, { sessionTicketKey: env.KARST_TICKET });
+    } finally {
+      store.close();
+    }
+  }
+
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
     const parsed = parseFixBriefArgs(rest);
@@ -375,7 +403,7 @@ export function runCli(argv: string[]): string {
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'fix-brief' or 'conflict-brief')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'message', 'inbox', 'fix-brief' or 'conflict-brief')`,
   );
 }
 

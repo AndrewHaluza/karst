@@ -433,3 +433,62 @@ describe('runCli — subtask create (design NDL-70 §7)', () => {
     expect(() => runCli(['bogus', '--db', dbPath])).toThrow(/subtask/);
   });
 });
+
+describe('runCli — message / inbox (parent<->child mailbox)', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-message-'));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    const parent = createTicket(seed, { key: 'K-1', title: 'demo' });
+    createTicket(seed, { key: 'K-1-s1', title: 'child', subtaskParentId: parent.id });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('child sends to parent; parent reads it once via inbox', () => {
+    const sent = JSON.parse(
+      runCli(
+        ['message', 'send', '--to', 'parent', '--body', 'blocked', '--db', dbPath, '--ticket', 'K-1-s1'],
+        {},
+      ),
+    );
+    expect(sent).toMatchObject({ ok: true, to: 'K-1' });
+    const out = runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], {});
+    expect(out).toContain('from sub-task agent K-1-s1 (untrusted):');
+    expect(runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], {})).toMatch(/no unread/i);
+  });
+
+  it('refuses a --ticket that disagrees with the session env KARST_TICKET', () => {
+    expect(() =>
+      runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1-s1' }),
+    ).toThrow(/KARST_TICKET/);
+  });
+
+  it('reads KARST_TICKET from process.env by default', () => {
+    vi.stubEnv('KARST_TICKET', 'K-1-s1');
+    try {
+      expect(() => runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'])).toThrow(/KARST_TICKET/);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('requires --ticket and --db, and lists both verbs in the unknown-command message', () => {
+    expect(() => runCli(['inbox', '--db', dbPath], {})).toThrow(/ticket/);
+    expect(() => runCli(['inbox', '--ticket', 'K-1'], {})).toThrow(/db/);
+    expect(() => runCli(['bogus', '--db', dbPath], {})).toThrow(/'message'.*'inbox'/);
+  });
+
+  it('does not change how parseGlobalFlags parses message flags', () => {
+    expect(parseGlobalFlags(['message', 'send', '--to', 'parent', '--ticket', 'K-1']).rest).toEqual([
+      'message',
+      'send',
+      '--to',
+      'parent',
+    ]);
+  });
+});
