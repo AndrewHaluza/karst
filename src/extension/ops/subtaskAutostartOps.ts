@@ -1,3 +1,5 @@
+import type { Manifest } from '../../manifest/types.js';
+import { DEFAULT_SUBTASK_LIMITS } from '../../manifest/schema.js';
 import type { Store } from '../../store/db.js';
 import { findTicketById } from '../../store/tickets.js';
 import { claimAutostart, releaseAutostart, requeueStaleClaims } from '../../store/autostart.js';
@@ -14,8 +16,15 @@ import type { Notify } from './notify.js';
  * a parent with no live session anywhere leaves its children queued.
  */
 
-/** Used until the manifest carries `subtasks` caps (Wave 4). `0` = unlimited. */
-export const DEFAULT_AUTOSTART_CAPS: AutostartCaps = { perParent: 2, total: 4 };
+/**
+ * The caps from the CURRENT manifest (`subtasks`), falling back to the
+ * defaults when there is no manifest or no block. `0` = unlimited. Called per
+ * sweep so a Settings save takes effect without a reload.
+ */
+export function autostartCapsFrom(manifest: Manifest | undefined): AutostartCaps {
+  const limits = manifest?.subtasks ?? DEFAULT_SUBTASK_LIMITS;
+  return { perParent: limits.maxConcurrentPerParent, total: limits.maxConcurrentTotal };
+}
 
 /** Upper bound on the failure reason carried into the parent's event. */
 const MAX_REASON = 300;

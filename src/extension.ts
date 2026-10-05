@@ -19,7 +19,7 @@ import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/p
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
-import { DEFAULT_AUTOSTART_CAPS, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
+import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { makeMessageDeliverySweep } from './extension/ops/messageDeliveryOps.js';
 import { makeTerminalDelivery } from './workflow/messageDelivery.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
@@ -1807,7 +1807,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const subtaskAutostart = makeSubtaskAutostart({
     store: localStore,
     projectId: () => currentProject()?.id,
-    caps: () => DEFAULT_AUTOSTART_CAPS,
+    caps: () => autostartCapsFrom(currentManifest()),
     ownsParent: (parentId) => sessions.isLive(parentId),
     startTicket: (id, opts) => startTicket(id, opts),
     notify,

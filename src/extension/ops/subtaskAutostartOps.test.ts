@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Manifest } from '../../manifest/types.js';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createTicket, findTicketById, setStageCurrent } from '../../store/tickets.js';
 import { listInbox } from '../../store/ticketMessages.js';
 import {
-  DEFAULT_AUTOSTART_CAPS,
+  autostartCapsFrom,
   makeSubtaskAutostart,
   type SubtaskAutostartDeps,
 } from './subtaskAutostartOps.js';
@@ -27,7 +28,7 @@ function deps(over: Partial<SubtaskAutostartDeps> = {}): SubtaskAutostartDeps {
   return {
     store,
     projectId: () => projectId,
-    caps: () => DEFAULT_AUTOSTART_CAPS,
+    caps: () => autostartCapsFrom(undefined),
     ownsParent: () => true,
     startTicket: vi.fn(async (id: number) => {
       setStageCurrent(store, id, 'impl');
@@ -47,8 +48,26 @@ beforeEach(() => {
 });
 
 describe('subtask autostart op', () => {
-  it('defaults to 2 per parent / 4 total', () => {
-    expect(DEFAULT_AUTOSTART_CAPS).toEqual({ perParent: 2, total: 4 });
+  it('defaults to 2 per parent / 4 total when there is no manifest or no subtasks block', () => {
+    expect(autostartCapsFrom(undefined)).toEqual({ perParent: 2, total: 4 });
+    expect(autostartCapsFrom({} as Manifest)).toEqual({ perParent: 2, total: 4 });
+  });
+
+  it('reads the caps from the manifest, keeping 0 (unlimited)', () => {
+    const m = { subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 7 } } as Manifest;
+    expect(autostartCapsFrom(m)).toEqual({ perParent: 0, total: 7 });
+  });
+
+  it('re-reads the caps on every sweep', async () => {
+    child('P-1-s1');
+    child('P-1-s2');
+    child('P-1-s3');
+    let manifest: Manifest | undefined = { subtasks: { maxConcurrentPerParent: 1, maxConcurrentTotal: 4 } } as Manifest;
+    const d = deps({ caps: () => autostartCapsFrom(manifest) });
+    const op = makeSubtaskAutostart(d);
+    expect(await op.sweep()).toHaveLength(1);
+    manifest = { subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 0 } } as Manifest;
+    expect(await op.sweep()).toHaveLength(2);
   });
 
   it('claims and starts picked sub-tasks within the caps, without pulling base', async () => {
