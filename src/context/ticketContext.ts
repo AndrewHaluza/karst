@@ -11,6 +11,7 @@
  * vscode-free and driver-agnostic (takes a `Store`), so both paths are testable.
  */
 
+import { isQueuedSubtask } from '../model/subtask.js';
 import type { AttachmentKind } from '../attachments/kinds.js';
 import { attachmentPath } from '../attachments/paths.js';
 import type { Store } from '../store/db.js';
@@ -413,7 +414,7 @@ export function buildTicketContext(
     stageCurrent: s.stageCurrent,
     blocksParent: s.blocksParent,
     autostartPending: s.autostartPending,
-    queued: s.autostartPending && s.stageCurrent === 'scope',
+    queued: isQueuedSubtask({ ...s, subtaskParentId: ticketId }),
   }));
 
   const stageRow = relevantStageRow(t);

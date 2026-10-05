@@ -646,6 +646,8 @@ export interface SubtaskListing {
   blocksParent: boolean;
   /** Queued to auto-start (`autostart_pending = 1`, v64). */
   autostartPending: boolean;
+  /** Claimed and being started (`autostart_pending = 2`). */
+  autostartStarting: boolean;
 }
 
 /**
@@ -675,6 +677,7 @@ export function listSubtasks(store: Store, ticketId: number): SubtaskListing[] {
     stageCurrent: r.stage_current,
     blocksParent: r.blocks_parent === 1,
     autostartPending: r.autostart_pending === 1,
+    autostartStarting: r.autostart_pending === 2,
   }));
 }
 

@@ -58,10 +58,10 @@ interface MessageRow {
 function rowToMessage(r: MessageRow): TicketMessage {
   if (!isKind(r.kind)) throw new Error(`ticket_messages row ${r.id} has unknown kind '${r.kind}'`);
   return {
-    id: Number(r.id),
-    projectId: r.project_id === null ? null : Number(r.project_id),
-    fromTicketId: r.from_ticket_id === null ? null : Number(r.from_ticket_id),
-    toTicketId: Number(r.to_ticket_id),
+    id: r.id,
+    projectId: r.project_id,
+    fromTicketId: r.from_ticket_id,
+    toTicketId: r.to_ticket_id,
     kind: r.kind,
     body: r.body,
     createdAt: r.created_at,
@@ -143,5 +143,5 @@ export function unreadCount(store: Store, toTicketId: number): number {
   const row = store.db
     .prepare('SELECT COUNT(*) AS n FROM ticket_messages WHERE to_ticket_id = ? AND read_at IS NULL')
     .get(toTicketId) as { n: number };
-  return Number(row.n);
+  return row.n;
 }

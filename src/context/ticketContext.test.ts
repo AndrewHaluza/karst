@@ -254,7 +254,7 @@ describe('buildTicketContext', () => {
 
     it('marks a sub-task queued only while autostart is pending at scope', () => {
       const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
-      const queued = createTicket(store, {
+      createTicket(store, {
         key: 'PROJ-1-s1',
         title: 'Waiting',
         subtaskParentId: parent.id,
@@ -273,7 +273,6 @@ describe('buildTicketContext', () => {
         ['PROJ-1-s1', true, true],
         ['PROJ-1-s2', true, false],
       ]);
-      expect(queued.id).toBeGreaterThan(0);
       const md = renderTicketContext(ctx);
       expect(md).toContain('- PROJ-1-s1: Waiting (stage: scope, queued)');
       expect(md).toContain('- PROJ-1-s2: Running (stage: impl)');

@@ -85,9 +85,10 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
     \`--repos\` narrows it to a subset of the parent's repositories (the default
     is all of them). A sub-task gets its own worktree and branch, cut from the
     parent's branch, and its PR lands back into the parent's branch — not into
-    main. A sub-task starts implementing on its own as soon as it is created
-    (queued at \`scope\` while the parent's concurrency limit is full); pass
-    \`--no-start\` to create it without queuing it, so a human starts it.
+    main. A sub-task is queued at \`scope\` and starts on its own once its
+    parent is past scope, the parent's session is open in a karst window, and
+    the concurrency limit allows; pass \`--no-start\` to create it without
+    queuing it, so a human starts it.
  - \`message send --to parent|<child-key> --body <text>\` — leave an async
    note for your direct parent or one of your direct children (nobody else:
    siblings route through the parent). The sender is the ticket \`--ticket\`

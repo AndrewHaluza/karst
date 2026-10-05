@@ -30,7 +30,7 @@ function parseSend(rest: string[]): ParsedMessageArgs {
   let to: string | undefined;
   let body: string | undefined;
   for (let i = 0; i < rest.length; i++) {
-    const token = rest[i]!;
+    const token = rest[i];
     if (token === '--to') {
       to = rest[++i];
       if (to === undefined) throw new Error('karst message send: --to needs a value');
