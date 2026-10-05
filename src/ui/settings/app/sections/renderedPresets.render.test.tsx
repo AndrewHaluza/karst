@@ -139,18 +139,6 @@ function capMode(view: RenderedSettings, capability: string): string {
   return select?.value ?? '';
 }
 
-/** Set a control's value the way React's own onChange observes it. */
-async function typeInto(view: RenderedSettings, name: string, value: string): Promise<void> {
-  const field = tab(view).querySelector(`[name="${name}"]`) as HTMLInputElement | null;
-  if (!field) throw new Error(`no control named ${name}`);
-  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(field), 'value')?.set;
-  if (!setter) throw new Error(`no value setter on ${name}`);
-  setter.call(field, value);
-  field.dispatchEvent(new (view.window.Event)('input', { bubbles: true }));
-  field.dispatchEvent(new (view.window.Event)('change', { bubbles: true }));
-  await view.settle();
-}
-
 /**
  * Flip one matrix row to Override through its own mode select — the control the
  * user touches, not an internal setter.
