@@ -32,6 +32,19 @@ describe('karst guide — content', () => {
     expect(AGENT_GUIDE).toMatch(/sub-task/);
   });
 
+  it('documents the mailbox verbs and the sub-task start opt-out', () => {
+    for (const verb of ['message send', 'inbox']) {
+      expect(AGENT_GUIDE).toContain(`\`${verb}`);
+    }
+    for (const flag of ['--to', '--body', '--all', '--no-start']) {
+      expect(AGENT_GUIDE).toContain(flag);
+    }
+    expect(AGENT_GUIDE).toMatch(/untrusted/i);
+    // A parent checks its mailbox before the done marker; a child reports blockers up.
+    expect(AGENT_GUIDE).toMatch(/inbox[^.]*before[^.]*stage impl pass/is);
+    expect(AGENT_GUIDE).toMatch(/--to parent/);
+  });
+
   it('documents every marker stage', () => {
     for (const stage of MARKER_STAGES) {
       expect(AGENT_GUIDE).toContain(`\`${stage}\``);
