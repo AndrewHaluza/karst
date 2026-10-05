@@ -152,11 +152,23 @@ describe('runMessageCommand', () => {
     expect(unreadCount(store, parentId)).toBe(1);
   });
 
+  it('inbox requires KARST_TICKET, refusing without marking anything read', () => {
+    postMessage(store, { projectId: 1, fromTicketId: childId, toTicketId: parentId, kind: 'message', body: 'x' });
+    for (const unset of [undefined, '']) {
+      expect(() =>
+        runMessageCommand(store, sender(parentId), ['inbox'], { sessionTicketKey: unset }),
+      ).toThrow(/inbox needs KARST_TICKET.*KARST_TICKET=<key>/s);
+    }
+    expect(unreadCount(store, parentId)).toBe(1);
+    expect(runMessageCommand(store, sender(parentId), ['inbox'], { sessionTicketKey: 'K-1' })).toContain('x');
+    expect(unreadCount(store, parentId)).toBe(0);
+  });
+
   describe('inbox', () => {
     const post = (from: number | null, to: number, body: string, kind: 'message' | 'event' = 'message') =>
       postMessage(store, { projectId: sender(to).projectId, fromTicketId: from, toTicketId: to, kind, body });
     const inbox = (id: number, extra: string[] = []) =>
-      runMessageCommand(store, sender(id), ['inbox', ...extra], {});
+      runMessageCommand(store, sender(id), ['inbox', ...extra], { sessionTicketKey: sender(id).key ?? undefined });
 
     it('prints unread oldest-first, frames untrusted bodies, and marks them read', () => {
       post(childId, parentId, 'first');

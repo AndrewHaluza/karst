@@ -457,9 +457,9 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
       ),
     );
     expect(sent).toMatchObject({ ok: true, to: 'K-1' });
-    const out = runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], {});
+    const out = runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1' });
     expect(out).toContain('from sub-task agent K-1-s1 (untrusted):');
-    expect(runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], {})).toMatch(/no unread/i);
+    expect(runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1' })).toMatch(/no unread/i);
   });
 
   it('refuses message send without KARST_TICKET', () => {

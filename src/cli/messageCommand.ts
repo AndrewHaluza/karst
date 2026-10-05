@@ -76,7 +76,7 @@ export function parseMessageArgs(argv: string[]): ParsedMessageArgs {
 }
 
 export interface MessageCommandOptions {
-  /** The session env's `KARST_TICKET`; when set it must name the sender. */
+  /** The session env's `KARST_TICKET`; required by both verbs and must name the sender. */
   sessionTicketKey?: string | undefined;
 }
 
@@ -202,11 +202,13 @@ export function runMessageCommand(
   debug?: (message: string) => void,
 ): string {
   const parsed = parseMessageArgs(argv);
-  // `send` speaks AS a ticket, so it needs the session's attestation; `inbox`
-  // only reads, and keeps the env optional (a human may run it by hand).
-  if (parsed.verb === 'send' && !options.sessionTicketKey) {
+  // Both verbs act AS a ticket (`send` writes as it, `inbox` drains its mailbox
+  // and marks rows read), so both need the session's attestation.
+  if (!options.sessionTicketKey) {
+    const verb = parsed.verb === 'send' ? 'message send' : 'inbox';
     throw new Error(
-      'message send needs KARST_TICKET (the karst session env) — run it from the ticket\'s karst session terminal',
+      `${verb} needs KARST_TICKET (the karst session env) — run it from the ticket's karst session terminal` +
+        (parsed.verb === 'inbox' ? ', or set KARST_TICKET=<key> when reading by hand' : ''),
     );
   }
   assertSenderMatchesSession(sender, options.sessionTicketKey);
