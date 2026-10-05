@@ -12,7 +12,7 @@ export function AgentBadgeIsland({ provider, mount }: AgentBadgeIslandProps) {
 
   useEffect(() => {
     const root = rootRef.current;
-    const badge = mount ?? ((globalThis as any).agentBadgeInto as AgentBadgeMount | null);
+    const badge = mount ?? ((globalThis as { agentBadgeInto?: AgentBadgeMount | null }).agentBadgeInto ?? null);
     if (!root || !badge) return;
     badge(root, provider);
   }, [mount, provider]);
