@@ -2395,5 +2395,30 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 64) {
+    // v64: sub-task autostart queue + parent<->child mailbox. Every pre-v64 row
+    // is honestly NOT queued (0): nothing was ever auto-started before the
+    // column existed. The guard reads the CURRENT columns; the table/index use
+    // IF NOT EXISTS, so a fresh DB (schema.sql carries both) is a no-op.
+    const cols64 = ticketColumns(db);
+    if (cols64.size > 0 && !cols64.has('autostart_pending')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN autostart_pending INTEGER NOT NULL DEFAULT 0');
+    }
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS ticket_messages (
+        id             INTEGER PRIMARY KEY,
+        project_id     INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+        from_ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+        to_ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+        kind           TEXT NOT NULL CHECK (kind IN ('message', 'event')),
+        body           TEXT NOT NULL,
+        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+        read_at        TEXT
+      )`);
+    db.exec(
+      'CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at)',
+    );
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

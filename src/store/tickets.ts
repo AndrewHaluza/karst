@@ -88,6 +88,11 @@ export interface Ticket {
    */
   blocksParent: boolean;
   /**
+   * Queued to auto-start implementation (`autostart_pending = 1`, v64). Set in
+   * the creating INSERT; cleared only by the autostart op's atomic claim.
+   */
+  autostartPending: boolean;
+  /**
    * Provider-native priority label (e.g. 'urgent', 'high', 'normal'), populated
    * from the ticketing provider when the ticket is fetched; `null` when the
    * provider did not expose one (a manual ticket, or an unfetched one).
@@ -129,6 +134,7 @@ interface TicketRow {
   parent_ticket_id: number | null;
   subtask_parent_id: number | null;
   blocks_parent: number | null;
+  autostart_pending?: number | null;
   priority: string | null;
   paused_at: string | null;
 }
@@ -201,6 +207,7 @@ function rowToTicket(r: TicketRow): Ticket {
     parentTicketId: r.parent_ticket_id,
     subtaskParentId: r.subtask_parent_id ?? null,
     blocksParent: r.blocks_parent === 1,
+    autostartPending: r.autostart_pending === 1,
     priority: r.priority,
     pausedAt: r.paused_at ?? null,
   };
@@ -226,13 +233,15 @@ export function createTicket(
     subtaskParentId?: number;
     /** Whether the sub-task blocks its parent from leaving `impl`/`fix`. */
     blocksParent?: boolean;
+    /** Queue the ticket for auto-start (v64); written in the same INSERT. */
+    autostartPending?: boolean;
   },
 ): Ticket {
   const create = store.db.transaction((): Ticket => {
     const info = store.db
       .prepare(
-        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, subtask_parent_id, blocks_parent, stage_current, agent_state)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'scope', 'none')`,
+        `INSERT INTO tickets (key, title, source, description, project_id, parent_ticket_id, subtask_parent_id, blocks_parent, autostart_pending, stage_current, agent_state)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'scope', 'none')`,
       )
       .run(
         input.key,
@@ -243,6 +252,7 @@ export function createTicket(
         input.parentTicketId ?? null,
         input.subtaskParentId ?? null,
         input.blocksParent ? 1 : null,
+        input.autostartPending ? 1 : 0,
       );
     const id = Number(info.lastInsertRowid);
 
@@ -861,6 +871,11 @@ export function deleteTicket(
     for (const graphRunId of graphRunIdsForTicket(store.db, ticketId)) {
       deleteGraphRunData(store.db, graphRunId);
     }
+    // Mailbox rows name the ticket on either side; deleted explicitly (the
+    // v64 FKs also cascade, but correctness never depends on a cascade).
+    store.db
+      .prepare('DELETE FROM ticket_messages WHERE to_ticket_id = ? OR from_ticket_id = ?')
+      .run(ticketId, ticketId);
     for (const table of TICKET_CHILD_TABLES) {
       store.db.prepare(`DELETE FROM ${table} WHERE ticket_id = ?`).run(ticketId);
     }

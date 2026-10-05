@@ -72,6 +72,7 @@ describe('ticketLabel', () => {
     parentTicketId: null,
     subtaskParentId: null,
     blocksParent: false,
+    autostartPending: false,
     priority: null,
   };
 
@@ -259,6 +260,16 @@ describe('ticket + stage persistence', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'root' });
     expect(t.subtaskParentId).toBeNull();
     expect(t.blocksParent).toBe(false);
+    expect(t.autostartPending).toBe(false);
+  });
+
+  it('createTicket writes autostartPending in the INSERT, readable via getTicket', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'queued', autostartPending: true });
+    expect(t.autostartPending).toBe(true);
+    expect(getTicket(store, t.id).autostartPending).toBe(true);
+    expect(
+      store.db.prepare('SELECT autostart_pending FROM tickets WHERE id = ?').get(t.id),
+    ).toEqual({ autostart_pending: 1 });
   });
 
   it('createTicket persists subtaskParentId and blocksParent, readable via getTicket', () => {
