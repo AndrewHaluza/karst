@@ -10,8 +10,8 @@ import {
   updateTicketCore,
   updateTicketFields,
   generateTicketKey,
-  setAutostartPending,
 } from '../../store/tickets.js';
+import { queueAutostart } from '../../store/autostart.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
@@ -313,18 +313,35 @@ function persistDraft(
   return ticketId;
 }
 
+/** The start refusal for a ticket with no selected repositories (shared with the host's start path). */
+export const NO_REPOS_MESSAGE = 'Select at least one repository to start this ticket.';
+
 /**
- * A sub-task still at `scope` is queued for the autostart sweep instead of
- * started here, so dashboard-created sub-tasks obey the same caps as CLI ones.
- * Returns whether it queued. Ordinary tickets and sub-tasks already past scope
- * (submit as the edit surface) take the direct start path.
+ * Submit of a sub-task still at `scope`: queue it for the autostart sweep
+ * instead of starting it here, so dashboard-created sub-tasks obey the same
+ * caps as CLI ones. The autostart op starts with `pullBase: false` (the child
+ * cuts from its parent's branch, not a fresh remote base), so the page's pull
+ * switch is deliberately not carried. Runs the direct path's repo guard first.
+ *
+ * Returns `'not-subtask'` for the direct start path (ordinary tickets, and
+ * sub-tasks already past scope — submit as the edit surface), or the error to
+ * show on the form, or `'queued'`. A sub-task already queued or starting is
+ * left as is (never re-queued, never touched while starting).
  */
-function queueSubtaskInsteadOfStart(deps: TicketFormActionsDeps, ticketId: number): boolean {
+function queueSubtaskInsteadOfStart(
+  deps: TicketFormActionsDeps,
+  ticketId: number,
+): 'not-subtask' | 'queued' | { error: string } {
   const t = getTicket(deps.store, ticketId);
-  if (t.subtaskParentId === null || t.stageCurrent !== 'scope') return false;
-  setAutostartPending(deps.store, ticketId, true);
-  deps.requestSubtaskAutostart?.();
-  return true;
+  if (t.subtaskParentId === null || t.stageCurrent !== 'scope') return 'not-subtask';
+  if (t.selectedRepos.length === 0) return { error: NO_REPOS_MESSAGE };
+  try {
+    queueAutostart(deps.store, ticketId);
+    deps.requestSubtaskAutostart?.();
+  } catch (e) {
+    return { error: `Could not queue the sub-task to start: ${errorMessage(e)}` };
+  }
+  return 'queued';
 }
 
 export function buildTicketFormActions(
@@ -1068,8 +1085,14 @@ export function buildTicketFormActions(
       // selected repos (worktrees, no servers) and launch the agent session.
       // Awaited so the page stays put (busy) while the launch runs, and the
       // handoff only happens once the ticket is really running.
-      if (queueSubtaskInsteadOfStart(deps, ticketId)) {
+      const queued = queueSubtaskInsteadOfStart(deps, ticketId);
+      if (queued !== 'not-subtask') {
         deps.onChange();
+        if (queued !== 'queued') {
+          ctx.post({ type: 'error', message: queued.error });
+          ctx.pushState(); // the ticket exists now — re-seed the page for a retry
+          return;
+        }
         deps.openDashboard(ticketId);
         ctx.close();
         return;

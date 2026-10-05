@@ -657,7 +657,7 @@ describe('buildTicketFormActions', () => {
       const ctx = mkCtx(child.id);
       return { child, ctx };
     }
-    const fields = { key: 'PAR-s1', title: 'child', description: '', repos: [], approach: null, agent: null, model: null,
+    const fields = { key: 'PAR-s1', title: 'child', description: '', repos: ['fe'], approach: null, agent: null, model: null,
       ticketType: null, createInProvider: false };
 
     it('queues the sub-task and triggers the sweep instead of starting it', async () => {
@@ -670,6 +670,36 @@ describe('buildTicketFormActions', () => {
       expect(requestSubtaskAutostart).toHaveBeenCalledTimes(1);
       expect(openDashboard).toHaveBeenCalledWith(child.id);
       expect(ctx.closes).toBe(1);
+    });
+
+    it('a sub-task with no repositories is refused on the form and not queued', async () => {
+      const requestSubtaskAutostart = vi.fn<() => void>();
+      deps.requestSubtaskAutostart = requestSubtaskAutostart;
+      const { child, ctx } = subtaskCtx();
+      await buildTicketFormActions(deps)(ctx).submit({ ...fields, repos: [] });
+      expect(getTicket(store, child.id).autostartPending).toBe(false);
+      expect(requestSubtaskAutostart).not.toHaveBeenCalled();
+      expect(ctx.posted).toContainEqual({ type: 'error', message: 'Select at least one repository to start this ticket.' });
+      expect(ctx.closes).toBe(0);
+      expect(startTicket).not.toHaveBeenCalled();
+    });
+
+    it('a failing queue trigger reports on the form and keeps it open', async () => {
+      deps.requestSubtaskAutostart = () => {
+        throw new Error('sweep exploded');
+      };
+      const { ctx } = subtaskCtx();
+      await buildTicketFormActions(deps)(ctx).submit(fields);
+      expect(ctx.posted).toContainEqual({ type: 'error', message: expect.stringContaining('sweep exploded') });
+      expect(ctx.closes).toBe(0);
+    });
+
+    it('never touches a sub-task already starting (pending 2)', async () => {
+      const { child, ctx } = subtaskCtx();
+      store.db.prepare('UPDATE tickets SET autostart_pending = 2 WHERE id = ?').run(child.id);
+      await buildTicketFormActions(deps)(ctx).submit(fields);
+      expect(getTicket(store, child.id).autostartStarting).toBe(true);
+      expect(startTicket).not.toHaveBeenCalled();
     });
 
     it('a sub-task already past scope is started directly (edit surface)', async () => {

@@ -460,6 +460,7 @@ import { listTicketLifecycle } from './store/runningServers.js';
 import { TicketFormManager } from './ui/ticketForm/panel.js';
 import {
   buildTicketFormActions,
+  NO_REPOS_MESSAGE,
   type StartTicketResult,
   type StartTicketOptions,
 } from './ui/ticketForm/actions.js';
@@ -1740,7 +1741,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Nothing to scope → the ticket stays pending. Report it so the ticket form
     // keeps the page open with the reason, instead of looking hung.
     if (hot.length === 0) {
-      return { ok: false, message: 'Select at least one repository to start this ticket.' };
+      return { ok: false, message: NO_REPOS_MESSAGE };
     }
     const manifest = currentManifest() ?? emptyManifest();
     try {
