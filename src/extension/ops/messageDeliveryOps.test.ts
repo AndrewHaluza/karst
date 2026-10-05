@@ -9,7 +9,9 @@ import { markRead, postMessage } from '../../store/ticketMessages.js';
 import { setStage } from '../../store/stages.js';
 import type { MessageDelivery } from '../../workflow/messageDelivery.js';
 import {
+  EVENT_MAX_AGE_MS,
   POINTER_INTERVAL_MS,
+  WAKE_COOLDOWN_MS,
   makeMessageDeliverySweep,
   type MessageDeliveryDeps,
 } from './messageDeliveryOps.js';
@@ -40,10 +42,12 @@ function deps(over: Partial<MessageDeliveryDeps> = {}): MessageDeliveryDeps {
     projectId: () => projectId,
     delivery: delivery(),
     isLive: () => false,
-    graphOwned: () => false,
-    wake: vi.fn(),
+    isGraphTicket: () => false,
+    integrating: () => false,
+    wake: vi.fn(async () => {}),
     now: () => clock,
     debug: vi.fn(),
+    warn: vi.fn(),
     ...over,
   };
 }
@@ -61,7 +65,7 @@ beforeEach(() => {
   }).id;
   setStageCurrent(store, parentId, 'impl');
   setStageCurrent(store, childId, 'impl');
-  clock = 1_000_000;
+  clock = Date.now();
 });
 
 describe('message delivery sweep — pointers', () => {
@@ -85,6 +89,19 @@ describe('message delivery sweep — pointers', () => {
     sweep.sweep();
     expect(d.delivery.deliver).toHaveBeenCalledTimes(1);
     expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, 5);
+  });
+
+  it('a recipient that read everything is forgotten: its next message points at once', () => {
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    const first = send(parentId);
+    sweep.sweep();
+    markRead(store, [first]);
+    sweep.sweep();
+    clock += 1_000;
+    send(parentId);
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(2);
   });
 
   it('read rows produce no pointer', () => {
@@ -171,35 +188,42 @@ describe('message delivery sweep — pointers', () => {
 });
 
 describe('message delivery sweep — parent wake', () => {
-  function block(id: number): void {
-    setStage(store, id, 'impl', { blockedKind: 'boot-failed', blockedReason: 'need creds' });
+  function block(id: number, stage: 'impl' | 'fix' = 'impl'): void {
+    setStage(store, id, stage, { blockedKind: 'boot-failed', blockedReason: 'need creds' });
+  }
+  function wokeAt(): Array<string | null> {
+    return (store.db.prepare("SELECT woke_at FROM ticket_messages WHERE kind = 'event' ORDER BY id").all() as {
+      woke_at: string | null;
+    }[]).map((r) => r.woke_at);
   }
 
-  it('wakes a not-live parent at impl when a child is blocked', () => {
+  it('wakes a not-live parent at impl when a child is blocked, once', () => {
     const d = deps();
     const sweep = makeMessageDeliverySweep(d);
     block(childId);
     expect(sweep.sweep().woke).toEqual([parentId]);
     expect(d.wake).toHaveBeenCalledWith(parentId);
+    clock += WAKE_COOLDOWN_MS;
     expect(sweep.sweep().woke).toEqual([]);
   });
 
-  it('wakes on the last blocking child landing', () => {
+  it('wakes on the last blocking child landing; an earlier landing with blockers open retries', () => {
+    const second = createTicket(store, { key: 'P-1-s2', title: 'c2', projectId, subtaskParentId: parentId, blocksParent: true }).id;
+    setStageCurrent(store, second, 'impl');
     const d = deps();
     const sweep = makeMessageDeliverySweep(d);
-    send(parentId, 'event', 'P-1-s1 landed (done)');
-    expect(sweep.sweep().woke).toEqual([]);
     setStageCurrent(store, childId, 'done');
     send(parentId, 'event', 'P-1-s1 landed (done)');
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(wokeAt()).toEqual([null]);
+    setStageCurrent(store, second, 'done');
+    send(parentId, 'event', 'P-1-s2 landed (done)');
     expect(sweep.sweep().woke).toEqual([parentId]);
   });
 
-  it('never wakes while an awaiting-subtask park is on any parent stage, and retries after it clears', () => {
+  it('a landing holds on any awaiting-subtask park, then wakes once it clears', () => {
     setStageCurrent(store, childId, 'done');
-    setStage(store, parentId, 'impl', {
-      blockedKind: 'awaiting-subtask',
-      blockedReason: 'merge conflict integrating P-1-s1',
-    });
+    setStage(store, parentId, 'impl', { blockedKind: 'awaiting-subtask', blockedReason: 'waiting on P-1-s1 (impl)' });
     const d = deps();
     const sweep = makeMessageDeliverySweep(d);
     send(parentId, 'event', 'P-1-s1 landed (done)');
@@ -208,41 +232,138 @@ describe('message delivery sweep — parent wake', () => {
     expect(sweep.sweep().woke).toEqual([parentId]);
   });
 
-  it.each(['ship', 'done', 'review'] as const)('no wake for a parent at %s', (stage) => {
+  it('a child-blocked event wakes through a plain gate wait', () => {
+    setStage(store, parentId, 'impl', { blockedKind: 'awaiting-subtask', blockedReason: 'waiting on P-1-s1 (impl)' });
+    const sweep = makeMessageDeliverySweep(deps());
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([parentId]);
+  });
+
+  it('a child-blocked event holds on an integration park', () => {
+    setStage(store, parentId, 'impl', { blockedKind: 'awaiting-subtask', blockedReason: 'merge conflict integrating P-1-s1' });
+    const sweep = makeMessageDeliverySweep(deps());
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(wokeAt()).toEqual([null]);
+  });
+
+  it('holds while integration is in flight, even before any park', () => {
+    let busy = true;
+    const sweep = makeMessageDeliverySweep(deps({ integrating: () => busy }));
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([]);
+    busy = false;
+    expect(sweep.sweep().woke).toEqual([parentId]);
+  });
+
+  it.each(['ship', 'done'] as const)('a parent at %s is a terminal skip (claimed, never woken)', (stage) => {
     setStageCurrent(store, parentId, stage);
     const d = deps();
     const sweep = makeMessageDeliverySweep(d);
     block(childId);
     expect(sweep.sweep().woke).toEqual([]);
+    expect(wokeAt()[0]).not.toBeNull();
     expect(d.wake).not.toHaveBeenCalled();
   });
 
-  it('no wake for an archived or graph-owned parent', () => {
-    const d = deps({ graphOwned: (id) => id === parentId });
+  it.each(['fix', 'review', 'uat', 'scope'] as const)('a parent at %s retries (unclaimed), never wakes', (stage) => {
+    setStageCurrent(store, parentId, stage);
+    const d = deps();
     const sweep = makeMessageDeliverySweep(d);
     block(childId);
     expect(sweep.sweep().woke).toEqual([]);
-    const d2 = deps();
-    const s2 = makeMessageDeliverySweep(d2);
-    // Raw write: archiveTicket refuses a parent with open sub-tasks.
-    store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(parentId);
-    send(parentId, 'event', 'P-1-s1 blocked at impl: again');
-    expect(s2.sweep().woke).toEqual([]);
-    expect(d2.wake).not.toHaveBeenCalled();
+    expect(wokeAt()).toEqual([null]);
+    expect(d.wake).not.toHaveBeenCalled();
   });
 
-  it('no wake when the parent is live here or running elsewhere', () => {
-    const here = deps({ isLive: (id) => id === parentId });
-    const sweep = makeMessageDeliverySweep(here);
+  it('a retry older than the age cutoff is claimed and skipped', () => {
+    setStageCurrent(store, parentId, 'review');
+    const sweep = makeMessageDeliverySweep(deps());
+    block(childId);
+    sweep.sweep();
+    expect(wokeAt()).toEqual([null]);
+    clock += EVENT_MAX_AGE_MS + 60_000;
+    setStageCurrent(store, parentId, 'impl');
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(wokeAt()[0]).not.toBeNull();
+  });
+
+  it('no wake for a graph ticket (approach or surface), claimed', () => {
+    const d = deps({ isGraphTicket: (id) => id === parentId });
+    const sweep = makeMessageDeliverySweep(d);
     block(childId);
     expect(sweep.sweep().woke).toEqual([]);
-    expect(here.wake).not.toHaveBeenCalled();
+    expect(wokeAt()[0]).not.toBeNull();
+  });
 
+  it('no wake for an archived parent', () => {
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    // Raw write: archiveTicket refuses a parent with open sub-tasks.
+    store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(parentId);
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(d.wake).not.toHaveBeenCalled();
+  });
+
+  it('live here or running elsewhere retries rather than claims', () => {
+    let live = true;
+    const d = deps({ isLive: (id) => live && id === parentId });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(wokeAt()).toEqual([null]);
+    live = false;
     setAgentState(store, parentId, 'running');
-    const elsewhere = deps();
-    const s2 = makeMessageDeliverySweep(elsewhere);
-    send(parentId, 'event', 'P-1-s1 blocked at fix: again');
-    expect(s2.sweep().woke).toEqual([]);
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(wokeAt()).toEqual([null]);
+    setAgentState(store, parentId, 'idle');
+    expect(sweep.sweep().woke).toEqual([parentId]);
+  });
+
+  it('cooldown: a second event right after a wake waits, and an open in progress counts as live', async () => {
+    let finish!: () => void;
+    const d = deps({ wake: vi.fn(() => new Promise<void>((r) => (finish = r))) });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    block(childId, 'fix');
+    clock += WAKE_COOLDOWN_MS + 1;
+    expect(sweep.sweep().woke).toEqual([]);
+    finish();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    expect(d.wake).toHaveBeenCalledTimes(2);
+  });
+
+  it('a rejected wake is reported at warn', async () => {
+    const d = deps({ wake: vi.fn(async () => { throw new Error('open failed'); }) });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    sweep.sweep();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.warn).toHaveBeenCalledWith(expect.stringContaining('open failed'));
+  });
+
+  it('a throwing wake read is reported at warn', () => {
+    const d = deps({ integrating: () => { throw new Error('boom'); } });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    sweep.sweep();
+    expect(d.warn).toHaveBeenCalledWith(expect.stringContaining('boom'));
+  });
+
+  it('a retry debug line is logged once per row and reason', () => {
+    setStageCurrent(store, parentId, 'review');
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    sweep.sweep();
+    sweep.sweep();
+    sweep.sweep();
+    const lines = vi.mocked(d.debug).mock.calls.filter(([m]) => String(m).includes('retry'));
+    expect(lines).toHaveLength(1);
   });
 
   it('a plain message never wakes', () => {
