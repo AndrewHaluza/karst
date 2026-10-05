@@ -10,6 +10,7 @@ import type {
   AgentProvider,
   ArtifactConventions,
   ResilienceConfig,
+  SubtaskLimits,
 } from './types.js';
 import { ManifestError } from './error.js';
 import { repoIdCollisions } from '../runtime/repoId.js';
@@ -370,6 +371,38 @@ function validateArchiveDoneAfterDays(raw: unknown): number {
   return raw;
 }
 
+/** Default sub-task concurrency caps (`0` = unlimited). */
+export const DEFAULT_SUBTASK_LIMITS: SubtaskLimits = {
+  maxConcurrentPerParent: 2,
+  maxConcurrentTotal: 4,
+};
+
+function validateSubtaskCap(raw: unknown, key: keyof SubtaskLimits): number {
+  if (raw === undefined) return DEFAULT_SUBTASK_LIMITS[key];
+  if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
+    throw new ManifestError(
+      `subtasks.${key} must be a whole number >= 0 (0 = unlimited)`,
+    );
+  }
+  return raw;
+}
+
+/**
+ * Parse `subtasks` — the sub-task auto-start concurrency caps. Each cap
+ * defaults independently; `0` means unlimited.
+ */
+function validateSubtasks(raw: unknown): SubtaskLimits {
+  if (raw === undefined || raw === null) return { ...DEFAULT_SUBTASK_LIMITS };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ManifestError('subtasks must be a mapping');
+  }
+  const block = raw as Record<string, unknown>;
+  return {
+    maxConcurrentPerParent: validateSubtaskCap(block.maxConcurrentPerParent, 'maxConcurrentPerParent'),
+    maxConcurrentTotal: validateSubtaskCap(block.maxConcurrentTotal, 'maxConcurrentTotal'),
+  };
+}
+
 /**
  * Parse `debug` (default undefined → debug logging off). Must be a boolean
  * when present — a string `"true"` is a YAML typo, and a non-boolean must
@@ -621,6 +654,7 @@ export function validateManifest(raw: unknown): Manifest {
     activeAgentPreset,
     defaultAgentPreset,
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
+    subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,

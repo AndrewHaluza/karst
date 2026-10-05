@@ -322,6 +322,8 @@ describe('writeManifest', () => {
         // Same reason: absent diffsInSourceControl would round-trip regardless of
         // the overlay, so the populated manifest pins the explicit value.
         diffsInSourceControl: true,
+        // Non-default on purpose, same reason as archiveDoneAfterDays.
+        subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 9 },
         id: 'karst-extension',
       };
       writeManifest(path, full);
