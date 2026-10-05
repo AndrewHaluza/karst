@@ -5241,6 +5241,44 @@ describe('artifacts render round trip (executed in a VM)', () => {
     expect(detail).not.toContain('Underlying files');
   });
 
+  it('names the repo by basename on PR and commit rows, full path in the title', () => {
+    const h = bootPreviewHarness();
+    const state = stateWithArtifacts();
+    const ship = state.artifacts!.find((a) => a.id === 'ship-summary')!;
+    const patched = {
+      ...state,
+      artifacts: state.artifacts!.map((a) => (a.id === 'ship-summary'
+        ? { ...ship, prs: [{ ...ship.prs[0]!, repo: '/Users/x/karst/' }],
+            commits: [{ ...ship.commits[0]!, repo: '/Users/x/karst/' }] }
+        : a)),
+    };
+    h.receive({ type: 'state', state: patched });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'ship-summary' });
+    const detail = h.htmlOf('artView');
+    expect(detail).toMatch(/<span class="af-repo" title="\/Users\/x\/karst\/">karst<\/span>/);
+    expect(detail).not.toContain('>/Users/x/karst/');
+  });
+
+  it('drops the separator when a commit has no message and tags pre-existing commits', () => {
+    const h = bootPreviewHarness();
+    const state = stateWithArtifacts();
+    const ship = state.artifacts!.find((a) => a.id === 'ship-summary')!;
+    const patched = {
+      ...state,
+      artifacts: state.artifacts!.map((a) => (a.id === 'ship-summary'
+        ? { ...ship, commits: [{ ...ship.commits[0]!, message: '', origin: 'before-ship' as const }] }
+        : a)),
+    };
+    h.receive({ type: 'state', state: patched });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'ship-summary' });
+    const detail = h.htmlOf('artView');
+    expect(detail).not.toMatch(/abc123<\/a>\s*·/);
+    expect(detail).toContain('<span class="af-msg af-msg--empty">No message</span>');
+    expect(detail).toContain('<span class="commit-origin" title="Already on the branch before ship ran">existing</span>');
+  });
+
   it('renders the ship detail with the PR number and commit SHA as the open controls', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: stateWithArtifacts() });
