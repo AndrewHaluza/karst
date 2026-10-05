@@ -1124,7 +1124,11 @@ describe('DashboardManager', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
 
+    // A repaint is a full `state` push or, when only the clocks moved, a
+    // `clocks` message — either way one per tick.
     const states = (panel: FakePanel): unknown[] =>
+      panel.posted.filter((m) => ['state', 'clocks'].includes((m as { type?: string }).type ?? ''));
+    const fullStates = (panel: FakePanel): unknown[] =>
       panel.posted.filter((m) => (m as { type?: string }).type === 'state');
 
     it('re-pushes the snapshot every second while a process is running', () => {
@@ -1242,6 +1246,59 @@ describe('DashboardManager', () => {
       expect(states(panels[0]!).length).toBe(hidden + 2);
     });
 
+    it('sends only the clocks while nothing but time moved', () => {
+      // Over Remote-SSH a 100 KB+ snapshot a second is the panel's whole
+      // budget; the webview reads nothing from a repaint but the clock text.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const full = fullStates(panels[0]!).length;
+      vi.advanceTimersByTime(LIVE_TICK_MS * 3);
+
+      expect(fullStates(panels[0]!).length).toBe(full);
+      const clocks = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'clocks');
+      expect(clocks).toHaveLength(3);
+      expect((clocks[0] as { clocks: Record<string, unknown> }).clocks.uat).toBeDefined();
+    });
+
+    it('sends the full snapshot when a tick finds new structure (a row opened)', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+      const full = fullStates(panels[0]!).length;
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'review',
+        processId: 'review',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      vi.advanceTimersByTime(LIVE_TICK_MS);
+
+      const pushed = fullStates(panels[0]!) as Array<{ live?: boolean }>;
+      expect(pushed).toHaveLength(full + 1);
+      expect(pushed.at(-1)!.live).toBe(true);
+    });
+
     it('marks a repaint `live` so the webview can defer it, and a real push not', () => {
       const t = createTicket(store, { key: 'A', title: 'a' });
       openProcessRun(store, {
@@ -1256,10 +1313,11 @@ describe('DashboardManager', () => {
 
       mgr.openDashboard(t.id);
       vi.advanceTimersByTime(LIVE_TICK_MS);
-      const pushed = states(panels[0]!) as Array<{ live?: boolean }>;
+      const pushed = states(panels[0]!) as Array<{ type: string; live?: boolean }>;
 
       expect(pushed[0]!.live).toBeUndefined();
-      expect(pushed[1]!.live).toBe(true);
+      // Unchanged structure → the repaint is clocks-only, never a real push.
+      expect(pushed[1]!.type).toBe('clocks');
     });
 
     it('keeps an id dispatchable across live repaints — a repaint is not a supersede', () => {

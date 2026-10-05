@@ -1,3 +1,4 @@
+import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 import type { DashboardState } from './state.js';
 
 /**
@@ -35,4 +36,58 @@ export function hasLiveWork(state: DashboardState): boolean {
   return Object.values(state.insideViews).some(
     (view) => view.live?.status === 'run' || view.processes.some((p) => p.status === 'run'),
   );
+}
+
+/**
+ * Keys whose values are formatted against "now": they advance every second on
+ * their own, so they must not read as structural change. Matched by NAME at any
+ * depth — a time-derived field this set misses only makes a tick fall back to
+ * the full snapshot it always used to send, never hides a real change.
+ */
+const CLOCK_KEYS: ReadonlySet<string> = new Set(['clock', 'duration', 'durationExact', 'time', 'age']);
+
+/**
+ * The snapshot with every clock removed, as a comparable string. Two ticks with
+ * the same key differ only in what `liveClocks` carries, so the repaint can be
+ * that and nothing else.
+ */
+export function structureKey(state: DashboardState): string {
+  return JSON.stringify(state, (key, value: unknown) => (CLOCK_KEYS.has(key) ? undefined : value));
+}
+
+/** One running process row's clock text. */
+export interface ProcessClocks {
+  time?: string;
+  duration?: string;
+  durationExact?: string;
+}
+
+/** One stage's clock text: the header clock, the live op, its running rows. */
+export interface StageClocks {
+  clock: string;
+  live?: string;
+  processes: Record<string, ProcessClocks>;
+}
+
+export type LiveClocks = Partial<Record<InsideStageKey, StageClocks>>;
+
+/**
+ * Exactly the text the webview's live repaint writes (`updateInsideLive`), per
+ * stage — the whole payload of a tick whose `structureKey` did not move.
+ */
+export function liveClocks(state: DashboardState): LiveClocks {
+  const out: LiveClocks = {};
+  for (const [key, view] of Object.entries(state.insideViews) as Array<[InsideStageKey, InsideStageView]>) {
+    const processes: Record<string, ProcessClocks> = {};
+    for (const p of view.processes) {
+      if (p.status !== 'run') continue;
+      processes[p.id] = { time: p.time, duration: p.duration, durationExact: p.durationExact };
+    }
+    out[key] = {
+      clock: view.clock,
+      ...(view.live?.duration !== undefined ? { live: view.live.duration } : {}),
+      processes,
+    };
+  }
+  return out;
 }

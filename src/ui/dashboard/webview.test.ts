@@ -2941,6 +2941,52 @@ describe('inside render round trip (executed in a VM)', () => {
     expect(h.htmlOf('inside')).toBe(before);
   });
 
+  it('applies a clocks-only repaint without rebuilding the inside block', () => {
+    // When only time moved, the host sends `clocks` instead of the snapshot.
+    // It must land exactly like a live repaint: in place, never a rebuild.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: renderStateFor('impl') });
+    const before = h.htmlOf('inside');
+    h.receive({
+      type: 'clocks',
+      clocks: { impl: { clock: 'started 09:12:33 · 4m 13s elapsed · attempt 1', processes: {} } },
+    });
+    expect(h.htmlOf('inside')).toBe(before);
+  });
+
+  it('merges clock text into the held snapshot, leaving structure and other rows alone', () => {
+    const src = /function withClocks[\s\S]*?\n  \}/.exec(HYDRATED)?.[0];
+    if (!src) throw new Error('withClocks not found in the webview script');
+    const withClocks = runInNewContext(`(${src.replace('function withClocks', 'function')})`) as (
+      s: unknown,
+      c: unknown,
+    ) => { insideViews: Record<string, { clock: string; live?: { duration?: string }; processes: Array<Record<string, unknown>> }> };
+    const held = {
+      ticket: { id: 1 },
+      insideViews: {
+        uat: {
+          clock: 'old',
+          live: { status: 'run', duration: '3s' },
+          processes: [
+            { id: 'tester', status: 'run', duration: '3s', time: '12:00' },
+            { id: 'gates', status: 'pass', duration: '9s' },
+          ],
+        },
+        impl: { clock: 'impl clock', processes: [] },
+      },
+    };
+    const out = withClocks(held, {
+      uat: { clock: 'new', live: '4s', processes: { tester: { duration: '4s', durationExact: '4.0s', time: '12:00' } } },
+    });
+    expect(out.insideViews.uat!.clock).toBe('new');
+    expect(out.insideViews.uat!.live!.duration).toBe('4s');
+    expect(out.insideViews.uat!.processes[0]).toMatchObject({ id: 'tester', status: 'run', duration: '4s', durationExact: '4.0s' });
+    expect(out.insideViews.uat!.processes[1]).toEqual({ id: 'gates', status: 'pass', duration: '9s' });
+    expect(out.insideViews.impl!.clock).toBe('impl clock');
+    // The held snapshot is not mutated — a deferred render reads the new one.
+    expect(held.insideViews.uat.clock).toBe('old');
+  });
+
   it('advances the running-clock text in place on a live repaint, never a rebuild (869e)', () => {
     // The live repaint's JOB is to keep the running rows' clocks current — that
     // is why the tick exists at all. updateInsideLive must land the advanced

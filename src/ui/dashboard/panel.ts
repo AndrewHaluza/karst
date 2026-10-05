@@ -17,7 +17,7 @@ import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
-import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
+import { hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
 import { compactTicketLabel } from '../../model/followUp.js';
 import type { InsideActionHost } from './insideActions.js';
 import {
@@ -76,6 +76,8 @@ export class DashboardManager {
    * nobody is looking at.
    */
   private readonly liveTicks = new Map<number, ReturnType<typeof setTimeout>>();
+  /** `structureKey` of the last FULL snapshot each panel was sent. */
+  private readonly sentStructure = new Map<number, string>();
   /** Panel-only selection memory (round switcher + findings repo scope). */
   private readonly selections = new DashboardSelections();
   /** Per-snapshot action capabilities + the grace window for superseded ones. */
@@ -306,6 +308,7 @@ export class DashboardManager {
       const tick = this.liveTicks.get(ticketId);
       if (tick) clearTimeout(tick);
       this.liveTicks.delete(ticketId);
+      this.sentStructure.delete(ticketId);
       this.panels.delete(ticketId);
       // The async loaders abort and drop their per-ticket state; the round
       // switcher selection and findings repo scope die with the panel too (a
@@ -497,6 +500,18 @@ export class DashboardManager {
     // while the user is mid-interaction (an action in flight, a text selection
     // being made) — a snapshot pushed once a second must never redraw over
     // what someone is doing, and only the sender knows which kind it is.
+    // A repaint whose snapshot differs from the last one sent only in its
+    // clocks ships just the clocks: the webview's live repaint writes clock
+    // text and nothing else, and over Remote-SSH the full snapshot (100 KB+)
+    // once a second is what made the panel crawl. New structure — a row that
+    // opened, a status that moved — still ships the whole snapshot.
+    const structure = structureKey(state);
+    if (live && this.sentStructure.get(ticketId) === structure) {
+      panel.postMessage({ type: 'clocks', clocks: liveClocks(state) });
+      this.scheduleLiveTick(ticketId, state);
+      return;
+    }
+    this.sentStructure.set(ticketId, structure);
     panel.postMessage({
       type: 'state',
       state,

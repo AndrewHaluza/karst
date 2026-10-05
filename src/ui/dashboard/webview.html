@@ -3276,6 +3276,24 @@
   // "spinner glitch every few moments" — and re-derived every disclosure from
   // the open/closed sets. Update the mutable running-clock text in place; a
   // real push renders the block authoritatively.
+  // A `clocks` repaint merged into the snapshot the panel holds: the same text
+  // a live `state` repaint would have carried (liveTick.ts `liveClocks`). Returns
+  // a new snapshot — the held one may still be a deferred render's input.
+  function withClocks(state, clocks) {
+    const views = Object.assign({}, state.insideViews);
+    for (const key of Object.keys(clocks)) {
+      const view = views[key];
+      const c = clocks[key];
+      if (!view || !c) continue;
+      views[key] = Object.assign({}, view, {
+        clock: c.clock,
+        live: view.live && c.live !== undefined ? Object.assign({}, view.live, { duration: c.live }) : view.live,
+        processes: view.processes.map((p) => (c.processes[p.id] ? Object.assign({}, p, c.processes[p.id]) : p)),
+      });
+    }
+    return Object.assign({}, state, { insideViews: views });
+  }
+
   function updateInsideLive(state) {
     const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
     const view = (state.insideViews || {})[sel];
@@ -5976,6 +5994,14 @@
         }
       }
       karstSettle(msg.requestId, msg.ok, msg.message);
+      return;
+    }
+    // A live repaint where only time moved: same contract as a `state` live
+    // repaint (deferred mid-interaction, in-place text only), minus the bytes.
+    if (msg.type === 'clocks') {
+      if (!lastState) return;
+      lastState = withClocks(lastState, msg.clocks || {});
+      if (liveRepaintSafe()) updateInsideLive(lastState);
       return;
     }
     if (msg.type === 'state') {

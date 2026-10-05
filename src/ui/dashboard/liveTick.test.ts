@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hasLiveWork, LIVE_TICK_MS } from './liveTick.js';
+import { hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
 import type { DashboardState } from './state.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
@@ -52,5 +52,70 @@ describe('hasLiveWork', () => {
 
   it('ticks at a one-second cadence', () => {
     expect(LIVE_TICK_MS).toBe(1000);
+  });
+});
+
+describe('structureKey', () => {
+  const running = (duration: string, time: string) =>
+    stateWith({
+      uat: view({
+        stageKey: 'uat',
+        clock: `12:00:00 · ${duration}`,
+        live: { status: 'run', label: 'test', duration },
+        processes: [
+          { id: 'tester', kind: 'tester', label: 'Tester', status: 'run', duration, durationExact: `${duration}.0`, time },
+        ],
+      }),
+    });
+
+  it('is unchanged when only the clocks advanced', () => {
+    expect(structureKey(running('3s', '12:00:00'))).toBe(structureKey(running('4s', '12:00:00')));
+  });
+
+  it('ignores a time-derived age at any depth (graph node rows)', () => {
+    const a = { ...running('3s', 't'), graph: { nodes: [{ id: 'n', age: '1m ago' }] } } as unknown as DashboardState;
+    const b = { ...running('3s', 't'), graph: { nodes: [{ id: 'n', age: '2m ago' }] } } as unknown as DashboardState;
+    expect(structureKey(a)).toBe(structureKey(b));
+  });
+
+  it('changes when a row appears or a status moves', () => {
+    const base = running('3s', 't');
+    const added = stateWith({
+      uat: view({
+        stageKey: 'uat',
+        processes: [
+          ...base.insideViews.uat.processes,
+          { id: 'review', kind: 'review', label: 'Review', status: 'run' },
+        ],
+      }),
+    });
+    const settled = stateWith({
+      uat: view({ stageKey: 'uat', processes: [{ id: 'tester', kind: 'tester', label: 'Tester', status: 'pass' }] }),
+    });
+    expect(structureKey(added)).not.toBe(structureKey(base));
+    expect(structureKey(settled)).not.toBe(structureKey(base));
+  });
+});
+
+describe('liveClocks', () => {
+  it('carries each stage clock, the live duration, and running rows only', () => {
+    const state = stateWith({
+      uat: view({
+        stageKey: 'uat',
+        clock: '12:00:00 · 4s',
+        live: { status: 'run', duration: '4s' },
+        processes: [
+          { id: 'tester', kind: 'tester', label: 'Tester', status: 'run', duration: '4s', durationExact: '4.0s', time: '12:00:00' },
+          { id: 'old', kind: 'tester', label: 'Old', status: 'pass', duration: '9s', time: '11:00:00' },
+        ],
+      }),
+    });
+    const clocks = liveClocks(state);
+    expect(clocks.uat).toEqual({
+      clock: '12:00:00 · 4s',
+      live: '4s',
+      processes: { tester: { duration: '4s', durationExact: '4.0s', time: '12:00:00' } },
+    });
+    expect(clocks.scope).toEqual({ clock: 'has not run yet', processes: {} });
   });
 });

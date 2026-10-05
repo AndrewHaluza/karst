@@ -8,6 +8,7 @@ import { GATE_STAGES, type GateStage } from '../../store/ticketGates.js';
 import { validateInsideProgressEvent, type InsideProgressEvent } from '../../model/inside/progress.js';
 import { isKnownProvider } from '../../agent/provider.js';
 import type { AgentProvider } from '../../manifest/types.js';
+import type { LiveClocks } from './liveTick.js';
 
 /**
  * Webview → host action messages (§14 dashboard tier actions). The webview
@@ -305,6 +306,11 @@ export type HostMessage =
   | { type: 'stage-log'; stage: GateStage; result: StageLogResult }
   /** The answer to `xterm-request`: the bundle text, or null when unavailable. */
   | { type: 'xterm'; js: string | null }
+  /**
+   * A live repaint whose snapshot changed only in its clocks — the clock text
+   * per stage, merged by the webview into the snapshot it holds (liveTick.ts).
+   */
+  | { type: 'clocks'; clocks: LiveClocks }
   /**
    * The answer to `agent-log-request`: the console tail for one gate-lane AI
    * process, or a named refusal. Same closed `result` union as `stage-log`.
