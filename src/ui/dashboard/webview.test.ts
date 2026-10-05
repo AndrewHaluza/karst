@@ -5020,7 +5020,7 @@ function artifactFixtures(): ArtifactSummary[] {
       prs: [],
       commits: [],
       tasks: [],
-      resources: [{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log' }],
+      resources: [{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log', label: 'UAT log', taskId: null }],
       detail: null,
       agentConsole: 'tester',
     },
@@ -5188,6 +5188,7 @@ describe('artifacts render round trip (executed in a VM)', () => {
     const detailsAt = detail.indexOf('Details');
     expect(filesAt).toBeGreaterThan(detailsAt);
     expect(detail).toContain('uat-ticket-1.log');
+    expect(detail).toContain('UAT log');
     expect(detail).toMatch(/data-act="artifact-open-resource"[\s\S]*data-artifact-id="uat-report"[\s\S]*data-index="0"/);
 
     // Esc mirrors Back: detail(from index) → index.
@@ -5196,6 +5197,47 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // And Esc on the index → ticket.
     h.key('Escape');
     expect(h.bodyClasses).not.toContain('art-nav');
+  });
+
+  it('renders each plan task\'s own files inline and only taskId===null files in "Plan files"', () => {
+    const h = bootPreviewHarness();
+    const arts = artifactFixtures().map((a) => a.id !== 'plan' ? a : {
+      ...a,
+      resources: [
+        { name: 'plan.md', path: '/p/plan.md', label: 'Plan', taskId: null },
+        { name: 'brief.md', path: '/p/brief.md', label: 'Brief', taskId: 'impl' },
+        { name: 'verify-report.md', path: '/p/vr.md', label: 'Output · verify-report', taskId: 'verify' },
+      ],
+    });
+    h.receive({ type: 'state', state: { ...renderStateFor('uat'), artifacts: arts } });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'plan' });
+    const detail = h.htmlOf('artView');
+    expect(detail).toMatch(/Implement the feature[\s\S]*?data-index="1"[\s\S]*?Brief ↗[\s\S]*?Verify[\s\S]*?data-index="2"[\s\S]*?Output · verify-report ↗/);
+    expect(detail).toContain('title="Open Brief (brief.md) in the editor"');
+    expect(detail).toContain('aria-label="Plan files"');
+    expect(detail).toContain('>Plan files<');
+    expect(detail).not.toContain('Underlying files');
+    const bottom = detail.slice(detail.indexOf('aria-label="Plan files"'));
+    expect(bottom).toContain('plan.md');
+    expect(bottom).toContain('data-index="0"');
+    expect(bottom).not.toContain('brief.md');
+    expect(bottom).not.toContain('data-index="1"');
+  });
+
+  it('omits the files section when every resource belongs to a task', () => {
+    const h = bootPreviewHarness();
+    const arts = artifactFixtures().map((a) => a.id !== 'plan' ? a : {
+      ...a,
+      resources: [{ name: 'brief.md', path: '/p/brief.md', label: 'Brief', taskId: 'impl' }],
+    });
+    h.receive({ type: 'state', state: { ...renderStateFor('uat'), artifacts: arts } });
+    h.click('[data-art]', { art: 'index' });
+    h.click('[data-art-open]', { artOpen: 'plan' });
+    const detail = h.htmlOf('artView');
+    expect(detail).toContain('Brief ↗');
+    expect(detail).not.toContain('Plan files');
+    expect(detail).not.toContain('Underlying files');
   });
 
   it('renders the ship detail with the PR number and commit SHA as the open controls', () => {

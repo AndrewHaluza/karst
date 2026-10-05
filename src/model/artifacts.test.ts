@@ -517,7 +517,9 @@ describe('buildTicketArtifacts', () => {
       .prepare("UPDATE stages SET artifact_path = '/data/karst/artifacts/1/uat-ticket-1.log' WHERE ticket_id = ? AND stage_key = 'uat'")
       .run(t.id);
     const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
-    expect(a.resources).toEqual([{ name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log' }]);
+    expect(a.resources).toEqual([
+      { name: 'uat-ticket-1.log', path: '/data/karst/artifacts/1/uat-ticket-1.log', label: 'uat-ticket-1.log', taskId: null },
+    ]);
   });
 
   it('the UAT card renders no observations from the round a running tester replaced', () => {
@@ -861,7 +863,138 @@ describe('plan artifact (graph evidence)', () => {
       )
       .run(graphRunId, plannerRunId);
     const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
-    expect(a.resources).toEqual([{ name: 'plan.md', path: '/data/karst/graph/1/plan.md' }]);
+    expect(a.resources).toEqual([
+      { name: 'plan.md', path: '/data/karst/graph/1/plan.md', label: 'Brief', taskId: 'impl' },
+    ]);
+  });
+
+  it('re-files a resource whose task was cut from the detail list, labelled with that task', () => {
+    const t = ticket('impl');
+    seedGraphPlan(store, t.id);
+    const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(t.id) as { id: number }).id;
+    const plannerRunId = (store.db.prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ?').get(graphRunId) as { id: number }).id;
+    const doc = JSON.parse(CANONICAL_GRAPH) as { nodes: { id: string; kind: string; label: string; command: string; repositories: string[]; outcomes: string[]; budget: { maxVisits: number } }[]; edges: { id: string; from: string; on: string; to: string }[] };
+    const fillers = Array.from({ length: 45 }, (_, i) => ({ id: `f${i}`, kind: 'command', label: `Filler ${i}`, command: 'test', repositories: ['api'], outcomes: ['passed'], budget: { maxVisits: 1 } }));
+    doc.nodes = [...fillers, ...doc.nodes];
+    doc.edges = [...doc.edges, ...fillers.map((f, i) => ({ id: `fe${i}`, from: f.id, on: 'passed', to: 'END' }))];
+    store.db.prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE graph_run_id = ?').run(JSON.stringify(doc), graphRunId);
+    store.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, NULL, 'task', ?, '/data/karst/graph/1/plan.md', 'sha', 'text/markdown', 512, '2026-08-01T08:06:00.000Z')`,
+      )
+      .run(graphRunId, plannerRunId);
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.tasks.some((task) => task.id === 'impl')).toBe(false);
+    expect(a.resources).toEqual([
+      { name: 'plan.md', path: '/data/karst/graph/1/plan.md', label: 'Implement the feature \u00b7 Brief', taskId: null },
+    ]);
+  });
+
+  describe('plan resources are filed under the task whose process produced them', () => {
+    function ids(t: { id: number }) {
+      const graphRunId = (store.db.prepare('SELECT id FROM approach_graph_runs WHERE ticket_id = ?').get(t.id) as { id: number }).id;
+      const plannerRunId = (store.db.prepare('SELECT id FROM approach_planner_runs WHERE graph_run_id = ?').get(graphRunId) as { id: number }).id;
+      const revisionId = (store.db
+        .prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ? ORDER BY revision_number DESC LIMIT 1')
+        .get(graphRunId) as { id: number }).id;
+      return { graphRunId, plannerRunId, revisionId };
+    }
+    function instance(
+      graphRunId: number,
+      o: { artifactId: string; revisionId: number | null; planner?: number | null; nodeRun?: number | null; path: string },
+    ): void {
+      store.db
+        .prepare(
+          `INSERT INTO approach_artifact_instances
+             (graph_run_id, revision_id, artifact_id, producer_planner_run_id, producer_node_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, 'sha', 'text/markdown', 10, '2026-08-01T08:06:00.000Z')`,
+        )
+        .run(graphRunId, o.revisionId, o.artifactId, o.planner ?? null, o.nodeRun ?? null, o.path);
+    }
+    function nodeRun(graphRunId: number, revisionId: number, nodeId: string, visit: number): number {
+      return Number(store.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (graph_run_id, revision_id, node_id, node_kind, visit_number, status, started_at)
+           VALUES (?, ?, ?, 'command', ?, 'completed', '2026-08-01T08:10:00.000Z')`,
+        )
+        .run(graphRunId, revisionId, nodeId, visit).lastInsertRowid);
+    }
+    const RATIONALE_GRAPH = CANONICAL_GRAPH.replace('"rationaleArtifact":"task"', '"rationaleArtifact":"why"');
+
+    it('labels a node output with its producing task and visit', () => {
+      const t = ticket('impl');
+      seedGraphPlan(store, t.id);
+      const { graphRunId, revisionId } = ids(t);
+      const r1 = nodeRun(graphRunId, revisionId, 'verify', 1);
+      const r2 = nodeRun(graphRunId, revisionId, 'verify', 2);
+      instance(graphRunId, { artifactId: 'verify-report', revisionId, nodeRun: r1, path: '/g/aaa' });
+      instance(graphRunId, { artifactId: 'verify-report', revisionId, nodeRun: r2, path: '/g/bbb' });
+      const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+      expect(a.resources).toEqual([
+        { name: 'aaa', path: '/g/aaa', label: 'Output · verify-report', taskId: 'verify' },
+        { name: 'bbb', path: '/g/bbb', label: 'Output · verify-report · visit 2', taskId: 'verify' },
+      ]);
+    });
+
+    it('a node output from an earlier revision still files under its task', () => {
+      const t = ticket('impl');
+      seedGraphPlan(store, t.id);
+      const { graphRunId, revisionId: oldRev } = ids(t);
+      const run = nodeRun(graphRunId, oldRev, 'verify', 1);
+      store.db
+        .prepare("UPDATE approach_graph_revisions SET status = 'superseded' WHERE graph_run_id = ?")
+        .run(graphRunId);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 2, ?, 'fp2', 'active', '2026-08-01T09:00:00.000Z')`,
+        )
+        .run(graphRunId, CANONICAL_GRAPH);
+      instance(graphRunId, { artifactId: 'verify-report', revisionId: oldRev, nodeRun: run, path: '/g/old-out' });
+      const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+      expect(a.resources).toEqual([{ name: 'old-out', path: '/g/old-out', label: 'Output · verify-report', taskId: 'verify' }]);
+    });
+
+    it('labels the rationale, other current docs, and earlier-revision docs', () => {
+      const t = ticket('impl');
+      seedGraphPlan(store, t.id);
+      const { graphRunId, plannerRunId, revisionId: oldRev } = ids(t);
+      store.db
+        .prepare("UPDATE approach_graph_revisions SET status = 'superseded' WHERE graph_run_id = ?")
+        .run(graphRunId);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+           VALUES (?, 2, ?, 'fp2', 'active', '2026-08-01T09:00:00.000Z')`,
+        )
+        .run(graphRunId, RATIONALE_GRAPH);
+      const newRev = ids(t).revisionId;
+      instance(graphRunId, { artifactId: 'why', revisionId: newRev, planner: plannerRunId, path: '/g/r' });
+      instance(graphRunId, { artifactId: 'notes', revisionId: null, planner: plannerRunId, path: '/g/n' });
+      instance(graphRunId, { artifactId: 'task', revisionId: oldRev, planner: plannerRunId, path: '/g/old' });
+      instance(graphRunId, { artifactId: 'task', revisionId: newRev, planner: plannerRunId, path: '/g/new' });
+      const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+      expect(a.resources).toEqual([
+        { name: 'r', path: '/g/r', label: 'Plan rationale', taskId: null },
+        { name: 'n', path: '/g/n', label: 'notes', taskId: null },
+        { name: 'old', path: '/g/old', label: 'Revision 1 · task', taskId: null },
+        { name: 'new', path: '/g/new', label: 'Brief', taskId: 'impl' },
+      ]);
+    });
+
+    it('dedups a path shared by two instances (first wins)', () => {
+      const t = ticket('impl');
+      seedGraphPlan(store, t.id);
+      const { graphRunId, plannerRunId, revisionId } = ids(t);
+      instance(graphRunId, { artifactId: 'task', revisionId, planner: plannerRunId, path: '/g/same' });
+      instance(graphRunId, { artifactId: 'other', revisionId, planner: plannerRunId, path: '/g/same' });
+      const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+      expect(a.resources).toHaveLength(1);
+      expect(a.resources[0]).toMatchObject({ label: 'Brief', taskId: 'impl' });
+    });
   });
 
   it('the plan artifact is FIRST in semantic priority for an active ticket', () => {

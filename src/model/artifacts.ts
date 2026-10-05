@@ -130,6 +130,10 @@ export interface ArtifactResource {
   name: string;
   /** Absolute path, host-resolved; only the host ever opens it. */
   path: string;
+  /** Human label — ALWAYS set (the basename when nothing better is known). */
+  label: string;
+  /** The plan task this file belongs to; null = artifact-level. */
+  taskId: string | null;
 }
 
 /**
@@ -255,6 +259,7 @@ export interface ArtifactPlanInput {
     createdAt: string;
   } | null;
   revisions: {
+    id: number;
     revisionNumber: number;
     canonicalGraph: string;
     status: string;
@@ -274,7 +279,11 @@ export interface ArtifactPlanInput {
     status: string;
     provider: string | null;
   }[];
-  plannerArtifacts: {
+  artifacts: {
+    artifactId: string;
+    revisionId: number | null;
+    /** The node run that wrote it; null = a planner-produced document. */
+    producerNodeRunId: number | null;
     snapshotPath: string;
     mediaType: string;
     byteSize: number;
@@ -294,6 +303,7 @@ export function readPlanInput(store: Store, ticketId: number): ArtifactPlanInput
         }
       : null,
     revisions: evidence.revisions.map((r) => ({
+      id: r.id,
       revisionNumber: r.revision_number,
       canonicalGraph: r.canonical_graph,
       status: r.status,
@@ -313,7 +323,10 @@ export function readPlanInput(store: Store, ticketId: number): ArtifactPlanInput
       status: p.status,
       provider: p.provider,
     })),
-    plannerArtifacts: evidence.plannerArtifacts.map((a) => ({
+    artifacts: evidence.artifacts.map((a) => ({
+      artifactId: a.artifact_id,
+      revisionId: a.revision_id,
+      producerNodeRunId: a.producer_node_run_id,
       snapshotPath: a.snapshot_path,
       mediaType: a.media_type,
       byteSize: a.byte_size,
@@ -535,11 +548,49 @@ function agentConsoleFor(
   return ran ? processId : null;
 }
 
-function resourceFrom(path: string | null, out: ArtifactResource[]): void {
+function resourceFrom(
+  path: string | null,
+  out: ArtifactResource[],
+  file: { label?: string; taskId?: string | null } = {},
+): void {
   if (!path) return;
   const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
   if (out.some((r) => r.path === path)) return;
-  out.push({ name, path });
+  out.push({ name, path, label: file.label ?? name, taskId: file.taskId ?? null });
+}
+
+/**
+ * Files a plan instance under the task whose process produced it (SPEC
+ * "Model rules"). Precedence: node output > brief > rationale > other; an
+ * earlier revision's non-output document is artifact-level history.
+ */
+function planFile(
+  artifact: ArtifactPlanInput['artifacts'][number],
+  ctx: {
+    nodes: { id: string; instructionsArtifact?: string }[];
+    rationaleArtifact: string | null;
+    revisions: ArtifactPlanInput['revisions'];
+    latestRevisionId: number | null;
+    nodeRuns: ArtifactPlanInput['nodeRuns'];
+  },
+): { label: string; taskId: string | null } {
+  const id = artifact.artifactId;
+  const run = artifact.producerNodeRunId === null
+    ? undefined
+    : ctx.nodeRuns.find((n) => n.id === artifact.producerNodeRunId);
+  if (run) {
+    const visit = run.visitNumber > 1 ? ` · visit ${run.visitNumber}` : '';
+    return { label: `Output · ${id}${visit}`, taskId: run.nodeId };
+  }
+  const current = artifact.revisionId === null || artifact.revisionId === ctx.latestRevisionId;
+  if (!current) {
+    const rev = ctx.revisions.find((r) => r.id === artifact.revisionId);
+    return { label: rev ? `Revision ${rev.revisionNumber} · ${id}` : id, taskId: null };
+  }
+  const briefOf = ctx.nodes.find((n) => n.instructionsArtifact === id);
+  if (briefOf) return { label: 'Brief', taskId: briefOf.id };
+  if (id === ctx.rationaleArtifact) return { label: 'Plan rationale', taskId: null };
+  return { label: id, taskId: null };
 }
 
 /**
@@ -880,11 +931,18 @@ function graphPlanReport(input: ArtifactInput): ArtifactSummary | null {
   // The LATEST revision is the current plan document (a replan's revision N+1
   // supersedes N). The revision list is ordered by revision_number.
   const revision = plan.revisions[plan.revisions.length - 1];
-  let nodes: { id: string; kind: string; label: string }[] = [];
+  let nodes: { id: string; kind: string; label: string; instructionsArtifact?: string }[] = [];
+  let rationaleArtifact: string | null = null;
   if (revision) {
     const parsed = parseGraphDocument(revision.canonicalGraph);
     if (parsed.ok) {
-      nodes = parsed.document.nodes.map((n) => ({ id: n.id, kind: n.kind, label: n.label }));
+      nodes = parsed.document.nodes.map((n) => ({
+        id: n.id,
+        kind: n.kind,
+        label: n.label,
+        instructionsArtifact: 'instructionsArtifact' in n ? n.instructionsArtifact : undefined,
+      }));
+      rationaleArtifact = parsed.document.rationaleArtifact;
     }
   }
 
@@ -933,10 +991,22 @@ function graphPlanReport(input: ArtifactInput): ArtifactSummary | null {
       : `${tasks.length} task${tasks.length === 1 ? '' : 's'} · ${done} done`
         + (doing ? ` · ${doing} in progress` : '');
 
+  const keptTasks = tasks.slice(0, MAX_DETAIL_TASKS);
+  const keptIds = new Set(keptTasks.map((t) => t.id));
+  const labelOf = new Map(tasks.map((t) => [t.id, t.label]));
   const resources: ArtifactResource[] = [];
-  for (const artifact of plan.plannerArtifacts) {
-    resourceFrom(artifact.snapshotPath, resources);
+  const files = { nodes, rationaleArtifact, revisions: plan.revisions, latestRevisionId: revision?.id ?? null, nodeRuns: plan.nodeRuns };
+  for (const artifact of plan.artifacts) {
+    resourceFrom(artifact.snapshotPath, resources, planFile(artifact, files));
   }
+  // A resource filed under a task cut from the detail list would vanish in the
+  // webview (it renders task files only under their task): re-file it as a
+  // top-level resource, labelled with the task it belongs to.
+  const filedResources = resources.map((r) =>
+    r.taskId !== null && !keptIds.has(r.taskId)
+      ? { ...r, taskId: null, label: `${labelOf.get(r.taskId) ?? r.taskId} \u00b7 ${r.label}` }
+      : r,
+  );
 
   return {
     id: 'plan',
@@ -961,8 +1031,8 @@ function graphPlanReport(input: ArtifactInput): ArtifactSummary | null {
     findings: [],
     prs: [],
     commits: [],
-    tasks: tasks.slice(0, MAX_DETAIL_TASKS),
-    resources,
+    tasks: keptTasks,
+    resources: filedResources,
     detail: null,
     agentConsole: null,
   };
