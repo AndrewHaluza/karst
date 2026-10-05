@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
+import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -650,6 +651,16 @@ CREATE INDEX IF NOT EXISTS idx_pr_feedback_ticket
  */
 export function migrate(db: Database): void {
   if ((db.pragma('user_version', { simple: true }) as number) >= SCHEMA_VERSION) {
+    // A DB already at the current version skips the gated steps, so the one
+    // shape repair for unreleased v64 runs here (cheap read when current).
+    if (ticketMessagesNeedsRepair(db)) {
+      db.pragma('foreign_keys = OFF');
+      try {
+        db.transaction(() => repairTicketMessages(db)).immediate();
+      } finally {
+        db.pragma('foreign_keys = ON');
+      }
+    }
     return;
   }
 
@@ -2414,22 +2425,11 @@ function migrateLocked(db: Database): void {
     if (cols64.size > 0) {
       db.exec('CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending)');
     }
-    db.exec(`
-      CREATE TABLE IF NOT EXISTS ticket_messages (
-        id             INTEGER PRIMARY KEY,
-        project_id     INTEGER REFERENCES projects(id) ON DELETE CASCADE,
-        from_ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
-        to_ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
-        kind           TEXT NOT NULL CHECK (kind IN ('message', 'event')),
-        body           TEXT NOT NULL,
-        created_at     TEXT NOT NULL DEFAULT (datetime('now')),
-        read_at        TEXT,
-        woke_at        TEXT
-      )`);
-    db.exec(
-      'CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at)',
-    );
+    db.exec(TICKET_MESSAGES_DDL);
   }
+
+  // Ungated: v64 is unreleased and early v64 DBs lack woke_at/AUTOINCREMENT.
+  repairTicketMessages(db);
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

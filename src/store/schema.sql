@@ -1190,7 +1190,7 @@ CREATE INDEX IF NOT EXISTS idx_test_hooks_ticket ON test_hooks(ticket_id, id);
 -- `kind='event'` rows are written at the source by the stage writer (from = NULL,
 -- host event); `kind='message'` rows are agent-posted. Bodies are untrusted text.
 CREATE TABLE IF NOT EXISTS ticket_messages (
-  id             INTEGER PRIMARY KEY,
+  id             INTEGER PRIMARY KEY AUTOINCREMENT, -- ids never reused: the delivery sweep watermarks on them
   project_id     INTEGER REFERENCES projects(id) ON DELETE CASCADE, -- NULL only for a pre-v6 unassigned ticket
   from_ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE,  -- NULL = host event
   to_ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -1201,4 +1201,5 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
   woke_at        TEXT  -- event rows: the parent-wake decision was taken (atomic claim, one per row)
 );
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_ticket_messages_wake ON ticket_messages(project_id, kind, woke_at, id);
 CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending);
