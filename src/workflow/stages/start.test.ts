@@ -3,6 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { updateTicketFields } from '../../store/tickets.js';
 import { advanceTicketOnStart, DEFAULT_START_STATUS } from './start.js';
+import { createSubtask } from './subtask.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 
@@ -136,5 +137,21 @@ describe('advanceTicketOnStart', () => {
 
     expect(res).toEqual({ advanced: false, reason: 'no-ref' });
     expect(lines).toContainEqual(expect.stringMatching(/\[ticketing\] start ticket \d+: no provider ref — skipping status push/));
+  });
+});
+
+describe('advanceTicketOnStart — sub-tasks (source karst)', () => {
+  it('is a no-op for a sub-task even when its parent carries a provider ref', async () => {
+    const store = openStore(':memory:');
+    const parentId = fetchedTicket(store);
+    updateTicketFields(store, parentId, { selectedRepos: ['api'] });
+    const child = createSubtask(store, parentId, { title: 'child' });
+    expect(child.source).toBe('karst');
+    const provider = recorder();
+
+    const res = await advanceTicketOnStart(store, child.id, ON, provider);
+
+    expect(res).toEqual({ advanced: false, reason: 'no-ref' });
+    expect(provider.updates).toEqual([]);
   });
 });
