@@ -36,8 +36,10 @@ export interface PlanningOpsDeps {
   stackRoot: () => string | undefined;
   defaultAgent: () => { provider: AgentProvider; model: string | null };
   host: TerminalHost;
-  cli: { cliEntry?: string; dbPath?: string; manifestPath?: string };
+  cli: () => { cliEntry?: string; dbPath?: string; manifestPath?: string };
   notify: Notify;
+  /** Called when the session list or a terminal's liveness changes (the sidebar re-pushes). */
+  onChange?: () => void;
   debug?: (message: string) => void;
 }
 
@@ -51,6 +53,7 @@ export interface PlanningOps {
   open(id: number): void;
   archive(id: number): void;
   list(): PlanningListItem[];
+  isLive(id: number): boolean;
 }
 
 export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
@@ -81,7 +84,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       shellArgs: cmd.args,
       env: {
         ...cmd.env,
-        ...sessionCliEnv(deps.cli, deps.debug),
+        ...sessionCliEnv(deps.cli(), deps.debug),
         [KARST_PLANNING_SESSION_ENV]: String(session.id),
       },
     });
@@ -89,8 +92,10 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     terminal.onDidClose(() => {
       if (live.get(session.id) === terminal) live.delete(session.id);
       debug(`terminal for ${session.id} closed`);
+      deps.onChange?.();
     });
     terminal.show();
+    deps.onChange?.();
   }
 
   return {
@@ -134,7 +139,10 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       live.delete(id);
       setPlanningSessionStatus(deps.store, id, 'archived');
       debug(`archived ${id}`);
+      deps.onChange?.();
     },
+
+    isLive: (id) => live.has(id),
 
     list() {
       const projectId = deps.projectId();

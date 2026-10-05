@@ -37,6 +37,9 @@ function fakeHost(): { host: SidebarViewHost; resolve: () => FakeView } {
 
 function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
   return {
+    planCreate: vi.fn(),
+    planOpen: vi.fn(),
+    planArchive: vi.fn(),
     toggleFacet: vi.fn(),
     setFilter: vi.fn(),
     refresh: vi.fn(),

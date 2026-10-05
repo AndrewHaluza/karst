@@ -159,6 +159,7 @@ import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
+import { createPlanningOps } from './extension/ops/planningOps.js';
 import {
   resolveClaudeProjectsDir,
   transcriptPathFor,
@@ -736,6 +737,21 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // manager holds facet/filter + re-pushes state; its action factory maps webview
   // messages to the existing karst.* commands (executeCommand passthrough) so the
   // command handlers stay the single source of behavior.
+  // Planning sessions (read-only, stack-aware agent terminals). Bindings only;
+  // the logic is ops/planningOps.ts. The terminal host is resolved per launch
+  // (a click), long after `terminalIdentity` below is initialized.
+  const planning = createPlanningOps({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    manifest: () => currentManifest(),
+    stackRoot: () => { const m = cliEntryAndManifest(context).manifestPath; return m ? dirname(m) : undefined; },
+    defaultAgent: () => ({ provider: currentManifest()?.agentProvider ?? 'claude', model: null }),
+    host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
+    cli: () => cliSessionInput(cliLiteral(context, dbPath)),
+    notify,
+    debug: (m) => logger.debug(m),
+    onChange: () => provider.refresh(),
+  });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
     setFilter: (query) => mgr.setFilter(query),
@@ -782,11 +798,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
     },
+    planCreate: async () => {
+      const title = await vscode.window.showInputBox({ prompt: 'What do you want to plan?', ignoreFocusOut: true });
+      if (title?.trim()) planning.create(title.trim());
+    },
+    planOpen: (id) => planning.open(id),
+    planArchive: (id) => planning.archive(id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
     () => activeTicket.get(),
-    () => currentManifest());
+    () => currentManifest(),
+    (id) => planning.isLive(id));
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);

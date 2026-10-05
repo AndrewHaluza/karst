@@ -31,6 +31,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -108,6 +109,20 @@ export interface SidebarSections {
   olderDone: TicketRow[];
 }
 
+/**
+ * A planning session row (its own sidebar group, never mixed with tickets).
+ * `agent` is the semantic core id the webview renders as icon + canonical
+ * name (UI-R10c); `live` is window state — this window holds its terminal.
+ */
+export interface PlanningRow {
+  sessionId: number;
+  title: string;
+  status: PlanningStatus;
+  ticketCount: number;
+  live: boolean;
+  agent: { provider: string; model: string | null };
+}
+
 export interface SidebarState {
   /**
    * Active facet selection — the lit chips. Multi-select: several status facets
@@ -135,6 +150,8 @@ export interface SidebarState {
    * list, exactly as before the sectioning.
    */
   rows: TicketRow[];
+  /** The All view's Planning group, newest first; empty for every other facet. */
+  planning: PlanningRow[];
 }
 
 /**
@@ -187,6 +204,8 @@ export function buildSidebarState(
      * window, if any; its row is highlighted. Null/undefined → no highlight.
      */
     activeTicketId?: number | null;
+    /** Whether this window holds a live terminal for a planning session. */
+    planningLive?: (sessionId: number) => boolean;
   },
   pathContext?: PathContext,
 ): SidebarState {
@@ -300,6 +319,7 @@ export function buildSidebarState(
       },
       done: [],
       rows: [],
+      planning: planningRows(store, opts.projectId, query, opts.planningLive),
     };
   }
 
@@ -309,6 +329,7 @@ export function buildSidebarState(
       sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
       done: enrich(filterTickets(active.filter(isDoneTicket).sort(byCompletedAtDesc), query)),
       rows: [],
+      planning: [],
     };
   }
 
@@ -318,5 +339,26 @@ export function buildSidebarState(
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: enrich(filterTickets(source, query)),
+    planning: [],
   };
+}
+
+function planningRows(
+  store: Store,
+  projectId: number | undefined,
+  query: string,
+  isLive: ((sessionId: number) => boolean) | undefined,
+): PlanningRow[] {
+  if (projectId === undefined) return [];
+  const needle = query.trim().toLowerCase();
+  return listPlanningSessions(store, projectId)
+    .filter((s) => needle === '' || s.title.toLowerCase().includes(needle))
+    .map((s) => ({
+      sessionId: s.id,
+      title: s.title,
+      status: s.status,
+      ticketCount: listPlanningTickets(store, s.id).length,
+      live: isLive?.(s.id) ?? false,
+      agent: { provider: s.core, model: s.model },
+    }));
 }

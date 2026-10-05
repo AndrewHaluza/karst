@@ -67,6 +67,10 @@ export const TABLER_STROKE = 2;
  * needs to change for a new glyph to be usable everywhere.
  */
 export const TABLER_ICONS: Record<string, string> = {
+  bulb:
+    '<path d="M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7"/>' +
+    '<path d="M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3"/>' +
+    '<path d="M9.7 17l4.6 0"/>',
   archive:
     '<path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2"/>' +
     '<path d="M5 8v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-10"/><path d="M10 12l4 0"/>',

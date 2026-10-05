@@ -27,7 +27,11 @@ export type SidebarWebviewMessage =
   | { type: 'unarchive'; ticketId: number }
   | { type: 'delete'; ticketId: number }
   | { type: 'create-follow-up'; ticketId: number }
-  | { type: 'resolve-conflicts'; ticketId: number; repo: string };
+  | { type: 'resolve-conflicts'; ticketId: number; repo: string }
+  // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
+  | { type: 'plan-create' }
+  | { type: 'plan-open'; sessionId: number }
+  | { type: 'plan-archive'; sessionId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -64,6 +68,9 @@ export interface SidebarActions {
   delete(ticketId: number): void | Promise<void>;
   createFollowUp(ticketId: number): void | Promise<void>;
   resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
+  planCreate(): void | Promise<void>;
+  planOpen(sessionId: number): void | Promise<void>;
+  planArchive(sessionId: number): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -85,7 +92,13 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'open-settings':
     case 'open-resources':
     case 'open-token-usage':
+    case 'plan-create':
       return { type: m.type };
+    case 'plan-open':
+    case 'plan-archive':
+      return typeof m.sessionId === 'number' && Number.isFinite(m.sessionId)
+        ? { type: m.type, sessionId: m.sessionId }
+        : null;
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
         ? { type: 'toggle-facet', facet: m.facet as FacetKey }
@@ -157,5 +170,11 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.createFollowUp(msg.ticketId);
     case 'resolve-conflicts':
       return actions.resolveConflicts(msg.ticketId, msg.repo);
+    case 'plan-create':
+      return actions.planCreate();
+    case 'plan-open':
+      return actions.planOpen(msg.sessionId);
+    case 'plan-archive':
+      return actions.planArchive(msg.sessionId);
   }
 }

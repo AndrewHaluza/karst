@@ -79,6 +79,8 @@ export class SidebarViewManager {
      * launch would use. Absent → the legacy `defaultProvider` only.
      */
     private readonly manifest?: () => Manifest | undefined,
+    /** Whether this window holds a live terminal for a planning session. */
+    private readonly planningLive?: (sessionId: number) => boolean,
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -130,6 +132,7 @@ export class SidebarViewManager {
         manifest: this.manifest?.(),
         activeTicketId: this.activeTicketId?.(),
         projectId: this.projectId?.(),
+        ...(this.planningLive ? { planningLive: this.planningLive } : {}),
       },
       this.pathContext?.(),
     );

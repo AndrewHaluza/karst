@@ -8,6 +8,14 @@ describe('parseSidebarMessage', () => {
     }
   });
 
+  it('accepts planning-session messages only with a finite numeric sessionId', () => {
+    expect(parseSidebarMessage({ type: 'plan-create' })).toEqual({ type: 'plan-create' });
+    expect(parseSidebarMessage({ type: 'plan-open', sessionId: 3 })).toEqual({ type: 'plan-open', sessionId: 3 });
+    expect(parseSidebarMessage({ type: 'plan-archive', sessionId: 3 })).toEqual({ type: 'plan-archive', sessionId: 3 });
+    expect(parseSidebarMessage({ type: 'plan-open', sessionId: '3' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'plan-archive', ticketId: 3 })).toBeNull();
+  });
+
   it('accepts toggle-facet with a known facet, rejects unknown', () => {
     expect(parseSidebarMessage({ type: 'toggle-facet', facet: 'running' })).toEqual({
       type: 'toggle-facet',
@@ -83,6 +91,9 @@ describe('routeSidebarAction', () => {
       delete: vi.fn(),
       createFollowUp: vi.fn(),
       resolveConflicts: vi.fn(),
+      planCreate: vi.fn(),
+      planOpen: vi.fn(),
+      planArchive: vi.fn(),
     };
   }
 
@@ -109,6 +120,16 @@ describe('routeSidebarAction', () => {
     expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
     expect(a.openResources).toHaveBeenCalledOnce();
     expect(a.openTokenUsage).toHaveBeenCalledOnce();
+  });
+
+  it('dispatches planning-session messages', () => {
+    const a = makeActions();
+    routeSidebarAction({ type: 'plan-create' }, a);
+    routeSidebarAction({ type: 'plan-open', sessionId: 4 }, a);
+    routeSidebarAction({ type: 'plan-archive', sessionId: 5 }, a);
+    expect(a.planCreate).toHaveBeenCalledOnce();
+    expect(a.planOpen).toHaveBeenCalledWith(4);
+    expect(a.planArchive).toHaveBeenCalledWith(5);
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {

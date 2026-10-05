@@ -310,6 +310,18 @@
     text-transform:uppercase;color:var(--k-text-faint)}
   .sec-n{font-family:var(--k-font-mono);color:var(--k-text-faint);opacity:.8}
 
+  /* Planning sessions: their own group above the tickets, never mixed in.
+     The whole row is the open button; archive sits beside it. */
+  .planrow{display:flex;align-items:center;gap:var(--k-space-1);margin:0 var(--k-space-2)}
+  .planopen{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:var(--k-space-1);
+    padding:var(--k-space-2) var(--k-space-3);border:0;border-radius:var(--k-radius-md);
+    background:transparent;color:var(--k-text);font:inherit;text-align:left;cursor:pointer}
+  .planopen:hover{background:var(--vscode-list-hoverBackground)}
+  .planopen:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .plan-title{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .plan-meta{display:flex;align-items:center;gap:var(--k-space-2);max-width:100%;
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
   /* Completed rows (Recently Done / Older Completed / the Done facet) are
      quieter than Current: tighter padding, muted title, check indicator, and
      NO stage pill — the section header already says these are done, so a
@@ -350,6 +362,7 @@
 
 <div class="toolbar">
   <button type="button" class="k-iconbtn" data-act="create" aria-label="Create ticket" title="Create ticket"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5l0 14"/><path d="M5 12l14 0"/></svg></button>
+  <button type="button" class="k-iconbtn" data-act="plan-create" aria-label="Start planning session" title="Start planning session"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7"/><path d="M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3"/><path d="M9.7 17l4.6 0"/></svg></button>
   <span class="sp"></span>
   <button type="button" class="k-iconbtn" data-act="open-resources" aria-label="Open resource monitor" title="Open resource monitor"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 13a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M13.45 11.55l2.05 -2.05"/><path d="M6.4 20a9 9 0 1 1 11.2 0l-11.2 0"/></svg></button>
   <button type="button" class="k-iconbtn" data-act="open-token-usage" aria-label="Open token usage" title="Open token usage"><svg class="k-icon" width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v6a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -6"/><path d="M15 9a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v10a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -10"/><path d="M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14"/><path d="M4 20h14"/></svg></button>
@@ -398,7 +411,7 @@
   // Completed); the Done facet renders `done`; every other facet renders the
   // flat `rows`. A pre-upgrade snapshot has no `sections` — `renderAll` falls
   // back to `rows` until the fresh state lands.
-  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],awaitingReview:[],recentlyDone:[],olderDone:[]}, done:[], rows:[] };
+  let state = { facets:['all'], filter:'', counts:{}, sections:{current:[],awaitingReview:[],recentlyDone:[],olderDone:[]}, done:[], rows:[], planning:[] };
   const open = new Set();
   // Rows whose sub-tree the user has COLLAPSED (the spec's "collapsible,
   // recursive" sidebar). View state, like `open` — the host neither knows nor
@@ -807,7 +820,8 @@
     const awaiting = visibleRows((state.sections && state.sections.awaitingReview) || []);
     const recent = visibleRows((state.sections && state.sections.recentlyDone) || []);
     const older = visibleRows((state.sections && state.sections.olderDone) || []);
-    if (!cur.length && !awaiting.length && !recent.length && !older.length) {
+    const plans = state.planning || [];
+    if (!plans.length && !cur.length && !awaiting.length && !recent.length && !older.length) {
       L.innerHTML = emptyHtml('');
       return;
     }
@@ -817,6 +831,10 @@
     // clearing the search restores the default collapsed state (histUser).
     const expanded = histUser ? histOpen : (q !== '' && older.length > 0);
     const html = [];
+    if (plans.length) {
+      html.push(secHtml('Planning', plans.length));
+      html.push(plans.map(planRowHtml).join(''));
+    }
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
@@ -836,6 +854,22 @@
       }
     }
     L.innerHTML = html.join('');
+  }
+
+  // A planning session row: the whole row opens (or focuses) its read-only
+  // agent terminal; archive sits beside it. The core is the shared identity
+  // component (UI-R10c); "open" is a word, never colour alone (UI-R28).
+  function planRowHtml(p) {
+    const drafts = p.ticketCount === 1 ? '1 draft' : `${p.ticketCount} drafts`;
+    const meta = [agentIdentityHtml(p.agent.provider, p.agent.model, true), esc(drafts)];
+    if (p.live) meta.push('open');
+    return `<div class="planrow">`
+      + `<button type="button" class="planopen" data-act="plan-open" data-plan="${p.sessionId}" title="Open planning session">`
+      + `<span class="plan-title">${esc(p.title)}</span>`
+      + `<span class="plan-meta">${meta.join('<span aria-hidden="true">·</span>')}</span>`
+      + `</button>`
+      + `<button type="button" class="k-iconbtn" data-act="plan-archive" data-plan="${p.sessionId}" aria-label="Archive planning session" title="Archive planning session">${ic.arch}</button>`
+      + `</div>`;
   }
 
   // The Done facet: the user explicitly asked for completed work, so no
@@ -915,6 +949,8 @@
       // conflicted repo) so the host re-verifies it against the store.
       const payload = { type, requestId };
       if (idRaw !== undefined) payload.ticketId = Number(idRaw);
+      // Planning rows carry a session id, never a ticket id.
+      if (t.dataset.plan) payload.sessionId = Number(t.dataset.plan);
       if (t.dataset.repo) payload.repo = t.dataset.repo;
       post(payload);
       return;

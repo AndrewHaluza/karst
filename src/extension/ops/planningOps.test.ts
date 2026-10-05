@@ -40,6 +40,7 @@ describe('planning ops', () => {
   let created: Recorded[];
   let deps: PlanningOpsDeps;
   const messages: string[] = [];
+  let changes = 0;
   beforeEach(() => {
     store = openStore(':memory:');
     projectId = upsertProject(store, { slug: 'p' }).id;
@@ -55,7 +56,8 @@ describe('planning ops', () => {
       stackRoot: () => '/src',
       defaultAgent: () => ({ provider: 'claude', model: 'opus' }),
       host: fake.host,
-      cli: { cliEntry: '/dist/cli/main.js', dbPath: '/db/karst.db', manifestPath: '/src/karst.yml' },
+      cli: () => ({ cliEntry: '/dist/cli/main.js', dbPath: '/db/karst.db', manifestPath: '/src/karst.yml' }),
+      onChange: () => void changes++,
       notify: { info: (m) => void messages.push(m), warn: (m) => void messages.push(m), error: async () => undefined },
     };
   });
@@ -93,7 +95,10 @@ describe('planning ops', () => {
   it('archives a session and disposes its terminal', () => {
     const ops = createPlanningOps(deps);
     const s = ops.create('t')!;
+    changes = 0;
     ops.archive(s.id);
+    expect(changes).toBeGreaterThan(0);
+    expect(ops.isLive(s.id)).toBe(false);
     expect(created[0]!.disposed).toBe(true);
     expect(getPlanningSession(store, s.id)!.status).toBe('archived');
   });
