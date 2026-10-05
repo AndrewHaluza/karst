@@ -20,6 +20,8 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { DEFAULT_AUTOSTART_CAPS, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
+import { makeMessageDeliverySweep } from './extension/ops/messageDeliveryOps.js';
+import { makeTerminalDelivery } from './workflow/messageDelivery.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
@@ -599,6 +601,8 @@ const PROJECT_ADOPTION_KEY = 'karst.projectAdoptionDone';
 const PR_SYNC_INTERVAL_MS = 60_000;
 /** Owner-window sub-task autostart tick (plan §A). */
 const SUBTASK_AUTOSTART_INTERVAL_MS = 2_000;
+/** Mailbox pointer/parent-wake tick (Wave 3). */
+const MESSAGE_DELIVERY_INTERVAL_MS = 2_000;
 
 /**
  * How often the graph coordinator sweep ticks, independent of `runPrSync`
@@ -1816,6 +1820,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
+  // Mailbox delivery (Wave 3): pointer nudges to live recipients in this
+  // window, and a background (unrevealed) open for a woken parent.
+  const graphOwned = (id: number): boolean => nudgeSurface(localStore.db, id) === 'no-op';
+  const messageDelivery = makeMessageDeliverySweep({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    delivery: makeTerminalDelivery({
+      isLive: (id) => sessions.isLive(id),
+      graphOwned,
+      nudge: (id, line) => sessions.nudge(id, line),
+      sessionCliEnv: (id) => sessions.sessionCliEnv(id),
+      literal: () => cliLiteral(context, dbPath),
+    }),
+    isLive: (id) => sessions.isLive(id),
+    graphOwned,
+    wake: (id) => void vscode.commands.executeCommand('karst.openSession', id, { reveal: false }),
+    now: () => Date.now(),
+    debug: (message) => logger.debug(message),
+  });
+  const deliveryTimer = setInterval(() => messageDelivery.sweep(), MESSAGE_DELIVERY_INTERVAL_MS);
+  context.subscriptions.push({
+    dispose: () => {
+      clearInterval(deliveryTimer);
+      messageDelivery.dispose();
+    },
+  });
   const ticketForm = new TicketFormManager(
     localStore,
     () => currentManifest() ?? emptyManifest(),
