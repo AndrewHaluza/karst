@@ -103,6 +103,37 @@ describe('buildGraphInsideInput', () => {
     expect(buildGraphInsideInput(deps(), 2)).toBeNull();
   });
 
+  it('maps artifact producers to node run ids and planner run numbers', () => {
+    const { graphRunId, revisionId } = seedGraph({});
+    const ins = (sql: string, ...a: unknown[]) => store.db.prepare(sql).run(...a);
+    const planner = ins(
+      `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, compile_attempt)
+       VALUES (?, 4, 'bootstrap', 'submitted', 0)`,
+      graphRunId,
+    ).lastInsertRowid;
+    const art = (id: string, nodeRun: number | null, plannerRun: number | null) =>
+      ins(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, artifact_id, producer_node_run_id, producer_planner_run_id,
+            snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, ?, ?, '/tmp/a', 's', 'text/plain', 1, '2026-08-12T00:30:00.000Z')`,
+        graphRunId, id, nodeRun, plannerRun,
+      );
+    void revisionId;
+    art('by-node', 77, null);
+    art('by-planner', null, Number(planner));
+    art('loose', null, null);
+    art('dangling', null, 9999);
+    const byId = Object.fromEntries(
+      buildGraphInsideInput(deps(), 1)!.artifacts.map((a) => [a.artifactId, a]),
+    );
+    expect(byId['by-node']).toMatchObject({ producerNodeRunId: 77 });
+    expect(byId['by-planner']).toMatchObject({ producerPlannerRunNumber: 4 });
+    expect(byId['loose']).not.toHaveProperty('producerNodeRunId');
+    expect(byId['loose']).not.toHaveProperty('producerPlannerRunNumber');
+    expect(byId['dangling']).not.toHaveProperty('producerPlannerRunNumber');
+  });
+
   it('renders the run, planner runs, node runs, active revision and artifacts', () => {
     const { graphRunId, revisionId } = seedGraph({});
     store.db
@@ -135,6 +166,7 @@ describe('buildGraphInsideInput', () => {
     expect(input.plannerRuns).toEqual([
       {
         plannerRunNumber: 1,
+        plannerRunId: expect.any(Number),
         kind: 'bootstrap',
         status: 'submitted',
         compileAttempt: 2,
@@ -246,6 +278,67 @@ describe('buildGraphInsideInput', () => {
       .run(graphRunId);
     const input = buildGraphInsideInput(deps(), 1)!;
     expect(input.revision?.revisionNumber).toBe(1);
+  });
+
+  it('reads the active revision topology from its compiled graph (ids + edges)', () => {
+    const { graphRunId } = seedGraph({});
+    store.db
+      .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE graph_run_id = ?')
+      .run(
+        JSON.stringify({
+          nodes: [{ id: 'a', kind: 'agent' }, { id: 'b' }, { nope: 1 }],
+          edges: [{ id: 'e1', from: 'a', on: 'ok', to: 'b' }, { from: 1 }],
+        }),
+        graphRunId,
+      );
+    const input = buildGraphInsideInput(deps(), 1)!;
+    expect(input.topology).toEqual({
+      nodes: [{ id: 'a' }, { id: 'b' }],
+      edges: [{ from: 'a', to: 'b' }],
+    });
+  });
+
+  it('skips parsing an oversized compiled graph and says so through debug', () => {
+    const { graphRunId } = seedGraph({});
+    const big = JSON.stringify({ nodes: [{ id: 'a' }], pad: 'x'.repeat(300 * 1024) });
+    store.db
+      .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE graph_run_id = ?')
+      .run(big, graphRunId);
+    const lines: string[] = [];
+    const input = buildGraphInsideInput(deps({ debug: (m) => lines.push(m) }), 1)!;
+    expect(input.topology).toBeUndefined();
+    expect(lines.join('\n')).toMatch(/\[driver\].*topology/);
+    expect(lines.join('\n')).not.toContain('xxxx');
+  });
+
+  it('caps nodes at 2000 and edges at 8000 before mapping', () => {
+    const { graphRunId } = seedGraph({});
+    const nodes = Array.from({ length: 2500 }, (_, i) => ({ id: `n${i}` }));
+    const edges = Array.from({ length: 9000 }, () => ({ from: 'n0', to: 'n1' }));
+    store.db
+      .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE graph_run_id = ?')
+      .run(JSON.stringify({ nodes, edges }), graphRunId);
+    const t = buildGraphInsideInput(deps(), 1)!.topology!;
+    expect(t.nodes).toHaveLength(2000);
+    expect(t.edges).toHaveLength(8000);
+  });
+
+  it('memoizes the parsed topology by revision fingerprint', () => {
+    const { graphRunId } = seedGraph({});
+    const set = (g: object) =>
+      store.db
+        .prepare('UPDATE approach_graph_revisions SET canonical_graph = ? WHERE graph_run_id = ?')
+        .run(JSON.stringify(g), graphRunId);
+    set({ nodes: [{ id: 'a' }], edges: [] });
+    expect(buildGraphInsideInput(deps(), 1)!.topology!.nodes).toEqual([{ id: 'a' }]);
+    // Same fingerprint, different text: the memo answers (a fingerprint IS the content hash).
+    set({ nodes: [{ id: 'zzz' }], edges: [] });
+    expect(buildGraphInsideInput(deps(), 1)!.topology!.nodes).toEqual([{ id: 'a' }]);
+  });
+
+  it('omits topology when the compiled graph is unreadable', () => {
+    seedGraph({});
+    expect(buildGraphInsideInput(deps(), 1)!.topology).toBeUndefined();
   });
 
   it('reads deferrals only for nodes whose token is STILL pending (Slice 5 T3)', () => {

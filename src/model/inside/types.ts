@@ -559,15 +559,17 @@ export type ProcessEvidenceView =
       kind: 'rows';
       rows: readonly EvidenceRow[];
       /**
-       * The graph process's status-grouped node composition (Slice 6 T4): the
-       * node runs as structured rows, rendered as a status-grouped list. The
-       * projection ships it ORDERED by status group (the closed
-       * `GraphNodeListRow.group` vocabulary), so the webview inserts a section
-       * header on a group change and concatenates nothing. Absent for every
+       * The graph process's ONE chronological ledger: planner runs, node runs
+       * and deferred nodes as structured entries, ordered oldest first by the
+       * projection (no status sections), so the webview renders them in order
+       * and concatenates nothing. Absent for every
        * other process and for a snapshot that predates the surface — the flat
        * `rows` then render exactly as always.
        */
       nodes?: readonly GraphNodeListRow[];
+      /** The same workers as a DAG strip (host-laid-out columns). Absent when
+       *  the active revision's topology is unavailable. */
+      dag?: GraphDagView;
     }
   | {
       kind: 'gates';
@@ -622,32 +624,34 @@ export const EVIDENCE_KINDS: readonly ProcessEvidenceView['kind'][] = [
   'receipt',
 ] as const;
 
+/** The closed entry kinds of the graph ledger. */
+export type GraphLedgerEntryKind = 'planner' | 'node' | 'deferred';
+
 /**
- * One node run in the graph process's status-grouped node composition (Slice
- * 6 T4). Structured so the webview renders the group header on a `group`
- * change and each node's identity, visit, override marker and control WITHOUT
- * parsing the flat rows' prose. Every string field is already sanitized and
- * bounded at the projection; the webview's one `esc` is the second pass.
- *
- * `group` is the CLOSED section vocabulary (`active`/`ready`/
- * `resource-waiting`/`completed`/`blocked`/`stale`/`cancelled`/`other`) — the
- * webview maps it to static section copy, never to prose. `status` is the raw
- * node-run status, the row's own verdict text.
+ * One entry of the graph process's chronological ledger — a planner run, a
+ * node run, or a deferred (ready-but-refused) node. Structured so the webview
+ * renders each entry's identity, visit, override marker, artifacts and control
+ * WITHOUT parsing the flat rows' prose. Every string field is already
+ * sanitized and bounded at the projection; the webview's one `esc` is the
+ * second pass. `status` is the raw status, the row's own verdict text.
  */
 export interface GraphNodeListRow {
-  nodeRunId: number;
+  entry: GraphLedgerEntryKind;
+  /** The node run id — node entries only. */
+  nodeRunId?: number;
   nodeId: string;
   nodeKind: string;
-  /** The raw node-run status (`running`, `blocked`, …). */
+  /** The raw status (`running`, `submitted`, `deferred`, …). */
   status: string;
-  /** The closed section key the webview groups by. */
-  group: string;
   /** The mapped status dot — the row's glyph, one of `InsideStatus`. */
   displayStatus: InsideStatus;
-  /** Pre-joined per-node identity — provider · model · effort · profile. */
+  /** Pre-joined identity — provider · model · effort · profile (nodes), or
+   *  the planner's compile attempt. */
   identity: string;
-  /** Host-formatted visit — `visit 1/40`. */
-  visit: string;
+  /** Host-formatted visit — `visit 1/40` (node entries only). */
+  visit?: string;
+  /** Artifacts this entry produced, each `"<id> · <size>"`; absent when none. */
+  artifacts?: readonly string[];
   /**
    * The node's existing overrides as one finished marker (`override
    * profile,model`) — absent when none exist. A marker is READ-only; the edit
@@ -666,6 +670,26 @@ export interface GraphNodeListRow {
   reason?: string;
   /** The node row's single control (open/discard/edit-override), if any. */
   action?: TypedInsideAction;
+}
+
+/** One chip of the graph DAG strip — identity, glyph status and a short state. */
+export interface GraphDagChip {
+  id: string;
+  /** Sanitized display label (the node id, or `planner N`). */
+  label: string;
+  displayStatus: InsideStatus;
+  /** Short state copy — `running 10m`, `deferred`, `pending`. */
+  state: string;
+}
+
+/**
+ * The graph DAG strip, laid out host-side (UI-R31): columns left to right by
+ * dependency depth, parallel nodes stacked within a column. `more` is the
+ * host-formatted "+N more" remainder when the bounds clipped the strip.
+ */
+export interface GraphDagView {
+  columns: readonly (readonly GraphDagChip[])[];
+  more?: string;
 }
 
 /** One process inside one inside stage. A snapshot, no functions. */

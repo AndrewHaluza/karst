@@ -20,10 +20,11 @@
  * ready node under `maxParallel: 1` renders an explicit serialized reason row,
  * so deliberate serialization never reads as a scheduler defect.
  *
- * The node runs render as the status-grouped node LIST (Slice 6 Task 4): the
- * flat rows no longer carry them; the structured `evidence.nodes` composition
- * carries each node's group, identity, visit budget, override marker and its
- * single control. Existing overrides are READ from the `overrides` input and
+ * Planner runs, node runs and deferred nodes render as ONE chronological
+ * LEDGER (Slice 6 Task 4, unified): the flat rows no longer carry them; the
+ * structured `evidence.nodes` list is ordered oldest first (no status
+ * sections), each entry carrying its identity, visit budget, override marker,
+ * produced artifacts and its single control. Existing overrides are READ from the `overrides` input and
  * rendered as a marker — this projection writes nothing.
  *
  * Every graph-derived label, reason, artifact name, and log line passes
@@ -41,33 +42,36 @@ import type {
   TypedInsideAction,
 } from './types.js';
 import { bounded } from './bounds.js';
+import { graphDagView, type GraphTopology } from './graphDag.js';
+import { sanitizeGraphText, GRAPH_TEXT_MAX } from './graphText.js';
+import {
+  AMBIGUOUS_NODE_STATUSES,
+  NODE_OVERRIDE_EDITABLE,
+  clampToRunOutcome,
+  deferredListView,
+  formatBytes,
+  hasLiveSession,
+  instantMs,
+  nodeListView,
+  nodeRowAction,
+  plannerListView,
+  plannerStatus,
+  type LedgerEntry,
+} from './graphLedger.js';
+
+export { sanitizeGraphText, GRAPH_TEXT_MAX, AMBIGUOUS_NODE_STATUSES, NODE_OVERRIDE_EDITABLE };
 import { durationBetween, relativeAge, runAge } from './age.js';
-import { NODE_OVERRIDE_EDITABLE_STATUSES } from '../../store/graph/nodeRuns.js';
 import { LIVE_PLANNER_STATUSES } from '../../store/graph/plannerRuns.js';
 
-/** Cap for graph-derived text after sanitization. */
-export const GRAPH_TEXT_MAX = 200;
 const MAX_DIAGNOSTIC_ROWS = 8;
 const MAX_ARTIFACT_ROWS = 8;
 const MAX_DEFERRAL_ROWS = 8;
 const MAX_DIAGNOSTIC_LOG_ROWS = 8;
 
-/**
- * The one audited escaper for graph-derived text. Untrusted planner/authored
- * prose may contain anything; the projection renders TEXT, never markup.
- */
-export function sanitizeGraphText(raw: string): string {
-  return raw
-    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, '')
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .replace(/(?:javascript|vbscript|data):/gi, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, GRAPH_TEXT_MAX);
-}
-
 export interface GraphPlannerRunView {
   plannerRunNumber: number;
+  /** The planner run's store id — matches a live `planner` session. */
+  plannerRunId?: number;
   kind: 'bootstrap' | 'replan';
   status: string;
   compileAttempt: number;
@@ -92,6 +96,10 @@ export interface GraphArtifactView {
   byteSize: number;
   mediaType: string;
   createdAt: string;
+  /** The node run that produced it, when attributed. */
+  producerNodeRunId?: number;
+  /** The planner run (by number) that produced it, when attributed. */
+  producerPlannerRunNumber?: number;
 }
 
 export interface GraphDiagnosticView {
@@ -196,6 +204,8 @@ export interface GraphInsideInput {
    *  renders its own row with the persisted reason (Slice 5 Task 3). */
   deferrals: GraphNodeDeferralView[];
   execution: GraphExecutionView;
+  /** The active revision's compiled topology (ids + edges), when readable. */
+  topology?: GraphTopology;
   revision: GraphRevisionView | null;
   diagnostics: GraphDiagnosticView[];
   artifacts: GraphArtifactView[];
@@ -314,81 +324,6 @@ function graphRunStatus(status: string): InsideStatus {
   }
 }
 
-/**
- * The graph-run statuses in which SOMETHING is still scheduled to advance the
- * run's planner and revision rows. Outside these the run is at rest: no
- * planner session is live, and the recovery exits (Resume, Replan) open NEW
- * planner runs rather than moving the existing ones.
- */
-const ADVANCING_GRAPH_RUN_STATUSES: ReadonlySet<string> = new Set([
-  'planning',
-  'awaiting-confirmation',
-  'running',
-  'draining',
-]);
-
-/**
- * A planner/revision row's OWN status is a durable historical fact — "the
- * bootstrap planner was submitted", "this is the active revision" — and never
- * gets rewritten once the parent run stops advancing, because there is nothing
- * left to advance it to. Rendered blind to the parent, `submitted`/`active`
- * read `'run'` (a spinner) forever: #352 showed a bootstrap planner and
- * revision still spinning beside a graph the marker had already closed, and
- * the same blindness showed eleven `submitted` planners "processing" beside a
- * `blocked` run whose sessions were all gone.
- *
- * A row under a non-advancing run clamps any 'run' reading to what the run
- * itself reads — `pass` for `closed` (the row's work is what the closed run
- * delivered), `note` for `cancelled`/`stale` (neither ever confirms it), and
- * `wait` for a run at rest that a human still has to answer (`blocked`,
- * `completed-awaiting-impl-marker`), which is the run row's own status.
- *
- * The clamp admits both `run` and `wait` readings, because a `submitted`
- * planner waiting on an answer nobody will give under a run at rest is the
- * same eternal-spinner defect in a quieter glyph. It deliberately does NOT
- * clamp `note`: a cancelled planner must never be rewritten into a pass
- * because the run it belonged to closed. A planner that never delivered
- * (`blocked`, `launch-unknown`) never reaches this clamp at all — see
- * `plannerStatus`.
- */
-function clampToRunOutcome(status: InsideStatus, runStatus: string): InsideStatus {
-  if ((status !== 'run' && status !== 'wait') || ADVANCING_GRAPH_RUN_STATUSES.has(runStatus)) {
-    return status;
-  }
-  if (runStatus === 'closed') return 'pass';
-  if (runStatus === 'cancelled' || runStatus === 'stale') return 'note';
-  return 'wait';
-}
-
-function plannerStatus(status: string, runStatus: string): InsideStatus {
-  // A planner that never delivered — `blocked`, or launched with no known
-  // result — must not inherit the run's outcome: under a `closed` run the
-  // clamp would confirm it with a `pass` for work it never produced. It has
-  // always read `wait` (it was never a spinner), and it keeps that reading.
-  if (status === 'blocked' || status === 'launch-unknown') return 'wait';
-  const raw = ((): InsideStatus => {
-    switch (status) {
-      case 'ready':
-        return 'pending';
-      case 'launching':
-      case 'running':
-        return 'run';
-      // `submitted` is the planner's own terminal phase: the session finished
-      // and the COMPILER owes the answer (see `plannerAge`, which reports how
-      // long the run has waited on that answer). Nothing is executing, so the
-      // row waits rather than spins.
-      case 'submitted':
-        return 'wait';
-      case 'cancelled':
-      case 'stale':
-        return 'note';
-      default:
-        return 'pending';
-    }
-  })();
-  return clampToRunOutcome(raw, runStatus);
-}
-
 function revisionStatus(status: string, runStatus: string): InsideStatus {
   const raw = ((): InsideStatus => {
     switch (status) {
@@ -404,31 +339,6 @@ function revisionStatus(status: string, runStatus: string): InsideStatus {
     }
   })();
   return clampToRunOutcome(raw, runStatus);
-}
-
-function nodeRunStatus(status: string): InsideStatus {
-  switch (status) {
-    case 'ready':
-    case 'waiting-resource':
-      return 'pending';
-    case 'launching':
-    case 'running':
-    case 'completing':
-    case 'integrating':
-      return 'run';
-    case 'completed':
-      return 'pass';
-    case 'blocked':
-    case 'failed-to-launch':
-    case 'launch-unknown':
-    case 'termination-unknown':
-      return 'wait';
-    case 'stale':
-    case 'cancelled':
-      return 'note';
-    default:
-      return 'pending';
-  }
 }
 
 /**
@@ -462,216 +372,6 @@ const STOPPABLE_RUN_STATUSES: readonly string[] = [
   'running',
   'blocked',
 ] as const;
-
-function hasLiveSession(
-  liveSessions: GraphLiveSessionView[],
-  kind: 'planner' | 'node',
-  runId: number,
-): boolean {
-  return liveSessions.some((s) => s.kind === kind && s.runId === runId);
-}
-
-/** The ambiguous node-run statuses that offer the discard exit (Slice 4 Task
- *  4) — the one explicit action for a process whose fate cannot be proven. */
-export const AMBIGUOUS_NODE_STATUSES: readonly string[] = [
-  'launch-unknown',
-  'termination-unknown',
-] as const;
-
-/**
- * The node-run statuses whose configuration is still editable — the ONE source
- * of truth is the store's claim gate (`NODE_OVERRIDE_EDITABLE_STATUSES`); the
- * projection's override-edit attach rule reads the same constant, so a control
- * can only ever be minted on a node the store would still accept a write for.
- * Widened to `readonly string[]` here because the attach rule tests a recorded
- * `node.status`, which is a free string.
- */
-export const NODE_OVERRIDE_EDITABLE: readonly string[] = NODE_OVERRIDE_EDITABLE_STATUSES;
-
-/**
- * The CLOSED section vocabulary of the status-grouped node list (Slice 6 T4):
- * `active` folds the in-flight statuses, `other` holds whatever is not named
- * (the unknown/fault rest states, which keep their own row verdicts). The
- * order IS the display order — the projection sorts each node run into its
- * group rank so the webview renders a section header on a group change and
- * never sorts.
- */
-export const GRAPH_NODE_GROUPS: readonly string[] = [
-  'active',
-  'ready',
-  'resource-waiting',
-  'completed',
-  'blocked',
-  'stale',
-  'cancelled',
-  'other',
-] as const;
-
-const GRAPH_ACTIVE_STATUSES: readonly string[] = [
-  'launching',
-  'running',
-  'completing',
-  'integrating',
-] as const;
-
-/** The node-run statuses of the `active` section. */
-function nodeGroupFor(status: string): string {
-  if (GRAPH_ACTIVE_STATUSES.includes(status)) return 'active';
-  switch (status) {
-    case 'ready':
-      return 'ready';
-    case 'waiting-resource':
-      return 'resource-waiting';
-    case 'completed':
-      return 'completed';
-    case 'blocked':
-      return 'blocked';
-    case 'stale':
-      return 'stale';
-    case 'cancelled':
-      return 'cancelled';
-    default:
-      return 'other';
-  }
-}
-
-/** Sort node runs into display order: group rank, then node run id. */
-function byGroup(a: GraphNodeRunView, b: GraphNodeRunView): number {
-  const ga = GRAPH_NODE_GROUPS.indexOf(nodeGroupFor(a.status));
-  const gb = GRAPH_NODE_GROUPS.indexOf(nodeGroupFor(b.status));
-  return ga - gb || a.nodeRunId - b.nodeRunId;
-}
-
-/**
- * The single control a node row carries: the discard exit for an ambiguous
- * run, else Open for a live session, else the override-edit exit for an
- * editable AGENT node, else none. Exactly one — the discard, the session-open
- * and the override-edit never compete for one action slot, because the status
- * sets they attach on are disjoint (an ambiguous or launched run is never
- * editable). The override-edit is the plan's "per-node overrides for
- * ready/blocked/failed-to-launch agent nodes BEFORE claiming": the store's
- * claim gate (the same closed set) refuses the write once claiming began, so
- * a stale control is a no-op at the store, never a mutation of a frozen
- * launch.
- */
-function nodeRowAction(
-  input: Pick<GraphInsideInput, 'attach' | 'liveSessions'>,
-  node: GraphNodeRunView,
-): TypedInsideAction | undefined {
-  if (!input.attach) return undefined;
-  if (AMBIGUOUS_NODE_STATUSES.includes(node.status)) {
-    return input.attach({ kind: 'graph-discard-node', nodeRunId: node.nodeRunId });
-  }
-  if (hasLiveSession(input.liveSessions, 'node', node.nodeRunId)) {
-    return input.attach({
-      kind: 'graph-open-session',
-      session: { kind: 'node', runId: node.nodeRunId },
-    });
-  }
-  if (node.nodeKind === 'agent' && NODE_OVERRIDE_EDITABLE.includes(node.status)) {
-    return input.attach({ kind: 'graph-edit-override', nodeRunId: node.nodeRunId });
-  }
-  return undefined;
-}
-
-/** The node's pre-joined identity detail — provider · model · effort ·
- *  profile. Every part is untrusted prose, escaped at the caller. */
-function nodeIdentityDetail(node: GraphNodeRunView): string {
-  return [
-    node.provider,
-    node.model,
-    node.effort,
-    node.profile ? `profile ${node.profile}` : null,
-  ]
-    .filter((part): part is string => part !== null && part !== undefined && part !== '')
-    .join(' · ');
-}
-
-/** The override kinds that exist for a node's `(revision, node)` pair, if any
- *  — the READ of the `overrides` input; the projection writes nothing. */
-function overrideKindsFor(
-  overrides: GraphNodeOverrideView[],
-  revisionId: number,
-  nodeId: string,
-): readonly string[] | undefined {
-  return overrides.find((o) => o.revisionId === revisionId && o.nodeId === nodeId)?.kinds;
-}
-
-/** One structured node-list row (Slice 6 T4). Every untrusted string is
- *  escaped and bounded; `group`/`status`/`displayStatus` are closed keys. */
-/** The node-run statuses in which something is still expected to move the
- *  row. A row in one of these with no `started_at` is proof its session never
- *  existed, which is why `runAge` renders `never started` only for these — the
- *  planner half of the same question is `LIVE_PLANNER_STATUSES`, already the
- *  store's one definition. */
-const LIVE_NODE_DISPLAY_STATUSES: readonly string[] = [
-  'ready',
-  'waiting-resource',
-  'launching',
-  'running',
-  'completing',
-  'integrating',
-];
-
-/**
- * A planner row's age fragment. `submitted` is its own phase — the planner
- * finished and the COMPILER owes the answer — so a submitted row reports how
- * long the run has been waiting on that answer rather than how long the
- * session ran, which is the number that distinguishes a compile in flight from
- * a run stranded behind one.
- */
-function plannerAge(planner: GraphPlannerRunView, now: string): string | null {
-  if (!planner.endedAt && planner.submittedAt) {
-    const waited = durationBetween(planner.submittedAt, now);
-    return waited === null ? null : `submitted ${waited} ago`;
-  }
-  return runAge(
-    { startedAt: planner.startedAt, endedAt: planner.endedAt },
-    now,
-    { live: (LIVE_PLANNER_STATUSES as readonly string[]).includes(planner.status) },
-  );
-}
-
-function nodeListView(
-  node: GraphNodeRunView,
-  execution: GraphExecutionView,
-  overrides: GraphNodeOverrideView[],
-  action: TypedInsideAction | undefined,
-  now: string,
-): GraphNodeListRow {
-  const kinds = overrideKindsFor(overrides, node.revisionId, node.nodeId);
-  // A node run's `started_at` is stamped when the RUN ROW is created (at
-  // `ready`), not at spawn — `createNodeRun` is the writer. So the age answers
-  // "how long has this node been the run's concern", which is exactly the
-  // number a node stuck at `waiting-resource` or `launching` needs, and it is
-  // never later than the spawn it precedes.
-  const age = runAge({ startedAt: node.startedAt, endedAt: node.endedAt }, now, {
-    live: LIVE_NODE_DISPLAY_STATUSES.includes(node.status),
-  });
-  return {
-    ...(age ? { age: sanitizeGraphText(age) } : {}),
-    nodeRunId: node.nodeRunId,
-    nodeId: sanitizeGraphText(node.nodeId),
-    nodeKind: sanitizeGraphText(node.nodeKind),
-    status: sanitizeGraphText(node.status),
-    group: nodeGroupFor(node.status),
-    displayStatus: nodeRunStatus(node.status),
-    identity: sanitizeGraphText(nodeIdentityDetail(node)),
-    visit: sanitizeGraphText(`visit ${node.visitNumber}/${execution.maxNodeRuns}`),
-    ...(kinds && kinds.length > 0
-      ? { override: sanitizeGraphText(`override ${kinds.join(',')}`) }
-      : {}),
-    ...(node.outcome ? { outcome: sanitizeGraphText(node.outcome) } : {}),
-    ...(node.reason ? { reason: sanitizeGraphText(node.reason) } : {}),
-    ...(action ? { action } : {}),
-  };
-}
-
-function formatBytes(size: number): string {
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-}
 
 /**
  * The impl-strip process for a graph ticket. A pure function of persisted
@@ -720,32 +420,36 @@ export function graphInsideProcess(
     });
   }
 
-  for (const planner of input.plannerRuns) {
-    // A planner row's age is the answer to "is this session still working, or
-    // did it die three hours ago and nothing noticed" — a `submitted` planner
-    // that has owed the compiler an answer since yesterday is the exact shape
-    // of a stuck run, and it is indistinguishable from a fresh one without it.
-    const age = plannerAge(planner, input.now);
-    rows.push({
-      label: `planner ${planner.plannerRunNumber}`,
-      detail: sanitizeGraphText(
-        `${planner.kind} · ${planner.status} · compile attempt ${planner.compileAttempt}` +
-          (age ? ` · ${age}` : ''),
-      ),
-      status: plannerStatus(planner.status, input.graphRun.status),
-    });
-  }
-
-  // Slice 6 Task 4: the node runs render as the status-grouped node list — the
-  // node/edge list surface. The list is ORDERED by group then run id, so the
-  // webview inserts a section header on a `group` change and concatenates
-  // nothing. The flat `rows` carry the node runs NO longer: a node row's
-  // single control (open / discard / edit-override) rides the structured row.
-  const nodes = [...input.nodeRuns]
-    .sort(byGroup)
-    .map((node) =>
-      nodeListView(node, input.execution, input.overrides, nodeRowAction(input, node), input.now),
-    );
+  // Slice 6 Task 4: the ONE ledger — planner runs, node runs and deferred
+  // nodes as entries of `evidence.nodes`, oldest first by instant. An entry
+  // with no instant sorts last in input order; the sort is stable.
+  const runStatus = input.graphRun.status;
+  const deferrals = bounded(input.deferrals, MAX_DEFERRAL_ROWS);
+  const entries: LedgerEntry[] = [
+    ...input.plannerRuns.map((planner) => ({
+      at: planner.startedAt ?? planner.submittedAt ?? null,
+      row: plannerListView(planner, input, runStatus),
+      plannerRunNumber: planner.plannerRunNumber,
+    })),
+    ...input.nodeRuns.map((node) => ({
+      at: node.startedAt ?? null,
+      row: nodeListView(node, input.execution, input.overrides, nodeRowAction(input, node), input.now),
+      nodeRunId: node.nodeRunId,
+    })),
+    ...deferrals.shown.map((deferral) => ({
+      at: deferral.waitSince,
+      row: deferredListView(deferral, input.now),
+    })),
+  ];
+  const nodes = entries
+    .map((entry, index) => ({ entry, index, ms: instantMs(entry.at) }))
+    .sort((a, b) => {
+      const an = Number.isNaN(a.ms);
+      const bn = Number.isNaN(b.ms);
+      if (an !== bn) return an ? 1 : -1;
+      return (an ? 0 : a.ms - b.ms) || a.index - b.index;
+    })
+    .map(({ entry }) => entry);
 
   // A ready node under maxParallel 1 is serialized BY POLICY — the explicit
   // reason row keeps deliberate serialization from reading as a scheduler
@@ -763,19 +467,7 @@ export function graphInsideProcess(
     });
   }
 
-  // Slice 5 Task 3: each ready-but-blocked node renders its own row with the
-  // scheduler's persisted refusal reason, so deliberate serialization never
-  // reads as a scheduler defect. The waiting duration comes from the injected
-  // clock — display only, never a decision.
-  const deferrals = bounded(input.deferrals, MAX_DEFERRAL_ROWS);
-  for (const deferral of deferrals.shown) {
-    const waited = durationBetween(deferral.waitSince, input.now) ?? '0s';
-    rows.push({
-      label: `deferred ${sanitizeGraphText(deferral.nodeId)}`,
-      detail: sanitizeGraphText(`${deferral.reason} · waiting ${waited}`),
-      status: 'wait',
-    });
-  }
+  // Slice 5 Task 3: deferred nodes are ledger entries (above); only the bounded remainder is a flat row.
   if (deferrals.remaining > 0) {
     rows.push({
       label: 'deferred nodes',
@@ -811,7 +503,41 @@ export function graphInsideProcess(
     });
   }
 
-  const artifacts = bounded(input.artifacts, MAX_ARTIFACT_ROWS);
+  // An artifact rides the ledger entry that produced it; the unattributed
+  // (or producer-not-in-ledger) ones stay flat rows, bounded.
+  const flatArtifacts: GraphArtifactView[] = [];
+  const byNodeRun = new Map<number, LedgerEntry>();
+  const byPlannerNumber = new Map<number, LedgerEntry>();
+  for (const e of nodes) {
+    if (e.nodeRunId !== undefined) byNodeRun.set(e.nodeRunId, e);
+    if (e.plannerRunNumber !== undefined) byPlannerNumber.set(e.plannerRunNumber, e);
+  }
+  const nested = new Map<LedgerEntry, string[]>();
+  for (const artifact of input.artifacts) {
+    const owner =
+      (artifact.producerNodeRunId !== undefined
+        ? byNodeRun.get(artifact.producerNodeRunId)
+        : undefined) ??
+      (artifact.producerPlannerRunNumber !== undefined
+        ? byPlannerNumber.get(artifact.producerPlannerRunNumber)
+        : undefined);
+    if (!owner) {
+      flatArtifacts.push(artifact);
+      continue;
+    }
+    nested.set(owner, [
+      ...(nested.get(owner) ?? []),
+      `${sanitizeGraphText(artifact.artifactId)} · ${formatBytes(artifact.byteSize)}`,
+    ]);
+  }
+  const ledgerRows = nodes.map((e) => {
+    const list = nested.get(e);
+    if (!list) return e.row;
+    const shown = list.slice(0, MAX_ARTIFACT_ROWS);
+    const more = list.length - shown.length;
+    return { ...e.row, artifacts: more > 0 ? [...shown, `+${more} more`] : shown };
+  });
+  const artifacts = bounded(flatArtifacts, MAX_ARTIFACT_ROWS);
   for (const artifact of artifacts.shown) {
     rows.push({
       label: sanitizeGraphText(artifact.artifactId),
@@ -848,7 +574,10 @@ export function graphInsideProcess(
     evidence: {
       kind: 'rows',
       rows,
-      ...(nodes.length > 0 ? { nodes } : {}),
+      ...(ledgerRows.length > 0 ? { nodes: ledgerRows } : {}),
+      ...(input.topology && input.topology.nodes.length > 0
+        ? { dag: graphDagView(input.topology, ledgerRows) }
+        : {}),
     },
   };
 }

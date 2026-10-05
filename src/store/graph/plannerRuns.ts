@@ -153,6 +153,7 @@ export function plannerRunsForGraphRun(
 ): Array<
   Pick<
     PlannerRunRow,
+    | 'id'
     | 'planner_run_number'
     | 'kind'
     | 'status'
@@ -165,13 +166,14 @@ export function plannerRunsForGraphRun(
 > {
   return db
     .prepare(
-      `SELECT planner_run_number, kind, status, compile_attempt, reason,
+      `SELECT id, planner_run_number, kind, status, compile_attempt, reason,
               started_at, submitted_at, ended_at
          FROM approach_planner_runs WHERE graph_run_id = ? ORDER BY planner_run_number`,
     )
     .all(graphRunId) as Array<
     Pick<
       PlannerRunRow,
+      | 'id'
       | 'planner_run_number'
       | 'kind'
       | 'status'

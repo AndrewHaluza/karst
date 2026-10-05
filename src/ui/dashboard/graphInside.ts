@@ -17,6 +17,7 @@
 import type { Store } from '../../store/db.js';
 import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import type { Manifest } from '../../manifest/types.js';
+import type { GraphTopology } from '../../model/inside/graphDag.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import type { SupervisedAgentSession } from '../../approaches/graph/transport/agentTransport.js';
 import { NODE_OVERRIDE_KINDS, nodeRunGraphRunId, nodeRunsForGraphRunDisplay } from '../../store/graph/nodeRuns.js';
@@ -34,6 +35,8 @@ export interface GraphInsideDeps {
   /** The supervised transport's live sessions (empty when none). */
   liveSessions: () => SupervisedAgentSession[];
   now: () => string;
+  /** Injected debug sink (CLAUDE.md debug rules); absent → silent. */
+  debug?: (message: string) => void;
 }
 
 type GraphRunRow = Pick<
@@ -69,6 +72,65 @@ function sessionKindFor(
   if (nodeRunGraphRunId(store.db, runId) === graphRunId) return 'node';
   if (plannerRunGraphRunId(store.db, runId) === graphRunId) return 'planner';
   return null;
+}
+
+const TOPOLOGY_MAX_BYTES = 256 * 1024;
+const TOPOLOGY_MAX_NODES = 2000;
+const TOPOLOGY_MAX_EDGES = 8000;
+const TOPOLOGY_CACHE_SIZE = 16;
+
+/** Per-store memo of parsed topologies keyed by revision fingerprint (the
+ *  content hash), bounded to the last `TOPOLOGY_CACHE_SIZE`. `null` caches an
+ *  unreadable graph. A WeakMap on the store keeps it host-agnostic and keeps
+ *  one store's graphs from answering another's. */
+const topologyMemo = new WeakMap<Store, Map<string, GraphTopology | null>>();
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+const isId = (v: unknown): v is string => typeof v === 'string' && v.length > 0;
+
+/** Ids + edges of the compiled plan, read leniently: anything malformed is
+ *  dropped, and an unreadable document yields no topology (the DAG view then
+ *  simply does not render). Sizes are capped BEFORE mapping. */
+function parseTopology(canonicalGraph: string): GraphTopology | undefined {
+  let doc: unknown;
+  try {
+    doc = JSON.parse(canonicalGraph);
+  } catch {
+    return undefined;
+  }
+  if (!isRecord(doc) || !Array.isArray(doc.nodes)) return undefined;
+  const nodes = (doc.nodes as unknown[])
+    .slice(0, TOPOLOGY_MAX_NODES)
+    .flatMap((n) => (isRecord(n) && isId(n.id) ? [{ id: n.id }] : []));
+  const edges = (Array.isArray(doc.edges) ? (doc.edges as unknown[]) : [])
+    .slice(0, TOPOLOGY_MAX_EDGES)
+    .flatMap((e) => (isRecord(e) && isId(e.from) && isId(e.to) ? [{ from: e.from, to: e.to }] : []));
+  return nodes.length > 0 ? { nodes, edges } : undefined;
+}
+
+function readTopology(
+  store: Store,
+  revision: { fingerprint: string; graph_bytes: number } | undefined,
+  debug: ((m: string) => void) | undefined,
+  loadGraph: () => string | undefined,
+): GraphTopology | undefined {
+  if (!revision) return undefined;
+  if (revision.graph_bytes > TOPOLOGY_MAX_BYTES) {
+    debug?.(`[driver] graph topology skipped: compiled graph is ${revision.graph_bytes} bytes (cap ${TOPOLOGY_MAX_BYTES})`);
+    return undefined;
+  }
+  const memo = topologyMemo.get(store) ?? new Map<string, GraphTopology | null>();
+  topologyMemo.set(store, memo);
+  const hit = memo.get(revision.fingerprint);
+  if (hit !== undefined) return hit ?? undefined;
+  const raw = loadGraph();
+  const topology = raw ? parseTopology(raw) : undefined;
+  if (!topology) debug?.('[driver] graph topology unreadable: compiled graph is not a node/edge document');
+  if (memo.size >= TOPOLOGY_CACHE_SIZE) memo.delete(memo.keys().next().value as string);
+  memo.set(revision.fingerprint, topology ?? null);
+  return topology;
 }
 
 export function buildGraphInsideInput(
@@ -129,18 +191,28 @@ export function buildGraphInsideInput(
 
   const revision = deps.store.db
     .prepare(
-      `SELECT revision_number, status, fingerprint
+      `SELECT revision_number, status, fingerprint, id,
+              length(canonical_graph) AS graph_bytes
          FROM approach_graph_revisions
         WHERE graph_run_id = ? AND status = 'active'
         ORDER BY revision_number DESC LIMIT 1`,
     )
     .get(run.id) as
-    | { revision_number: number; status: string; fingerprint: string }
+    | { revision_number: number; status: string; fingerprint: string; id: number; graph_bytes: number }
     | undefined;
+
+  const topology = readTopology(deps.store, revision, deps.debug, () =>
+    revision
+      ? (deps.store.db
+          .prepare('SELECT canonical_graph FROM approach_graph_revisions WHERE id = ?')
+          .get(revision.id) as { canonical_graph: string } | undefined)?.canonical_graph
+      : undefined,
+  );
 
   const artifacts = deps.store.db
     .prepare(
-      `SELECT artifact_id, media_type, byte_size, created_at
+      `SELECT artifact_id, media_type, byte_size, created_at,
+              producer_node_run_id, producer_planner_run_id
          FROM approach_artifact_instances WHERE graph_run_id = ? ORDER BY id`,
     )
     .all(run.id) as {
@@ -148,7 +220,10 @@ export function buildGraphInsideInput(
     media_type: string;
     byte_size: number;
     created_at: string;
+    producer_node_run_id: number | null;
+    producer_planner_run_id: number | null;
   }[];
+  const plannerNumberById = new Map(plannerRuns.map((p) => [p.id, p.planner_run_number]));
 
   const limits =
     deps
@@ -176,6 +251,7 @@ export function buildGraphInsideInput(
     },
     plannerRuns: plannerRuns.map((p) => ({
       plannerRunNumber: p.planner_run_number,
+      plannerRunId: p.id,
       kind: p.kind,
       status: p.status,
       compileAttempt: p.compile_attempt,
@@ -208,6 +284,7 @@ export function buildGraphInsideInput(
       waitSince: d.wait_since,
     })),
     execution: { maxParallel: limits.maxParallel, maxNodeRuns: limits.maxNodeRuns },
+    ...(topology ? { topology } : {}),
     revision: revision
       ? {
           revisionNumber: revision.revision_number,
@@ -216,12 +293,20 @@ export function buildGraphInsideInput(
         }
       : null,
     diagnostics: [],
-    artifacts: artifacts.map((a) => ({
-      artifactId: a.artifact_id,
-      byteSize: a.byte_size,
-      mediaType: a.media_type,
-      createdAt: a.created_at,
-    })),
+    artifacts: artifacts.map((a) => {
+      const plannerNumber =
+        a.producer_planner_run_id === null
+          ? undefined
+          : plannerNumberById.get(a.producer_planner_run_id);
+      return {
+        artifactId: a.artifact_id,
+        byteSize: a.byte_size,
+        mediaType: a.media_type,
+        createdAt: a.created_at,
+        ...(a.producer_node_run_id !== null ? { producerNodeRunId: a.producer_node_run_id } : {}),
+        ...(plannerNumber !== undefined ? { producerPlannerRunNumber: plannerNumber } : {}),
+      };
+    }),
     liveSessions,
     now: deps.now(),
   };

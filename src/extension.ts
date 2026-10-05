@@ -2928,6 +2928,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           manifest: () => currentManifest(),
           liveSessions: () => graphTransport?.sessions() ?? [],
           now: () => new Date().toISOString(),
+          debug: (m) => logger.debug(m),
         },
         ticketId,
       ),

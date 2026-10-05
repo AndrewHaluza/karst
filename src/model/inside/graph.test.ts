@@ -130,7 +130,6 @@ describe('graphInsideProcess', () => {
     const rows = process.evidence.rows;
     expect(rows.map((r) => r.label)).toEqual([
       'graph',
-      'planner 1',
       'revision',
       '<script>alert(1)</script>red alert(2) x plain',
       'edge-outcome-undeclared',
@@ -138,8 +137,8 @@ describe('graphInsideProcess', () => {
     ]);
     expect(rows[0]!.status).toBe('run');
     expect(rows[0]!.detail).toContain('run 7');
-    // The node run moved to the structured node list (Slice 6 T4).
-    expect(process.evidence.nodes).toHaveLength(1);
+    // The planner and node run moved to the structured ledger (Slice 6 T4).
+    expect(process.evidence.nodes!.map((n) => n.entry)).toEqual(['planner', 'node']);
   });
 
   it('renders the per-ticket run ordinal, never the global run id', () => {
@@ -161,9 +160,9 @@ describe('graphInsideProcess', () => {
       input({ graphRun: { id: 7, runNumber: 7, status: 'closed', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
     if (closed.evidence?.kind !== 'rows') return;
-    const planner = closed.evidence.rows.find((r) => r.label === 'planner 1')!;
+    const planner = closed.evidence.nodes!.find((n) => n.entry === 'planner')!;
     const revision = closed.evidence.rows.find((r) => r.label === 'revision')!;
-    expect(planner.status).toBe('pass');
+    expect(planner.displayStatus).toBe('pass');
     // The revision is bookkeeping, not an outcome: a closed run confirms what
     // the PLANNER delivered, never the plan version it was delivered under.
     expect(revision.status).toBe('note');
@@ -173,7 +172,7 @@ describe('graphInsideProcess', () => {
       input({ graphRun: { id: 7, runNumber: 7, status: 'cancelled', approachId: 'g', stageAttempt: 0, createdAt: '2026-08-11T00:00:00.000Z' } }),
     )!;
     if (cancelled.evidence?.kind !== 'rows') return;
-    expect(cancelled.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('note');
+    expect(cancelled.evidence.nodes!.find((n) => n.entry === 'planner')!.displayStatus).toBe('note');
     expect(cancelled.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
   });
 
@@ -195,7 +194,7 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (blocked.evidence?.kind !== 'rows') return;
-    expect(blocked.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('wait');
+    expect(blocked.evidence.nodes!.find((n) => n.entry === 'planner')!.displayStatus).toBe('wait');
     // The revision never waits on anything either — it is a neutral marker
     // under every run status.
     expect(blocked.evidence.rows.find((r) => r.label === 'revision')!.status).toBe('note');
@@ -223,7 +222,7 @@ describe('graphInsideProcess', () => {
         }),
       )!;
       if (closed.evidence?.kind !== 'rows') return;
-      expect(closed.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('wait');
+      expect(closed.evidence.nodes!.find((n) => n.entry === 'planner')!.displayStatus).toBe('wait');
     }
   });
 
@@ -256,8 +255,8 @@ describe('graphInsideProcess', () => {
     // "submitted 3m ago" detail.
     const view = graphInsideProcess(input({}))!;
     if (view.evidence?.kind !== 'rows') return;
-    const planner = view.evidence.rows.find((r) => r.label === 'planner 1')!;
-    expect(planner.status).toBe('wait');
+    const planner = view.evidence.nodes!.find((n) => n.entry === 'planner')!;
+    expect(planner.displayStatus).toBe('wait');
     // A planner whose session is genuinely live still spins.
     const live = graphInsideProcess(
       input({
@@ -267,7 +266,7 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (live.evidence?.kind !== 'rows') return;
-    expect(live.evidence.rows.find((r) => r.label === 'planner 1')!.status).toBe('run');
+    expect(live.evidence.nodes!.find((n) => n.entry === 'planner')!.displayStatus).toBe('run');
   });
 
   it('never spins or confirms an active revision, under a live run or a closed one', () => {
@@ -287,10 +286,9 @@ describe('graphInsideProcess', () => {
   it('shows the node identity, visit count and budget, and its live session action', () => {
     const process = graphInsideProcess(input())!;
     if (process.evidence?.kind !== 'rows') return;
-    const node = process.evidence.nodes![0]!;
+    const node = process.evidence.nodes!.find((n) => n.entry === 'node')!;
     expect(node.nodeId).toBe('implement');
     expect(node.status).toBe('running');
-    expect(node.group).toBe('active');
     expect(node.identity).toContain('codex');
     expect(node.identity).toContain('sol');
     expect(node.identity).toContain('high');
@@ -331,7 +329,6 @@ describe('graphInsideProcess', () => {
     // reveals a terminal, it never spawns one. It IS editable, so the
     // override-edit control takes its place (Slice 6 T4).
     const node = process.evidence.nodes!.find((n) => n.nodeId === 'ready-node')!;
-    expect(node.group).toBe('ready');
     expect(node.action).toMatchObject({ kind: 'graph-edit-override' });
   });
 
@@ -618,7 +615,6 @@ describe('graphInsideProcess', () => {
     const stuck = ambiguous.evidence.nodes!.find((n) => n.nodeId === 'stuck')!;
     expect(stuck.action).toMatchObject({ kind: 'graph-discard-node' });
     expect(stuck.status).toBe('termination-unknown');
-    expect(stuck.group).toBe('other');
 
     const live = graphInsideProcess(input())!;
     if (live.evidence?.kind !== 'rows') return;
@@ -681,7 +677,6 @@ describe('graphInsideProcess', () => {
     if (process.evidence?.kind !== 'rows') return;
     const idle = process.evidence.nodes!.find((n) => n.nodeId === 'idle')!;
     expect(idle.action).toBeUndefined();
-    expect(idle.group).toBe('completed');
   });
 
   it('renders every graph-derived string with ANSI/controls and unsafe schemes removed, bounded', () => {
@@ -812,7 +807,7 @@ describe('graphInsideProcess', () => {
     expect(c.displayStatus).toBe('wait');
     expect(c.status).toBe('blocked');
     expect(c.reason).toContain('node 7 fault');
-    expect(nodes).toHaveLength(3);
+    expect(nodes.filter((n) => n.entry === 'node')).toHaveLength(3);
   });
 
   it('renders one row per deferred node with its persisted reason and wait duration (Slice 5 T3)', () => {
@@ -835,21 +830,24 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (process.evidence?.kind !== 'rows') return;
-    const rows = process.evidence.rows;
-    expect(rows.filter((r) => r.label === 'deferred write-all')).toEqual([
-      {
-        label: 'deferred write-all',
-        detail: 'resource-conflict: physical domain dom-api is held write by another node run · waiting 30m',
-        status: 'wait',
-      },
+    const nodes = process.evidence.nodes!;
+    // Oldest wait first: lint (00:00) before write-all (00:30).
+    expect(nodes.filter((n) => n.entry === 'deferred').map((n) => n.nodeId)).toEqual([
+      'lint',
+      'write-all',
     ]);
-    expect(rows.filter((r) => r.label === 'deferred lint')).toEqual([
-      {
-        label: 'deferred lint',
-        detail: 'parallel-slot-busy: active process ceiling reached (maxParallel 1) · waiting 1h',
-        status: 'wait',
-      },
-    ]);
+    expect(nodes.find((n) => n.nodeId === 'write-all')).toMatchObject({
+      entry: 'deferred',
+      status: 'deferred',
+      displayStatus: 'wait',
+      reason: 'resource-conflict: physical domain dom-api is held write by another node run',
+      age: 'waiting 30m',
+    });
+    expect(nodes.find((n) => n.nodeId === 'lint')).toMatchObject({
+      reason: 'parallel-slot-busy: active process ceiling reached (maxParallel 1)',
+      age: 'waiting 1h',
+    });
+    expect(process.evidence.rows.some((r) => r.label.startsWith('deferred '))).toBe(false);
   });
 
   it('a deferral reason is rendered as inert text — never markup (Slice 5 T3)', () => {
@@ -863,11 +861,11 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (process.evidence?.kind !== 'rows') return;
-    const row = process.evidence.rows.find((r) => r.label === 'deferred n')!;
-    expect(row.detail).not.toContain('\u001b');
-    expect(row.detail).not.toMatch(/javascript:/i);
-    expect(row.detail).not.toContain('\n');
-    expect(row.detail!.length).toBeLessThanOrEqual(300);
+    const row = process.evidence.nodes!.find((n) => n.nodeId === 'n')!;
+    expect(row.reason).not.toContain('\u001b');
+    expect(row.reason).not.toMatch(/javascript:/i);
+    expect(row.reason).not.toContain('\n');
+    expect(row.reason!.length).toBeLessThanOrEqual(300);
   });
 
   it('bounds the deferred list with a remainder row', () => {
@@ -883,7 +881,7 @@ describe('graphInsideProcess', () => {
     const process = graphInsideProcess(many)!;
     if (process.evidence?.kind !== 'rows') return;
     const rows = process.evidence.rows;
-    expect(rows.filter((r) => r.label.startsWith('deferred w-'))).toHaveLength(8);
+    expect(process.evidence.nodes!.filter((n) => n.entry === 'deferred')).toHaveLength(8);
     expect(rows.filter((r) => r.label === 'deferred nodes')).toEqual([
       { label: 'deferred nodes', detail: '+4 more', status: 'note' },
     ]);
@@ -1017,14 +1015,15 @@ describe('graphInsideProcess', () => {
     )!;
     if (process.evidence?.kind !== 'rows') return;
     const nodes = process.evidence.nodes!;
-    // Display order is the group order: active, ready, resource-waiting,
-    // completed, blocked, stale, cancelled, other.
-    expect(nodes.map((n) => n.group)).toEqual([
-      'active',
-      'resource-waiting',
-      'completed',
-      'cancelled',
+    // No instants on these runs, so the ledger keeps input order and carries
+    // no status sections.
+    expect(nodes.filter((n) => n.entry === 'node').map((n) => n.nodeId)).toEqual([
+      'write-all',
+      'lint',
+      'implement',
+      'review',
     ]);
+    expect(nodes.every((n) => !('group' in n))).toBe(true);
     // The override marker matches the run's OWN (revision, node) — revision 2's
     // override never marks revision 1's run.
     const writeAll = nodes.find((n) => n.nodeId === 'write-all')!;
@@ -1192,7 +1191,7 @@ describe('graphInsideProcess', () => {
       }),
     )!;
     if (process.evidence?.kind !== 'rows') return;
-    const node = process.evidence.nodes![0]!;
+    const node = process.evidence.nodes!.find((n) => n.entry === 'node')!;
     for (const field of ['nodeId', 'nodeKind', 'identity', 'override', 'outcome', 'reason'] as const) {
       const value = String(node[field] ?? '');
       expect(value, `${field} carries ANSI`).not.toContain('\u001b');
@@ -1238,8 +1237,9 @@ describe('graph run ages', () => {
         ],
       }),
     )!;
-    const row = view.evidence!.rows.find((r) => r.label === 'planner 1')!;
-    expect(row.detail).toContain('submitted 30m ago');
+    if (view.evidence?.kind !== 'rows') throw new Error('rows expected');
+    const row = view.evidence.nodes!.find((n) => n.entry === 'planner')!;
+    expect(row.age).toContain('submitted 30m ago');
   });
 
   it('names a live planner that never recorded a start', () => {
@@ -1250,8 +1250,9 @@ describe('graph run ages', () => {
         ],
       }),
     )!;
-    const row = view.evidence!.rows.find((r) => r.label === 'planner 1')!;
-    expect(row.detail).toContain('never started');
+    if (view.evidence?.kind !== 'rows') throw new Error('rows expected');
+    const row = view.evidence.nodes!.find((n) => n.entry === 'planner')!;
+    expect(row.age).toContain('never started');
   });
 
   it('reports how long a running planner has been running', () => {
@@ -1269,8 +1270,9 @@ describe('graph run ages', () => {
         ],
       }),
     )!;
-    const row = view.evidence!.rows.find((r) => r.label === 'planner 1')!;
-    expect(row.detail).toContain('running 15m');
+    if (view.evidence?.kind !== 'rows') throw new Error('rows expected');
+    const row = view.evidence.nodes!.find((n) => n.entry === 'planner')!;
+    expect(row.age).toContain('running 15m');
   });
 
   it('ages a node run and reports how long a finished one took', () => {

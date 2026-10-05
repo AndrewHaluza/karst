@@ -506,6 +506,8 @@ describe('dashboard webview.html', () => {
     // its rebase switch are pure client-side draft state, answered in their
     // own branch before the posting path — only `change-base-ref` itself,
     // posted on submit, is a real host message.
+    // `toggle-graph-view` flips the graph block between ledger and DAG strip
+    // locally — view state only, no host round trip.
     // `artifact-findings-repo` (§ findings severity ramp) filters findings
     // cards client-side in the Artifacts panel — no host round trip.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)]
@@ -514,7 +516,8 @@ describe('dashboard webview.html', () => {
         (act) => act !== 'preview-ticket-data'
           && act !== 'toggle-base-form'
           && act !== 'toggle-rebase-switch'
-          && act !== 'artifact-findings-repo',
+          && act !== 'artifact-findings-repo'
+          && act !== 'toggle-graph-view',
       );
     expect(emitted.length).toBeGreaterThan(0);
     for (const act of new Set(emitted)) {
@@ -1699,7 +1702,7 @@ describe('dashboard webview.html', () => {
   });
 
   // ── Slice 6 Task 4 — the richer graph projection ─────────────────────────
-  it('renders the status-grouped node list from ev.nodes with static section copy', () => {
+  it('renders the one chronological ledger from ev.nodes with no section headers', () => {
     // The graph process ships `nodes` (ordered by the CLOSED group vocabulary)
     // on its rows evidence; the webview inserts a section header on a group
     // change and renders each node's identity/visit/override/control verbatim.
@@ -1709,13 +1712,16 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/function graphNodeListHtml/);
     expect(HTML).toMatch(/ev\.nodes && ev\.nodes\.length/);
     expect(HTML).toMatch(/class="graph-nodes"/);
-    expect(HTML).toMatch(/class="graph-node-group"/);
+    expect(HTML).not.toMatch(/graph-node-group/);
+    expect(HTML).toMatch(/class="graph-node-artifacts"/);
+    expect(HTML).toMatch(/class="graph-entry"><div class="graph-node"/);
+    expect(HTML).toMatch(/#inside \.graph-entry:last-child\{border-bottom:0\}/);
+    expect(HTML).not.toMatch(/#inside \.graph-node:last-child/);
     expect(HTML).toMatch(/class="graph-node"/);
     // Static control copy for the section headers (UI-R20), keyed by the closed
     // group vocabulary the projection orders by — the webview never parses a
     // status word out of the row prose.
-    expect(HTML).toMatch(/const GRAPH_NODE_GROUP_LABEL/);
-    expect(HTML).toMatch(/GRAPH_NODE_GROUP_LABEL\[group\]/);
+    expect(HTML).not.toMatch(/GRAPH_NODE_GROUP_LABEL/);
     expect(HTML).not.toMatch(/n\.group === 'running'/);
   });
 
@@ -1740,16 +1746,37 @@ describe('dashboard webview.html', () => {
     expect(fn).toMatch(/esc\(n\.override\)/);
     expect(fn).toMatch(/esc\(n\.outcome\)/);
     expect(fn).toMatch(/esc\(n\.reason\)/);
-    expect(fn).toMatch(/esc\(graphNodeGroupLabel\(n\.group\)\)/);
+    expect(fn).toMatch(/esc\(a\)/); // each nested artifact line
     expect(fn).not.toMatch(/innerHTML \+=/);
   });
 
-  it('groups nodes by the host-ordered group field, never parsing the label', () => {
-    // The projection ships the nodes already ordered by group; the webview
-    // only breaks a section when the CLOSED `group` field changes. It must not
-    // derive a group by parsing `nodeId` or a status word out of prose.
+  it('offers a local View graph / View ledger toggle and renders host-laid-out DAG columns', () => {
+    expect(HTML).toMatch(/graphDagByTicket = new Map\(\)/);
+    expect(HTML).toMatch(/#inside \.graph-dag:focus-visible/);
+    expect(HTML).toMatch(/data-act="toggle-graph-view"/);
+    expect(HTML).toMatch(/aria-pressed="\$\{graphShowDag\(\)/);
+    expect(HTML).toMatch(/Graph view<\/button>/);
+    expect(HTML).toMatch(/act === 'toggle-graph-view'/);
+    const handler = /act === 'toggle-graph-view'[\s\S]*?return;/.exec(HTML)?.[0] ?? '';
+    expect(handler).not.toMatch(/karstSend|postMessage/);
+    const fn = /function graphDagHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
+    expect(fn).toMatch(/dag\.columns\.map/);
+    expect(fn).toMatch(/esc\(c\.label\)/);
+    expect(fn).toMatch(/esc\(c\.state\)/);
+    expect(fn).toMatch(/aria-label="\$\{esc\(statusWord\(c\.displayStatus\)\)\}"/);
+    expect(fn).not.toMatch(/depth|edges|sort\(/);
+    expect(HTML).toMatch(/ev\.dag && ev\.dag\.columns/);
+    expect(HTML).toMatch(/#inside \.graph-dag\{[^}]*overflow-x:auto/);
+    const css = /#inside \.graph-dag\{[\s\S]*?#inside \.graph-node-artifacts\{/.exec(HTML)?.[0] ?? '';
+    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgb\(/);
+  });
+
+  it('renders the host-ordered ledger with no section breaks, never parsing the label', () => {
+    // The projection ships the entries already ordered oldest first; the
+    // webview draws no section break. It must not derive anything by parsing
+    // `nodeId` or a status word out of prose.
     const fn = /function graphNodeListHtml[\s\S]*?\n  \}/.exec(HTML)?.[0] ?? '';
-    expect(fn).toMatch(/n\.group !== lastGroup/);
+    expect(fn).not.toMatch(/group/i);
     expect(fn).not.toMatch(/n\.nodeId\.startsWith|n\.nodeId\.includes|n\.status\s*===\s*['"]/);
     // The action still rides the opaque id through the shared button renderer.
     expect(fn).toMatch(/insideActionBtnHtml\(n\.action\)/);
