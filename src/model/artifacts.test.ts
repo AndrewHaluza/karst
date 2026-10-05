@@ -339,11 +339,23 @@ describe('buildTicketArtifacts', () => {
       stage: 'ship',
       status: 'passed',
       freshness: 'current',
-      summary: '1 PR opened · 1 commit',
+      summary: '1 PR · 1 new commit',
     });
     expect(a.prs).toHaveLength(1);
     expect(a.prs[0]).toMatchObject({ number: 42, url: 'https://github.com/o/r/pull/42' });
-    expect(a.commits[0]).toMatchObject({ sha: 'abc123' });
+    expect(a.commits[0]).toMatchObject({ sha: 'abc123', origin: 'created-by-ship' });
+  });
+
+  it('counts only ship-created commits as new, but lists every commit with its origin', () => {
+    const t = ticket({ stageCurrent: 'ship' });
+    const run = openShipRun(store, { ticketId: t.id, attempt: 0, startedAt: '2026-08-01T11:00:00.000Z' });
+    closeShipRun(store, run.id, 'passed', '2026-08-01T11:05:00.000Z');
+    recordShipCommit(store, { shipRunId: run.id, repo: 'web', sha: 'aaa111', message: 'wip', origin: 'before-ship' });
+
+    const [a] = buildTicketArtifacts(store, t.id) as [ArtifactSummary];
+    expect(a.summary).toBe('0 PRs · 0 new commits');
+    expect(a.metrics).toContainEqual({ label: 'new commits', value: '0' });
+    expect(a.commits).toEqual([expect.objectContaining({ sha: 'aaa111', origin: 'before-ship' })]);
   });
 
   it('mints the open-commit capability for ship commits through the attach seam', () => {
