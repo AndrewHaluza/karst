@@ -109,6 +109,12 @@ describe('ticketMessages', () => {
     expect(listInbox(store, parentId, { unreadOnly: false })[0]!.readAt).not.toBeNull();
   });
 
+  it('marks more ids than one statement can bind', () => {
+    const ids = Array.from({ length: 1200 }, (_, i) => send(`m${i}`).id);
+    expect(markRead(store, ids)).toBe(1200);
+    expect(unreadCount(store, parentId)).toBe(0);
+  });
+
   it('markRead with no ids is a no-op', () => {
     send('one');
     expect(markRead(store, [])).toBe(0);

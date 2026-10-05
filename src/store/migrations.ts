@@ -2400,6 +2400,10 @@ function migrateLocked(db: Database): void {
     // is honestly NOT queued (0): nothing was ever auto-started before the
     // column existed. The guard reads the CURRENT columns; the table/index use
     // IF NOT EXISTS, so a fresh DB (schema.sql carries both) is a no-op.
+    // `cols64` is empty only when `tickets` does not exist — impossible for a
+    // real registry (the v1 step creates it) and seen only in partial legacy
+    // fixtures. Skipping the ALTER there and still stamping the version is the
+    // v63 precedent: with no table there is no row to backfill or column to add.
     const cols64 = ticketColumns(db);
     if (cols64.size > 0 && !cols64.has('autostart_pending')) {
       db.exec('ALTER TABLE tickets ADD COLUMN autostart_pending INTEGER NOT NULL DEFAULT 0');

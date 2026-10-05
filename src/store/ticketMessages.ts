@@ -16,6 +16,13 @@ export type TicketMessageKind = 'message' | 'event';
 
 const KINDS: readonly TicketMessageKind[] = ['message', 'event'];
 
+/** Bind-parameter chunk for `markRead`, well under SQLite's variable limit. */
+const MARK_READ_CHUNK = 500;
+
+function isKind(value: unknown): value is TicketMessageKind {
+  return typeof value === 'string' && (KINDS as readonly string[]).includes(value);
+}
+
 export interface TicketMessage {
   id: number;
   projectId: number | null;
@@ -48,12 +55,13 @@ interface MessageRow {
 }
 
 function rowToMessage(r: MessageRow): TicketMessage {
+  if (!isKind(r.kind)) throw new Error(`ticket_messages row ${r.id} has unknown kind '${r.kind}'`);
   return {
     id: Number(r.id),
     projectId: r.project_id === null ? null : Number(r.project_id),
     fromTicketId: r.from_ticket_id === null ? null : Number(r.from_ticket_id),
     toTicketId: Number(r.to_ticket_id),
-    kind: r.kind as TicketMessageKind,
+    kind: r.kind,
     body: r.body,
     createdAt: r.created_at,
     readAt: r.read_at,
@@ -74,7 +82,7 @@ function normalizeBody(body: string): string {
 
 /** Insert one mailbox row and return it as stored. */
 export function postMessage(store: Store, input: PostMessageInput): TicketMessage {
-  if (!KINDS.includes(input.kind)) {
+  if (!isKind(input.kind)) {
     throw new Error(`unknown message kind '${String(input.kind)}' (want message or event)`);
   }
   const body = normalizeBody(input.body);
@@ -84,9 +92,11 @@ export function postMessage(store: Store, input: PostMessageInput): TicketMessag
        VALUES (?, ?, ?, ?, ?)`,
     )
     .run(input.projectId, input.fromTicketId, input.toTicketId, input.kind, body);
-  const row = store.db
-    .prepare('SELECT * FROM ticket_messages WHERE id = ?')
-    .get(Number(info.lastInsertRowid)) as MessageRow;
+  const id = Number(info.lastInsertRowid);
+  const row = store.db.prepare('SELECT * FROM ticket_messages WHERE id = ?').get(id) as
+    | MessageRow
+    | undefined;
+  if (!row) throw new Error(`ticket_messages row ${id} vanished after insert`);
   return rowToMessage(row);
 }
 
@@ -105,15 +115,19 @@ export function listInbox(
 
 /** Mark rows read; already-read rows are untouched. Returns rows newly marked. */
 export function markRead(store: Store, ids: readonly number[]): number {
-  if (ids.length === 0) return 0;
-  const placeholders = ids.map(() => '?').join(', ');
-  const info = store.db
-    .prepare(
-      `UPDATE ticket_messages SET read_at = datetime('now')
-        WHERE read_at IS NULL AND id IN (${placeholders})`,
-    )
-    .run(...ids);
-  return Number(info.changes);
+  let marked = 0;
+  for (let i = 0; i < ids.length; i += MARK_READ_CHUNK) {
+    const chunk = ids.slice(i, i + MARK_READ_CHUNK);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const info = store.db
+      .prepare(
+        `UPDATE ticket_messages SET read_at = datetime('now')
+          WHERE read_at IS NULL AND id IN (${placeholders})`,
+      )
+      .run(...chunk);
+    marked += Number(info.changes);
+  }
+  return marked;
 }
 
 /** Number of unread rows addressed to a ticket. */
