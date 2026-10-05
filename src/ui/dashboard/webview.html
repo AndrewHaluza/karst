@@ -1752,6 +1752,8 @@
     border:calc(var(--k-border-w) * 2) solid var(--k-pending)}
   .arttask .at-state.blocked .at-dot{background:var(--k-attention)}
   .arttask .at-state.cancelled .at-dot{background:var(--k-text-faint)}
+  .arttask{flex-wrap:wrap}
+  .arttask .at-files{flex-basis:100%;display:flex;flex-wrap:wrap;gap:var(--k-space-3);padding-left:var(--k-space-6)}
   .arttask .at-label{flex:1;color:var(--k-text)}
   .arttask .at-kind{font-size:var(--k-text-xs);color:var(--k-text-dim)}
   /* One gate's outcome as a COLOURED STATE, not a text label: the dot is the
@@ -1773,7 +1775,9 @@
   .artfiles li{display:flex;align-items:center;gap:var(--k-space-4);
     padding:var(--k-space-3) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);
     border-radius:var(--k-radius-md);margin-bottom:var(--k-space-3)}
-  .artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;color:var(--k-text)}
+  .artfiles .af-label{color:var(--k-text);font-weight:var(--k-weight-semibold);flex:none}
+  .artfiles .af-name{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--k-text)}
+  .artfiles .af-label + .af-name{color:var(--k-text-dim)}
   /* In-body object links (UI-R09c): the commit SHA, the PR number and a
      finding's file location ARE the controls — underlined, monospaced,
      keyboard-focusable — never inert text beside a duplicate button. */
@@ -4552,14 +4556,25 @@
     cancelled: { cls: 'cancelled', word: 'cancelled' },
   };
 
+  // One resource's editor-open control: id + INDEX into a.resources, never a path.
+  function artifactResourceBtnHtml(a, r, i, cls, text) {
+    return `<button type="button" class="${cls}" data-act="artifact-open-resource"`
+      + ` data-artifact-id="${esc(a.id)}" data-index="${i}"`
+      + ` title="Open ${esc(r.label)} (${esc(r.name)}) in the editor">${text}</button>`;
+  }
+
   function artifactTasksHtml(a) {
     if (!a.tasks || !a.tasks.length) return '';
     const rows = a.tasks.map((t) => {
       const state = ART_TASK_STATUS[t.status] || ART_TASK_STATUS.todo;
+      const own = (a.resources || []).map((r, i) => (r.taskId === t.id
+        ? artifactResourceBtnHtml(a, r, i, 'k-btn k-btn--secondary k-btn--sm', `${esc(r.label)} ↗`) : ''))
+        .join('');
       return `<div class="arttask">`
         + `<span class="at-state ${state.cls}"><span class="at-dot" role="img" aria-label="${esc(state.word)}"></span></span>`
         + `<span class="at-label">${esc(t.label)}</span>`
-        + `<span class="at-kind">${esc(t.kind)}${t.visits ? ` · ${esc(t.visits)}` : ''}</span></div>`;
+        + `<span class="at-kind">${esc(t.kind)}${t.visits ? ` · ${esc(t.visits)}` : ''}</span>`
+        + (own ? `<span class="at-files">${own}</span>` : '') + `</div>`;
     }).join('');
     return `<section class="artsection" aria-label="Plan tasks"><div class="artheading">Tasks</div>${rows}</section>`;
   }
@@ -4587,13 +4602,14 @@
     const backLabel = from === 'index' ? '← Artifacts' : '← Ticket';
     const backTitle = from === 'index'
       ? 'Return to the artifacts index' : 'Return to the ticket dashboard';
-    const files = a.resources && a.resources.length
-      ? `<section class="artsection" aria-label="Underlying files"><div class="artheading">Underlying files</div><ul class="artfiles">`
-        + a.resources.map((r, i) =>
-          `<li><span class="af-name">${esc(r.name)}</span>`
-          + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="artifact-open-resource"`
-          + ` data-artifact-id="${esc(a.id)}" data-index="${i}"`
-          + ` title="Open ${esc(r.name)} in the editor">Open in editor ↗</button></li>`).join('')
+    const own = (a.resources || []).map((r, i) => ({ r, i })).filter((x) => x.r.taskId === null);
+    const filesTitle = a.kind === 'plan' ? 'Plan files' : 'Underlying files';
+    const files = own.length
+      ? `<section class="artsection" aria-label="${filesTitle}"><div class="artheading">${filesTitle}</div><ul class="artfiles">`
+        + own.map(({ r, i }) =>
+          `<li><span class="af-label">${esc(r.label)}</span><span class="af-name">${esc(r.name)}</span>`
+          + artifactResourceBtnHtml(a, r, i, 'k-btn k-btn--secondary k-btn--sm', 'Open in editor ↗')
+          + `</li>`).join('')
         + `</ul></section>`
       : '';
     return `<div class="arthead">`

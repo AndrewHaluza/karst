@@ -39,7 +39,7 @@ describe('listGraphPlanEvidence', () => {
       revisions: [],
       nodeRuns: [],
       plannerRuns: [],
-      plannerArtifacts: [],
+      artifacts: [],
     });
   });
 
@@ -61,7 +61,7 @@ describe('listGraphPlanEvidence', () => {
     expect(listGraphPlanEvidence(store.db, ticketId).graphRun?.id).toBe(latest);
   });
 
-  it('collects revisions (ordered), node runs, planner runs and planner artifacts', () => {
+  it('collects revisions (ordered), node runs, planner runs and artifacts', () => {
     const { store, ticketId, graphRunId } = harness();
     store.db
       .prepare(
@@ -104,26 +104,42 @@ describe('listGraphPlanEvidence', () => {
     const evidence = listGraphPlanEvidence(store.db, ticketId);
     expect(evidence.graphRun).toMatchObject({ id: graphRunId, status: 'running' });
     expect(evidence.revisions).toEqual([
-      { revision_number: 1, canonical_graph: '{"a":1}', status: 'active', created_at: '2026-08-11T00:00:00.000Z' },
+      { id: revisionId, revision_number: 1, canonical_graph: '{"a":1}', status: 'active', created_at: '2026-08-11T00:00:00.000Z' },
     ]);
     expect(evidence.nodeRuns).toEqual([
       { id: expect.any(Number), node_id: 'worker', node_kind: 'agent', revision_id: revisionId, visit_number: 1, status: 'completed', ended_at: null },
     ]);
     expect(evidence.plannerRuns).toEqual([{ kind: 'bootstrap', status: 'submitted', provider: 'codex' }]);
-    expect(evidence.plannerArtifacts).toEqual([
-      { snapshot_path: '/data/karst/graph/plan.md', media_type: 'text/markdown', byte_size: 512 },
+    expect(evidence.artifacts).toEqual([
+      {
+        artifact_id: 'task',
+        revision_id: null,
+        producer_node_run_id: null,
+        snapshot_path: '/data/karst/graph/plan.md',
+        media_type: 'text/markdown',
+        byte_size: 512,
+      },
     ]);
   });
 
-  it('includes only PLANNER-produced artifacts, never node outputs', () => {
+  it('includes node outputs with their producing node run — each file belongs to a process', () => {
     const { store, ticketId, graphRunId } = harness();
     store.db
       .prepare(
         `INSERT INTO approach_artifact_instances
-           (graph_run_id, artifact_id, snapshot_path, sha256, media_type, byte_size, created_at)
-         VALUES (?, 'node-output', '/data/karst/graph/out.md', 'sha', 'text/markdown', 512, '2026-08-11T00:00:00.000Z')`,
+           (graph_run_id, artifact_id, producer_node_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, 'verify-report', 7, '/data/karst/graph/out.md', 'sha', 'text/markdown', 512, '2026-08-11T00:00:00.000Z')`,
       )
       .run(graphRunId);
-    expect(listGraphPlanEvidence(store.db, ticketId).plannerArtifacts).toEqual([]);
+    expect(listGraphPlanEvidence(store.db, ticketId).artifacts).toEqual([
+      {
+        artifact_id: 'verify-report',
+        revision_id: null,
+        producer_node_run_id: 7,
+        snapshot_path: '/data/karst/graph/out.md',
+        media_type: 'text/markdown',
+        byte_size: 512,
+      },
+    ]);
   });
 });

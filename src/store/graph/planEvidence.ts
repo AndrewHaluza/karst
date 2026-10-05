@@ -20,6 +20,7 @@ export interface GraphPlanRunRow {
 }
 
 export interface GraphPlanRevisionRow {
+  id: number;
   revision_number: number;
   canonical_graph: string;
   status: string;
@@ -43,6 +44,10 @@ export interface GraphPlanPlannerRunRow {
 }
 
 export interface GraphPlanArtifactRow {
+  artifact_id: string;
+  revision_id: number | null;
+  /** The node run that wrote it; NULL = a planner-produced document. */
+  producer_node_run_id: number | null;
   snapshot_path: string;
   media_type: string;
   byte_size: number;
@@ -54,7 +59,7 @@ export interface GraphPlanEvidence {
   revisions: GraphPlanRevisionRow[];
   nodeRuns: GraphPlanNodeRunRow[];
   plannerRuns: GraphPlanPlannerRunRow[];
-  plannerArtifacts: GraphPlanArtifactRow[];
+  artifacts: GraphPlanArtifactRow[];
 }
 
 export function listGraphPlanEvidence(db: GraphDb, ticketId: number): GraphPlanEvidence {
@@ -65,12 +70,12 @@ export function listGraphPlanEvidence(db: GraphDb, ticketId: number): GraphPlanE
     )
     .get(ticketId) as GraphPlanRunRow | undefined;
   if (!graphRun) {
-    return { graphRun: null, revisions: [], nodeRuns: [], plannerRuns: [], plannerArtifacts: [] };
+    return { graphRun: null, revisions: [], nodeRuns: [], plannerRuns: [], artifacts: [] };
   }
 
   const revisions = db
     .prepare(
-      `SELECT revision_number, canonical_graph, status, created_at
+      `SELECT id, revision_number, canonical_graph, status, created_at
          FROM approach_graph_revisions WHERE graph_run_id = ? ORDER BY revision_number`,
     )
     .all(graphRun.id) as GraphPlanRevisionRow[];
@@ -89,16 +94,17 @@ export function listGraphPlanEvidence(db: GraphDb, ticketId: number): GraphPlanE
     )
     .all(graphRun.id) as GraphPlanPlannerRunRow[];
 
-  // The plan's underlying files are the PLANNER-produced artifacts (the
-  // plan/task documents the planner wrote into the graph run's root).
-  const plannerArtifacts = db
+  // The plan's underlying files: the planner's documents (rationale, task
+  // briefs) AND the node outputs — each carries the process that produced it,
+  // so the Plan artifact can file it under its task.
+  const artifacts = db
     .prepare(
-      `SELECT snapshot_path, media_type, byte_size
+      `SELECT artifact_id, revision_id, producer_node_run_id, snapshot_path, media_type, byte_size
          FROM approach_artifact_instances
-        WHERE graph_run_id = ? AND producer_planner_run_id IS NOT NULL
+        WHERE graph_run_id = ?
         ORDER BY id`,
     )
     .all(graphRun.id) as GraphPlanArtifactRow[];
 
-  return { graphRun, revisions, nodeRuns, plannerRuns, plannerArtifacts };
+  return { graphRun, revisions, nodeRuns, plannerRuns, artifacts };
 }
