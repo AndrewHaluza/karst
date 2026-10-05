@@ -1,5 +1,24 @@
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { mkdtempSync, writeFileSync, appendFileSync, rmSync } from 'node:fs';
+
+/** Byte length of every positioned read a poll tick makes, so a test can prove the tail reads only the appended range. */
+const reads = vi.hoisted(() => [] as number[]);
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      return {
+        read: (buf: Buffer, offset: number, length: number, position: number) => {
+          reads.push(length);
+          return handle.read(buf, offset, length, position);
+        },
+        close: () => handle.close(),
+      };
+    },
+  };
+});
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ServerLogsReader, SERVER_LOG_READ_CAP_BYTES } from './serverLogsReader.js';
@@ -8,6 +27,7 @@ let reader: ServerLogsReader;
 let dir: string;
 
 afterEach(() => {
+  reads.length = 0;
   reader?.stopPolling(1);
   reader?.stopPolling(2);
   if (dir) rmSync(dir, { recursive: true, force: true });
@@ -156,5 +176,58 @@ describe('ServerLogsReader', () => {
     );
     expect(content).not.toContain('\uFFFD');
     expect(content).toContain('[server log truncated]');
+  });
+
+  it('a poll tick reads only the appended bytes, not the whole log', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'big-tail.log');
+    writeFileSync(logPath, 'x'.repeat(500_000));
+    reader = new ServerLogsReader();
+    const calls: string[] = [];
+
+    reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) => calls.push(text));
+
+    await new Promise((r) => setTimeout(r, 1200));
+    appendFileSync(logPath, 'tail\n');
+    await new Promise((r) => setTimeout(r, 1200));
+
+    expect(calls).toEqual(['tail\n']);
+    expect(reads).toEqual([5]);
+  });
+
+  it('re-reads from the start, capped, when the log is truncated', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'rotated.log');
+    writeFileSync(logPath, 'old content that is long\n');
+    reader = new ServerLogsReader();
+    const calls: string[] = [];
+
+    reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) => calls.push(text));
+
+    await new Promise((r) => setTimeout(r, 1200));
+    writeFileSync(logPath, 'new\n');
+    await new Promise((r) => setTimeout(r, 1200));
+
+    expect(calls).toEqual(['new\n']);
+  });
+
+  it('holds back a trailing partial multi-byte character until it completes', async () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
+    const logPath = join(dir, 'partial.log');
+    writeFileSync(logPath, 'a\n');
+    reader = new ServerLogsReader();
+    const calls: string[] = [];
+
+    reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) => calls.push(text));
+
+    const euro = Buffer.from('\u20ac');
+    await new Promise((r) => setTimeout(r, 1200));
+    appendFileSync(logPath, Buffer.concat([Buffer.from('b'), euro.subarray(0, 1)]));
+    await new Promise((r) => setTimeout(r, 1100));
+    appendFileSync(logPath, Buffer.concat([euro.subarray(1), Buffer.from('\n')]));
+    await new Promise((r) => setTimeout(r, 1100));
+
+    expect(calls.join('')).toBe('b\u20ac\n');
+    expect(calls.join('')).not.toContain('\uFFFD');
   });
 });
