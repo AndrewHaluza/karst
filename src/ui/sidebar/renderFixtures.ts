@@ -67,6 +67,7 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     subtaskParentKey: null,
     subtaskDepth: 0,
     subtaskChildCount: 0,
+    queued: false,
     collapsible: true as const,
     servers: [],
     worktrees: [],
@@ -193,6 +194,10 @@ function subtasksState(): SidebarState {
           subtaskParentId: 900002,
           subtaskParentKey: 'FEAT-100-s1',
           subtaskDepth: 2,
+          // Waiting for the autostart sweep — renders "Queued", not "scope".
+          stageChip: 'scope',
+          stageClass: 'stg-scope',
+          queued: true,
         }),
         fixtureRow(3, { label: 'FEAT-101', glyph: 'blue' }),
       ],

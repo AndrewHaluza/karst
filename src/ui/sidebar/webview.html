@@ -635,7 +635,9 @@
     // the dashboard rail); the full phrase moves to the tooltip. A pre-upgrade
     // snapshot lacks stageChip/stageClass, so fall back to the phrase + a
     // neutral class rather than render blank.
-    const stageChip = row.stageChip || stageText;
+    // `queued` is host-derived (UI-R31): a sub-task waiting at scope for the
+    // autostart sweep reads "Queued" instead of its bare stage.
+    const stageChip = row.queued ? 'Queued' : (row.stageChip || stageText);
     const stageClass = row.stageClass || 'stg-unknown';
     // The session button states which of the two it does — "Continue" a
     // captured interactive session, or "Start" a fresh one. A pre-upgrade

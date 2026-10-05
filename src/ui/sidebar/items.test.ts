@@ -328,6 +328,15 @@ describe('completedAt', () => {
 });
 
 describe('sub-task identity on the sidebar node', () => {
+  it('flags a queued sub-task at scope (host-derived, UI-R31)', () => {
+    const [q, plain, started] = buildTicketNodes([
+      ticket({ subtaskParentId: 7, autostartPending: true, stageCurrent: 'scope' }),
+      ticket({ subtaskParentId: null, autostartPending: true, stageCurrent: 'scope' }),
+      ticket({ subtaskParentId: 7, autostartPending: true, stageCurrent: 'impl' }),
+    ]);
+    expect([q!.queued, plain!.queued, started!.queued]).toEqual([true, false, false]);
+  });
+
   it('carries no sub-task parent for an ordinary ticket', () => {
     const [node] = buildTicketNodes([ticket({ subtaskParentId: null })]);
     expect(node!.subtaskParentId).toBeNull();
@@ -372,6 +381,7 @@ describe('nestSubtasks', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      queued: false,
       collapsible: true,
       ...over,
     };
@@ -467,6 +477,7 @@ describe('visibleTicketRows', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      queued: false,
       collapsible: true,
       ...over,
     };
