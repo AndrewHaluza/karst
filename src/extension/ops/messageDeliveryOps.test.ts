@@ -6,6 +6,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createTicket, setAgentState, setStageCurrent } from '../../store/tickets.js';
 import { markRead, postMessage } from '../../store/ticketMessages.js';
+import { DELIVERY_READ_LIMIT } from '../../store/messageDelivery.js';
 import { setStage } from '../../store/stages.js';
 import type { MessageDelivery } from '../../workflow/messageDelivery.js';
 import {
@@ -405,3 +406,253 @@ describe('message delivery sweep — parent wake', () => {
     }
   });
 });
+
+function debugLines(d: MessageDeliveryDeps): string[] {
+  return vi.mocked(d.debug).mock.calls.map(([m]) => String(m));
+}
+
+describe('message delivery sweep — pointer logging and bounds', () => {
+  it('logs delivered, rate-limited, and deferred pointers with the recipient and count', () => {
+    let result: 'delivered' | 'deferred' = 'delivered';
+    const d = deps({ delivery: { deliver: vi.fn(() => result) } });
+    const sweep = makeMessageDeliverySweep(d);
+    send(parentId);
+    sweep.sweep();
+    expect(debugLines(d)).toContain(`[driver] delivery #${parentId}: pointer delivered (1 unread)`);
+    send(parentId);
+    clock += 1_000;
+    sweep.sweep();
+    expect(debugLines(d)).toContain(`[driver] delivery #${parentId}: rate-limited — coalescing`);
+    clock += POINTER_INTERVAL_MS;
+    result = 'deferred';
+    sweep.sweep();
+    expect(debugLines(d)).toContain(`[driver] delivery #${parentId}: deferred (2 unread)`);
+  });
+
+  it('summarizes pointers and wakes only when something happened', () => {
+    const idle = deps();
+    makeMessageDeliverySweep(idle).sweep();
+    expect(debugLines(idle).some((m) => m.includes('pointer(s)'))).toBe(false);
+
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    send(parentId);
+    sweep.sweep();
+    expect(debugLines(d)).toContain('[driver] delivery: 1 pointer(s), 0 wake(s)');
+
+    const both = deps();
+    const sweepBoth = makeMessageDeliverySweep(both);
+    send(parentId);
+    setStage(store, childId, 'impl', { blockedKind: 'boot-failed', blockedReason: 'x' });
+    expect(sweepBoth.sweep()).toEqual({ delivered: [parentId], woke: [parentId] });
+    expect(debugLines(both)).toContain('[driver] delivery: 1 pointer(s), 1 wake(s)');
+  });
+
+  it('a throwing delivery is logged at debug with its message, and the wake pass still runs', () => {
+    send(parentId);
+    const d = deps({ delivery: { deliver: () => { throw new Error('boom'); } } });
+    const sweep = makeMessageDeliverySweep(d);
+    setStage(store, childId, 'impl', { blockedKind: 'boot-failed', blockedReason: 'x' });
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    expect(debugLines(d)).toContain('[driver] delivery: pointer pass failed — boom');
+  });
+
+  it('with no bound project nothing is read, logged, or warned', () => {
+    send(parentId);
+    const d = deps({ projectId: () => undefined });
+    makeMessageDeliverySweep(d).sweep();
+    expect(d.debug).not.toHaveBeenCalled();
+    expect(d.warn).not.toHaveBeenCalled();
+  });
+
+  it('a disposed sweep does not even resolve the project', () => {
+    send(parentId);
+    const projectOf = vi.fn(() => projectId);
+    const d = deps({ projectId: projectOf });
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.dispose();
+    expect(sweep.sweep()).toEqual({ delivered: [], woke: [] });
+    expect(projectOf).not.toHaveBeenCalled();
+  });
+
+  it('a re-entrant sweep logs that it was skipped', () => {
+    send(parentId);
+    let sweeper: ReturnType<typeof makeMessageDeliverySweep>;
+    const d = deps({
+      delivery: {
+        deliver: () => {
+          sweeper.sweep();
+          return 'delivered';
+        },
+      },
+    });
+    sweeper = makeMessageDeliverySweep(d);
+    sweeper.sweep();
+    expect(debugLines(d)).toContain('[driver] delivery: sweep already running — skipping');
+  });
+
+  it('a truncated unread read does not forget recipients it could not see', () => {
+    // Heads get lower ids than the later-created `highTail`, so an id-ordered,
+    // LIMIT-ed read of the heads drops `highTail`.
+    const heads: number[] = [];
+    for (let i = 0; i < DELIVERY_READ_LIMIT; i++) {
+      heads.push(createTicket(store, { key: `P-H${i}`, title: 'h', projectId }).id);
+    }
+    const highTail = createTicket(store, { key: 'P-HIGH', title: 'h', projectId }).id;
+    const post = (to: number): number =>
+      postMessage(store, { projectId, fromTicketId: parentId, toTicketId: to, kind: 'message', body: 'm' }).id;
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    post(highTail);
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(1);
+    const headRows = heads.map(post);
+    sweep.sweep(); // 200 heads fill the read; highTail is truncated away
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(1 + DELIVERY_READ_LIMIT);
+    markRead(store, headRows);
+    clock += POINTER_INTERVAL_MS * 2;
+    sweep.sweep(); // only highTail is unread again; its watermark must still stand
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(1 + DELIVERY_READ_LIMIT);
+  });
+});
+
+describe('message delivery sweep — wake aging, cooldown, and failure paths', () => {
+  function block(id: number, stage: 'impl' | 'fix' = 'impl'): void {
+    setStage(store, id, stage, { blockedKind: 'boot-failed', blockedReason: 'need creds' });
+  }
+  function eventCreatedMs(): number {
+    const row = store.db.prepare("SELECT created_at AS c FROM ticket_messages WHERE kind = 'event' ORDER BY id LIMIT 1").get() as {
+      c: string;
+    };
+    return Date.parse(`${row.c.replace(' ', 'T')}Z`);
+  }
+  function claimedCount(): number {
+    return (store.db.prepare("SELECT COUNT(*) AS n FROM ticket_messages WHERE kind = 'event' AND woke_at IS NOT NULL").get() as {
+      n: number;
+    }).n;
+  }
+
+  it('an event exactly at the age cutoff still retries; one millisecond past is skipped as aged out', () => {
+    setStageCurrent(store, parentId, 'review');
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    clock = eventCreatedMs() + EVENT_MAX_AGE_MS;
+    sweep.sweep();
+    expect(claimedCount()).toBe(0);
+    clock += 1;
+    sweep.sweep();
+    expect(claimedCount()).toBe(1);
+    expect(debugLines(d).some((m) => m.endsWith(`-> #${parentId}: skip — aged out (parent at review)`))).toBe(true);
+  });
+
+  it('a terminal skip keeps its own reason even when the event is old', () => {
+    setStageCurrent(store, parentId, 'ship');
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    clock = eventCreatedMs() + EVENT_MAX_AGE_MS + 60_000;
+    sweep.sweep();
+    const lines = debugLines(d).filter((m) => m.includes('delivery wake event'));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toMatch(new RegExp(`-> #${parentId}: skip — parent at ship$`));
+  });
+
+  it('logs the wake decision with the event id, parent, and reason', () => {
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    sweep.sweep();
+    const row = store.db.prepare("SELECT id FROM ticket_messages WHERE kind = 'event' ORDER BY id LIMIT 1").get() as { id: number };
+    expect(debugLines(d)).toContain(`[driver] delivery wake event ${row.id} -> #${parentId}: wake — child blocked`);
+  });
+
+  it('a second wake inside the cooldown retries with a cooldown reason, then wakes at exactly the cooldown', async () => {
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    const t0 = clock;
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    await Promise.resolve();
+    await Promise.resolve();
+    block(childId, 'fix');
+    clock = t0 + WAKE_COOLDOWN_MS - 1;
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(debugLines(d).some((m) => m.endsWith('retry — wake cooldown'))).toBe(true);
+    expect(claimedCount()).toBe(1);
+    clock = t0 + WAKE_COOLDOWN_MS;
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    expect(d.wake).toHaveBeenCalledTimes(2);
+  });
+
+  it('a cooldown applies to wakes only: a skip inside the cooldown is claimed, not retried', async () => {
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    sweep.sweep();
+    await Promise.resolve();
+    await Promise.resolve();
+    setStageCurrent(store, parentId, 'ship');
+    block(childId, 'fix');
+    clock += 1_000;
+    sweep.sweep();
+    expect(claimedCount()).toBe(2);
+  });
+
+  it('a synchronously throwing wake warns, clears the open marker, and can wake again later', () => {
+    const wake = vi.fn(() => {
+      throw new Error('sync open failure');
+    });
+    const d = deps({ wake });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    expect(d.warn).toHaveBeenCalledWith(`karst: waking ticket #${parentId} failed: sync open failure`);
+    block(childId, 'fix');
+    clock += WAKE_COOLDOWN_MS;
+    expect(sweep.sweep().woke).toEqual([parentId]);
+    expect(wake).toHaveBeenCalledTimes(2);
+  });
+
+  it('a rejected wake warns with the ticket and reason', async () => {
+    const d = deps({ wake: vi.fn(async () => { throw new Error('open failed'); }) });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    sweep.sweep();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(d.warn).toHaveBeenCalledWith(`karst: waking ticket #${parentId} failed: open failed`);
+  });
+
+  it('an event another window claimed mid-decision is logged and not woken', () => {
+    const d = deps({
+      isLive: () => {
+        store.db.prepare("UPDATE ticket_messages SET woke_at = datetime('now') WHERE kind = 'event'").run();
+        return false;
+      },
+    });
+    const sweep = makeMessageDeliverySweep(d);
+    block(childId);
+    expect(sweep.sweep().woke).toEqual([]);
+    expect(d.wake).not.toHaveBeenCalled();
+    const row = store.db.prepare("SELECT id FROM ticket_messages WHERE kind = 'event' ORDER BY id LIMIT 1").get() as { id: number };
+    expect(debugLines(d)).toContain(`[driver] delivery wake event ${row.id}: claimed elsewhere`);
+  });
+
+  it('dispose from inside a wake stops the remaining events', () => {
+    const parent2 = createTicket(store, { key: 'P-2', title: 'p2', projectId }).id;
+    const child2 = createTicket(store, { key: 'P-2-s1', title: 'c', projectId, subtaskParentId: parent2, blocksParent: true }).id;
+    setStageCurrent(store, parent2, 'impl');
+    setStageCurrent(store, child2, 'impl');
+    let sweeper: ReturnType<typeof makeMessageDeliverySweep>;
+    const wake = vi.fn(() => {
+      sweeper.dispose();
+    });
+    sweeper = makeMessageDeliverySweep(deps({ wake }));
+    block(childId);
+    block(child2);
+    expect(sweeper.sweep().woke).toEqual([parentId]);
+    expect(wake).toHaveBeenCalledTimes(1);
+    expect(wake).toHaveBeenCalledWith(parentId);
+  });
+});
+
