@@ -22,7 +22,8 @@ describe('planningPreamble', () => {
 
   it('states the session is read-only and names the filing verb with its session id', () => {
     expect(text).toMatch(/read-only/i);
-    expect(text).toContain('karst draft create --session 7');
+    expect(text).toContain('draft create --session 7');
+    expect(text).toContain('"$KARST_CLI"');
     expect(text).toContain('--summary-file');
   });
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
@@ -18,6 +19,7 @@ import { runCompactCommand } from './compact.js';
 import { runEnvCommand } from './envCommand.js';
 import { runServersCommand } from './serversCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
+import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
@@ -49,6 +51,16 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
     // the manifest's verbose/debug channel, not on every marker invocation.
     if (manifest.debug === true) writeManifestDiagnostics(notices);
     return manifest.id;
+  } catch {
+    return undefined;
+  }
+}
+
+/** The manifest's repository names, or undefined when no manifest is loadable. */
+function loadRepoNames(manifestPath: string | undefined): string[] | undefined {
+  if (!manifestPath) return undefined;
+  try {
+    return Object.keys(loadManifestWithDiagnostics(manifestPath).manifest.repositories);
   } catch {
     return undefined;
   }
@@ -99,6 +111,7 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             human-readable summary of the merge conflict a session must
  *             resolve — read-only, node:sqlite (see conflictBriefCommand.ts).
  *   subtask:  `… subtask create --title <t> [--description <d>] [--blocking] [--repos a,b] --db <db> --ticket <key>`
+ *   draft:    `… draft create --session <id> --title <t> [--description-file <p>] [--summary-file <p>] [--repos a,b] --db <db>`
  *             the write verb that carves a NEW sub-task out of the session's
  *             own ticket (design NDL-70 §7). The parent is the `--ticket`
  *             ticket, resolved via `--manifest` like `stage`/`env`; writes
@@ -362,6 +375,24 @@ export function runCli(
     }
   }
 
+  // `karst draft create` — a PLANNING session files a draft ticket. Its OWN
+  // parse path (draftCommand.ts): the project comes from the session row, the
+  // session is cross-checked against `KARST_PLANNING_SESSION` (read HERE and
+  // injected), and repository names are checked against the manifest.
+  if (subcommand === 'draft') {
+    if (!db) throw new Error('missing --db <path>');
+    const store = openWritableStore(db);
+    try {
+      return runDraftCommand(store, rest, {
+        sessionEnv: env.KARST_PLANNING_SESSION,
+        knownRepos: loadRepoNames(manifestPath),
+        readFile: (path) => readFileSync(path, 'utf8'),
+      });
+    } finally {
+      store.close();
+    }
+  }
+
   // `karst message send` / `karst inbox` — the parent<->child mailbox. Its OWN
   // parse path (messageCommand.ts), like `subtask`: the sender is `--ticket`,
   // resolved project-scoped, then cross-checked against the session env's
@@ -403,7 +434,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'message', 'inbox', 'fix-brief' or 'conflict-brief')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief' or 'conflict-brief')`,
   );
 }
 

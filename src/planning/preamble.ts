@@ -1,4 +1,8 @@
 import type { Manifest } from '../manifest/types.js';
+import { karstCliRefs } from '../agent/cliEnv.js';
+
+/** The env var a planning terminal exports; `draft create` cross-checks it. */
+export const KARST_PLANNING_SESSION_ENV = 'KARST_PLANNING_SESSION';
 
 /**
  * The seed of a planning session: what the stack is, that the session is
@@ -25,6 +29,7 @@ export function planningAddDirs(manifest: PlanningManifest): string[] {
 
 export function planningPreamble(input: PreambleInput): string {
   const { sessionId, title, manifest } = input;
+  const refs = karstCliRefs();
   const repos = enabledRepos(manifest).map(
     ([name, def]) => `- ${name}: ${def.repoPath} (base ${def.baselineBranch ?? manifest.baselineBranch})`,
   );
@@ -37,10 +42,12 @@ export function planningPreamble(input: PreambleInput): string {
     ...repos,
     '',
     'When the user agrees on the work, file it as one or more draft tickets:',
-    `  karst draft create --session ${sessionId} --title "<title>" --description-file <path> --repos <a,b> \\`,
-    '    --summary-file <path> [--after <draft key>]',
-    'The summary file holds the decisions reached and the options rejected, with reasons.',
-    'It is attached to the ticket for the implementing agent. Use --after to order dependent drafts.',
-    'Run `karst guide` for the full CLI reference.',
+    `  node ${refs.cli} --db ${refs.db} --manifest ${refs.manifest} draft create --session ${sessionId} \\`,
+    '    --title "<title>" --description-file <path> --summary-file <path> --repos <a,b>',
+    'Write the description and summary files under your system temp directory, not in a repository.',
+    'The summary holds the decisions reached and the options rejected, with reasons;',
+    'it becomes the ticket brief the implementing agent reads. File one draft per piece of work,',
+    'and state any ordering between them in each description.',
+    `Run \`node ${refs.cli} guide\` for the full CLI reference.`,
   ].join('\n');
 }

@@ -10,6 +10,8 @@ import { transition } from '../workflow/machine.js';
 import { createGraphRun } from '../store/graph/graphRuns.js';
 import { createPlannerRun } from '../store/graph/plannerRuns.js';
 import { sha256Hex } from './graph.js';
+import { upsertProject } from '../store/projects.js';
+import { createPlanningSession, listPlanningTickets } from '../store/planningSessions.js';
 
 describe('parseGlobalFlags', () => {
   it('extracts --db and --manifest, leaving the subcommand argv', () => {
@@ -496,5 +498,45 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
       '--to',
       'parent',
     ]);
+  });
+});
+
+describe('runCli — draft create (planning sessions)', () => {
+  let dir: string;
+  let dbPath: string;
+  let sessionId: number;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-cli-draft-'));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    const projectId = upsertProject(seed, { slug: 'p' }).id;
+    sessionId = createPlanningSession(seed, { projectId, title: 'plan', core: 'claude', model: null }).id;
+    seed.close();
+    writeFileSync(join(dir, 'summary.md'), 'Decided: JWT');
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('files a draft through node:sqlite and links it to the session', () => {
+    const out = runCli(
+      ['draft', 'create', '--session', String(sessionId), '--title', 'Add auth',
+        '--summary-file', join(dir, 'summary.md'), '--db', dbPath],
+      { KARST_PLANNING_SESSION: String(sessionId) },
+    );
+    const parsed = JSON.parse(out);
+    expect(parsed).toMatchObject({ ok: true, title: 'Add auth', session: sessionId });
+
+    const check = openStore(dbPath);
+    expect(getTicket(check, parsed.id).brief).toBe('Decided: JWT');
+    expect(listPlanningTickets(check, sessionId)).toEqual([parsed.id]);
+    check.close();
+  });
+
+  it('requires --db and the session env', () => {
+    expect(() => runCli(['draft', 'create', '--session', '1', '--title', 'x'], {})).toThrow(/db/);
+    expect(() =>
+      runCli(['draft', 'create', '--session', String(sessionId), '--title', 'x', '--db', dbPath], {}),
+    ).toThrow(/KARST_PLANNING_SESSION/);
   });
 });

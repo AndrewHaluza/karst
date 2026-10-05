@@ -11,6 +11,7 @@ The agent-facing surface. The invoking agent reads ticket content it did not aut
 - The CLI cannot migrate
 - Sub-task creation with `--no-start` to defer autostart
 - `message` / `inbox`: sender identity is attested, not unforgeable
+- `draft create`: a planning session files a draft ticket
 
 ## The agent-facing CLI verbs are separate parse paths, and that separation is the security property
 
@@ -55,3 +56,14 @@ The refs resolve ONLY inside a karst-launched terminal session or a karst headle
 **Bodies and pointers.** Every row has a prose body (trimmed, ≤ 4096). `kind='message'` bodies are untrusted agent text, stored verbatim; host-written `kind='event'` bodies are host prose (`<key> landed (done)`, `<key> blocked at <stage>: <reason>`, `<key> autostart failed: …`) that may quote an untrusted reason. The delivery sweep never types a body: it nudges each RECIPIENT's live terminal with one fixed pointer line (unread count + the `inbox` command), at most once per 30 s per recipient, again when a newer row arrives; the agent reads the rows themselves only through `inbox` (see `docs/arch/stages-and-gates.md`, "Mailbox events").
 
 `inbox` prints unread rows oldest-first and marks read ONLY the unread rows it printed (a row landing after the listing stays unread); each body line is quoted with `> ` under a `from sub-task agent <key> (untrusted):` / `from parent agent <key> (untrusted):` header so a body cannot forge a header, while host-written rows (`from_ticket_id NULL`, `kind = 'event'`) are labelled `karst event:`. `karst context` carries only the unread COUNT (`inbox: { unread }`), never a body.
+
+## `draft create`: a planning session files a draft ticket
+
+`karst draft create --session <id> --title <t> [--description-file <p>] [--summary-file <p>] [--repos a,b]` (`cli/draftCommand.ts`) is how a planning session (`store/planningSessions.ts`, see `docs/arch/store-and-schema.md`) files its outcome. It is its own parse path in `main.ts`: no `Verdict`, no machine import. It writes one `scope`-stage ticket with `autostart_pending = 0`, so the worst a fully-injected call does is add a draft nobody has started.
+
+- **The project comes from the session row, never from argv.** An archived or unknown session is refused.
+- **The session is attested, like `message`.** `main.ts` reads `KARST_PLANNING_SESSION` from its env and injects it; the verb refuses when it is unset or differs from `--session`. The planning terminal exports it at launch. This raises the bar against a confused agent; it is not a credential.
+- **Repository names are checked against the manifest** when `--manifest` loads. Description and summary files are read whole and refused above 64 KiB.
+- **The summary becomes the ticket's `brief`.** The seed already carries the brief to the implementing agent (`context/ticketContext.ts`, budgeted), so no new prompt path exists.
+- **No outer transaction.** `createTicket` opens its own and the `node:sqlite` shim does not nest; the later writes (`updateTicketFields`, `linkPlanningTicket`) are idempotent.
+- There is no ordering flag: karst has no ticket-dependency model, so ordering between drafts is stated in each description.

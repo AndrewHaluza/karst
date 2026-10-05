@@ -141,15 +141,17 @@ export function setPlanningAgentSession(
   return requireSession(store, id);
 }
 
-/** Idempotent. Linking the first ticket moves an active session to `filed`. */
+/**
+ * Idempotent. Linking the first ticket moves an active session to `filed`.
+ * No transaction: the CLI's node:sqlite shim does not nest, and both writes
+ * are idempotent, so a retry after a crash between them converges.
+ */
 export function linkPlanningTicket(store: Store, sessionId: number, ticketId: number): void {
   const session = requireSession(store, sessionId);
-  store.db.transaction(() => {
-    store.db
-      .prepare('INSERT OR IGNORE INTO planning_session_tickets (session_id, ticket_id) VALUES (?, ?)')
-      .run(sessionId, ticketId);
-    if (session.status === 'active') setPlanningSessionStatus(store, sessionId, 'filed');
-  })();
+  store.db
+    .prepare('INSERT OR IGNORE INTO planning_session_tickets (session_id, ticket_id) VALUES (?, ?)')
+    .run(sessionId, ticketId);
+  if (session.status === 'active') setPlanningSessionStatus(store, sessionId, 'filed');
 }
 
 export function listPlanningTickets(store: Store, sessionId: number): number[] {
