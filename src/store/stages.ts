@@ -1,4 +1,6 @@
 import type { Store } from './db.js';
+import { subtaskStageEvent } from './stageEvents.js';
+import { postMessage } from './ticketMessages.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 
 export interface Stage {
@@ -112,7 +114,29 @@ export function setStage(
 
   const assignments = keys.map((k) => `${COLUMN[k]} = ?`).join(', ');
   const values = keys.map((k) => patch[k] as string | number | null);
-  store.db
-    .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
-    .run(...values, ticketId, stageKey);
+  const update = (): void => {
+    store.db
+      .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
+      .run(...values, ticketId, stageKey);
+  };
+
+  // A sub-task landing or being blocked notifies its parent (v64), derived from
+  // the pre-write state and written atomically WITH the stage write.
+  const event = subtaskStageEvent(store, ticketId, stageKey, patch);
+  if (event === null) {
+    update();
+    return;
+  }
+  // SAVEPOINT, not `db.transaction`: it nests inside a caller's transaction on
+  // both drivers, where the CLI's node:sqlite shim would reject a nested BEGIN.
+  store.db.prepare('SAVEPOINT stage_event').run();
+  try {
+    update();
+    postMessage(store, event);
+    store.db.prepare('RELEASE stage_event').run();
+  } catch (err) {
+    store.db.prepare('ROLLBACK TO stage_event').run();
+    store.db.prepare('RELEASE stage_event').run();
+    throw err;
+  }
 }
