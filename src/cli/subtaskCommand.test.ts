@@ -22,7 +22,14 @@ describe('parseSubtaskCreateArgs', () => {
       description: 'Do the piece',
       blocking: true,
       repos: ['frontend', 'backend'],
+      start: true,
     });
+  });
+
+  it('parses --no-start as start false', () => {
+    expect(
+      parseSubtaskCreateArgs(['subtask', 'create', '--title', 'x', '--no-start']).start,
+    ).toBe(false);
   });
 
   it('defaults blocking off and repos absent', () => {
@@ -31,6 +38,7 @@ describe('parseSubtaskCreateArgs', () => {
       description: undefined,
       blocking: false,
       repos: undefined,
+      start: true,
     });
   });
 
@@ -99,6 +107,17 @@ describe('runSubtaskCommand', () => {
     const out = JSON.parse(runSubtaskCommand(store, id, ['subtask', 'create', '--title', 'Piece']));
     expect(out.repos).toEqual(['frontend', 'backend']);
     expect(out.blocking).toBe(false);
+    expect(out.autostart).toBe(true);
+    expect(getTicket(store, out.id).autostartPending).toBe(true);
+  });
+
+  it('--no-start leaves the sub-task unqueued and reports autostart false', () => {
+    const id = parent();
+    const out = JSON.parse(
+      runSubtaskCommand(store, id, ['subtask', 'create', '--title', 'Piece', '--no-start']),
+    );
+    expect(out.autostart).toBe(false);
+    expect(getTicket(store, out.id).autostartPending).toBe(false);
   });
 
   it('refuses a repo the parent does not have', () => {

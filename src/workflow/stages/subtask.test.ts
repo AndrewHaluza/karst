@@ -80,6 +80,18 @@ describe('createSubtask', () => {
     expect(child.blocksParent).toBe(false);
   });
 
+  it('queues the sub-task for autostart by default', () => {
+    const parent = parentTicket();
+    expect(createSubtask(store, parent, { title: 'go' }).autostartPending).toBe(true);
+  });
+
+  it('does not queue the sub-task when start is false', () => {
+    const parent = parentTicket();
+    expect(createSubtask(store, parent, { title: 'hold', start: false }).autostartPending).toBe(
+      false,
+    );
+  });
+
   it('records a blocking sub-task as blocks_parent = 1', () => {
     const parent = parentTicket();
     const child = createSubtask(store, parent, { title: 'blocker', blocking: true });
