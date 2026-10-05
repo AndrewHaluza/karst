@@ -449,6 +449,20 @@ export function setAutostartPending(store: Store, ticketId: number, pending: boo
 }
 
 /**
+ * Atomically claim a queued ticket for auto-start: clears `autostart_pending`
+ * only if it is still set, so across windows and overlapping sweeps exactly one
+ * caller sees `true` and proceeds to start the ticket.
+ */
+export function claimAutostart(store: Store, ticketId: number): boolean {
+  const info = store.db
+    .prepare(
+      "UPDATE tickets SET autostart_pending = 0, updated_at = datetime('now') WHERE id = ? AND autostart_pending = 1",
+    )
+    .run(ticketId);
+  return info.changes === 1;
+}
+
+/**
  * Set (or, with `null`, clear) a ticket's `session_id` — the agent session to
  * `--resume` (§5.3) — together with the agent core that minted it. Captured
  * from the SessionStart hook; cleared when a resume launch dies before starting
