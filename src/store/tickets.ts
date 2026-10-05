@@ -134,7 +134,7 @@ interface TicketRow {
   parent_ticket_id: number | null;
   subtask_parent_id: number | null;
   blocks_parent: number | null;
-  autostart_pending?: number | null;
+  autostart_pending: number;
   priority: string | null;
   paused_at: string | null;
 }
@@ -439,6 +439,16 @@ export function setStageCurrent(store: Store, ticketId: number, stage: StageKey)
 }
 
 /**
+ * Queue (true) or unqueue (false) a ticket for auto-start — the single writer
+ * of `autostart_pending` after creation, apart from the atomic claim.
+ */
+export function setAutostartPending(store: Store, ticketId: number, pending: boolean): void {
+  store.db
+    .prepare("UPDATE tickets SET autostart_pending = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(pending ? 1 : 0, ticketId);
+}
+
+/**
  * Set (or, with `null`, clear) a ticket's `session_id` — the agent session to
  * `--resume` (§5.3) — together with the agent core that minted it. Captured
  * from the SessionStart hook; cleared when a resume launch dies before starting
@@ -672,7 +682,9 @@ export function assertNoOpenSubtasks(store: Store, ticketId: number): void {
  *
  * `blocks_parent` is zeroed in the SAME statement: the leave-impl gate only
  * exists for a sub-task, so a detached top-level ticket must not carry the flag.
- * A single statement keeps the two facts from ever disagreeing.
+ * A single statement keeps the two facts from ever disagreeing. The autostart
+ * queue flag is cleared the same way: a detached ticket is no longer a sub-task
+ * the parent's sweep may start.
  */
 export function detachSubtaskParent(
   store: Store,
@@ -681,7 +693,7 @@ export function detachSubtaskParent(
 ): boolean {
   const info = store.db
     .prepare(
-      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0 WHERE id = ? AND subtask_parent_id = ?',
+      'UPDATE tickets SET subtask_parent_id = NULL, blocks_parent = 0, autostart_pending = 0 WHERE id = ? AND subtask_parent_id = ?',
     )
     .run(ticketId, expectedParentId);
   return info.changes > 0;
@@ -730,7 +742,8 @@ export function clearApproachFromTickets(
 export function archiveTicket(store: Store, ticketId: number): void {
   assertNoOpenSubtasks(store, ticketId);
   store.db
-    .prepare("UPDATE tickets SET archived_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+    // Unqueued in the same write: archived work must never auto-start.
+    .prepare("UPDATE tickets SET archived_at = datetime('now'), autostart_pending = 0, updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
 }
 
