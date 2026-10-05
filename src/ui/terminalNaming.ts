@@ -1,5 +1,12 @@
 import type { BrandIconPaths } from './brandIcon.js';
 
+/**
+ * Id of the contributed product icon (package.json `contributes.icons`, glyph in
+ * media/karst-icons.woff). Terminals use it as a ThemeIcon because VS Code only
+ * persists ThemeIcon ids for revived terminals — a Uri icon vanishes on reload.
+ */
+export const KARST_TERMINAL_ICON_ID = 'karst-mark';
+
 /** The naming bag `SessionManager.openSession` applies to the terminal tab. */
 export interface TerminalNamingBag {
   name: string;

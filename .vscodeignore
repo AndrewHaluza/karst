@@ -53,6 +53,9 @@ reports/**
 media/**
 !media/karst-icon.png
 !media/karst.svg
+# The terminal ThemeIcon font (contributes.icons "karst-mark"): a URI iconPath is
+# lost on reload revival, a ThemeIcon id is not — so the font must ship.
+!media/karst-icons.woff
 
 # VCS / lockfile
 .git/**
