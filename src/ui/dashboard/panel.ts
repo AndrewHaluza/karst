@@ -505,20 +505,22 @@ export class DashboardManager {
     // text and nothing else, and over Remote-SSH the full snapshot (100 KB+)
     // once a second is what made the panel crawl. New structure — a row that
     // opened, a status that moved — still ships the whole snapshot.
+    // The same holds for a passive push (a CLI or usage write re-pushing every
+    // open panel) that turned up nothing new. Only a push that settles an
+    // action always ships whole: the webview clears its pending action on it.
     const structure = structureKey(state);
-    if (live && this.sentStructure.get(ticketId) === structure) {
+    if (!settlesActions && this.sentStructure.get(ticketId) === structure) {
       panel.postMessage({ type: 'clocks', clocks: liveClocks(state) });
-      this.scheduleLiveTick(ticketId, state);
-      return;
+    } else {
+      this.sentStructure.set(ticketId, structure);
+      panel.postMessage({
+        type: 'state',
+        state,
+        ...(live ? { live: true } : {}),
+        ...(!supplemental && !live ? { supplemental: false } : {}),
+        ...(!settlesActions ? { settlesActions: false } : {}),
+      });
     }
-    this.sentStructure.set(ticketId, structure);
-    panel.postMessage({
-      type: 'state',
-      state,
-      ...(live ? { live: true } : {}),
-      ...(!supplemental && !live ? { supplemental: false } : {}),
-      ...(!settlesActions ? { settlesActions: false } : {}),
-    });
     if (supplemental) {
       this.loaders.pushWorktreeStats(ticketId, panel, state.worktrees, this.supplementalHost);
       this.loaders.prefetchBranchCandidates(ticketId, panel, state.worktrees, this.supplementalHost);

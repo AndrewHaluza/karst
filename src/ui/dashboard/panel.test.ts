@@ -241,6 +241,8 @@ describe('DashboardManager', () => {
       undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
     );
     mgr.openDashboard(t.id);
+    // Real news: an unchanged snapshot would ship as clocks only.
+    openProcessRun(store, { ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 1, startedAt: new Date().toISOString() });
 
     mgr.pushStoreState(t.id);
 
@@ -272,6 +274,8 @@ describe('DashboardManager', () => {
       undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
     );
     mgr.openDashboard(t.id);
+    // Real news: an unchanged snapshot would ship as clocks only.
+    openProcessRun(store, { ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 1, startedAt: new Date().toISOString() });
 
     mgr.pushPassiveState(t.id);
 
@@ -306,6 +310,8 @@ describe('DashboardManager', () => {
       undefined, undefined, undefined, loadStats, undefined, loadGateOptions,
     );
     mgr.openDashboard(t.id);
+    // Real news: an unchanged snapshot would ship as clocks only.
+    openProcessRun(store, { ticketId: t.id, stageKey: 'uat', processId: 'tester', attempt: 1, startedAt: new Date().toISOString() });
 
     mgr.pushPassiveState(t.id);
 
@@ -1268,6 +1274,56 @@ describe('DashboardManager', () => {
       const clocks = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'clocks');
       expect(clocks).toHaveLength(3);
       expect((clocks[0] as { clocks: Record<string, unknown> }).clocks.uat).toBeDefined();
+    });
+
+    it('a passive push that finds nothing new sends only the clocks', () => {
+      // A CLI or usage write re-pushes every open panel; when the snapshot
+      // matches the last one sent but for time, 100 KB+ would repaint nothing.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const full = fullStates(panels[0]!).length;
+      mgr.pushPassiveState(t.id);
+      mgr.pushStoreState(t.id);
+
+      expect(fullStates(panels[0]!).length).toBe(full);
+      const clocks = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'clocks');
+      expect(clocks).toHaveLength(2);
+    });
+
+    it('a passive push with new structure still sends the full snapshot', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const full = fullStates(panels[0]!).length;
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      mgr.pushPassiveState(t.id);
+
+      expect(fullStates(panels[0]!).length).toBe(full + 1);
+    });
+
+    it('a push that settles an action always sends the full snapshot', () => {
+      // The webview clears its pending action on a settling state; a clocks
+      // message would leave the spinner up.
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      const { host, panels } = fakeHost();
+      const mgr = new DashboardManager(store, host, () => ({}) as never);
+
+      mgr.openDashboard(t.id);
+      const full = fullStates(panels[0]!).length;
+      mgr.pushState(t.id);
+
+      expect(fullStates(panels[0]!).length).toBe(full + 1);
     });
 
     it('sends the full snapshot when a tick finds new structure (a row opened)', () => {
