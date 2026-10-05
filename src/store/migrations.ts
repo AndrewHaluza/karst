@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
+import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2430,6 +2431,11 @@ function migrateLocked(db: Database): void {
 
   // Ungated: v64 is unreleased and early v64 DBs lack woke_at/AUTOINCREMENT.
   repairTicketMessages(db);
+
+  if (current < 65) {
+    // v65: planning sessions. Purely additive (IF NOT EXISTS), nothing to backfill.
+    db.exec(PLANNING_SESSIONS_DDL);
+  }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

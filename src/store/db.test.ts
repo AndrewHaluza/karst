@@ -59,6 +59,8 @@ const EXPECTED_TABLES = [
   'test_logs',
   'test_hooks',
   'ticket_messages',
+  'planning_sessions',
+  'planning_session_tickets',
 ] as const;
 
 function tableNames(store: Store): string[] {
@@ -93,7 +95,7 @@ describe('openStore', () => {
     while (cleanups.length) cleanups.pop()!();
   });
 
-  it('creates all 41 registry tables', () => {
+  it('creates all 43 registry tables', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
     const names = tableNames(store);
@@ -220,13 +222,13 @@ describe('openStore', () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_worktrees_ticket_path'),
     ).toBeTruthy();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('reports the current schema user_version', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
-    expect(store.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a pre-v60 prs table by adding checks and merge_block, idempotently', () => {
@@ -251,13 +253,13 @@ describe('openStore', () => {
     );
     expect(cols.has('checks')).toBe(true);
     expect(cols.has('merge_block')).toBe(true);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     migrated.close();
 
     // A second open is a no-op: the guard reads the CURRENT columns, not the version.
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a pre-v62 tickets table by adding agent_preset as NULL, idempotently', () => {
@@ -293,7 +295,7 @@ describe('openStore', () => {
         }
       ).agent_preset,
     ).toBeNull();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // A second open is a no-op: the guard reads the CURRENT columns, not the
     // version.
@@ -305,7 +307,7 @@ describe('openStore', () => {
       ),
     );
     expect(cols2.has('agent_preset')).toBe(true);
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a pre-v63 tickets table by adding the sub-task columns and index, idempotently', () => {
@@ -346,7 +348,7 @@ describe('openStore', () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_tickets_subtask_parent'),
     ).toBeTruthy();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // A second open is a no-op: the guards read the CURRENT columns, not the version.
     const reopened = openStore(path);
@@ -358,7 +360,7 @@ describe('openStore', () => {
     );
     expect(cols2.has('subtask_parent_id')).toBe(true);
     expect(cols2.has('blocks_parent')).toBe(true);
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a pre-v64 DB by adding autostart_pending (0) and ticket_messages, idempotently', () => {
@@ -395,13 +397,13 @@ describe('openStore', () => {
         .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
         .get('idx_ticket_messages_inbox'),
     ).toBeTruthy();
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     migrated.close();
     cleanups.pop();
 
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v53 DB to v54, adding servers.container as NULL', () => {
@@ -437,7 +439,7 @@ describe('openStore', () => {
     expect(
       migrated.db.prepare('SELECT container FROM servers WHERE ticket_id = 1').get(),
     ).toEqual({ container: null });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('repairs review_findings.identity on a v53 DB left by the crash window (P2-16)', () => {
@@ -463,7 +465,7 @@ describe('openStore', () => {
       ),
     );
     expect(cols.has('identity')).toBe(true);
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v45 DB to v46, adding servers.kind defaulting to service', () => {
@@ -498,7 +500,7 @@ describe('openStore', () => {
     expect(
       migrated.db.prepare("SELECT kind FROM servers WHERE ticket_id = 1").get(),
     ).toEqual({ kind: 'service' });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('fresh DB carries the nine graph tables and the token_usage graph FKs (v35)', () => {
@@ -527,7 +529,7 @@ describe('openStore', () => {
     for (const t of EXPECTED_TABLES.slice(EXPECTED_TABLES.length - 9)) {
       expect(names).toContain(t);
     }
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('an interrupted v35 step leaves user_version at 34 and the next open completes', () => {
@@ -566,7 +568,7 @@ describe('openStore', () => {
     // The next open completes the migration.
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
     expect(tableNames(reopened)).toContain('approach_graph_runs');
   });
 
@@ -578,8 +580,8 @@ describe('openStore', () => {
     const b = openStore(path);
     cleanups.push(() => a.close());
     cleanups.push(() => b.close());
-    expect(a.db.pragma('user_version', { simple: true })).toBe(64);
-    expect(b.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(a.db.pragma('user_version', { simple: true })).toBe(65);
+    expect(b.db.pragma('user_version', { simple: true })).toBe(65);
     expect(tableNames(b)).toContain('approach_graph_runs');
   });
 
@@ -621,7 +623,7 @@ describe('openStore', () => {
 
     const migrated = new Database(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.pragma('user_version', { simple: true })).toBe(65);
     const names = migrated
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
       .all()
@@ -651,7 +653,7 @@ describe('openStore', () => {
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     const names = tableNames(migrated);
     for (const t of EXPECTED_TABLES.slice(EXPECTED_TABLES.length - 9)) {
       expect(names).toContain(t);
@@ -686,7 +688,7 @@ describe('openStore', () => {
       .all()
       .map((r) => (r as { name: string }).name);
     expect(cols).toContain('blocked_reason');
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('a v35 DB migrates through v37: the node-run CHECK gains the output-validation statuses', () => {
@@ -711,7 +713,7 @@ describe('openStore', () => {
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     const sql = (
       migrated.db
         .prepare(
@@ -782,7 +784,7 @@ describe('openStore', () => {
     // The next open completes the migration.
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
     const afterSql = (
       reopened.db
         .prepare(
@@ -947,7 +949,7 @@ describe('openStore', () => {
       key: 'OLD-16',
       title: 'v16 row',
     });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('repairs an at-version attachment table and deduplicates before adding uniqueness', () => {
@@ -1026,7 +1028,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       merged_at: null,
       comments: null,
     });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v14 DB to v15, adding tickets.type without touching rows', () => {
@@ -1049,7 +1051,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // Nothing is backfilled: a pre-v15 ticket has no conventional type to derive,
     // so it stays NULL and renders as the manifest default.
     expect(row).toEqual({ key: 'K-1', title: 'keep me', type: null });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a legacy v13 DB to v14, adding the parent_ticket_id column', () => {
@@ -1076,7 +1078,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       .get('OLD-13') as { title: string; parent_ticket_id: number | null } | undefined;
     expect(row?.title).toBe('v13 row'); // data survived
     expect(row?.parent_ticket_id).toBeNull(); // nothing to backfill: not a follow-up
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('tickets carries the v13 session_provider column', () => {
@@ -1120,7 +1122,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(row?.title).toBe('v12 row'); // data survived
     expect(row?.session_id).toBe('sess-from-v12');
     expect(row?.session_provider).toBeNull();
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a legacy v11 DB to v12, adding the agent_provider column', () => {
@@ -1146,7 +1148,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-11') as { title: string } | undefined;
     expect(row?.title).toBe('v11 row'); // data survived
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a legacy v4 DB to v5, adding the model column', () => {
@@ -1172,7 +1174,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-4') as { title: string } | undefined;
     expect(row?.title).toBe('v4 row'); // data survived
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v5 DB to v6, adding projects + project_id and leaving rows unassigned', () => {
@@ -1203,7 +1205,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       .get('OLD-5') as { title: string; project_id: number | null } | undefined;
     expect(row?.title).toBe('v5 row');
     expect(row?.project_id).toBeNull();
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v6 DB to v7, adding gate_runs without touching stages', () => {
@@ -1234,7 +1236,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // them would be the inference the no-inference guarantee forbids.
     const runs = migrated.db.prepare('SELECT * FROM gate_runs').all();
     expect(runs).toEqual([]);
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v7 DB to v8, adding phase_marks without touching stages', () => {
@@ -1265,7 +1267,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // inventing marks would be exactly the inference karst forbids.
     const marks = migrated.db.prepare('SELECT * FROM phase_marks').all();
     expect(marks).toEqual([]);
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v8 DB to v9, adding merge_checks without touching prs', () => {
@@ -1297,7 +1299,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // merge check until its next ship — never a manufactured "clean".
     const checks = migrated.db.prepare('SELECT * FROM merge_checks').all();
     expect(checks).toEqual([]);
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   // v10 is the first NON-additive step: a column rename. The values never
@@ -1354,7 +1356,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       migrated.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
     ).toEqual({ repo: 'api' });
 
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   // The rename step is guarded on the CURRENT columns, so re-running it (a fresh
@@ -1373,7 +1375,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       reopened.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = 1').get(),
     ).toEqual({ repo: 'api' });
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v10 DB to v11, adding worktree_archives', () => {
@@ -1406,7 +1408,7 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
     // worktree is actually archived; there is nothing to derive here.
     const archives = migrated.db.prepare('SELECT * FROM worktree_archives').all();
     expect(archives).toEqual([]);
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v18 DB to v19, adding token_usage and its aggregation indexes', () => {
@@ -1443,7 +1445,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       migrated.db.prepare('SELECT key FROM tickets WHERE id = ?').get(1),
     ).toEqual({ key: 'K-1' });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   // v25 retires the standalone `merge` stage: a ticket a prior build parked
@@ -1510,7 +1512,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       migrated.db.prepare("SELECT status FROM stages WHERE ticket_id = 1 AND stage_key = 'merge'").get(),
     ).toEqual({ status: 'pending' });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v20 DB to v21, adding servers.cwd without inventing a value for it', () => {
@@ -1550,7 +1552,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     ).toEqual({ pid: 4242, status: 'running', cwd: null });
     // The FINAL version, not 21: `openStore` runs every pending step, so a
     // legacy DB lands at SCHEMA_VERSION whichever step this case exercises.
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   // v21 was RENUMBERED before release: it first shipped as the gate_runs
@@ -1599,7 +1601,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       migrated.db.prepare('SELECT pid, status, cwd FROM servers WHERE ticket_id = 1').get(),
     ).toEqual({ pid: 4242, status: 'running', cwd: null });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   // Nothing reads `servers` by position — every query in the codebase names its
@@ -1674,7 +1676,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     });
     // The FINAL version, not 22: `openStore` runs every pending step, so a
     // legacy DB lands at SCHEMA_VERSION whichever step this case exercises.
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // Idempotence: reopening an already-migrated DB must not error or re-alter.
     migrated.close();
@@ -1688,7 +1690,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(reopenedCols.has('repo')).toBe(true);
     expect(reopenedCols.has('command')).toBe(true);
     expect(reopenedCols.has('args')).toBe(true);
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v22 DB to v23, adding review_findings without touching other tables', () => {
@@ -1739,14 +1741,14 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
     expect(migrated.db.prepare('SELECT key FROM tickets WHERE id = ?').get(1)).toEqual({
       key: 'K-1',
     });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // Idempotence: reopening an already-migrated DB must not error or re-create.
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(tableNames(reopened)).toContain('review_findings');
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v23 database to v24 without losing gate rows', () => {
@@ -1776,7 +1778,7 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     const ticketCols = new Set(
       (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
         (c) => c.name,
@@ -1863,7 +1865,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
       blocked_reason: null,
       blocked_at: null,
     });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     migrated.close();
 
     // Idempotence: reopening an already-migrated DB must not error, re-alter
@@ -1878,7 +1880,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(reopenedCols.has('blocked_kind')).toBe(true);
     expect(reopenedCols.has('blocked_reason')).toBe(true);
     expect(reopenedCols.has('blocked_at')).toBe(true);
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
     const reopenedRow = reopened.db
       .prepare(
         'SELECT status, attempt, verdict FROM stages WHERE ticket_id = ? AND stage_key = ?',
@@ -1920,7 +1922,7 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
       .prepare('SELECT title FROM tickets WHERE key = ?')
       .get('OLD-2') as { title: string } | undefined;
     expect(row?.title).toBe('v2 row'); // data survived
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v1 DB to v2, adding columns and preserving rows', () => {
@@ -2054,14 +2056,14 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       migrated.db.prepare('SELECT status, pid FROM stage_runs WHERE ticket_id = ?').get(1),
     ).toEqual({ status: 'running', pid: 4242 });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // Idempotence: reopening an already-migrated DB must not error or re-create.
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(tableNames(reopened)).toContain('process_runs');
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v27 DB to v28, adding the implementation tables and evidence linkage', () => {
@@ -2115,7 +2117,7 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
     for (const table of ['implementation_runs', 'session_launch_intents', 'implementation_segments']) {
       expect(tableNames(migrated)).toContain(table);
     }
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const markCols = columns(migrated, 'phase_marks');
     expect(markCols).toContain('implementation_run_id');
@@ -2143,7 +2145,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v28 DB to v29, adding the interactive usage samples table and its linkage', () => {
@@ -2239,12 +2241,12 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       migrated.db.prepare('SELECT * FROM interactive_usage_samples').all(),
     ).toEqual([]);
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('carries the v32 ship saga tables and their indexes on a fresh DB', () => {
@@ -2354,14 +2356,14 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
     expect(
       migrated.db.prepare('SELECT key, stage_current FROM tickets WHERE id = ?').get(1),
     ).toEqual({ key: 'K-1', stage_current: null });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // Idempotence: reopening an already-migrated DB must not error or re-create.
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
     expect(tableNames(reopened)).toContain('ship_commits');
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v32 DB to v33, adding the intent agent_name column without touching rows', () => {
@@ -2401,13 +2403,13 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
         .prepare('SELECT launch_id, purpose, provider, model, agent_name, status FROM session_launch_intents')
         .get(),
     ).toEqual({ launch_id: 'l-1', purpose: 'fix', provider: 'claude', model: 'sol', agent_name: null, status: 'pending' });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // Idempotence: reopening an already-migrated DB must not error or re-create.
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('migrates a v33 DB to v34, adding the ship run pid column without touching rows', () => {
@@ -2452,13 +2454,13 @@ expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
       ended_at: null,
       pid: null,
     });
-expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     // Idempotence: reopening an already-migrated DB must not error or re-create.
     migrated.close();
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
   });
 
   it('a v38 DB gains the node-execution workspace shape (v39): base heads, byte total, ledger', () => {
@@ -2486,7 +2488,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     const nodeCols = new Set(
       (migrated.db.prepare("PRAGMA table_info('approach_node_runs')").all() as { name: string }[]).map(
         (c) => c.name,
@@ -2516,7 +2518,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     legacy35.close();
     const migrated35 = openStore(join(dir, 'registry35.db'));
     cleanups.push(() => migrated35.close());
-    expect(migrated35.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated35.db.pragma('user_version', { simple: true })).toBe(65);
     const runCols35 = new Set(
       (migrated35.db.prepare("PRAGMA table_info('approach_graph_runs')").all() as { name: string }[]).map(
         (c) => c.name,
@@ -2549,7 +2551,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
     const tokenCols = new Set(
       (migrated.db.prepare("PRAGMA table_info('approach_graph_tokens')").all() as { name: string }[]).map(
         (c) => c.name,
@@ -2586,7 +2588,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const rows = migrated.db
       .prepare('SELECT key, title FROM tickets ORDER BY key')
@@ -2612,7 +2614,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const cols = new Set(
       (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
@@ -2652,7 +2654,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const cols = new Set(
       (migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map(
@@ -2686,7 +2688,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const cols = new Set(
       (migrated.db.prepare("PRAGMA table_info('recovery_rounds')").all() as { name: string }[]).map(
@@ -2751,7 +2753,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const rows = migrated.db
       .prepare(
@@ -2797,7 +2799,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
   it('v47 is a no-op on a fresh DB (no duplicates, index present)', () => {
     const store = openStore(':memory:');
     cleanups.push(() => store.close());
-    expect(store.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(store.db.pragma('user_version', { simple: true })).toBe(65);
     const index = store.db
       .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?")
       .get('idx_prs_ticket_repo_url');
@@ -2950,7 +2952,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     expect(tableSql(migrated.db, 'recovery_rounds')).toContain("'ship'");
     const rows = migrated.db
@@ -3023,7 +3025,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // The next open completes the migration.
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
     const afterSql = (
       reopened.db
         .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recovery_rounds'")
@@ -3110,7 +3112,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const rows = migrated.db
       .prepare(
@@ -3186,7 +3188,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // The migration must not throw: this is the whole point of the test.
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const rows = migrated.db
       .prepare('SELECT id, episode, round, max_rounds, status FROM recovery_rounds ORDER BY id')
@@ -3225,7 +3227,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
 
     const migrated = openStore(path);
     cleanups.push(() => migrated.close());
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(65);
 
     const uatRow = migrated.db
       .prepare("SELECT started_at, ended_at FROM stages WHERE ticket_id = ? AND stage_key = 'uat'")
@@ -3284,7 +3286,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // The next open completes the migration.
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
     const afterSql = (
       reopened.db
         .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'recovery_rounds'")
@@ -3329,7 +3331,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(64);
     // The next open completes the migration.
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(64);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(65);
     const afterSql = (
       reopened.db
         .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'stages'")

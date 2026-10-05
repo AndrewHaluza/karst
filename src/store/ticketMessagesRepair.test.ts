@@ -42,6 +42,7 @@ function earlyV64Db(): { path: string; projectId: number; to: number } {
   s.close();
   const raw = new Database(path);
   raw.exec(EARLY_V64);
+  raw.pragma('user_version = 64');
   raw.prepare(
     "INSERT INTO ticket_messages (project_id, to_ticket_id, kind, body) VALUES (?, ?, 'message', 'kept')",
   ).run(projectId, to);

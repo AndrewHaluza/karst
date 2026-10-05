@@ -104,6 +104,10 @@ Indexes: `idx_ticket_messages_inbox (to_ticket_id, read_at)` for inbox reads; `i
 
 **Cross-window risk (L1).** Bumping to v64 makes the graph verbs of every OLDER build refuse this DB: `openGraphWritableStore` calls `assertExactSchema` (`cli/assertMigrated.ts`, `user_version !== SCHEMA_VERSION` throws), so `karst graph submit` and `karst node complete|block|replan` from a v63 window sharing the same global-storage registry fail with "requires exactly v63" until that window's extension is updated. The non-graph verbs use `assertMigratedSchema`, which only refuses an OLDER registry.
 
+## Planning sessions (v65)
+
+`planning_sessions` (`src/store/planningSessions.ts`) holds a read-only, stack-aware agent conversation that investigates before a ticket exists. It is project-scoped, is NOT a ticket, and has no stage: planning has no deterministic verdict, so it stays out of the stage graph. `status` is `active` | `filed` | `archived`. `planning_session_tickets(session_id, ticket_id)` records the drafts a session filed, and linking the first one moves `active` to `filed`. The migration step is purely additive (`CREATE TABLE IF NOT EXISTS`) and backfills nothing.
+
 ## New schema column checklist
 
 New schema column checklist: `schema.sql` (fresh DBs) + a guarded ALTER in `migrations.ts` + bump `SCHEMA_VERSION` + update db.test.ts's version/table-count assertions. Migrations never backfill data they can't derive — defer that to the host (see project adoption). Guards read the CURRENT columns (`tableColumns`), so a fresh DB skips the step and a re-open is a no-op — that is what keeps v10's `service`→`repo` RENAME (the one non-additive step) idempotent.
