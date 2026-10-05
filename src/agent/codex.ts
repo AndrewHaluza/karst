@@ -383,8 +383,20 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
-    if (opts.readOnly) args.push('--sandbox', 'read-only');
-    for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
+    if (opts.readOnly) {
+      // Not `read-only`: that sandbox EPERMs the karst CLI's DB write. Under
+      // `workspace-write` only cwd (a karst scratch dir) and `writableDirs`
+      // are writable; the sandbox reads the whole disk, so the stack repos
+      // need no `--add-dir` — which would make them WRITABLE here.
+      args.push(
+        '--sandbox',
+        'workspace-write',
+        '--config',
+        `sandbox_workspace_write.writable_roots=${JSON.stringify(opts.writableDirs ?? [])}`,
+      );
+    } else {
+      for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
+    }
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     if (opts.hookChannel) {
       appendHookArgs(

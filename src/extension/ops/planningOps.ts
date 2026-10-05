@@ -1,3 +1,5 @@
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
@@ -32,8 +34,12 @@ export interface PlanningOpsDeps {
   store: Store;
   projectId: () => number | undefined;
   manifest: () => PlanningManifest | undefined;
-  /** The directory the agent starts in (the manifest's directory). */
-  stackRoot: () => string | undefined;
+  /**
+   * The session's own scratch directory (created if missing): the agent's cwd
+   * and where it writes the draft files. Never a repository — under codex's
+   * sandbox the cwd is writable.
+   */
+  scratchDir: (sessionId: number) => string;
   defaultAgent: () => { provider: AgentProvider; model: string | null };
   host: TerminalHost;
   cli: () => { cliEntry?: string; dbPath?: string; manifestPath?: string };
@@ -62,17 +68,21 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
 
   function launch(session: PlanningSession): void {
     const manifest = deps.manifest();
-    const cwd = deps.stackRoot();
-    if (!manifest || !cwd) {
+    const cli = deps.cli();
+    if (!manifest) {
       debug(`launch ${session.id} blocked: no manifest loaded`);
       deps.notify.warn('Karst: load a manifest before you start a planning session.');
       return;
     }
+    const cwd = deps.scratchDir(session.id);
+    mkdirSync(cwd, { recursive: true });
     const adapter = resolveAdapter(session.core as AgentProvider);
     const cmd = adapter.buildInteractiveCommand({
       cwd,
       readOnly: true,
       addDirs: planningAddDirs(manifest),
+      // `draft create` writes the registry; a sandboxing core must allow it.
+      ...(cli.dbPath ? { writableDirs: [dirname(cli.dbPath)] } : {}),
       initialPrompt: planningPreamble({ sessionId: session.id, title: session.title, manifest }),
       ...(session.model ? { model: session.model } : {}),
     });
@@ -84,7 +94,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       shellArgs: cmd.args,
       env: {
         ...cmd.env,
-        ...sessionCliEnv(deps.cli(), deps.debug),
+        ...sessionCliEnv(cli, deps.debug),
         [KARST_PLANNING_SESSION_ENV]: String(session.id),
       },
     });

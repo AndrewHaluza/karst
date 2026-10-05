@@ -223,7 +223,13 @@ export class ClaudeAdapter implements AgentAdapter {
       // dir). Appended before the `--`/positional so they parse as options.
       args.push(...opts.extraArgs);
     }
-    if (opts.readOnly) args.push('--permission-mode', 'plan');
+    if (opts.readOnly) {
+      // Not `plan`: plan mode refuses the `draft create` shell command, and
+      // leaving it makes the session writable. `default` overrides a user's
+      // saved acceptEdits/bypass mode; the edit tools are denied outright and
+      // every other shell command asks — filing is one approval.
+      args.push('--permission-mode', 'default', '--disallowedTools', 'Edit', 'Write', 'NotebookEdit');
+    }
     // `--add-dir` is variadic in claude; one flag per dir keeps each value
     // unambiguous, and the `--` below stops it swallowing the prompt.
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);

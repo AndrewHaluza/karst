@@ -744,7 +744,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore,
     projectId: () => currentProject()?.id,
     manifest: () => currentManifest(),
-    stackRoot: () => { const m = cliEntryAndManifest(context).manifestPath; return m ? dirname(m) : undefined; },
+    scratchDir: (id) => join(storageDir, 'planning', String(id)),
     defaultAgent: () => ({ provider: currentManifest()?.agentProvider ?? 'claude', model: null }),
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
     cli: () => cliSessionInput(cliLiteral(context, dbPath)),

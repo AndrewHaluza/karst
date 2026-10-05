@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { getPlanningSession, linkPlanningTicket } from '../../store/planningSessions.js';
@@ -41,8 +44,10 @@ describe('planning ops', () => {
   let deps: PlanningOpsDeps;
   const messages: string[] = [];
   let changes = 0;
+  let scratch: string;
   beforeEach(() => {
     store = openStore(':memory:');
+    scratch = mkdtempSync(join(tmpdir(), 'karst-plan-'));
     projectId = upsertProject(store, { slug: 'p' }).id;
     const fake = fakeHost();
     created = fake.created;
@@ -53,7 +58,7 @@ describe('planning ops', () => {
         baselineBranch: 'main',
         repositories: { api: repo({ repoPath: '/src/api' }), web: repo({ repoPath: '/src/web' }) },
       }),
-      stackRoot: () => '/src',
+      scratchDir: (id) => join(scratch, String(id)),
       defaultAgent: () => ({ provider: 'claude', model: 'opus' }),
       host: fake.host,
       cli: () => ({ cliEntry: '/dist/cli/main.js', dbPath: '/db/karst.db', manifestPath: '/src/karst.yml' }),
@@ -61,16 +66,20 @@ describe('planning ops', () => {
       notify: { info: (m) => void messages.push(m), warn: (m) => void messages.push(m), error: async () => undefined },
     };
   });
-  afterEach(() => store.close());
+  afterEach(() => {
+    store.close();
+    rmSync(scratch, { recursive: true, force: true });
+  });
 
   it('creates a session and launches a read-only agent across every repo', () => {
     const ops = createPlanningOps(deps);
     const session = ops.create('Auth rework')!;
     expect(session).toMatchObject({ title: 'Auth rework', core: 'claude', model: 'opus', status: 'active' });
     const { opts } = created[0]!;
-    expect(opts.cwd).toBe('/src');
+    expect(opts.cwd).toBe(join(scratch, String(session.id)));
+    expect(existsSync(opts.cwd)).toBe(true);
     expect(opts.name).toBe('Karst plan: Auth rework');
-    expect(opts.shellArgs).toEqual(expect.arrayContaining(['--permission-mode', 'plan', '--add-dir', '/src/api', '/src/web']));
+    expect(opts.shellArgs).toEqual(expect.arrayContaining(['--disallowedTools', 'Edit', '--add-dir', '/src/api', '/src/web']));
     expect(opts.shellArgs.join(' ')).toContain(`draft create --session ${session.id}`);
     expect(opts.env).toMatchObject({ KARST_PLANNING_SESSION: String(session.id), KARST_DB: '/db/karst.db' });
     expect(opts.env).not.toHaveProperty('KARST_TICKET_ID');
@@ -101,6 +110,12 @@ describe('planning ops', () => {
     expect(ops.isLive(s.id)).toBe(false);
     expect(created[0]!.disposed).toBe(true);
     expect(getPlanningSession(store, s.id)!.status).toBe('archived');
+  });
+
+  it('lets a sandboxing core write the registry directory (codex)', () => {
+    const ops = createPlanningOps({ ...deps, defaultAgent: () => ({ provider: 'codex', model: null }) });
+    ops.create('t');
+    expect(created[0]!.opts.shellArgs).toContain('sandbox_workspace_write.writable_roots=["/db"]');
   });
 
   it('refuses without a project and warns instead of throwing', () => {

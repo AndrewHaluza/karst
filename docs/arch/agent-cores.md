@@ -53,6 +53,17 @@ A change that is NOT a translation of one CLI's own flag vocabulary lands on eve
 
 `mcpIsolationHeadless` has one verified argument per core, and the arguments are not interchangeable: claude passes `--strict-mcp-config` **alone** — pairing it with `--mcp-config '{}'` makes the CLI exit with `Invalid MCP configuration: mcpServers: Invalid input` before it does any work, because that value is schema-validated and requires an `mcpServers` key (this shipped once and turned every headless claude run into `execution-failed`); codex passes `--config mcp_servers={}`; opencode passes `--pure`; antigravity has no per-invocation flag at all and declares `unsupported(...)`. Presence of the right flag is not sufficient — `adapterConformance.test.ts` also holds `FORBIDDEN_HEADLESS_ARGS`, the arguments each core's CLI rejects, because a presence-only assertion cannot catch an extra argument.
 
+## A read-only planning launch uses each core's VERIFIED mechanism, never its native plan mode
+
+`InteractiveCommandOpts.readOnly` (+ `addDirs`, `writableDirs`) launches a planning session (`extension/ops/planningOps.ts`): edits blocked or approval-gated, the stack repos readable, and the karst CLI's own `draft create` write still possible. Native plan modes fail the last requirement: claude's `plan` refuses the filing command and leaving it makes the session writable; agy's `plan` "researches without making changes"; opencode's `plan` agent is overridden by a project `opencode.json` that allows everything. So:
+
+- **claude:** `--permission-mode default --disallowedTools Edit Write NotebookEdit`. Edit tools are denied; every other shell command asks. `default` overrides a saved acceptEdits/bypass mode.
+- **codex:** `--sandbox workspace-write` + `writable_roots=<writableDirs>`. The cwd is a karst scratch dir (never a repo), so only it and the registry dir are writable. No `--add-dir` under readOnly (it would make the repos writable); the sandbox reads the whole disk. Verified live: repo edit EPERM, registry write OK.
+- **opencode:** `OPENCODE_PERMISSION` env `{edit: deny, bash: ask, external_directory: {*: ask, <dir>/**: allow}}`. opencode merges it after every config file, so it wins; `addDirs` become `external_directory` allows (the TUI has no extra-dir flag). Verified via `opencode agent list`.
+- **agy:** `--mode default`, approval-gated only: agy has no deny mechanism, so every write and command asks. Not live-verified (quota).
+
+`adapterConformance.test.ts` pins each mechanism and checks that an ordinary launch never carries the policy.
+
 ## A headless agent run is BOUNDED, and the bounds live in ONE spawner
 
 `agent/headlessSpawn.ts` (`spawnHeadlessCli`) is now THE spawner every adapter's `defaultSpawn`/`makeDefaultSpawn` delegates to: the child is spawned `detached` (its own group), an abort or the 15-minute `timeoutMs` backstop kills the WHOLE group via `killTree` (a killed run's `close` arrives a moment later and must never read as a clean exit — the `killReason` flag makes abort/timeout rejections win over it), and stdout/stderr drain into `BoundedOutput` (8 MB default) instead of unbounded string concat. An abort rejects with `name === 'AbortError'`; a timeout rejects naming the deadline. Adding a fifth core means routing its spawn through `spawnHeadlessCli`, never a third copy of the loop.

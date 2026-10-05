@@ -166,12 +166,20 @@ export interface InteractiveCommandOpts {
    */
   extraArgs?: string[];
   /**
-   * Launch in the core's read-only / plan mode: the agent may read and run
-   * read-only commands but never edits. Used by planning sessions.
+   * A read-only planning launch: edits are blocked (or, where a core has no
+   * deny mechanism, approval-gated) while the karst CLI's own write still
+   * works. Each core's mechanism is pinned in `adapterConformance.test.ts`;
+   * native "plan" modes are NOT used — see there for why.
    */
   readOnly?: boolean;
   /** Extra directories the session may read beyond `cwd` (a planning session's stack repos). */
   addDirs?: string[];
+  /**
+   * Directories that must stay writable in a `readOnly` session (karst's DB
+   * directory, so `draft create` can write). Only a core that sandboxes writes
+   * at the OS level (codex) needs it; the others gate writes by approval.
+   */
+  writableDirs?: string[];
 }
 
 export interface HookChannel {

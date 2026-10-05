@@ -146,49 +146,77 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   });
 
   /**
-   * The verified read-only switch per core (checked against each installed
-   * CLI's --help): a planning session must not be able to edit anything.
+   * The read-only planning launch, per core. Each mechanism was verified
+   * against the installed CLI (claude/codex by live probe, opencode by its
+   * effective `agent list` rules, agy by its mode docs): edits must be blocked
+   * or approval-gated, the stack repos readable, and the karst CLI's own write
+   * (`draft create`) must still be possible.
+   *
+   * Native "plan" modes are deliberately NOT used: claude's and agy's refuse
+   * the filing command outright (leaving the mode makes the session writable),
+   * and opencode's plan agent is overridden by a project `opencode.json`.
    */
-  const READ_ONLY_ARGS: Record<AgentProvider, readonly string[]> = {
-    claude: ['--permission-mode', 'plan'],
-    codex: ['--sandbox', 'read-only'],
-    opencode: ['--agent', 'plan'],
-    antigravity: ['--mode', 'plan'],
+  type Launch = { args: string[]; env: Record<string, string> };
+  const opencodePermission = (l: Launch): Record<string, unknown> =>
+    JSON.parse(l.env.OPENCODE_PERMISSION ?? '{}') as Record<string, unknown>;
+  const after = (args: string[], flag: string): string | undefined => args[args.indexOf(flag) + 1];
+
+  const READ_ONLY: Record<AgentProvider, (l: Launch) => void> = {
+    claude: ({ args }) => {
+      expect(after(args, '--permission-mode')).toBe('default');
+      const i = args.indexOf('--disallowedTools');
+      expect(args.slice(i + 1, i + 4)).toEqual(['Edit', 'Write', 'NotebookEdit']);
+    },
+    codex: ({ args }) => {
+      expect(after(args, '--sandbox')).toBe('workspace-write');
+      expect(args).toContain('sandbox_workspace_write.writable_roots=["/karst/db"]');
+      // An --add-dir is WRITABLE under workspace-write; the sandbox reads the whole disk anyway.
+      expect(args).not.toContain('/repos/api');
+    },
+    opencode: (l) => {
+      expect(opencodePermission(l)).toMatchObject({ edit: 'deny', bash: 'ask' });
+    },
+    antigravity: ({ args }) => {
+      expect(after(args, '--mode')).toBe('default');
+    },
   };
 
-  it('launches an interactive session read-only when asked and declared supported', () => {
-    const surfaces = surfacesOf(provider);
-    const { args } = resolveAdapter(provider).buildInteractiveCommand({
-      cwd: '/stack',
+  const READS_DIR: Record<AgentProvider, (l: Launch, dir: string) => void> = {
+    claude: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+    codex: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+    opencode: (l, dir) =>
+      expect(opencodePermission(l).external_directory).toMatchObject({ '*': 'ask', [`${dir}/**`]: 'allow' }),
+    antigravity: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+  };
+
+  it('launches a read-only planning session by its verified mechanism', () => {
+    expect(surfacesOf(provider).readOnlyInteractive.supported).toBe(true);
+    const launch = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/karst/scratch',
       readOnly: true,
+      addDirs: ['/repos/api'],
+      writableDirs: ['/karst/db'],
       initialPrompt: 'plan it',
     });
-    const [flag, value] = READ_ONLY_ARGS[provider];
-    if (surfaces.readOnlyInteractive.supported) {
-      expect(args[args.indexOf(flag!) + 1], `${provider} read-only argv`).toBe(value);
-    } else {
-      expect(args).not.toContain(flag);
-    }
-    const plain = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/stack' }).args;
-    expect(plain, `${provider} must stay writable by default`).not.toContain(flag);
+    READ_ONLY[provider](launch);
+    expect(launch.args.at(-1), `${provider} prompt stays last`).toBe('plan it');
   });
 
-  it('adds every extra directory before the prompt when declared supported', () => {
-    const surfaces = surfacesOf(provider);
-    const { args } = resolveAdapter(provider).buildInteractiveCommand({
+  it('never applies the read-only policy to an ordinary launch', () => {
+    const { args, env } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
+    for (const token of ['--disallowedTools', 'workspace-write', '--mode']) expect(args).not.toContain(token);
+    expect(env.OPENCODE_PERMISSION).toBeUndefined();
+  });
+
+  it('makes every extra directory readable', () => {
+    expect(surfacesOf(provider).addDirsInteractive.supported).toBe(true);
+    const launch = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/stack',
       addDirs: ['/repos/api', '/repos/web'],
       initialPrompt: 'plan it',
     });
-    if (surfaces.addDirsInteractive.supported) {
-      for (const dir of ['/repos/api', '/repos/web']) {
-        const i = args.indexOf(dir);
-        expect(args[i - 1], `${provider} ${dir}`).toBe('--add-dir');
-        expect(i).toBeLessThan(args.indexOf('plan it'));
-      }
-    } else {
-      expect(args).not.toContain('/repos/api');
-    }
+    for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
+    expect(launch.args.at(-1)).toBe('plan it');
   });
 
   const MCP_ISOLATION_FLAG: Record<AgentProvider, string | null> = {

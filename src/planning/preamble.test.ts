@@ -25,6 +25,7 @@ describe('planningPreamble', () => {
     expect(text).toContain('draft create --session 7');
     expect(text).toContain('"$KARST_CLI"');
     expect(text).toContain('--summary-file');
+    expect(text).toMatch(/ONE shell command/);
   });
 
   it('carries the session title', () => {
