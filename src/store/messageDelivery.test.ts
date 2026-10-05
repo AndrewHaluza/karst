@@ -52,6 +52,20 @@ describe('message delivery store reads', () => {
     expect(a.id).toBeLessThan(b.id);
   });
 
+  it('bounds both reads and returns plain numbers', () => {
+    for (let i = 0; i < 5; i++) post('event');
+    const evs = pendingWakeEvents(store, projectId, 0, 2);
+    expect(evs).toHaveLength(2);
+    expect(evs[0]!.id).toBeLessThan(evs[1]!.id);
+    const other = createTicket(store, { key: 'P-2', title: 'x', projectId }).id;
+    post('message', other);
+    expect(unreadByRecipient(store, projectId, 1)).toHaveLength(1);
+    const [r] = unreadByRecipient(store, projectId);
+    expect(typeof r!.unread).toBe('number');
+    expect(typeof r!.maxId).toBe('number');
+    expect(typeof maxMessageId(store)).toBe('number');
+  });
+
   it('lists unclaimed events after an id, and claims each exactly once', () => {
     const old = post('event');
     post('message');
