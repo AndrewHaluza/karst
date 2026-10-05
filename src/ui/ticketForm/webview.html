@@ -31,15 +31,15 @@
     font-size:var(--k-text-base);
   }
   h1{font-size:var(--k-text-xl);margin:var(--k-space-0) var(--k-space-0) var(--k-space-2)}
-  h2{font-size:var(--k-text-base);text-transform:uppercase;letter-spacing:.04em;opacity:.7;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
-  .sub{opacity:.6;font-size:var(--k-text-md);margin-bottom:var(--k-space-8)}
+  h2{font-size:var(--k-text-base);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim);margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
+  .sub{color:var(--k-text-dim);font-size:var(--k-text-md);margin-bottom:var(--k-space-8)}
   .card{
     border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
     padding:var(--k-space-6) var(--k-space-7);margin-bottom:var(--k-space-7);
     background:var(--k-surface);
   }
   .hidden{display:none !important}
-  label{display:block;font-size:var(--k-text-md);opacity:.8;margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
+  label{display:block;font-size:var(--k-text-md);color:var(--k-text-dim);margin:var(--k-space-5) var(--k-space-0) var(--k-space-2)}
   textarea.k-input{width:100%;resize:vertical;min-height:calc(var(--k-space-8) * 3.2)}
   input.k-input[type=text]{width:100%}
   /* Drop the OS arrow and paint our own, vertically centered with room reserved
@@ -50,7 +50,7 @@
     padding-right:calc(var(--k-space-8) + var(--k-space-4));
     background-image:var(--chevron);background-repeat:no-repeat;
     background-position:right var(--k-space-5) center}
-  .row{display:flex;gap:var(--k-space-4);align-items:center}
+  .row{display:flex;gap:var(--k-space-4);align-items:center;flex-wrap:wrap}
   .row input[type=text]{flex:1}
 
   .svc{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-3) var(--k-space-2)}
@@ -62,15 +62,40 @@
   .k-chip.ai{background:transparent;
     color:var(--k-link);
     border-color:var(--k-link);margin-right:var(--k-space-1)}
-  /* Layout-only modifier for a badge riding beside chip text — see the repo
-     chip's "no service" badge (kept off the k-chip primitive's own rule). */
-  .chip-badge{margin-left:var(--k-space-3)}
-  .footer{display:flex;gap:var(--k-space-4);justify-content:flex-end;margin-top:var(--k-space-4)}
+  /* Page header: edit mode shows an "Editing" eyebrow over the title + key chip. */
+  .eyebrow{font-size:var(--k-text-xs);text-transform:uppercase;letter-spacing:.06em;color:var(--k-text-dim);margin-bottom:var(--k-space-1)}
+  .titlerow{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
+  .titlerow h1{margin:var(--k-space-0)}
+  .keychip{font-family:var(--k-font-mono)}
+  .sub:empty{display:none}
+  .titlerow + .sub{margin-top:var(--k-space-2)}
+  /* Required / optional markers inside a field label. */
+  label .req,label .opt{font-weight:var(--k-weight-medium);color:var(--k-text-dim);margin-left:var(--k-space-1)}
+  label.firstlabel{margin-top:var(--k-space-0)}
+  .fielderr{margin-top:var(--k-space-2)}
+  /* Key + Type on one row: key takes the room, type stays compact. */
+  .keytype{display:flex;gap:var(--k-space-5);align-items:flex-end;flex-wrap:wrap}
+  .keytype .keyfield{flex:1 1 calc(var(--k-space-8) * 14);min-width:0}
+  .keytype .typefield{flex:0 0 calc(var(--k-space-8) * 8)}
+  .keyhint{margin-top:var(--k-space-2)}
+  .createin{display:inline-flex;align-items:center;gap:var(--k-space-4)}
+  /* Classify gate as a compact callout banner (warning edge, surface fill). */
+  .callout{border:var(--k-border-w) solid var(--k-warning);border-left-width:calc(var(--k-border-w) * 3);
+    background:var(--k-surface);border-radius:var(--k-radius-md);
+    padding:var(--k-space-4) var(--k-space-6);margin-bottom:var(--k-space-7);font-size:var(--k-text-md)}
+  .callout-msg{font-weight:var(--k-weight-semibold)}
+  /* Sticky action bar: always present, pinned to the view bottom, right-aligned
+     Cancel · secondary · primary, with a short hint naming which one launches. */
+  .actionbar{position:sticky;bottom:0;z-index:calc(var(--k-z-scrim) - 1);display:flex;align-items:center;flex-wrap:wrap;
+    gap:var(--k-space-4);justify-content:flex-end;
+    margin:var(--k-space-0) calc(-1 * var(--k-space-9)) calc(-1 * var(--k-space-8));
+    padding:var(--k-space-5) var(--k-space-9);
+    background:var(--k-bg);border-top:var(--k-border-w) solid var(--k-border)}
+  .actionhint{flex:1 1 calc(var(--k-space-8) * 12);margin:var(--k-space-0)}
   /* Local layout modifiers replacing what used to be inline `style="…"`
      attributes (UI-R04 applies to the whole document, not only the
      stylesheet — an inline style is the same defect wearing a different hat). */
   .pullrow{margin:var(--k-space-0) var(--k-space-0) var(--k-space-4)}
-  .footer-start{justify-content:flex-start;margin-top:var(--k-space-1)}
 
   /* A single page-level bucket for failures that belong to no one field
      (fetch/attach/host errors); "Title is required" ALSO marks the title
@@ -81,7 +106,7 @@
   /* Caption beside a control (the "or paste…" hint next to Attach…) — the
      secondary-text treatment `.sub` gives page-level notes, without its
      bottom margin (this rides a flex row). */
-  .hint{font-size:var(--k-text-sm);opacity:.6;margin:var(--k-space-0)}
+  .hint{font-size:var(--k-text-sm);color:var(--k-text-dim);margin:var(--k-space-0)}
   .attachstrip{display:flex;flex-wrap:wrap;gap:var(--k-space-4);margin-top:var(--k-space-4)}
   .attachstrip:empty{display:none}
   .attachtile{position:relative;width:calc(var(--k-space-8) * 6.6);border-radius:var(--k-radius-sm);overflow:hidden;
@@ -91,13 +116,13 @@
   .attachfile{display:flex;align-items:center;justify-content:center;height:calc(var(--k-space-8) * 4.1);
     color:var(--k-text-dim)}
   .attachmeta{padding:var(--k-space-2) var(--k-space-3);font-size:var(--k-text-xs);line-height:var(--k-leading-normal);
-    color:var(--k-text-dim);opacity:.85}
+    color:var(--k-text-dim)}
   .attachname{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* .attachdetach/.attachopen are `.k-iconbtn`/`.k-btn` instances (UI-R07) —
      only LAYOUT (position, size, border SIDE) stays local; the tile's own
      `overflow:hidden` (above) clips the primitive's corner radius flush with
      the tile edge, so nothing here needs to override it. */
-  .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1)}
+  .attachdetach{position:absolute;top:var(--k-space-1);right:var(--k-space-1);background:var(--k-scrim)}
   .attachopen{display:flex;width:100%;justify-content:center;
     border-top:var(--k-border-w) solid var(--k-border)}
   /* The Attach… button reports its outcome through the strip — the tile
@@ -121,8 +146,8 @@
      component (§ KARST_PROVIDER_CSS below); this just lays out the "Fetches
      from …" row around it. */
   .provline{display:flex;align-items:center;gap:var(--k-space-4);font-size:var(--k-text-sm);
-    opacity:.85;margin:var(--k-space-0) var(--k-space-0) var(--k-space-4);white-space:nowrap}
-  .provline.manual{opacity:.6}
+    margin:var(--k-space-0) var(--k-space-0) var(--k-space-4);white-space:nowrap}
+  .provline.manual{color:var(--k-text-dim)}
   /* Shared ticketing-provider badge (icon + brand name) — single source in
      src/model/providerIdentity.ts, injected here at load (CSP forbids a
      shared stylesheet). Used by the "Fetches from" chip above and the
@@ -137,6 +162,10 @@
      the same element every surface mounts. Single source in
      src/model/agentPicker.ts, injected here at load. */
   /*KARST_AGENT_PICKER_CSS*/
+
+  /* Core + model + effort on ONE row; auto-fit wraps the fields at narrow widths. */
+  #agentIdentityPicker .ap{grid-template-columns:repeat(auto-fit,minmax(min(100%,calc(var(--k-space-8) * 5)),1fr))}
+  #agentPresetPicker{margin-top:var(--k-space-4)}
 
   /* Agent provider custom select (icon + name inside dropdown) */
   .agentselect{position:relative;width:100%}
@@ -203,7 +232,7 @@
     border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
     border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
     max-height:calc(var(--k-space-8) * 14);overflow:auto}
-  .searchnote{padding:var(--k-space-3) var(--k-space-4);font-size:var(--k-text-sm);opacity:.7}
+  .searchnote{padding:var(--k-space-3) var(--k-space-4);font-size:var(--k-text-sm);color:var(--k-text-dim)}
   /* A search result row. Options are DIVs (not buttons) because they are
      ARIA listbox options inside the combobox — the same justified exception
      as the agent-core menu above (UI-R09): role, tabindex and Enter/Space
@@ -215,56 +244,52 @@
   .searchopt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .searchopt .search-ref{font-family:var(--k-font-mono);font-size:var(--k-text-sm);flex:none;color:var(--k-link)}
   .searchopt .search-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .searchopt .searchprio{font-size:var(--k-text-2xs);opacity:.6;text-transform:capitalize;flex:none}
+  .searchopt .searchprio{font-size:var(--k-text-2xs);color:var(--k-text-dim);text-transform:capitalize;flex:none}
   /* Status filter row under the key field: the label/select stay small and
      the hint rides the same row (the filter is secondary to the search box). */
-  .searchfilter{margin-top:var(--k-space-3)}
+  .searchfilter{margin-top:var(--k-space-3);flex-wrap:wrap}
   .searchfilter label{margin:var(--k-space-0);flex:none}
   .searchfilter select{width:auto;flex:none}
   .searchfilter .searchhint{margin:var(--k-space-0);font-size:var(--k-text-xs)}
 
-  /* ── Phase 2: vertical stepper (repos → approach → create) ─────────────── */
-  .step{display:flex;align-items:center;gap:var(--k-space-5);margin:var(--k-space-0) var(--k-space-0) var(--k-space-5)}
-  .step .dot{flex:none;width:var(--k-space-9);height:var(--k-space-9);border-radius:var(--k-radius-circle);
-    display:flex;align-items:center;justify-content:center;font-size:var(--k-text-xs);
-    border:var(--k-border-w) solid var(--k-border);
-    color:var(--k-text-dim);opacity:.75}
-  .step.active .dot{background:var(--k-action-bg);
-    color:var(--k-action-fg);border-color:var(--k-action-bg);opacity:1}
-  .step.done .dot{background:transparent;opacity:1;
-    color:var(--k-success);
-    border-color:var(--k-success)}
-  .step .st{font-size:var(--k-text-sm);font-weight:var(--k-weight-semibold)}
-  .step.pending .st{opacity:.55;font-weight:var(--k-weight-medium)}
-  .step .stcount{margin-left:var(--k-space-3);font-weight:var(--k-weight-medium);opacity:.6;font-size:var(--k-text-sm)}
-  .step .stright{margin-left:auto;display:flex;align-items:center;gap:var(--k-space-4)}
-  /* The rail: a left border joining each step body to the next dot.
-     margin-left centers it under the dots: the dot's centre sits halfway
-     through --k-space-9, so the rail's left edge must sit at --k-space-6 —
-     the old --k-space-5 margin ran the spine left of every dot it joins. */
-  .stepbody{border-left:calc(var(--k-border-w) * 2) solid var(--k-border);
-    margin-left:var(--k-space-6);padding:var(--k-space-1) var(--k-space-0) var(--k-space-7) var(--k-space-8)}
-  .stepbody.last{border-left-color:transparent;padding-bottom:var(--k-space-0)}
+  /* ── Phase 2 sections + gate ─────────────────────────────────────────── */
+  .stcount{margin-left:var(--k-space-3);font-weight:var(--k-weight-medium);color:var(--k-text-dim);text-transform:none;letter-spacing:normal}
+  /* Phase 2 while the Title is blank: dimmed; `inert` (set by syncPhase2) blocks pointer + focus,
+     with the hint above it naming what unlocks it. */
+  #phase2[aria-disabled="true"]{opacity:.5}
+  .gatehint{font-size:var(--k-text-md);color:var(--k-text-dim);margin:var(--k-space-0) var(--k-space-0) var(--k-space-5)}
 
   /* Repos as `.k-chip` toggle buttons — a real button element carrying aria-pressed (UI-R09,
      R26). `.repochip` supplies only the tick/score layout the primitive does
      not; the pressed look itself comes from `.k-chip[aria-pressed="true"]`. */
   .chips{display:flex;flex-wrap:wrap;gap:var(--k-space-4)}
-  /* One repo picker "row" = the toggle chip plus its (selected-only) base-branch
-     secondary line, stacked so the base control reads as part of the same repo
-     rather than a separate section (§ per-repo base branch). */
-  .repo-row{display:flex;flex-direction:column;align-items:flex-start;gap:var(--k-space-2)}
-  /* A labeled field on one line — the base-branch control's own shape, distinct
-     from the block `label` + full-width input pattern used elsewhere on this
-     page (that layout would read as its own section; this reads as a repo's
-     secondary line). */
-  .k-field--inline{display:flex;align-items:center;gap:var(--k-space-3);margin:var(--k-space-0)}
-  .k-field__label{font-size:var(--k-text-xs);opacity:.7;margin:var(--k-space-0)}
-  input.k-input--sm{width:auto;flex:0 0 auto;min-width:calc(var(--k-space-8) * 5);
-    height:var(--k-control-h-sm);font-size:var(--k-text-sm);padding:var(--k-space-0) var(--k-space-4)}
-  .repochip .tick{font-size:var(--k-text-2xs);opacity:0}
-  .repochip[aria-pressed="true"] .tick{opacity:1}
-  .repochip .score{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);opacity:.6}
+  /* F3 subtle split chips (§ per-repo base branch). Unselected = ghost chip
+     (transparent, dashed border, name only). Selected = filled split: left
+     half `repo:branch` toggles off, right caret opens the base-branch
+     popover. Branch is mono + dim; an override uses the warning token so a
+     non-default base is visible at a glance. No inner badges. */
+  .repochip[aria-pressed="false"]{background:transparent;border-style:dashed;color:var(--k-text-dim)}
+  .repo-split{position:relative;display:inline-flex;align-items:stretch}
+  .repo-split > .repochip{border-top-right-radius:0;border-bottom-right-radius:0;border-right-width:0}
+  .repo-caret{border-top-left-radius:0;border-bottom-left-radius:0;padding-left:var(--k-space-3);padding-right:var(--k-space-3)}
+  .repochip:focus-visible,.repo-caret:focus-visible,.repo-opt:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .repo-branch{font-family:var(--k-font-mono);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .repo-branch.is-overridden{color:var(--k-warning)}
+  .repo-pop{position:absolute;top:calc(100% + var(--k-space-2));left:0;z-index:var(--k-z-drawer);
+    min-width:calc(var(--k-space-8) * 7);max-width:calc(100vw - var(--k-space-8));
+    background:var(--vscode-dropdown-background,var(--k-bg));
+    border:var(--k-border-w) solid var(--vscode-dropdown-border,var(--vscode-panel-border));
+    border-radius:var(--k-radius-md);padding:var(--k-space-2);box-shadow:var(--k-elev-2);
+    display:flex;flex-direction:column;gap:var(--k-space-1)}
+  .repo-pop input{width:100%;height:var(--k-control-h-sm);font-size:var(--k-text-sm)}
+  .repo-pop-head{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.06em;color:var(--k-text-dim);
+    padding:var(--k-space-2) var(--k-space-3) var(--k-space-0)}
+  .repo-opt{display:block;width:100%;text-align:left;background:transparent;color:inherit;border:0;
+    border-radius:var(--k-radius-sm);padding:var(--k-space-2) var(--k-space-3);font-family:var(--k-font-mono);
+    font-size:var(--k-text-sm);cursor:pointer}
+  .repo-opt:hover{background:var(--k-surface-hover)}
+  .repo-opt[hidden]{display:none}
+  .repo-opt--reset{font-family:inherit;color:var(--k-text-dim);border-top:var(--k-border-w) solid var(--k-border);border-radius:0}
 
   /* Approaches as a radiogroup of selectable cards (UI-R09, R26): a real
      <button role="radio" aria-checked>, not `.k-btn` — a radio-card is a
@@ -286,7 +311,7 @@
     background:radial-gradient(circle,var(--k-action-bg) 42%,transparent 46%)}
   .acard .amain{flex:1;min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
   .acard .aname{font-weight:var(--k-weight-semibold);display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
-  .acard .adesc{opacity:.7;font-size:var(--k-text-sm)}
+  .acard .adesc{color:var(--k-text-dim);font-size:var(--k-text-sm)}
 
   /* Inline improve control (dirty-state model): an Auto-improve switch, a status
      that flips ✓ in sync ↔ Δ <why>, and the Improve button — all beside the Prompt
@@ -302,7 +327,7 @@
   .delta{font-family:var(--k-font-mono);font-size:var(--k-text-xs);white-space:nowrap;
     color:var(--k-warning);
     border:var(--k-border-w) solid var(--k-warning);
-    border-radius:var(--k-radius-xs);padding:var(--k-space-1) var(--k-space-3);opacity:.9}
+    border-radius:var(--k-radius-xs);padding:var(--k-space-1) var(--k-space-3)}
 
   /* Pixel control family (prototype 8662b8d05152810e): the Auto-improve switch
      and the Improve button share one DNA — the same control height (two
@@ -358,7 +383,7 @@
     font-weight:var(--k-weight-semibold);letter-spacing:.01em;
     display:grid;grid-template-columns:var(--k-space-7) minmax(min-content,1fr) var(--k-space-6);
     gap:var(--k-space-3);align-items:center;
-    height:calc(var(--k-space-8) * 1.4);min-width:calc(var(--k-space-8) * 8);
+    height:calc(var(--k-space-8) * 1.4);max-width:100%;
     padding:var(--k-space-0) var(--k-space-4);
     border-color:var(--k-border-strong);border-radius:var(--k-radius-xs);
     background:var(--k-surface-sunken);color:var(--k-text);
@@ -374,7 +399,6 @@
   #analyzeBtn .pixcore span:nth-child(5){background:currentColor}
   #analyzeBtn #analyzeLbl{justify-self:center;white-space:nowrap}
   #analyzeBtn .tail{justify-self:end;color:var(--k-text-faint);font-size:var(--k-text-2xs)}
-  #analyzeBtn .tail::before{content:"↗"}
   #analyzeBtn:disabled{
     opacity:1;cursor:default;
     color:var(--k-text-faint);border-color:var(--k-border);background:var(--k-surface-sunken)}
@@ -434,44 +458,63 @@
     font-family:var(--k-font-mono);font-size:var(--k-text-md);line-height:var(--k-leading-normal);color:var(--k-text)}
 </style>
 
-<h1 id="heading">New ticket</h1>
+<!-- Page header. Create: "New ticket". Edit: an "Editing" eyebrow, the
+     ticket's title as the h1 and its key as a chip beside it. -->
+<div class="eyebrow hidden" id="eyebrow">Editing</div>
+<div class="titlerow">
+  <h1 id="heading">New ticket</h1>
+  <span class="k-chip keychip hidden" id="keyChip"></span>
+</div>
 <div class="sub" id="subhead"></div>
 
-<!-- 1. Classify gate (only when repositories lack signals) -->
-<div class="card hidden" id="gateCard">
-  <h2>Classify repositories</h2>
-  <div class="sub">These repositories have no signal words yet. Add them once so tickets classify automatically.</div>
+<!-- Classify gate (only when repositories lack signals): a compact callout
+     banner, not a full card — it is a one-time setup nudge, not a step. -->
+<div class="callout hidden" id="gateCard" role="region" aria-labelledby="gateMsg">
+  <div class="callout-msg" id="gateMsg"></div>
   <div id="gateList"></div>
 </div>
 
 <!-- ── Phase 1: Identify the ticket (always visible) ─────────────────────── -->
 
-<!-- Ticket identity + optional fetch. The key IS the fetch id — one field, no
-     redundant "source" vs "key" split. Fetch pulls the brief for that id. The
-     provider chip in the top-right corner says WHERE a fetch pulls from;
+<!-- Ticket identity + optional fetch. Title first (the one required field);
+     the key is optional — blank derives from the title — and IS the fetch id.
+     The provider chip in the top-right corner says WHERE a fetch pulls from;
      `manual` has no board. -->
-<div class="card">
+<div class="card" id="ticketCard">
   <div class="cardhead">
     <h2>Ticket</h2>
     <div class="provline hidden" id="provline">
       <span id="provtext"></span>
     </div>
   </div>
-  <label for="ref">Key</label>
-  <div class="row">
-    <!-- The Key field doubles as a search combobox over the provider's list
-         (searchEnabled: true on the state). The input is the combobox text
-         box; the popup lists matching tickets priority-sorted by the host;
-         picking one fills the key and fetches its brief. Without search the
-         popup never opens and the field is exactly the plain key entry it
-         always was. -->
-    <div class="searchbox" id="searchBox">
-      <input type="text" class="k-input" id="ref" placeholder="PROJ-142  ·  a board id like CU-1234  ·  or leave it to the title"
-             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchMenu" />
-      <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
+  <label for="title" class="firstlabel">Title <span class="req">(required)</span></label>
+  <input type="text" class="k-input" id="title" placeholder="Short summary" />
+  <div class="err fielderr hidden" id="titleErr" role="alert"></div>
+
+  <div class="keytype" id="keyTypeRow">
+    <div class="keyfield">
+      <label for="ref">Key <span class="opt">(optional)</span></label>
+      <div class="row">
+        <!-- The Key field doubles as a search combobox over the provider's list
+             (searchEnabled: true on the state). The input is the combobox text
+             box; the popup lists matching tickets priority-sorted by the host;
+             picking one fills the key and fetches its brief. Without search the
+             popup never opens and the field is exactly the plain key entry it
+             always was. -->
+        <div class="searchbox" id="searchBox">
+          <input type="text" class="k-input" id="ref" placeholder="e.g. PROJ-142"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="searchMenu" />
+          <div class="searchmenu hidden" id="searchMenu" role="listbox" aria-label="Search tickets"></div>
+        </div>
+        <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
+      </div>
     </div>
-    <button type="button" id="fetchBtn" class="k-btn k-btn--secondary">Fetch</button>
+    <div class="typefield" id="typePicker">
+      <label for="typeSelect">Type</label>
+      <select class="k-input" id="typeSelect"></select>
+    </div>
   </div>
+  <div class="hint keyhint">Blank key derives from the title. Type feeds {type} in the branch, commit and PR conventions (Settings → Git).</div>
   <!-- Status filter for the search dropdown: the provider list's own statuses,
        defaulting to the list's TODO status. Hidden when search is disabled. -->
   <div class="row searchfilter hidden" id="searchFilterRow">
@@ -479,41 +522,50 @@
     <select class="k-input" id="searchStatus">
       <option value="to do" selected>to do</option>
     </select>
-    <span class="sub searchhint">Filters the dropdown — defaults to the list's TODO status.</span>
+    <span class="sub searchhint">Filters search results</span>
   </div>
   <div class="row2">
     <button type="button" class="k-btn k-btn--link k-btn--sm hidden" id="detailsBtn" aria-expanded="false" aria-controls="drawer">Show details</button>
-    <!-- Edit mode, ticket with no provider ref yet: mint + bind the ClickUp task.
-         Hidden once sourceRef is set — a bound ticket never offers a second
-         creation (no double-creation). -->
+    <!-- "Create in ClickUp" — ONE location for both modes. Create mode: a
+         switch (persisting also mints + binds the provider task). Edit mode, a
+         ticket with no provider ref yet: a button. Both hidden once sourceRef
+         is set — a bound ticket never offers a second creation. -->
+    <span class="createin hidden" id="createInRow">
+      <button type="button" class="k-switch" id="createIn" role="switch" aria-checked="false"
+              title="Create the matching task in ClickUp and link this ticket to it">
+        <span class="k-switch-track" aria-hidden="true"></span>Also create in ClickUp
+      </button>
+      <span class="err hidden" id="createInErr" role="alert"></span>
+    </span>
     <button type="button" class="k-btn k-btn--secondary k-btn--sm hidden" id="createInBtn"
             title="Create the matching task in ClickUp and link this ticket to it">Create in ClickUp</button>
     <span class="err hidden" id="createInBtnErr" role="alert"></span>
     <a href="#" class="k-link hidden" id="ticketLink"></a>
   </div>
 
-  <label for="title">Title</label>
-  <input type="text" class="k-input" id="title" placeholder="Short summary" />
   <div class="labelrow">
     <label for="desc">Prompt</label>
     <span class="prefill-ctl">
       <button type="button" class="k-switch" id="autoImprove" role="switch" aria-checked="true"
-              title="Improve the prompt with AI automatically after a fetch">
+              title="Improve the prompt with AI automatically after a fetch" aria-describedby="autoImproveHint">
         <span class="k-switch-track" aria-hidden="true"></span>Auto-improve
       </button>
-      <span class="synctag hidden" id="syncTag">in sync</span>
-      <span class="delta hidden" id="deltaBadge"></span>
+      <span class="prefill-status" aria-live="polite">
+        <span class="synctag hidden" id="syncTag">in sync</span>
+        <span class="delta hidden" id="deltaBadge"></span>
+      </span>
       <button type="button" class="k-btn k-btn--secondary" id="analyzeBtn"
               title="Improve the prompt with AI — also suggests the approach and repositories">
         <span class="pixcore" aria-hidden="true"><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></span><span id="analyzeLbl">Improve with AI</span><span class="tail" aria-hidden="true"></span>
       </button>
     </span>
+    <span class="hint" id="autoImproveHint">Improves the prompt after each fetch.</span>
   </div>
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
   <div class="attachrow">
     <button type="button" id="attachBtn" class="k-btn k-btn--ghost"
             title="Attach any file from disk">Attach…</button>
-    <span class="hint">or paste a screenshot — a long text becomes a file attachment</span>
+    <span class="hint" title="Pasting long text attaches it as a file">or paste a screenshot</span>
   </div>
   <div id="attachments" class="attachstrip"></div>
   <div class="err hidden" id="err" role="alert"></div>
@@ -530,83 +582,62 @@
   <div class="drawer-body" id="drawerBody"></div>
 </aside>
 
-<!-- ── Phase 2: Configure — a guided vertical stepper (hidden until Phase 1
-     has a key + title). Services → Approach → Create. ─────────────────── -->
-<div id="phase2" class="hidden">
+<!-- ── Phase 2: Configure (Repositories · Approach · Agent). Always rendered;
+     while the Title is blank it is GATED — dimmed, aria-disabled and inert —
+     with a hint, so the user sees what comes next instead of a blank page. -->
+<div class="gatehint hidden" id="phase2Hint">Add a title to continue</div>
+<div id="phase2">
   <div class="card">
-    <!-- Step 1: Services -->
-    <div class="step done" id="stepRepos">
-      <span class="dot" id="dotRepos">1</span>
-      <span class="st">Services<span class="stcount" id="repoCount"></span></span>
-    </div>
-    <div class="stepbody">
-      <div class="sub">Which repositories does this ticket change? Pre-selected from the classifier.</div>
-      <div class="chips" id="repoList"></div>
-    </div>
+    <h2>Repositories<span class="stcount" id="repoCount"></span></h2>
+    <div class="sub">Which repositories does this ticket change? Pre-selected from the classifier.</div>
+    <div class="chips" id="repoList"></div>
+  </div>
 
-    <!-- Step 2: Approach -->
-    <div class="step active" id="stepApproach">
-      <span class="dot" id="dotApproach">2</span>
-      <span class="st">Approach</span>
-    </div>
-    <div class="stepbody">
-      <div class="approaches" id="approachList" role="radiogroup" aria-label="Approach"></div>
-      <div id="agentPicker" class="hidden">
-        <label for="agentSelect">Subagent</label>
-        <select class="k-input" id="agentSelect"></select>
-        <div class="k-empty hidden" id="agentEmpty"><div class="k-empty-title">No agents available — add them in Settings.</div></div>
-      </div>
-      <!-- The UNIFIED agent identity picker (agent core + model + effort/variant)
-           — the same element Settings-general, the graph config and the
-           dashboard switch use (model/agentPicker.ts). The lock hint lives
-           beside it, driven by the session-open state. -->
-      <div id="agentIdentityPicker"></div>
-      <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
-      <div id="typePicker">
-        <label for="typeSelect">Type</label>
-        <select class="k-input" id="typeSelect"></select>
-        <div class="sub">Feeds {type} in the branch, commit and PR conventions (Settings → Git).</div>
-      </div>
-      <div id="agentPresetPicker">
-        <label for="agentPresetSelect">Agent preset</label>
-        <select class="k-input" id="agentPresetSelect"></select>
-        <div class="sub">A named core + model defined in karst.yml. Picking one overrides the explicit core, model and effort above.</div>
-      </div>
-    </div>
+  <div class="card">
+    <h2 id="approachHeading">Approach</h2>
+    <div class="approaches" id="approachList" role="radiogroup" aria-labelledby="approachHeading"></div>
+  </div>
 
-    <!-- Step 3: Create -->
-    <div class="step pending" id="stepCreate">
-      <span class="dot" id="dotCreate">3</span>
-      <span class="st">Create the ticket</span>
+  <div class="card">
+    <h2>Agent</h2>
+    <div id="agentPicker" class="hidden">
+      <label for="agentSelect">Subagent</label>
+      <select class="k-input" id="agentSelect"></select>
+      <div class="k-empty hidden" id="agentEmpty"><div class="k-empty-title">No agents available</div>
+        <div class="k-empty-hint">Add an agent to the approach, or define one in Settings → Agents.</div></div>
     </div>
-    <div class="stepbody last">
-      <!-- The create-mode "Also create in ClickUp" checkbox: persisting this
-           ticket (submit or save) also mints + binds the provider task. Only
-           shown when the provider can create; the ticket's own inline error
-           rides this row. -->
-      <div class="labelrow pullrow hidden" id="createInRow">
-        <button type="button" class="k-switch" id="createIn" role="switch" aria-checked="false"
-                title="Create the matching task in ClickUp and link this ticket to it">
-          <span class="k-switch-track" aria-hidden="true"></span>Also create in ClickUp
-        </button>
-        <span class="err hidden" id="createInErr" role="alert"></span>
-      </div>
-      <!-- The worktree is cut from each repository's baseline branch, so an
-           un-refreshed local base starts the ticket behind the team. On by
-           default; the value left here is what the launch honors. -->
-      <div class="labelrow pullrow">
-        <button type="button" class="k-switch" id="pullBase" role="switch" aria-checked="true"
-                title="Fetch each selected repository's base branch before its worktree is created">
-          <span class="k-switch-track" aria-hidden="true"></span>Pull base branch first
-        </button>
-      </div>
-      <div class="footer footer-start">
-        <button type="button" class="k-btn k-btn--primary" id="submitBtn">Create ticket</button>
-        <button type="button" class="k-btn k-btn--secondary" id="saveBtn">Save</button>
-        <button type="button" class="k-btn k-btn--secondary" id="cancelBtn">Cancel</button>
-      </div>
+    <!-- The UNIFIED agent identity picker (agent core + model + effort/variant)
+         — the same element Settings-general, the graph config and the
+         dashboard switch use (model/agentPicker.ts). The lock hint lives
+         beside it, driven by the session-open state. -->
+    <div id="agentIdentityPicker"></div>
+    <div class="sub hidden" id="providerLockHint">Locked while the session runs — close the terminal to change it.</div>
+    <div id="agentPresetPicker">
+      <label for="agentPresetSelect">or use a preset</label>
+      <select class="k-input" id="agentPresetSelect"></select>
+      <div class="sub">Named core + model from karst.yml. Overrides the core, model and effort above.</div>
+    </div>
+    <!-- The worktree is cut from each repository's baseline branch, so an
+         un-refreshed local base starts the ticket behind the team. On by
+         default; the value left here is what the launch honors. -->
+    <div class="labelrow pullrow">
+      <button type="button" class="k-switch" id="pullBase" role="switch" aria-checked="true"
+              title="Fetch each selected repository's base branch before its worktree is created" aria-describedby="pullBaseHint">
+        <span class="k-switch-track" aria-hidden="true"></span>Pull base branch first
+      </button>
+      <span class="hint" id="pullBaseHint">Updates each base branch before the worktree is cut.</span>
     </div>
   </div>
+</div>
+
+<!-- Sticky action bar: always rendered, pinned to the bottom of the view.
+     Cancel · secondary save · primary launch. Labels are set per mode by
+     render(); the static text here IS the create-mode label. -->
+<div class="actionbar" id="actionBar">
+  <span class="hint actionhint" id="actionHint">Create &amp; start session launches the agent in a new worktree. Save draft does not start an agent.</span>
+  <button type="button" class="k-btn k-btn--ghost" id="cancelBtn">Cancel</button>
+  <button type="button" class="k-btn k-btn--secondary" id="saveBtn">Save draft</button>
+  <button type="button" class="k-btn k-btn--primary" id="submitBtn">Create &amp; start session</button>
 </div>
 
 <script>
@@ -742,19 +773,34 @@
     }).join('');
   }
 
+  // Action-bar labels per mode. The create pair is ALSO the static markup —
+  // the page never flashes a different label before the first state push.
+  const ACTION_LABELS = {
+    create: { save: 'Save draft', submit: 'Create & start session' },
+    edit: { save: 'Save changes', submit: 'Save & start session' },
+  };
+
   function render(state) {
     draft.mode = state.mode;
-    // Edit heading = the ticket's human label (key, else #id) + title. No id →
-    // create mode. Mirrors ticketLabel() so the page and the tab title agree.
+    // Edit header: an "Editing" eyebrow, the ticket's title as the h1 and its
+    // human label (key, else #id — mirrors ticketLabel(), so the chip and the
+    // tab title agree) as a chip beside it. Create mode: "New ticket".
+    const isEdit = state.mode === 'edit';
     const editKey = state.key || `#${state.ticketId ?? ''}`;
-    el('heading').textContent = state.mode === 'edit' ? editKey : 'New ticket';
-    el('subhead').textContent = state.mode === 'edit'
-      ? (state.title || '(untitled)')
-      : 'Name the ticket, write a prompt, pick an approach.';
+    el('eyebrow').classList.toggle('hidden', !isEdit);
+    el('heading').textContent = isEdit ? (state.title || '(untitled)') : 'New ticket';
+    el('keyChip').textContent = isEdit ? editKey : '';
+    el('keyChip').classList.toggle('hidden', !isEdit);
+    el('subhead').textContent = isEdit ? '' : 'Name the ticket, write a prompt, pick an approach.';
     // The label text is set here, once per state push, and NEVER touched while
-    // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled.
-    submitLabel = state.mode === 'edit' ? 'Save & Run session' : 'Create & Run session';
+    // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled. The
+    // create-mode pair matches the static markup.
+    const labels = ACTION_LABELS[isEdit ? 'edit' : 'create'];
+    submitLabel = labels.submit;
     if (!submitBusy) el('submitBtn').textContent = submitLabel;
+    if (!saveBusy) el('saveBtn').textContent = labels.save;
+    el('actionHint').textContent = labels.submit + ' launches the agent in a new worktree. '
+      + labels.save + ' does not start an agent.';
     renderProvider(state.provider);
     renderSearchControls(state.ticketSearchEnabled === true);
     renderTicketFormTicketLink(state);
@@ -818,6 +864,9 @@
     const card = el('gateCard');
     if (!unclassified || unclassified.length === 0) { card.classList.add('hidden'); return; }
     card.classList.remove('hidden');
+    const n = unclassified.length;
+    el('gateMsg').textContent = n + (n === 1 ? ' repository needs' : ' repositories need')
+      + ' signal words so tickets classify automatically.';
     const sigOf = (svc) => {
       const row = (repos || []).find((r) => r.service === svc);
       return row && row.signals ? row.signals.join(', ') : '';
@@ -919,8 +968,15 @@
   function phase1Valid() {
     return el('title').value.trim() !== '';
   }
+  // Gated, never hidden: blank Title → Phase 2 dimmed + aria-disabled + inert
+  // (unreachable by pointer and keyboard) with the "Add a title to continue"
+  // hint; the action bar stays live so the title validation is reachable.
   function syncPhase2() {
-    el('phase2').classList.toggle('hidden', !phase1Valid());
+    const gated = !phase1Valid();
+    const p2 = el('phase2');
+    if (gated) { p2.setAttribute('aria-disabled', 'true'); p2.setAttribute('inert', ''); }
+    else { p2.removeAttribute('aria-disabled'); p2.removeAttribute('inert'); }
+    el('phase2Hint').classList.toggle('hidden', !gated);
   }
 
   // MIRROR of src/store/titleKey.ts (slugifyTitleKey / TITLE_KEY_MAX) — this
@@ -958,98 +1014,120 @@
   let lastRepoBases = [];
   function baseRowFor(service) { return lastRepoBases.find((b) => b.repo === service); }
 
+  // Repo whose base-branch popover is open (null = none). UI-only.
+  let openBasePop = null;
+
+  /** Effective override for a repo: the session edit wins, else the stored (edit-mode) value. */
+  function baseValueFor(repo, row) { return (draft.baseRefs[repo] ?? (row && row.value) ?? '').trim(); }
+
   /**
-   * The base-branch secondary line for a SELECTED repo row (§ per-repo base
-   * branch). Empty input shows the manifest default as its PLACEHOLDER, not a
-   * pre-filled value, so "unset" and "same as default" stay distinguishable.
-   * The `<datalist>` offers `listBaseBranchCandidates` results — never a
-   * closed vocabulary, since an epic branch may exist only on a remote this
-   * clone hasn't fetched (the field stays free text either way).
+   * F3 split chip for a SELECTED repo (§ per-repo base branch). Empty override
+   * = manifest default, shown dim; an override shows in the warning colour.
+   * Candidates come from `listBaseBranchCandidates` (same source the old
+   * datalist used) — never a closed vocabulary: Enter in the filter applies
+   * free text, since an epic branch may exist only on an unfetched remote.
    */
-  function renderBaseField(repo, row) {
-    if (!row) return '';
-    const value = draft.baseRefs[repo] ?? row.value ?? '';
-    // The "changed" affordance the design system already uses for an
-    // overridden default (`.k-chip`, §11.8 non-interactive compact
-    // information) — not a new component.
-    const changed = value.trim() !== '' && value.trim() !== row.default;
-    const listId = 'base-branches-' + esc(repo);
-    const options = (row.candidates || []).map((c) => `<option value="${esc(c)}"></option>`).join('');
-    return `<label class="k-field k-field--inline" data-base-for="${esc(repo)}">`
-      + `<span class="k-field__label">Base</span>`
-      + `<input class="k-input k-input--sm" type="text" list="${listId}"`
-      + ` placeholder="${esc(row.default)}" value="${esc(value)}"`
-      + ` data-base-input="${esc(repo)}" data-base-default="${esc(row.default)}"`
-      + ` aria-label="Base branch for ${esc(repo)}">`
-      + `<span class="k-chip${changed ? '' : ' hidden'}" data-base-changed>changed</span>`
-      + `<datalist id="${listId}">${options}</datalist>`
-      + `</label>`;
+  function renderSplitChip(r, attrs) {
+    const repo = r.service;
+    const row = baseRowFor(repo);
+    const value = baseValueFor(repo, row);
+    const def = row ? row.default : '';
+    const shown = value || def;
+    const changed = value !== '' && value !== def;
+    const branch = shown ? `<span class="repo-branch${changed ? ' is-overridden' : ''}">:${esc(shown)}</span>` : '';
+    const chip = `<button type="button" class="k-chip repochip" data-repo="${esc(repo)}" aria-pressed="true"${attrs}>`
+      + `<span>${esc(repo)}</span>${branch}</button>`;
+    if (!row) return chip;
+    const open = openBasePop === repo;
+    const caret = `<button type="button" class="k-chip repo-caret" data-base-caret="${esc(repo)}" aria-haspopup="dialog"`
+      + ` aria-expanded="${open}" aria-label="Change base branch for ${esc(repo)}">▾</button>`;
+    return `<span class="repo-split">${chip}${caret}${open ? renderBasePop(repo, row) : ''}</span>`;
+  }
+
+  function renderBasePop(repo, row) {
+    const opts = (row.candidates || []).map((c) =>
+      `<button type="button" class="k-btn k-btn--row repo-opt" data-base-opt data-base-pick="${esc(c)}">${esc(c)}</button>`).join('');
+    return `<div class="repo-pop" role="dialog" aria-label="Base branch for ${esc(repo)}" data-base-pop="${esc(repo)}">`
+      + `<input class="k-input" type="text" data-base-filter aria-label="Filter branches for ${esc(repo)}" placeholder="Filter or type a branch">`
+      + (opts ? `<div class="repo-pop-head">Suggested</div>${opts}` : '')
+      + `<button type="button" class="k-btn k-btn--row repo-opt repo-opt--reset" data-base-pick="">Reset to default (${esc(row.default)})</button>`
+      + `</div>`;
   }
 
   function renderRepos(repos, repoBases) {
     lastRepos = repos || [];
     lastRepoBases = repoBases || [];
     if (!repos || !repos.length) {
-      el('repoList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No repositories</div></div>';
+      el('repoList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No repositories</div>'
+        + '<div class="k-empty-hint">Add a repository to karst.yml (Settings → Repositories) to pick it here.</div></div>';
       syncStepper();
       return;
     }
-    // Toggle chips: a real button element carrying aria-pressed (UI-R09, R26) — `data-repo`
-    // drives the click handler (delegated) which flips `draft.repos` and posts
-    // `set-repos`. The base-branch control belongs on the SELECTED repo row
-    // only — an unselected repo carries no base control (§ per-repo base
-    // branch): wrapped together in `.repo-row` so the secondary line reads as
-    // part of the same row, not a separate section.
+    // Toggle chips: real buttons carrying aria-pressed (UI-R09, R26) — `data-repo`
+    // drives the delegated click handler (flips `draft.repos`, posts `set-repos`).
+    // Only a SELECTED repo gets the split caret (§ per-repo base branch).
     el('repoList').innerHTML = repos.map((r) => {
       const on = repoSelected(r);
-      // The classifier score is a relevance hint, not user-facing data — keep it
-      // as a hover title so it stops leaking onto the chip as a stray number.
-      // A repository with no service is fully selectable — it gets a worktree so
-      // the agent can edit it — but say that nothing will start, so an empty
-      // server list later reads as expected rather than broken.
+      // Classifier score and service hints live in the hover title — no inner badges.
       const hint = r.runnable === false
         ? 'no service — worktree only'
         : (r.docker ? 'runs a Docker image' : '');
       const titleText = [r.score ? `classifier score: ${r.score}` : '', hint]
         .filter(Boolean).join(' · ');
       const title = titleText ? ` title="${esc(titleText)}"` : '';
-      const chip = `<button type="button" class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"${title}>`
-        + `<span class="tick" aria-hidden="true">✓</span>`
-        + `<span>${esc(r.service)}</span>`
-        + (r.runnable === false ? `<span class="k-chip chip-badge">no service</span>` : '')
-        + (r.docker ? `<span class="k-chip chip-badge">docker</span>` : '')
-        + `</button>`;
-      const base = on ? renderBaseField(r.service, baseRowFor(r.service)) : '';
-      return `<div class="repo-row">${chip}${base}</div>`;
+      if (on) return renderSplitChip(r, title);
+      return `<button type="button" class="k-chip repochip" data-repo="${esc(r.service)}" aria-pressed="${on}"${title}>`
+        + `<span>${esc(r.service)}</span></button>`;
     }).join('');
+    if (openBasePop && !el('repoList').querySelector('[data-base-pop]')) openBasePop = null;
     syncStepper();
   }
 
-  /**
-   * Per-repo base-branch input changed (§ per-repo base branch). Updates the
-   * live draft (so a later submit/save carries it even before the host's next
-   * state push) and the "changed" badge in place — never a full re-render,
-   * which would drop focus/cursor mid-keystroke. Posts the trimmed value; a
-   * blank value is the "back to the default" signal the host clears on.
-   */
-  function onBaseRefInput(repo, input) {
-    const value = input.value.trim();
-    draft.baseRefs[repo] = value;
-    const label = input.closest('label');
-    const badge = label && label.querySelector('[data-base-changed]');
-    if (badge) {
-      const changed = value !== '' && value !== input.dataset.baseDefault;
-      badge.classList.toggle('hidden', !changed);
-    }
-    post({ type: 'set-base-ref', repo, baseRef: value });
+  function caretFor(repo) {
+    return [...el('repoList').querySelectorAll('[data-base-caret]')].find((c) => c.dataset.baseCaret === repo);
   }
 
-  /** Every currently-visible base-branch input, keyed by repo — for the submit/save payload. */
+  function openBase(repo) {
+    openBasePop = repo;
+    renderRepos(lastRepos, lastRepoBases);
+    const f = el('repoList').querySelector('[data-base-filter]');
+    if (f) f.focus();
+  }
+
+  function closeBase() {
+    const repo = openBasePop;
+    openBasePop = null;
+    renderRepos(lastRepos, lastRepoBases);
+    const c = repo && caretFor(repo);
+    if (c) c.focus();
+  }
+
+  /**
+   * Apply a base-branch choice (§ per-repo base branch). Posts the trimmed
+   * value; blank is the "back to the default" signal the host clears on.
+   */
+  function pickBase(repo, raw) {
+    const value = String(raw || '').trim();
+    draft.baseRefs[repo] = value;
+    post({ type: 'set-base-ref', repo, baseRef: value });
+    closeBase();
+  }
+
+  function filterBase(input) {
+    const q = input.value.trim().toLowerCase();
+    input.closest('[data-base-pop]').querySelectorAll('[data-base-opt]').forEach((b) => {
+      b.hidden = q !== '' && !b.dataset.basePick.toLowerCase().includes(q);
+    });
+  }
+
+  /** Every selected repo's non-empty override — for the submit/save payload. */
   function collectBaseRefs() {
     const out = {};
-    document.querySelectorAll('[data-base-input]').forEach((input) => {
-      const value = input.value.trim();
-      if (value !== '') out[input.dataset.baseInput] = value;
+    lastRepos.filter(repoSelected).forEach((r) => {
+      const row = baseRowFor(r.service);
+      if (!row) return;
+      const value = baseValueFor(r.service, row);
+      if (value !== '') out[r.service] = value;
     });
     return out;
   }
@@ -1058,7 +1136,7 @@
     syncAnalyzeBtn();
     if (!approaches || !approaches.length) {
       el('approachList').innerHTML = '<div class="k-empty"><div class="k-empty-title">No approaches installed</div>'
-        + '<div class="k-empty-hint">Add one in Settings.</div></div>';
+        + '<div class="k-empty-hint">Install an approach package in Settings → Approaches, then reopen this form.</div></div>';
       syncStepper();
       return;
     }
@@ -1260,26 +1338,11 @@
     select.disabled = !!lastSessionOpen;
   }
 
-  // Step rail state: repos done once ≥1 selected; approach active while
-  // choosing; create becomes active once an approach is picked. `aria-current`
-  // marks the CURRENT step for assistive tech (UI-R26) — never the done ones.
+  // Repositories heading count ("— 2 selected"); the section headings replaced
+  // the old dot stepper, so this is all that is left to sync.
   function syncStepper() {
     const repoN = lastRepos.filter(repoSelected).length;
     el('repoCount').textContent = repoN ? ` — ${repoN} selected` : '';
-    const reposDone = repoN > 0;
-    setStep('stepRepos', 'dotRepos', reposDone ? 'done' : 'active', reposDone ? '✓' : '1');
-
-    const approachPicked = Boolean(draft.approach ?? lastSelectedApproach);
-    setStep('stepApproach', 'dotApproach', approachPicked ? 'done' : 'active', approachPicked ? '✓' : '2');
-    setStep('stepCreate', 'dotCreate', approachPicked ? 'active' : 'pending', '3');
-  }
-  function setStep(stepId, dotId, cls, dotText) {
-    const s = el(stepId);
-    s.classList.remove('done', 'active', 'pending');
-    s.classList.add(cls);
-    if (cls === 'active') s.setAttribute('aria-current', 'step');
-    else s.removeAttribute('aria-current');
-    el(dotId).textContent = dotText;
   }
 
   // Last approaches array rendered, so a busy-state change (which doesn't carry
@@ -1403,7 +1466,7 @@
   // mid-launch state push can't reset it); pending is carried by aria-busy
   // and `disabled` alone, via the `.k-btn` primitive's own spinner.
   let submitBusy = false;
-  let submitLabel = 'Create & Run session';
+  let submitLabel = 'Create & start session';
   function setSubmitBusy(on) {
     submitBusy = on;
     const btn = el('submitBtn');
@@ -1421,16 +1484,21 @@
   }
 
   // Field-level error for the one validation the page performs itself: a blank
-  // Title. Points `aria-describedby` at the shared `#err` bucket (the message
-  // text lives there — no duplicate copy) and marks the field invalid
-  // (UI-R25). Every OTHER failure (fetch/attach/host errors) belongs to no
-  // single field and stays purely in `#err`.
+  // Title. The message lives in the field's OWN `#titleErr` (role=alert),
+  // directly under the input, which `aria-describedby` points at; the field is
+  // marked invalid and focused (UI-R25). Every OTHER failure (fetch/attach/
+  // host errors) belongs to no single field and stays in `#err`.
   function setTitleInvalid(invalid) {
     const input = el('title');
+    const err = el('titleErr');
     if (invalid) {
+      err.textContent = 'Title is required.';
+      err.classList.remove('hidden');
       input.setAttribute('aria-invalid', 'true');
-      input.setAttribute('aria-describedby', 'err');
+      input.setAttribute('aria-describedby', 'titleErr');
+      input.focus();
     } else {
+      err.classList.add('hidden');
       input.removeAttribute('aria-invalid');
       input.removeAttribute('aria-describedby');
     }
@@ -1483,7 +1551,6 @@
     // (persistDraft does, the field previews it). Title is the one hard field.
     if (!title) {
       setTitleInvalid(true);
-      showErr('Title is required.');
       return;
     }
     clearErr(); // a retry starts clean — the previous failure no longer applies
@@ -1526,7 +1593,6 @@
     const title = el('title').value.trim();
     if (!title) {
       setTitleInvalid(true);
-      showErr('Title is required.');
       return;
     }
     clearErr();
@@ -2053,14 +2119,36 @@
   // (like the repo chips themselves) their handler is delegated on the
   // document rather than bound per element.
   document.addEventListener('input', (e) => {
-    const input = e.target.closest && e.target.closest('[data-base-input]');
-    if (input) onBaseRefInput(input.dataset.baseInput, input);
+    const input = e.target.closest && e.target.closest('[data-base-filter]');
+    if (input) filterBase(input);
+  });
+  // Base-branch popover keys: ArrowDown on a caret opens; Esc closes and
+  // returns focus to the caret; Enter in the filter applies free text.
+  document.addEventListener('keydown', (e) => {
+    const t = e.target;
+    const caret = t.closest && t.closest('[data-base-caret]');
+    if (caret && e.key === 'ArrowDown') { e.preventDefault(); openBase(caret.dataset.baseCaret); return; }
+    const pop = t.closest && t.closest('[data-base-pop]');
+    if (!pop) return;
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeBase(); return; }
+    if (e.key === 'Enter' && t.matches('[data-base-filter]')) {
+      e.preventDefault();
+      pickBase(pop.dataset.basePop, t.value);
+    }
   });
 
   document.addEventListener('click', (e) => {
     const t = e.target;
     const chip = t.closest && t.closest('[data-repo]');
-    if (chip) { toggleRepo(chip.dataset.repo); return; }
+    if (chip) { openBasePop = null; toggleRepo(chip.dataset.repo); return; }
+    const pick = t.closest && t.closest('[data-base-pick]');
+    if (pick) { pickBase(pick.closest('[data-base-pop]').dataset.basePop, pick.dataset.basePick); return; }
+    const caret = t.closest && t.closest('[data-base-caret]');
+    if (caret) {
+      if (openBasePop === caret.dataset.baseCaret) closeBase(); else openBase(caret.dataset.baseCaret);
+      return;
+    }
+    if (openBasePop && !(t.closest && t.closest('[data-base-pop]'))) closeBase();
     const card = t.closest && t.closest('[data-approach]');
     if (card) { pickApproach(card.dataset.approach); return; }
     if (t.dataset && t.dataset.suggest) {
