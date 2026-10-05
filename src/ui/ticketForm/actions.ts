@@ -10,6 +10,7 @@ import {
   updateTicketCore,
   updateTicketFields,
   generateTicketKey,
+  setAutostartPending,
 } from '../../store/tickets.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
@@ -123,6 +124,12 @@ export interface TicketFormActionsDeps {
    * running. Injected (real: the `karst.openDashboard` command).
    */
   openDashboard: (ticketId: number) => void;
+  /**
+   * Run the sub-task autostart sweep now (plan §A). A sub-task submitted at
+   * `scope` is QUEUED rather than started so it obeys the concurrency caps;
+   * this asks the owner window's sweep to pick it up without waiting a tick.
+   */
+  requestSubtaskAutostart?: () => void;
   /** Injected manifest signal writer (real: writeServiceSignals). */
   writeSignals: (path: string, service: string, signals: string[]) => void;
   /**
@@ -299,6 +306,20 @@ function persistDraft(
   });
   deps.onChange();
   return ticketId;
+}
+
+/**
+ * A sub-task still at `scope` is queued for the autostart sweep instead of
+ * started here, so dashboard-created sub-tasks obey the same caps as CLI ones.
+ * Returns whether it queued. Ordinary tickets and sub-tasks already past scope
+ * (submit as the edit surface) take the direct start path.
+ */
+function queueSubtaskInsteadOfStart(deps: TicketFormActionsDeps, ticketId: number): boolean {
+  const t = getTicket(deps.store, ticketId);
+  if (t.subtaskParentId === null || t.stageCurrent !== 'scope') return false;
+  setAutostartPending(deps.store, ticketId, true);
+  deps.requestSubtaskAutostart?.();
+  return true;
 }
 
 export function buildTicketFormActions(
@@ -1042,6 +1063,13 @@ export function buildTicketFormActions(
       // selected repos (worktrees, no servers) and launch the agent session.
       // Awaited so the page stays put (busy) while the launch runs, and the
       // handoff only happens once the ticket is really running.
+      if (queueSubtaskInsteadOfStart(deps, ticketId)) {
+        deps.onChange();
+        deps.openDashboard(ticketId);
+        ctx.close();
+        return;
+      }
+
       ctx.post({ type: 'busy', what: 'submit', on: true });
       try {
         // Only an explicit `false` opts out of the pull — an older page that
