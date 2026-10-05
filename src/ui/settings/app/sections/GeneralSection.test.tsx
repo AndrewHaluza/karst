@@ -183,6 +183,35 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
     expect(probe().draft).not.toHaveProperty('archiveDoneAfterDays');
   });
 
+  it('writes each sub-task cap as a whole number >= 0, 0 meaning unlimited', () => {
+    const { probe } = mountGeneral();
+    const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    const total = screen.getByLabelText('Running sub-tasks per project') as HTMLInputElement;
+    fireEvent.change(perParent, { target: { value: '3' } });
+    expect(probe().draft).toMatchObject({ subtasks: { maxConcurrentPerParent: 3 } });
+    fireEvent.change(total, { target: { value: '0' } });
+    expect(probe().draft).toMatchObject({
+      subtasks: { maxConcurrentPerParent: 3, maxConcurrentTotal: 0 },
+    });
+  });
+
+  it('drops a sub-task cap that is blank, negative or fractional, and the block when empty', () => {
+    const { probe } = mountGeneral();
+    const perParent = screen.getByLabelText('Running sub-tasks per parent') as HTMLInputElement;
+    fireEvent.change(perParent, { target: { value: '3' } });
+    for (const bad of ['', '-1', '1.5', 'abc']) {
+      fireEvent.change(perParent, { target: { value: bad } });
+      expect(probe().draft).not.toHaveProperty('subtasks');
+    }
+  });
+
+  it('explains the cost of high or unlimited sub-task caps', () => {
+    mountGeneral();
+    expect(document.querySelector('#section-general')?.textContent).toContain(
+      'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.',
+    );
+  });
+
   it('removes a toggle key when it is switched off, rather than storing false', () => {
     const { probe } = mountGeneral();
     const done = input('closeDoneTerminalsWithTicket');

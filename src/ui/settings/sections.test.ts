@@ -61,6 +61,7 @@ describe('settings sections — vocabulary', () => {
         'processes',
         'repositories',
         'review',
+        'subtasks',
         'terminalNameTemplate',
         'ticketLabelTemplate',
         'ticketing',

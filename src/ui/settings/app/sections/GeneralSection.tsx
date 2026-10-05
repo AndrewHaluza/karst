@@ -2,7 +2,7 @@
  * The General tab (NDL-126 §8.3, phase 3 step 2, first of four).
  *
  * `SECTION_FIELDS.general` in `src/ui/settings/sections.ts` is the authority for
- * what this tab owns: thirteen keys. Anything it does not claim — `id`, most
+ * what this tab owns: fourteen keys. Anything it does not claim — `id`, most
  * importantly — is never editable here and always survives from the file, which
  * is why every editor below writes exactly one claimed key and nothing else.
  *
@@ -23,6 +23,7 @@ import { useMemo, useRef, useState } from 'react';
 import type {
   AgentProvider,
   Manifest,
+  SubtaskLimits,
   WorktreePathDisplay,
 } from '../../../../manifest/types.js';
 import { AGENT_PROVIDER_LABELS, KNOWN_AGENT_PROVIDERS } from '../../../../model/agentProviders.js';
@@ -80,6 +81,16 @@ function set<K extends keyof Manifest>(key: K, value: Manifest[K] | undefined): 
     return next;
   };
 }
+
+/** The help copy under the sub-task caps — the cost of raising them. */
+const SUBTASK_CAPS_DESC =
+  'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.';
+
+/** Placeholders mirror the loader defaults (`DEFAULT_SUBTASK_LIMITS`). */
+const SUBTASK_CAP_PLACEHOLDERS: Readonly<Record<keyof SubtaskLimits, string>> = {
+  maxConcurrentPerParent: '2',
+  maxConcurrentTotal: '4',
+};
 
 export function GeneralSection() {
   const { state, edit } = useSettingsApp();
@@ -158,6 +169,20 @@ export function GeneralSection() {
     const parsed = Number(raw);
     edit(set('archiveDoneAfterDays', Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined));
   };
+
+  // A cap is a whole number >= 0 (0 = unlimited). Anything else clears that cap
+  // (it then loads as its default) and the block is removed once both are
+  // blank, so an untouched project keeps a clean yml.
+  const subtasks = readField<Partial<SubtaskLimits> | undefined>(draft, 'subtasks', undefined);
+  const setSubtaskCap = (key: keyof SubtaskLimits) => (raw: string): void => {
+    const parsed = Number(raw);
+    const valid = raw.trim() !== '' && Number.isInteger(parsed) && parsed >= 0;
+    const { [key]: _dropped, ...rest } = subtasks ?? {};
+    const next: Partial<SubtaskLimits> = valid ? { ...rest, [key]: parsed } : rest;
+    edit(set('subtasks', Object.keys(next).length === 0 ? undefined : (next as SubtaskLimits)));
+  };
+  const subtaskCapText = (key: keyof SubtaskLimits): string =>
+    subtasks?.[key] === undefined ? '' : String(subtasks[key]);
 
   const setToggle = (key: 'debug' | 'closeDoneTerminalsWithTicket' | 'diffsInSourceControl') =>
     (checked: boolean): void => {
@@ -366,6 +391,41 @@ export function GeneralSection() {
             </>
           }
         />
+      </div>
+
+      <div className="section-block">
+        <div className="section-head">
+          <div>
+            <div className="section-title">Sub-tasks</div>
+            <div className="section-desc">{SUBTASK_CAPS_DESC}</div>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field
+            label="Running sub-tasks per parent"
+            help="Blank = 2. Extra sub-tasks wait, queued, until a slot frees."
+            control={{
+              kind: 'input',
+              name: 'subtasksMaxConcurrentPerParent',
+              type: 'number',
+              value: subtaskCapText('maxConcurrentPerParent'),
+              placeholder: SUBTASK_CAP_PLACEHOLDERS.maxConcurrentPerParent,
+              onChange: setSubtaskCap('maxConcurrentPerParent'),
+            }}
+          />
+          <Field
+            label="Running sub-tasks per project"
+            help="Blank = 4. Counts every level of nesting."
+            control={{
+              kind: 'input',
+              name: 'subtasksMaxConcurrentTotal',
+              type: 'number',
+              value: subtaskCapText('maxConcurrentTotal'),
+              placeholder: SUBTASK_CAP_PLACEHOLDERS.maxConcurrentTotal,
+              onChange: setSubtaskCap('maxConcurrentTotal'),
+            }}
+          />
+        </div>
       </div>
 
       <div className="section-block">
