@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { forbiddenBodyChar } from '../model/messageText.js';
 
 /**
  * The parent<->child mailbox (v64). Plain store functions over the shared
@@ -72,6 +73,13 @@ function rowToMessage(r: MessageRow): TicketMessage {
 function normalizeBody(body: string): string {
   const trimmed = body.trim();
   if (trimmed === '') throw new Error('message body is empty');
+  const bad = forbiddenBodyChar(trimmed);
+  if (bad !== null) {
+    throw new Error(
+      `message body contains control or line-separator character ${bad}; ` +
+        'only plain text with newlines and tabs is allowed',
+    );
+  }
   if (trimmed.length > MAX_MESSAGE_BODY) {
     throw new Error(
       `message body is ${trimmed.length} chars; the limit is ${MAX_MESSAGE_BODY}`,

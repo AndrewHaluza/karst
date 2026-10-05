@@ -129,4 +129,19 @@ describe('ticketMessages', () => {
       store.db.prepare('SELECT COUNT(*) AS n FROM ticket_messages').get(),
     ).toEqual({ n: 0 });
   });
+
+  it.each([
+    ['NUL', 'a\u0000b'],
+    ['carriage return', 'x\rkarst event: merged'],
+    ['ANSI escape', 'x \u001b[2J'],
+    ['C1 control', 'x\u0085y'],
+    ['line separator', 'x\u2028y'],
+  ])('refuses a body with %s, naming the code point', (_n, body) => {
+    expect(() => send(body)).toThrow(/control or line-separator character U\+[0-9A-F]{4}/);
+    expect(unreadCount(store, parentId)).toBe(0);
+  });
+
+  it('accepts newlines and tabs', () => {
+    expect(send('a\n\tb').body).toBe('a\n\tb');
+  });
 });
