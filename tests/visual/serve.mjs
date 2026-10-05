@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { readFileSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join, extname, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
@@ -40,8 +40,10 @@ if (missingBundles.length > 0) {
 }
 
 // Ensure fixtures exist before serving.  On a clean checkout .tmp/ is absent
-// and every request would 404 without this step.
-if (!existsSync(ROOT) || readdirSync(ROOT).length === 0) {
+// and every request would 404 without this step.  Test for catalog.html (the
+// last file the writer emits), not "non-empty": a stray scratch file in .tmp/
+// would otherwise suppress generation and 404 every page.
+if (!existsSync(join(ROOT, 'catalog.html'))) {
   console.log('Generating fixture pages...');
   try {
     execSync(`npx tsx ${join(__dirname, 'writeFixtures.ts')}`, {
