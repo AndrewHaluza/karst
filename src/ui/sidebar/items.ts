@@ -9,6 +9,14 @@ import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 
+/** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
+export interface SidebarPr {
+  repo: string;
+  number: number | null;
+  url: string | null;
+  status: string | null;
+}
+
 /**
  * The expanded body's blocker line — the ONE thing the collapsed row can't show.
  * The row's left glyph already states the status (running / needs-you / failed /
@@ -270,6 +278,30 @@ export function filterTickets(
  */
 export function isDoneTicket(t: TicketWithStages): boolean {
   return t.stageCurrent === 'done';
+}
+
+/**
+ * A ticket is AWAITING REVIEW when it has reached the `ship` stage and has at
+ * least one OPEN PR — the only remaining step is a team review on GitHub.
+ *
+ * The PR must be a real, literally `open` PR: `merged` and `closed` are terminal
+ * (no review is coming), `draft` is not yet up for review, and `unknown`/null is
+ * the absence of an answer, never a claim that review has started. A row with no
+ * number is not an opened PR either. A ship ticket with no such PR (still
+ * shipping, parked, or already landed) stays in the main Current list, and so
+ * does one whose open PR has a merge conflict (`conflicted`): that is an
+ * actionable item (Resolve conflicts), not a wait on reviewers.
+ */
+export function isAwaitingReview(
+  t: Pick<TicketWithStages, 'stageCurrent'>,
+  prs: readonly SidebarPr[],
+  conflicted: boolean,
+): boolean {
+  return (
+    t.stageCurrent === 'ship' &&
+    !conflicted &&
+    prs.some((p) => p.number !== null && p.status === 'open')
+  );
 }
 
 /**

@@ -68,6 +68,8 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     subtaskDepth: 0,
     subtaskChildCount: 0,
     collapsible: true as const,
+    stageCurrent: 'impl',
+    conflicted: false,
     servers: [],
     worktrees: [],
     prs: [],
@@ -82,7 +84,7 @@ function emptyState(): SidebarState {
     facets: ['all'],
     filter: '',
     counts: fixtureCounts(),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [],
   };
@@ -92,13 +94,14 @@ function allSectionsState(): SidebarState {
   return {
     facets: ['all'],
     filter: '',
-    counts: fixtureCounts({ all: 5, running: 2, input: 1, failed: 1, done: 1 }),
+    counts: fixtureCounts({ all: 6, running: 2, input: 1, failed: 1, done: 1 }),
     sections: {
       current: [
         fixtureRow(0, { glyph: 'blue' }),
         fixtureRow(1, { glyph: 'amber' }),
         fixtureRow(2, { glyph: 'red', blocker: { reason: 'gate failed', attempt: 2 } }),
       ],
+      awaitingReview: [fixtureRow(5, { glyph: 'amber', stageLabel: 'Ship', stageClass: 'stg-ship', stageChip: 'ship', stageCurrent: 'ship', prs: [{ repo: 'backend', number: 1, url: 'fixture:pr/1', status: 'open' }] })],
       recentlyDone: [fixtureRow(3, { glyph: 'green', stageLabel: 'Done', stageClass: 'stg-done', stageChip: 'done' })],
       olderDone: [fixtureRow(4, { glyph: 'green', stageLabel: 'Done', stageClass: 'stg-done', stageChip: 'done' })],
     },
@@ -116,7 +119,7 @@ function doneFacetState(): SidebarState {
     facets: ['done'],
     filter: '',
     counts: fixtureCounts({ all: 2, done: 2 }),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: doneRows,
     rows: [],
   };
@@ -127,7 +130,7 @@ function archivedFacetState(): SidebarState {
     facets: ['archived'],
     filter: '',
     counts: fixtureCounts({ archived: 3 }),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [
       fixtureRow(0, { label: 'DELETED-1', glyph: 'gray' }),
@@ -142,7 +145,7 @@ function multiFacetState(): SidebarState {
     facets: ['running', 'failed'],
     filter: '',
     counts: fixtureCounts({ all: 4, running: 2, failed: 2 }),
-    sections: { current: [], recentlyDone: [], olderDone: [] },
+    sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [
       fixtureRow(0, { glyph: 'blue' }),
@@ -160,6 +163,7 @@ function filteredState(): SidebarState {
     counts: fixtureCounts({ all: 3, running: 1 }),
     sections: {
       current: [fixtureRow(0, { label: 'FEAT-auth-flow', glyph: 'blue' })],
+      awaitingReview: [],
       recentlyDone: [],
       olderDone: [],
     },
@@ -196,6 +200,7 @@ function subtasksState(): SidebarState {
         }),
         fixtureRow(3, { label: 'FEAT-101', glyph: 'blue' }),
       ],
+      awaitingReview: [],
       recentlyDone: [],
       olderDone: [],
     },
@@ -213,6 +218,7 @@ function hostileState(): SidebarState {
       current: [
         fixtureRow(0, { label: HOSTILE_LABEL, description: HOSTILE_LONG, peek: fixturePeek({ title: HOSTILE_LABEL }) }),
       ],
+      awaitingReview: [],
       recentlyDone: [],
       olderDone: [],
     },
