@@ -121,9 +121,11 @@ describe('bundledModelCatalog', () => {
     const opus = catalog.claude.find((m) => m.id === 'claude-opus-5');
     const gemini = catalog.antigravity.find((m) => m.id === 'gemini-3.6-flash-high');
     const gptOss = catalog.antigravity.find((m) => m.id === 'gpt-oss-120b-medium');
+    const agySonnet = catalog.antigravity.find((m) => m.id === 'claude-sonnet-5-5-high');
     expect(opus?.tags).toEqual(['multimodal', 'vision']);
     expect(gemini?.tags).toEqual(['multimodal', 'vision', 'audio']);
     expect(gptOss?.tags).toEqual(['text-only']);
+    expect(agySonnet?.tags).toEqual(['multimodal', 'vision']);
   });
 
   /**
