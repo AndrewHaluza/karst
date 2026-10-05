@@ -1,6 +1,7 @@
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 import type { PostMessageInput } from './ticketMessages.js';
+import { blockNotifiesParent } from '../model/blockerNotify.js';
 
 /**
  * Sub-task events written AT THE SOURCE (v64 mailbox). The host never sees a
@@ -45,7 +46,8 @@ export function subtaskStageEvent(
   patch: EventPatch,
 ): PostMessageInput | null {
   const entersDone = stageKey === 'done' && patch.status === 'passed';
-  const setsBlock = typeof patch.blockedKind === 'string';
+  const setsBlock =
+    typeof patch.blockedKind === 'string' && blockNotifiesParent(patch.blockedKind);
   if (!entersDone && !setsBlock) return null;
 
   const ticket = store.db
@@ -72,7 +74,7 @@ export function subtaskStageEvent(
   return {
     projectId: ticket.project_id,
     fromTicketId: null,
-    toTicketId: Number(ticket.subtask_parent_id),
+    toTicketId: ticket.subtask_parent_id,
     kind: 'event',
     body,
   };
@@ -86,9 +88,15 @@ function eventBody(
   entersDone: boolean,
 ): string | null {
   if (entersDone && prior.status !== 'passed') return `${childKey} landed (done)`;
-  if (typeof patch.blockedKind === 'string' && prior.blocked_kind !== patch.blockedKind) {
+  if (
+    typeof patch.blockedKind === 'string' &&
+    blockNotifiesParent(patch.blockedKind) &&
+    prior.blocked_kind !== patch.blockedKind
+  ) {
     const reason = (patch.blockedReason ?? '').trim() || patch.blockedKind;
-    return `${childKey} blocked at ${stageKey}: ${reason.slice(0, EVENT_REASON_MAX)}`;
+    // By code points, so a bound never splits a surrogate pair.
+    const bounded = Array.from(reason).slice(0, EVENT_REASON_MAX).join('');
+    return `${childKey} blocked at ${stageKey}: ${bounded}`;
   }
   return null;
 }

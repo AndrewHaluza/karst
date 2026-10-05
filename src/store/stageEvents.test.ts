@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,6 +8,9 @@ import { createTicket, setStageCurrent } from './tickets.js';
 import { setStage } from './stages.js';
 import { clearStageBlock, parkGateStage } from './stageBlocks.js';
 import { listInbox } from './ticketMessages.js';
+import { getStage } from './stages.js';
+import { BLOCKS_NOTIFY_PARENT } from '../model/blockerNotify.js';
+import type { BlockerKind } from '../model/types.js';
 import { transition } from '../workflow/machine.js';
 import { openWritableStore } from '../cli/writableStore.js';
 
@@ -116,6 +119,72 @@ describe('sub-task events from the stage writer', () => {
     store.db.prepare('UPDATE tickets SET project_id = 9999 WHERE id = ?').run(childId);
     setStage(store, childId, 'done', { status: 'passed' });
     expect(inbox(parentId)[0]!.projectId).toBeNull();
+  });
+
+  it('a failing event never fails or undoes the stage write, and reports it', () => {
+    store.db.prepare('DROP TABLE ticket_messages').run();
+    const onEventError = vi.fn();
+    expect(() =>
+      setStage(store, childId, 'done', { status: 'passed', verdict: 'v' }, { onEventError }),
+    ).not.toThrow();
+    expect(getStage(store, childId, 'done')).toMatchObject({ status: 'passed', verdict: 'v' });
+    expect(onEventError).toHaveBeenCalledTimes(1);
+  });
+
+  it('a swallowed event failure inside an outer transaction still lets it commit', () => {
+    store.db.prepare('DROP TABLE ticket_messages').run();
+    store.db.transaction(() => {
+      setStage(store, childId, 'done', { status: 'passed' });
+      setStage(store, childId, 'impl', { verdict: 'after' });
+    })();
+    expect(getStage(store, childId, 'done')!.status).toBe('passed');
+    expect(getStage(store, childId, 'impl')!.verdict).toBe('after');
+  });
+
+  it('releases its savepoints on success so a follow-up write in the transaction commits', () => {
+    store.db.transaction(() => {
+      setStage(store, childId, 'done', { status: 'passed' });
+      setStage(store, childId, 'impl', { verdict: 'after' });
+    })();
+    expect(getStage(store, childId, 'impl')!.verdict).toBe('after');
+    expect(inbox(parentId)).toHaveLength(1);
+  });
+
+  it('classifies every BlockerKind, notifying only the ones the parent must act on', () => {
+    expect(BLOCKS_NOTIFY_PARENT).toEqual({
+      'nothing-to-run': true,
+      'capability-missing': true,
+      'no-independent-signal': true,
+      'boot-failed': true,
+      'lease-lost': true,
+      'unmapped-repository': true,
+      'approach-graph-failed': true,
+      'subtask-integration-conflict': true,
+      'awaiting-merge': false,
+      'awaiting-impl-marker': false,
+      'awaiting-subtask': false,
+    });
+    for (const kind of Object.keys(BLOCKS_NOTIFY_PARENT) as BlockerKind[]) {
+      setStage(store, childId, 'uat', { blockedKind: null });
+      const before = inbox(parentId).length;
+      setStage(store, childId, 'uat', { blockedKind: kind, blockedReason: 'r' });
+      expect(inbox(parentId).length - before, kind).toBe(BLOCKS_NOTIFY_PARENT[kind] ? 1 : 0);
+    }
+  });
+
+  it('emits again when a different notifying kind replaces a standing block', () => {
+    setStage(store, childId, 'uat', { blockedKind: 'boot-failed', blockedReason: 'a' });
+    setStage(store, childId, 'uat', { blockedKind: 'lease-lost', blockedReason: 'b' });
+    expect(inbox(parentId).map((m) => m.body)).toEqual([
+      'P-1-s1 blocked at uat: a',
+      'P-1-s1 blocked at uat: b',
+    ]);
+  });
+
+  it('bounds the reason by code points, never splitting a surrogate pair', () => {
+    const reason = `${'x'.repeat(299)}😀tail`;
+    setStage(store, childId, 'uat', { blockedKind: 'boot-failed', blockedReason: reason });
+    expect(inbox(parentId)[0]!.body).toBe(`P-1-s1 blocked at uat: ${'x'.repeat(299)}😀`);
   });
 
   it('falls back to #id when the sub-task has no key', () => {
