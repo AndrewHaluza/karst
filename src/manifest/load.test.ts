@@ -2993,4 +2993,16 @@ describe('subtasks caps', () => {
       cleanup();
     }
   });
+
+  it('treats a cap key with no value (null) as its default', () => {
+    const { path, cleanup } = fixture(`${VALID}\nsubtasks:\n  maxConcurrentPerParent:\n  maxConcurrentTotal: 6\n`);
+    try {
+      expect(loadManifest(path).subtasks).toEqual({
+        maxConcurrentPerParent: 2,
+        maxConcurrentTotal: 6,
+      });
+    } finally {
+      cleanup();
+    }
+  });
 });

@@ -378,7 +378,8 @@ export const DEFAULT_SUBTASK_LIMITS: SubtaskLimits = {
 };
 
 function validateSubtaskCap(raw: unknown, key: keyof SubtaskLimits): number {
-  if (raw === undefined) return DEFAULT_SUBTASK_LIMITS[key];
+  // `key:` with no value parses as null — the same "not set" as absent.
+  if (raw === undefined || raw === null) return DEFAULT_SUBTASK_LIMITS[key];
   if (typeof raw !== 'number' || !Number.isInteger(raw) || raw < 0) {
     throw new ManifestError(
       `subtasks.${key} must be a whole number >= 0 (0 = unlimited)`,

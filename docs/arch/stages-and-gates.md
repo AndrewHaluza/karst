@@ -18,6 +18,8 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Nothing in the extension host may block its event loop
 - The stage driver's host seam
 - Pause: a ticket that starts nothing
+- Sub-task autostart: queuing, claiming, and orphan requeue
+- Mailbox events: parent–child messaging and wake decisions
 - Single-writer stage mutation
 - Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
 - A ship in which EVERY target is unchanged is a failure, not a pass
@@ -131,6 +133,35 @@ Every automatic entry point checks it, each at the one read it schedules from �
 | Stranded-ship recovery at activation | The activation loop, before `runShipSaga` |
 
 Surfaces: `ticketGlyph`/`stageBadge` read it first (gray, "Paused" — a paused ticket is never amber "needs you", because nothing is waiting on the user). The dashboard's ⋯ menu carries Pause/Resume plus a header pill, `karst.pauseTicket`/`karst.unpauseTicket` carry the same seam for the palette, `karst test pause|unpause` drives it in tests, and `karst context` reports `paused`/`pausedAt` so an agent can see it too.
+
+## Sub-task autostart: queuing, claiming, and orphan requeue
+
+Sub-task auto-start (plan §A, v64) is a tri-state machine on `tickets.autostart_pending`: **0 none** (inactive), **1 queued** (waiting at scope), **2 starting** (claimed by one sweep). A sub-task holds a concurrency slot when its `stage_current` is one of `impl`/`fix`/`uat`/`review`, or when it is mid-start (`autostart_pending = 2`), or when it is archived never—an archived child frees its slot instantly. Two caps limit slots (manifest `subtasks`, defaults 2 per parent / 4 per project; `0` = unlimited): `perParent` counts a parent's direct children in slots; `total` counts every sub-task in a slot, nested ones included. Both caps are manifest-dynamic — a Settings save takes effect on the next sweep.
+
+**State machine:**
+
+- **Queue** (0 → 1): fires at scope via `queueAutostart` in the CREATE path, or explicitly in the child's own CLI `subtask create --no-start` sets `start: false` to defer it. Only when `autostart_pending = 0` and `stage_current = 'scope'`.
+- **Claim** (1 → 2): atomic, cap-checked in one statement (`claimAutostart`, `src/store/autostart.ts`). Overlapping sweeps and other windows can never claim the same child twice: the SQL rechecks both caps against live rows (archived children excluded via `HOLDS_SLOT_SQL`) so a claim winning means the caps admit it. Sets `autostart_claimed_at = datetime('now')` — a stale claim (> 10 min, `STALE_CLAIM_MS`) at scope is an orphan: the window that claimed it died mid-start, so `requeueStaleClaims` resets it to 1 (queued) on the next tick.
+- **Release** (2 → 0): only when scope is PASSED — a failed start before `stage_current` changes fires `releaseAutostart` (un-queued, started manually by the user) with the reason posted to the parent. No retry: the same failure next tick would repeat forever.
+- **Clear** (1 or 2 → 0): when a child leaves scope via `setStage`, `clearAutostartOnScopePass` clears it unconditionally (the child won the race to impl/fix/uat/review; autostart is done).
+
+**Orchestration:** `src/extension/ops/subtaskAutostartOps.ts` makes a `SubtaskAutostart` sweep keyed to the parent's project. Runs **only in the window that owns the parent's live session** (`ownsParent`); a parent with no session anywhere leaves its children queued. Fires every 2 seconds, independent of the external-change watcher. Picks candidates with `pickSubtasksToStart` (workflow, read-only): queued children at scope whose parent is past scope, ordered blocking-first then by id (FIFO). For each pick, claims atomically and starts via the host's `startTicket` callback. A claim loss means another sweep or window won (shared cap) or the child left scope mid-attempt (invalid); both are silent (not an error). A start failure is NOT retried — the failure reason is bounded (`MAX_REASON`) and posted as a mailbox event to the parent so the user sees what went wrong.
+
+## Mailbox events: parent–child messaging and wake decisions
+
+Mailbox (`ticket_messages`, v64) is the parent's inbox for child state changes and messages. Rows come in two kinds: **events** (host-written, `kind='event'`, `from_ticket_id = NULL`) and **messages** (agent-posted, `kind='message'`, `from_ticket_id != NULL`). Every row carries `to_ticket_id` (the parent), `body` (untrusted text, host or agent), `created_at`, and `read_at` (NULL = unread). Event rows additionally carry `woke_at` — a timestamp when the parent-wake decision was taken (set once, atomically, by the delivery sweep; NULL = never woken).
+
+**Event classification:** events are written at the source — inside `setStage` when a child's stage changes — scoped to the parent's project. Supported kinds: scope→impl transition (child started), autostart failure (child failed to start), and recoverable stage changes (child re-entered fix, etc.). The host writes `kind='event'` rows nested in a savepoint within `setStage` itself (best-effort — a write failure does not fail the stage transition), and the body names the event type with machine-readable keys.
+
+**Delivery sweep** (`src/extension/ops/messageDeliveryOps.ts`, `makeMessageDeliverySweep`): fixed pointer per recipient (in-memory watermark, ids never reused), 30s per recipient minimum, deferred 1-tick retry on transient delivery failure. Three rules gate waking a parent:
+
+1. **Impl only**: wake events from children outside impl/fix stages are discarded without waking. A child in uat/review/ship is still executing; waking would interrupt the agent for intermediate state.
+2. **Blocked vs landed**: a child entering fix (recovering from a failed uat/review) is retried automatically — wake. A child landing (uat/review complete, moving to next stage) is integration in-flight — wake and let the agent decide. A child at terminal (ship/done) skips wake and claim—already landed.
+3. **Graph tickets and unsafe paths**: graph tickets (approach runs) never wake (integration managed by the graph runtime). Unsafe literal worktree paths defer wake to next tick (agent-scoped safety). Non-live tickets (no open session anywhere) defer wake.
+
+**Parent wake decision** (`src/workflow/parentWake.ts`): `parentWakeDecision` takes an event row and returns `{ decision: 'wake' | 'skip' | 'retry' }`. Wake is claimed once per row across all windows (`claimWake`, AUTOINCREMENT `woke_at`), so one parent open/session start per event row. Woken parent is immune to re-wake for `WAKE_COOLDOWN_MS` (60s), and counts as live while the open is in progress. Events before parent activation (parent not yet live) never wake — the next sweep when the parent IS live (a later day, same session restored) decides again. Age-gated: events older than `EVENT_MAX_AGE_MS` (30 min) are discarded without waking. `BLOCKS_NOTIFY_PARENT` allowlist in `store/stageEvents.ts` — only certain transitions post events; others (e.g., resuming a paused ticket) do not.
+
+**Store tables:** `ticket_messages` (parent inbox), v64. Index on `(to_ticket_id, read_at)` for inbox queries; index on `(project_id, kind, woke_at, id)` for delivery sweep event selection. Early v64 DBs without `ticket_messages` repair via `ticketMessagesRepair` (written at migration, creates and populates the table from stage events if the table is empty).
 
 ## Single-writer stage mutation
 

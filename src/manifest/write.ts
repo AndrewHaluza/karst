@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
-import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS, DEFAULT_SUBTASK_LIMITS } from './schema.js';
+import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './schema.js';
 import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
 import type { Manifest } from './types.js';
@@ -157,9 +157,10 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // the next reload falls back to the default.
     archiveDoneAfterDays:
       manifest.archiveDoneAfterDays ?? DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
-    // Always written, like `archiveDoneAfterDays`: without this line Save
-    // silently drops the caps and the next reload falls back to the defaults.
-    subtasks: manifest.subtasks ?? DEFAULT_SUBTASK_LIMITS,
+    // Optional: written when the manifest carries it, omitted (undefined →
+    // dropped by the dumper, overriding any stale raw value) when it does not,
+    // so a manifest that never had the block does not gain one on Save.
+    subtasks: manifest.subtasks,
     // Optional: written when set, dropped (undefined → omitted by the dumper,
     // overriding any stale raw value) when cleared, so it falls back to "debug
     // logging off".
