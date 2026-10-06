@@ -18,6 +18,12 @@ describe('resolveStageLogPath', () => {
     expect(resolveStageLogPath(() => ticket, 1, 'uat')).toBeNull();
   });
 
+  it('treats an empty artifact path as no artifact', () => {
+    const empty = { stages: [{ stageKey: 'review', artifactPath: '' }] };
+    expect(resolveStageLogPath(() => empty, 1, 'review')).toBeNull();
+    expect(resolveStageLogPath(() => ({ stages: [] }), 1, 'review')).toBeNull();
+  });
+
   it('reads only the host-owned ticket id it is given', () => {
     const read = vi.fn(() => ticket);
     resolveStageLogPath(read, 42, 'review');
