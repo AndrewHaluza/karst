@@ -15,6 +15,7 @@ const LIVE_MODELS: ModelCatalog = {
   codex: [{ id: 'codex-live', label: 'Codex Live', providers: ['codex'] }],
   antigravity: [],
   opencode: [],
+  opencode2: [],
 };
 
 describe('KNOWN_MODELS', () => {
@@ -56,6 +57,9 @@ describe('KNOWN_MODELS', () => {
       'claude-sonnet-4-6',
       'claude-opus-4-6-thinking',
       'gpt-oss-120b-medium',
+      'opencode-go/mimo-v2.5',
+      'opencode-go/space-bunny',
+      'opencode-go/deepseek-v4.1-flash',
     ]);
   });
 
@@ -121,6 +125,7 @@ describe('KNOWN_MODELS', () => {
       codex: [{ id: 'team-codex-model', label: 'Team Codex', providers: ['codex'] }],
       antigravity: [],
       opencode: [],
+      opencode2: [],
     })).toEqual([{ id: 'team-codex-model', label: 'Team Codex', providers: ['codex'] }]);
   });
 
@@ -298,7 +303,7 @@ describe('resolveModelChain', () => {
   it('the real configuration: deepseek first, mimo fallback', () => {
     expect(
       resolveModelChain(
-        'opencode',
+        'opencode2',
         'opencode-go/deepseek-v4-flash',
         ['opencode-go/mimo-v2.5'],
       ),

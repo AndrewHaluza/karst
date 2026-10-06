@@ -23,8 +23,11 @@ the test `matches the published model feed exactly`, which compares
 `parseModelFeed(model-catalog.json)` against `bundledModelCatalog()`. Edit one
 copy and not the other and that test fails — that is the whole invariant.
 
-Each copy carries four provider sections: `claude`, `codex`, `antigravity`,
-`opencode` (`AgentProvider` in `src/manifest/types.ts`).
+Each copy carries five provider sections: `claude`, `codex`, `antigravity`,
+`opencode`, `opencode2` (`AgentProvider` in `src/manifest/types.ts`).
+`opencode` (v1) stays empty; `opencode2` (v2) carries a small curated fallback
+in `provider/model` form (its CLI probe is `unsupported` — v2 reads models.dev
+at runtime). Effort for opencode2 rides as a `#<effort>` suffix on the model id.
 
 The pickers render the catalog the host supplies (`state.models`); no model
 list is mirrored into any webview HTML. Do not add a model id to a `.html`.

@@ -412,7 +412,7 @@ describe('buildDashboardState', () => {
   it('exposes the header agent-switch choices for every implemented core', () => {
     const t = createTicket(store, { key: 'SW-CH', title: 'switch' });
     const state = buildDashboardState(store, t.id);
-    expect(state.agentSwitch.cores.map((c) => c.id)).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    expect(state.agentSwitch.cores.map((c) => c.id)).toEqual(['claude', 'codex', 'antigravity', 'opencode', 'opencode2']);
     expect(state.agentSwitch.cores.find((c) => c.id === 'codex')?.label).toBe('Codex');
     expect(Array.isArray(state.agentSwitch.models.codex)).toBe(true);
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice

@@ -24,6 +24,7 @@ function catalog(): ModelCatalog {
     codex: models('codex', 'bundled-codex'),
     antigravity: models('antigravity', 'bundled-antigravity'),
     opencode: [],
+    opencode2: [],
   };
 }
 
@@ -101,7 +102,7 @@ describe('loadModelCatalog', () => {
       },
     });
 
-    expect(result.sources).toEqual({ claude: 'cli', codex: 'feed', antigravity: 'cache', opencode: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'cli', codex: 'feed', antigravity: 'cache', opencode: 'bundled', opencode2: 'bundled' });
     expect(result.catalog.claude).toEqual(models('claude', 'cli-claude'));
     expect(result.catalog.codex).toEqual(models('codex', 'feed-codex'));
     expect(result.catalog.antigravity).toEqual(models('antigravity', 'cached-antigravity'));
@@ -121,7 +122,7 @@ describe('loadModelCatalog', () => {
       antigravity: [{ id: 'bad id', label: 'Bad' }],
     })));
 
-    expect(result.sources).toEqual({ claude: 'feed', codex: 'cache', antigravity: 'bundled', opencode: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'feed', codex: 'cache', antigravity: 'bundled', opencode: 'bundled', opencode2: 'bundled' });
     expect(result.catalog.antigravity).toEqual(models('antigravity', 'bundled-antigravity'));
     expect(cache.writes).toEqual(['claude']);
   });
@@ -145,12 +146,14 @@ describe('loadModelCatalog', () => {
       codex: 'feed',
       antigravity: 'feed',
       opencode: 'bundled',
+      opencode2: 'bundled',
     });
     expect(result.catalog).toEqual({
       claude: models('claude', 'feed-claude'),
       codex: models('codex', 'feed-codex'),
       antigravity: models('antigravity', 'feed-antigravity'),
       opencode: [],
+      opencode2: [],
     });
     expect(entries.get('codex')).toMatchObject({
       source: 'feed',
@@ -225,6 +228,8 @@ describe('loadModelCatalog diagnostics', () => {
       { provider: 'codex', tier: 'cli', category: code },
       { provider: 'opencode', tier: 'cli', category: 'command-unavailable' },
       { provider: 'opencode', tier: 'feed', category: 'empty' },
+      { provider: 'opencode2', tier: 'cli', category: 'unsupported' },
+      { provider: 'opencode2', tier: 'feed', category: 'empty' },
     ]);
     expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
   });
@@ -390,7 +395,7 @@ describe('loadModelCatalog diagnostics', () => {
       ...baseDeps(new MemoryCache(), (async () => new Response('no', { status: 404 })) as typeof fetch),
     });
 
-    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled', opencode: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled', opencode: 'bundled', opencode2: 'bundled' });
     expect(result.diagnostics.filter((d) => d.tier === 'feed')).toHaveLength(1);
   });
 
@@ -421,7 +426,7 @@ describe('loadModelCatalog diagnostics', () => {
     });
 
     expect(result.diagnostics.filter((d) => catalogDiagnosticSeverity(d.category) === 'warn')).toEqual([]);
-    expect(result.sources).toEqual({ claude: 'feed', codex: 'feed', antigravity: 'feed', opencode: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'feed', codex: 'feed', antigravity: 'feed', opencode: 'bundled', opencode2: 'bundled' });
   });
 
   it('never fetches, and reports nothing, when no feed is configured', async () => {
@@ -434,7 +439,7 @@ describe('loadModelCatalog diagnostics', () => {
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(result.diagnostics.filter((d) => d.tier === 'feed')).toEqual([]);
-    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled', opencode: 'bundled' });
+    expect(result.sources).toEqual({ claude: 'bundled', codex: 'bundled', antigravity: 'bundled', opencode: 'bundled', opencode2: 'bundled' });
   });
 
   it('populates the catalog from a provider CLI that is installed', async () => {
@@ -570,6 +575,7 @@ describe('loadModelCatalog curated-tag overlay', () => {
       ],
       antigravity: models('antigravity', 'bundled-antigravity'),
       opencode: [],
+      opencode2: [],
     };
   }
 

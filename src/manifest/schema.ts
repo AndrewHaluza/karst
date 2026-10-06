@@ -258,9 +258,12 @@ function validateAgentProvider(raw: unknown): AgentProvider {
     raw !== 'claude' &&
     raw !== 'codex' &&
     raw !== 'antigravity' &&
-    raw !== 'opencode'
+    raw !== 'opencode' &&
+    raw !== 'opencode2'
   ) {
-    throw new ManifestError('agentProvider must be "claude", "codex", "antigravity", or "opencode"');
+    throw new ManifestError(
+      'agentProvider must be "claude", "codex", "antigravity", "opencode", or "opencode2"',
+    );
   }
   return raw as AgentProvider;
 }

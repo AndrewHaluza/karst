@@ -85,7 +85,7 @@ export const PROMPT_BEARING_PROCESS_KEYS: readonly ProcessKey[] = PROMPT_BEARING
   (role) => PROCESS_KEY_BY_ROLE[role],
 );
 
-const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
+const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);

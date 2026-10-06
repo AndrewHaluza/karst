@@ -24,7 +24,7 @@ import type {
   GraphProfileConfig,
 } from './types.js';
 
-const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
+const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 /**
  * The closed vocabularies for a trusted command's cwd / access. Exported so the

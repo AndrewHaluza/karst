@@ -19,6 +19,7 @@ const catalog: ModelCatalog = {
       efforts: ['low', 'high'],
     },
   ],
+  opencode2: [],
 };
 
 function m(over: Partial<Manifest> = {}): Manifest {

@@ -94,6 +94,59 @@ describe('spawnHeadlessCli', () => {
     expect(dropped).not.toContain('/evil');
   });
 
+  it('applies the adapter-owned isolation env verbatim, never through the KARST_ filter', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    }) as unknown as typeof spawn;
+    await spawnHeadlessCli(
+      'opencode2',
+      ['run'],
+      '/wt/a',
+      {
+        env: { KARST_DB: '/x/karst.db', PATH: '/evil' },
+        isolationEnv: {
+          XDG_DATA_HOME: '/gs/opencode2/data',
+          OPENCODE_DISABLE_AUTOUPDATE: '1',
+        },
+      },
+      spawnImpl,
+    );
+    const spawnOpts = (spawnImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![2] as {
+      env?: Record<string, string | undefined>;
+    };
+    expect(spawnOpts.env!.XDG_DATA_HOME).toBe('/gs/opencode2/data');
+    expect(spawnOpts.env!.OPENCODE_DISABLE_AUTOUPDATE).toBe('1');
+    expect(spawnOpts.env!.KARST_DB).toBe('/x/karst.db');
+    // The caller overlay still drops PATH; the isolation env is adapter-owned.
+    expect(spawnOpts.env!.PATH).toBe(process.env.PATH);
+  });
+
+  it('writes the prompt to stdin and opens stdin only when asked', async () => {
+    const stdin = new EventEmitter() as EventEmitter & { end: (s?: string) => void };
+    const written: (string | undefined)[] = [];
+    stdin.end = (s?: string) => written.push(s);
+    const child = fakeChild();
+    (child as unknown as { stdin: unknown }).stdin = stdin;
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => child.emit('close', 0));
+      return child;
+    }) as unknown as typeof spawn;
+    await spawnHeadlessCli(
+      'opencode2',
+      ['run'],
+      '/wt/a',
+      { stdin: 'hello prompt' },
+      spawnImpl,
+    );
+    const spawnOpts = (spawnImpl as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]![2] as {
+      stdio: string[];
+    };
+    expect(spawnOpts.stdio).toEqual(['pipe', 'pipe', 'pipe']);
+    expect(written).toEqual(['hello prompt']);
+  });
+
   it('rejects with an AbortError when the signal fires mid-run and kills the group', async () => {
     const child = fakeChild();
     const killed = vi.spyOn(process, 'kill');

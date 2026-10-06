@@ -5,6 +5,7 @@ import {
   renderDependencyFault,
   type DependencyProbe,
   type DependencyState,
+  type OutputProbe,
   type ReadinessProbe,
   type RequiredDependency,
 } from '../runtime/deps.js';
@@ -32,6 +33,8 @@ export interface SetupStatusInput {
   probe: DependencyProbe;
   /** Runs a tool's readiness check (real: `gh auth status`). */
   ready: ReadinessProbe;
+  /** Reads a readiness command's output, for an output-validating dependency. */
+  readOutput?: OutputProbe;
 }
 
 /** Karst can verify the CLI is installed, not authenticated — remind the user. */
@@ -59,7 +62,7 @@ export function buildSetupStatus(input: SetupStatusInput): SetupItem[] {
     // to take a precomputed missing set, so a dependency the caller forgot to
     // probe reported itself installed. Installed-but-unusable is a third answer:
     // a logged-out gh fails ship exactly like an absent one.
-    const state = dependencyState(dep, input.probe, input.ready);
+    const state = dependencyState(dep, input.probe, input.ready, input.readOutput);
     return {
       id: dep.binary,
       // Labels are used verbatim, never case-adjusted: 'npm' is lowercase by its

@@ -25,7 +25,7 @@ import {
   type ProcessAssignmentsConfig,
 } from '../types.js';
 
-const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
+const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 /** Model id bound — mirrors the graph profile model grammar. */
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$/;

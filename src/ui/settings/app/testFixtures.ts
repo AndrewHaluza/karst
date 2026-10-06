@@ -81,8 +81,8 @@ export const HOST_MESSAGE_FIXTURES: ReadonlyArray<{
     name: 'models',
     message: {
       type: 'models',
-      models: { claude: [], codex: [], antigravity: [], opencode: [] },
-      modelCompatibility: { claude: [], codex: [], antigravity: [], opencode: [] },
+      models: { claude: [], codex: [], antigravity: [], opencode: [], opencode2: [] },
+      modelCompatibility: { claude: [], codex: [], antigravity: [], opencode: [], opencode2: [] },
       recentModels: { claude: ['claude-opus'] },
     },
   },

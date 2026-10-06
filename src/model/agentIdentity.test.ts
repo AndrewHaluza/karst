@@ -20,12 +20,19 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const ICONS_DIR = join(HERE, 'icons', 'agent');
 
 describe('AGENT_PROVIDERS registry', () => {
-  it('registers the four canonical providers with their canonical names', () => {
-    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual(['antigravity', 'claude', 'codex', 'opencode']);
+  it('registers the canonical providers with their canonical names', () => {
+    expect(Object.keys(AGENT_PROVIDERS).sort()).toEqual([
+      'antigravity',
+      'claude',
+      'codex',
+      'opencode',
+      'opencode2',
+    ]);
     expect(AGENT_PROVIDERS.claude.label).toBe('Claude Code');
     expect(AGENT_PROVIDERS.codex.label).toBe('Codex');
     expect(AGENT_PROVIDERS.antigravity.label).toBe('Antigravity CLI');
     expect(AGENT_PROVIDERS.opencode.label).toBe('OpenCode');
+    expect(AGENT_PROVIDERS.opencode2.label).toBe('OpenCode v2');
   });
 
   it('every registered icon asset exists in the asset dir', () => {

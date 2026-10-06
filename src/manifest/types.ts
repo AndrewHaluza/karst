@@ -344,7 +344,7 @@ export type WorktreePathDisplay = 'absolute' | 'relative';
 export type TicketProvider = 'clickup' | 'manual';
 
 /** Which coding-agent CLI karst launches sessions with. */
-export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode';
+export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'opencode2';
 
 /**
  * Project-level templates for the git/GitHub artifacts Karst creates itself: the
