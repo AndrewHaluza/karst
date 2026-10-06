@@ -50,6 +50,20 @@ import { renderInstructionsPointer, withInstructionsPointer } from './instructio
 const OPENCODE_BIN = 'opencode';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
 
+/**
+ * Env keys the generated bridge reads on a resumed launch. opencode 1.18.35
+ * DROPS `--prompt` entirely when `--session` is present and never emits
+ * `session.created` for the resumed session, so a resumed launch would receive
+ * neither its kickoff nor a SessionStart (verified on a real TUI, pty via
+ * `script`, with a probe plugin logging every event: only plugin.added/
+ * catalog.updated fired; the control run without `--session` submitted the
+ * prompt and emitted session.created). The kickoff therefore rides a file named
+ * by `KARST_KICKOFF_FILE` and is delivered by the plugin through the opencode
+ * SDK; `KARST_RESUME_SESSION_ID` is the resumed id the plugin confirms with.
+ */
+export const KARST_KICKOFF_FILE_ENV = 'KARST_KICKOFF_FILE';
+export const KARST_RESUME_SESSION_ENV = 'KARST_RESUME_SESSION_ID';
+
 export interface HeadlessSpawnResult {
   stdout: string;
   stderr: string;
@@ -329,6 +343,8 @@ import { readFileSync } from 'node:fs';
 // reject the rebound session.
 const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
 const endpointFile = ${JSON.stringify(endpointFile)};
+const resumeSessionEnv = ${JSON.stringify(KARST_RESUME_SESSION_ENV)};
+const kickoffFileEnv = ${JSON.stringify(KARST_KICKOFF_FILE_ENV)};
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 
 let launchSearch = '';
@@ -626,7 +642,72 @@ function postUsageAdvanced(eventId, input, directory, worktree, done) {
   postUsage(eventId, input, directory, worktree, done);
 }
 
-export const KarstBridge = async ({ directory, worktree }) => {
+// A resumed launch's kickoff: opencode drops '--prompt' with '--session', so
+// the adapter writes the prompt here and names the file via KARST_KICKOFF_FILE.
+// Read defensively — an unreadable or malformed file yields no prompt, never a
+// throw into the agent's event loop.
+function readKickoffPrompt(path) {
+  if (!path) return '';
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'));
+    return parsed && typeof parsed.prompt === 'string' ? parsed.prompt : '';
+  } catch {
+    return '';
+  }
+}
+
+// Post SessionStart for a resumed session id the plugin knows up front. The
+// endpoint's URL carries the launch generation, so the launch intent confirms
+// against this exact prepared launch even though no session.created fired.
+function postResumedSessionStart(sessionId, directory, worktree) {
+  const cwd = extractCwd(null, directory, worktree);
+  if (!sessionId || !cwd) return;
+  send({ hook_event_name: 'SessionStart', cwd, session_id: sessionId });
+}
+
+// Deliver a resumed launch: confirm the intent, then push the kickoff into the
+// resumed session through the SDK. Confirmation comes FIRST so a prompt that
+// never lands cannot leave the launch intent pending forever (the resumed
+// session emits no session.created, the only other SessionStart source).
+function deliverResume(client, sessionId, kickoffFile, directory, worktree) {
+  postResumedSessionStart(sessionId, directory, worktree);
+  const prompt = readKickoffPrompt(kickoffFile);
+  if (
+    !prompt ||
+    !client ||
+    !client.session ||
+    typeof client.session.promptAsync !== 'function'
+  ) {
+    return;
+  }
+  try {
+    // Fire-and-forget: the reply is not needed, and AWAITING this call inside
+    // plugin init deadlocks the bootstrap that would serve it (verified on
+    // 1.18.35). promptAsync returns as soon as the message is accepted.
+    Promise.resolve(
+      client.session.promptAsync({
+        path: { id: sessionId },
+        body: { parts: [{ type: 'text', text: prompt }] },
+      }),
+    ).catch(() => {});
+  } catch {
+    // Fail open — a dead SDK must never throw into the agent's event loop.
+  }
+}
+
+export const KarstBridge = async ({ client, directory, worktree }) => {
+  // A resumed launch has no session.created to hang SessionStart off and no
+  // '--prompt' delivery, so the plugin owns both. Deferred past plugin init:
+  // opencode awaits plugin construction before it serves the session API, so a
+  // call made synchronously here would deadlock (verified on 1.18.35).
+  const resumeSessionId = stringOf(process.env[resumeSessionEnv]);
+  if (resumeSessionId) {
+    const kickoffFile = stringOf(process.env[kickoffFileEnv]);
+    setTimeout(
+      () => deliverResume(client, resumeSessionId, kickoffFile, directory, worktree),
+      0,
+    );
+  }
   return {
     event: async ({ event }) => {
       const type = event && event.type;
@@ -751,6 +832,28 @@ function writeKarstBridge(
   return pluginPath;
 }
 
+/**
+ * Write a resumed launch's kickoff beneath `cwd` (the worktree) and return its
+ * path. The generated plugin reads it back via `KARST_KICKOFF_FILE` and
+ * delivers the prompt through the opencode SDK — the only channel that works
+ * with `--session`, which silently drops `--prompt` (verified on 1.18.35). The
+ * file lives under `.opencode/plugins/karst-*`, so it is both git-ignored and
+ * adapter-owned (cleaned when the session closes).
+ */
+function writeResumeKickoff(
+  cwd: string,
+  launchId: string | undefined,
+  prompt: string,
+): string {
+  const dir = join(cwd, '.opencode', 'plugins');
+  mkdirSync(dir, { recursive: true });
+  const suffix =
+    launchId && launchId.length > 0 ? launchId : `${process.pid}-${Date.now()}`;
+  const kickoffPath = join(dir, `karst-kickoff-${suffix}.json`);
+  writeFileSync(kickoffPath, JSON.stringify({ prompt }));
+  return kickoffPath;
+}
+
 export class OpencodeAdapter implements AgentAdapter {
   readonly requiredBinary = OPENCODE_BIN;
   // lifecycleEvents is gated on the generated `.opencode/plugins/karst-bridge.js`
@@ -868,12 +971,31 @@ export class OpencodeAdapter implements AgentAdapter {
     const kickoff = deliver
       ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
       : opts.initialPrompt;
-    if (kickoff) args.push('--prompt', kickoff);
+    const env: Record<string, string> = {};
+    const resuming = Boolean(opts.resume && opts.resume.length > 0);
+    if (resuming && opts.hookChannel) {
+      // opencode 1.18.35 DROPS `--prompt` when `--session` is present and never
+      // emits `session.created` for the resumed session, so the kickoff cannot
+      // ride argv and the launch intent would never confirm. Instead the
+      // generated plugin reads the kickoff (env names the file) and delivers it
+      // through the SDK, then posts SessionStart for the resumed id. Gated on
+      // the hook channel: without the plugin there is no delivery channel, so
+      // the legacy `--prompt` is kept (harmless but dropped by opencode).
+      env[KARST_RESUME_SESSION_ENV] = opts.resume as string;
+      if (kickoff) {
+        const kickoffPath = writeResumeKickoff(opts.cwd, opts.hookChannel.launchId, kickoff);
+        env[KARST_KICKOFF_FILE_ENV] = kickoffPath;
+        ownedPaths = [...(ownedPaths ?? []), kickoffPath];
+      }
+    } else if (kickoff) {
+      args.push('--prompt', kickoff);
+    }
     const permission = opencodeLaunchPermission(opts);
+    if (permission) env.OPENCODE_PERMISSION = permission;
     return {
       command: OPENCODE_BIN,
       args,
-      env: permission ? { OPENCODE_PERMISSION: permission } : {},
+      env,
       ...(ownedPaths ? { ownedPaths } : {}),
       ...(opts.instructions
         ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }

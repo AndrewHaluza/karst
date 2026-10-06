@@ -13,7 +13,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createServer } from 'node:http';
-import { OpencodeAdapter, parseOpencodeJsonl, type SpawnHeadless } from './opencode.js';
+import {
+  KARST_KICKOFF_FILE_ENV,
+  KARST_RESUME_SESSION_ENV,
+  OpencodeAdapter,
+  parseOpencodeJsonl,
+  type SpawnHeadless,
+} from './opencode.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 
 const okNdjson = [
@@ -29,6 +35,7 @@ function fakeSpawn(r: { stdout: string; stderr?: string; exitCode: number }): Sp
 const temporaryRoots: string[] = [];
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (temporaryRoots.length > 0) {
     rmSync(temporaryRoots.pop()!, { recursive: true, force: true });
   }
@@ -111,6 +118,59 @@ describe('OpencodeAdapter interactive commands', () => {
       initialPrompt: 'go',
     });
     expect(cmd.args).toEqual(['--session', 'ses_abc', '--prompt', 'go']);
+  });
+
+  // opencode 1.18.35 drops `--prompt` entirely when `--session` is present, so
+  // a resumed launch with a hook channel must deliver the kickoff through the
+  // generated plugin (env names the file) instead of argv.
+  it('delivers a resumed kickoff through the plugin, never as --prompt', () => {
+    const worktree = makeWorktree();
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:1/hooks?karstLaunch=gen-1',
+        configDir: join(worktree, '.karst-runtime'),
+        launchId: 'gen-1',
+      },
+      resume: 'ses_abc',
+      initialPrompt: 'go',
+    });
+    expect(cmd.args).toEqual(['--session', 'ses_abc']);
+    expect(cmd.args).not.toContain('--prompt');
+    expect(cmd.env[KARST_RESUME_SESSION_ENV]).toBe('ses_abc');
+    const kickoffPath = cmd.env[KARST_KICKOFF_FILE_ENV]!;
+    expect(kickoffPath).toContain(join('.opencode', 'plugins', 'karst-kickoff-gen-1.json'));
+    expect(JSON.parse(readFileSync(kickoffPath, 'utf8'))).toEqual({ prompt: 'go' });
+    // Adapter-owned so session close cleans it (the same prefix as the plugin).
+    expect(cmd.ownedPaths).toContain(kickoffPath);
+  });
+
+  it('confirms a resumed launch even when there is no kickoff to deliver', () => {
+    const worktree = makeWorktree();
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:1/hooks?karstLaunch=gen-1',
+        configDir: join(worktree, '.karst-runtime'),
+        launchId: 'gen-1',
+      },
+      resume: 'ses_abc',
+    });
+    expect(cmd.args).toEqual(['--session', 'ses_abc']);
+    expect(cmd.env[KARST_RESUME_SESSION_ENV]).toBe('ses_abc');
+    // No prompt means no kickoff file — but the resume id still rides the env so
+    // the plugin can post SessionStart for the resumed session.
+    expect(cmd.env[KARST_KICKOFF_FILE_ENV]).toBeUndefined();
+  });
+
+  it('keeps --prompt for a resumed launch with no hook channel (legacy path)', () => {
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: '/wt',
+      resume: 'ses_abc',
+      initialPrompt: 'go',
+    });
+    expect(cmd.args).toContain('--prompt');
+    expect(cmd.env[KARST_RESUME_SESSION_ENV]).toBeUndefined();
   });
 
   it('places extraArgs before the prompt', () => {
@@ -854,6 +914,94 @@ describe('generated karst-bridge plugin — SessionStart capture', () => {
           setTimeout(() => reject(new Error('no posts within 150ms')), 150),
         ),
       ])).rejects.toThrow('no posts within 150ms');
+    } finally {
+      await r.close();
+    }
+  });
+
+  // The resume root cause (opencode 1.18.35): `--session` drops `--prompt` and
+  // never emits session.created, so a resumed launch receives nothing and its
+  // intent stays pending forever. The plugin owns both halves: it posts
+  // SessionStart for the resumed id and pushes the kickoff through the SDK.
+  type BridgeFactory = (ctx: {
+    client?: unknown;
+    directory: string;
+    worktree: string;
+  }) => Promise<{ event(input: unknown): Promise<void> }>;
+
+  async function loadResumeBridge(
+    worktree: string,
+    endpointUrl: string,
+    initialPrompt: string,
+  ): Promise<BridgeFactory> {
+    const configDir = join(worktree, '.karst-runtime');
+    mkdirSync(configDir, { recursive: true });
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl, configDir, launchId: 'gen-1' },
+      resume: 'ses_abc',
+      ...(initialPrompt ? { initialPrompt } : {}),
+    });
+    for (const [key, value] of Object.entries(cmd.env)) vi.stubEnv(key, value);
+    const pluginPath = cmd.ownedPaths![0]!;
+    const mod = (await import(pathToFileURL(pluginPath).href)) as {
+      KarstBridge: BridgeFactory;
+    };
+    return mod.KarstBridge;
+  }
+
+  it('posts SessionStart for the resumed id and delivers the kickoff through the SDK', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver();
+    const promptAsync = vi.fn().mockResolvedValue({ data: {} });
+    try {
+      const bridge = await loadResumeBridge(worktree, r.endpointUrl, 'go');
+      // The plugin is constructed with the opencode SDK client; the delivery is
+      // deferred past init (a synchronous call deadlocks the server bootstrap).
+      await bridge({
+        client: { session: { promptAsync } },
+        directory: worktree,
+        worktree,
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no SessionStart')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'SessionStart', cwd: worktree, session_id: 'ses_abc' },
+      ]);
+      expect(promptAsync).toHaveBeenCalledWith({
+        path: { id: 'ses_abc' },
+        body: { parts: [{ type: 'text', text: 'go' }] },
+      });
+    } finally {
+      await r.close();
+    }
+  });
+
+  it('posts SessionStart for a resume even when there is no kickoff file', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver();
+    const promptAsync = vi.fn().mockResolvedValue({ data: {} });
+    try {
+      const bridge = await loadResumeBridge(worktree, r.endpointUrl, '');
+      await bridge({
+        client: { session: { promptAsync } },
+        directory: worktree,
+        worktree,
+      });
+      const bodies = await Promise.race([
+        r.received,
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('plugin posted no SessionStart')), 2_000),
+        ),
+      ]);
+      expect(bodies).toEqual([
+        { hook_event_name: 'SessionStart', cwd: worktree, session_id: 'ses_abc' },
+      ]);
+      expect(promptAsync).not.toHaveBeenCalled();
     } finally {
       await r.close();
     }
