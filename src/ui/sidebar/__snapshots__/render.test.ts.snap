@@ -1085,7 +1085,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -2209,7 +2215,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -3333,7 +3345,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -4457,7 +4475,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -5581,7 +5605,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -6705,7 +6735,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -7829,7 +7865,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow
@@ -8953,7 +8995,13 @@ function agentIdentityHtml(provider, model, compact) {
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow

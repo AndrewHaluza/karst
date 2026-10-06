@@ -245,8 +245,16 @@ const MINIMAL_CORPORA: Record<ViewId, ViewCorpus> = {
   resources: fromRenderFixtures('resources', resourcesRenderFixtures(), 'busy'),
   serverLogs: SERVER_LOGS_CORPUS,
   // 'all-sections' renders current, recently-done and older-done together —
-  // the only scenario that pins the section dividers and the facet counts.
-  sidebar: fromRenderFixtures('sidebar', sidebarRenderFixtures(), 'all-sections'),
+  // the only scenario that pins the section dividers and the facet counts. The
+  // trailing `edge` message mirrors the host's side channel so the sweep pins
+  // the super-thin resize edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO), which is
+  // outside the ticket `state` snapshot.
+  sidebar: {
+    messages: [
+      ...fromRenderFixtures('sidebar', sidebarRenderFixtures(), 'all-sections').messages,
+      { type: 'edge', side: 'right' },
+    ],
+  },
   // 'populated' over 'empty': two repos with commits and staged/unstaged/
   // untracked files so the tree view, the file list and the header counts
   // all render.

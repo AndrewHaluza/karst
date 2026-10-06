@@ -18,6 +18,7 @@ import {
 } from './facets.js';
 import type { PathContext } from '../worktreePath.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
+import type { SidebarEdge } from './edge.js';
 
 /**
  * The subset of a `vscode.WebviewView` the manager touches. Modeled as an
@@ -50,6 +51,14 @@ export class SidebarViewManager {
   private facets: FacetKey[] = [...DEFAULT_SELECTION];
   private filter = '';
   private refreshSubscriber: (() => void) | undefined;
+  /**
+   * The resolved edge line side (which side faces the editor). Window
+   * configuration, not ticket data, so it rides its own `edge` host message.
+   * The host resolves it from `karst.sidebar.edge` + `workbench.sideBar.location`
+   * and calls `setEdge` on load and on either setting changing; the default
+   * matches `auto` with the primary sidebar docked left.
+   */
+  private edge: SidebarEdge = 'right';
 
   constructor(
     private readonly store: Store,
@@ -137,6 +146,22 @@ export class SidebarViewManager {
       this.pathContext?.(),
     );
     this.view.postMessage({ type: 'state', state });
+    // The edge line rides every push as well, so a re-resolve (the view is
+    // hidden and shown again) repaints the current side without a separate
+    // round-trip — the same "on load" the acceptance asks for.
+    this.view.postMessage({ type: 'edge', side: this.edge });
+  }
+
+  /**
+   * Set the resolved edge line and push it to the view at once. The host reads
+   * the two settings and calls this on load and on either changing
+   * (`onDidChangeConfiguration`); the manager stays vscode-free and only
+   * carries the value. Before the view resolves it only records the side; the
+   * next `push()` carries it.
+   */
+  setEdge(side: SidebarEdge): void {
+    this.edge = side;
+    this.view?.postMessage({ type: 'edge', side });
   }
 
   /** Re-query and re-push. Named to match the old tree provider's `refresh`. */

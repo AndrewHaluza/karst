@@ -29,6 +29,18 @@
   }
   html,body{height:100%}
 
+  /* The resize edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO). VS Code owns the
+     sidebar's own border and drag sash, but a theme with a transparent
+     sideBar.border leaves the handle invisible — so karst paints one
+     super-thin line INSIDE the webview, on the edge that faces the editor.
+     An INSET box-shadow takes no layout width and never catches pointer events;
+     it spans the full height because body does. The host resolves the side
+     (karst.sidebar.edge, 'auto' = opposite workbench.sideBar.location) and
+     stamps data-edge on <html>; 'none' removes the attribute and matches no
+     rule, so there is no line. */
+  html[data-edge="right"] body{box-shadow:inset calc(-1 * var(--k-border-w)) 0 0 0 var(--k-border)}
+  html[data-edge="left"] body{box-shadow:inset var(--k-border-w) 0 0 0 var(--k-border)}
+
   /* toolbar */
   .toolbar{display:flex;align-items:center;gap:var(--k-space-1);padding:var(--k-space-3) var(--k-space-4);
     border-bottom:var(--k-border-w) solid var(--k-border);flex:0 0 auto}
@@ -1256,7 +1268,13 @@
   window.addEventListener('message', (e) => {
     const msg = e.data;
     if (!msg) return;
-    if (msg.type === 'state') {
+    if (msg.type === 'edge') {
+      // Which side faces the editor — host-resolved window configuration, not
+      // ticket data (see the edge-line CSS above). 'none' clears the attribute.
+      const side = msg.side === 'left' || msg.side === 'right' ? msg.side : '';
+      if (side) document.documentElement.setAttribute('data-edge', side);
+      else document.documentElement.removeAttribute('data-edge');
+    } else if (msg.type === 'state') {
       state = msg.state;
       vscode.setState(state);
       // Prune expanded ids that no longer exist so the set can't grow

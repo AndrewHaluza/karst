@@ -72,6 +72,33 @@ describe('sidebar render', () => {
     });
   }
 
+  // The resize edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO): the host pushes the
+  // resolved side; the view stamps it on <html> and CSS paints the 1px inset.
+  describe('resize edge line', () => {
+    it('applies the host-resolved side as data-edge on the root, clearing it for none', () => {
+      const h = renderWebview('sidebar', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'edge', side: 'right' });
+        expect(h.document.documentElement.getAttribute('data-edge')).toBe('right');
+
+        h.receive({ type: 'edge', side: 'left' });
+        expect(h.document.documentElement.getAttribute('data-edge')).toBe('left');
+
+        h.receive({ type: 'edge', side: 'none' });
+        expect(h.document.documentElement.hasAttribute('data-edge')).toBe(false);
+      } finally { h.close(); }
+    });
+
+    it('declares a 1px inset edge-line rule for each side (UI-R04)', () => {
+      const h = renderWebview('sidebar', { nonce: FIXTURE_NONCE });
+      try {
+        const selectors = h.cssRules().map((r) => r.selectorText);
+        expect(selectors).toContain('html[data-edge="right"] body');
+        expect(selectors).toContain('html[data-edge="left"] body');
+      } finally { h.close(); }
+    });
+  });
+
   // The collapse control (NDL-76): a row with sub-tasks can hide its whole
   // descendant sub-tree and show it again. Both states are exercised here, not
   // just the host-side predicate (items.test.ts covers that separately).
