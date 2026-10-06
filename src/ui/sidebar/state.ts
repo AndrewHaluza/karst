@@ -31,7 +31,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
-import { listPendingProposals } from '../../store/planningProposals.js';
+import { listVisibleProposals } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
@@ -115,6 +115,13 @@ export interface SidebarSections {
  * `agent` is the semantic core id the webview renders as icon + canonical
  * name (UI-R10c); `live` is window state — this window holds its terminal.
  */
+export interface PlanningProposalRow {
+  id: number;
+  title: string;
+  status: 'pending' | 'accepted';
+  ticketId: number | null;
+}
+
 export interface PlanningRow {
   sessionId: number;
   title: string;
@@ -122,8 +129,11 @@ export interface PlanningRow {
   ticketCount: number;
   live: boolean;
   agent: { provider: string; model: string | null };
-  /** Pending proposals of this session, awaiting the user's Review/Discard. */
-  proposals: { id: number; title: string }[];
+  /**
+   * This session's drafts: pending ones await the user's Review/Approve/Discard;
+   * accepted ones stay listed, linked to the ticket they became. Discarded ones are dropped.
+   */
+  proposals: PlanningProposalRow[];
 }
 
 export interface SidebarState {
@@ -356,7 +366,7 @@ function planningRows(
 ): PlanningRow[] {
   if (projectId === undefined) return [];
   const needle = query.trim().toLowerCase();
-  const pending = listPendingProposals(store, projectId);
+  const drafts = listVisibleProposals(store, projectId);
   // The All view lists live sessions; the Archived facet lists ONLY archived ones.
   return listPlanningSessions(store, projectId, { includeArchived: archived })
     .filter((s) => (s.status === 'archived') === archived)
@@ -368,6 +378,11 @@ function planningRows(
       ticketCount: listPlanningTickets(store, s.id).length,
       live: isLive?.(s.id) ?? false,
       agent: { provider: s.core, model: s.model },
-      proposals: pending.filter((p) => p.sessionId === s.id).map((p) => ({ id: p.id, title: p.payload.title })),
+      proposals: drafts.filter((p) => p.sessionId === s.id).map((p) => ({
+        id: p.id,
+        title: p.payload.title,
+        status: p.status === 'accepted' ? 'accepted' : 'pending',
+        ticketId: p.ticketId,
+      })),
     }));
 }

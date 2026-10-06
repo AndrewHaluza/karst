@@ -80,6 +80,22 @@ export function listPendingProposals(store: Store, projectId: number): PlanningP
   return rows.map(toProposal);
 }
 
+/**
+ * The proposals the sidebar shows under the project's sessions (archived
+ * ones included): pending first, then accepted — discarded ones are gone.
+ */
+export function listVisibleProposals(store: Store, projectId: number): PlanningProposal[] {
+  const rows = store.db
+    .prepare(
+      `SELECT ${COLUMNS} FROM planning_proposals p
+       JOIN planning_sessions s ON s.id = p.session_id
+       WHERE s.project_id = ? AND p.status IN ('pending', 'accepted')
+       ORDER BY p.status = 'accepted', p.id`,
+    )
+    .all(projectId) as ProposalRow[];
+  return rows.map(toProposal);
+}
+
 export function countPending(store: Store, sessionId: number): number {
   const row = store.db
     .prepare("SELECT COUNT(*) AS n FROM planning_proposals WHERE session_id = ? AND status = 'pending'")

@@ -771,6 +771,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     choose: async (text) => ({ Review: 'review', Create: 'create', Discard: 'discard' } as Record<string, ProposalChoice>)[
       (await vscode.window.showInformationMessage(text, 'Review', 'Create', 'Discard')) ?? ''],
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
+    showDraft: async (p) => void (await vscode.window.showInformationMessage(`Draft: "${p.payload.title}"`,
+      { modal: true, detail: proposalPreview(p) })),
     notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
@@ -828,6 +830,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
+    planProposalView: (id) => proposalOps.view(id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,

@@ -28,6 +28,8 @@ export interface PlanningProposalOpsDeps {
   /** Notification with Review (first), Create, Discard; undefined = dismissed. */
   choose(text: string, p: PlanningProposal): Promise<ProposalChoice | undefined>;
   openForm(prefill: TicketFormPrefill): void;
+  /** Show the draft's full content read-only (no accept, no edit). */
+  showDraft(p: PlanningProposal): Promise<void>;
   notify: Notify;
   onChange(): void;
   debug?: (line: string) => void;
@@ -36,6 +38,7 @@ export interface PlanningProposalOpsDeps {
 export interface PlanningProposalOps {
   announce(p: PlanningProposal): Promise<void>;
   review(id: number): Promise<void>;
+  view(id: number): Promise<void>;
   create(id: number): Promise<void>;
   discard(id: number): Promise<void>;
 }
@@ -110,6 +113,13 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
         repos,
         onCreated: (ticketId) => void guarded('link', id, () => markProposalAccepted(deps.store, id, ticketId)),
       });
+    },
+
+    async view(id) {
+      const p = await pending(id);
+      if (!p) return;
+      debug(`proposal ${id}: shown read-only`);
+      await deps.showDraft(p);
     },
 
     async create(id) {

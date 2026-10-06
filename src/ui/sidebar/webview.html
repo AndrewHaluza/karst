@@ -310,21 +310,44 @@
     text-transform:uppercase;color:var(--k-text-faint)}
   .sec-n{font-family:var(--k-font-mono);color:var(--k-text-faint);opacity:.8}
 
-  /* Planning sessions: their own group above the tickets, never mixed in.
-     The whole row is the open button; archive sits beside it. */
-  .planrow{display:flex;align-items:center;gap:var(--k-space-1);margin:0 var(--k-space-2)}
-  .planopen{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:var(--k-space-1);
-    padding:var(--k-space-2) var(--k-space-3);border:0;border-radius:var(--k-radius-md);
-    background:transparent;color:var(--k-text);font:inherit;text-align:left;cursor:pointer}
-  .planopen:hover{background:var(--vscode-list-hoverBackground)}
-  .planopen:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
-  .planprops{list-style:none;margin:0 var(--k-space-2) var(--k-space-1) var(--k-space-5);padding:0;
-    display:flex;flex-direction:column;gap:var(--k-space-1)}
-  .planprop{display:flex;align-items:center;gap:var(--k-space-1);font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .planprop-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .plan-title{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .plan-meta{display:flex;align-items:center;gap:var(--k-space-2);max-width:100%;
-    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  /* Planning: a VS Code TreeView-style tree above the tickets, never mixed in.
+     Compact rows; sessions (level 1) carry a twistie, a status dot, the title and
+     a muted draft count; drafts (level 2) a status icon and the title. Icon
+     actions show on hover and on focus. Status colour is never alone — the
+     word is in each item's aria-label and tooltip (UI-R28). */
+  .pt-sec .pt-sec-acts{margin-left:auto;display:flex;gap:var(--k-space-1);text-transform:none;letter-spacing:0}
+  .pt-sec .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
+  .ptree{margin:0 var(--k-space-2) var(--k-space-1)}
+  .ptree [role="group"]{margin:0;padding:0}
+  .pt-row{display:flex;align-items:center;gap:var(--k-space-1);height:calc(var(--k-space-8) + var(--k-space-1));padding:0 var(--k-space-1);
+    border-radius:var(--k-radius-sm);color:var(--k-text);font-size:var(--k-text-sm);cursor:pointer}
+  .pt-row:hover{background:var(--vscode-list-hoverBackground)}
+  .ptree [role="treeitem"]:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:calc(-1 * var(--k-focus-w))}
+  .ptree [role="treeitem"]:focus > .pt-row{background:var(--vscode-list-focusBackground, var(--vscode-list-hoverBackground))}
+  .pt-l2 > .pt-row{padding-left:calc(var(--k-space-1) + var(--k-space-7) * 2)}
+  .pt-twistie{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--k-space-7);height:var(--k-space-7);
+    color:var(--k-text-dim);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
+  .pt-twistie[data-open="true"]{transform:rotate(90deg)}
+  .pt-twistie.leaf{visibility:hidden}
+  .pt-dot{flex:none;width:var(--k-space-4);height:var(--k-space-4);margin:0 var(--k-space-1);border-radius:50%;background:currentColor}
+  .pt-dot--pending{background:transparent;box-shadow:inset 0 0 0 var(--k-border-w) currentColor}
+  .pt-dot--running,.pt-c-running{color:var(--k-running)}
+  .pt-dot--attention,.pt-c-attention{color:var(--k-attention)}
+  .pt-dot--passed,.pt-c-passed{color:var(--k-passed)}
+  .pt-dot--pending,.pt-c-pending{color:var(--k-pending)}
+  .pt-icon{flex:none}
+  .pt-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pt-count{flex:none;font-size:var(--k-text-xs);color:var(--k-text-faint)}
+  .pt-actions{display:none;flex:none;align-items:center;gap:var(--k-space-1)}
+  .pt-actions .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
+  .pt-row:hover .pt-actions,.pt-row:focus-within .pt-actions,
+  .ptree [role="treeitem"]:focus > .pt-row .pt-actions,.pt-actions:has([aria-busy="true"]){display:flex}
+  .pt-accepted > .pt-row{color:var(--k-text-faint)}
+  .pt-accepted .pt-label{text-decoration:line-through}
+  .pt-link{flex:none;border:0;padding:0;background:transparent;font:inherit;font-size:var(--k-text-xs);
+    font-family:var(--k-font-mono);color:var(--vscode-textLink-foreground);cursor:pointer}
+  .pt-link:hover{text-decoration:underline}
+  .pt-link:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
 
   /* Completed rows (Recently Done / Older Completed / the Done facet) are
      quieter than Current: tighter padding, muted title, check indicator, and
@@ -463,6 +486,11 @@
     // the status-tinted row marker.
     mark:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"/><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"/><circle cx="106.5" cy="111.5" r="26.5"/></svg>',
     del: karstIcon('trash', 13),
+    eye: karstIcon('eye', 13),
+    check: karstIcon('check', 13),
+    x: karstIcon('x', 13),
+    plus: karstIcon('plus', 13),
+    fold: karstIcon('chevrons-up', 13),
   };
 
   function renderFacets() {
@@ -558,14 +586,20 @@
   // that ticket, positions the fixed window at the trigger (flipping above when
   // it would overflow the bottom), and hands focus to the first item.
   function openCtxMenu(trigger, row) {
+    openMenuAt(trigger, ctxMenuItemsHtml(row), row.ticketId);
+  }
+
+  // Shared by the ticket ⋯ trigger and the Planning tree's context menu.
+  // `owner` is what the window is open for (a ticket id or a tree node).
+  function openMenuAt(trigger, itemsHtml, owner) {
     const menu = el('ctxMenu');
     if (!menu) return;
     closeCtxMenu(false);
-    menuTicket = row.ticketId;
+    menuTicket = owner;
     menuTrigger = trigger;
-    menu.innerHTML = ctxMenuItemsHtml(row);
+    menu.innerHTML = itemsHtml;
     menu.classList.add('open');
-    trigger.setAttribute('aria-expanded', 'true');
+    if (trigger.hasAttribute('aria-haspopup')) trigger.setAttribute('aria-expanded', 'true');
     const r = trigger.getBoundingClientRect();
     const w = menu.offsetWidth || 176;
     const left = Math.min(r.left, Math.max(8, window.innerWidth - w - 8));
@@ -582,7 +616,7 @@
     menu.classList.remove('open');
     menu.innerHTML = '';
     if (menuTrigger) {
-      menuTrigger.setAttribute('aria-expanded', 'false');
+      if (menuTrigger.hasAttribute('aria-haspopup')) menuTrigger.setAttribute('aria-expanded', 'false');
       if (returnFocus && typeof menuTrigger.focus === 'function') menuTrigger.focus();
     }
     menuTicket = null;
@@ -835,10 +869,7 @@
     // clearing the search restores the default collapsed state (histUser).
     const expanded = histUser ? histOpen : (q !== '' && older.length > 0);
     const html = [];
-    if (plans.length) {
-      html.push(secHtml('Planning', plans.length));
-      html.push(plans.map(planRowHtml).join(''));
-    }
+    if (plans.length) html.push(planTreeHtml(plans));
     if (cur.length) {
       html.push(secHtml('Current', cur.length));
       html.push(cur.map((r) => rowHtml(r, {})).join(''));
@@ -858,43 +889,213 @@
       }
     }
     L.innerHTML = html.join('');
+    afterPlanRender();
   }
 
-  // A planning session row: the whole row opens (or focuses) its read-only
-  // agent terminal; archive (or, once archived, unarchive) sits beside it. The
-  // core is the shared identity component (UI-R10c); "terminal open" and a
-  // non-active status are words, never colour alone (UI-R28).
-  function planRowHtml(p) {
-    const drafts = p.ticketCount === 1 ? '1 draft' : `${p.ticketCount} drafts`;
-    const meta = [agentIdentityHtml(p.agent.provider, p.agent.model, true), esc(drafts)];
-    if (p.status && p.status !== 'active') meta.push(esc(p.status));
-    if (p.live) meta.push('terminal open');
+  // ---- the Planning tree (VS Code TreeView pattern) ----
+  // Sessions are level-1 treeitems, their drafts level-2. One roving tabindex
+  // (planFocus) and the per-session expanded choice (planExpanded) are pure
+  // view state: they survive re-renders and never post. A session with
+  // pending drafts starts expanded until the user chooses otherwise.
+  const planExpanded = new Map();
+  let planFocus = null;
+
+  const pendingOf = (p) => (p.proposals || []).filter((d) => d.status !== 'accepted');
+
+  // Session status, precedence yellow > blue > green > grey. --k-failed is
+  // reserved: no state maps to it yet.
+  function planStatus(p) {
+    const drafts = p.proposals || [];
+    if (pendingOf(p).length) return { tone: 'attention', word: 'needs review' };
+    if (p.live) return { tone: 'running', word: 'terminal live' };
+    if (p.status === 'filed') return { tone: 'passed', word: 'filed' };
+    if (drafts.length) return { tone: 'passed', word: 'all drafts accepted' };
+    return { tone: 'pending', word: 'terminal not live' };
+  }
+
+  function planIsOpen(p) {
+    return planExpanded.has(p.sessionId) ? planExpanded.get(p.sessionId) : pendingOf(p).length > 0;
+  }
+
+  // An icon action. `tabindex=-1`: the treeitem owns the tab stop; keyboard
+  // users reach every action through Enter and Shift+F10. `data-label` is the
+  // context-menu wording.
+  function planBtn(attrs, label, aria, icon) {
+    return `<button type="button" class="k-iconbtn" tabindex="-1" ${attrs} data-label="${esc(label)}" aria-label="${aria}" title="${aria}">${icon}</button>`;
+  }
+
+  function planTreeHtml(plans) {
+    const head = `<div class="sec pt-sec" role="presentation"><span class="sec-name">Planning</span><span class="sec-n">· ${plans.length}</span>`
+      + `<span class="pt-sec-acts">`
+      + `<button type="button" class="k-iconbtn" data-act="plan-create" aria-label="Start planning session" title="Start planning session">${ic.plus}</button>`
+      + `<button type="button" class="k-iconbtn" data-plan-collapse-all="1" aria-label="Collapse all planning sessions" title="Collapse all">${ic.fold}</button>`
+      + `</span></div>`;
+    return head + `<div class="ptree" role="tree" aria-label="Planning sessions">${plans.map(planSessionHtml).join('')}</div>`;
+  }
+
+  function planSessionHtml(p) {
+    const drafts = p.proposals || [];
+    const st = planStatus(p);
+    const open = planIsOpen(p);
+    const agent = agentLabel(p.agent.provider) + (p.agent.model ? ` · ${p.agent.model}` : '');
+    const n = drafts.length === 1 ? '1 draft' : `${drafts.length} drafts`;
+    const label = esc(`${p.title}, ${st.word}, ${agent}, ${n}`);
     const t = esc(p.title);
+    const node = `s${p.sessionId}`;
+    const expanded = drafts.length ? ` aria-expanded="${open}"` : '';
     const side = p.status === 'archived'
-      ? `<button type="button" class="k-iconbtn" data-act="plan-unarchive" data-plan="${p.sessionId}" aria-label="Unarchive ${t}" title="Unarchive ${t}">${ic.unarch}</button>`
-      : `<button type="button" class="k-iconbtn" data-act="plan-archive" data-plan="${p.sessionId}" aria-label="Archive ${t}" title="Archive ${t}">${ic.arch}</button>`;
-    return `<div class="planrow">`
-      + `<button type="button" class="planopen" data-act="plan-open" data-plan="${p.sessionId}" aria-label="Open planning session: ${t}" title="Open planning session: ${t}">`
-      + `<span class="plan-title">${t}</span>`
-      + `<span class="plan-meta">${meta.join('<span aria-hidden="true">·</span>')}</span>`
-      + `</button>`
+      ? planBtn(`data-act="plan-unarchive" data-plan="${p.sessionId}"`, 'Unarchive', `Unarchive ${t}`, ic.unarch)
+      : planBtn(`data-act="plan-archive" data-plan="${p.sessionId}"`, 'Archive', `Archive ${t}`, ic.arch);
+    return `<div role="treeitem" aria-level="1" data-node="${node}" tabindex="-1"${expanded} aria-label="${label}">`
+      + `<div class="pt-row" title="${label}">`
+      + `<span class="pt-twistie${drafts.length ? '' : ' leaf'}" data-plan-toggle="${p.sessionId}" data-open="${open}" aria-hidden="true">${chev}</span>`
+      + `<span class="pt-dot pt-dot--${st.tone}" aria-hidden="true"></span>`
+      + `<span class="pt-label">${t}</span>`
+      + (drafts.length ? `<span class="pt-count" aria-hidden="true">${drafts.length}</span>` : '')
+      + `<span class="pt-actions">`
+      + planBtn(`data-act="plan-open" data-plan="${p.sessionId}" data-primary="1"`, 'Open terminal', `Open terminal: ${t}`, ic.sess)
       + side
-      + `</div>`
-      + planPropsHtml(p.proposals || []);
+      + `</span></div>`
+      + (drafts.length && open ? `<div role="group">${drafts.map(planDraftHtml).join('')}</div>` : '')
+      + `</div>`;
   }
 
-  // Pending proposals a planning agent filed, listed under their session. Each
-  // waits for the user: Review opens the prefilled ticket form; Discard drops it.
-  function planPropsHtml(props) {
-    if (!props.length) return '';
-    return `<ul class="planprops" aria-label="Proposed tickets">` + props.map((pr) => {
-      const t = esc(pr.title);
-      return `<li class="planprop"><span class="planprop-title" title="${t}">${t}</span>`
-        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="plan-proposal-review" data-proposal="${Number(pr.id)}" aria-label="Review proposal: ${t}" title="Review proposal: ${t}">Review</button>`
-        + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="plan-proposal-discard" data-proposal="${Number(pr.id)}" aria-label="Discard proposal: ${t}" title="Discard proposal: ${t}">Discard</button>`
-        + `</li>`;
-    }).join('') + `</ul>`;
+  // A draft: pending ones carry Review (read-only) / Approve (the prefilled
+  // ticket form) / Discard; accepted ones stay, struck through, linked to the
+  // ticket they became.
+  function planDraftHtml(d) {
+    const t = esc(d.title);
+    const node = `d${Number(d.id)}`;
+    if (d.status === 'accepted') {
+      const tid = Number(d.ticketId);
+      const has = d.ticketId != null && Number.isFinite(tid);
+      const label = esc(has ? `${d.title}, accepted as ticket #${tid}` : `${d.title}, accepted`);
+      return `<div role="treeitem" aria-level="2" class="pt-l2 pt-accepted" data-node="${node}" tabindex="-1" aria-label="${label}">`
+        + `<div class="pt-row" title="${label}">`
+        + karstIcon('circle-check', 14, 'pt-icon pt-c-passed')
+        + `<span class="pt-label">${t}</span>`
+        + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket #${tid}" aria-label="Open ticket #${tid}" title="Open ticket #${tid}">#${tid}</button>` : '')
+        + `</div></div>`;
+    }
+    const label = esc(`${d.title}, needs review`);
+    const id = Number(d.id);
+    return `<div role="treeitem" aria-level="2" class="pt-l2" data-node="${node}" tabindex="-1" aria-label="${label}">`
+      + `<div class="pt-row" title="${label}">`
+      + karstIcon('file-text', 14, 'pt-icon pt-c-attention')
+      + `<span class="pt-label">${t}</span>`
+      + `<span class="pt-actions">`
+      + planBtn(`data-act="plan-proposal-view" data-proposal="${id}" data-primary="1"`, 'Review', `Review draft: ${t}`, ic.eye)
+      + planBtn(`data-act="plan-proposal-review" data-proposal="${id}"`, 'Approve', `Approve draft: ${t}`, ic.check)
+      + planBtn(`data-act="plan-proposal-discard" data-proposal="${id}"`, 'Discard', `Discard draft: ${t}`, ic.x)
+      + `</span></div></div>`;
   }
+
+  const treeItems = () => [...document.querySelectorAll('.ptree [role="treeitem"]')];
+  const ownRow = (item) => item.querySelector(':scope > .pt-row');
+  const primaryOf = (item) => ownRow(item).querySelector('[data-primary]');
+
+  // Restore the roving tab stop (and focus, when it was in the tree) after a
+  // full innerHTML re-render.
+  let planHadFocus = false;
+  function afterPlanRender() {
+    const items = treeItems();
+    if (!items.length) return;
+    const target = items.find((i) => i.dataset.node === planFocus) || items[0];
+    target.setAttribute('tabindex', '0');
+    if (planHadFocus) target.focus();
+    planHadFocus = false;
+  }
+  function rerenderKeepingFocus(node) {
+    planFocus = node;
+    planHadFocus = true;
+    renderList();
+  }
+  function focusItem(item) {
+    if (!item) return;
+    for (const i of treeItems()) i.setAttribute('tabindex', '-1');
+    item.setAttribute('tabindex', '0');
+    planFocus = item.dataset.node;
+    item.focus();
+  }
+
+  function sessionOf(item) {
+    const id = Number(item.dataset.node.slice(1));
+    return (state.planning || []).find((p) => p.sessionId === id);
+  }
+  function setExpanded(item, open) {
+    const p = sessionOf(item);
+    if (!p || !(p.proposals || []).length) return;
+    planExpanded.set(p.sessionId, open);
+    rerenderKeepingFocus(item.dataset.node);
+  }
+
+  // The context menu lists every action of the item, in row order, reusing the
+  // shared context window (its items post through the delegated handler).
+  function openPlanMenu(item) {
+    const items = [...ownRow(item).querySelectorAll('[data-label]')].map((b) => {
+      const data = ['act', 'plan', 'proposal', 'open']
+        .filter((k) => b.dataset[k] !== undefined)
+        .map((k) => `data-${k}="${esc(b.dataset[k])}"`).join(' ');
+      const icon = b.querySelector('svg') ? b.querySelector('svg').outerHTML : '';
+      return `<button type="button" class="ctxitem" role="menuitem" ${data}>${icon} ${esc(b.dataset.label)}</button>`;
+    });
+    if (items.length) openMenuAt(item, items.join(''), item.dataset.node);
+  }
+
+  document.addEventListener('click', (e) => {
+    const toggle = e.target.closest('[data-plan-toggle]');
+    if (toggle) {
+      e.stopPropagation();
+      setExpanded(toggle.closest('[role="treeitem"]'), toggle.dataset.open !== 'true');
+      return;
+    }
+    if (e.target.closest('[data-plan-collapse-all]')) {
+      for (const p of state.planning || []) planExpanded.set(p.sessionId, false);
+      renderList();
+      return;
+    }
+    // A click on the row body (not on one of its controls) is its primary action.
+    const row = e.target.closest('.ptree .pt-row');
+    if (!row || e.target.closest('button')) return;
+    const item = row.parentElement;
+    focusItem(item);
+    const primary = primaryOf(item);
+    if (primary) primary.click();
+  });
+
+  document.addEventListener('contextmenu', (e) => {
+    const item = e.target.closest('.ptree [role="treeitem"]');
+    if (!item) return;
+    e.preventDefault();
+    focusItem(item);
+    openPlanMenu(item);
+  });
+
+  document.addEventListener('keydown', (e) => {
+    const item = e.target;
+    if (!item.matches || !item.matches('.ptree [role="treeitem"]')) return;
+    const items = treeItems();
+    const at = items.indexOf(item);
+    const level = item.getAttribute('aria-level');
+    const exp = item.getAttribute('aria-expanded');
+    let handled = true;
+    if ((e.key === 'F10' && e.shiftKey) || e.key === 'ContextMenu') openPlanMenu(item);
+    else if (e.key === 'ArrowDown') focusItem(items[at + 1]);
+    else if (e.key === 'ArrowUp') focusItem(items[at - 1]);
+    else if (e.key === 'Home') focusItem(items[0]);
+    else if (e.key === 'End') focusItem(items[items.length - 1]);
+    else if (e.key === 'ArrowRight') {
+      if (exp === 'false') setExpanded(item, true);
+      else if (exp === 'true') focusItem(item.querySelector('[role="treeitem"]'));
+    } else if (e.key === 'ArrowLeft') {
+      if (exp === 'true') setExpanded(item, false);
+      else if (level === '2') focusItem(item.parentElement.closest('[role="treeitem"]'));
+    } else if (e.key === 'Enter') {
+      const primary = primaryOf(item);
+      if (primary) primary.click();
+    } else handled = false;
+    if (handled) { e.preventDefault(); e.stopPropagation(); }
+  });
 
   // The Done facet: the user explicitly asked for completed work, so no
   // hierarchy and no history control — every completed ticket at once,
@@ -917,8 +1118,9 @@
     const rows = visibleRows(state.rows || []);
     const plans = state.planning || [];
     if (!rows.length && !plans.length) { L.innerHTML = emptyHtml(sel.has('archived') ? 'archived' : ''); return; }
-    const plansHtml = plans.length ? secHtml('Planning', plans.length) + plans.map(planRowHtml).join('') : '';
+    const plansHtml = plans.length ? planTreeHtml(plans) : '';
     L.innerHTML = plansHtml + rows.map((r) => rowHtml(r, {})).join('');
+    afterPlanRender();
   }
 
   // ---- interactions ----

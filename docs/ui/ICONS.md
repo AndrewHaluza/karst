@@ -70,6 +70,11 @@ path data inside a `.k-icon` svg — see §4.
 | Copy confirmation flash | `check` | transient button feedback |
 | Server rack (empty state) | `server-2` | "no servers running" mark |
 | Not runnable (empty state) | `circle-x` | "no runnable services in scope" mark |
+| Review planning draft (read-only) | `eye` | Planning tree draft action |
+| Approve planning draft | `check` | Planning tree draft action (opens the prefilled form) |
+| Discard planning draft | `x` | Planning tree draft action |
+| Pending planning draft (status) | `file-text` | Planning tree, tinted `--k-attention` |
+| Collapse all | `chevrons-up` | Planning section header |
 
 Scope note: **attach/detach** and **clear-terminal** controls have no current
 UI surface; when one appears it uses a native Tabler glyph (`link`/`unlink`
