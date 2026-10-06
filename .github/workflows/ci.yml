@@ -75,7 +75,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # fetch-depth: 0 so the "changed files" step below can three-dot diff
+      # against origin/<base>; the default shallow clone has no merge base.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v4
         with:
@@ -96,20 +100,31 @@ jobs:
         continue-on-error: true
         run: npm run test:mutation
 
-      - name: Publish score to the run summary
+      # The changed-file list powers the inline annotations, so compute it
+      # before the report. `|| true` (and the `if: always()`) keep a diff
+      # failure from turning the advisory job red — the report degrades to no
+      # annotations instead.
+      - name: Compute the PR's changed files
+        if: always()
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --no-tags origin "$BASE_REF" || true
+          git diff --name-only "origin/$BASE_REF...HEAD" > changed-files.txt || true
+          echo "Changed files:"; cat changed-files.txt
+
+      # Replaces the old "exit code 1 and nothing else" publish step: turn the
+      # JSON reporter's output into a run-summary table and inline warnings on
+      # the PR's touched lines. The script exits 0 even when the report is
+      # missing, so a failed Stryker run still leaves the job green.
+      - name: Publish the mutation mini report
         if: always()
         run: |
-          {
-            echo '## Mutation score'
-            echo
-            if [ -f reports/mutation/mutation.json ]; then
-              echo 'See the uploaded `mutation-report` artifact for the full HTML report.'
-            else
-              echo 'Stryker produced no JSON report.'
-            fi
-            echo
-            echo "Stryker step outcome: \`${{ steps.stryker.outcome }}\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+          node scripts/mutationSummary.mjs \
+            --report reports/mutation/mutation.json \
+            --config stryker.config.json \
+            --changed changed-files.txt \
+            --summary "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the HTML report
         if: always()
