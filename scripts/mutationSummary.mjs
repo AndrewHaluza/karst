@@ -117,7 +117,7 @@ export function fileMetrics(mutants) {
 
 export function overallMetrics(files) {
   const mutants = [];
-  for (const result of Object.values(files ?? {})) mutants.push(...(result.mutants ?? []));
+  for (const result of Object.values(files ?? {})) mutants.push(...(result?.mutants ?? []));
   return fileMetrics(mutants);
 }
 
@@ -133,7 +133,7 @@ function survivingMutants(result) {
 function filesBelowThreshold(report, threshold) {
   const below = [];
   for (const [path, result] of Object.entries(report?.files ?? {})) {
-    const metrics = fileMetrics(result.mutants);
+    const metrics = fileMetrics(result?.mutants);
     if (metrics.valid > 0 && threshold != null && metrics.score < threshold) {
       below.push({ path, metrics, result });
     }
@@ -206,7 +206,7 @@ export function buildAnnotations({ report, changedFiles = [], max = MAX_ANNOTATI
   const candidates = [];
   for (const [path, result] of Object.entries(report?.files ?? {})) {
     if (!changed.has(normalizePath(path))) continue;
-    const metrics = fileMetrics(result.mutants);
+    const metrics = fileMetrics(result?.mutants);
     if (metrics.valid === 0) continue;
     candidates.push({ path, score: metrics.score, result });
   }
@@ -306,10 +306,26 @@ export function run({
 
   const threshold = loadThreshold(configPath, loaded.report);
   const changedFiles = loadChangedFiles(changedPath);
-  const markdown = buildMiniReport({ report: loaded.report, threshold });
-  const annotations = annotate
-    ? buildAnnotations({ report: loaded.report, changedFiles })
-    : [];
+
+  // A structurally malformed report (e.g. a null file entry) must degrade to a
+  // message, not exit non-zero: the publish step has no `continue-on-error`,
+  // so a throw here would redden the advisory job.
+  let markdown;
+  try {
+    markdown = buildMiniReport({ report: loaded.report, threshold });
+  } catch (error) {
+    markdown = unavailableMarkdown(`The mutation report could not be read: ${error.message}`);
+  }
+
+  let annotations = [];
+  if (annotate) {
+    try {
+      annotations = buildAnnotations({ report: loaded.report, changedFiles });
+    } catch {
+      annotations = [];
+    }
+  }
+
   writeSummary(summaryPath, markdown);
   return { exitCode: 0, markdown, annotations };
 }

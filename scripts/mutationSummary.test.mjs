@@ -175,6 +175,14 @@ describe('buildMiniReport', () => {
     expect(markdown).toContain('**Overall: 100.00%** ✅');
     expect(markdown).toContain('No file is below the 85.00% break threshold.');
   });
+
+  it('tolerates a null file entry without throwing', () => {
+    const report = { files: { 'src/extension/null.ts': null } };
+    expect(() => buildMiniReport({ report, threshold: 85 })).not.toThrow();
+    expect(buildMiniReport({ report, threshold: 85 })).toContain(
+      'No mutants were reported',
+    );
+  });
 });
 
 describe('buildAnnotations', () => {
@@ -233,6 +241,13 @@ describe('buildAnnotations', () => {
       changedFiles: ['src/weird,file.ts'],
     });
     expect(annotations[0]).toContain('file=src/weird%2Cfile.ts,line=1');
+  });
+
+  it('ignores a null file entry', () => {
+    const report = { files: { 'src/extension/x.ts': null } };
+    expect(
+      buildAnnotations({ report, changedFiles: ['src/extension/x.ts'] }),
+    ).toEqual([]);
   });
 });
 
@@ -298,5 +313,18 @@ describe('run', () => {
     writeFileSync(reportPath, JSON.stringify(fixture()));
     const result = run({ reportPath, annotate: false });
     expect(result.annotations).toEqual([]);
+  });
+
+  it('stays exit 0 for a parseable but structurally malformed report', () => {
+    const dir = tempDir();
+    const reportPath = join(dir, 'mutation.json');
+    writeFileSync(reportPath, JSON.stringify({ files: { 'src/extension/x.ts': null } }));
+    const result = run({
+      reportPath,
+      configPath: join(dir, 'absent.config.json'),
+      changedPath: join(dir, 'absent.txt'),
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.markdown).toContain('No mutants were reported');
   });
 });
