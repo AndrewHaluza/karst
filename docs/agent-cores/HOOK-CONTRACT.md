@@ -56,6 +56,14 @@ external plugin) and would otherwise silently kill the whole hook channel, not
 just the resume. The adapter-agnostic safety net for a delivery that still fails
 is the stranded-fix sweep, not a silent park.
 
+**Historical backlog, not a live defect.** The registry's 142 pending opencode
+`implementation/initial` launch intents are almost entirely pre-`SessionStart`:
+141 predate 2026-08-14, when the opencode bridge did not post SessionStart at
+all (the `session.created` capture landed in #218 that day). Confirmed intents
+begin exactly 2026-08-14 and run at ~99% after (September 106 confirmed vs 1
+pending, October 17/17). The lone September pending captured no session id — a
+one-off missed hook, a different family from the resumed-launch bug fixed here.
+
 ### The SPLIT decision (PROMPT-16 measured)
 
 Not every claude event is bridged. The node bridge costs ~21 ms per invocation
