@@ -19,6 +19,7 @@ describe('planningProposalOps', () => {
   let forms: TicketFormPrefill[];
   let errors: string[];
   let changes: number;
+  let shown: PlanningProposal[];
 
   const ops = () => createPlanningProposalOps({
     store,
@@ -26,6 +27,7 @@ describe('planningProposalOps', () => {
     confirmPreview: async (p) => { previews.push(p); return preview; },
     choose: async (text) => { prompts.push(text); return choice; },
     openForm: (prefill) => { forms.push(prefill); },
+    showDraft: async (p) => { shown.push(p); },
     notify: { info: () => {}, warn: () => {}, error: async (m) => { errors.push(m); } },
     onChange: () => { changes += 1; },
   });
@@ -35,7 +37,7 @@ describe('planningProposalOps', () => {
     projectId = upsertProject(store, { slug: 'p' }).id;
     sessionId = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null }).id;
     proposalId = insertProposal(store, sessionId, { title: 'Fix login', description: 'd'.repeat(40), summary: 'sum', repos: ['api'] });
-    preview = true; choice = undefined; prompts = []; previews = []; forms = []; errors = []; changes = 0;
+    preview = true; choice = undefined; prompts = []; previews = []; forms = []; errors = []; changes = 0; shown = [];
   });
   afterEach(() => store.close());
 
@@ -88,6 +90,20 @@ describe('planningProposalOps', () => {
     forms[0]!.onCreated(t.id);
     expect(getProposal(store, proposalId)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
+  });
+
+  it('view shows the draft read-only: nothing is created, it stays pending', async () => {
+    await ops().view(proposalId);
+    expect(shown.map((p) => p.id)).toEqual([proposalId]);
+    expect(getProposal(store, proposalId)!.status).toBe('pending');
+    expect(ticketCount()).toBe(0);
+    expect(forms).toHaveLength(0);
+  });
+
+  it('view refuses an unknown proposal with a message', async () => {
+    await ops().view(999);
+    expect(shown).toHaveLength(0);
+    expect(errors).toHaveLength(1);
   });
 
   it('a resolved or foreign proposal is refused with a message', async () => {

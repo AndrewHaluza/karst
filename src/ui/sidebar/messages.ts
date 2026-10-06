@@ -35,6 +35,8 @@ export type SidebarWebviewMessage =
   | { type: 'plan-unarchive'; sessionId: number }
   // A pending planning proposal carries its own `proposalId`.
   | { type: 'plan-proposal-review'; proposalId: number }
+  // Review (eye): show the draft read-only; Approve is `plan-proposal-review` (the prefilled form).
+  | { type: 'plan-proposal-view'; proposalId: number }
   | { type: 'plan-proposal-discard'; proposalId: number };
 
 /**
@@ -77,6 +79,7 @@ export interface SidebarActions {
   planArchive(sessionId: number): void | Promise<void>;
   planProposalReview(proposalId: number): void | Promise<void>;
   planProposalDiscard(proposalId: number): void | Promise<void>;
+  planProposalView(proposalId: number): void | Promise<void>;
   planUnarchive(sessionId: number): void | Promise<void>;
 }
 
@@ -109,6 +112,7 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
         : null;
     case 'plan-proposal-review':
     case 'plan-proposal-discard':
+    case 'plan-proposal-view':
       return typeof m.proposalId === 'number' && Number.isFinite(m.proposalId)
         ? { type: m.type, proposalId: m.proposalId }
         : null;
@@ -195,5 +199,7 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.planProposalReview(msg.proposalId);
     case 'plan-proposal-discard':
       return actions.planProposalDiscard(msg.proposalId);
+    case 'plan-proposal-view':
+      return actions.planProposalView(msg.proposalId);
   }
 }

@@ -22,6 +22,8 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'plan-proposal-review', proposalId: 4 })).toEqual({ type: 'plan-proposal-review', proposalId: 4 });
     expect(parseSidebarMessage({ type: 'plan-proposal-discard', proposalId: 4 })).toEqual({ type: 'plan-proposal-discard', proposalId: 4 });
     expect(parseSidebarMessage({ type: 'plan-proposal-review', proposalId: '4' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'plan-proposal-view', proposalId: 4 })).toEqual({ type: 'plan-proposal-view', proposalId: 4 });
+    expect(parseSidebarMessage({ type: 'plan-proposal-view', proposalId: '4' })).toBeNull();
     expect(parseSidebarMessage({ type: 'plan-proposal-discard', proposalId: NaN })).toBeNull();
     expect(parseSidebarMessage({ type: 'plan-proposal-discard', sessionId: 4 })).toBeNull();
   });
@@ -107,6 +109,7 @@ describe('routeSidebarAction', () => {
       planUnarchive: vi.fn(),
       planProposalReview: vi.fn(),
       planProposalDiscard: vi.fn(),
+      planProposalView: vi.fn(),
     };
   }
 
@@ -149,6 +152,8 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'plan-proposal-discard', proposalId: 8 }, a);
     expect(a.planProposalReview).toHaveBeenCalledWith(7);
     expect(a.planProposalDiscard).toHaveBeenCalledWith(8);
+    routeSidebarAction({ type: 'plan-proposal-view', proposalId: 9 }, a);
+    expect(a.planProposalView).toHaveBeenCalledWith(9);
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {

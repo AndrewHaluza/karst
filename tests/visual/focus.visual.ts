@@ -56,13 +56,19 @@ const FOCUS_CAP = 12;
  * adds exactly these two focusable elements and removes none (no `tabindex`
  * / `a[href]` / form-control changes either), and `tests/visual/corpora.ts` —
  * which seeds the rendered rows — is unchanged since the fourth update.
+ *
+ * Updated a sixth time by the planning-tree redesign: `sidebar` +12 — each
+ * planning session row gains Open terminal / Archive icon actions and each
+ * draft row gains Review / Approve / Discard icon actions. They are real
+ * controls (the ticket's Done-when) that replace the old pill/text buttons and
+ * cannot fold into an existing focusable; they show on hover and on focus.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 46,
   usage: 11,
   resources: 17,
   serverLogs: 11,
-  sidebar: 64, // raised from 57: planning-session rows (#491) grew the fixture; raised from 48 earlier: Awaiting-review grouping (#482) + sub-task rows (#484)
+  sidebar: 69, // raised from 57: planning tree row actions (see sixth update); was 48 before #482/#484
   diffs: 35,
   settings: 193,
   ticketForm: 25,

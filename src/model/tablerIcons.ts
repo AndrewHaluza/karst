@@ -80,6 +80,7 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M9 5a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v14a1 1 0 0 1 -1 1h-4a1 1 0 0 1 -1 -1l0 -14"/>' +
     '<path d="M4 20h14"/>',
   check: '<path d="M5 12l5 5l10 -10"/>',
+  'chevrons-up': '<path d="M7 11l5 -5l5 5"/><path d="M7 17l5 -5l5 5"/>',
   'chevron-down': '<path d="M6 9l6 6l6 -6"/>',
   'chevron-right': '<path d="M9 6l6 6l-6 6"/>',
   'circle-check':
@@ -97,6 +98,7 @@ export const TABLER_ICONS: Record<string, string> = {
     '<path d="M5 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>' +
     '<path d="M12 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>' +
     '<path d="M19 12m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/>',
+  eye: '<path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/><path d="M21 12c-2.4 4 -5.4 6 -9 6c-3.6 0 -6.6 -2 -9 -6c2.4 -4 5.4 -6 9 -6c3.6 0 6.6 2 9 6"/>',
   'external-link':
     '<path d="M12 6h-6a2 2 0 0 0 -2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-6"/>' +
     '<path d="M11 13l9 -9"/><path d="M15 4h5v5"/>',
@@ -149,6 +151,7 @@ export const TABLER_ICONS: Record<string, string> = {
   'terminal-2':
     '<path d="M8 9l3 3l-3 3"/><path d="M13 15l3 0"/>' +
     '<path d="M3 6a2 2 0 0 1 2 -2h14a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2l0 -12"/>',
+  x: '<path d="M18 6l-12 12"/><path d="M6 6l12 12"/>',
   trash:
     '<path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/>' +
     '<path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/>',
