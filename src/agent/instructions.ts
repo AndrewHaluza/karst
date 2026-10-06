@@ -14,7 +14,7 @@
  * (`InstructionDelivery`) and pinned against real argv by the conformance suite.
  */
 
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { KARST_INSTRUCTIONS_ENV } from './cliEnv.js';
@@ -37,6 +37,7 @@ export interface SessionInstructions {
  * karst version and re-attached on a fresh launch AND a resume alike.
  */
 export function writeSessionInstructions(sessionDir: string, body: string): SessionInstructions {
+  mkdirSync(sessionDir, { recursive: true });
   const path = join(sessionDir, INSTRUCTIONS_FILENAME);
   writeFileSync(path, body.endsWith('\n') ? body : `${body}\n`, 'utf8');
   return { path, body };
@@ -63,10 +64,16 @@ export function hasInstructionsPointer(
 }
 
 /**
- * Place the pointer in a kickoff WITHOUT breaking a leading slash command: a
- * `/karst:foo KEY` invocation must stay the first token the core parses, so the
- * pointer goes after the command's own line — never before it. Any other
- * kickoff takes the pointer first.
+ * The leading token a core's entry invocation uses: `/karst:foo KEY` on
+ * claude/opencode and `$karst-foo KEY` on antigravity/codex (`entryOrchestrators`).
+ */
+const ENTRY_INVOCATION_PREFIX = /^[/$]/;
+
+/**
+ * Place the pointer in a kickoff WITHOUT breaking a leading entry command: a
+ * `/karst:foo KEY` or `$karst-foo KEY` invocation must stay the first token the
+ * core parses, so the pointer goes after the command's own line — never before
+ * it. Any other kickoff takes the pointer first.
  */
 export function withInstructionsPointer(kickoff: string | undefined, pointer: string): string {
   const text = kickoff?.trim() ?? '';
@@ -74,7 +81,7 @@ export function withInstructionsPointer(kickoff: string | undefined, pointer: st
   const newline = text.indexOf('\n');
   const firstLine = newline === -1 ? text : text.slice(0, newline);
   const rest = newline === -1 ? '' : text.slice(newline + 1).trim();
-  if (firstLine.startsWith('/')) {
+  if (ENTRY_INVOCATION_PREFIX.test(firstLine)) {
     return rest.length > 0 ? `${firstLine}\n\n${pointer}\n\n${rest}` : `${firstLine}\n\n${pointer}`;
   }
   return `${pointer}\n\n${text}`;

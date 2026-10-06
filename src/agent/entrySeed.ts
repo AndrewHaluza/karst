@@ -4,6 +4,7 @@
  */
 
 import type { EntryBasename } from './workflowCommand.js';
+import { composeInstructionsBody, type SessionSeed } from './seed.js';
 
 /**
  * The command line a FRESH launch opens with (§ entry-point commands).
@@ -42,18 +43,27 @@ export function launchSections(hasInvocation: boolean): 'all' | 'narrative' {
   return hasInvocation ? 'narrative' : 'all';
 }
 
+/** Join non-empty sections with a blank line between them. */
+function joinSections(sections: readonly (string | null | undefined)[]): string {
+  return sections
+    .map((s) => s?.trim())
+    .filter((s): s is string => Boolean(s))
+    .join('\n\n');
+}
+
 /**
- * Compose the resume seed: an invocation-first string when a materialized
- * command exists, or the inline-marker shape when no command was materialized.
- * The `markerInstruction` is appended on both branches so the done-marker is
- * always inline in every seed (§ prompt-effectiveness metrics).
+ * Compose the resume seed. On a resume with a materialized command the
+ * instruction layer is REGENERATED (current facts + the servers rule + the
+ * done marker) and re-attached through the core's channel, while the kickoff
+ * shrinks to the short continue/fix brief under the invocation — the rules are
+ * never repeated in the first user message. The guide pointer is deliberately
+ * NOT regenerated on a resume: a resumed session is not a new guide invite, and
+ * omitting it keeps the guide-pull denominator a fresh-launch measure
+ * (`docs/arch/prompt-metrics.md`).
  *
- * `serversInstruction` (the `## Services` block from
- * `cli/serversCommand.ts`'s `renderServersInstruction`) sits between the brief
- * and the marker on both branches: a resumed session starts this ticket's
- * services exactly as a fresh one does, and a service started by hand registers
- * no `servers` row, so the dashboard shows nothing while the session truthfully
- * reports it started one. Absent when the ticket scopes no runnable repository.
+ * Without a materialized command (or on a solo-agent `fallback` core) the seed
+ * stays self-contained inline exactly as before: brief, facts, servers rule and
+ * marker all ride the kickoff.
  */
 export function composeResumeSeed(input: {
   ticketKey: string;
@@ -61,33 +71,58 @@ export function composeResumeSeed(input: {
   invocation?: string;
   markerInstruction?: string;
   serversInstruction?: string;
-}): string {
+  factsContext?: string;
+  inlineInstructions?: boolean;
+}): SessionSeed {
   const { ticketKey, resumeBrief, invocation, markerInstruction, serversInstruction } = input;
+  const brief = resumeBrief.trim();
+  const facts = input.factsContext?.trim();
   const servers = serversInstruction?.trim();
-  const tail = `${servers ? `\n\n${servers}` : ''}${markerInstruction ? `\n\n${markerInstruction}` : ''}`;
-  if (invocation) {
-    return `${invocation} ${ticketKey}\n\n${resumeBrief}${tail}`.trim();
+  const marker = markerInstruction?.trim();
+  const invLine = invocation ? `${invocation} ${ticketKey}`.trim() : null;
+
+  if (invLine && !input.inlineInstructions) {
+    return {
+      instructions: composeInstructionsBody([facts, servers, marker]),
+      kickoff: joinSections([invLine, brief]),
+    };
   }
-  return `${resumeBrief}${tail}`;
+  return {
+    instructions: null,
+    kickoff: joinSections([invLine, brief, facts, servers, marker]),
+  };
 }
 
 /**
- * Compose the conflict-override seed: prepend the resolve-conflict invocation
- * line and a blank line to the brief when a materialized command exists, or
- * return the brief unchanged when no command was materialized. The
- * `markerInstruction` is appended on both branches so the done-marker is
- * always inline in every seed (§ prompt-effectiveness metrics).
+ * Compose the conflict-override seed. With a materialized command the conflict
+ * facts + the done marker are delivered through the instruction layer while the
+ * kickoff is just the invocation and the short conflict brief. Conflict
+ * resolution runs no services, so no servers rule is attached. Without a
+ * command (or on a solo-agent `fallback` core) everything inlines into the
+ * kickoff as before.
  */
 export function composeConflictSeed(input: {
   ticketKey: string;
   conflictBrief: string;
   invocation?: string;
   markerInstruction?: string;
-}): string {
+  factsContext?: string;
+  inlineInstructions?: boolean;
+}): SessionSeed {
   const { ticketKey, conflictBrief, invocation, markerInstruction } = input;
-  const markerSuffix = markerInstruction ? `\n\n${markerInstruction}` : '';
-  if (invocation) {
-    return `${invocation} ${ticketKey}\n\n${conflictBrief}${markerSuffix}`.trim();
+  const brief = conflictBrief.trim();
+  const facts = input.factsContext?.trim();
+  const marker = markerInstruction?.trim();
+  const invLine = invocation ? `${invocation} ${ticketKey}`.trim() : null;
+
+  if (invLine && !input.inlineInstructions) {
+    return {
+      instructions: composeInstructionsBody([facts, marker]),
+      kickoff: joinSections([invLine, brief]),
+    };
   }
-  return `${conflictBrief}${markerSuffix}`;
+  return {
+    instructions: null,
+    kickoff: joinSections([invLine, brief, facts, marker]),
+  };
 }

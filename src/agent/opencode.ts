@@ -815,6 +815,9 @@ export class OpencodeAdapter implements AgentAdapter {
     interactive: 'pointer',
     headless: 'n/a',
     acp: 'n/a',
+    // A solo-agent launch materializes the persona as the agent prompt; the
+    // pointer cannot ride beside it, so the composer inlines the rules.
+    soloFallback: true,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}

@@ -46,6 +46,21 @@ function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
 }
 
 describe('instrumentAdapter', () => {
+  it('preserves the wrapped core declared instruction delivery, solo fallback included', () => {
+    const inner = fakeAdapter({
+      instructions: {
+        interactive: 'pointer',
+        headless: 'n/a',
+        acp: 'n/a',
+        soloFallback: true,
+      },
+    });
+    // The seed composer reads `instructions.soloFallback` and `session.ts` reads
+    // `instructions.interactive` off the RUNTIME (instrumented) adapter, so this
+    // declaration must survive the wrapper like `surfaces` does.
+    expect(instrumentAdapter(inner, { sink: sink() }).instructions).toEqual(inner.instructions);
+  });
+
   it('injects the host debug callback into every headless call', async () => {
     const s = sink();
     let seenDebug: ((message: string) => void) | undefined;

@@ -147,10 +147,10 @@ import {
   loadModelCatalog,
 } from './agent/modelCatalogLoader.js';
 import { makeMementoCatalogCache } from './agent/modelCatalogCache.js';
-import { buildSessionSeed } from './agent/seed.js';
+import { buildSessionSeed, type SessionSeed } from './agent/seed.js';
+import { writeSessionInstructions } from './agent/instructions.js';
 import {
   launchInvocation,
-  launchSections,
   composeResumeSeed as composeResumeSeedEntry,
   composeConflictSeed,
 } from './agent/entrySeed.js';
@@ -6081,16 +6081,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         t.stageCurrent === 'fix' ? fixBriefForTicket(localStore, ticketId) : null;
 
       // Seed composition (materialization is complete — entryInvocations available).
-      // Aggregate the ticket's full implementation context into markdown.
-      const ticketContextMd = renderTicketContext(
-        buildTicketContext(
-          localStore,
-          currentManifest(),
-          ticketId,
-          context.globalStorageUri.fsPath,
-        ),
-        (msg) => logger.debug(msg),
+      // Aggregate the ticket context once; each seed composes from its halves.
+      // The authored half (prompt/brief/attachments/parents) rides the kickoff;
+      // the structured-facts half (stage/gates/repos/worktrees/servers/PRs)
+      // rides the instruction layer delivered through the core's own channel.
+      const ticketContext = buildTicketContext(
+        localStore,
+        currentManifest(),
+        ticketId,
+        context.globalStorageUri.fsPath,
       );
+      const renderCtx = (sections: 'all' | 'narrative' | 'facts'): string =>
+        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections });
       const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok));
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
@@ -6103,72 +6105,77 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const serversInstruction = seedServersPrefix
         ? renderServersInstruction(seedServersPrefix)
         : null;
-      let seedPrompt: string | undefined;
-      if (resumeId) {
-        // Resume path: compose from the brief and materialized invocation.
-        seedPrompt = resumeId
-          ? `${fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`}${markerInstruction ? `\n\n${markerInstruction}` : ''}`
-          : undefined;
-        // When a materialized start-task command exists, compose the resume/fix
-        // invocation as the first line (omitting the marker — the command
-        // carries it).
-        if (materialized.entryInvocations?.['start-task']) {
-          const resumeOrFixInvocation =
-            t.stageCurrent === 'fix' && materialized.entryInvocations?.['fix']
-              ? materialized.entryInvocations['fix']
-              : materialized.entryInvocations?.['resume'];
-          if (resumeOrFixInvocation) {
-            const brief =
-              fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`;
-            seedPrompt = composeResumeSeedEntry({
-              ticketKey: t.key ?? `#${ticketId}`,
-              resumeBrief: brief,
-              invocation: resumeOrFixInvocation,
-              ...(markerInstruction ? { markerInstruction } : {}),
-              ...(serversInstruction ? { serversInstruction } : {}),
-            });
-          }
-        }
-      } else {
-        // Fresh launch: use narrative sections when a materialized invocation
-        // exists (omitting operational details); full context otherwise.
-        const sections = launchSections(!!entryLaunchInvocation);
-        const contextForSeed =
-          sections === 'narrative'
-            ? renderTicketContext(
-                buildTicketContext(
-                  localStore,
-                  currentManifest(),
-                  ticketId,
-                  context.globalStorageUri.fsPath,
-                ),
-                (msg) => logger.debug(msg),
-                { sections: 'narrative' },
-              )
-            : ticketContextMd;
-        seedPrompt = buildSessionSeed(
-          contextForSeed,
-          approachPrompt ?? delegation,
-          entryLaunchInvocation
-            ? `${entryLaunchInvocation} ${t.key ?? ''}`.trim()
-            : null,
-          markerInstruction,
-          guideInstruction,
-          t.key || String(ticketId),
-          (msg) => logger.debug(msg),
-          serversInstruction,
-        );
-      }
-      // A caller with one specific job for this session (the merge brief behind
-      // "Resolve conflicts") wins over every composed seed above.
+      // Solo-agent launches on a core whose native channel cannot coexist with
+      // the materialized persona (codex/opencode) carry the rules in the
+      // kickoff; a fresh launch with no entry command stays self-contained for
+      // the same reason (the fallback invariant). Both inline the whole layer.
+      const inlineInstructions =
+        !entryLaunchInvocation || Boolean(soloAgent && adapter.instructions?.soloFallback);
+      // Inline launches render the full context as authored text (self-contained);
+      // the split only happens when the instruction layer actually rides a file.
+      const factsContext = inlineInstructions ? undefined : renderCtx('facts');
+      let seed: SessionSeed;
       if (options.seedPrompt) {
-        seedPrompt = composeConflictSeed({
+        // A caller with one specific job for this session (the merge brief
+        // behind "Resolve conflicts") wins over every composed seed below.
+        seed = composeConflictSeed({
           ticketKey: t.key ?? `#${ticketId}`,
           conflictBrief: options.seedPrompt,
-          invocation: materialized.entryInvocations?.['resolve-conflict'],
+          ...(materialized.entryInvocations?.['resolve-conflict']
+            ? { invocation: materialized.entryInvocations['resolve-conflict'] }
+            : {}),
           ...(markerInstruction ? { markerInstruction } : {}),
+          ...(factsContext ? { factsContext } : {}),
+          ...(inlineInstructions ? { inlineInstructions } : {}),
+        });
+      } else if (resumeId) {
+        // Resume path: instructions are regenerated and re-attached; the
+        // kickoff shrinks to the continue/fix brief under the invocation.
+        const brief =
+          fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`;
+        const resumeOrFixInvocation =
+          t.stageCurrent === 'fix' && materialized.entryInvocations?.['fix']
+            ? materialized.entryInvocations['fix']
+            : materialized.entryInvocations?.['resume'];
+        seed = composeResumeSeedEntry({
+          ticketKey: t.key ?? `#${ticketId}`,
+          resumeBrief: brief,
+          ...(resumeOrFixInvocation ? { invocation: resumeOrFixInvocation } : {}),
+          ...(markerInstruction ? { markerInstruction } : {}),
+          ...(serversInstruction ? { serversInstruction } : {}),
+          ...(factsContext ? { factsContext } : {}),
+          ...(inlineInstructions ? { inlineInstructions } : {}),
+        });
+      } else {
+        // Fresh launch: narrative authored text when a materialized invocation
+        // exists (operational facts move to the instruction layer); full
+        // context otherwise (self-contained inline).
+        seed = buildSessionSeed({
+          authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all'),
+          ...(factsContext ? { factsContext } : {}),
+          approachPrompt: approachPrompt ?? delegation,
+          ...(entryLaunchInvocation
+            ? { invocation: `${entryLaunchInvocation} ${t.key ?? ''}`.trim() }
+            : {}),
+          ...(markerInstruction ? { markerInstruction } : {}),
+          ...(guideInstruction ? { guideInstruction } : {}),
+          ...(serversInstruction ? { serversInstruction } : {}),
+          ticketKey: t.key || String(ticketId),
+          ...(inlineInstructions ? { inlineInstructions } : {}),
+          debug: (msg) => logger.debug(msg),
         });
       }
+      // Write the instruction layer to disk and attach it to the session; the
+      // adapter delivers it through its DECLARED channel (native file, or a
+      // pointer in the kickoff). A fallback launch inlined it, so nothing is
+      // written and no `instructions` is threaded.
+      const sessionInstructions = seed.instructions
+        ? writeSessionInstructions(
+            join(context.globalStorageUri.fsPath, 'session-instructions', String(ticketId)),
+            seed.instructions,
+          )
+        : undefined;
+      const seedPrompt: string | undefined = seed.kickoff || undefined;
       const extraArgs =
         materialized.extraArgs.length > 0
           ? materialized.extraArgs
@@ -6230,6 +6237,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           {
             ...options,
             ...(effort ? { effort } : {}),
+            // The regenerated instruction layer, delivered through the core's
+            // own channel; absent when the composer inlined it into the kickoff.
+            ...(sessionInstructions ? { instructions: sessionInstructions } : {}),
             // Carries `dbPath` too — the same literal set the seed was composed from.
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),

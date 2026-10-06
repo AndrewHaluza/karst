@@ -530,14 +530,21 @@ export function buildTicketContext(
 }
 
 /**
- * Which sections a render emits. `all` is every section (the CLI, the graph
- * planner prompts, every pre-existing caller). `narrative` is the subset a
- * HUMAN reads in a session transcript — the ticket's own prose, its
- * attachments, and its parent's brief — with every operational fact
- * (stage, repos, worktrees, servers, PRs) omitted because the session pulls
- * those live via `karst context`.
+ * Which sections a render emits.
+ *
+ * - `all` — every section (the CLI, the graph planner prompts, every
+ *   pre-existing caller).
+ * - `narrative` — the subset a HUMAN reads in a session transcript: the
+ *   ticket's own authored prose, its attachments, its parent's/sub-tasks'
+ *   summaries, and the inbox pointer. Every operational fact (stage, repos,
+ *   worktrees, servers, PRs) is omitted because the session pulls those live
+ *   via `karst context`.
+ * - `facts` — the complement of `narrative`: ONLY the structured operational
+ *   facts (current stage/gates/findings, repositories in scope, worktrees &
+ *   branches, running servers, pull requests). The launch seed routes this half
+ *   into the instruction layer, and the authored half into the kickoff.
  */
-export type ContextSections = 'all' | 'narrative';
+export type ContextSections = 'all' | 'narrative' | 'facts';
 
 function ticketHeading(ctx: TicketContext): string {
   const key = ctx.key?.trim();
@@ -559,14 +566,18 @@ export function renderTicketContext(
 ): string {
   const bounded = opts?.bounded ?? true;
   const sections = opts?.sections ?? 'all';
-  const parts: string[] = [`# Ticket: ${ticketHeading(ctx)}`];
+  // The two halves the launch seed routes independently: authored text rides the
+  // kickoff, structured facts ride the instruction layer. `all` renders both.
+  const authored = sections === 'all' || sections === 'narrative';
+  const operational = sections === 'all' || sections === 'facts';
+  const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx)}`] : [];
   // A ticket's key can be empty (never blank the pointer's command target on
   // that account) — `id` is always present and `karst context <id>` resolves
   // a bare numeric id (§ resolveTicketByKey), so it is a genuinely runnable
   // fallback, unlike the placeholder string 'this ticket' would be.
   const key = ctx.key?.trim() || String(ctx.id);
 
-  const promptRaw = ctx.prompt?.trim();
+  const promptRaw = authored ? ctx.prompt?.trim() : undefined;
   if (promptRaw) {
     const prompt = bounded
       ? (() => {
@@ -578,7 +589,7 @@ export function renderTicketContext(
     parts.push(`## Prompt\n${prompt}`);
   }
 
-  const briefRaw = ctx.brief?.trim();
+  const briefRaw = authored ? ctx.brief?.trim() : undefined;
   if (briefRaw) {
     const brief = bounded
       ? (() => {
@@ -590,7 +601,7 @@ export function renderTicketContext(
     parts.push(`## Context brief\n${brief}`);
   }
 
-  if (sections === 'all' && ctx.stage) {
+  if (operational && ctx.stage) {
     const s = ctx.stage;
     const lines = [`- stage: ${s.stageKey} (${s.status})`];
     if (s.verdict) lines.push(`- verdict: ${s.verdict}`);
@@ -687,7 +698,7 @@ export function renderTicketContext(
     parts.push(`## Current stage\n${lines.join('\n')}`);
   }
 
-  if (ctx.attachments.length > 0) {
+  if (authored && ctx.attachments.length > 0) {
     const rowsBlock = ctx.attachments
       .map((a) => {
         // Video is stated as unreadable rather than omitted. Omitting it would let
@@ -710,7 +721,7 @@ export function renderTicketContext(
   // One section, not two. The old render emitted a bare name list AND a richer
   // "## Services" list, so a repository appeared twice and a non-runnable one
   // appeared in the first with no hint it would never start.
-  if (sections === 'all' && ctx.repos.length > 0) {
+  if (operational && ctx.repos.length > 0) {
     const rows = ctx.repos.map((r) => {
       if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
       if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
@@ -720,7 +731,7 @@ export function renderTicketContext(
     parts.push(`## Repositories in scope\n${rows.join('\n')}`);
   }
 
-  if (sections === 'all' && ctx.worktrees.length > 0) {
+  if (operational && ctx.worktrees.length > 0) {
     const rows = ctx.worktrees.map((w) => {
       const branch = w.branch ?? '(no branch)';
       const base = w.baseRef ? ` (from ${w.baseRef})` : '';
@@ -729,14 +740,14 @@ export function renderTicketContext(
     parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
   }
 
-  if (sections === 'all' && ctx.servers.length > 0) {
+  if (operational && ctx.servers.length > 0) {
     const rows = ctx.servers.map(
       (s) => `- ${s.service}: ${s.host ?? '?'}:${s.port ?? '?'} (${s.status})`,
     );
     parts.push(`## Running servers\n${rows.join('\n')}`);
   }
 
-  if (sections === 'all' && ctx.prs.length > 0) {
+  if (operational && ctx.prs.length > 0) {
     const rows = ctx.prs.map((p) => {
       const num = p.number !== null ? `#${p.number}` : '(no number)';
       const url = p.url ? ` — ${p.url}` : '';
@@ -749,7 +760,7 @@ export function renderTicketContext(
     parts.push(`## Pull requests\n${rows.join('\n')}`);
   }
 
-  if (ctx.parent) {
+  if (authored && ctx.parent) {
     const heading =
       ctx.parent.key && ctx.parent.title
         ? `${ctx.parent.key}: ${ctx.parent.title}`
@@ -769,7 +780,7 @@ export function renderTicketContext(
   // session must know its branch lands into the parent's branch — not main —
   // whether it reads the seed or re-pulls `karst context`. The parent's PRs are
   // deliberately not rendered (that is the follow-up section's job).
-  if (ctx.subtaskParent) {
+  if (authored && ctx.subtaskParent) {
     const p = ctx.subtaskParent;
     const base =
       p.key && p.title
@@ -801,7 +812,7 @@ export function renderTicketContext(
   // The work this ticket delegated to sub-tasks (design NDL-70 §7), so the
   // parent agent does not redo it. Rendered in every section mode for the same
   // reason as the parent section above.
-  if (ctx.subtasks.length > 0) {
+  if (authored && ctx.subtasks.length > 0) {
     const rows = ctx.subtasks.map((s) => {
       const key = s.key?.trim() || `#${s.id}`;
       const title = s.title?.trim();
@@ -817,7 +828,7 @@ export function renderTicketContext(
 
   // The mailbox is a pointer only: bodies are untrusted agent prose and are
   // framed by `karst inbox`, never inlined into a seed.
-  if (ctx.inbox.unread > 0) {
+  if (authored && ctx.inbox.unread > 0) {
     const n = ctx.inbox.unread;
     parts.push(
       `## Inbox\n${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`,

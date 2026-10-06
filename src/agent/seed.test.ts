@@ -1,9 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { join } from 'node:path';
-import { buildSessionSeed, measureSeed } from './seed.js';
+import { buildSessionSeed, measureSeed, INSTRUCTIONS_HEADING } from './seed.js';
 import { renderInstructionsPointer } from './instructions.js';
 import { markerStageFor } from './markerStage.js';
-import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
+import { renderGateOnlyInstruction } from './workflowCommand.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -12,226 +11,165 @@ import { recordGateRun } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
 import { buildTicketContext, renderTicketContext } from '../context/ticketContext.js';
 
-// A representative pre-rendered ticket-context block (see ticketContext.test.ts
-// for the shaping coverage). buildSessionSeed only composes sections.
-const CONTEXT = '# Ticket: PROJ-9 — Fix login redirect\n\n## Prompt\nUsers bounce to /login.';
+// Representative pre-rendered context halves (see ticketContext.test.ts for the
+// shaping coverage). buildSessionSeed only routes and composes sections.
+const AUTHORED = '# Ticket: PROJ-9 — Fix login redirect\n\n## Prompt\nUsers bounce to /login.';
+const FACTS = '## Current stage\n- stage: impl (running)\n\n## Repositories in scope\n- backend: /repo/backend';
 
-describe('buildSessionSeed', () => {
-  it('includes the context block when given (no approach prompt)', () => {
-    const seed = buildSessionSeed(CONTEXT, undefined);
-    expect(seed).toBe(CONTEXT);
+describe('buildSessionSeed routing', () => {
+  it('routes facts, servers, guide and marker into the instruction layer', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      factsContext: FACTS,
+      invocation: '/karst:rpi PROJ-9',
+      markerInstruction: 'RUN THE MARKER',
+      guideInstruction: 'READ THE GUIDE',
+      serversInstruction: '## Services\n\nRULE',
+    });
+    expect(seed.instructions).toBeDefined();
+    expect(seed.instructions!.startsWith(INSTRUCTIONS_HEADING)).toBe(true);
+    expect(seed.instructions).toContain('## Current stage');
+    expect(seed.instructions).toContain('## Services');
+    expect(seed.instructions).toContain('READ THE GUIDE');
+    expect(seed.instructions).toContain('RUN THE MARKER');
+    // Authored text is NOT duplicated into the instruction layer.
+    expect(seed.instructions).not.toContain('Users bounce to /login');
   });
 
-  it('appends the approach method prompt after the ticket context', () => {
-    const seed = buildSessionSeed(CONTEXT, '# Research first\nGo look.');
-    expect(seed).toBeDefined();
-    const ctxIdx = seed!.indexOf('PROJ-9');
-    const methodIdx = seed!.indexOf('Research first');
-    expect(ctxIdx).toBeGreaterThanOrEqual(0);
-    expect(methodIdx).toBeGreaterThan(ctxIdx); // approach comes after context
-    expect(seed).toContain('# Approach\n\n# Research first');
+  it('routes the invocation FIRST, then authored text and the approach method, into the kickoff', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      factsContext: FACTS,
+      approachPrompt: '# Research first\nGo look.',
+      invocation: '/karst:rpi PROJ-9',
+      markerInstruction: 'RUN THE MARKER',
+      guideInstruction: 'READ THE GUIDE',
+    });
+    expect(seed.kickoff.split('\n')[0]).toBe('/karst:rpi PROJ-9');
+    const ctxIdx = seed.kickoff.indexOf('# Ticket: PROJ-9');
+    const approachIdx = seed.kickoff.indexOf('# Approach');
+    expect(ctxIdx).toBeGreaterThan(0);
+    expect(approachIdx).toBeGreaterThan(ctxIdx);
+    // The rules never repeat in the kickoff.
+    expect(seed.kickoff).not.toContain('RUN THE MARKER');
+    expect(seed.kickoff).not.toContain('READ THE GUIDE');
+    expect(seed.kickoff).not.toContain('## Services');
   });
 
-  it('still seeds ticket context for a built-in approach (no method prompt)', () => {
-    const seed = buildSessionSeed(CONTEXT, null);
-    expect(seed).toBe(CONTEXT);
+  it('omits the invocation line when none is given (kickoff starts with authored text)', () => {
+    const seed = buildSessionSeed({ authoredContext: AUTHORED, factsContext: FACTS });
+    expect(seed.kickoff.startsWith('# Ticket: PROJ-9')).toBe(true);
+    expect(seed.kickoff).not.toContain('/karst:');
   });
 
-  it('returns undefined when there is no context and no method (fully bare)', () => {
-    expect(buildSessionSeed(undefined, null)).toBeUndefined();
-    expect(buildSessionSeed('', '   ')).toBeUndefined();
+  it('returns an empty split when there is genuinely nothing to say', () => {
+    expect(buildSessionSeed({})).toEqual({ instructions: null, kickoff: '' });
+    expect(buildSessionSeed({ authoredContext: '   ', factsContext: '' })).toEqual({
+      instructions: null,
+      kickoff: '',
+    });
   });
 
-  it('seeds the approach method even when the context is empty', () => {
-    const seed = buildSessionSeed(undefined, 'do the thing');
-    expect(seed).toBe('# Approach\n\ndo the thing');
+  it('keeps the guide pointer out of the kickoff but in the instruction layer', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      factsContext: FACTS,
+      guideInstruction: 'To understand how Karst works and what this CLI can do, run `g`.',
+    });
+    expect(seed.instructions).toContain('To understand how Karst works');
+    expect(seed.kickoff).not.toContain('To understand how Karst works');
   });
 
-  it('puts the invocation as the first section, before ticket context', () => {
-    const seed = buildSessionSeed(CONTEXT, undefined, '/karst:rpi PROJ-9');
-    expect(seed).toBeDefined();
-    const lines = seed!.split('\n');
-    expect(lines[0]).toBe('/karst:rpi PROJ-9');
-    expect(seed!.indexOf('/karst:rpi PROJ-9')).toBe(0);
-    expect(seed!.indexOf('# Ticket: PROJ-9')).toBeGreaterThan(0);
-  });
-
-  it('is byte-for-byte identical to the no-invocation output when invocation is absent/empty', () => {
-    const withoutParam = buildSessionSeed(CONTEXT, 'do the thing');
-    const withUndefined = buildSessionSeed(CONTEXT, 'do the thing', undefined);
-    const withNull = buildSessionSeed(CONTEXT, 'do the thing', null);
-    const withEmpty = buildSessionSeed(CONTEXT, 'do the thing', '   ');
-    expect(withUndefined).toBe(withoutParam);
-    expect(withNull).toBe(withoutParam);
-    expect(withEmpty).toBe(withoutParam);
-  });
-
-  it('omits the invocation section when invocation is not given', () => {
-    const seed = buildSessionSeed(CONTEXT, null);
-    expect(seed).toBeDefined();
-    expect(seed).not.toContain('/karst:rpi');
-  });
-
-  it('appends the marker instruction as the final section when given', () => {
-    const seed = buildSessionSeed(CONTEXT, null, undefined, 'RUN THE MARKER');
-    expect(seed).toBeDefined();
-    expect(seed!.endsWith('RUN THE MARKER')).toBe(true);
-    // marker comes after the ticket context
-    expect(seed!.indexOf('RUN THE MARKER')).toBeGreaterThan(seed!.indexOf('PROJ-9'));
-  });
-
-  it('seeds the marker even when there is no context and no method (direct/bare ticket)', () => {
-    expect(buildSessionSeed(undefined, null, undefined, 'RUN THE MARKER')).toBe('RUN THE MARKER');
-  });
-
-  it('is unchanged when no marker is given (4th arg absent)', () => {
-    expect(buildSessionSeed(CONTEXT, null)).toBe(CONTEXT);
-    expect(buildSessionSeed(CONTEXT, null, undefined, undefined)).toBe(CONTEXT);
-  });
-
-  it('places the guide instruction after the method and before the marker', () => {
-    const seed = buildSessionSeed(
-      CONTEXT,
-      'do the thing',
-      undefined,
-      'RUN THE MARKER',
-      'READ THE GUIDE',
-    );
-    expect(seed).toBeDefined();
-    const methodIdx = seed!.indexOf('do the thing');
-    const guideIdx = seed!.indexOf('READ THE GUIDE');
-    const markerIdx = seed!.indexOf('RUN THE MARKER');
-    expect(methodIdx).toBeGreaterThanOrEqual(0);
-    expect(guideIdx).toBeGreaterThan(methodIdx);
-    expect(markerIdx).toBeGreaterThan(guideIdx);
-  });
-
-  it('is unchanged when no guide instruction is given (5th arg absent)', () => {
-    expect(buildSessionSeed(CONTEXT, 'do the thing', undefined, 'RUN THE MARKER')).toBe(
-      buildSessionSeed(CONTEXT, 'do the thing', undefined, 'RUN THE MARKER', undefined),
-    );
-  });
-
-  // Entry-point marker presence: with an invocation and a marker, the seed
-  // ALWAYS contains the marker text — materialization no longer suppresses it.
-  it('launch: invocation + marker → marker present', () => {
-    const seed = buildSessionSeed(
-      CONTEXT,
-      null,
-      '/karst:start-task PROJ-9',
-      'RUN THE MARKER',
-    );
-    expect(seed).toBeDefined();
-    expect(seed).toContain('RUN THE MARKER');
-    expect(seed).toContain('/karst:start-task PROJ-9');
-  });
-
-  // Issue #6: a ticket seeded at a gate stage (uat/review/ship) has no marker to
-  // fire — markerStageFor returns null there — but the seed must still say
-  // something about how the stage ends, per the same extension.ts wiring used
-  // for a review-stage ticket's session.
-  it('carries the gate sentence and no marker command for a review-stage ticket', () => {
+  it('still seeds the instruction layer for a gate stage (no marker) with the gate sentence', () => {
     const markerStage = markerStageFor('review');
     expect(markerStage).toBeNull();
-    const markerInstruction =
-      markerStage === null
-        ? renderGateOnlyInstruction()
-        : renderDoneMarkerInstruction('node cli.js stage review pass --ticket', 'PROJ-9');
-    const seed = buildSessionSeed(CONTEXT, null, undefined, markerInstruction);
-    expect(seed).toBeDefined();
-    expect(seed!.toLowerCase()).toContain('gate exit codes');
-    expect(seed!.toLowerCase()).not.toContain('stage review pass');
-    expect(seed!.toLowerCase()).not.toContain('stage impl pass');
-    expect(seed!.toLowerCase()).not.toContain('stage fix pass');
-    expect(seed!.toLowerCase()).not.toContain('done marker');
-  });
-
-  it('narrative shape: invocation present, marker present, guide pointer present', () => {
-    const seed = buildSessionSeed(
-      CONTEXT,
-      null,
-      '/karst:start-task PROJ-9',
-      'RUN THE MARKER',
-      'Run `karst guide` to learn the CLI.',
-    );
-    expect(seed).toBeDefined();
-    expect(seed).toContain('/karst:start-task PROJ-9');
-    expect(seed).toContain('RUN THE MARKER');
-    expect(seed).toContain('karst guide');
-  });
-
-  it('fallback shape: marker present, no invocation, unchanged from today', () => {
-    const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
-    const seedWithMarker = buildSessionSeed(CONTEXT, null, undefined, marker);
-    const seedWithout = buildSessionSeed(CONTEXT, null, undefined);
-    expect(seedWithMarker).toBeDefined();
-    expect(seedWithMarker).toContain(marker);
-    expect(seedWithMarker).toBe(`${CONTEXT}\n\n${marker}`);
-    expect(seedWithout).toBe(CONTEXT);
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      factsContext: FACTS,
+      markerInstruction: renderGateOnlyInstruction(),
+    });
+    expect(seed.instructions!.toLowerCase()).toContain('gate exit codes');
+    expect(seed.kickoff.toLowerCase()).not.toContain('gate exit codes');
   });
 });
 
-describe('buildSessionSeed servers instruction', () => {
-  it('places the servers section after the context and before the approach', () => {
-    const seed = buildSessionSeed('CTX', 'METHOD', null, null, null, 'K', undefined, '## Services\n\nRULE')!;
-    expect(seed.indexOf('CTX')).toBeLessThan(seed.indexOf('## Services'));
-    expect(seed.indexOf('## Services')).toBeLessThan(seed.indexOf('# Approach'));
+describe('buildSessionSeed inline (solo/no-command fallback)', () => {
+  it('inlines the whole layer into the kickoff and writes no instruction layer', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      approachPrompt: 'do the thing',
+      invocation: '/karst:rpi PROJ-9',
+      markerInstruction: 'RUN THE MARKER',
+      guideInstruction: 'READ THE GUIDE',
+      serversInstruction: '## Services\n\nRULE',
+      inlineInstructions: true,
+    });
+    expect(seed.instructions).toBeNull();
+    expect(seed.kickoff.split('\n')[0]).toBe('/karst:rpi PROJ-9');
+    const authoredIdx = seed.kickoff.indexOf('# Ticket: PROJ-9');
+    const serversIdx = seed.kickoff.indexOf('## Services');
+    const approachIdx = seed.kickoff.indexOf('# Approach');
+    const guideIdx = seed.kickoff.indexOf('READ THE GUIDE');
+    const markerIdx = seed.kickoff.indexOf('RUN THE MARKER');
+    // Pre-split order: authored, servers, approach, guide, marker.
+    expect(authoredIdx).toBeGreaterThan(0);
+    expect(serversIdx).toBeGreaterThan(authoredIdx);
+    expect(approachIdx).toBeGreaterThan(serversIdx);
+    expect(guideIdx).toBeGreaterThan(approachIdx);
+    expect(markerIdx).toBeGreaterThan(guideIdx);
   });
 
-  it('is omitted when no servers instruction is given', () => {
-    const seed = buildSessionSeed('CTX', 'METHOD', null, null, null, 'K')!;
-    expect(seed).not.toContain('## Services');
-  });
-
-  it('is omitted when the instruction is blank', () => {
-    const seed = buildSessionSeed('CTX', 'METHOD', null, null, null, 'K', undefined, '   ')!;
-    expect(seed).not.toContain('## Services');
-  });
-
-  it('composes a seed that is only the servers section when nothing else exists', () => {
-    expect(buildSessionSeed(null, null, null, null, null, 'K', undefined, '## Services\n\nRULE')).toBe(
-      '## Services\n\nRULE',
-    );
+  it('self-contained bare form when only a marker exists', () => {
+    const seed = buildSessionSeed({
+      authoredContext: AUTHORED,
+      markerInstruction: 'RUN THE MARKER',
+      inlineInstructions: true,
+    });
+    expect(seed.instructions).toBeNull();
+    expect(seed.kickoff).toBe(`${AUTHORED}\n\nRUN THE MARKER`);
   });
 });
 
 describe('measureSeed', () => {
-  it('reports composed length and guide-pointer presence for a full seed', () => {
-    const seed = buildSessionSeed(
-      CONTEXT,
-      '# Method',
-      '/karst:rpi PROJ-9',
-      'fire the marker',
-      'To understand how Karst works and what this CLI can do, run `g`',
-    )!;
-    const m = measureSeed(seed);
-    expect(m.seedChars).toBe(seed.length);
-    expect(m.guidePointer).toBe(true);
-  });
-
-  it('reports guidePointer false when the seed carries no pointer', () => {
-    const seed = buildSessionSeed(CONTEXT, undefined)!;
-    expect(measureSeed(seed).guidePointer).toBe(false);
-  });
-
-  it('reports zero length for a bare launch (undefined seed)', () => {
-    expect(measureSeed(undefined)).toEqual({ seedChars: 0, guidePointer: false });
-  });
-
-  it('measures both layers: the instruction size + digest when one rode the launch', () => {
+  it('counts BOTH layers as resident seed size', () => {
     const instructions = { path: '/s/karst-instructions.md', body: '# Karst rules\nDo the thing.' };
     const m = measureSeed('kickoff', undefined, instructions);
-    expect(m.seedChars).toBe('kickoff'.length);
+    expect(m.seedChars).toBe('kickoff'.length + instructions.body.length);
     expect(m.instructionsChars).toBe(instructions.body.length);
     expect(m.instructionsHash).toHaveLength(10);
     // No instruction layer → the fields are absent, never invented.
     expect(measureSeed('kickoff')).not.toHaveProperty('instructionsChars');
   });
 
+  it('reports zero length for a bare launch (undefined seed)', () => {
+    expect(measureSeed(undefined)).toEqual({ seedChars: 0, guidePointer: false });
+  });
+
+  it('detects the guide pointer in the instruction layer', () => {
+    const instructions = { path: '/s/karst-instructions.md', body: '# Rules\nGUIDE-HERE' };
+    expect(measureSeed('kickoff', 'GUIDE-HERE', instructions).guidePointer).toBe(true);
+    expect(measureSeed('kickoff', 'GUIDE-HERE').guidePointer).toBe(false);
+  });
+
   it('flags a pointer core whose kickoff carries the instructions pointer', () => {
     const m = measureSeed(renderInstructionsPointer());
     expect(m.instructionsPointer).toBe(true);
     expect(measureSeed('no pointer here')).not.toHaveProperty('instructionsPointer');
+  });
+
+  it('records instructionsPointer from the ADAPTER channel for a pointer core', () => {
+    const instructions = { path: '/s/karst-instructions.md', body: '# Rules' };
+    // The pointer is spliced into the kickoff INSIDE buildInteractiveCommand,
+    // after the raw seed — so the reported channel, not a text scan, is the
+    // fact for pointer cores (the raw kickoff here has no pointer text).
+    const m = measureSeed('/karst:rpi PROJ-9', undefined, instructions, 'pointer');
+    expect(m.instructionsPointer).toBe(true);
+    // native-file / fallback cores never set it.
+    expect(measureSeed('/karst:rpi PROJ-9', undefined, instructions, 'native-file')).not
+      .toHaveProperty('instructionsPointer');
+    expect(measureSeed('go', undefined, instructions, 'fallback')).not.toHaveProperty(
+      'instructionsPointer',
+    );
   });
 });
 
@@ -240,166 +178,131 @@ describe('buildSessionSeed budget', () => {
     // Filler is 'q', not 'z' — the honest approach pointer's own wording
     // ("materialized") contains a 'z', which would corrupt a 'z'-based count.
     const bigMethod = '# Big approach\n' + 'q'.repeat(20_000);
-    const seed = buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9');
+    const seed = buildSessionSeed({ approachPrompt: bigMethod, ticketKey: 'PROJ-9' });
     // The approach-method pointer is NOT `karst context <key>` — that command
     // renders TicketContext, which never carries the approach body, so it
     // would be a stated pointer to nothing. This is the honest one instead.
-    expect(seed).toContain("the approach method is longer than fits here");
-    expect(seed).not.toContain('karst context PROJ-9');
+    expect(seed.kickoff).toContain('the approach method is longer than fits here');
+    expect(seed.kickoff).not.toContain('karst context PROJ-9');
     // 8000-char budget applies to the whole method text, including the 15-char
     // "# Big approach\n" heading, so 8000 - 15 = 7985 'q' characters survive.
-    expect(seed!.match(/q/g)!.length).toBe(7985);
+    expect(seed.kickoff.match(/q/g)!.length).toBe(7985);
   });
 
   it('never truncates the marker instruction, even with a huge context and method', () => {
     const bigContext = 'c'.repeat(50_000);
     const bigMethod = 'm'.repeat(50_000);
     const marker = 'FIRE THE MARKER: run `karst stage impl pass`';
-    const seed = buildSessionSeed(bigContext, bigMethod, undefined, marker, undefined, 'PROJ-9');
-    expect(seed).toContain(marker);
+    const seed = buildSessionSeed({
+      authoredContext: bigContext,
+      approachPrompt: bigMethod,
+      markerInstruction: marker,
+      ticketKey: 'PROJ-9',
+    });
+    expect(seed.instructions).toContain(marker);
   });
 
   it('reports truncation via the injected debug callback', () => {
     const bigMethod = 'z'.repeat(20_000);
     const seen: string[] = [];
-    buildSessionSeed(CONTEXT, bigMethod, undefined, undefined, undefined, 'PROJ-9', (m) => seen.push(m));
+    buildSessionSeed({
+      approachPrompt: bigMethod,
+      ticketKey: 'PROJ-9',
+      debug: (m) => seen.push(m),
+    });
     expect(seen.some((m) => m.includes('approach method'))).toBe(true);
   });
 
   it('does not truncate a method body under budget', () => {
-    const seed = buildSessionSeed(CONTEXT, '# Small\nGo look.', undefined, undefined, undefined, 'PROJ-9');
-    expect(seed).not.toContain('truncated --');
+    const seed = buildSessionSeed({ approachPrompt: '# Small\nGo look.', ticketKey: 'PROJ-9' });
+    expect(seed.kickoff).not.toContain('truncated --');
   });
 });
 
-describe('oversized ticket end-to-end budget (PROMPT-08 acceptance)', () => {
-  it('a ticket with a huge prompt, brief, and approach method still produces a bounded, marker-intact seed', () => {
-    // Context is pre-shaped (realistic ~10k+ chars), mimicking renderTicketContext output
-    const hugeContext =
-      `# Ticket: PROJ-9 — Oversized\n\n## Prompt\n${'p'.repeat(5_000)}\n\n` +
-      `## Context brief\n${'b'.repeat(4_500)}`;
-    // Approach method is genuinely huge (50k), will be truncated to 8000-char budget
-    const hugeMethod = '# rpi-implement\n' + 'm'.repeat(50_000);
-    const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
+describe('seed split end-to-end (routing of a real ticket)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
 
-    const seed = buildSessionSeed(
-      hugeContext,
-      hugeMethod,
-      '/karst:rpi PROJ-9',
-      marker,
-      'Run `karst guide` to learn the CLI.',
-      'PROJ-9',
-    );
-
-    expect(seed).toBeDefined();
-    // (a) fits: total seed stays well under the design ceiling of ~20,200 chars
-    // (docs/superpowers/plans/2026-09-07-seed-budget.md, "Budget derivation")
-    // — invocation + pre-shaped context + truncated method + marker + guide
-    // Note: `hugeContext` here is a hand-built literal standing in for
-    // `renderTicketContext`'s output. In production `contextMarkdown` always
-    // arrives PRE-BOUNDED by `renderTicketContext` upstream — this test only
-    // proves `buildSessionSeed`'s own approach-method cap; the full-pipeline
-    // guarantee (ticket fields → bounded context) is proven by the
-    // `buildTicketContext`/`renderTicketContext` integration test below.
-    expect(seed!.length).toBeLessThan(20_200);
-    // (b) the marker instruction survives verbatim.
-    expect(seed).toContain(marker);
-    // (c) the truncation pointer is present (context wasn't bounded by
-    // buildSessionSeed itself in this fixture, but the approach method was) —
-    // the honest approach-body pointer, not `karst context <key>` (that
-    // command cannot recover the approach body).
-    expect(seed).toContain('the approach method is longer than fits here');
-  });
-
-  describe('real end-to-end pipeline with maxed-out context fields', () => {
-    let store: Store;
-    beforeEach(() => (store = openStore(':memory:')));
-    afterEach(() => store.close());
-
-    it('maxes out multiple growable fields and still stays bounded with a huge method', () => {
-      // Create a ticket with multiple fields near their budgets
-      const t = createTicket(store, { key: 'PROJ-9', title: 'Oversized integration test' });
-
-      // Fill prompt near 4000-char budget, brief near 3000-char budget
-      updateTicketFields(store, t.id, {
-        description: 'Prompt: ' + 'p'.repeat(3900),
-        brief: 'Brief: ' + 'b'.repeat(2900),
-        approach: 'rpi',
-        selectedRepos: ['frontend'],
-      });
-
-      // Set stage and record gate runs with summaries totaling ~1000 chars
-      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
-      setStage(store, t.id, 'review', { status: 'running' });
-      recordGateRun(store, {
-        ticketId: t.id,
-        stageKey: 'review',
-        attempt: 0,
-        runAt: '2026-08-01T10:00:00.000Z',
-        gates: [
-          { gateName: 'test-gate', exitCode: 1, summary: 's'.repeat(480) },
-          { gateName: 'lint-gate', exitCode: 1, summary: 's'.repeat(480) },
-        ],
-      });
-
-      // Findings list near 2000 chars
-      const findings = [];
-      for (let i = 0; i < 20; i++) {
-        findings.push({
-          severity: 'medium' as const,
-          repo: '/repo',
-          file: 'src/file.ts',
-          line: i * 10,
-          title: `Issue ${i}`,
-          detail: 'd'.repeat(50),
-          source: 'agent' as const,
-        });
-      }
-      recordFindings(store, {
-        ticketId: t.id,
-        attempt: 0,
-        runAt: '2026-08-01T10:00:00.000Z',
-        findings,
-      });
-
-      // Attachments list near 1500 chars
-      for (let i = 0; i < 5; i++) {
-        insertAttachment(store, {
-          ticketId: t.id,
-          kind: 'file' as const,
-          storedName: `a${i}.txt`,
-          originalName: `file${i}-with-long-descriptive-name-${'x'.repeat(80)}.txt`,
-          byteSize: 100,
-        });
-      }
-
-      // Build context and render it through the real pipeline
-      const ctx = buildTicketContext(store, undefined, t.id, '/storage');
-      const renderedContext = renderTicketContext(ctx);
-
-      // Huge approach method (50k chars, will be truncated to 8000-char budget)
-      const hugeMethod = '# rpi-implement\n' + 'm'.repeat(50_000);
-      const marker = 'Run `karst stage impl pass --ticket PROJ-9` when done.';
-      const seed = buildSessionSeed(
-        renderedContext,
-        hugeMethod,
-        '/karst:rpi PROJ-9',
-        marker,
-        'Run `karst guide` to learn the CLI.',
-        'PROJ-9',
-      );
-
-      expect(seed).toBeDefined();
-      // (a) fits: total seed stays under the design ceiling of ~20,200 chars
-      // despite maxing out multiple growable fields + huge method
-      expect(seed!.length).toBeLessThan(20_200);
-      // (b) the marker instruction survives verbatim
-      expect(seed).toContain(marker);
-      // (c) at least one truncation pointer is present
-      // (the approach method was truncated since it's 50k chars) — the
-      // honest approach-body pointer, not `karst context <key>`.
-      expect(seed).toContain('the approach method is longer than fits here');
+  it('routes the authored half to the kickoff and the operational facts to the instructions', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'Oversized' });
+    updateTicketFields(store, t.id, {
+      description: 'Prompt: ' + 'p'.repeat(100),
+      brief: 'Brief: ' + 'b'.repeat(100),
+      selectedRepos: ['frontend'],
     });
+    store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('review', t.id);
+    setStage(store, t.id, 'review', { status: 'running' });
+    recordGateRun(store, {
+      ticketId: t.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      gates: [{ gateName: 'lint-gate', exitCode: 1, summary: 'boom' }],
+    });
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T10:00:00.000Z',
+      findings: [
+        {
+          severity: 'high',
+          repo: '/repo',
+          file: 'src/x.ts',
+          line: 3,
+          title: 'Null deref',
+          detail: 'd',
+          source: 'agent',
+        },
+      ],
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+    const authored = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+    const facts = renderTicketContext(ctx, undefined, { sections: 'facts' });
+    const seed = buildSessionSeed({
+      authoredContext: authored,
+      factsContext: facts,
+      invocation: '/karst:rpi PROJ-9',
+      markerInstruction: 'RUN THE MARKER',
+      guideInstruction: '`karst guide`',
+      ticketKey: 'PROJ-9',
+    });
+
+    // Authored prompt/brief ride the kickoff; operational facts do not.
+    expect(seed.kickoff).toContain('## Prompt');
+    expect(seed.kickoff).toContain('## Context brief');
+    expect(seed.kickoff).not.toContain('## Current stage');
+    expect(seed.kickoff).not.toContain('## Repositories in scope');
+    // Facts ride the instruction layer.
+    expect(seed.instructions).toContain('## Current stage');
+    expect(seed.instructions).toContain('- lint-gate: exit 1');
+    expect(seed.instructions).toContain('## Repositories in scope');
+    expect(seed.instructions).toContain('- findings:');
+    expect(seed.instructions).toContain('Null deref');
+    expect(seed.instructions).not.toContain('## Prompt');
+  });
+
+  it('keeps attachments in the authored half only', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'x' });
+    updateTicketFields(store, t.id, { description: 'Do it' });
+    insertAttachment(store, {
+      ticketId: t.id,
+      kind: 'image',
+      storedName: 'a.png',
+      originalName: 'shot.png',
+      byteSize: 1,
+    });
+    const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+    const authored = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+    const facts = renderTicketContext(ctx, undefined, { sections: 'facts' });
+    const seed = buildSessionSeed({
+      authoredContext: authored,
+      factsContext: facts,
+      invocation: '/karst:rpi PROJ-9',
+      ticketKey: 'PROJ-9',
+    });
+    expect(seed.kickoff).toContain('## Attachments');
+    expect(seed.instructions ?? '').not.toContain('## Attachments');
   });
 });
-

@@ -996,6 +996,34 @@ describe('renderTicketContext', () => {
       const withAll = renderTicketContext(ctx, undefined, { sections: 'all' });
       expect(withoutOpt).toBe(withAll);
     });
+
+    it('keeps the five operational headings and no authored text in facts mode', () => {
+      const id = populate();
+      const ctx = buildTicketContext(store, manifest({ frontend: svc() }), id);
+      const md = renderTicketContext(ctx, undefined, { sections: 'facts' });
+      expect(md).toContain('## Current stage');
+      expect(md).toContain('## Repositories in scope');
+      expect(md).toContain('## Worktrees & branches');
+      expect(md).toContain('## Running servers');
+      expect(md).toContain('## Pull requests');
+      // Authored text belongs to the other half.
+      expect(md).not.toContain('# Ticket:');
+      expect(md).not.toContain('## Prompt');
+      expect(md).not.toContain('## Context brief');
+      expect(md).not.toContain('## Attachments');
+    });
+
+    it('keeps parent/sub-task summaries and the inbox pointer out of facts mode', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Parent' });
+      updateTicketFields(store, parent.id, { brief: 'Built the thing.' });
+      const t = createTicket(store, { key: 'PROJ-2', title: 'Child', parentTicketId: parent.id });
+      updateTicketFields(store, t.id, { description: 'Do the work', brief: 'Some brief' });
+      const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+      const md = renderTicketContext(ctx, undefined, { sections: 'facts' });
+      expect(md).not.toContain('## Continuing from');
+      expect(md).not.toContain('## Prompt');
+      expect(md).not.toContain('## Inbox');
+    });
   });
 
   describe('seed budget truncation', () => {

@@ -139,6 +139,12 @@ export function instrumentAdapter(
     // instrumentation: `extension.ts` wraps at both `resolveAdapter` sites, so
     // dropping it here would make every runtime adapter read as undeclared.
     ...(adapter.surfaces ? { surfaces: adapter.surfaces } : {}),
+    // The instruction-delivery declaration must survive for the same reason:
+    // the seed composer reads `instructions.soloFallback` and `session.ts`
+    // reads `instructions.interactive` from the RUNTIME (instrumented) adapter,
+    // so dropping it here would silently disable the instruction layer and its
+    // solo-agent fallback on every real launch.
+    ...(adapter.instructions ? { instructions: adapter.instructions } : {}),
 
     buildInteractiveCommand: (opts: InteractiveCommandOpts): InteractiveCommand =>
       adapter.buildInteractiveCommand(opts),

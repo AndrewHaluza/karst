@@ -44,14 +44,16 @@ is never a metric input.
 | tester reformat-nudge rate | `process_runs(prompt_telemetry).reformatNudges` on the `tester` run | reformat-nudge fire count, kept SEPARATE from `silenceNudges` — how often a target answered in prose and needed a reshape (UAT-19); this is the rate the park's rollback trigger below reads | `uat/tester.ts` |
 | wrong-checkout stop rate | `uat_findings` where `title LIKE 'UAT skipped: checkout is on%'` | orientation-block effectiveness | read-only (pre-existing) |
 | **guide-pull rate, per core** | `process_runs('guide-pull')` pulls ÷ `process_runs('session')` seeded with the pointer | **gates ticket 12 — see below** | `cli/guideTelemetry.ts` + launch env |
-| seed size | `process_runs(prompt_telemetry).seedChars` on the `session` run | budget baseline for ticket 08 | `agent/seed.ts` (`measureSeed`) → launch intent |
+| seed size | `process_runs(prompt_telemetry).seedChars` on the `session` run | budget baseline for ticket 08 | `agent/seed.ts` (`measureSeed`) → launch intent. Since the launch split, `seedChars` is the TOTAL resident context: the kickoff (first user message) PLUS the instruction body (written to disk and delivered through the core's own channel); `instructionsChars`/`instructionsHash` carry the instruction layer's own size and digest |
 | fix-loop depth | `recovery_rounds.round` (max per ticket) | did the fix brief actually work — how many fix-loop rounds before the gate passed | read-only (redefined in METRICS-22 from `stages.attempt` on `fix`, which was always 0 by design) |
 | tokens per stage-pass | `token_usage` joined to passed `process_runs`, grouped by `provider` | cost per unit of progress, per core | read-only (pre-existing) |
 
 The guide pointer's PRESENCE (`guidePointer` true) is the guide-pull DENOMINATOR:
 a session seeded with the pointer is one whose agent was invited to run `karst
-guide`. It is recorded per launch, and a `resume`/`switch` seed that carries no
-pointer correctly contributes no denominator — that asymmetry is the whole
+guide`. Since the launch split it lives in the instruction layer on a FRESH
+launch, and `measureSeed` scans BOTH the kickoff and the instruction body for it.
+A `resume`/`switch` seed regenerates the instruction body WITHOUT the pointer, so
+it correctly contributes no denominator — that asymmetry is the whole
 measurement, so it is measured, never assumed.
 
 ## Storage: one `prompt_telemetry` blob, one late-fact setter, no new writer
@@ -114,7 +116,8 @@ tokens of description while the max is ~294k tokens — larger than any model's
 context window. The tail is pasted machine output, not prose (ticket 11 removes it
 at ingest). Tickets with description over 8k chars: 12; over 100k: 2. This table
 is the RESIDENT-ticket-text floor; the `seedChars` metric below measures the
-COMPOSED seed (context + approach method + guide + marker) and is distinct.
+WHOLE delivered opening context (kickoff + instruction body: authored text,
+approach method, structured facts, and the rules) and is distinct.
 
 ### Derivable prompt-effectiveness metrics (existing evidence)
 

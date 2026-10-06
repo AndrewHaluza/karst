@@ -225,6 +225,14 @@ export interface InstructionDelivery {
   readonly headless: InstructionChannel;
   /** The graph ACP transport. Declared, not yet wired (no core ships an ACP client). */
   readonly acp: InstructionChannel;
+  /**
+   * True when a SOLO-agent interactive launch on this core cannot use the
+   * interactive channel and reports `fallback`, so the instruction body must be
+   * inlined into the kickoff by the composer (codex/opencode: the native
+   * channel cannot coexist with the materialized persona). Absent/false means a
+   * solo launch still delivers the layer through `interactive`.
+   */
+  readonly soloFallback?: boolean;
 }
 
 /**
