@@ -63,7 +63,7 @@ Karst's standing rules are one body, written to `<sessionDir>/karst-instructions
 - **agy — `pointer`:** 1.3.0 has no instructions flag; the kickoff (`-i`) opens with the pointer.
 - **headless/ACP** are DECLARED (`headless: 'n/a'`, `acp: 'n/a'`) with no behaviour change; the conformance suite makes any later wiring drift visible.
 - **solo-agent launches on codex/opencode** report `fallback` and leave the rules in the kickoff — the native channel cannot coexist with the materialized persona.
-- The pointer goes AFTER a leading slash command (`/karst:…`), NEVER before it (`withInstructionsPointer`). `promptTelemetry` measures both layers: the seed (`seedChars`, `guidePointer`) and the instructions (size + stable hash).
+- The pointer goes AFTER a leading slash command (`/karst:…`), NEVER before it (`withInstructionsPointer`). `measureSeed` (`agent/seed.ts`) measures both layers. A TICKET session records the seed (`seedChars`, `guidePointer`) and — when an instruction layer rides the launch — the instructions' size, stable digest and pointer flag onto the launch's `process_runs` row (`prompt_telemetry`). A PLANNING session has no run row, so its launcher measures the same layer through `planningOps.ts` and logs size + digest + channel at debug level only, never the body.
 
 The first consumer is a planning session (`extension/ops/planningOps.ts`): `planning/preamble.ts` splits into `planningInstructions` (role, no-edit rule, repo list, `draft propose` contract, guide pointer) written to the file, and an empty `planningKickoff`. Instructions are RE-WRITTEN from the running karst version on every launch, fresh or reopen.
 

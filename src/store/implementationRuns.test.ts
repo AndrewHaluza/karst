@@ -68,6 +68,38 @@ describe('implementation runs and segments', () => {
     });
   });
 
+  // AGENT-INSTRUCTIONS-LAYER-PER item 8: the instruction layer's size + digest
+  // must survive the exact launch-intent seam the extension host records
+  // through — not be dropped by a fixed prompt_telemetry whitelist.
+  it('persists instruction-layer telemetry through the launch-intent seam', () => {
+    const intent = recordSessionLaunchIntent(store, {
+      ticketId,
+      launchId: 'l-instr',
+      purpose: 'implementation',
+      provider: 'claude',
+      model: 'opus',
+      reason: 'initial',
+      sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+      promptTelemetry: {
+        seedChars: 120,
+        guidePointer: true,
+        core: 'claude',
+        instructionsChars: 2048,
+        instructionsHash: 'deadbeef00',
+        instructionsPointer: true,
+      },
+    });
+    expect(getProcessRunById(store, intent.processRunId!)!.promptTelemetry).toEqual({
+      seedChars: 120,
+      guidePointer: true,
+      core: 'claude',
+      instructionsChars: 2048,
+      instructionsHash: 'deadbeef00',
+      instructionsPointer: true,
+    });
+  });
+
   it('an ordinary first launch creates the first segment without any switch intent', () => {
     recordSessionLaunchIntent(store, {
       ticketId, launchId: 'l1', purpose: 'implementation', provider: 'claude', model: 'opus',

@@ -8,6 +8,7 @@ import {
   type ExportedCliEnv,
 } from '../agent/cliEnv.js';
 import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
+import type { SessionInstructions } from '../agent/instructions.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -143,6 +144,14 @@ export interface OpenSessionOptions {
   manifestPath?: string;
   /** Ticket key (e.g. `NDL-7`), exported as `KARST_TICKET`. */
   ticketKey?: string;
+  /**
+   * The karst instruction layer for this launch (`agent/instructions.ts`):
+   * written to the session dir and delivered through the adapter's declared
+   * channel, and measured onto the prepared-launch telemetry. Its path is
+   * exported as `KARST_INSTRUCTIONS`. Host-internal; absent → no instruction
+   * layer (ticket-session behaviour is unchanged).
+   */
+  instructions?: SessionInstructions;
   /** Injected debug sink (no global logger in this vscode-free module). */
   debug?: (message: string) => void;
 }
@@ -471,6 +480,9 @@ export class SessionManager {
       ...(model ? { model } : {}),
       ...(options.effort ? { effort: options.effort } : {}),
       ...(resume ? { resume } : {}),
+      ...(options.instructions && adapter.instructions?.interactive !== 'n/a'
+        ? { instructions: options.instructions }
+        : {}),
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 
@@ -486,7 +498,7 @@ export class SessionManager {
         resume: Boolean(resume),
         switchLaunch: options.allowResume === false && options.providerReady === true,
         ...(options.assignment ? { assignment: options.assignment } : {}),
-        seedTelemetry: measureSeed(initialPrompt),
+        seedTelemetry: measureSeed(initialPrompt, undefined, options.instructions),
       });
     }
 
@@ -496,6 +508,7 @@ export class SessionManager {
         ...(options.dbPath ? { dbPath: options.dbPath } : {}),
         ...(options.manifestPath ? { manifestPath: options.manifestPath } : {}),
         ...(options.ticketKey ? { ticketKey: options.ticketKey } : {}),
+        ...(options.instructions ? { instructionsPath: options.instructions.path } : {}),
       },
       options.debug,
     );

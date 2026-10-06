@@ -7,9 +7,12 @@ import {
   ticketIdFromTerminalEnv,
   type TerminalHost,
   type FakeTerminal,
+  type LaunchPreparedInfo,
   type RestoredSession,
 } from './session.js';
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
+import { KARST_INSTRUCTIONS_ENV } from '../agent/cliEnv.js';
+import { hashInstructions } from '../agent/instructions.js';
 
 /** Records the interactive command built, so the test can assert on it. */
 function fakeAdapter(binary = 'fake-agent'): {
@@ -1178,6 +1181,61 @@ describe('SessionManager', () => {
     mgr.openSession(adapter, 7, '/wt/a');
 
     expect(prepared).toEqual([{ ticketId: 7, launchId, resume: false, switchLaunch: false, seedTelemetry: { seedChars: 0, guidePointer: false } }]);
+  });
+
+  // AGENT-INSTRUCTIONS-LAYER-PER item 8: the launch seam measures the
+  // instruction layer (size + stable digest) alongside the seed, so the host
+  // can record both onto the launch's process run.
+  it('measures the instruction layer onto the prepared-launch telemetry', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: LaunchPreparedInfo[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+    const body = '# Karst rules\nDo not edit.';
+
+    mgr.openSession(
+      adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], { instructions: { path: '/wt/a/karst-instructions.md', body } },
+    );
+
+    const telemetry = prepared[0]!.seedTelemetry!;
+    expect(telemetry.instructionsChars).toBe(body.length);
+    expect(telemetry.instructionsHash).toBe(hashInstructions(body));
+  });
+
+  it('omits instruction telemetry when no instruction layer rides the launch', () => {
+    const { adapter } = fakeAdapter();
+    const { host } = fakeHost();
+    const prepared: LaunchPreparedInfo[] = [];
+    const mgr = new SessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined,
+      (info) => prepared.push(info),
+    );
+
+    mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(prepared[0]!.seedTelemetry).not.toHaveProperty('instructionsChars');
+    expect(prepared[0]!.seedTelemetry).not.toHaveProperty('instructionsHash');
+  });
+
+  it('exports KARST_INSTRUCTIONS only when an instruction layer rides the launch', () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    const mgr = new SessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 7, '/wt/a');
+    expect(terminals[0]!.env).not.toHaveProperty(KARST_INSTRUCTIONS_ENV);
+
+    mgr.openSession(
+      adapter, 8, '/wt/b', undefined, undefined, undefined, undefined, undefined,
+      undefined, [], {
+        instructions: { path: '/wt/b/karst-instructions.md', body: 'rules' },
+      },
+    );
+    expect(terminals[1]!.env[KARST_INSTRUCTIONS_ENV]).toBe('/wt/b/karst-instructions.md');
   });
 
   it('records the session identity snapshot and returns it on demand', () => {
