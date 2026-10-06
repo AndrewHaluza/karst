@@ -6,7 +6,7 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
 import { upsertProject } from '../../store/projects.js';
-import { acceptProposal, insertProposal, discardProposal } from '../../store/planningProposals.js';
+import { markProposalAccepted, insertProposal, discardProposal } from '../../store/planningProposals.js';
 import { createPlanningSession, linkPlanningTicket, setPlanningSessionStatus } from '../../store/planningSessions.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
@@ -570,7 +570,8 @@ describe('buildSidebarState — planning sessions', () => {
     const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
     const body = { description: 'd', summary: 's', repos: [] };
     const done = insertProposal(store, s.id, { title: 'Done one', ...body });
-    const ticketId = acceptProposal(store, done);
+    const ticketId = createTicket(store, { key: 'PLAN-DONE-1', title: 'Done one', projectId }).id;
+    markProposalAccepted(store, done, ticketId);
     const open = insertProposal(store, s.id, { title: 'Open one', ...body });
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(state.planning[0]!.proposals).toEqual([
@@ -584,7 +585,8 @@ describe('buildSidebarState — planning sessions', () => {
     const s = createPlanningSession(store, { projectId, title: 'Old', core: 'claude', model: null });
     const body = { description: 'd', summary: 's', repos: [] };
     const done = insertProposal(store, s.id, { title: 'Filed', ...body });
-    const ticketId = acceptProposal(store, done);
+    const ticketId = createTicket(store, { key: 'PLAN-DONE-2', title: 'Filed', projectId }).id;
+    markProposalAccepted(store, done, ticketId);
     setPlanningSessionStatus(store, s.id, 'archived');
     const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
     expect(archived[0]!.proposals).toEqual([{ id: done, title: 'Filed', status: 'accepted', ticketId }]);

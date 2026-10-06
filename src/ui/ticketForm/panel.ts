@@ -1,5 +1,5 @@
 import type { Store } from '../../store/db.js';
-import { getTicket, ticketLabel } from '../../store/tickets.js';
+import { getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
@@ -78,11 +78,30 @@ export interface TicketFormActionsCtx {
    */
   readonly pickerTouched?: boolean;
   /**
+   * The prefill's agent-authored summary, when this panel was opened to review
+   * a planning proposal. The analyzer reads it as the brief before the panel has
+   * bound a draft (a pure create page has no ticket yet); once bound, the same
+   * text is persisted as the draft's `brief` and read from the store instead.
+   */
+  readonly prefillSummary?: string;
+  /**
    * Persist-on-fetch hook: bind this (create) panel to a freshly-created draft
    * ticket. After this, `ticketId`/`mode` report edit mode and the next
    * `pushState` seeds from the draft. No-op semantics if already bound.
+   *
+   * Binding is NOT the user's save: a fetch/attach mints a draft and binds it
+   * long before the user presses Save, so this must never be treated as
+   * acceptance. Use `commitPrefill` for that.
    */
   bindTicket(id: number): void;
+  /**
+   * The user's explicit Save/Submit persisted this panel's ticket — the moment
+   * a prefilled page's owner (a planning proposal) learns about it. Fires the
+   * prefill's `onCreated` ONCE; a no-op for a panel with no prefill or one whose
+   * ticket was never bound. Distinct from `bindTicket` so an earlier fetch or
+   * attachment can bind a draft without silently accepting the proposal.
+   */
+  commitPrefill(): void;
   /**
    * Close this panel — the ticket-form surface is done with the ticket (submit
    * started it, and the dashboard takes over). Idempotent, and everything after
@@ -106,6 +125,12 @@ export type TicketFormActionsFactory = (ctx: TicketFormActionsCtx) => TicketForm
 export interface TicketFormPrefill {
   title: string;
   description: string;
+  /**
+   * The agent-authored proposal summary. Seeded into `brief` so the form's
+   * Context brief drawer shows it during the review — the summary becomes the
+   * ticket's brief, so the user must be able to see it before saving.
+   */
+  summary: string;
   repos: string[];
   /** Called once, when the user's save first creates the ticket. */
   onCreated(ticketId: number): void;
@@ -117,6 +142,7 @@ function applyPrefill(state: TicketFormState, p: TicketFormPrefill): TicketFormS
     ...state,
     title: p.title,
     description: p.description,
+    brief: p.summary || null,
     repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,
   };
 }
@@ -241,6 +267,10 @@ export class TicketFormManager {
     // the panel, threaded into every state push and read by the analyzer via
     // ctx. The analyzer's own persistence path never touches this flag.
     let pickerTouched = false;
+    // Flipped when the user's Save/Submit commits a prefilled page, so the
+    // prefill's `onCreated` fires exactly once — and only on that explicit
+    // action, never on a fetch/attach that merely bound a draft.
+    let prefillCommitted = false;
     // Flipped by dispose (user-closed OR ctx.close). Gates every post so an
     // in-flight action resolving after the tab is gone is silently dropped.
     let disposed = false;
@@ -307,12 +337,24 @@ export class TicketFormManager {
       get pickerTouched() {
         return pickerTouched;
       },
+      get prefillSummary() {
+        return prefill?.summary;
+      },
       bindTicket: (id: number) => {
-        // The user's own save of a prefilled page created this ticket — the
-        // ONLY moment the prefill's owner learns it (fires once).
-        if (prefill && boundId === undefined) prefill.onCreated(id);
         boundId = id;
         this.ticketByPanel.set(panel, id);
+        // A prefilled review page owns the proposal summary as the draft's
+        // brief. Persist it on bind so `pushState` — which re-seeds from the
+        // store once bound — and `analyze` (which reads the stored brief) keep
+        // seeing it; the ephemeral `applyPrefill` overlay only shows while
+        // unbound. Never clobber a brief the ticket already has (e.g. a
+        // provider fetch).
+        if (prefill && prefill.summary.trim()) {
+          const bound = getTicket(this.store, id);
+          if (!bound.brief || !bound.brief.trim()) {
+            updateTicketFields(this.store, id, { brief: prefill.summary });
+          }
+        }
         // Once bound, this panel IS the ticket's edit panel — re-key it so
         // `openEdit(id)` reveals it rather than opening a second one. If an
         // edit panel for that ticket already exists, leave the keys alone.
@@ -325,6 +367,14 @@ export class TicketFormManager {
         // created focus-taking and the user never moved away — creation fires
         // no view-state event, so the tracked flag is the only way to know.
         if (panelActive) this.onViewActivated?.(id, true);
+      },
+      commitPrefill: () => {
+        // The user's own Save/Submit persisted this prefilled page — the ONLY
+        // moment the prefill's owner learns the ticket (fires once). A fetch or
+        // attachment that merely bound a draft does NOT reach here.
+        if (!prefill || prefillCommitted || boundId === undefined) return;
+        prefillCommitted = true;
+        prefill.onCreated(boundId);
       },
       close: () => {
         if (disposed) return;

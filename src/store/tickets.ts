@@ -511,6 +511,13 @@ export function updateTicketCore(
 export interface TicketFieldsPatch {
   description?: string;
   brief?: string;
+  /**
+   * Ticket origin (diagnostics metadata). Set at create time by `createTicket`;
+   * also patchable so a ticket minted by the form and then accepted from a
+   * planning proposal can record `planning` (the proposal accept is the only
+   * place that knows the origin).
+   */
+  source?: string;
   sourceRef?: string;
   sourceFetchedAt?: string;
   approach?: string;
@@ -552,6 +559,7 @@ export function updateTicketFields(
   const columns: Record<string, unknown> = {};
   if (patch.description !== undefined) columns.description = patch.description;
   if (patch.brief !== undefined) columns.brief = patch.brief;
+  if (patch.source !== undefined) columns.source = patch.source;
   if (patch.sourceRef !== undefined) columns.source_ref = patch.sourceRef;
   if (patch.sourceFetchedAt !== undefined) columns.source_fetched_at = patch.sourceFetchedAt;
   if (patch.approach !== undefined) columns.approach = patch.approach;

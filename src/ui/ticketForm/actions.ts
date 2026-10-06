@@ -309,6 +309,10 @@ function persistDraft(
     type: input.ticketType ?? '',
     baseRefs: input.baseRefs ?? {},
   });
+  // The user's explicit Save/Submit is the ONLY commit of a prefilled page; a
+  // fetch/attach that bound an earlier draft must not have accepted it (see
+  // `commitPrefill`). Fires the prefill's `onCreated` exactly once.
+  ctx.commitPrefill();
   deps.onChange();
   return ticketId;
 }
@@ -863,11 +867,12 @@ export function buildTicketFormActions(
       if (approaches.length === 0) return;
 
       // The live prompt (from the webview) is the freshest intent; the persisted
-      // brief (edit mode / post-fetch) is the fetched context. In pure create
-      // mode there is no ticket yet, so the brief is empty and the live prompt is
-      // the sole signal. Require at least one, else there's nothing to analyze.
+      // brief (edit mode / post-fetch) is the fetched context. A pure create page
+      // has no ticket yet, so fall back to the prefill's summary — the review
+      // form's Context brief — which is what analyze must reason over before the
+      // panel binds. Require at least one signal, else there's nothing to analyze.
       const bound = ctx.ticketId !== undefined ? getTicket(deps.store, ctx.ticketId) : undefined;
-      const brief = bound?.brief ?? '';
+      const brief = bound?.brief ?? ctx.prefillSummary ?? '';
       const prompt = livePrompt.trim() || bound?.description || '';
       if (!brief.trim() && !prompt.trim()) return;
 
