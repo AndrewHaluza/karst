@@ -220,6 +220,23 @@ describe('sidebar planning drafts', () => {
     } finally { h.close(); }
   });
 
+  it('a pending draft row has no primary action, so its body is inert (the eye button is the only Review entry)', () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: stateOf('all-sections') });
+      const d = draft(h, 501);
+      expect(d.querySelector('.pt-row [data-primary]')).toBeNull();
+      expect(d.querySelector('[data-act="plan-proposal-view"]')!.hasAttribute('data-primary')).toBe(false);
+      // The three controls still render; only the row body is inert.
+      expect(d.querySelector('[data-act="plan-proposal-view"]')).not.toBeNull();
+      expect(d.querySelector('[data-act="plan-proposal-review"]')).not.toBeNull();
+      expect(d.querySelector('[data-act="plan-proposal-discard"]')).not.toBeNull();
+      const before = h.posted.length;
+      d.querySelector<HTMLElement>('.pt-label')!.click();
+      expect(h.posted.slice(before)).toEqual([]);
+    } finally { h.close(); }
+  });
+
   it('posts a proposalId (never a ticketId or sessionId) for each draft action and goes pending', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
@@ -300,17 +317,18 @@ describe('sidebar planning tree keyboard', () => {
     } finally { h.close(); }
   });
 
-  it('Enter opens the terminal on a session and Review on a draft', () => {
+  it('Enter opens the terminal on a session and does nothing on a pending draft', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       key(h, session(h, 89), 'Enter');
+      const afterSession = h.posted.length;
       key(h, draft(h, 501), 'Enter');
       const sent = h.posted.filter((m) => /^plan-/.test((m as { type: string }).type));
       expect(sent).toEqual([
         expect.objectContaining({ type: 'plan-open', sessionId: 89 }),
-        expect.objectContaining({ type: 'plan-proposal-view', proposalId: 501 }),
       ]);
+      expect(h.posted.slice(afterSession)).toEqual([]);
     } finally { h.close(); }
   });
 
