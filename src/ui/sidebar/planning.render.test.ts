@@ -35,7 +35,7 @@ describe('sidebar planning tree', () => {
       const row = session(h, 90).querySelector('.pt-row')!;
       expect(row.querySelector('.pt-twistie')).not.toBeNull();
       expect(row.querySelector('.pt-dot')).not.toBeNull();
-      expect(row.querySelector('.pt-label')!.textContent).toBe('Planning 90');
+      expect(row.querySelector('.pt-label')!.textContent).toBe('P90 Planning 90');
       expect(row.querySelector('.pt-count')!.textContent).toBe('2');
       expect(row.querySelector('.k-pill,.agent-identity,.plan-meta')).toBeNull();
       expect(row.textContent).not.toMatch(/terminal open|filed|needs review/);
@@ -47,9 +47,9 @@ describe('sidebar planning tree', () => {
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const s = session(h, 90);
-      expect(s.getAttribute('aria-label')).toBe('Planning 90, needs review, Claude Code · opus, 2 drafts');
+      expect(s.getAttribute('aria-label')).toBe('P90 Planning 90, needs review, Claude Code · opus, 2 drafts');
       expect(s.querySelector('.pt-row')!.getAttribute('title')).toBe(s.getAttribute('aria-label'));
-      expect(session(h, 89).getAttribute('aria-label')).toBe('Planning 89, terminal not live, Claude Code · opus, 0 drafts');
+      expect(session(h, 89).getAttribute('aria-label')).toBe('P89 Planning 89, terminal not live, Claude Code · opus, 0 drafts');
     } finally { h.close(); }
   });
 
@@ -152,7 +152,7 @@ describe('sidebar planning tree', () => {
       h.receive({ type: 'state', state: stateOf('hostile') });
       expect(h.query('[role="tree"] script,[role="tree"] img')).toBeNull();
       const s = session(h, 91);
-      expect(s.querySelector('.pt-label')!.textContent).toBe(HOSTILE);
+      expect(s.querySelector('.pt-label')!.textContent).toBe(`P91 ${HOSTILE}`);
       expect(s.getAttribute('aria-label')).toContain(HOSTILE);
       expect(s.getAttribute('aria-label')).toContain('<img src=x onerror=alert(1)>');
       expect(h.query('[data-act="plan-open"][data-plan="91"]')!.getAttribute('aria-label')).toBe(`Open terminal: ${HOSTILE}`);

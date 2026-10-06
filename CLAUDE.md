@@ -11,9 +11,10 @@
 - F5 in VS Code runs `dev:extension` (build + `rebuild:electron`) then launches the Extension Dev Host
 - `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
 - `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 85; `pretest:mutation` rebuilds better-sqlite3 for Node ABI.
+- **Mutation gate:** any change under `src/extension/**` must keep the Stryker score ≥ 85. Run `npm run test:mutation` (or `npx stryker run --mutate <changed files>` for speed) before opening a PR; new/changed code needs tests that kill its mutants. Never lower `thresholds.break`, add `mutate` excludes, or use `// Stryker disable` without a per-line reason.
 - `npm run inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
 - `npm run test:visual:docker` — the Playwright visual gate in the pinned image the baselines come from; `:update` re-records. **Run it after any webview change.** CI does not run it (only the UAT gate does), so stale baselines/ratchets surface on the next ticket. Never judge a visual failure from the host `test:visual` run. Ratchet raises (`focus.visual.ts`, `a11y.visual.ts`) need a justification comment.
-- CI: `.github/workflows/ci.yml` runs typecheck + build + `test:unit` + `test:e2e` on every PR to `main`/`develop` (blocking), plus an advisory mutation-score job on PRs only that never fails the check.
+- CI: `.github/workflows/ci.yml` runs typecheck + build + `test:unit` + `test:e2e` on every PR to `main`/`develop` (blocking), plus a blocking `Mutation score` job on PRs only — Stryker exits 1 (score < 85) and fails the check.
 
 ## Native ABI split (better-sqlite3)
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.

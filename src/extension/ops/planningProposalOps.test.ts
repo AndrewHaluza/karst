@@ -5,7 +5,10 @@ import { createPlanningSession, listPlanningTickets } from '../../store/planning
 import { getProposal, insertProposal } from '../../store/planningProposals.js';
 import { listTickets, createTicket, getTicket } from '../../store/tickets.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
+import type { PlanningProposalOpsDeps } from './planningProposalOps.js';
 import { createPlanningProposalOps, type ProposalChoice } from './planningProposalOps.js';
+
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
 
 describe('planningProposalOps', () => {
   let store: Store;
@@ -17,14 +20,17 @@ describe('planningProposalOps', () => {
   let forms: TicketFormPrefill[];
   let errors: string[];
   let changes: number;
+  let debugs: string[];
 
-  const ops = () => createPlanningProposalOps({
+  const ops = (over: Partial<PlanningProposalOpsDeps> = {}) => createPlanningProposalOps({
     store,
     projectId: () => projectId,
     choose: async (text) => { prompts.push(text); return choice; },
     openForm: (prefill) => { forms.push(prefill); },
     notify: { info: () => {}, warn: () => {}, error: async (m) => { errors.push(m); } },
     onChange: () => { changes += 1; },
+    debug: (m) => void debugs.push(m),
+    ...over,
   });
 
   beforeEach(() => {
@@ -32,11 +38,20 @@ describe('planningProposalOps', () => {
     projectId = upsertProject(store, { slug: 'p' }).id;
     sessionId = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null }).id;
     proposalId = insertProposal(store, sessionId, { title: 'Fix login', description: 'd'.repeat(40), summary: 'sum', repos: ['api'] });
-    choice = undefined; prompts = []; forms = []; errors = []; changes = 0;
+    choice = undefined; prompts = []; forms = []; errors = []; changes = 0; debugs = [];
   });
   afterEach(() => store.close());
 
   const ticketCount = () => listTickets(store, { projectId }).length;
+
+  /** Make any write to the proposal row throw, to exercise `guarded`'s catch. */
+  function breakProposalWrites(): void {
+    const real = store.db.prepare.bind(store.db);
+    (store.db as unknown as { prepare: (sql: string) => unknown }).prepare = (sql: string) => {
+      if (/UPDATE planning_proposals/.test(sql)) throw new Error('db down');
+      return real(sql);
+    };
+  }
 
   it('exposes only announce/review/discard — no read-only view and no direct create', () => {
     expect(Object.keys(ops()).sort()).toEqual(['announce', 'discard', 'review']);
@@ -90,5 +105,76 @@ describe('planningProposalOps', () => {
     await ops().review(proposalId);
     expect(forms).toHaveLength(0);
     expect(errors).toHaveLength(1);
+  });
+
+  it('announce falls back to "?" when the session row is gone', async () => {
+    const orphan = { ...getProposal(store, proposalId)!, sessionId: 9999 };
+    await ops().announce(orphan);
+    expect(prompts[0]).toContain('"?"');
+  });
+
+  it('announce logs the chosen action and defaults a dismissal', async () => {
+    await ops().announce(getProposal(store, proposalId)!);
+    expect(debugs).toContain(`[planning] proposal ${proposalId}: choice dismissed`);
+
+    debugs = [];
+    choice = 'review';
+    await ops().announce(getProposal(store, proposalId)!);
+    expect(debugs).toContain(`[planning] proposal ${proposalId}: choice review`);
+  });
+
+  it('an unknown proposal reports the exact message and logs it', async () => {
+    await ops().review(999);
+    expect(errors).toEqual(['Planning proposal #999 was not found.']);
+    expect(debugs).toContain('[planning] proposal 999: not found in this project');
+  });
+
+  it('an already resolved proposal reports its status and logs it', async () => {
+    await ops().discard(proposalId);
+    errors = [];
+    debugs = [];
+    await ops().review(proposalId);
+    expect(errors).toEqual([`Planning proposal #${proposalId} is already discarded.`]);
+    expect(debugs).toContain(`[planning] proposal ${proposalId}: already discarded`);
+  });
+
+  it('a proposal whose session row vanished is refused', async () => {
+    store.db.pragma('foreign_keys = OFF');
+    const id = Number(
+      store.db
+        .prepare('INSERT INTO planning_proposals (session_id, payload_json) VALUES (9999, ?)')
+        .run(JSON.stringify({ title: 't', description: 'd', summary: 's', repos: ['api'] }))
+        .lastInsertRowid,
+    );
+    store.db.pragma('foreign_keys = ON');
+    await expect(ops().review(id)).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1);
+    expect(ticketCount()).toBe(0);
+  });
+
+  it('a second discard is refused without a change', async () => {
+    await ops().discard(proposalId);
+    changes = 0;
+    errors = [];
+    await ops().discard(proposalId);
+    expect(changes).toBe(0);
+    expect(errors).toHaveLength(1);
+  });
+
+  it('reports a failed discard with the operation name and reason', async () => {
+    breakProposalWrites();
+    await ops().discard(proposalId);
+    expect(errors).toEqual([`Couldn't discard planning proposal #${proposalId}: db down`]);
+    expect(debugs).toContain(`[planning] proposal ${proposalId}: discard failed: db down`);
+  });
+
+  it('reports a failed link from the form callback', async () => {
+    choice = 'review';
+    await ops().announce(getProposal(store, proposalId)!);
+    breakProposalWrites();
+    const t = createTicket(store, { key: 'K', title: 'Fix login', projectId });
+    forms[0]!.onCreated(t.id);
+    await flush();
+    expect(errors).toEqual([`Couldn't link planning proposal #${proposalId}: db down`]);
   });
 });

@@ -339,7 +339,8 @@ describe('AgentsSection — the process matrix structure (v7 parity)', () => {
       'State',
     ]);
     // PROCESS_KEYS order: uatTester, uatFix, review, reviewFix, prDescription,
-    // ticketAnalysis — a group header precedes only the FIRST row of its group.
+    // ticketAnalysis, planning — a group header precedes only the FIRST row of
+    // its group.
     const markers = [...document.querySelectorAll('.matrix-group, .proc-row')].map((el) =>
       el.classList.contains('matrix-group')
         ? `group:${el.textContent?.trim()}`
@@ -355,6 +356,8 @@ describe('AgentsSection — the process matrix structure (v7 parity)', () => {
       'group:Ship',
       'row:prDescription',
       'row:ticketAnalysis',
+      'group:Planning',
+      'row:planning',
     ]);
   });
 });

@@ -61,7 +61,7 @@ describe('preset matrix — group shape', () => {
     const groups = buildPresetCapabilityGroups();
     expect(groups.map((g) => g.id)).toEqual(['quality', 'ticket', 'graph']);
     expect(groups.map((g) => g.label)).toEqual(['Quality', 'Ticket', 'Graph roles']);
-    expect(groups.map((g) => g.rows.length)).toEqual([4, 3, 3]);
+    expect(groups.map((g) => g.rows.length)).toEqual([4, 4, 3]);
     // Derived from the constants, not written out a second time.
     expect(groups.flatMap((g) => g.rows.map((r) => r.capability)))
       .toEqual(PRESET_CAPABILITY_GROUPS.flatMap((g) => g.capabilities));
@@ -106,6 +106,21 @@ describe('preset matrix — Inherit preview', () => {
       processes: { uatTester: { provider: 'claude', model: 'claude-opus-5', enabled: false } },
     };
     expect(buildPresetInheritanceViews(off, CATALOG).uatTester)
+      .toEqual({ provider: 'claude', model: 'claude-opus-5' });
+  });
+
+  it('takes planning from processes.planning, then the implementation resolution', () => {
+    // Nothing planning-specific: the Inherit preview is the implementation
+    // resolution (the manifest default here), never a guessed value.
+    const views = buildPresetInheritanceViews(BASE, CATALOG);
+    expect(views.planning).toEqual({ provider: 'codex', model: 'gpt-5.6-sol' });
+
+    // A `processes.planning` row is what an Inherit row previews.
+    const planned: Manifest = {
+      ...BASE,
+      processes: { ...processes(), planning: { provider: 'claude', model: 'claude-opus-5' } },
+    };
+    expect(buildPresetInheritanceViews(planned, CATALOG).planning)
       .toEqual({ provider: 'claude', model: 'claude-opus-5' });
   });
 
