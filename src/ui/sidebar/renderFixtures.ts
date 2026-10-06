@@ -100,6 +100,7 @@ export function fixturePlanningRow(sessionId: number, overrides: Partial<Plannin
     ticketCount: 0,
     live: false,
     agent: { provider: 'claude', model: 'opus' },
+    proposals: [],
     ...overrides,
   };
 }
@@ -121,7 +122,7 @@ function allSectionsState(): SidebarState {
     },
     done: [],
     rows: [],
-    planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed' }), fixturePlanningRow(89)],
+    planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [{ id: 501, title: 'Add rate limit' }] }), fixturePlanningRow(89)],
   };
 }
 
@@ -248,7 +249,7 @@ function hostileState(): SidebarState {
     },
     done: [],
     rows: [],
-    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
+    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [{ id: 502, title: HOSTILE_LABEL }], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
   };
 }
 

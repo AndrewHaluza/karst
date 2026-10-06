@@ -224,7 +224,7 @@ export class ClaudeAdapter implements AgentAdapter {
       args.push(...opts.extraArgs);
     }
     if (opts.readOnly) {
-      // Not `plan`: plan mode refuses the `draft create` shell command, and
+      // Not `plan`: plan mode refuses the `draft propose` shell command, and
       // leaving it makes the session writable. `default` overrides a user's
       // saved acceptEdits/bypass mode; the edit tools are denied outright and
       // every other shell command asks — filing is one approval.

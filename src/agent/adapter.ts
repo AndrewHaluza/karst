@@ -174,12 +174,6 @@ export interface InteractiveCommandOpts {
   readOnly?: boolean;
   /** Extra directories the session may read beyond `cwd` (a planning session's stack repos). */
   addDirs?: string[];
-  /**
-   * Directories that must stay writable in a `readOnly` session (karst's DB
-   * directory, so `draft create` can write). Only a core that sandboxes writes
-   * at the OS level (codex) needs it; the others gate writes by approval.
-   */
-  writableDirs?: string[];
 }
 
 export interface HookChannel {

@@ -102,6 +102,25 @@ export type TicketFormActionsFactory = (ctx: TicketFormActionsCtx) => TicketForm
  * State is pushed to the webview via postMessage; incoming messages route to
  * injected host actions.
  */
+/** Initial values for a create page (a planning proposal under review). */
+export interface TicketFormPrefill {
+  title: string;
+  description: string;
+  repos: string[];
+  /** Called once, when the user's save first creates the ticket. */
+  onCreated(ticketId: number): void;
+}
+
+function applyPrefill(state: TicketFormState, p: TicketFormPrefill): TicketFormState {
+  const want = new Set(p.repos);
+  return {
+    ...state,
+    title: p.title,
+    description: p.description,
+    repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,
+  };
+}
+
 export class TicketFormManager {
   private readonly panels = new Map<number, TicketFormPanel>();
   /** Live ticket binding for every edit or draft-bound create panel. */
@@ -182,8 +201,8 @@ export class TicketFormManager {
    * create panel carries a half-filled (or draft-bound) flow, so revealing it
    * would silently swallow the request for a blank one.
    */
-  openCreate(): void {
-    this.open(this.nextCreateKey--, 'create', undefined);
+  openCreate(prefill?: TicketFormPrefill): void {
+    this.open(this.nextCreateKey--, 'create', undefined, prefill);
   }
 
   /** Open (or reveal) the edit-mode page for an existing ticket. */
@@ -191,7 +210,7 @@ export class TicketFormManager {
     this.open(ticketId, 'edit', ticketId);
   }
 
-  private open(key: number, mode: 'create' | 'edit', ticketId?: number): void {
+  private open(key: number, mode: 'create' | 'edit', ticketId?: number, prefill?: TicketFormPrefill): void {
     const existing = this.panels.get(key);
     if (existing) {
       existing.reveal();
@@ -235,7 +254,7 @@ export class TicketFormManager {
 
     const pushState = (): void => {
       if (disposed) return;
-      const state: TicketFormState = buildTicketFormState(
+      const built: TicketFormState = buildTicketFormState(
         this.store,
         this.manifest(),
         this.listInstalledIds,
@@ -248,6 +267,9 @@ export class TicketFormManager {
         this.recentModels(),
         this.branchCandidates(),
       );
+      // A prefilled create page shows the prefill only until it has a ticket;
+      // from then on the stored ticket is the truth.
+      const state = prefill && boundId === undefined ? applyPrefill(built, prefill) : built;
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last
       // moment before the message leaves, so everything upstream stays
@@ -286,6 +308,9 @@ export class TicketFormManager {
         return pickerTouched;
       },
       bindTicket: (id: number) => {
+        // The user's own save of a prefilled page created this ticket — the
+        // ONLY moment the prefill's owner learns it (fires once).
+        if (prefill && boundId === undefined) prefill.onCreated(id);
         boundId = id;
         this.ticketByPanel.set(panel, id);
         // Once bound, this panel IS the ticket's edit panel — re-key it so

@@ -6,6 +6,7 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
 import { upsertProject } from '../../store/projects.js';
+import { insertProposal, discardProposal } from '../../store/planningProposals.js';
 import { createPlanningSession, linkPlanningTicket, setPlanningSessionStatus } from '../../store/planningSessions.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
@@ -549,9 +550,19 @@ describe('buildSidebarState — planning sessions', () => {
 
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId, planningLive: (id) => id === s.id });
     expect(state.planning).toEqual([
-      { sessionId: s.id, title: 'Auth rework', status: 'filed', ticketCount: 1, live: true, agent: { provider: 'codex', model: 'gpt-5' } },
+      { sessionId: s.id, title: 'Auth rework', status: 'filed', ticketCount: 1, live: true, agent: { provider: 'codex', model: 'gpt-5' }, proposals: [] },
     ]);
     expect(state.sections.current.map((r) => r.ticketId)).toEqual([t.id]);
+  });
+
+  it('lists a session\'s pending proposals (id + title) and drops resolved ones', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    const body = { description: 'd', summary: 's', repos: [] };
+    const a = insertProposal(store, s.id, { title: 'First', ...body });
+    discardProposal(store, insertProposal(store, s.id, { title: 'Gone', ...body }));
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(state.planning[0]!.proposals).toEqual([{ id: a, title: 'First' }]);
   });
 
   it('filters planning sessions by the search query and hides them outside the All view', () => {

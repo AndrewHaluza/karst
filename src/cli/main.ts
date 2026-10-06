@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { lstatSync, readFileSync, realpathSync } from 'node:fs';
+import { readSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
@@ -56,19 +56,6 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
   }
 }
 
-/** The manifest's repository names and project slug; both undefined when no manifest loads. */
-function loadDraftManifestFacts(
-  manifestPath: string | undefined,
-): { knownRepos: string[] | undefined; projectSlug: string | undefined } {
-  if (!manifestPath) return { knownRepos: undefined, projectSlug: undefined };
-  try {
-    const { manifest } = loadManifestWithDiagnostics(manifestPath);
-    return { knownRepos: Object.keys(manifest.repositories), projectSlug: manifest.id };
-  } catch {
-    return { knownRepos: undefined, projectSlug: undefined };
-  }
-}
-
 /**
  * The `karst` CLI entry, invoked by an agent session under plain `node`.
  *
@@ -114,11 +101,15 @@ function loadDraftManifestFacts(
  *             human-readable summary of the merge conflict a session must
  *             resolve — read-only, node:sqlite (see conflictBriefCommand.ts).
  *   subtask:  `… subtask create --title <t> [--description <d>] [--blocking] [--repos a,b] --db <db> --ticket <key>`
- *   draft:    `… draft create --session <id> --title <t> [--description-file <p>] [--summary-file <p>] [--repos a,b] --db <db>`
  *             the write verb that carves a NEW sub-task out of the session's
  *             own ticket (design NDL-70 §7). The parent is the `--ticket`
  *             ticket, resolved via `--manifest` like `stage`/`env`; writes
  *             through the shared `createSubtask` writer (see subtaskCommand.ts).
+ *
+ *   draft:    `printf '%s' '<json>' | … draft propose`
+ *             a PLANNING session proposes a draft ticket: one JSON object on
+ *             stdin, written into `$KARST_OUTBOX`. No store, no flags — the host
+ *             ingests it and a human confirms (see draftCommand.ts, cli.md).
  *
  *   message / inbox: `… message send --to parent|<child-key> --body <t> --db <db> --ticket <key>`
  *             `… inbox [--all] [--json] --db <db> --ticket <key>`
@@ -160,6 +151,33 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
   return { db, manifest, ticket, rest };
 }
 
+/** The process I/O `runCli` reads; injected so tests need no real stdin. */
+export interface CliIo {
+  /** Read stdin, at most `max + 1` bytes (the extra byte signals oversize). */
+  readStdin: (max: number) => string;
+}
+
+/** Synchronous bounded stdin read: stops after `max + 1` bytes. */
+function readStdinBounded(max: number): string {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const buf = Buffer.alloc(8192);
+  while (total <= max) {
+    let n: number;
+    try {
+      n = readSync(0, buf, 0, Math.min(buf.length, max + 1 - total), null);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EAGAIN') continue;
+      if ((e as NodeJS.ErrnoException).code === 'EOF') break;
+      throw e;
+    }
+    if (n === 0) break;
+    chunks.push(Buffer.from(buf.subarray(0, n)));
+    total += n;
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /**
  * Run the CLI for a parsed argv and return the text to print on stdout. Throws a
  * plain `Error` on any failure so the caller decides how to surface it (the
@@ -169,9 +187,18 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
 export function runCli(
   argv: string[],
   env: Readonly<Record<string, string | undefined>> = process.env,
+  io: CliIo = { readStdin: readStdinBounded },
 ): string {
   const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
+
+  // `karst draft propose` — a PLANNING session proposes a draft ticket. Its OWN
+  // parse path, taken BEFORE any flag is honoured: the RAW argv goes in, so a
+  // `--db`/`--manifest`/`--session` is refused rather than stripped, and it
+  // never opens a store. Input is stdin, output a file in KARST_OUTBOX.
+  if (subcommand === 'draft') {
+    return runDraftCommand(argv, { outboxEnv: env.KARST_OUTBOX, readStdin: io.readStdin });
+  }
 
   if (subcommand === 'context') {
     if (!db) throw new Error('missing --db <path>');
@@ -373,34 +400,6 @@ export function runCli(
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runSubtaskCommand(store, found.id, rest);
-    } finally {
-      store.close();
-    }
-  }
-
-  // `karst draft create` — a PLANNING session files a draft ticket. Its OWN
-  // parse path (draftCommand.ts): the project comes from the session row, the
-  // session is cross-checked against `KARST_PLANNING_SESSION` (read HERE and
-  // injected), and repository names / project are checked against the
-  // manifest — the planning terminal's KARST_MANIFEST wins over argv, and
-  // `--repos` fails closed when neither loads.
-  if (subcommand === 'draft') {
-    if (!db) throw new Error('missing --db <path>');
-    const store = openWritableStore(db);
-    try {
-      return runDraftCommand(store, rest, {
-        sessionEnv: env.KARST_PLANNING_SESSION,
-        ...loadDraftManifestFacts(env.KARST_MANIFEST || manifestPath),
-        fs: {
-          cwd: () => process.cwd(),
-          lstat: (path) => {
-            const st = lstatSync(path);
-            return { isFile: st.isFile(), isSymbolicLink: st.isSymbolicLink(), size: st.size };
-          },
-          realpath: (path) => realpathSync(path),
-          readFile: (path) => readFileSync(path, 'utf8'),
-        },
-      });
     } finally {
       store.close();
     }

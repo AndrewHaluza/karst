@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { repo } from '../manifest/fixtures.js';
-import { planningPreamble, planningAddDirs } from './preamble.js';
+import { planningPreamble, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
 
 const manifest = {
   baselineBranch: 'main',
@@ -20,14 +20,22 @@ describe('planningPreamble', () => {
     expect(text).not.toContain('/src/old');
   });
 
-  it('does not promise a hard read-only boundary, and names the filing verb with its session id', () => {
+  it('does not promise a hard read-only boundary, and names the propose verb over stdin', () => {
     expect(text).not.toMatch(/session is read-only/i);
     expect(text).toMatch(/blocked or need your approval/);
-    expect(text).toMatch(/--repos needs the manifest/);
-    expect(text).toContain('draft create --session 7');
-    expect(text).toContain('"$KARST_CLI"');
-    expect(text).toContain('--summary-file');
+    expect(text).toContain('| node "$KARST_CLI" draft propose');
     expect(text).toMatch(/ONE shell command/);
+    expect(text).toMatch(/user reviews/i);
+  });
+
+  it('never references the registry, the manifest path or the retired create verb', () => {
+    for (const banned of ['KARST_DB', 'KARST_MANIFEST', '--db', '--manifest', 'draft create', '--session', '-file']) {
+      expect(text).not.toContain(banned);
+    }
+  });
+
+  it('names the repositories a proposal may list', () => {
+    expect(text).toMatch(/"repos".*api, web/s);
   });
 
   it('carries the session title', () => {
@@ -42,5 +50,12 @@ describe('planningAddDirs', () => {
       repositories: { ...manifest.repositories, admin: repo({ repoPath: '/src/web' }) },
     };
     expect(planningAddDirs(shared)).toEqual(['/src/api', '/src/web']);
+  });
+});
+
+describe('planningOutboxDir', () => {
+  it('is the outbox under the scratch dir, exported through KARST_OUTBOX', () => {
+    expect(planningOutboxDir('/s/7')).toBe('/s/7/outbox');
+    expect(PLANNING_OUTBOX_ENV).toBe('KARST_OUTBOX');
   });
 });

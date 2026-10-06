@@ -18,6 +18,14 @@ describe('parseSidebarMessage', () => {
     expect(parseSidebarMessage({ type: 'plan-archive', ticketId: 3 })).toBeNull();
   });
 
+  it('accepts proposal review/discard only with a finite numeric proposalId', () => {
+    expect(parseSidebarMessage({ type: 'plan-proposal-review', proposalId: 4 })).toEqual({ type: 'plan-proposal-review', proposalId: 4 });
+    expect(parseSidebarMessage({ type: 'plan-proposal-discard', proposalId: 4 })).toEqual({ type: 'plan-proposal-discard', proposalId: 4 });
+    expect(parseSidebarMessage({ type: 'plan-proposal-review', proposalId: '4' })).toBeNull();
+    expect(parseSidebarMessage({ type: 'plan-proposal-discard', proposalId: NaN })).toBeNull();
+    expect(parseSidebarMessage({ type: 'plan-proposal-discard', sessionId: 4 })).toBeNull();
+  });
+
   it('accepts toggle-facet with a known facet, rejects unknown', () => {
     expect(parseSidebarMessage({ type: 'toggle-facet', facet: 'running' })).toEqual({
       type: 'toggle-facet',
@@ -97,6 +105,8 @@ describe('routeSidebarAction', () => {
       planOpen: vi.fn(),
       planArchive: vi.fn(),
       planUnarchive: vi.fn(),
+      planProposalReview: vi.fn(),
+      planProposalDiscard: vi.fn(),
     };
   }
 
@@ -135,6 +145,10 @@ describe('routeSidebarAction', () => {
     expect(a.planCreate).toHaveBeenCalledOnce();
     expect(a.planOpen).toHaveBeenCalledWith(4);
     expect(a.planArchive).toHaveBeenCalledWith(5);
+    routeSidebarAction({ type: 'plan-proposal-review', proposalId: 7 }, a);
+    routeSidebarAction({ type: 'plan-proposal-discard', proposalId: 8 }, a);
+    expect(a.planProposalReview).toHaveBeenCalledWith(7);
+    expect(a.planProposalDiscard).toHaveBeenCalledWith(8);
   });
 
   it('returns whatever the action returns, so the dispatch seam can await a real outcome', async () => {

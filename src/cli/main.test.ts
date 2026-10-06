@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
@@ -10,8 +10,6 @@ import { transition } from '../workflow/machine.js';
 import { createGraphRun } from '../store/graph/graphRuns.js';
 import { createPlannerRun } from '../store/graph/plannerRuns.js';
 import { sha256Hex } from './graph.js';
-import { upsertProject } from '../store/projects.js';
-import { createPlanningSession, listPlanningTickets } from '../store/planningSessions.js';
 
 describe('parseGlobalFlags', () => {
   it('extracts --db and --manifest, leaving the subcommand argv', () => {
@@ -501,93 +499,33 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
   });
 });
 
-describe('runCli — draft create (planning sessions)', () => {
+describe('runCli — draft propose (planning sessions)', () => {
   let dir: string;
-  let dbPath: string;
-  let sessionId: number;
+  const proposal = JSON.stringify({ title: 'Add auth', description: 'd', summary: 's', repos: ['api'] });
 
   beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'karst-cli-draft-'));
-    dbPath = join(dir, 'karst.db');
-    const seed = openStore(dbPath);
-    const projectId = upsertProject(seed, { slug: 'p' }).id;
-    sessionId = createPlanningSession(seed, { projectId, title: 'plan', core: 'claude', model: null }).id;
-    seed.close();
-    writeFileSync(join(dir, 'summary.md'), 'Decided: JWT');
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-propose-')));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('writes a proposal into KARST_OUTBOX from stdin without any store', () => {
+    const out = JSON.parse(runCli(['draft', 'propose'], { KARST_OUTBOX: dir }, { readStdin: () => proposal }));
+    expect(out.ok).toBe(true);
+    expect(readdirSync(dir)).toEqual([basename(out.file)]);
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('files a draft through node:sqlite and links it to the session', () => {
-    vi.spyOn(process, 'cwd').mockReturnValue(dir);
-    const out = runCli(
-      ['draft', 'create', '--session', String(sessionId), '--title', 'Add auth',
-        '--summary-file', join(dir, 'summary.md'), '--db', dbPath],
-      { KARST_PLANNING_SESSION: String(sessionId) },
-    );
-    const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ ok: true, title: 'Add auth', session: sessionId });
-
-    const check = openStore(dbPath);
-    expect(getTicket(check, parsed.id).brief).toBe('Decided: JWT');
-    expect(listPlanningTickets(check, sessionId)).toEqual([parsed.id]);
-    check.close();
-  });
-
-  it('refuses a draft file outside the session cwd', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'karst-cli-draft-cwd-'));
-    vi.spyOn(process, 'cwd').mockReturnValue(outside);
-    try {
+  it('refuses --db / --manifest / --session and never opens a store', () => {
+    const db = join(dir, 'karst.db');
+    for (const extra of [['--db', db], ['--manifest', join(dir, 'k.yml')], ['--session', '1']]) {
       expect(() =>
-        runCli(
-          ['draft', 'create', '--session', String(sessionId), '--title', 'x',
-            '--summary-file', join(dir, 'summary.md'), '--db', dbPath],
-          { KARST_PLANNING_SESSION: String(sessionId) },
-        ),
-      ).toThrow(/outside/);
-    } finally {
-      rmSync(outside, { recursive: true, force: true });
+        runCli(['draft', 'propose', ...extra], { KARST_OUTBOX: dir }, { readStdin: () => proposal }),
+      ).toThrow(/draft propose/);
     }
+    expect(existsSync(db)).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
   });
 
-  it('fails closed on --repos with no loadable manifest', () => {
-    expect(() =>
-      runCli(
-        ['draft', 'create', '--session', String(sessionId), '--title', 'x', '--repos', 'api', '--db', dbPath],
-        { KARST_PLANNING_SESSION: String(sessionId), KARST_MANIFEST: join(dir, 'missing.yml') },
-      ),
-    ).toThrow(/manifest/);
-  });
-
-  it('prefers KARST_MANIFEST over an argv --manifest, and refuses a session of another project', () => {
-    const manifest = (id: string): string =>
-      `id: ${id}\nhost: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nrepositories:\n  api:\n    repoPath: ../api\n`;
-    writeFileSync(join(dir, 'mine.yml'), manifest('p'));
-    writeFileSync(join(dir, 'other.yml'), manifest('other'));
-    vi.spyOn(process, 'cwd').mockReturnValue(dir);
-    const args = ['draft', 'create', '--session', String(sessionId), '--title', 'x', '--repos', 'api', '--db', dbPath];
-    expect(() =>
-      runCli([...args, '--manifest', join(dir, 'mine.yml')], {
-        KARST_PLANNING_SESSION: String(sessionId),
-        KARST_MANIFEST: join(dir, 'other.yml'),
-      }),
-    ).toThrow(/project/);
-    const ok = JSON.parse(
-      runCli([...args, '--manifest', join(dir, 'other.yml')], {
-        KARST_PLANNING_SESSION: String(sessionId),
-        KARST_MANIFEST: join(dir, 'mine.yml'),
-      }),
-    );
-    expect(ok.ok).toBe(true);
-  });
-
-  it('requires --db and the session env', () => {
-    expect(() => runCli(['draft', 'create', '--session', '1', '--title', 'x'], {})).toThrow(/db/);
-    expect(() =>
-      runCli(['draft', 'create', '--session', String(sessionId), '--title', 'x', '--db', dbPath], {}),
-    ).toThrow(/KARST_PLANNING_SESSION/);
+  it('requires KARST_OUTBOX', () => {
+    expect(() => runCli(['draft', 'propose'], {}, { readStdin: () => proposal })).toThrow(/KARST_OUTBOX/);
   });
 });

@@ -143,3 +143,45 @@ describe('sidebar planning group', () => {
   });
 });
 
+
+describe('sidebar planning proposals', () => {
+  it('lists a pending proposal under its session with named Review and Discard buttons', () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: stateOf('all-sections') });
+      const review = h.query('[data-act="plan-proposal-review"][data-proposal="501"]')!;
+      const discard = h.query('[data-act="plan-proposal-discard"][data-proposal="501"]')!;
+      expect(review.tagName).toBe('BUTTON');
+      expect(review.getAttribute('aria-label')).toBe('Review proposal: Add rate limit');
+      expect(discard.getAttribute('aria-label')).toBe('Discard proposal: Add rate limit');
+      expect(h.query('.planprops')!.textContent).toContain('Add rate limit');
+    } finally { h.close(); }
+  });
+
+  it('posts a proposalId (never a ticketId or sessionId) and goes pending', () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: stateOf('all-sections') });
+      h.click('[data-act="plan-proposal-review"][data-proposal="501"]');
+      h.click('[data-act="plan-proposal-discard"][data-proposal="501"]');
+      const sent = h.posted.filter((m) => /^plan-proposal-/.test((m as { type: string }).type));
+      expect(sent).toEqual([
+        expect.objectContaining({ type: 'plan-proposal-review', proposalId: 501 }),
+        expect.objectContaining({ type: 'plan-proposal-discard', proposalId: 501 }),
+      ]);
+      expect(sent.every((m) => !('ticketId' in (m as object)) && !('sessionId' in (m as object)))).toBe(true);
+      expect(h.query('[data-act="plan-proposal-review"][data-proposal="501"]')!.getAttribute('aria-busy')).toBe('true');
+    } finally { h.close(); }
+  });
+
+  it('escapes a hostile proposal title in text and labels (UI-R32)', () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: stateOf('hostile') });
+      expect(h.query('.planprops script')).toBeNull();
+      const review = h.query('[data-act="plan-proposal-review"][data-proposal="502"]')!;
+      expect(review.getAttribute('aria-label')).toBe(`Review proposal: ${HOSTILE}`);
+      expect(h.query('.planprops')!.textContent).toContain(HOSTILE);
+    } finally { h.close(); }
+  });
+});

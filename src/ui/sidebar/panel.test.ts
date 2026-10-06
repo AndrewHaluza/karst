@@ -41,6 +41,8 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     planOpen: vi.fn(),
     planArchive: vi.fn(),
     planUnarchive: vi.fn(),
+    planProposalReview: vi.fn(),
+    planProposalDiscard: vi.fn(),
     toggleFacet: vi.fn(),
     setFilter: vi.fn(),
     refresh: vi.fn(),

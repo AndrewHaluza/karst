@@ -25,11 +25,15 @@ describe('karst guide — content', () => {
     }
   });
 
-  it('documents the draft create flags for planning sessions', () => {
-    for (const flag of ['--session', '--description-file', '--summary-file']) {
-      expect(AGENT_GUIDE).toContain(flag);
+  it('documents draft propose for planning sessions: stdin JSON into the outbox, a human confirms', () => {
+    expect(AGENT_GUIDE).toContain('draft propose');
+    expect(AGENT_GUIDE).not.toContain('draft create');
+    expect(AGENT_GUIDE).not.toContain('--description-file');
+    for (const key of ['title', 'description', 'summary', 'repos', 'KARST_OUTBOX']) {
+      expect(AGENT_GUIDE).toContain(key);
     }
     expect(AGENT_GUIDE).toMatch(/planning session/);
+    expect(AGENT_GUIDE).toMatch(/confirm/);
   });
 
   it('documents the subtask create flags', () => {

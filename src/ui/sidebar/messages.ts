@@ -32,7 +32,10 @@ export type SidebarWebviewMessage =
   | { type: 'plan-create' }
   | { type: 'plan-open'; sessionId: number }
   | { type: 'plan-archive'; sessionId: number }
-  | { type: 'plan-unarchive'; sessionId: number };
+  | { type: 'plan-unarchive'; sessionId: number }
+  // A pending planning proposal carries its own `proposalId`.
+  | { type: 'plan-proposal-review'; proposalId: number }
+  | { type: 'plan-proposal-discard'; proposalId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -72,6 +75,8 @@ export interface SidebarActions {
   planCreate(): void | Promise<void>;
   planOpen(sessionId: number): void | Promise<void>;
   planArchive(sessionId: number): void | Promise<void>;
+  planProposalReview(proposalId: number): void | Promise<void>;
+  planProposalDiscard(proposalId: number): void | Promise<void>;
   planUnarchive(sessionId: number): void | Promise<void>;
 }
 
@@ -101,6 +106,11 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'plan-unarchive':
       return typeof m.sessionId === 'number' && Number.isFinite(m.sessionId)
         ? { type: m.type, sessionId: m.sessionId }
+        : null;
+    case 'plan-proposal-review':
+    case 'plan-proposal-discard':
+      return typeof m.proposalId === 'number' && Number.isFinite(m.proposalId)
+        ? { type: m.type, proposalId: m.proposalId }
         : null;
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
@@ -181,5 +191,9 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.planArchive(msg.sessionId);
     case 'plan-unarchive':
       return actions.planUnarchive(msg.sessionId);
+    case 'plan-proposal-review':
+      return actions.planProposalReview(msg.proposalId);
+    case 'plan-proposal-discard':
+      return actions.planProposalDiscard(msg.proposalId);
   }
 }

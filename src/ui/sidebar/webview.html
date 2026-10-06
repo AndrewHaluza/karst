@@ -318,6 +318,10 @@
     background:transparent;color:var(--k-text);font:inherit;text-align:left;cursor:pointer}
   .planopen:hover{background:var(--vscode-list-hoverBackground)}
   .planopen:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .planprops{list-style:none;margin:0 var(--k-space-2) var(--k-space-1) var(--k-space-5);padding:0;
+    display:flex;flex-direction:column;gap:var(--k-space-1)}
+  .planprop{display:flex;align-items:center;gap:var(--k-space-1);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .planprop-title{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .plan-title{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .plan-meta{display:flex;align-items:center;gap:var(--k-space-2);max-width:100%;
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
@@ -875,7 +879,21 @@
       + `<span class="plan-meta">${meta.join('<span aria-hidden="true">·</span>')}</span>`
       + `</button>`
       + side
-      + `</div>`;
+      + `</div>`
+      + planPropsHtml(p.proposals || []);
+  }
+
+  // Pending proposals a planning agent filed, listed under their session. Each
+  // waits for the user: Review opens the prefilled ticket form; Discard drops it.
+  function planPropsHtml(props) {
+    if (!props.length) return '';
+    return `<ul class="planprops" aria-label="Proposed tickets">` + props.map((pr) => {
+      const t = esc(pr.title);
+      return `<li class="planprop"><span class="planprop-title" title="${t}">${t}</span>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="plan-proposal-review" data-proposal="${Number(pr.id)}" aria-label="Review proposal: ${t}" title="Review proposal: ${t}">Review</button>`
+        + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="plan-proposal-discard" data-proposal="${Number(pr.id)}" aria-label="Discard proposal: ${t}" title="Discard proposal: ${t}">Discard</button>`
+        + `</li>`;
+    }).join('') + `</ul>`;
   }
 
   // The Done facet: the user explicitly asked for completed work, so no
@@ -982,6 +1000,7 @@
       if (idRaw !== undefined) payload.ticketId = Number(idRaw);
       // Planning rows carry a session id, never a ticket id.
       if (t.dataset.plan) payload.sessionId = Number(t.dataset.plan);
+      if (t.dataset.proposal) payload.proposalId = Number(t.dataset.proposal);
       if (t.dataset.repo) payload.repo = t.dataset.repo;
       noteSuccess(type, requestId, t.dataset.plan);
       post(payload);

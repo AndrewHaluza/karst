@@ -89,13 +89,14 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
     parent is past scope, the parent's session is open in a karst window, and
     the concurrency limit allows; pass \`--no-start\` to create it without
     queuing it, so a human starts it.
- - \`draft create --session <id> --title <title> [--description-file <path>]
-    [--summary-file <path>] [--repos a,b]\` — ONLY inside a planning session
-    (read-only investigation before any ticket exists). Files the agreed work as
-    a draft ticket in the session's project, at \`scope\`, never auto-started:
-    the user reviews and starts it. The summary file holds the decisions reached
-    and the options rejected; it becomes the ticket's brief, so the implementing
-    agent sees it. Call it once per ticket when the work splits.
+ - \`draft propose\` — ONLY inside a planning session (read-only
+    investigation before any ticket exists). Reads ONE JSON object on stdin,
+    \`{"title":…,"description":…,"summary":…,"repos":[…]}\`, and writes it as a
+    proposal into the session's \`$KARST_OUTBOX\`; it takes no flags. No ticket
+    exists yet: karst shows the user the full proposal and they confirm (or
+    discard) it. The summary holds the decisions reached and the options
+    rejected; it becomes the ticket's brief. Propose once per ticket when the
+    work splits.
  - \`message send --to parent|<child-key> --body <text>\` — leave an async
    note for your direct parent or one of your direct children (nobody else:
    siblings route through the parent). The sender is the ticket \`--ticket\`

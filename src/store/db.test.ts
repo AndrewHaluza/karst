@@ -61,6 +61,7 @@ const EXPECTED_TABLES = [
   'ticket_messages',
   'planning_sessions',
   'planning_session_tickets',
+  'planning_proposals',
 ] as const;
 
 function tableNames(store: Store): string[] {

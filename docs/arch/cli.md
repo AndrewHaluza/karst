@@ -11,7 +11,7 @@ The agent-facing surface. The invoking agent reads ticket content it did not aut
 - The CLI cannot migrate
 - Sub-task creation with `--no-start` to defer autostart
 - `message` / `inbox`: sender identity is attested, not unforgeable
-- `draft create`: a planning session files a draft ticket
+- `draft propose`: a planning session proposes; the host and a human decide
 
 ## The agent-facing CLI verbs are separate parse paths, and that separation is the security property
 
@@ -57,16 +57,21 @@ The refs resolve ONLY inside a karst-launched terminal session or a karst headle
 
 `inbox` prints unread rows oldest-first and marks read ONLY the unread rows it printed (a row landing after the listing stays unread); each body line is quoted with `> ` under a `from sub-task agent <key> (untrusted):` / `from parent agent <key> (untrusted):` header so a body cannot forge a header, while host-written rows (`from_ticket_id NULL`, `kind = 'event'`) are labelled `karst event:`. `karst context` carries only the unread COUNT (`inbox: { unread }`), never a body.
 
-## `draft create`: a planning session files a draft ticket
+## `draft propose`: a planning session proposes; the host and a human decide
 
-`karst draft create --session <id> --title <t> [--description-file <p>] [--summary-file <p>] [--repos a,b]` (`cli/draftCommand.ts`) is how a planning session (`store/planningSessions.ts`, see `docs/arch/store-and-schema.md`) files its outcome. It is its own parse path in `main.ts`: no `Verdict`, no machine import. It writes one `scope`-stage ticket with `autostart_pending = 0`, so the worst a fully-injected call does is add a draft nobody has started.
+`printf '%s' '<json>' | karst draft propose` (`cli/draftCommand.ts`) is how a planning session (`store/planningSessions.ts`, see `docs/arch/store-and-schema.md`) files its outcome. The agent only PROPOSES. The host ingests the proposal (`extension/ops/planningOutbox.ts`) and a human confirms it with the full content visible before any ticket exists. That confirmation is the trust boundary; everything below limits damage.
 
-- **The project comes from the session row, never from argv.** An archived or unknown session is refused.
-- **The session is attested, like `message`.** `main.ts` reads `KARST_PLANNING_SESSION` from its env and injects it; the verb refuses when it is unset or differs from `--session`. The planning terminal exports it at launch. This raises the bar against a confused agent; it is not a credential.
-- **The manifest comes from `KARST_MANIFEST` first, then `--manifest`.** The planning terminal exports `KARST_MANIFEST`, and the preamble prints `--manifest "$KARST_MANIFEST"`; when that var is unset it expands to an empty path, which counts as no manifest.
-- **`--repos` fails closed.** Repository names are checked against the manifest; with no loadable manifest, a `--repos` call is refused (a call without `--repos` still files).
-- **Session isolation is bounded.** `--session` and `KARST_PLANNING_SESSION` are both chosen by whatever runs the command, so neither is proof. When the manifest loads and declares an `id`, the session's project must equal that slug or the call is refused. With no manifest (or a legacy manifest without `id`), there is no project to check against: an agent that forges both values can file a draft into ANY non-archived session in the registry. The damage is bounded to a never-started `scope` draft linked to that session.
-- **Draft files are confined.** `--description-file`/`--summary-file` are `lstat`ed first: a symlink, FIFO or device is refused, and the size (64 KiB max) is checked BEFORE the read. The `realpath` must lie under the process cwd (the session's karst scratch dir). Each check is a test in `draftCommand.test.ts` against an injected `DraftFs`.
-- **The summary becomes the ticket's `brief`.** The seed already carries the brief to the implementing agent (`context/ticketContext.ts`, budgeted), so no new prompt path exists.
-- **Two transactions with compensation.** `createTicket` opens its own transaction and the `node:sqlite` shim does not nest, so `brief`/`selected_repos` and the session link (plus the session's `filed` status) commit in a SECOND transaction. If it throws, the ticket is deleted again (`deleteTicket`). Only a process crash between the two leaves an unlinked, never-started draft.
+- **Its own parse path, taken before any flag is honoured.** `runCli` routes `draft` on the RAW argv, so `--db`, `--manifest`, `--session` or any other argument is REFUSED, not stripped. It opens no store (`node:sqlite` or otherwise), loads no manifest, and reads no file path — there is nothing to path-traverse.
+- **Input is one JSON object on stdin**, read bounded (`MAX_PROPOSAL_BYTES` = 64 KiB, one extra byte signals oversize): exactly `{title, description, summary, repos}`. `planning/proposal.ts`'s pure `validateProposal` is the ONE shape check, shared with the host: title ≤ 200 chars on one line, description/summary ≤ 32 KiB, ≤ 32 repo names matching `[A-Za-z0-9._-]{1,64}`, exact keys; C0/C1 and bidi controls are stripped (`\n`/`\t` kept in the bodies). Repo names are NOT checked against a manifest here — the host checks them against ITS live manifest.
+- **Output is one file in `$KARST_OUTBOX`.** The env var must name an existing directory (its realpath). The file is `<uuid v4>.json`, written as `.tmp-<uuid>` (`wx`, mode 0600) then `rename`d, so the host never sees a partial file. stdout is `{"ok":true,"file":…}`.
+- **The planning launch carries no registry path.** The terminal exports `KARST_CLI`, `KARST_OUTBOX` (`<scratch>/outbox`, created at launch) and `KARST_PLANNING_SESSION` — never `KARST_DB` or `KARST_MANIFEST`. `KARST_PLANNING_SESSION` exists only so a window reload can re-adopt the terminal; it is not identity or auth.
+- **Scratch dirs are a tree apart from the registry**: `<globalStorage>/planning-scratch/<id>`, so codex's only writable root (its cwd) never covers `karst.db`. The names are guessable and nothing isolates one session's outbox from another core that can run any approved shell command; session isolation is NOT claimed.
+- **The summary becomes the ticket's `brief`** once the human accepts; the seed carries the brief to the implementing agent.
 - There is no ordering flag: karst has no ticket-dependency model, so ordering between drafts is stated in each description.
+
+### Host scan and human confirmation
+
+- **propose → outbox → host scan → human confirm.** `extension.ts` triggers `planningOutbox.scan()` from an `fs.watch` on `planning-scratch/` (recursive where supported; any event rescans, debounced), a 3 s poll that scans only while this window holds a live planning terminal, on activate, and after terminal adoption. Each valid file becomes a PENDING `planning_proposals` row; nothing else.
+- **No ticket without an explicit user action with the content visible** (`extension/ops/planningProposalOps.ts`). The notification names the session (`title (#id)`), the proposal title and the description/summary sizes, with Review (first), Create, Discard. **Create** shows a modal with the full title, repos, summary and description and writes only on its accept (`acceptProposal`, one transaction). **Review** opens the ticket form prefilled; the user's own save creates the ticket, and that save links it to the session and marks the proposal accepted (`markProposalAccepted`). Dismissing anything, or declining the preview, leaves it pending.
+- **Pending survives a reload.** On activate every pending proposal of the project is announced again, and the sidebar Planning group lists each under its session with Review and Discard (`plan-proposal-review` / `plan-proposal-discard`, numeric `proposalId` only).
+- **Threat model.** Only codex is truly sandboxed; claude, opencode and agy can run any shell command the user approves, so the outbox and the scan limit damage but do not isolate sessions. The human confirmation, with the whole agent-authored content in view, is the trust boundary.

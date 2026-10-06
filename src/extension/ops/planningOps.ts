@@ -1,9 +1,8 @@
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
-import { sessionCliEnv } from '../../agent/cliEnv.js';
+import { KARST_CLI_ENV } from '../../agent/cliEnv.js';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -15,7 +14,9 @@ import {
 } from '../../store/planningSessions.js';
 import {
   KARST_PLANNING_SESSION_ENV,
+  PLANNING_OUTBOX_ENV,
   planningAddDirs,
+  planningOutboxDir,
   planningPreamble,
   type PlanningManifest,
 } from '../../planning/preamble.js';
@@ -76,15 +77,22 @@ export interface PlanningOpsDeps {
   projectId: () => number | undefined;
   manifest: () => PlanningManifest | undefined;
   /**
-   * The session's own scratch directory (created if missing): the agent's cwd
-   * and where it writes the draft files. Never a repository — under codex's
-   * sandbox the cwd is writable.
+   * The session's own scratch directory (created if missing): the agent's cwd,
+   * holding the outbox `draft propose` writes. Never a repository and never
+   * under the registry's directory — under codex's sandbox the cwd is the
+   * ONLY writable root.
    */
   scratchDir: (sessionId: number) => string;
   defaultAgent: () => { provider: AgentProvider; model: string | null };
   host: TerminalHost;
-  cli: () => { cliEntry?: string; dbPath?: string; manifestPath?: string };
+  /** The karst CLI entry. Only it reaches a planning launch — never the DB or manifest path. */
+  cliEntry: () => string | undefined;
   notify: Notify;
+  /**
+   * Asked before EVERY launch on a core that cannot block edits (its
+   * `readOnlyInteractive` surface is unsupported — agy). Absent = declined.
+   */
+  confirmUnsafeCore?: (core: AgentProvider) => Promise<boolean>;
   /** Called when the session list or a terminal's liveness changes (the sidebar re-pushes). */
   onChange?: () => void;
   debug?: (message: string) => void;
@@ -96,8 +104,8 @@ export interface PlanningListItem extends PlanningSession {
 }
 
 export interface PlanningOps {
-  create(title: string): PlanningSession | undefined;
-  open(id: number): void;
+  create(title: string): Promise<PlanningSession | undefined>;
+  open(id: number): Promise<void>;
   archive(id: number): void;
   /** Back to `filed` when it produced tickets, else `active`. */
   unarchive(id: number): void;
@@ -120,8 +128,17 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     });
   }
 
+  /** A core that cannot block edits launches only after the user acknowledges it, every time. */
+  async function acknowledged(session: PlanningSession): Promise<boolean> {
+    const core = session.core as AgentProvider;
+    if (resolveAdapter(core).surfaces?.readOnlyInteractive.supported === true) return true;
+    const ok = (await deps.confirmUnsafeCore?.(core)) ?? false;
+    debug(`launch ${session.id}: ${core} cannot block edits — ${ok ? 'acknowledged' : 'declined'} by the user`);
+    return ok;
+  }
+
   /** Start the agent terminal. False (after a warning) when it could not. */
-  function launch(session: PlanningSession): boolean {
+  async function launch(session: PlanningSession): Promise<boolean> {
     const manifest = deps.manifest();
     if (!manifest) {
       debug(`launch ${session.id} blocked: no manifest loaded`);
@@ -129,16 +146,16 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       return false;
     }
     try {
-      const cli = deps.cli();
+      if (!(await acknowledged(session))) return false;
+      const cliEntry = deps.cliEntry();
       const cwd = deps.scratchDir(session.id);
-      mkdirSync(cwd, { recursive: true });
+      const outbox = planningOutboxDir(cwd);
+      mkdirSync(outbox, { recursive: true });
       const adapter = resolveAdapter(session.core as AgentProvider);
       const cmd = adapter.buildInteractiveCommand({
         cwd,
         readOnly: true,
         addDirs: planningAddDirs(manifest),
-        // `draft create` writes the registry; a sandboxing core must allow it.
-        ...(cli.dbPath ? { writableDirs: [dirname(cli.dbPath)] } : {}),
         initialPrompt: planningPreamble({ sessionId: session.id, title: session.title, manifest }),
         ...(session.model ? { model: session.model } : {}),
       });
@@ -148,9 +165,11 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         cwd,
         shellPath: cmd.command,
         shellArgs: cmd.args,
+        // No KARST_DB / KARST_MANIFEST: the agent only proposes into its outbox.
         env: {
           ...cmd.env,
-          ...sessionCliEnv(cli, deps.debug),
+          ...(cliEntry ? { [KARST_CLI_ENV]: cliEntry } : {}),
+          [PLANNING_OUTBOX_ENV]: outbox,
           [KARST_PLANNING_SESSION_ENV]: String(session.id),
         },
       });
@@ -166,7 +185,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
   }
 
   return {
-    create(title) {
+    async create(title) {
       const projectId = deps.projectId();
       if (projectId === undefined) {
         debug('create blocked: no active project');
@@ -181,14 +200,14 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         model: agent.model,
       });
       debug(`created ${session.id} (${session.core})`);
-      if (launch(session)) return session;
+      if (await launch(session)) return session;
       // Never leave an active session nobody can see started.
       deletePlanningSession(deps.store, session.id);
       debug(`create ${session.id} rolled back: launch failed`);
       return undefined;
     },
 
-    open(id) {
+    async open(id) {
       const existing = live.get(id);
       if (existing) {
         debug(`open ${id}: focusing live terminal`);
@@ -201,7 +220,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         deps.notify.warn('Karst: that planning session no longer exists.');
         return;
       }
-      launch(session);
+      await launch(session);
     },
 
     archive(id) {

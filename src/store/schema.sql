@@ -1223,3 +1223,13 @@ CREATE TABLE IF NOT EXISTS planning_session_tickets (
   linked_at  TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (session_id, ticket_id)
 );
+CREATE TABLE IF NOT EXISTS planning_proposals (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id   INTEGER NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+  payload_json TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),
+  ticket_id    INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_planning_proposals_session ON planning_proposals(session_id, status);

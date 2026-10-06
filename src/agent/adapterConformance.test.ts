@@ -149,8 +149,9 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
    * The read-only planning launch, per core. Each mechanism was verified
    * against the installed CLI (claude/codex by live probe, opencode by its
    * effective `agent list` rules, agy by `agy --help`): edits must be blocked
-   * or approval-gated, the stack repos readable, and the karst CLI's own write
-   * (`draft create`) must still be possible.
+   * or approval-gated, the stack repos readable, and the karst CLI's
+   * `draft propose` (which writes only the cwd's outbox) must still be possible.
+   * No planning launch may make the registry writable or name it.
    *
    * Native "plan" modes are deliberately NOT used: claude's refuses the filing
    * command outright (leaving the mode makes the session writable), and
@@ -171,7 +172,8 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     },
     codex: ({ args }) => {
       expect(after(args, '--sandbox')).toBe('workspace-write');
-      expect(args).toContain('sandbox_workspace_write.writable_roots=["/karst/db"]');
+      // Only the cwd (the scratch dir holding the outbox) is writable.
+      expect(args).toContain('sandbox_workspace_write.writable_roots=[]');
       // An --add-dir is WRITABLE under workspace-write; the sandbox reads the whole disk anyway.
       expect(args).not.toContain('/repos/api');
     },
@@ -200,10 +202,10 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       cwd: '/karst/scratch',
       readOnly: true,
       addDirs: ['/repos/api'],
-      writableDirs: ['/karst/db'],
       initialPrompt: 'plan it',
     });
     READ_ONLY[provider](launch);
+    expect(JSON.stringify(launch), `${provider} planning launch names no registry`).not.toMatch(/karst\.db|KARST_DB/);
     expect(launch.args.at(-1), `${provider} prompt stays last`).toBe('plan it');
   });
 
