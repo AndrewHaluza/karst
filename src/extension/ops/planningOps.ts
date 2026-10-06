@@ -24,6 +24,7 @@ import {
   type PlanningManifest,
 } from '../../planning/preamble.js';
 import type { SessionTerminal, TerminalHost } from '../../ui/session.js';
+import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -36,8 +37,18 @@ import type { Notify } from './notify.js';
  * window's terminals to re-register the survivors (see `planningSessionIdOf`).
  */
 
-/** Tab-name prefix; the session id in it is the last-resort reload identity. */
-export const PLANNING_TERMINAL_PREFIX = 'Karst plan #';
+/**
+ * Tab-name prefix. The id follows it directly and the title after a space
+ * (`P3 planner improvments`) — the same `P<id>` token the sidebar session row
+ * shows. The mark says "Karst", so the name no longer repeats it.
+ */
+export const PLANNING_TERMINAL_PREFIX = 'P';
+
+/**
+ * The pre-rename tab-name prefix (`Karst plan #<id>: <title>`). Still parsed by
+ * `planningSessionIdOf` so a terminal opened before the upgrade re-adopts.
+ */
+const LEGACY_PLANNING_TERMINAL_PREFIX = 'Karst plan #';
 
 /** A terminal already open in the window, as `adopt` sees it. */
 export interface PlanningTerminalCandidate {
@@ -55,8 +66,9 @@ const POSITIVE_INT = /^[1-9]\d*$/;
 
 /**
  * Which planning session a terminal was launched for: the env first (exact),
- * then the scratch cwd (what survives a reload), then the `#<id>` in the tab
- * name (an agent may retitle the tab, so it is only the fallback).
+ * then the scratch cwd (what survives a reload), then the `P<id>` in the tab
+ * name (an agent may retitle the tab, so it is only the fallback). The legacy
+ * `Karst plan #<id>:` form is still parsed so pre-upgrade terminals revive.
  */
 export function planningSessionIdOf(
   c: PlanningTerminalCandidate,
@@ -69,7 +81,11 @@ export function planningSessionIdOf(
     if (POSITIVE_INT.test(tail) && scratchDir(Number(tail)) === c.cwd) return Number(tail);
   }
   if (c.name.startsWith(PLANNING_TERMINAL_PREFIX)) {
-    const id = /^(\d+):/.exec(c.name.slice(PLANNING_TERMINAL_PREFIX.length))?.[1];
+    const id = /^(\d+)(?:\s|$)/.exec(c.name.slice(PLANNING_TERMINAL_PREFIX.length))?.[1];
+    if (id && POSITIVE_INT.test(id)) return Number(id);
+  }
+  if (c.name.startsWith(LEGACY_PLANNING_TERMINAL_PREFIX)) {
+    const id = /^(\d+):/.exec(c.name.slice(LEGACY_PLANNING_TERMINAL_PREFIX.length))?.[1];
     if (id && POSITIVE_INT.test(id)) return Number(id);
   }
   return undefined;
@@ -184,10 +200,14 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
           `via ${cmd.instructionsChannel ?? 'n/a'})`,
       );
       const terminal = deps.host.createTerminal({
-        name: `${PLANNING_TERMINAL_PREFIX}${session.id}: ${session.title}`,
+        name: `${PLANNING_TERMINAL_PREFIX}${session.id} ${session.title}`,
         cwd,
         shellPath: cmd.command,
         shellArgs: cmd.args,
+        // The Karst mark, the same ThemeIcon agent terminals wear. The host maps
+        // any `iconPath` to `ThemeIcon(KARST_TERMINAL_ICON_ID)`, so the value is
+        // the opt-in only.
+        iconPath: KARST_TERMINAL_ICON_ID,
         // No KARST_DB / KARST_MANIFEST: the agent only proposes into its outbox.
         env: {
           ...cmd.env,

@@ -8,8 +8,9 @@ import { createPlanningSession, getPlanningSession, linkPlanningTicket, setPlann
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { repo } from '../../manifest/fixtures.js';
 import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui/session.js';
+import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import { hashInstructions } from '../../agent/instructions.js';
-import { createPlanningOps, type PlanningOpsDeps } from './planningOps.js';
+import { createPlanningOps, planningSessionIdOf, type PlanningOpsDeps } from './planningOps.js';
 
 interface Recorded {
   opts: CreateTerminalOpts;
@@ -79,7 +80,8 @@ describe('planning ops', () => {
     const { opts } = created[0]!;
     expect(opts.cwd).toBe(join(scratch, String(session.id)));
     expect(existsSync(opts.cwd)).toBe(true);
-    expect(opts.name).toBe(`Karst plan #${session.id}: Auth rework`);
+    expect(opts.name).toBe(`P${session.id} Auth rework`);
+    expect(opts.iconPath).toBe(KARST_TERMINAL_ICON_ID);
     expect(opts.shellArgs).toEqual(expect.arrayContaining(['--disallowedTools', 'Edit', '--add-dir', '/src/api', '/src/web']));
     // The standing rules ride the instruction FILE through claude's own
     // system-prompt channel — never as inline kickoff prose.
@@ -335,6 +337,28 @@ describe('planning ops', () => {
     expect(messages.at(-1)).toMatch(/no longer exists/);
   });
 
+  describe('planningSessionIdOf (tab-name fallback)', () => {
+    const scratchDir = (id: number): string => join(scratch, String(id));
+    const terminal: SessionTerminal = {
+      show: () => undefined,
+      sendText: () => undefined,
+      dispose: () => undefined,
+      onDidClose: () => undefined,
+    };
+
+    it('parses the new P<id> token', () => {
+      expect(planningSessionIdOf({ name: 'P3 planner improvements', terminal }, scratchDir)).toBe(3);
+    });
+
+    it('still parses the legacy Karst plan #<id>: form so pre-upgrade terminals revive', () => {
+      expect(planningSessionIdOf({ name: 'Karst plan #7: old', terminal }, scratchDir)).toBe(7);
+    });
+
+    it('ignores a name that is not a planning token', () => {
+      expect(planningSessionIdOf({ name: 'zsh', terminal }, scratchDir)).toBeUndefined();
+    });
+  });
+
   describe('adopt (window reload)', () => {
     function revived(): { terminal: SessionTerminal; rec: Recorded } {
       const rec: Recorded = { opts: {} as CreateTerminalOpts, shown: 0, disposed: false };
@@ -368,7 +392,7 @@ describe('planning ops', () => {
       const ops = createPlanningOps(deps);
       ops.adopt([
         { name: 'renamed by the agent', cwd: join(scratch, String(a.id)), terminal: revived().terminal },
-        { name: `Karst plan #${b.id}: b`, terminal: revived().terminal },
+        { name: `P${b.id} b`, terminal: revived().terminal },
       ]);
       expect(ops.isLive(a.id)).toBe(true);
       expect(ops.isLive(b.id)).toBe(true);
