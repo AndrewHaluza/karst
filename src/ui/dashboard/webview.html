@@ -63,7 +63,12 @@
      control. Local color only: the priority label is provider-authored copy,
      not a workflow state, so it gets no semantic feedback token. */
   .prio{font-family:var(--k-font-mono);font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.4px;padding:var(--k-space-1) var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);color:var(--k-text-dim);flex:none}
-  .ticketParent{display:block;margin-top:var(--k-space-3);color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
+  .ticketParent{color:var(--k-text-dim);font-size:var(--k-text-xs);font-family:var(--k-font-mono)}
+  .headerMeta{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-3);margin:calc(var(--k-space-6) * -1 + var(--k-space-3)) 0 var(--k-space-6)}
+  .headerMeta[hidden]{display:none}
+  .capabilityLabels{display:contents}
+  .capChip{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;max-width:calc(var(--k-space-8) * 9);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);background:var(--k-surface);color:var(--k-text-dim);font-size:var(--k-text-xs);white-space:nowrap}
+  .capChip .capModel{min-width:0;overflow:hidden;text-overflow:ellipsis;font-family:var(--k-font-mono)}
   .headerActions{display:flex;align-items:center;gap:var(--k-space-2);flex:none;margin-left:auto}
   .agentWrap,.menuWrap{position:relative}
   .agentButton{max-width:calc(var(--k-space-8) * 20);min-height:var(--k-control-h-lg);padding:0 var(--k-space-4);border:var(--k-border-w) solid transparent;border-radius:var(--k-radius-sm);background:transparent;color:var(--k-text);display:inline-flex;align-items:center;gap:var(--k-space-3);cursor:pointer;min-width:0}
@@ -1915,12 +1920,6 @@
     </button>
   </div>
   <h1 id="title" class="ticketTitle"></h1>
-  <div id="capabilityLabels" class="capabilityLabels" hidden>
-    <span data-capability="implementation" class="capLabel"></span>
-    <span data-capability="uat-tester" class="capLabel"></span>
-    <span data-capability="review" class="capLabel"></span>
-  </div>
-  <span id="parentRef" class="ticketParent" hidden></span>
   <!-- Detach (design NDL-70 §5): offered only for a non-blocking, not-done
        sub-task with no open sub-tasks of its own and no live agent
        (host-derived `canDetachSubtask`), so the control never appears where the
@@ -1994,6 +1993,13 @@
       </div>
     </div>
   </div>
+</div>
+<!-- Second header row (DASHBOARD-HEADER-SHOW-ONLY-ROLE): the parent relation
+     leads, then one chip per model that differs from implementation. Hidden
+     when both are empty. -->
+<div id="headerMeta" class="headerMeta" hidden>
+  <span id="parentRef" class="ticketParent" hidden></span>
+  <span id="capabilityLabels" class="capabilityLabels"></span>
 </div>
 
 <div class="stepper">
@@ -4112,32 +4118,35 @@
     renderCapabilityLabels(state);
   }
 
+  // Variant 2: list only roles whose provider/model differs from
+  // implementation (already on #agentButton), grouped by identity. Friendly
+  // role names + catalog label; the full provider/model id rides the tooltip.
+  const CAP_ROLES = [['uatTester', 'UAT'], ['review', 'Review']];
+  function capModelLabel(state, provider, model) {
+    const cat = (state.agentSwitch && state.agentSwitch.modelsByCore) || {};
+    const hit = (cat[provider] || []).find((m) => m && m.id === model);
+    return (hit && hit.label) || model;
+  }
   function renderCapabilityLabels(state) {
     const container = el('capabilityLabels');
-    if (!container || !state.capabilityIdentity) return;
-
-    const capabilityMap = {
-      'implementation': 'implementation',
-      'uat-tester': 'uatTester',
-      'review': 'review',
-    };
-    let anyRendered = false;
-
-    for (const [displayName, capabilityKey] of Object.entries(capabilityMap)) {
-      const label = container.querySelector(`[data-capability="${displayName}"]`);
-      if (!label) continue;
-
-      const identity = state.capabilityIdentity[capabilityKey];
-      if (identity && identity.provider && identity.model) {
-        label.textContent = `${displayName}: ${identity.provider}/${identity.model}`;
-        label.hidden = false;
-        anyRendered = true;
-      } else {
-        label.hidden = true;
-      }
+    if (!container) return;
+    const ids = state.capabilityIdentity || {};
+    const impl = ids.implementation;
+    const groups = new Map();
+    for (const [key, roleLabel] of CAP_ROLES) {
+      const id = ids[key];
+      if (!id || !id.provider || !id.model) continue;
+      if (impl && impl.provider === id.provider && impl.model === id.model) continue;
+      const full = id.provider + '/' + id.model;
+      if (!groups.has(full)) groups.set(full, { id, roles: [] });
+      groups.get(full).roles.push(roleLabel);
     }
-
-    container.hidden = !anyRendered;
+    container.innerHTML = [...groups].map(([full, g]) =>
+      `<span class="capChip" title="${esc(g.roles.join(' · ') + ': ' + full)}">`
+      + `<span>${esc(g.roles.join(' · '))}</span>${agentIconHtml(g.id.provider)}`
+      + `<span class="capModel">${esc(capModelLabel(state, g.id.provider, g.id.model))}</span></span>`).join('');
+    const row = el('headerMeta');
+    if (row) row.hidden = groups.size === 0 && el('parentRef').hidden;
   }
 
   // The agent-switch popover stages a draft core/model/effort selection and does

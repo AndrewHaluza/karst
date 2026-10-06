@@ -62,7 +62,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   usage: 11,
   resources: 17,
   serverLogs: 11,
-  sidebar: 57, // raised from 48: Awaiting-review grouping (#482) + sub-task rows (#484) grew the fixture
+  sidebar: 64, // raised from 57: planning-session rows (#491) grew the fixture; raised from 48 earlier: Awaiting-review grouping (#482) + sub-task rows (#484)
   diffs: 35,
   settings: 193,
   ticketForm: 25,
