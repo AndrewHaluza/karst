@@ -70,7 +70,7 @@ jobs:
         run: npm run test:e2e
 
   mutation:
-    name: Mutation score (advisory)
+    name: Mutation score
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -93,16 +93,16 @@ jobs:
       - name: Rebuild better-sqlite3 for the Node ABI
         run: npm run rebuild:node
 
-      # Advisory only: the score is global across src/extension/**, so a PR
-      # can drop it with debt it did not create. Never fail the check.
+      # Blocking gate (CI-MAKE-MUTATION-SCORE-JOB): the score is global
+      # across src/extension/**, but it is a contract. No `continue-on-error`
+      # here — a run below thresholds.break (85) exits 1 and fails the job.
       - name: Run Stryker
         id: stryker
-        continue-on-error: true
         run: npm run test:mutation
 
       # The changed-file list powers the inline annotations, so compute it
       # before the report. `|| true` (and the `if: always()`) keep a diff
-      # failure from turning the advisory job red — the report degrades to no
+      # failure from failing the job on its own — the report degrades to no
       # annotations instead.
       - name: Compute the PR's changed files
         if: always()
@@ -116,7 +116,9 @@ jobs:
       # Replaces the old "exit code 1 and nothing else" publish step: turn the
       # JSON reporter's output into a run-summary table and inline warnings on
       # the PR's touched lines. The script exits 0 even when the report is
-      # missing, so a failed Stryker run still leaves the job green.
+      # missing, so this step never masks the Stryker verdict — the job's
+      # pass/fail is the Stryker step alone, and a failing run still shows the
+      # report here.
       - name: Publish the mutation mini report
         if: always()
         run: |
