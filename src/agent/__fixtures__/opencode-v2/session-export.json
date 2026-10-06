@@ -1,0 +1,107 @@
+{
+  "info": {
+    "id": "ses_eeeb0c066ffe4ygO4fNn00orAg",
+    "projectID": "1029192891380e48676325fe7d2d7f171dfc67f2",
+    "model": {
+      "id": "mimo-v2.5",
+      "providerID": "opencode-go",
+      "variant": "default"
+    },
+    "cost": 0.00022845520000000003,
+    "tokens": {
+      "input": 1350,
+      "output": 18,
+      "reasoning": 25,
+      "cache": {
+        "read": 16384,
+        "write": 0
+      }
+    },
+    "outcome": "succeeded",
+    "time": {
+      "created": 1791291769018,
+      "updated": 1791291770883,
+      "idle": 1791291774821
+    },
+    "title": "Repeating “say hi” request",
+    "location": {
+      "directory": "<scratch>/proj"
+    }
+  },
+  "messages": [
+    {
+      "id": "msg_1114f40c2001MZdORnl0eFTgSr",
+      "time": {
+        "created": 1791291769361
+      },
+      "text": "\"say hi\" \"say hi\"",
+      "files": [],
+      "type": "user"
+    },
+    {
+      "id": "msg_1114f4222001WAeg4Z7Q9WkbTj",
+      "time": {
+        "created": 1791291769483,
+        "streamed": 1791291774759,
+        "completed": 1791291774814
+      },
+      "type": "assistant",
+      "agent": "build",
+      "model": {
+        "id": "mimo-v2.5",
+        "providerID": "opencode-go",
+        "variant": "default"
+      },
+      "content": [
+        {
+          "type": "reasoning",
+          "text": "The user said \"say hi\" \"say hi\" — probably a simple test. Just respond with a friendly greeting.",
+          "state": {
+            "reasoningField": "reasoning_content",
+            "reasoningDetails": [
+              {
+                "type": "reasoning.text",
+                "text": "The user said \"say hi\" \"say hi\" — probably a simple test. Just respond with a friendly greeting.",
+                "format": "unknown",
+                "index": 0
+              }
+            ]
+          },
+          "time": {
+            "created": 1791291774047,
+            "completed": 1791291774753
+          }
+        },
+        {
+          "type": "text",
+          "text": "Hi there! 👋"
+        }
+      ],
+      "snapshot": {
+        "start": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "end": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+        "files": []
+      },
+      "finish": "stop",
+      "rawFinish": "stop",
+      "cost": 0.00017075520000000004,
+      "tokens": {
+        "input": 828,
+        "output": 7,
+        "reasoning": 25,
+        "cache": {
+          "read": 16384,
+          "write": 0
+        }
+      }
+    },
+    {
+      "id": "msg_1114f57650016LmCm4EnDC9EUm",
+      "time": {
+        "created": 1791291774821
+      },
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ]
+}
