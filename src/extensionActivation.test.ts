@@ -636,4 +636,31 @@ describe('extension activation', () => {
     expect(end).toBeGreaterThan(start);
     expect(resumeStage).toContain('onGraphRecovered(ticketId, outcome.graphRunId);');
   });
+
+  // The sidebar's super-thin edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO) is a
+  // webview-side VISUAL: the host owns only the settings→side resolution. A
+  // webview cannot see whether it is docked in the primary or secondary
+  // sidebar, so `auto` must read `workbench.sideBar.location` and take the
+  // opposite edge, the user setting overrides it, and BOTH settings must push a
+  // fresh side when they change. Pinned as source like every wiring case here:
+  // extension.ts imports `vscode` and cannot load under vitest.
+  it('resolves and pushes the sidebar edge line from both settings, on load and on change', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'extension.ts'),
+      'utf8',
+    );
+
+    // Resolution goes through the pure, unit-tested resolver — never an inline
+    // `location === 'left' ? ... : ...` re-derivation here.
+    expect(source).toContain('resolveSidebarEdge(');
+    expect(source).toContain("getConfiguration('karst').get('sidebar.edge')");
+    expect(source).toContain("getConfiguration('workbench').get('sideBar.location')");
+    // Initial push, and a re-push only when one of the two settings changed.
+    expect(source).toContain('provider.setEdge(resolveEdgeSide());');
+    expect(source).toContain("e.affectsConfiguration('karst.sidebar.edge')");
+    expect(source).toContain("e.affectsConfiguration('workbench.sideBar.location')");
+    expect(source).toMatch(
+      /onDidChangeConfiguration\(\(e\) => \{[\s\S]{0,400}?provider\.setEdge\(resolveEdgeSide\(\)\);/,
+    );
+  });
 });

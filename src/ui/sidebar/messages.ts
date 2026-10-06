@@ -1,5 +1,6 @@
 import type { ActionResultMessage } from '../../model/actionResult.js';
 import type { SidebarState } from './state.js';
+import type { SidebarEdge } from './edge.js';
 import { FACETS, type FacetKey } from './facets.js';
 
 /**
@@ -45,8 +46,16 @@ export type SidebarWebviewMessage =
  * action now reports through the single `action-result` seam, which is what
  * lets a row's icon button settle into a visible success/failure instead of
  * being fire-and-forget.
+ *
+ * `edge` is a side channel OUTSIDE the ticket snapshot: the host resolves which
+ * side of the view faces the editor (`karst.sidebar.edge` ×
+ * `workbench.sideBar.location`) and pushes it on load and whenever either
+ * setting changes, because it is window configuration, not ticket data.
  */
-export type SidebarHostMessage = { type: 'state'; state: SidebarState } | ActionResultMessage;
+export type SidebarHostMessage =
+  | { type: 'state'; state: SidebarState }
+  | { type: 'edge'; side: SidebarEdge }
+  | ActionResultMessage;
 
 /**
  * Host-side effects the sidebar can trigger (executeCommand passthrough). A

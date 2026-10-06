@@ -156,4 +156,21 @@ describe('sidebar webview.html', () => {
       /\.row:has\(\.subchev\) \.rowacts\{right:calc\(var\(--k-space-3\) \+ var\(--k-hit-min\)\)\}/,
     );
   });
+
+  it('paints a super-thin inset edge line on the side facing the editor (SIDEBAR-SUPER-THIN-EDGE-LINE-SO)', () => {
+    // Inset box-shadow (not a border): zero layout width, no pointer capture.
+    // Both sides, token-only (UI-R04), full height because body fills the view.
+    expect(HTML).toMatch(
+      /html\[data-edge="right"\] body\{box-shadow:inset calc\(-1 \* var\(--k-border-w\)\) 0 0 0 var\(--k-border\)\}/,
+    );
+    expect(HTML).toMatch(
+      /html\[data-edge="left"\] body\{box-shadow:inset var\(--k-border-w\) 0 0 0 var\(--k-border\)\}/,
+    );
+  });
+
+  it('applies the host-resolved edge as data-edge on <html>, clearing it for none', () => {
+    expect(HTML).toContain("msg.type === 'edge'");
+    expect(HTML).toContain("document.documentElement.setAttribute('data-edge', side)");
+    expect(HTML).toContain("document.documentElement.removeAttribute('data-edge')");
+  });
 });

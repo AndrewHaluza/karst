@@ -335,6 +335,17 @@
           "default": "./.karst/agents",
           "description": "Directory where karst agent files are stored."
         },
+        "karst.sidebar.edge": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "left",
+            "right",
+            "none"
+          ],
+          "default": "auto",
+          "description": "Which edge of the Karst sidebar draws its 1px resize line, so the drag handle stays findable when the theme's sideBar.border is transparent. 'auto' draws it on the edge opposite workbench.sideBar.location (the edge facing the editor); 'left' or 'right' pins it; 'none' hides it."
+        },
         "karst.launchWorktreeDev.enabled": {
           "type": "boolean",
           "default": false,

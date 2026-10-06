@@ -36,6 +36,7 @@ import {
 import { watchExternalChanges } from './store/externalChanges.js';
 import { SidebarViewManager } from './ui/sidebar/panel.js';
 import { makeSidebarViewHost, SIDEBAR_VIEW_ID } from './ui/sidebar/host.js';
+import { resolveSidebarEdge } from './ui/sidebar/edge.js';
 import { ActiveTicketTracker } from './ui/activeTicket.js';
 import { FACETS, facetCounts } from './ui/sidebar/facets.js';
 import { openTicketFromList } from './ui/sidebar/navigation.js';
@@ -842,6 +843,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   provider.bind(sidebarHost);
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_ID, sidebarProvider),
+  );
+  // The sidebar's super-thin edge line (SIDEBAR-SUPER-THIN-EDGE-LINE-SO): a
+  // webview can't see whether it is in the primary or secondary sidebar, so the
+  // user setting `karst.sidebar.edge` drives it, defaulting to the edge opposite
+  // `workbench.sideBar.location`. Send the resolved side on load and whenever
+  // either setting changes.
+  const resolveEdgeSide = () => resolveSidebarEdge(
+    vscode.workspace.getConfiguration('karst').get('sidebar.edge'),
+    vscode.workspace.getConfiguration('workbench').get('sideBar.location'),
+  );
+  provider.setEdge(resolveEdgeSide());
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (e.affectsConfiguration('karst.sidebar.edge') || e.affectsConfiguration('workbench.sideBar.location')) {
+        provider.setEdge(resolveEdgeSide());
+      }
+    }),
   );
 
   const settingsDir = context.globalStorageUri.fsPath;

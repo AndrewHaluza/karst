@@ -261,6 +261,19 @@ describe('SidebarViewManager', () => {
     expect(logError).not.toHaveBeenCalled();
   });
 
+  it('posts the resolved edge line on resolve and on every setEdge', () => {
+    const mgr = new SidebarViewManager(store, () => stubActions());
+    const { host, resolve } = fakeHost();
+    mgr.bind(host);
+    mgr.setEdge('left');
+    const view = resolve();
+    // The initial push carries both the ticket snapshot and the edge side.
+    expect(view.postedRaw).toContainEqual({ type: 'edge', side: 'left' });
+
+    mgr.setEdge('none');
+    expect(view.postedRaw.at(-1)).toEqual({ type: 'edge', side: 'none' });
+  });
+
   it('marks the row whose ticket view is the ACTIVE view, read live from the injected getter', () => {
     const t = createTicket(store, { key: 'A-1', title: 'one' });
     let active: number | null = null;
