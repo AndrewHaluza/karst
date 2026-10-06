@@ -12,6 +12,7 @@
 - `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
 - `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 85; `pretest:mutation` rebuilds better-sqlite3 for Node ABI.
 - `npm run inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
+- `npm run test:visual:docker` — the Playwright visual gate in the pinned image the baselines come from; `:update` re-records. **Run it after any webview change.** CI does not run it (only the UAT gate does), so stale baselines/ratchets surface on the next ticket. Never judge a visual failure from the host `test:visual` run. Ratchet raises (`focus.visual.ts`, `a11y.visual.ts`) need a justification comment.
 - CI: `.github/workflows/ci.yml` runs typecheck + build + `test:unit` + `test:e2e` on every PR to `main`/`develop` (blocking), plus an advisory mutation-score job on PRs only that never fails the check.
 
 ## Native ABI split (better-sqlite3)

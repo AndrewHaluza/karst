@@ -98,6 +98,7 @@ const CONTRAST_RATCHET: Record<string, { ratio: number; gap?: string }> = {
   'light:div.nav-caption': { ratio: 2.36 },
   'light:div.sidebar-project-label': { ratio: 2.36 },
   'light:span.project-more': { ratio: 2.36 },
+  'light:span.agent-identity-sep': { ratio: 2.36 }, // sidebar agent-identity separator (planning sessions rows, #491) — dim by design
   'light:span.manifest-icon': { ratio: 2.36 },
   'light:div.ap-empty': { ratio: 2.61 },
   'light:div': { ratio: 2.61 },
