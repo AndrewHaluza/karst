@@ -951,8 +951,13 @@
     const open = planIsOpen(p);
     const agent = agentLabel(p.agent.provider) + (p.agent.model ? ` · ${p.agent.model}` : '');
     const n = drafts.length === 1 ? '1 draft' : `${drafts.length} drafts`;
-    const label = esc(`${p.title}, ${st.word}, ${agent}, ${n}`);
+    // The `P<id>` token the terminal tab carries, so a session is the same
+    // identity in the sidebar and in the terminal list. Drafts use `#<ticket>`
+    // instead, so a session and a draft never share a token.
+    const token = `P${p.sessionId}`;
+    const label = esc(`${token} ${p.title}, ${st.word}, ${agent}, ${n}`);
     const t = esc(p.title);
+    const shown = `${token} ${t}`;
     const node = `s${p.sessionId}`;
     const expanded = drafts.length ? ` aria-expanded="${open}"` : '';
     const side = p.status === 'archived'
@@ -962,7 +967,7 @@
       + `<div class="pt-row" title="${label}">`
       + `<span class="pt-twistie${drafts.length ? '' : ' leaf'}" data-plan-toggle="${p.sessionId}" data-expanded="${open}" aria-hidden="true">${chev}</span>`
       + `<span class="pt-dot pt-dot--${st.tone}" aria-hidden="true"></span>`
-      + `<span class="pt-label">${t}</span>`
+      + `<span class="pt-label">${shown}</span>`
       + (drafts.length ? `<span class="pt-count" aria-hidden="true">${drafts.length}</span>` : '')
       + `<span class="pt-actions">`
       + planBtn(`data-act="plan-open" data-plan="${p.sessionId}" data-primary="1"`, 'Open terminal', `Open terminal: ${t}`, ic.sess)
