@@ -12,11 +12,11 @@
  *
  *  - `buildPresetInheritanceViews` — for EVERY capability, the identity the
  *    launch path resolves when NO preset overrides it: `processes.<key>` for
- *    the six inside roles, the approach's graph profile for expert/worker/fast,
- *    the manifest defaults for implementation. That is exactly what an
- *    `Inherit (default)` row means, so the editor can grey it out beside the
- *    row instead of asking the operator to remember what they configured
- *    elsewhere.
+ *    the inside roles, the approach's graph profile for expert/worker/fast,
+ *    the manifest defaults for implementation, and the implementation
+ *    resolution for planning. That is exactly what an `Inherit (default)` row
+ *    means, so the editor can grey it out beside the row instead of asking the
+ *    operator to remember what they configured elsewhere.
  *
  * The preview is computed against a manifest with ALL preset influence removed
  * (the preset map, both active-preset spellings and every deprecated
@@ -39,6 +39,7 @@ import {
 } from '../../manifest/validate/processAssignments.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { resolvePlanningDefaults } from '../../agent/planningDefaults.js';
 import { bundledModelCatalog, type ModelCatalog } from '../../agent/modelCatalog.js';
 
 /** One of the three §5 row groups. */
@@ -54,13 +55,13 @@ export const PRESET_CAPABILITY_GROUPS: readonly PresetCapabilityGroup[] = [
   {
     id: 'ticket',
     label: 'Ticket',
-    capabilities: ['prDescription', 'ticketAnalysis', 'implementation'],
+    capabilities: ['prDescription', 'ticketAnalysis', 'implementation', 'planning'],
   },
   { id: 'graph', label: 'Graph roles', capabilities: ['graphExpert', 'graphWorker', 'graphFast'] },
 ];
 
 /**
- * Row names. The six inside-process rows reuse the handoff §7 role labels the
+ * Row names. The inside-process rows reuse the handoff §7 role labels the
  * Agents tab shows; `implementation` is the ticket-form wording; the graph rows
  * are the profile ids' user-facing names.
  */
@@ -72,6 +73,7 @@ export const PRESET_CAPABILITY_LABELS: Record<PresetCapability, string> = {
   prDescription: 'PR description',
   ticketAnalysis: 'Ticket analysis',
   implementation: 'Ticket implementation',
+  planning: 'Planner',
   graphExpert: 'Expert',
   graphWorker: 'Worker',
   graphFast: 'Fast',
@@ -203,6 +205,19 @@ export function buildPresetInheritanceViews(
   const views = {} as PresetInheritance;
 
   for (const capability of PRESET_CAPABILITIES) {
+    if (capability === 'planning') {
+      // Planning is not a process_runs role: its Inherit is the IMPLEMENTATION
+      // resolution, computed on the same preset-stripped base every other row
+      // uses, so "Inherit" means the same thing here as everywhere else.
+      const d = resolvePlanningDefaults(base, catalog);
+      views[capability] = {
+        provider: d.provider,
+        ...(d.model === undefined ? {} : { model: d.model }),
+        ...(d.effort === undefined ? {} : { effort: d.effort }),
+      };
+      continue;
+    }
+
     if (PROCESS_CAPABILITIES.has(capability)) {
       const processKey = capability as ProcessKey;
       const snapshot = resolveProcessAssignment(

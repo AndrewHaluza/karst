@@ -62,13 +62,18 @@ const FOCUS_CAP = 12;
  * draft row gains Review / Approve / Discard icon actions. They are real
  * controls (the ticket's Done-when) that replace the old pill/text buttons and
  * cannot fold into an existing focusable; they show on hover and on focus.
+ *
+ * Lowered from 69 to 68 after the planning-drafts UI change removed the
+ * read-only Review (eye) action from the pending draft row (Approve and
+ * Discard stay); the sidebar corpus has one pending draft, so exactly one
+ * focusable disappeared. A shrink needs no justification, only the note.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 46,
   usage: 11,
   resources: 17,
   serverLogs: 11,
-  sidebar: 69, // raised from 57: planning tree row actions (see sixth update); was 48 before #482/#484
+  sidebar: 68, // lowered from 69 when the pending draft's Review (eye) action was removed; was raised from 57 before that (see sixth update)
   diffs: 35,
   settings: 193,
   ticketForm: 25,

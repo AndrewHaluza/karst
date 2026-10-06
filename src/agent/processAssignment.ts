@@ -107,6 +107,8 @@ export interface ProcessTicketOverride {
  * Approved display names for the inside AI roles when nothing is configured.
  * `pr-description` is deliberately absent: its default is the ticket-resolved
  * PR-description ADAPTER (the provider's own label), never a fixed name.
+ * `planning` is a display name only — a planning session opens no `process_runs`
+ * row, but the shared resolver's snapshot shape still requires it.
  */
 export const DEFAULT_PROCESS_AGENT_NAMES: Readonly<
   Record<Exclude<ProcessRole, 'pr-description'>, string>
@@ -116,6 +118,7 @@ export const DEFAULT_PROCESS_AGENT_NAMES: Readonly<
   review: 'Review Agent',
   'review-fix': 'Review Fix Agent',
   'ticket-analysis': 'Ticket Analysis Agent',
+  planning: 'Planner',
 };
 
 /**

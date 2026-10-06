@@ -28,6 +28,16 @@ describe('validateAgentPresets', () => {
     });
   });
 
+  it('accepts a sparse planning slot', () => {
+    expect(
+      validateAgentPresets({
+        smart: { slots: { planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5' } } },
+      }),
+    ).toEqual({
+      smart: { slots: { planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5' } } },
+    });
+  });
+
   it('refuses a non-mapping', () => {
     expect(() => validateAgentPresets([])).toThrow(ManifestError);
   });

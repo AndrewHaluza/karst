@@ -4,6 +4,8 @@ import {
   stopServerRow,
   startServerRow,
   restartServerRow,
+  openServerRow,
+  copyServerUrlRow,
   type ServerOpsDeps,
 } from './serverOps.js';
 import type { Notify } from './notify.js';
@@ -67,6 +69,36 @@ describe('serverOps', () => {
     expect(deps.afterServerChange).toHaveBeenCalledTimes(1);
   });
 
+  it('openServerRow opens a running row externally', () => {
+    addServer(1, 7, 'backend');
+    const deps = makeDeps({ store });
+    openServerRow(deps, 1);
+    expect(deps.openExternal).toHaveBeenCalledWith('http://localhost:5000');
+    expect(deps.notify.warn).not.toHaveBeenCalled();
+  });
+
+  it('openServerRow warns when the server is no longer running', () => {
+    const deps = makeDeps({ store });
+    openServerRow(deps, 999);
+    expect(deps.notify.warn).toHaveBeenCalledWith('That server is no longer running.');
+    expect(deps.openExternal).not.toHaveBeenCalled();
+  });
+
+  it('copyServerUrlRow copies a running row url', () => {
+    addServer(1, 7, 'backend');
+    const deps = makeDeps({ store });
+    copyServerUrlRow(deps, 1);
+    expect(deps.copyText).toHaveBeenCalledWith('http://localhost:5000');
+    expect(deps.notify.warn).not.toHaveBeenCalled();
+  });
+
+  it('copyServerUrlRow warns when the server is no longer running', () => {
+    const deps = makeDeps({ store });
+    copyServerUrlRow(deps, 999);
+    expect(deps.notify.warn).toHaveBeenCalledWith('That server is no longer running.');
+    expect(deps.copyText).not.toHaveBeenCalled();
+  });
+
   it('startServerRow on a missing row rejects and starts nothing', async () => {
     const deps = makeDeps({ store });
     await expect(startServerRow(deps, 999)).rejects.toThrow('no longer exists');
@@ -103,6 +135,7 @@ describe('serverOps', () => {
     );
     expect(deps.notify.info).toHaveBeenCalledWith('Started backend.');
     expect(deps.afterServerChange).toHaveBeenCalledTimes(1);
+    expect(stopServerMock).not.toHaveBeenCalled();
   });
 
   it('startServerRow rejects a MissingAllocationError with the re-spin reason and still repaints', async () => {
@@ -117,7 +150,7 @@ describe('serverOps', () => {
     addServer(1, 7, 'backend');
     startTicketServiceMock.mockRejectedValue(new StartServiceError('typed failure'));
     const deps = makeDeps({ store });
-    await expect(startServerRow(deps, 1)).rejects.toThrow('typed failure');
+    await expect(startServerRow(deps, 1)).rejects.toThrow(/^typed failure$/);
   });
 
   it('startServerRow rejects an unknown error as "Failed to start"', async () => {

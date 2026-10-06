@@ -182,6 +182,7 @@ describe('settings actions — validateProcessAssignments', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'planning',
     ]);
     const review = rows.find((r) => r.key === 'review');
     expect(review?.state).toBe('unknown-profile');

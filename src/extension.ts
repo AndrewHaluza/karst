@@ -111,6 +111,7 @@ import {
 import { resolveAdapter } from './agent/registry.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
+import { resolvePlanningDefaults } from './agent/planningDefaults.js';
 import {
   resolveProcessAssignment,
   type DriveProcessBundle,
@@ -162,7 +163,7 @@ import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
-import { createPlanningProposalOps, proposalPreview, type ProposalChoice } from './extension/ops/planningProposalOps.js';
+import { createPlanningProposalOps, type ProposalChoice } from './extension/ops/planningProposalOps.js';
 import { listPendingProposals } from './store/planningProposals.js';
 import type { TicketFormPrefill } from './ui/ticketForm/panel.js';
 import {
@@ -757,11 +758,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manifest: () => currentManifest(),
     // A tree apart from karst.db, so codex's only writable root never covers it.
     scratchDir: (id) => join(storageDir, 'planning-scratch', String(id)),
-    // Same resolution as an interactive session's default (preset slot, else
-    // the manifest's core + defaultModel), so planning launches the model the
-    // user configured instead of the CLI's own default.
+    // A planning session has its own core/model (Settings → Agents, "Planner",
+    // and the Presets `planning` row). Resolution: the active preset's
+    // `planning` slot → `processes.planning` → the implementation resolution, so
+    // an existing project keeps launching exactly what it launched before.
     defaultAgent: () => {
-      const d = resolvePresetDefaults(currentManifest() ?? emptyManifest(), 'implementation');
+      const d = resolvePlanningDefaults(currentManifest() ?? emptyManifest());
       return { provider: d.provider, model: d.model ?? null };
     },
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
@@ -773,13 +775,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onChange: () => provider.refresh(),
   });
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
-    confirmPreview: async (p) => (await vscode.window.showWarningMessage(`Create ticket "${p.payload.title}"?`,
-      { modal: true, detail: proposalPreview(p) }, 'Create ticket')) === 'Create ticket',
-    choose: async (text) => ({ Review: 'review', Create: 'create', Discard: 'discard' } as Record<string, ProposalChoice>)[
-      (await vscode.window.showInformationMessage(text, 'Review', 'Create', 'Discard')) ?? ''],
+    choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
+      (await vscode.window.showInformationMessage(text, 'Review', 'Discard')) ?? ''],
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
-    showDraft: async (p) => void (await vscode.window.showInformationMessage(`Draft: "${p.payload.title}"`,
-      { modal: true, detail: proposalPreview(p) })),
     notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
@@ -837,7 +835,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
-    planProposalView: (id) => proposalOps.view(id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,

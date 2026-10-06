@@ -7,7 +7,7 @@
              "!src/extension/secrets.ts", "!src/extension/reportIssue.ts",
              "!src/extension/manifestResolve.ts",
              "!src/extension/diffsHost.ts"],
-  "reporters": ["progress", "clear-text", "html"],
+  "reporters": ["progress", "clear-text", "html", "json"],
   "coverageAnalysis": "perTest",
   "thresholds": { "high": 85, "low": 75, "break": 85 },
   "timeoutMS": 60000,

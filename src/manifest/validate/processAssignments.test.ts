@@ -130,8 +130,35 @@ describe('validateProcessAssignments', () => {
     );
   });
 
-  it('exposes the six closed vocabulary keys and their kebab roles in one place', () => {
-    expect(PROCESS_KEYS).toEqual(['uatTester', 'uatFix', 'review', 'reviewFix', 'prDescription', 'ticketAnalysis']);
-    expect(PROCESS_ROLES).toEqual(['uat-tester', 'uat-fix', 'review', 'review-fix', 'pr-description', 'ticket-analysis']);
+  it('exposes the closed vocabulary keys and their kebab roles in one place', () => {
+    expect(PROCESS_KEYS).toEqual([
+      'uatTester',
+      'uatFix',
+      'review',
+      'reviewFix',
+      'prDescription',
+      'ticketAnalysis',
+      'planning',
+    ]);
+    expect(PROCESS_ROLES).toEqual([
+      'uat-tester',
+      'uat-fix',
+      'review',
+      'review-fix',
+      'pr-description',
+      'ticket-analysis',
+      'planning',
+    ]);
+  });
+
+  it('accepts the planning process key and its provider/model', () => {
+    const result = validateProcessAssignments({
+      planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5' },
+    });
+    expect(result?.planning).toEqual({
+      provider: 'opencode',
+      model: 'opencode-go/mimo-v2.5',
+      enabled: true,
+    });
   });
 });

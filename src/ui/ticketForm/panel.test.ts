@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
-import { createTicket } from '../../store/tickets.js';
+import { createTicket, getTicket, updateTicketFields } from '../../store/tickets.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { TicketFormManager } from './panel.js';
 import type { TicketFormPanel, TicketFormPanelHost, TicketFormActionsCtx } from './panel.js';
@@ -650,30 +650,63 @@ describe('TicketFormManager — create prefill (planning proposal review)', () =
   let store: Store;
   beforeEach(() => (store = openStore(':memory:')));
 
-  it('seeds title, description and repo selection into the create state', () => {
+  it('seeds title, description, the summary as the visible brief, and repo selection into the create state', () => {
     const { host, panels } = fakeHost();
     const { factory } = recordingFactory();
     const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
-    mgr.openCreate({ title: 'Plan T', description: 'Plan D', repos: ['fe'], onCreated: () => {} });
+    mgr.openCreate({ title: 'Plan T', description: 'Plan D', summary: 'Plan S', repos: ['fe'], onCreated: () => {} });
     const s = (panels[0]!.posted[0] as { state: TicketFormState }).state;
     expect(s.mode).toBe('create');
     expect(s.title).toBe('Plan T');
     expect(s.description).toBe('Plan D');
+    expect(s.brief).toBe('Plan S');
     expect(s.repos.find((r) => r.service === 'fe')?.selected).toBe(true);
   });
 
-  it('reports the first bound ticket once, then stops overlaying', () => {
+  it('accepts the prefill on the user commit, not on an earlier bind', () => {
     const ticket = createTicket(store, { key: 'P-1', title: 'saved' });
     const { host, panels } = fakeHost();
     const { factory, seen } = recordingFactory();
     const created: number[] = [];
     const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
-    mgr.openCreate({ title: 'Plan T', description: '', repos: [], onCreated: (id) => created.push(id) });
+    mgr.openCreate({ title: 'Plan T', description: '', summary: '', repos: [], onCreated: (id) => created.push(id) });
+    // A fetch/attach binds a draft before the user has saved — that is NOT
+    // acceptance, so the prefill must not fire here.
     seen[0]!.bindTicket(ticket.id);
-    seen[0]!.bindTicket(ticket.id);
+    expect(created).toEqual([]);
+    // The user's Save/Submit commits it; only once.
+    seen[0]!.commitPrefill();
+    seen[0]!.commitPrefill();
     seen[0]!.pushState();
     expect(created).toEqual([ticket.id]);
     const last = (panels[0]!.posted.at(-1) as { state: TicketFormState }).state;
     expect(last.title).toBe('saved');
+  });
+
+  it('persists the prefill summary as the draft brief on bind, so it survives binding', () => {
+    const ticket = createTicket(store, { key: 'P-2', title: 'draft' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({ title: 'Plan T', description: 'Plan D', summary: 'Plan S', repos: [], onCreated: () => {} });
+    // A fetch/attach bind must keep the summary visible: it is written to the
+    // draft's brief, so pushState (re-seeded from the store) still shows it and
+    // analyze receives it as context.
+    seen[0]!.bindTicket(ticket.id);
+    expect(getTicket(store, ticket.id)!.brief).toBe('Plan S');
+    seen[0]!.pushState();
+    const last = (panels[0]!.posted.at(-1) as { state: TicketFormState }).state;
+    expect(last.brief).toBe('Plan S');
+  });
+
+  it('never clobbers a brief the bound ticket already has (e.g. a provider fetch)', () => {
+    const ticket = createTicket(store, { key: 'P-3', title: 'fetched' });
+    updateTicketFields(store, ticket.id, { brief: '# Provider\n\nfetched context' });
+    const { host } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({ title: 'Plan T', description: '', summary: 'Plan S', repos: [], onCreated: () => {} });
+    seen[0]!.bindTicket(ticket.id);
+    expect(getTicket(store, ticket.id)!.brief).toBe('# Provider\n\nfetched context');
   });
 });

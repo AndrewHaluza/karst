@@ -35,7 +35,7 @@ describe('sidebar planning tree', () => {
       const row = session(h, 90).querySelector('.pt-row')!;
       expect(row.querySelector('.pt-twistie')).not.toBeNull();
       expect(row.querySelector('.pt-dot')).not.toBeNull();
-      expect(row.querySelector('.pt-label')!.textContent).toBe('Planning 90');
+      expect(row.querySelector('.pt-label')!.textContent).toBe('P90 Planning 90');
       expect(row.querySelector('.pt-count')!.textContent).toBe('2');
       expect(row.querySelector('.k-pill,.agent-identity,.plan-meta')).toBeNull();
       expect(row.textContent).not.toMatch(/terminal open|filed|needs review/);
@@ -47,9 +47,9 @@ describe('sidebar planning tree', () => {
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const s = session(h, 90);
-      expect(s.getAttribute('aria-label')).toBe('Planning 90, needs review, Claude Code · opus, 2 drafts');
+      expect(s.getAttribute('aria-label')).toBe('P90 Planning 90, needs review, Claude Code · opus, 2 drafts');
       expect(s.querySelector('.pt-row')!.getAttribute('title')).toBe(s.getAttribute('aria-label'));
-      expect(session(h, 89).getAttribute('aria-label')).toBe('Planning 89, terminal not live, Claude Code · opus, 0 drafts');
+      expect(session(h, 89).getAttribute('aria-label')).toBe('P89 Planning 89, terminal not live, Claude Code · opus, 0 drafts');
     } finally { h.close(); }
   });
 
@@ -152,7 +152,7 @@ describe('sidebar planning tree', () => {
       h.receive({ type: 'state', state: stateOf('hostile') });
       expect(h.query('[role="tree"] script,[role="tree"] img')).toBeNull();
       const s = session(h, 91);
-      expect(s.querySelector('.pt-label')!.textContent).toBe(HOSTILE);
+      expect(s.querySelector('.pt-label')!.textContent).toBe(`P91 ${HOSTILE}`);
       expect(s.getAttribute('aria-label')).toContain(HOSTILE);
       expect(s.getAttribute('aria-label')).toContain('<img src=x onerror=alert(1)>');
       expect(h.query('[data-act="plan-open"][data-plan="91"]')!.getAttribute('aria-label')).toBe(`Open terminal: ${HOSTILE}`);
@@ -204,31 +204,31 @@ describe('sidebar planning tree', () => {
 });
 
 describe('sidebar planning drafts', () => {
-  it('a pending draft has a status icon, the title, and named Review / Approve / Discard icon actions', () => {
+  it('a pending draft shows its #id before the title and named Approve / Discard icon actions', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const d = draft(h, 501);
       expect(d.getAttribute('aria-level')).toBe('2');
-      expect(d.getAttribute('aria-label')).toBe('Add rate limit, needs review');
+      expect(d.getAttribute('aria-label')).toBe('#501 Add rate limit, needs review');
       expect(d.querySelector('.pt-icon.pt-c-attention')).not.toBeNull();
+      expect(d.querySelector('.pt-label')!.textContent).toBe('#501 Add rate limit');
       const btn = (act: string) => d.querySelector(`[data-act="${act}"][data-proposal="501"]`)!;
-      expect(btn('plan-proposal-view').getAttribute('aria-label')).toBe('Review draft: Add rate limit');
       expect(btn('plan-proposal-review').getAttribute('aria-label')).toBe('Approve draft: Add rate limit');
       expect(btn('plan-proposal-discard').getAttribute('aria-label')).toBe('Discard draft: Add rate limit');
+      expect(d.querySelector('[data-act="plan-proposal-view"]')).toBeNull();
       expect(d.querySelector('.k-btn')).toBeNull();
     } finally { h.close(); }
   });
 
-  it('a pending draft row has no primary action, so its body is inert (the eye button is the only Review entry)', () => {
+  it('a pending draft row has no primary action, so its body is inert', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const d = draft(h, 501);
       expect(d.querySelector('.pt-row [data-primary]')).toBeNull();
-      expect(d.querySelector('[data-act="plan-proposal-view"]')!.hasAttribute('data-primary')).toBe(false);
-      // The three controls still render; only the row body is inert.
-      expect(d.querySelector('[data-act="plan-proposal-view"]')).not.toBeNull();
+      // Approve and Discard still render; the removed read-only view does not.
+      expect(d.querySelector('[data-act="plan-proposal-view"]')).toBeNull();
       expect(d.querySelector('[data-act="plan-proposal-review"]')).not.toBeNull();
       expect(d.querySelector('[data-act="plan-proposal-discard"]')).not.toBeNull();
       const before = h.posted.length;
@@ -241,12 +241,10 @@ describe('sidebar planning drafts', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
-      h.click('[data-act="plan-proposal-view"][data-proposal="501"]');
       h.click('[data-act="plan-proposal-review"][data-proposal="501"]');
       h.click('[data-act="plan-proposal-discard"][data-proposal="501"]');
       const sent = h.posted.filter((m) => /^plan-proposal-/.test((m as { type: string }).type));
       expect(sent).toEqual([
-        expect.objectContaining({ type: 'plan-proposal-view', proposalId: 501 }),
         expect.objectContaining({ type: 'plan-proposal-review', proposalId: 501 }),
         expect.objectContaining({ type: 'plan-proposal-discard', proposalId: 501 }),
       ]);
@@ -255,13 +253,14 @@ describe('sidebar planning drafts', () => {
     } finally { h.close(); }
   });
 
-  it('an accepted draft stays as a muted, struck-through row linking to its ticket, with no actions', () => {
+  it('an accepted draft shows its #id, stays muted and struck through, and links to its ticket', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const d = draft(h, 503);
       expect(d.classList.contains('pt-accepted')).toBe(true);
-      expect(d.getAttribute('aria-label')).toBe('Split auth module, accepted as ticket #3');
+      expect(d.getAttribute('aria-label')).toBe('#503 Split auth module, accepted as ticket #3');
+      expect(d.querySelector('.pt-label')!.textContent).toBe('#503 Split auth module');
       expect(d.querySelector('.pt-icon.pt-c-passed')).not.toBeNull();
       expect(d.querySelector('[data-act^="plan-proposal-"]')).toBeNull();
       const link = d.querySelector('[data-open="3"]')!;
@@ -276,8 +275,8 @@ describe('sidebar planning drafts', () => {
     try {
       h.receive({ type: 'state', state: stateOf('hostile') });
       expect(h.query('[data-node="d502"] script')).toBeNull();
-      expect(h.query('[data-act="plan-proposal-view"][data-proposal="502"]')!.getAttribute('aria-label')).toBe(`Review draft: ${HOSTILE}`);
-      expect(draft(h, 502).querySelector('.pt-label')!.textContent).toBe(HOSTILE);
+      expect(h.query('[data-act="plan-proposal-review"][data-proposal="502"]')!.getAttribute('aria-label')).toBe(`Approve draft: ${HOSTILE}`);
+      expect(draft(h, 502).querySelector('.pt-label')!.textContent).toBe(`#502 ${HOSTILE}`);
     } finally { h.close(); }
   });
 });
@@ -338,7 +337,7 @@ describe('sidebar planning tree keyboard', () => {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       key(h, draft(h, 501), 'F10', { shiftKey: true });
       const items = h.queryAll('#ctxMenu.open [role="menuitem"]');
-      expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-view', 'plan-proposal-review', 'plan-proposal-discard']);
+      expect(items.map((i) => i.getAttribute('data-act'))).toEqual(['plan-proposal-review', 'plan-proposal-discard']);
       expect(h.document.activeElement).toBe(items[0]);
       h.click('#ctxMenu [data-act="plan-proposal-review"]');
       expect(h.posted).toContainEqual(expect.objectContaining({ type: 'plan-proposal-review', proposalId: 501 }));
