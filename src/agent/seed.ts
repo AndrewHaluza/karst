@@ -17,6 +17,12 @@
 
 import { seedCharLength, seedHasGuide } from './promptTelemetry.js';
 import { truncateToBudget, SEED_BUDGETS, approachTruncationPointer } from './seedBudget.js';
+import {
+  hasInstructionsPointer,
+  hashInstructions,
+  instructionsCharLength,
+  type SessionInstructions,
+} from './instructions.js';
 
 /**
  * Compose the session seed from pre-rendered parts. Returns `undefined` only
@@ -90,18 +96,37 @@ export function buildSessionSeed(
 export interface SeedTelemetry {
   seedChars: number;
   guidePointer: boolean;
+  /** Instruction-layer size in characters, when an instruction layer rode the launch. */
+  instructionsChars?: number;
+  /** Stable digest of the instruction body (the layer's prompt-metrics identity). */
+  instructionsHash?: string;
+  /** Whether the kickoff carried a pointer to `$KARST_INSTRUCTIONS` (pointer cores). */
+  instructionsPointer?: boolean;
 }
 
 /**
  * Measure a composed seed at the seam that produced it. `buildSessionSeed` hands
- * back a plain string; this reads back the two prompt-effectiveness facts the
+ * back a plain string; this reads back the prompt-effectiveness facts the
  * launch records onto its `process_runs` row (docs/arch/prompt-metrics.md): how
- * many characters of resident context the agent opened with, and whether the
- * guide pointer was among them. It changes nothing about the seed.
+ * many characters of resident context the agent opened with, whether the
+ * guide pointer was among them, and — when an instruction layer rode the launch
+ * — its size, digest, and whether a pointer (not the body) reached the kickoff.
+ * It changes nothing about the seed.
  */
-export function measureSeed(seed: string | undefined, guideMarker?: string): SeedTelemetry {
+export function measureSeed(
+  seed: string | undefined,
+  guideMarker?: string,
+  instructions?: SessionInstructions,
+): SeedTelemetry {
   return {
     seedChars: seedCharLength(seed),
     guidePointer: seedHasGuide(seed, guideMarker),
+    ...(instructions
+      ? {
+          instructionsChars: instructionsCharLength(instructions.body),
+          instructionsHash: hashInstructions(instructions.body),
+        }
+      : {}),
+    ...(hasInstructionsPointer(seed) ? { instructionsPointer: true } : {}),
   };
 }

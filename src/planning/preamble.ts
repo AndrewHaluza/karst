@@ -17,9 +17,14 @@ export function planningOutboxDir(scratch: string): string {
 }
 
 /**
- * The seed of a planning session: what the stack is, that it must not edit
- * (enforcement differs per core — see agent-cores.md), and how it files its outcome. Pure — the launcher in
- * `extension/ops/planning.ts` passes it as the agent's initial prompt.
+ * The INSTRUCTIONS layer of a planning session — the standing rules the agent
+ * adopts through its own system/developer channel (see `agent/instructions.ts`):
+ * the planning role, the no-edit rule, the stack it may read, and the
+ * `draft propose` contract. It is written to a file and delivered by each core's
+ * declared channel; it never rides the kickoff as prose.
+ *
+ * The KICKOFF is separate and empty by default (a planning session opens no
+ * ticket and has no first user message to replay) — see `planningKickoff`.
  */
 
 export type PlanningManifest = Pick<Manifest, 'baselineBranch' | 'repositories'>;
@@ -39,7 +44,8 @@ export function planningAddDirs(manifest: PlanningManifest): string[] {
   return [...new Set(enabledRepos(manifest).map(([, def]) => def.repoPath))];
 }
 
-export function planningPreamble(input: PreambleInput): string {
+/** The standing instructions delivered through the core's own channel. */
+export function planningInstructions(input: PreambleInput): string {
   const { title, manifest } = input;
   const cli = envRef(KARST_CLI_ENV);
   const enabled = enabledRepos(manifest);
@@ -66,4 +72,14 @@ export function planningPreamble(input: PreambleInput): string {
     'and state any ordering between them in each description.',
     `Run \`node ${cli} guide\` for the full CLI reference.`,
   ].join('\n');
+}
+
+/**
+ * The kickoff that seeds the launch's first user message. A planning session
+ * has none today (the user's first message arrives through the TUI), so the
+ * launcher passes the title here only when it wants to open with it. Empty is
+ * valid: the instructions file already carries the standing rules.
+ */
+export function planningKickoff(firstMessage?: string): string {
+  return firstMessage?.trim() ?? '';
 }

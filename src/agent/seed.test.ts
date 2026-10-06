@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { buildSessionSeed, measureSeed } from './seed.js';
+import { renderInstructionsPointer } from './instructions.js';
 import { markerStageFor } from './markerStage.js';
 import { renderGateOnlyInstruction, renderDoneMarkerInstruction } from './workflowCommand.js';
 import { openStore, type Store } from '../store/db.js';
@@ -215,6 +216,22 @@ describe('measureSeed', () => {
 
   it('reports zero length for a bare launch (undefined seed)', () => {
     expect(measureSeed(undefined)).toEqual({ seedChars: 0, guidePointer: false });
+  });
+
+  it('measures both layers: the instruction size + digest when one rode the launch', () => {
+    const instructions = { path: '/s/karst-instructions.md', body: '# Karst rules\nDo the thing.' };
+    const m = measureSeed('kickoff', undefined, instructions);
+    expect(m.seedChars).toBe('kickoff'.length);
+    expect(m.instructionsChars).toBe(instructions.body.length);
+    expect(m.instructionsHash).toHaveLength(10);
+    // No instruction layer → the fields are absent, never invented.
+    expect(measureSeed('kickoff')).not.toHaveProperty('instructionsChars');
+  });
+
+  it('flags a pointer core whose kickoff carries the instructions pointer', () => {
+    const m = measureSeed(renderInstructionsPointer());
+    expect(m.instructionsPointer).toBe(true);
+    expect(measureSeed('no pointer here')).not.toHaveProperty('instructionsPointer');
   });
 });
 

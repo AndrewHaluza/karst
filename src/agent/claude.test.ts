@@ -322,6 +322,42 @@ describe('buildInteractiveCommand initialPrompt', () => {
     expect(cmd.args).not.toContain('--resume');
   });
 
+  it('delivers the instruction layer by file on a fresh launch, without touching the snapshot', () => {
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      instructions: { path: '/s/karst-instructions.md', body: 'BODY' },
+    });
+    expect(cmd.args).toContain('--append-system-prompt-file');
+    expect(cmd.args[cmd.args.indexOf('--append-system-prompt-file') + 1]).toBe('/s/karst-instructions.md');
+    // A fresh launch records the CURRENT file as the stable prompt — the
+    // snapshot opt-out is only for resume, where the record would be stale.
+    expect(cmd.args).not.toContain('--system-prompt-snapshot');
+    expect(cmd.args.join(' ')).not.toContain('BODY');
+    expect(cmd.instructionsChannel).toBe('native-file');
+  });
+
+  it('opts out of the system-prompt snapshot on a resume, so the regenerated file applies', () => {
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      resume: 'sess-9',
+      instructions: { path: '/s/karst-instructions.md', body: 'BODY' },
+      initialPrompt: 'go',
+    });
+    expect(cmd.args).toContain('--resume');
+    expect(cmd.args[cmd.args.indexOf('--append-system-prompt-file') + 1]).toBe('/s/karst-instructions.md');
+    // Default snapshot `on` replays the first launch's recorded prompt on
+    // resume, ignoring the regenerated file — so it must be off.
+    expect(cmd.args[cmd.args.indexOf('--system-prompt-snapshot') + 1]).toBe('off');
+    expect(cmd.args.filter((a) => a === '--append-system-prompt-file')).toHaveLength(1);
+  });
+
+  it('never touches the snapshot on a launch with no instruction layer', () => {
+    expect(adapter.buildInteractiveCommand({ cwd: '/wt' }).args).not.toContain('--system-prompt-snapshot');
+    expect(
+      adapter.buildInteractiveCommand({ cwd: '/wt', resume: 'sess-9' }).args,
+    ).not.toContain('--system-prompt-snapshot');
+  });
+
   it('appends extraArgs with no initialPrompt', () => {
     const cmd = adapter.buildInteractiveCommand({
       cwd: '/wt',

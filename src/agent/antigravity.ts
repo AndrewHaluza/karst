@@ -11,6 +11,7 @@ import { join, dirname, isAbsolute, basename, extname } from 'node:path';
 import type {
   AgentAdapter,
   AgentCapabilities,
+  InstructionDelivery,
   InteractiveCommand,
   InteractiveCommandOpts,
   MaterializeOpts,
@@ -46,6 +47,7 @@ import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
+import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
 const AGY_BIN = 'agy';
 
@@ -199,6 +201,17 @@ export class AntigravityAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
   };
 
+  /**
+   * agy 1.3.0 has NO instructions flag (only `--prompt-interactive/-i`), so it is
+   * a POINTER core: the kickoff opens with a one-line pointer to
+   * `$KARST_INSTRUCTIONS`, placed after any leading slash command.
+   */
+  readonly instructions: InstructionDelivery = {
+    interactive: 'pointer',
+    headless: 'n/a',
+    acp: 'n/a',
+  };
+
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
   // `opts.sessionName` is deliberately dropped: the agy CLI has no launch-time
@@ -226,10 +239,20 @@ export class AntigravityAdapter implements AgentAdapter {
     // because it is not verified to enforce read-only and may refuse filing.
     if (opts.readOnly) args.push('--mode', 'plan');
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
-    if (opts.initialPrompt && opts.initialPrompt.length > 0) {
-      args.push('-i', opts.initialPrompt);
+    // The instruction layer is a pointer in the kickoff, after any leading
+    // slash command, so the agent reads `$KARST_INSTRUCTIONS` before it starts.
+    const kickoff = opts.instructions
+      ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
+      : opts.initialPrompt;
+    if (kickoff && kickoff.length > 0) {
+      args.push('-i', kickoff);
     }
-    return { command: AGY_BIN, args, env: {} };
+    return {
+      command: AGY_BIN,
+      args,
+      env: {},
+      ...(opts.instructions ? { instructionsChannel: 'pointer' as const } : {}),
+    };
   }
 
   materializeApproach(opts: MaterializeOpts): Materialized {

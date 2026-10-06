@@ -6,6 +6,7 @@ import type {
   AgentCapabilities,
   InteractiveCommand,
   InteractiveCommandOpts,
+  InstructionDelivery,
   MaterializeOpts,
   Materialized,
   RunHeadlessOpts,
@@ -165,6 +166,18 @@ export class ClaudeAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
   };
 
+  /**
+   * Claude reads the instruction layer natively from the file via
+   * `--append-system-prompt-file` — the body never rides argv. Headless/ACP are
+   * declared and not yet wired (headless runs get their rules from the prompt
+   * today; ACP has no claude client).
+   */
+  readonly instructions: InstructionDelivery = {
+    interactive: 'native-file',
+    headless: 'n/a',
+    acp: 'n/a',
+  };
+
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
   /**
@@ -233,13 +246,35 @@ export class ClaudeAdapter implements AgentAdapter {
     // `--add-dir` is variadic in claude; one flag per dir keeps each value
     // unambiguous, and the `--` below stops it swallowing the prompt.
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
+    if (opts.instructions) {
+      // The instruction layer rides claude's own system-prompt channel from the
+      // file karst wrote — never inline (the body is untrusted-length prose and
+      // must not ride argv). An option, so it goes before the `--` positional.
+      args.push('--append-system-prompt-file', opts.instructions.path);
+      if (opts.resume) {
+        // On RESUME, opt out of the system-prompt SNAPSHOT. Its default (`on`)
+        // records the prompt on the conversation's first request and replays
+        // that record verbatim on every later request and resume, so a resume
+        // would silently ignore the instruction file karst regenerated for this
+        // launch (ticket item 7). `off` renders the prompt fresh every request
+        // (and overrides an already-recorded snapshot), so the CURRENT file is
+        // what the agent receives. A fresh launch keeps the default `on` — it
+        // records the current file as the stable, cache-friendly prompt.
+        args.push('--system-prompt-snapshot', 'off');
+      }
+    }
     if (opts.initialPrompt && opts.initialPrompt.length > 0) {
       // `--` ends option parsing so the prompt is always a positional, even when
       // it starts with dashes (e.g. a doc's `---` YAML frontmatter) — otherwise
       // commander reads `---…` as an unknown option and `claude` exits 1.
       args.push('--', opts.initialPrompt);
     }
-    return { command: CLAUDE_BIN, args, env: {} };
+    return {
+      command: CLAUDE_BIN,
+      args,
+      env: {},
+      ...(opts.instructions ? { instructionsChannel: 'native-file' as const } : {}),
+    };
   }
 
   /**
