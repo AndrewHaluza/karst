@@ -4,6 +4,12 @@
  * ticket-text baseline (docs/arch/prompt-metrics.md) — the `seedChars` metric
  * itself has zero recorded rows, so these are NOT read off that metric.
  * Re-derive from the same doc before changing any of these numbers.
+ *
+ * The caps are per SECTION, independent of which layer a section rides since
+ * the launch split: ticket prompt/brief/attachments and the approach method
+ * ride the kickoff; the fact sections (stage/gates/findings) and the small
+ * fixed rules (servers/guide/marker) ride the instruction layer. Nothing here
+ * is a whole-layer cap — `seedChars` measures their sum at the seam.
  */
 export const SEED_BUDGETS = {
   ticketPrompt: 4000,

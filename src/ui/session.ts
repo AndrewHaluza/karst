@@ -498,7 +498,12 @@ export class SessionManager {
         resume: Boolean(resume),
         switchLaunch: options.allowResume === false && options.providerReady === true,
         ...(options.assignment ? { assignment: options.assignment } : {}),
-        seedTelemetry: measureSeed(initialPrompt, undefined, options.instructions),
+        seedTelemetry: measureSeed(
+          initialPrompt,
+          undefined,
+          options.instructions,
+          cmd.instructionsChannel,
+        ),
       });
     }
 

@@ -61,13 +61,19 @@ describe('direct approach launch path (integration)', () => {
         ],
         stage: null,
       });
-      const seed = buildSessionSeed(contextMarkdown, approachPrompt);
-      expect(seed).toBeDefined();
+      // A direct ticket has no materialized entry command, so the seed is
+      // self-contained: everything inlines into the kickoff.
+      const seed = buildSessionSeed({
+        authoredContext: contextMarkdown,
+        approachPrompt,
+        inlineInstructions: true,
+      });
+      expect(seed.kickoff.length).toBeGreaterThan(0);
 
       // 3. Build the real interactive command and assert the seed rides through.
       const cmd = new ClaudeAdapter().buildInteractiveCommand({
         cwd: '/wt/acme-42',
-        ...(seed ? { initialPrompt: seed } : {}),
+        ...(seed.kickoff ? { initialPrompt: seed.kickoff } : {}),
       });
 
       // `--` separates options from the positional seed.

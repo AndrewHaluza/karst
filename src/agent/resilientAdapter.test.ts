@@ -74,6 +74,21 @@ describe('backoffDelay', () => {
 });
 
 describe('resilientAdapter', () => {
+  it('preserves the wrapped core instruction delivery, solo fallback included', () => {
+    const inner = fakeAdapter({
+      instructions: {
+        interactive: 'pointer',
+        headless: 'n/a',
+        acp: 'n/a',
+        soloFallback: true,
+      },
+    });
+    // `extension.ts` composes `resilientAdapter(instrumentAdapter(core))`, and
+    // the seed composer reads `instructions.soloFallback` off this runtime
+    // adapter — the wrapper must not drop the declaration.
+    expect(resilientAdapter(inner, opts()).instructions).toEqual(inner.instructions);
+  });
+
   it('happy path: inner succeeds first call', async () => {
     const spy = vi.fn(async (): Promise<HeadlessResult> => ({
       sessionId: 's1', verdict: null, raw: 'answer',

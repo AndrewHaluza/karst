@@ -67,6 +67,24 @@ describe('instructions pointer', () => {
     expect(withContext.indexOf('POINTER')).toBeGreaterThan(withContext.indexOf('/karst:rpi PROJ-9'));
     expect(withContext.indexOf('POINTER')).toBeLessThan(withContext.indexOf('# Ticket'));
   });
+
+  it('places the pointer AFTER a leading $ skill invocation (agy/codex)', () => {
+    expect(withInstructionsPointer('$karst-start-task PROJ-9', 'POINTER')).toBe(
+      '$karst-start-task PROJ-9\n\nPOINTER',
+    );
+    const withContext = withInstructionsPointer(
+      '$karst-resume PROJ-9\n\nContinue the work.',
+      'POINTER',
+    );
+    // The $ invocation must remain the first token, pointer after it.
+    expect(withContext.split('\n')[0]).toBe('$karst-resume PROJ-9');
+    expect(withContext.indexOf('POINTER')).toBeGreaterThan(
+      withContext.indexOf('$karst-resume PROJ-9'),
+    );
+    expect(withContext.indexOf('POINTER')).toBeLessThan(
+      withContext.indexOf('Continue the work.'),
+    );
+  });
 });
 
 describe('instructions measurement', () => {

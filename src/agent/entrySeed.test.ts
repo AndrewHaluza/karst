@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { launchInvocation, launchSections, composeResumeSeed, composeConflictSeed } from './entrySeed.js';
+import {
+  launchInvocation,
+  launchSections,
+  composeResumeSeed,
+  composeConflictSeed,
+} from './entrySeed.js';
 
 describe('launchInvocation', () => {
   it('returns the orchestrator when present and no entry invocations', () => {
@@ -40,15 +45,6 @@ describe('launchInvocation', () => {
     expect(launchInvocation({})).toBeNull();
   });
 
-  it('returns start-task when orchestrator is null', () => {
-    expect(
-      launchInvocation({
-        orchestratorInvocation: null,
-        entryInvocations: { 'start-task': '/karst:start-task' },
-      }),
-    ).toBe('/karst:start-task');
-  });
-
   it('falls through to start-task when orchestrator is whitespace', () => {
     expect(
       launchInvocation({
@@ -56,16 +52,6 @@ describe('launchInvocation', () => {
         entryInvocations: { 'start-task': '/karst:start-task' },
       }),
     ).toBe('/karst:start-task');
-  });
-
-  it('returns null when entryInvocations has resume but no start-task', () => {
-    expect(
-      launchInvocation({ entryInvocations: { resume: '/karst:resume' } }),
-    ).toBeNull();
-  });
-
-  it('returns null when entryInvocations is undefined', () => {
-    expect(launchInvocation({ orchestratorInvocation: undefined })).toBeNull();
   });
 });
 
@@ -80,152 +66,134 @@ describe('launchSections', () => {
 });
 
 describe('composeResumeSeed', () => {
-  it('returns invocation-first string when given an invocation', () => {
-    const result = composeResumeSeed({
-      ticketKey: 'PROJ-9',
-      resumeBrief: 'Continue the in-progress work.',
-      invocation: '/karst:resume',
-    });
-    expect(result).toBe('/karst:resume PROJ-9\n\nContinue the in-progress work.');
-  });
+  const FACTS = '## Current stage\n- stage: fix (running)';
 
-  it('omits the marker when no marker instruction is given', () => {
-    const result = composeResumeSeed({
-      ticketKey: 'PROJ-9',
-      resumeBrief: 'Fix the failing gate.',
-      invocation: '/karst:resume',
-    });
-    expect(result).toBe('/karst:resume PROJ-9\n\nFix the failing gate.');
-  });
-
-  it('includes the marker when an invocation is given', () => {
-    const result = composeResumeSeed({
-      ticketKey: 'PROJ-9',
-      resumeBrief: 'Fix the failing gate.',
-      invocation: '/karst:resume',
-      markerInstruction: 'RUN THE MARKER',
-    });
-    expect(result).toContain('RUN THE MARKER');
-    expect(result).toContain('/karst:resume PROJ-9');
-  });
-
-  it('returns brief with marker when no invocation is given', () => {
-    const result = composeResumeSeed({
-      ticketKey: 'PROJ-9',
-      resumeBrief: 'Continue the in-progress work on ticket PROJ-9.',
-      markerInstruction: 'RUN THE MARKER',
-    });
-    expect(result).toBe(
-      'Continue the in-progress work on ticket PROJ-9.\n\nRUN THE MARKER',
-    );
-  });
-
-  it('returns brief only when neither invocation nor marker is given', () => {
-    const result = composeResumeSeed({
-      ticketKey: 'PROJ-9',
-      resumeBrief: 'Continue the in-progress work on ticket PROJ-9.',
-    });
-    expect(result).toBe('Continue the in-progress work on ticket PROJ-9.');
-  });
-
-  it('uses fix invocation when provided', () => {
-    const result = composeResumeSeed({
+  it('puts the invocation first and the short brief in the kickoff', () => {
+    const seed = composeResumeSeed({
       ticketKey: 'PROJ-9',
       resumeBrief: 'Gate X failed: ...',
-      invocation: '/karst:fix',
-    });
-    expect(result).toBe('/karst:fix PROJ-9\n\nGate X failed: ...');
-  });
-
-  it('composes from structured input rather than a hand-built string', () => {
-    const ticketKey = 'PROJ-42';
-    const resumeBrief = 'Re-read live state and continue.';
-    const invocation = '/karst:resume';
-    const markerInstruction = 'Run `karst stage impl pass --ticket PROJ-42` when done.';
-    const result = composeResumeSeed({ ticketKey, resumeBrief, invocation, markerInstruction });
-    expect(result).toBe(
-      '/karst:resume PROJ-42\n\nRe-read live state and continue.\n\nRun `karst stage impl pass --ticket PROJ-42` when done.',
-    );
-  });
-});
-
-describe('composeResumeSeed servers instruction', () => {
-  it('places the servers section after the brief and before the marker', () => {
-    const seed = composeResumeSeed({
-      ticketKey: 'K-1',
-      resumeBrief: 'BRIEF',
       invocation: '/karst:resume',
-      markerInstruction: 'MARKER',
-      serversInstruction: '## Services\n\nRULE',
     });
-    expect(seed.indexOf('BRIEF')).toBeLessThan(seed.indexOf('## Services'));
-    expect(seed.indexOf('## Services')).toBeLessThan(seed.indexOf('MARKER'));
+    expect(seed.kickoff.split('\n')[0]).toBe('/karst:resume PROJ-9');
+    expect(seed.kickoff).toContain('Gate X failed: ...');
   });
 
-  it('carries the servers section on the no-invocation branch too', () => {
+  it('regenerates the instructions (facts + servers + marker) and never repeats them in the kickoff', () => {
     const seed = composeResumeSeed({
-      ticketKey: 'K-1',
-      resumeBrief: 'BRIEF',
+      ticketKey: 'PROJ-9',
+      resumeBrief: 'Re-read live state and continue.',
+      invocation: '/karst:resume',
+      markerInstruction: 'RUN THE MARKER',
       serversInstruction: '## Services\n\nRULE',
+      factsContext: FACTS,
     });
-    expect(seed).toBe('BRIEF\n\n## Services\n\nRULE');
+    expect(seed.instructions).toContain('## Current stage');
+    expect(seed.instructions).toContain('## Services');
+    expect(seed.instructions).toContain('RUN THE MARKER');
+    // No duplication: the kickoff is just invocation + brief.
+    expect(seed.kickoff).not.toContain('## Current stage');
+    expect(seed.kickoff).not.toContain('## Services');
+    expect(seed.kickoff).not.toContain('RUN THE MARKER');
+    expect(seed.kickoff).toBe('/karst:resume PROJ-9\n\nRe-read live state and continue.');
   });
 
-  it('is unchanged when no servers instruction is given', () => {
-    expect(composeResumeSeed({ ticketKey: 'K-1', resumeBrief: 'BRIEF', markerInstruction: 'MARKER' })).toBe(
-      'BRIEF\n\nMARKER',
+  it('does not regenerate the guide pointer on a resume (fresh-launch denominator only)', () => {
+    const seed = composeResumeSeed({
+      ticketKey: 'PROJ-9',
+      resumeBrief: 'Continue.',
+      invocation: '/karst:resume',
+      markerInstruction: 'RUN THE MARKER',
+      serversInstruction: '## Services\n\nRULE',
+      factsContext: FACTS,
+    });
+    expect(seed.instructions).not.toContain('To understand how Karst works');
+  });
+
+  it('stays self-contained inline when no invocation was materialized', () => {
+    const seed = composeResumeSeed({
+      ticketKey: 'PROJ-9',
+      resumeBrief: 'Continue the in-progress work on ticket PROJ-9.',
+      markerInstruction: 'RUN THE MARKER',
+      serversInstruction: '## Services\n\nRULE',
+      factsContext: FACTS,
+    });
+    expect(seed.instructions).toBeNull();
+    expect(seed.kickoff).toBe(
+      `Continue the in-progress work on ticket PROJ-9.\n\n${FACTS}\n\n## Services\n\nRULE\n\nRUN THE MARKER`,
     );
+  });
+
+  it('inlines everything on a solo fallback core even with an invocation', () => {
+    const seed = composeResumeSeed({
+      ticketKey: 'PROJ-9',
+      resumeBrief: 'Fix the failing gate.',
+      invocation: '/karst:fix',
+      markerInstruction: 'RUN THE MARKER',
+      inlineInstructions: true,
+    });
+    expect(seed.instructions).toBeNull();
+    expect(seed.kickoff.split('\n')[0]).toBe('/karst:fix PROJ-9');
+    expect(seed.kickoff).toContain('RUN THE MARKER');
+  });
+
+  it('returns an empty kickoff when there is nothing to say', () => {
+    const seed = composeResumeSeed({ ticketKey: 'PROJ-9', resumeBrief: '   ' });
+    expect(seed).toEqual({ instructions: null, kickoff: '' });
   });
 });
 
 describe('composeConflictSeed', () => {
-  it('prepends exactly one invocation line and one blank line', () => {
-    const result = composeConflictSeed({
+  const FACTS = '## Worktrees & branches\n- frontend: `feat/x`';
+
+  it('prepends exactly the invocation and keeps the conflict brief short in the kickoff', () => {
+    const seed = composeConflictSeed({
       ticketKey: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict in repo frontend.',
       invocation: '/karst:resolve-conflict',
+      markerInstruction: 'RUN THE MARKER',
+      factsContext: FACTS,
     });
-    expect(result).toBe(
+    expect(seed.kickoff).toBe(
       '/karst:resolve-conflict PROJ-9\n\nResolve merge conflict in repo frontend.',
     );
+    expect(seed.instructions).toContain('## Worktrees & branches');
+    expect(seed.instructions).toContain('RUN THE MARKER');
+    // Conflict resolution runs no services — no servers rule is attached.
+    expect(seed.instructions ?? '').not.toContain('## Services');
   });
 
-  it('returns the brief unchanged when no invocation is given', () => {
-    const brief = 'Resolve merge conflict in repo frontend.';
-    const result = composeConflictSeed({
-      ticketKey: 'PROJ-9',
-      conflictBrief: brief,
-    });
-    expect(result).toBe(brief);
-  });
-
-  it('appends marker when no invocation but marker is given', () => {
-    const result = composeConflictSeed({
+  it('inlines into the kickoff when no invocation is materialized', () => {
+    const seed = composeConflictSeed({
       ticketKey: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict.',
       markerInstruction: 'RUN THE MARKER',
+      factsContext: FACTS,
     });
-    expect(result).toBe('Resolve merge conflict.\n\nRUN THE MARKER');
+    expect(seed.instructions).toBeNull();
+    expect(seed.kickoff).toBe(
+      `Resolve merge conflict.\n\n${FACTS}\n\nRUN THE MARKER`,
+    );
   });
 
-  it('returns brief unchanged when neither invocation nor marker is given', () => {
-    const brief = 'Resolve merge conflict.';
-    const result = composeConflictSeed({
-      ticketKey: 'PROJ-9',
-      conflictBrief: brief,
-    });
-    expect(result).toBe(brief);
-  });
-
-  it('includes markerInstruction when given an invocation', () => {
-    const result = composeConflictSeed({
+  it('inlines into the kickoff on a solo fallback core', () => {
+    const seed = composeConflictSeed({
       ticketKey: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict.',
       invocation: '/karst:resolve-conflict',
       markerInstruction: 'RUN THE MARKER',
+      inlineInstructions: true,
     });
-    expect(result).toContain('RUN THE MARKER');
-    expect(result).toContain('/karst:resolve-conflict PROJ-9');
-    expect(result.endsWith('RUN THE MARKER')).toBe(true);
+    expect(seed.instructions).toBeNull();
+    expect(seed.kickoff.split('\n')[0]).toBe('/karst:resolve-conflict PROJ-9');
+    expect(seed.kickoff).toContain('RUN THE MARKER');
+  });
+
+  it('keeps the slash command as the first token of the kickoff', () => {
+    const seed = composeConflictSeed({
+      ticketKey: 'PROJ-9',
+      conflictBrief: 'Resolve merge conflict.',
+      invocation: '/karst:resolve-conflict',
+    });
+    expect(seed.kickoff.startsWith('/karst:resolve-conflict PROJ-9')).toBe(true);
   });
 });

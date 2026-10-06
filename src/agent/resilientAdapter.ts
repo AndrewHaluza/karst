@@ -99,7 +99,14 @@ export function resilientAdapter(
   const adapter: AgentAdapter = {
     requiredBinary: inner.requiredBinary,
     capabilities: inner.capabilities,
+    // The wrapped core's declared seam positions and instruction delivery must
+    // survive BOTH decorators: `extension.ts` composes
+    // `resilientAdapter(instrumentAdapter(core))`, and the seed composer reads
+    // `instructions.soloFallback` while `session.ts` reads
+    // `instructions.interactive` from this runtime adapter. Dropping either
+    // here silently disables the instruction layer on every real launch.
     ...(inner.surfaces ? { surfaces: inner.surfaces } : {}),
+    ...(inner.instructions ? { instructions: inner.instructions } : {}),
 
     buildInteractiveCommand: (opts: InteractiveCommandOpts): InteractiveCommand =>
       inner.buildInteractiveCommand(opts),

@@ -443,6 +443,12 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     }
     // Interactive is wired for every core today; headless/ACP are declared only.
     expect(delivery!.interactive, `${provider} interactive channel`).not.toBe('n/a');
+    // A solo-agent launch reports `fallback` on exactly the cores that declare
+    // `soloFallback` (the native channel cannot coexist with the persona).
+    expect(
+      Boolean(delivery!.soloFallback),
+      `${provider} soloFallback declaration`,
+    ).toBe(provider === 'codex' || provider === 'opencode');
   });
 
   it('delivers the instruction layer through its declared interactive channel, never inline', () => {
