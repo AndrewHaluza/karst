@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CI mini report for the advisory mutation job (.github/workflows/ci.yml).
+ * CI mini report for the blocking mutation job (.github/workflows/ci.yml).
  *
  * `npm run test:mutation` breaks under `thresholds.break` (85), so a PR that
  * drops the score only ever showed the Stryker step as "Process completed with
@@ -15,8 +15,8 @@
  *      so the "Files changed" tab marks the lines (GitHub caps annotations per
  *      step and only inlines lines that are part of the diff).
  *
- * The job is advisory and must stay green, so a missing or malformed report is
- * a message, never a crash.
+ * The Stryker step owns pass/fail; this script must never change the verdict,
+ * so a missing or malformed report is a message, never a crash.
  */
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
@@ -282,7 +282,7 @@ function writeSummary(summaryPath, markdown) {
   try {
     appendFileSync(summaryPath, `${markdown}\n`);
   } catch {
-    // A summary we cannot write must not fail the advisory job.
+    // A summary we cannot write must not fail the job on its own.
   }
 }
 
@@ -308,8 +308,8 @@ export function run({
   const changedFiles = loadChangedFiles(changedPath);
 
   // A structurally malformed report (e.g. a null file entry) must degrade to a
-  // message, not exit non-zero: the publish step has no `continue-on-error`,
-  // so a throw here would redden the advisory job.
+  // message, not exit non-zero: Stryker owns the verdict, so a throw here
+  // would fail the job for the wrong reason.
   let markdown;
   try {
     markdown = buildMiniReport({ report: loaded.report, threshold });

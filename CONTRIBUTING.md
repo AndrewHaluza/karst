@@ -129,8 +129,9 @@ When a change exists to satisfy a UI rule, cite the rule id in the commit
 message (UI-R35).
 
 CI runs typecheck, build, unit tests, and e2e tests on every pull request to
-`main` and `develop`. All are blocking. A mutation-score job runs advisory
-and never fails the check.
+`main` and `develop`. All are blocking. A `Mutation score` job also runs on
+pull requests and is blocking: Stryker exits non-zero when the score drops
+below 85.
 
 Target `develop`, not `main`.
 
