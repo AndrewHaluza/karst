@@ -1,7 +1,13 @@
 /**
- * Validate the `processes:` block (Task 7): six closed inside-process role
+ * Validate the `processes:` block (Task 7): the closed inside-process role
  * keys, each an optional assignment override. Unknown process keys and
  * unknown providers are refused with the field named, never guessed at.
+ *
+ * `planning` is the seventh key and the one role that is not a `process_runs`
+ * process: a planning session is not a ticket and not a stage, but its core /
+ * model resolve through the SAME ladder (preset slot → `processes.planning`),
+ * falling back to the implementation resolution — see
+ * `agent/planningDefaults.ts`.
  *
  * The `agent` field is deliberately NOT checked for reference integrity
  * here: it names a profile in the agent POOL (a local file under `agentsDir`
@@ -21,7 +27,7 @@ import type {
   ProcessAssignmentsConfig,
 } from '../types.js';
 
-/** Manifest spellings of the six inside processes. */
+/** Manifest spellings of the inside processes. */
 export const PROCESS_KEYS = [
   'uatTester',
   'uatFix',
@@ -29,6 +35,7 @@ export const PROCESS_KEYS = [
   'reviewFix',
   'prDescription',
   'ticketAnalysis',
+  'planning',
 ] as const;
 export type ProcessKey = (typeof PROCESS_KEYS)[number];
 
@@ -40,6 +47,7 @@ export const PROCESS_ROLES = [
   'review-fix',
   'pr-description',
   'ticket-analysis',
+  'planning',
 ] as const;
 export type ProcessRole = (typeof PROCESS_ROLES)[number];
 
@@ -50,6 +58,7 @@ export const PROCESS_ROLE_BY_KEY: Readonly<Record<ProcessKey, ProcessRole>> = {
   reviewFix: 'review-fix',
   prDescription: 'pr-description',
   ticketAnalysis: 'ticket-analysis',
+  planning: 'planning',
 };
 
 export const PROCESS_KEY_BY_ROLE: Readonly<Record<ProcessRole, ProcessKey>> = {
@@ -59,6 +68,7 @@ export const PROCESS_KEY_BY_ROLE: Readonly<Record<ProcessRole, ProcessKey>> = {
   'review-fix': 'reviewFix',
   'pr-description': 'prDescription',
   'ticket-analysis': 'ticketAnalysis',
+  planning: 'planning',
 };
 
 /**

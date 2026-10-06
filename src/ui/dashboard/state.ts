@@ -269,6 +269,7 @@ export function buildDashboardState(
     reviewFix: null,
     prDescription: null,
     ticketAnalysis: null,
+    planning: null,
     graphExpert: null,
     graphWorker: null,
     graphFast: null,

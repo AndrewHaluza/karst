@@ -69,6 +69,7 @@ const GROUP_OF: Partial<Record<ProcessKey, string>> = {
   uatTester: 'UAT',
   review: 'Review',
   prDescription: 'Ship',
+  planning: 'Planning',
 };
 
 interface ProcessRow {

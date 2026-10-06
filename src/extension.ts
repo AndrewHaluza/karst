@@ -111,6 +111,7 @@ import {
 import { resolveAdapter } from './agent/registry.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
+import { resolvePlanningDefaults } from './agent/planningDefaults.js';
 import {
   resolveProcessAssignment,
   type DriveProcessBundle,
@@ -751,11 +752,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manifest: () => currentManifest(),
     // A tree apart from karst.db, so codex's only writable root never covers it.
     scratchDir: (id) => join(storageDir, 'planning-scratch', String(id)),
-    // Same resolution as an interactive session's default (preset slot, else
-    // the manifest's core + defaultModel), so planning launches the model the
-    // user configured instead of the CLI's own default.
+    // A planning session has its own core/model (Settings → Agents, "Planner",
+    // and the Presets `planning` row). Resolution: the active preset's
+    // `planning` slot → `processes.planning` → the implementation resolution, so
+    // an existing project keeps launching exactly what it launched before.
     defaultAgent: () => {
-      const d = resolvePresetDefaults(currentManifest() ?? emptyManifest(), 'implementation');
+      const d = resolvePlanningDefaults(currentManifest() ?? emptyManifest());
       return { provider: d.provider, model: d.model ?? null };
     },
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },

@@ -77,7 +77,7 @@ function validateSlot(raw: unknown, where: string): PresetSlot {
 /**
  * Legacy flat preset → the same slot on EVERY capability (§6). This is what
  * preserves today's behaviour exactly: a flat preset applied globally, so a
- * normalized one must override all ten rows and inherit nothing.
+ * normalized one must override every row and inherit nothing.
  */
 function normalizeLegacyPreset(raw: Record<string, unknown>, where: string): AgentPreset {
   const slot = validateSlot(raw, where);
