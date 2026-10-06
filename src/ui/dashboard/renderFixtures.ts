@@ -915,6 +915,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
       reviewFix: null,
       prDescription: null,
       ticketAnalysis: null,
+      planning: null,
       graphExpert: null,
       graphWorker: null,
       graphFast: null,

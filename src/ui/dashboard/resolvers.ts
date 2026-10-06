@@ -10,6 +10,7 @@ import type { SessionConfiguredInput } from '../../model/inside/agent.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolveModelForProvider } from '../../agent/models.js';
 import { resolvePresetDefaults, resolvePresetSlot } from '../../agent/agentPresets.js';
+import { resolvePlanningDefaults } from '../../agent/planningDefaults.js';
 import { isRunnable } from '../../manifest/runnable.js';
 import type { CapabilityIdentity, DashboardAgentContext } from './stateTypes.js';
 
@@ -84,6 +85,18 @@ export function agentContextFor(
   const capabilityIdentity = {} as Record<PresetCapability, CapabilityIdentity | null>;
 
   for (const capability of PRESET_CAPABILITIES) {
+    if (capability === 'planning') {
+      // A planning session is not a ticket, so the ticket's preset/core never
+      // apply: its identity is the manifest's planning resolution (planning
+      // slot → processes.planning → implementation resolution).
+      const planning = resolvePlanningDefaults(manifest);
+      capabilityIdentity[capability] = {
+        provider: planning.provider,
+        model: planning.model ?? null,
+        effort: planning.effort ?? null,
+      };
+      continue;
+    }
     if (GRAPH_CAPABILITIES.has(capability)) {
       // A graph slot applies as declared — it is the approach's own profile
       // binding, and nothing at ticket level overrides it. Absent slot is

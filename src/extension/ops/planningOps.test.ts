@@ -99,6 +99,16 @@ describe('planning ops', () => {
     for (const key of ['KARST_TICKET_ID', 'KARST_DB', 'KARST_MANIFEST']) expect(opts.env).not.toHaveProperty(key);
   });
 
+  it('launches the planner core/model the defaultAgent resolved', async () => {
+    const ops = createPlanningOps({
+      ...deps,
+      defaultAgent: () => ({ provider: 'claude', model: 'claude-opus-5' }),
+    });
+    const session = (await ops.create('Planner model'))!;
+    expect(session).toMatchObject({ core: 'claude', model: 'claude-opus-5' });
+    expect(created[0]!.opts.shellArgs).toEqual(expect.arrayContaining(['--model', 'claude-opus-5']));
+  });
+
   it('focuses the live terminal on open instead of launching a second one', async () => {
     const ops = createPlanningOps(deps);
     const s = (await ops.create('t'))!;
