@@ -1,0 +1,9 @@
+# git invocations observed via a PATH shim during a tool run in a git repo
+# snapshot=ON (default). shadow repo under XDG_DATA_HOME/opencode/snapshot/<project>/<hash>
+# total calls: 42
+  27  --git-dir <scratch>/xdg/data/opencode/snapshot/9fe4529e146e5eb87b4b52858b4a1e8c8fa45d1f/f8c3e7ebde4997191005d28fc58aa1e4b0229835
+   4  rev-parse --git-dir
+   4  --no-optional-locks -c
+   3  --git-dir /private<scratch>/work/gitrepo/.git
+   2  remote get-url
+   2  rev-list --max-parents=0

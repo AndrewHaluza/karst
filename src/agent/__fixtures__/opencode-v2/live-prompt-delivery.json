@@ -1,0 +1,12 @@
+{
+  "input": "first line\nsecond line \"quoted\"  double-space\nthird",
+  "positional_no_dashdash": "\"first line\\nsecond line \\\"quoted\\\"  double-space\\nthird\"",
+  "dashdash_positional": "\"first line\\nsecond line \\\"quoted\\\"  double-space\\nthird\" \"first line\\nsecond line \\\"quoted\\\"  double-space\\nthird\"",
+  "stdin": "first line\nsecond line \"quoted\"  double-space\nthird",
+  "file_flag": "\"summarize the attached file\"\n\n<file name=\"P.txt\">\nfirst line\nsecond line \"quoted\"  double-space\nthird\n</file>",
+  "tui_prompt_slash_command": "KARST-PROBE-COMMAND-EXECUTED\nArguments received: [argone\nbody line two\nbody line three]",
+  "byte_identical_paths": [
+    "stdin"
+  ],
+  "notes": "positional/dashdash/file_flag are NOT byte-identical; stdin is."
+}

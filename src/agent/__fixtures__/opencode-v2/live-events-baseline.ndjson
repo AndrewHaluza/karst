@@ -1,0 +1,29 @@
+{"type": "integration.updated", "data": {}}
+{"type": "model.updated", "data": {}}
+{"type": "provider.updated", "data": {}}
+{"type": "agent.updated", "data": {}}
+{"type": "command.updated", "data": {}}
+{"type": "skill.updated", "data": {}}
+{"type": "websearch.updated", "data": {}}
+{"type": "reference.updated", "data": {}}
+{"type": "plugin.updated", "data": {}}
+{"type": "session.inbox.enqueued", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "inboxID": "msg_111af1000001RPuPCaSXhQw2xt", "item": {"type": "user", "payload": {"text": "\"reply with exactly: ok\"", "files": []}, "delivery": "steer"}}}
+{"type": "session.execution.started", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa"}}
+{"type": "session.instructions.updated", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "delta": {"core/codemode": "3a6c896ca4366410e84edccbf179835337f464e16493a692c18b854a528ce2e1", "core/skill-guidance": "9933deace2a5e7359cc9b617135444a31be1de558b8c9b73d978d93c5b41259a", "core/date": "5c8dae29775784bcbe6bd4435aceb4e9ac13dd0a6662c40384efc999abc05282", "core/environment": "4d3de8b0e6743729d6fd7f95e289f01b460196b47fab8691b6232057a89aa70a"}}}
+{"type": "session.inbox.delivered", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "inboxID": "msg_111af1000001RPuPCaSXhQw2xt"}}
+{"type": "session.usage.updated", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "cost": 5.66e-05, "tokens": {"input": 521, "output": 9, "reasoning": 0, "cache": {"read": 0, "write": 0}}}}
+{"type": "session.renamed", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "title": "Exact reply instruction: ok"}}
+{"type": "session.step.started", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "agent": "build", "model": {"id": "mimo-v2.5", "providerID": "opencode-go", "variant": "default"}, "started": 1791298048640}}
+{"type": "session.reasoning.started", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "state": {"reasoningField": "reasoning_content"}}}
+{"type": "session.reasoning.delta", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "delta": "The user wants an"}}
+{"type": "session.reasoning.delta", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "delta": " exact reply:"}}
+{"type": "session.reasoning.delta", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "delta": " ok"}}
+{"type": "session.text.started", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0}}
+{"type": "session.reasoning.ended", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "text": "The user wants an exact reply: ok", "state": {"reasoningField": "reasoning_content", "reasoningDetails": [{"type": "reasoning.text", "text": "The user wants an exact reply: ok", "format": "unknown", "index": 0}]}}}
+{"type": "session.text.delta", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "delta": "ok"}}
+{"type": "session.text.ended", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "ordinal": 0, "text": "ok"}}
+{"type": "session.step.streamed", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX"}}
+{"type": "session.step.ended", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "assistantMessageID": "msg_111af1279001TDrgFzvgZ0NUZX", "finish": "stop", "rawFinish": "stop", "cost": 5.8447200000000005e-05, "tokens": {"input": 53, "output": 3, "reasoning": 9, "cache": {"read": 17024, "write": 0}}}}
+{"type": "session.usage.updated", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa", "cost": 0.0001150472, "tokens": {"input": 574, "output": 12, "reasoning": 9, "cache": {"read": 17024, "write": 0}}}}
+{"type": "session.execution.succeeded", "data": {"sessionID": "ses_eee50f106ffejFQFWdoMOqnYWa"}}
+{"type": "location.shutdown", "data": {}}

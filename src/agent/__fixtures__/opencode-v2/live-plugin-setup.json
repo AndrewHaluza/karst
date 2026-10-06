@@ -1,0 +1,36 @@
+[
+  {
+    "probe": "setup",
+    "pid": 42631,
+    "cwd": "<scratch>/work/probe",
+    "env_karst_opencode_headless": "1",
+    "env_karst_probe": "envprobe",
+    "ctx_keys": [
+      "app",
+      "location",
+      "options",
+      "agent",
+      "aisdk",
+      "command",
+      "event",
+      "experimental",
+      "generate",
+      "model",
+      "provider",
+      "integration",
+      "mcp",
+      "permission",
+      "plugin",
+      "reference",
+      "rpc",
+      "skill",
+      "storage",
+      "tool",
+      "vcs",
+      "websearch",
+      "worktree",
+      "session",
+      "shell"
+    ]
+  }
+]
