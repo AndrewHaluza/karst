@@ -1,0 +1,6 @@
+$ opencode session export ses_DOESNOTEXIST000 --standalone
+exit=1
+stdout:
+(empty)
+stderr:
+Session not found: ses_DOESNOTEXIST000

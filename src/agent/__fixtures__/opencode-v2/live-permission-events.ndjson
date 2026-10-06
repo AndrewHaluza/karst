@@ -1,0 +1,4 @@
+{"type": "permission.asked", "data": {"id": "per_111bffce7001rIlvm5IMvs40l1", "sessionID": "ses_eee4012daffe8V2ewQf0Q3Z9zp", "action": "shell", "resources": ["echo karst-ask-probe"], "save": ["echo *"], "source": {"type": "tool", "messageID": "msg_111bfefcc001BIXcl76GXckQ6K", "id": "call_d592717a7b3345ee802573dc"}}}
+{"type": "permission.replied", "data": {"sessionID": "ses_eee4012daffe8V2ewQf0Q3Z9zp", "requestID": "per_111bffce7001rIlvm5IMvs40l1", "reply": "reject"}}
+{"type": "permission.asked", "data": {"id": "per_111c32230001XXeTu0L63IwVmb", "sessionID": "ses_eee3ceab2ffeKT7ZyB3V0o1eWZ", "action": "external_directory", "resources": ["<scratch>/outside/*"], "save": ["<scratch>/outside/*"], "source": {"type": "tool", "messageID": "msg_111c3188f0012JIww56PZaGtzw", "id": "call_00_ekn5dj2p04wm0ivlcsvbsvbk"}}}
+{"type": "permission.replied", "data": {"sessionID": "ses_eee3ceab2ffeKT7ZyB3V0o1eWZ", "requestID": "per_111c32230001XXeTu0L63IwVmb", "reply": "reject"}}
