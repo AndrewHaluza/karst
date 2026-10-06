@@ -188,77 +188,69 @@ describe('dashboard render — fixture corpus', () => {
     h.close();
   });
 
-  it('renders per-capability effective agent identity (NDL-116)', () => {
-    const h = renderWebview('dashboard');
+  // Variant 2 (DASHBOARD-HEADER-SHOW-ONLY-ROLE): the second header row lists
+  // only the roles whose model differs from implementation, grouped by model.
+  const caps = (impl: [string, string], uat: [string, string], review: [string, string]) => ({
+    implementation: { provider: impl[0], model: impl[1] },
+    uatTester: { provider: uat[0], model: uat[1] },
+    review: { provider: review[0], model: review[1] },
+    uatFix: null, reviewFix: null, prDescription: null, ticketAnalysis: null,
+    graphExpert: null, graphWorker: null, graphFast: null,
+  });
+  const catalog = { claude: [{ id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' }], codex: [], opencode: [], antigravity: [] };
+  const withCaps = (capabilityIdentity: unknown, extra: Record<string, unknown> = {}) => {
     const base = renderStateFor('impl');
-    const stateWithCapabilityIdentity = {
-      ...base,
-      capabilityIdentity: {
-        implementation: { provider: 'openai', model: 'gpt-4o-mini' },
-        uatTester: { provider: 'anthropic', model: 'claude-opus' },
-        review: { provider: 'anthropic', model: 'claude-3-sonnet' },
-        uatFix: null,
-        reviewFix: null,
-        prDescription: null,
-        ticketAnalysis: null,
-        graphExpert: null,
-        graphWorker: null,
-        graphFast: null,
-      },
-    };
-    h.receive({ type: 'state', state: stateWithCapabilityIdentity });
+    return { ...base, ...extra, agentSwitch: { ...base.agentSwitch, modelsByCore: catalog }, capabilityIdentity };
+  };
+  const OPUS: [string, string] = ['claude', 'claude-opus-5-5'];
+  const SONNET: [string, string] = ['claude', 'claude-sonnet-5-5'];
+
+  it('hides the role row when every role matches implementation', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS)) });
     expect(h.errors).toEqual([]);
-
-    // Verify all three capability labels render correctly
-    const implCapability = h.query('[data-capability="implementation"]');
-    expect(implCapability).toBeTruthy();
-    expect(implCapability!.textContent).toContain('implementation: openai/gpt-4o-mini');
-
-    const uatCapability = h.query('[data-capability="uat-tester"]');
-    expect(uatCapability).toBeTruthy();
-    expect(uatCapability!.textContent).toContain('uat-tester: anthropic/claude-opus');
-
-    const reviewCapability = h.query('[data-capability="review"]');
-    expect(reviewCapability).toBeTruthy();
-    expect(reviewCapability!.textContent).toContain('review: anthropic/claude-3-sonnet');
-
+    expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(true);
+    expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });
 
-  it('ticket override wins over active preset default (NDL-116)', () => {
+  it('renders one chip when only review differs, with friendly labels and full-id tooltip', () => {
     const h = renderWebview('dashboard');
-    const base = renderStateFor('impl');
-    const stateWithOverride = {
-      ...base,
-      capabilityIdentity: {
-        implementation: { provider: 'anthropic', model: 'claude-opus' },
-        uatTester: { provider: 'anthropic', model: 'claude-opus' },
-        review: { provider: 'anthropic', model: 'claude-opus' },
-        uatFix: null,
-        reviewFix: null,
-        prDescription: null,
-        ticketAnalysis: null,
-        graphExpert: null,
-        graphWorker: null,
-        graphFast: null,
-      },
-    };
-    h.receive({ type: 'state', state: stateWithOverride });
-    expect(h.errors).toEqual([]);
+    h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, SONNET)) });
+    expect((h.query('#headerMeta') as HTMLElement).hidden).toBe(false);
+    const chips = h.queryAll('.capChip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.textContent).toContain('Review');
+    expect(chips[0]!.textContent).not.toContain('UAT');
+    expect(chips[0]!.textContent).toContain('Sonnet 5.5');
+    expect(chips[0]!.getAttribute('title')).toContain('claude/claude-sonnet-5-5');
+    h.close();
+  });
 
-    // All capabilities should use the ticket override (anthropic)
-    const implCapability = h.query('[data-capability="implementation"]');
-    expect(implCapability).toBeTruthy();
-    expect(implCapability!.textContent).toContain('implementation: anthropic/claude-opus');
+  it('groups UAT and review into one chip when they share a different model', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: withCaps(caps(OPUS, SONNET, SONNET)) });
+    const chips = h.queryAll('.capChip');
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.textContent).toContain('UAT · Review');
+    h.close();
+  });
 
-    const uatCapability = h.query('[data-capability="uat-tester"]');
-    expect(uatCapability).toBeTruthy();
-    expect(uatCapability!.textContent).toContain('uat-tester: anthropic/claude-opus');
+  it('falls back to the raw model id when the catalog has no label', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, ['codex', 'gpt-x'])) });
+    expect(h.queryAll('.capChip')[0]!.textContent).toContain('gpt-x');
+    h.close();
+  });
 
-    const reviewCapability = h.query('[data-capability="review"]');
-    expect(reviewCapability).toBeTruthy();
-    expect(reviewCapability!.textContent).toContain('review: anthropic/claude-opus');
-
+  it('shows only the relation for a sub-task with no overrides', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS), { subtaskParent: { key: 'PARENT-1' } }) });
+    const row = h.query('#headerMeta') as HTMLElement;
+    expect(row.hidden).toBe(false);
+    expect(row.firstElementChild!.id).toBe('parentRef');
+    expect(row.textContent).toContain('Sub-task of PARENT-1');
+    expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });
 });
