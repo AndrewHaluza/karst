@@ -21,6 +21,7 @@ import type {
   AgentAdapter,
   AgentCapabilities,
   HeadlessResult,
+  InstructionDelivery,
   InteractiveCommand,
   InteractiveCommandOpts,
   MaterializeOpts,
@@ -50,6 +51,7 @@ import { resolveNodeExecutable } from './nodeExecutable.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
+import { renderInstructionsPointer } from './instructions.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -371,6 +373,21 @@ export class CodexAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
   };
 
+  /**
+   * codex is a POINTER core. `developer_instructions` is inserted as a
+   * `developer` role message (an append channel), but it is a config string, not
+   * a file path, so the body cannot ride it without landing in argv. The only
+   * file-based key (`model_instructions_file`) OVERRIDES the model's sanctioned
+   * base instructions ("STRONGLY DISCOURAGED" per codex config docs), so it is
+   * not used. Instead `-c developer_instructions=<pointer>` names
+   * `$KARST_INSTRUCTIONS` and the body stays on disk.
+   */
+  readonly instructions: InstructionDelivery = {
+    interactive: 'pointer',
+    headless: 'n/a',
+    acp: 'n/a',
+  };
+
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
   // `opts.sessionName` is deliberately dropped: codex names sessions only after
@@ -406,6 +423,14 @@ export class CodexAdapter implements AgentAdapter {
         opts.hookChannel.endpointUrl,
       );
     }
+    if (opts.instructions && opts.soloAgent !== true) {
+      // The instruction layer is a POINTER through codex's developer-role
+      // channel. `JSON.stringify` produces a TOML basic string (the pointer has
+      // no newlines), so `-c` parses it as a literal, never as more TOML. It is
+      // an option, so it must precede the positional resume id / prompt below.
+      // A solo launch leaves the rules in the kickoff alongside the persona.
+      args.push('-c', `developer_instructions=${JSON.stringify(renderInstructionsPointer())}`);
+    }
     if (opts.resume) {
       args.push(opts.resume);
       if (opts.initialPrompt) args.push(opts.initialPrompt);
@@ -416,6 +441,9 @@ export class CodexAdapter implements AgentAdapter {
       command: CODEX_BIN,
       args,
       env: {},
+      ...(opts.instructions
+        ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
+        : {}),
     };
   }
 

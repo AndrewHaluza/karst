@@ -2,7 +2,8 @@ import { mkdirSync } from 'node:fs';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
-import { KARST_CLI_ENV } from '../../agent/cliEnv.js';
+import { KARST_CLI_ENV, KARST_INSTRUCTIONS_ENV } from '../../agent/cliEnv.js';
+import { writeSessionInstructions } from '../../agent/instructions.js';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -16,8 +17,9 @@ import {
   KARST_PLANNING_SESSION_ENV,
   PLANNING_OUTBOX_ENV,
   planningAddDirs,
+  planningInstructions,
+  planningKickoff,
   planningOutboxDir,
-  planningPreamble,
   type PlanningManifest,
 } from '../../planning/preamble.js';
 import type { SessionTerminal, TerminalHost } from '../../ui/session.js';
@@ -151,15 +153,27 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const cwd = deps.scratchDir(session.id);
       const outbox = planningOutboxDir(cwd);
       mkdirSync(outbox, { recursive: true });
+      // The standing rules are (re)written on EVERY launch — fresh or reopen —
+      // from the running karst version, and delivered through the core's own
+      // channel; the kickoff is separate (empty today). The same file is
+      // addressable by the agent as KARST_INSTRUCTIONS.
+      const instructions = writeSessionInstructions(
+        cwd,
+        planningInstructions({ sessionId: session.id, title: session.title, manifest }),
+      );
+      const kickoff = planningKickoff();
       const adapter = resolveAdapter(session.core as AgentProvider);
       const cmd = adapter.buildInteractiveCommand({
         cwd,
         readOnly: true,
         addDirs: planningAddDirs(manifest),
-        initialPrompt: planningPreamble({ sessionId: session.id, title: session.title, manifest }),
+        ...(kickoff.length > 0 ? { initialPrompt: kickoff } : {}),
+        ...(adapter.instructions && adapter.instructions.interactive !== 'n/a'
+          ? { instructions }
+          : {}),
         ...(session.model ? { model: session.model } : {}),
       });
-      debug(`launch ${session.id}: ${session.core} ${cmd.command} (cwd ${cwd}, <prompt redacted>)`);
+      debug(`launch ${session.id}: ${session.core} ${cmd.command} (cwd ${cwd}, instructions redacted)`);
       const terminal = deps.host.createTerminal({
         name: `${PLANNING_TERMINAL_PREFIX}${session.id}: ${session.title}`,
         cwd,
@@ -169,6 +183,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         env: {
           ...cmd.env,
           ...(cliEntry ? { [KARST_CLI_ENV]: cliEntry } : {}),
+          [KARST_INSTRUCTIONS_ENV]: instructions.path,
           [PLANNING_OUTBOX_ENV]: outbox,
           [KARST_PLANNING_SESSION_ENV]: String(session.id),
         },

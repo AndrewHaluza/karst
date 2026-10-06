@@ -20,6 +20,7 @@ import { KARST_EXCLUDE_RULES } from '../runtime/karstExcludes.js';
 import type { AgentAdapter, MaterializeOpts, RunHeadlessOpts } from './adapter.js';
 import type { AgentProvider } from '../manifest/types.js';
 import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
+import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, sep } from 'node:path';
@@ -417,6 +418,104 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       const covered = KARST_EXCLUDE_RULES.some((rule) => matchesExcludeRule(rule, rel));
       expect(covered, `${provider}: no KARST_EXCLUDE_RULES pattern covers /${rel}`).toBe(true);
     }
+  });
+
+  /**
+   * The agent-instructions layer, per core (AGENT-INSTRUCTIONS-LAYER-PER). Each
+   * adapter DECLARES how it delivers karst's own rules on every launch path; the
+   * interactive path is wired today, headless/ACP are declared so a later
+   * wiring cannot drift silently. The instruction BODY must never ride argv —
+   * only a file path (native-file) or a pointer (pointer).
+   */
+  const INSTRUCTIONS = {
+    path: '/karst/scratch/karst-instructions.md',
+    body: '# Karst rules\nNEVER-INLINE-THIS-BODY',
+  };
+
+  it('declares an instruction-delivery channel for every launch path', () => {
+    const delivery = resolveAdapter(provider).instructions;
+    expect(delivery, `${provider}.instructions`).toBeDefined();
+    for (const path of ['interactive', 'headless', 'acp'] as const) {
+      expect(
+        ['native-file', 'pointer', 'fallback', 'n/a'],
+        `${provider}.instructions.${path}`,
+      ).toContain(delivery![path]);
+    }
+    // Interactive is wired for every core today; headless/ACP are declared only.
+    expect(delivery!.interactive, `${provider} interactive channel`).not.toBe('n/a');
+  });
+
+  it('delivers the instruction layer through its declared interactive channel, never inline', () => {
+    const delivery = resolveAdapter(provider).instructions!;
+    const launched = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/karst/scratch',
+      instructions: INSTRUCTIONS,
+      initialPrompt: 'go',
+    });
+    expect(launched.instructionsChannel, `${provider} actual channel`).toBe(delivery.interactive);
+    const argv = launched.args.join(' ');
+    expect(argv, `${provider} must never inline the instruction body`).not.toContain(
+      'NEVER-INLINE-THIS-BODY',
+    );
+    if (delivery.interactive === 'native-file') {
+      expect(launched.args, `${provider} native-file flag`).toContain('--append-system-prompt-file');
+      expect(launched.args, `${provider} native-file path`).toContain(INSTRUCTIONS.path);
+      // A fresh launch records the CURRENT file as the stable prompt; the
+      // snapshot opt-out is only for resume, where the record would be stale.
+      expect(
+        launched.args,
+        `${provider} leaves the snapshot default on a fresh launch`,
+      ).not.toContain('--system-prompt-snapshot');
+    } else if (delivery.interactive === 'pointer') {
+      expect(argv, `${provider} pointer marker`).toContain(INSTRUCTIONS_POINTER_MARKER);
+      expect(argv, `${provider} pointer env name`).toContain('KARST_INSTRUCTIONS');
+    }
+  });
+
+  it('re-attaches instructions on resume without duplicating the kickoff', () => {
+    const delivery = resolveAdapter(provider).instructions!;
+    const launched = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/wt',
+      resume: 'ses_prev',
+      instructions: INSTRUCTIONS,
+      initialPrompt: 'KICKOFF-TOKEN',
+    });
+    const kickoffs = launched.args.filter((a) => a.includes('KICKOFF-TOKEN'));
+    expect(kickoffs, `${provider} kickoff appears once`).toHaveLength(1);
+    const argv = launched.args.join(' ');
+    expect(argv, `${provider} resume must not inline the body`).not.toContain(
+      'NEVER-INLINE-THIS-BODY',
+    );
+    if (delivery.interactive === 'native-file') {
+      expect(
+        launched.args.filter((a) => a === '--append-system-prompt-file'),
+        `${provider} resume re-attaches the file once`,
+      ).toHaveLength(1);
+      // Without snapshot `off`, the resume would replay the first launch's
+      // recorded prompt and ignore this regenerated file.
+      expect(
+        launched.args.slice(launched.args.indexOf('--system-prompt-snapshot') + 1)[0],
+        `${provider} resume opts out of the system-prompt snapshot`,
+      ).toBe('off');
+    } else {
+      const pointerCount = (argv.match(new RegExp(INSTRUCTIONS_POINTER_MARKER, 'g')) ?? []).length;
+      expect(pointerCount, `${provider} resume re-attaches the pointer once`).toBe(1);
+    }
+  });
+
+  it('reports fallback and leaves the rules in the kickoff for a solo-agent launch (codex/opencode)', () => {
+    if (provider !== 'codex' && provider !== 'opencode') return;
+    const launched = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/wt',
+      instructions: INSTRUCTIONS,
+      soloAgent: true,
+      initialPrompt: 'PERSONA-KICKOFF',
+    });
+    expect(launched.instructionsChannel, `${provider} solo channel`).toBe('fallback');
+    const argv = launched.args.join(' ');
+    expect(argv, `${provider} solo launch adds no pointer`).not.toContain(INSTRUCTIONS_POINTER_MARKER);
+    expect(argv, `${provider} solo launch inlines no body`).not.toContain('NEVER-INLINE-THIS-BODY');
+    expect(argv, `${provider} solo persona stays in the kickoff`).toContain('PERSONA-KICKOFF');
   });
 });
 

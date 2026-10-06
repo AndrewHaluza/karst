@@ -10,6 +10,13 @@ export const KARST_DB_ENV = 'KARST_DB';
 export const KARST_MANIFEST_ENV = 'KARST_MANIFEST';
 /** Env key carrying the ticket KEY (e.g. `NDL-7`); distinct from the numeric `KARST_TICKET_ID`. */
 export const KARST_TICKET_KEY_ENV = 'KARST_TICKET';
+/**
+ * Env key carrying the path to the session's instruction file (`instructions.ts`
+ * writes it, and the agent reads it). A pointer core reads it on demand; a
+ * native-file core never needs it, but it is exported for every launch so the
+ * same file is addressable regardless of the core's delivery channel.
+ */
+export const KARST_INSTRUCTIONS_ENV = 'KARST_INSTRUCTIONS';
 
 /** A double-quoted shell reference to an env var: `"$NAME"`. */
 export function envRef(name: string): string {
@@ -33,6 +40,8 @@ export interface KarstCliEnvInput {
   dbPath: string;
   manifestPath?: string;
   ticketKey?: string;
+  /** Session-dir path to the written instructions file (`KARST_INSTRUCTIONS`). */
+  instructionsPath?: string;
 }
 
 /** The env entries to export so the refs from `karstCliRefs` resolve. */
@@ -42,6 +51,7 @@ export function karstCliEnv(input: KarstCliEnvInput): Record<string, string> {
     [KARST_DB_ENV, input.dbPath],
     [KARST_MANIFEST_ENV, input.manifestPath],
     [KARST_TICKET_KEY_ENV, input.ticketKey],
+    [KARST_INSTRUCTIONS_ENV, input.instructionsPath],
   ];
   return Object.fromEntries(entries.filter((e): e is [string, string] => e[1] !== undefined));
 }
@@ -61,6 +71,8 @@ export interface SessionCliEnvInput {
   dbPath?: string | null;
   manifestPath?: string;
   ticketKey?: string;
+  /** Session-dir path to the written instructions file (`KARST_INSTRUCTIONS`). */
+  instructionsPath?: string;
 }
 
 /**
@@ -68,22 +80,29 @@ export interface SessionCliEnvInput {
  * together: without `dbPath` nothing CLI-related is exported (a `"$KARST_CLI"`
  * command would be useless without its `--db`); `dbPath` alone exports only
  * `KARST_DB` (guide-pull attribution), never the manifest/ticket refs.
+ *
+ * `KARST_INSTRUCTIONS` is independent of the CLI refs — it is a file path the
+ * agent reads — so it is exported whenever it is known, even without `dbPath`.
  */
 export function sessionCliEnv(
   input: SessionCliEnvInput,
   debug?: (message: string) => void,
 ): Record<string, string> {
-  const { cliEntry, dbPath, manifestPath, ticketKey } = input;
+  const { cliEntry, dbPath, manifestPath, ticketKey, instructionsPath } = input;
+  const instructions: Record<string, string> = instructionsPath
+    ? { [KARST_INSTRUCTIONS_ENV]: instructionsPath }
+    : {};
   if (!dbPath) {
     if (cliEntry) debug?.('[agent] session env: cliEntry without dbPath — KARST_CLI not exported');
-    return {};
+    return instructions;
   }
-  if (!cliEntry) return { [KARST_DB_ENV]: dbPath };
+  if (!cliEntry) return { [KARST_DB_ENV]: dbPath, ...instructions };
   return karstCliEnv({
     cliEntry,
     dbPath,
     ...(manifestPath ? { manifestPath } : {}),
     ...(ticketKey ? { ticketKey } : {}),
+    ...(instructionsPath ? { instructionsPath } : {}),
   });
 }
 

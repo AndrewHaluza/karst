@@ -4,6 +4,7 @@ import {
   KARST_DB_ENV,
   KARST_MANIFEST_ENV,
   KARST_TICKET_KEY_ENV,
+  KARST_INSTRUCTIONS_ENV,
   envRef,
   quoteArg,
   karstCliEnv,
@@ -21,6 +22,7 @@ describe('cliEnv', () => {
       'KARST_MANIFEST',
       'KARST_TICKET',
     ]);
+    expect(KARST_INSTRUCTIONS_ENV).toBe('KARST_INSTRUCTIONS');
   });
 
   it('envRef double-quotes a $NAME reference', () => {
@@ -39,6 +41,16 @@ describe('cliEnv', () => {
     expect(
       karstCliEnv({ cliEntry: '/c', dbPath: '/d', manifestPath: '/m', ticketKey: 'T-1' }),
     ).toEqual({ KARST_CLI: '/c', KARST_DB: '/d', KARST_MANIFEST: '/m', KARST_TICKET: 'T-1' });
+  });
+
+  it('exports KARST_INSTRUCTIONS alongside the CLI refs when a path is known', () => {
+    expect(
+      karstCliEnv({ cliEntry: '/c', dbPath: '/d', instructionsPath: '/s/karst-instructions.md' }),
+    ).toEqual({
+      KARST_CLI: '/c',
+      KARST_DB: '/d',
+      KARST_INSTRUCTIONS: '/s/karst-instructions.md',
+    });
   });
 
   it('karstCliRefs returns quoted refs', () => {
@@ -77,6 +89,15 @@ describe('sessionCliEnv', () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]).toContain('KARST_CLI');
     expect(lines[0]).not.toContain('/c');
+  });
+
+  it('exports KARST_INSTRUCTIONS even without the CLI refs', () => {
+    expect(sessionCliEnv({ instructionsPath: '/s/karst-instructions.md' })).toEqual({
+      KARST_INSTRUCTIONS: '/s/karst-instructions.md',
+    });
+    expect(
+      sessionCliEnv({ cliEntry: '/c', dbPath: '/d', instructionsPath: '/s/i.md' }),
+    ).toEqual({ KARST_CLI: '/c', KARST_DB: '/d', KARST_INSTRUCTIONS: '/s/i.md' });
   });
 
   it('nothing given → empty', () => {

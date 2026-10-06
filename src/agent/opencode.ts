@@ -12,6 +12,7 @@ import type {
   AgentAdapter,
   AgentCapabilities,
   HeadlessResult,
+  InstructionDelivery,
   InteractiveCommand,
   InteractiveCommandOpts,
   MaterializeOpts,
@@ -44,6 +45,7 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { currentEndpointPath } from './hookFailureLog.js';
+import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
 const OPENCODE_BIN = 'opencode';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -801,6 +803,20 @@ export class OpencodeAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
   };
 
+  /**
+   * opencode is a POINTER core: a generated custom agent's `prompt` (the
+   * markdown body) REPLACES opencode's own base system prompt (verified on
+   * 1.18.32 — `LLMRequestPrep` selects `agent.prompt` INSTEAD of the provider
+   * prompt), so materializing karst's rules as a `--agent karst-session` prompt
+   * would drop opencode's sanctioned base prompt. Instead the kickoff carries a
+   * one-line pointer to `$KARST_INSTRUCTIONS`.
+   */
+  readonly instructions: InstructionDelivery = {
+    interactive: 'pointer',
+    headless: 'n/a',
+    acp: 'n/a',
+  };
+
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
 
   // `opts.sessionName` is deliberately dropped: the opencode TUI has no
@@ -841,13 +857,24 @@ export class OpencodeAdapter implements AgentAdapter {
     }
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
-    if (opts.initialPrompt) args.push('--prompt', opts.initialPrompt);
+    // The instruction layer is delivered as a pointer in the kickoff (the TUI
+    // is launched with `--prompt`), placed after any leading slash command. A
+    // solo launch keeps the rules in the kickoff alongside the persona and
+    // reports `fallback` (the native channel cannot coexist).
+    const deliver = opts.instructions !== undefined && opts.soloAgent !== true;
+    const kickoff = deliver
+      ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
+      : opts.initialPrompt;
+    if (kickoff) args.push('--prompt', kickoff);
     const permission = opencodeLaunchPermission(opts);
     return {
       command: OPENCODE_BIN,
       args,
       env: permission ? { OPENCODE_PERMISSION: permission } : {},
       ...(ownedPaths ? { ownedPaths } : {}),
+      ...(opts.instructions
+        ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
+        : {}),
     };
   }
 

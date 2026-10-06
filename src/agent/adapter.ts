@@ -12,6 +12,7 @@ import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
 import type { AdapterSurfaces } from './surfaces.js';
 import type { EntryBasename } from './workflowCommand.js';
+import type { SessionInstructions } from './instructions.js';
 
 /**
  * A JSON Schema document describing the shape a core's FINAL response is asked
@@ -174,6 +175,23 @@ export interface InteractiveCommandOpts {
   readOnly?: boolean;
   /** Extra directories the session may read beyond `cwd` (a planning session's stack repos). */
   addDirs?: string[];
+  /**
+   * The karst instruction layer for this launch (`instructions.ts`): the file
+   * already written in the session dir, exported to the child as
+   * `KARST_INSTRUCTIONS`, plus its body. An adapter translates it into its
+   * DECLARED channel (`InteractiveCommand.instructions`) — the body must never
+   * ride argv as text. Absent → no instruction layer (a bare launch).
+   */
+  instructions?: SessionInstructions;
+  /**
+   * A single-subagent (solo) launch: the ticket's persona is materialized as an
+   * agent file and the kickoff carries that persona. On codex/opencode the
+   * native instruction channel cannot coexist with it, so an adapter that
+   * declares `interactive: 'pointer'` reports `fallback` for this case and
+   * leaves the rules in the kickoff alongside the persona (today's behaviour).
+   * Absent → a normal launch.
+   */
+  soloAgent?: boolean;
 }
 
 export interface HookChannel {
@@ -181,6 +199,32 @@ export interface HookChannel {
   configDir: string;
   /** Opaque per-terminal generation used only to order lifecycle hooks. */
   launchId?: string;
+}
+
+/**
+ * How a core delivers the karst instruction layer on one launch path.
+ *
+ * - `native-file` — the core's own system/developer channel reads the written
+ *   file directly (claude `--append-system-prompt-file`), so the body never
+ *   rides argv.
+ * - `pointer` — the core has no safe system-prompt flag: a one-line pointer in
+ *   its kickoff (or developer message) tells the agent to read
+ *   `$KARST_INSTRUCTIONS` itself. The body still never rides argv.
+ * - `fallback` — today's behaviour: the rules ride the kickoff alongside the
+ *   persona, because the native channel cannot coexist with a single-subagent
+ *   launch (solo-agent on codex/opencode).
+ * - `n/a` — this path is not wired for the instruction layer yet.
+ */
+export type InstructionChannel = 'native-file' | 'pointer' | 'fallback' | 'n/a';
+
+/** A core's declared instruction-delivery channel, per launch path. */
+export interface InstructionDelivery {
+  /** `buildInteractiveCommand` — an interactive session terminal. */
+  readonly interactive: InstructionChannel;
+  /** `runHeadless` — a structured headless run. Declared, not yet wired. */
+  readonly headless: InstructionChannel;
+  /** The graph ACP transport. Declared, not yet wired (no core ships an ACP client). */
+  readonly acp: InstructionChannel;
 }
 
 /**
@@ -290,6 +334,13 @@ export interface InteractiveCommand {
   env: Record<string, string>;
   /** Exact runtime paths generated while building this command. */
   ownedPaths?: string[];
+  /**
+   * The instruction channel actually used for THIS launch, when an
+   * `instructions` layer was supplied. Normally equals the declared
+   * `instructions.interactive`; a solo-agent launch reports `fallback`. The
+   * conformance suite asserts declared vs actual so drift is visible.
+   */
+  instructionsChannel?: InstructionChannel;
 }
 
 export interface AgentCapabilities {
@@ -328,6 +379,14 @@ export interface AgentAdapter {
   materializeApproach?(opts: MaterializeOpts): Materialized;
 
   capabilities: AgentCapabilities;
+
+  /**
+   * This core's declared instruction-delivery channel per launch path
+   * (`InstructionDelivery`). Optional here only so the many test fakes that
+   * implement `AgentAdapter` keep compiling — every adapter `registry.ts` can
+   * resolve MUST declare it, which `adapterConformance.test.ts` enforces.
+   */
+  instructions?: InstructionDelivery;
 
   /**
    * This core's declared position on every optional surface of this seam

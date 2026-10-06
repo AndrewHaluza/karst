@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { repo } from '../manifest/fixtures.js';
-import { planningPreamble, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
+import { planningInstructions, planningKickoff, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
 
 const manifest = {
   baselineBranch: 'main',
@@ -11,8 +11,8 @@ const manifest = {
   },
 };
 
-describe('planningPreamble', () => {
-  const text = planningPreamble({ sessionId: 7, title: 'Auth rework', manifest });
+describe('planningInstructions', () => {
+  const text = planningInstructions({ sessionId: 7, title: 'Auth rework', manifest });
 
   it('lists every enabled repository with its path and base branch', () => {
     expect(text).toContain('- api: /src/api (base develop)');
@@ -40,6 +40,17 @@ describe('planningPreamble', () => {
 
   it('carries the session title', () => {
     expect(text).toContain('Auth rework');
+  });
+});
+
+describe('planningKickoff', () => {
+  it('is empty by default — a planning session opens no first message', () => {
+    expect(planningKickoff()).toBe('');
+    expect(planningKickoff('   ')).toBe('');
+  });
+
+  it('returns a trimmed first message when one is supplied', () => {
+    expect(planningKickoff('  start with auth  ')).toBe('start with auth');
   });
 });
 

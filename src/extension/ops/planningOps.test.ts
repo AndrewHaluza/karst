@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -80,10 +80,18 @@ describe('planning ops', () => {
     expect(existsSync(opts.cwd)).toBe(true);
     expect(opts.name).toBe(`Karst plan #${session.id}: Auth rework`);
     expect(opts.shellArgs).toEqual(expect.arrayContaining(['--disallowedTools', 'Edit', '--add-dir', '/src/api', '/src/web']));
-    expect(opts.shellArgs.join(' ')).toContain('draft propose');
+    // The standing rules ride the instruction FILE through claude's own
+    // system-prompt channel — never as inline kickoff prose.
+    const instructionsPath = opts.env!.KARST_INSTRUCTIONS!;
+    expect(instructionsPath).toBe(join(opts.cwd, 'karst-instructions.md'));
+    expect(readFileSync(instructionsPath, 'utf8')).toContain('draft propose');
+    expect(opts.shellArgs).toContain('--append-system-prompt-file');
+    expect(opts.shellArgs).toContain(instructionsPath);
+    expect(opts.shellArgs.join(' ')).not.toContain('You are in a karst PLANNING session');
     expect(opts.env).toEqual(expect.objectContaining({
       KARST_PLANNING_SESSION: String(session.id),
       KARST_CLI: '/dist/cli/main.js',
+      KARST_INSTRUCTIONS: instructionsPath,
       KARST_OUTBOX: join(opts.cwd, 'outbox'),
     }));
     expect(existsSync(join(opts.cwd, 'outbox'))).toBe(true);
@@ -135,6 +143,32 @@ describe('planning ops', () => {
       const { opts } = created[0]!;
       const launch = JSON.stringify({ args: opts.shellArgs, env: opts.env });
       expect(launch).not.toMatch(/KARST_DB|KARST_MANIFEST|karst\.db|--db|--manifest/);
+    },
+  );
+
+  it.each(['claude', 'codex', 'opencode', 'antigravity'] as const)(
+    'delivers the planning instructions through %s own channel, never inline',
+    async (provider) => {
+      const ops = createPlanningOps({
+        ...deps,
+        defaultAgent: () => ({ provider, model: null }),
+        confirmUnsafeCore: async () => true,
+      });
+      await ops.create('t');
+      const { opts } = created[0]!;
+      const path = opts.env!.KARST_INSTRUCTIONS!;
+      expect(existsSync(path), `${provider} writes the instructions file`).toBe(true);
+      expect(readFileSync(path, 'utf8')).toContain('You are in a karst PLANNING session');
+      const argv = opts.shellArgs.join(' ');
+      expect(argv, `${provider} must not inline the body`).not.toContain(
+        'You are in a karst PLANNING session',
+      );
+      if (provider === 'claude') {
+        expect(opts.shellArgs).toContain('--append-system-prompt-file');
+        expect(opts.shellArgs).toContain(path);
+      } else {
+        expect(argv, `${provider} pointer names KARST_INSTRUCTIONS`).toContain('KARST_INSTRUCTIONS');
+      }
     },
   );
 

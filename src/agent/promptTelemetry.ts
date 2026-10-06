@@ -11,6 +11,7 @@
 import { mergePromptTelemetry, setProcessRunPromptTelemetry } from '../store/processRuns.js';
 import type { PromptTelemetry } from '../store/processRuns.js';
 import type { Store } from '../store/db.js';
+import { hashInstructions, instructionsCharLength, type SessionInstructions } from './instructions.js';
 
 /**
  * The marker sentence `renderGuideInstruction` emits (`cli/guide.ts`). Its
@@ -31,27 +32,39 @@ export function seedHasGuide(seed: string | undefined, marker: string = GUIDE_PO
 }
 
 /** The `prompt_telemetry` shape stored on the launch `session` process run. */
-export interface SeedPromptTelemetry extends PromptTelemetry {
+export type SeedPromptTelemetry = PromptTelemetry & {
   seedChars: number;
   guidePointer: boolean;
   core: string | null;
-}
+  /** Instruction-layer size in characters (both layers are measured). */
+  instructionsChars?: number;
+  /** Stable digest of the instruction body — the layer's identity. */
+  instructionsHash?: string;
+};
 
 /**
- * Record a session launch's seed length + guide-pointer presence onto its run.
- * A single `setProcessRunPromptTelemetry` merge on the existing append-only
- * evidence path — no second row, no new writer.
+ * Record a session launch's seed length + guide-pointer presence onto its run,
+ * plus the instruction layer's size + digest when one rode the launch. A single
+ * `setProcessRunPromptTelemetry` merge on the existing append-only evidence path
+ * — no second row, no new writer.
  */
 export function recordSeedTelemetry(
   store: Store,
   runId: number,
   seed: string | undefined,
   core: string | null,
+  instructions?: SessionInstructions,
 ): void {
   const telemetry: SeedPromptTelemetry = {
     seedChars: seedCharLength(seed),
     guidePointer: seedHasGuide(seed),
     core,
+    ...(instructions
+      ? {
+          instructionsChars: instructionsCharLength(instructions.body),
+          instructionsHash: hashInstructions(instructions.body),
+        }
+      : {}),
   };
   setProcessRunPromptTelemetry(store, runId, telemetry);
 }
