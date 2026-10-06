@@ -49,7 +49,11 @@ the generated plugin, at init, posts `SessionStart` for the resumed id and
 pushes the kickoff through the opencode SDK (`client.session.promptAsync`). The
 SDK call is deliberately NOT awaited in plugin init — opencode awaits plugin
 construction before it serves the session API, so a synchronous call deadlocks
-the bootstrap. The adapter-agnostic safety net for a delivery that still fails
+the bootstrap. Because the plugin IS the channel, the adapter also overrides an
+ambient `OPENCODE_PURE` to `0` on every hook-channel launch: opencode reads that
+env var like `--pure` (any value but `0`/`false`, including empty, disables every
+external plugin) and would otherwise silently kill the whole hook channel, not
+just the resume. The adapter-agnostic safety net for a delivery that still fails
 is the stranded-fix sweep, not a silent park.
 
 ### The SPLIT decision (PROMPT-16 measured)

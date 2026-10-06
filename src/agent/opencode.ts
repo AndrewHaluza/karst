@@ -940,6 +940,7 @@ export class OpencodeAdapter implements AgentAdapter {
   ): InteractiveCommand {
     const args: string[] = [];
     let ownedPaths: string[] | undefined;
+    const env: Record<string, string> = {};
     if (opts.hookChannel) {
       // The generated plugin is the ONLY hook authority karst introduces — and
       // `--pure` disables ALL external plugin loading in opencode, including the
@@ -956,6 +957,15 @@ export class OpencodeAdapter implements AgentAdapter {
         opts.hookChannel.configDir,
       );
       ownedPaths = [pluginPath];
+      // `--pure` is not the only way to disable the plugin: opencode reads the
+      // `OPENCODE_PURE` env var directly and skips every external plugin when it
+      // is present and not "0"/"false" (verified on 1.18.35: `1`, `true` and
+      // even an empty string disable it; `0`/`false` do not). An ambient
+      // `OPENCODE_PURE` would therefore silently kill the whole hook channel,
+      // and for a resumed launch the kickoff is delivered ONLY through that
+      // plugin. Override it to a falsy value so the plugin this launch depends
+      // on always loads.
+      env.OPENCODE_PURE = '0';
     }
     if (opts.resume && opts.resume.length > 0) {
       // Continue a previously-captured session instead of a cold start (§5.3).
@@ -971,7 +981,6 @@ export class OpencodeAdapter implements AgentAdapter {
     const kickoff = deliver
       ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
       : opts.initialPrompt;
-    const env: Record<string, string> = {};
     const resuming = Boolean(opts.resume && opts.resume.length > 0);
     if (resuming && opts.hookChannel) {
       // opencode 1.18.35 DROPS `--prompt` when `--session` is present and never

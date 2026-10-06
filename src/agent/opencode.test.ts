@@ -173,6 +173,28 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(cmd.env[KARST_RESUME_SESSION_ENV]).toBeUndefined();
   });
 
+  // An ambient OPENCODE_PURE disables every external plugin — including the
+  // generated bridge a resume depends on for BOTH its kickoff and its
+  // SessionStart. The launch must override it to a value opencode reads as off.
+  it('neutralizes an ambient OPENCODE_PURE when the bridge owns the hooks', () => {
+    const worktree = makeWorktree();
+    const withChannel = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:1/hooks?karstLaunch=gen-1',
+        configDir: join(worktree, '.karst-runtime'),
+        launchId: 'gen-1',
+      },
+      initialPrompt: 'go',
+    });
+    expect(withChannel.env.OPENCODE_PURE).toBe('0');
+    const withoutChannel = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: '/wt',
+      initialPrompt: 'go',
+    });
+    expect(withoutChannel.env.OPENCODE_PURE).toBeUndefined();
+  });
+
   it('places extraArgs before the prompt', () => {
     const cmd = new OpencodeAdapter().buildInteractiveCommand({
       cwd: '/wt',
