@@ -93,7 +93,10 @@ describe('sidebar planning tree', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
+      const before = h.posted.length;
       h.click('[data-node="s90"] .pt-twistie');
+      expect(h.posted.slice(before)).toEqual([]);
+      expect(session(h, 90).querySelector('.pt-twistie')!.hasAttribute('data-open')).toBe(false);
       expect(session(h, 90).getAttribute('aria-expanded')).toBe('false');
       expect(draft(h, 501)).toBeNull();
       h.receive({ type: 'state', state: stateOf('all-sections') });

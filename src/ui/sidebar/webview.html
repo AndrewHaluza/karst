@@ -327,7 +327,7 @@
   .pt-l2 > .pt-row{padding-left:calc(var(--k-space-1) + var(--k-space-7) * 2)}
   .pt-twistie{flex:none;display:inline-flex;align-items:center;justify-content:center;width:var(--k-space-7);height:var(--k-space-7);
     color:var(--k-text-dim);transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-  .pt-twistie[data-open="true"]{transform:rotate(90deg)}
+  .pt-twistie[data-expanded="true"]{transform:rotate(90deg)}
   .pt-twistie.leaf{visibility:hidden}
   .pt-dot{flex:none;width:var(--k-space-4);height:var(--k-space-4);margin:0 var(--k-space-1);border-radius:50%;background:currentColor}
   .pt-dot--pending{background:transparent;box-shadow:inset 0 0 0 var(--k-border-w) currentColor}
@@ -948,7 +948,7 @@
       : planBtn(`data-act="plan-archive" data-plan="${p.sessionId}"`, 'Archive', `Archive ${t}`, ic.arch);
     return `<div role="treeitem" aria-level="1" data-node="${node}" tabindex="-1"${expanded} aria-label="${label}">`
       + `<div class="pt-row" title="${label}">`
-      + `<span class="pt-twistie${drafts.length ? '' : ' leaf'}" data-plan-toggle="${p.sessionId}" data-open="${open}" aria-hidden="true">${chev}</span>`
+      + `<span class="pt-twistie${drafts.length ? '' : ' leaf'}" data-plan-toggle="${p.sessionId}" data-expanded="${open}" aria-hidden="true">${chev}</span>`
       + `<span class="pt-dot pt-dot--${st.tone}" aria-hidden="true"></span>`
       + `<span class="pt-label">${t}</span>`
       + (drafts.length ? `<span class="pt-count" aria-hidden="true">${drafts.length}</span>` : '')
@@ -1046,7 +1046,7 @@
     const toggle = e.target.closest('[data-plan-toggle]');
     if (toggle) {
       e.stopPropagation();
-      setExpanded(toggle.closest('[role="treeitem"]'), toggle.dataset.open !== 'true');
+      setExpanded(toggle.closest('[role="treeitem"]'), toggle.dataset.expanded !== 'true');
       return;
     }
     if (e.target.closest('[data-plan-collapse-all]')) {
