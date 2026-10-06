@@ -4,6 +4,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
 import { KARST_CLI_ENV, KARST_INSTRUCTIONS_ENV } from '../../agent/cliEnv.js';
 import { writeSessionInstructions } from '../../agent/instructions.js';
+import { measureSeed } from '../../agent/seed.js';
 import {
   createPlanningSession,
   deletePlanningSession,
@@ -173,7 +174,15 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
           : {}),
         ...(session.model ? { model: session.model } : {}),
       });
-      debug(`launch ${session.id}: ${session.core} ${cmd.command} (cwd ${cwd}, instructions redacted)`);
+      // A planning session has no process-run row to attach telemetry to, so the
+      // instruction layer is measured here and logged at debug level only: size,
+      // digest and channel — never the body.
+      const metrics = measureSeed(kickoff, undefined, instructions);
+      debug(
+        `launch ${session.id}: ${session.core} ${cmd.command} (cwd ${cwd}, ` +
+          `instructions ${metrics.instructionsChars ?? 0}c #${metrics.instructionsHash ?? 'none'} ` +
+          `via ${cmd.instructionsChannel ?? 'n/a'})`,
+      );
       const terminal = deps.host.createTerminal({
         name: `${PLANNING_TERMINAL_PREFIX}${session.id}: ${session.title}`,
         cwd,

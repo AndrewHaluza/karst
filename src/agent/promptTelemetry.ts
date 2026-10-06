@@ -1,17 +1,13 @@
 /**
  * Prompt-effectiveness telemetry helpers for the agent seams.
  *
- * vscode-free and (aside from the store codec it re-exports) free of the
- * extension host: the seed seam measures length + guide-pointer presence HERE,
- * and the host records the result onto the launch's `process_runs` row through
- * the shared v57 codec. The metric CONTRACT — what each recorded key means and
- * which ticket cites it — is `docs/arch/prompt-metrics.md`; this module is only
- * the shape, never the wording. No prompt text is composed or mutated here.
+ * vscode-free: the seed seam measures length + guide-pointer presence HERE; the
+ * extension host records the result onto the launch's `process_runs` row through
+ * the shared v57 codec (`store/processRuns.ts`, `store/sessionLaunchIntents.ts`).
+ * The metric CONTRACT — what each recorded key means and which ticket cites it —
+ * is `docs/arch/prompt-metrics.md`; this module is only the shape, never the
+ * wording. No prompt text is composed or mutated here.
  */
-import { mergePromptTelemetry, setProcessRunPromptTelemetry } from '../store/processRuns.js';
-import type { PromptTelemetry } from '../store/processRuns.js';
-import type { Store } from '../store/db.js';
-import { hashInstructions, instructionsCharLength, type SessionInstructions } from './instructions.js';
 
 /**
  * The marker sentence `renderGuideInstruction` emits (`cli/guide.ts`). Its
@@ -30,44 +26,3 @@ export function seedCharLength(seed: string | undefined): number {
 export function seedHasGuide(seed: string | undefined, marker: string = GUIDE_POINTER_MARKER): boolean {
   return typeof seed === 'string' && seed.includes(marker);
 }
-
-/** The `prompt_telemetry` shape stored on the launch `session` process run. */
-export type SeedPromptTelemetry = PromptTelemetry & {
-  seedChars: number;
-  guidePointer: boolean;
-  core: string | null;
-  /** Instruction-layer size in characters (both layers are measured). */
-  instructionsChars?: number;
-  /** Stable digest of the instruction body — the layer's identity. */
-  instructionsHash?: string;
-};
-
-/**
- * Record a session launch's seed length + guide-pointer presence onto its run,
- * plus the instruction layer's size + digest when one rode the launch. A single
- * `setProcessRunPromptTelemetry` merge on the existing append-only evidence path
- * — no second row, no new writer.
- */
-export function recordSeedTelemetry(
-  store: Store,
-  runId: number,
-  seed: string | undefined,
-  core: string | null,
-  instructions?: SessionInstructions,
-): void {
-  const telemetry: SeedPromptTelemetry = {
-    seedChars: seedCharLength(seed),
-    guidePointer: seedHasGuide(seed),
-    core,
-    ...(instructions
-      ? {
-          instructionsChars: instructionsCharLength(instructions.body),
-          instructionsHash: hashInstructions(instructions.body),
-        }
-      : {}),
-  };
-  setProcessRunPromptTelemetry(store, runId, telemetry);
-}
-
-// Re-exported so every seam serializes through one prompt_telemetry codec.
-export { mergePromptTelemetry, setProcessRunPromptTelemetry };

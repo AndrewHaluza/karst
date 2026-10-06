@@ -8,6 +8,7 @@ import { createPlanningSession, getPlanningSession, linkPlanningTicket, setPlann
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { repo } from '../../manifest/fixtures.js';
 import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui/session.js';
+import { hashInstructions } from '../../agent/instructions.js';
 import { createPlanningOps, type PlanningOpsDeps } from './planningOps.js';
 
 interface Recorded {
@@ -171,6 +172,23 @@ describe('planning ops', () => {
       }
     },
   );
+
+  // Item 8: a planning session has no process-run row, so its instruction-layer
+  // telemetry is logged at debug level only — size, digest and channel, never
+  // the body.
+  it('logs the instruction layer size, digest and channel at debug level, never the body', async () => {
+    const debugs: string[] = [];
+    const ops = createPlanningOps({ ...deps, debug: (m) => void debugs.push(m) });
+    const s = (await ops.create('t'))!;
+    const path = created[0]!.opts.env!.KARST_INSTRUCTIONS!;
+    const body = readFileSync(path, 'utf8').replace(/\n$/, '');
+    const line = debugs.find((m) => m.includes(`launch ${s.id}:`));
+    expect(line, 'the launch debug line is emitted').toBeDefined();
+    expect(line).toContain(`${body.length}c`);
+    expect(line).toContain(hashInstructions(body));
+    expect(line).toContain('native-file');
+    expect(line).not.toContain('You are in a karst PLANNING session');
+  });
 
   describe('a core that cannot block edits (agy)', () => {
     const agy = (): PlanningOpsDeps['defaultAgent'] => () => ({ provider: 'antigravity', model: null });
