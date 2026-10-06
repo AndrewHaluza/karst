@@ -644,3 +644,35 @@ describe('view activation reporting', () => {
     expect(seen).toEqual([[t.id, true], [t.id, false]]);
   });
 });
+
+describe('TicketFormManager — create prefill (planning proposal review)', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('seeds title, description and repo selection into the create state', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({ title: 'Plan T', description: 'Plan D', repos: ['fe'], onCreated: () => {} });
+    const s = (panels[0]!.posted[0] as { state: TicketFormState }).state;
+    expect(s.mode).toBe('create');
+    expect(s.title).toBe('Plan T');
+    expect(s.description).toBe('Plan D');
+    expect(s.repos.find((r) => r.service === 'fe')?.selected).toBe(true);
+  });
+
+  it('reports the first bound ticket once, then stops overlaying', () => {
+    const ticket = createTicket(store, { key: 'P-1', title: 'saved' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const created: number[] = [];
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({ title: 'Plan T', description: '', repos: [], onCreated: (id) => created.push(id) });
+    seen[0]!.bindTicket(ticket.id);
+    seen[0]!.bindTicket(ticket.id);
+    seen[0]!.pushState();
+    expect(created).toEqual([ticket.id]);
+    const last = (panels[0]!.posted.at(-1) as { state: TicketFormState }).state;
+    expect(last.title).toBe('saved');
+  });
+});

@@ -61,6 +61,7 @@ path data inside a `.k-icon` svg — see §4.
 | Restore / unarchive | `history` | matches the command palette's `$(history)` |
 | Delete / destructive remove | `trash` | danger variant on the control, never the glyph |
 | New ticket | `plus` | toolbar |
+| Start planning session | `bulb` | sidebar toolbar |
 | Search / filter | `search` | toolbar + facets |
 | Settings | `settings` | toolbar |
 | Expand disclosure | `chevron-right` | rotates 90° when open |

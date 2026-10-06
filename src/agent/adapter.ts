@@ -165,6 +165,15 @@ export interface InteractiveCommandOpts {
    * `--plugin-dir <dir>`). Opaque to the launcher; appended by the adapter.
    */
   extraArgs?: string[];
+  /**
+   * A read-only planning launch: edits are blocked (or, where a core has no
+   * deny mechanism, approval-gated) while the karst CLI's own write still
+   * works. Each core's mechanism is pinned in `adapterConformance.test.ts`;
+   * native "plan" modes are NOT used — see there for why.
+   */
+  readOnly?: boolean;
+  /** Extra directories the session may read beyond `cwd` (a planning session's stack repos). */
+  addDirs?: string[];
 }
 
 export interface HookChannel {

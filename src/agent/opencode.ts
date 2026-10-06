@@ -797,6 +797,8 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -840,10 +842,11 @@ export class OpencodeAdapter implements AgentAdapter {
     if (opts.model) args.push('--model', opts.model);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     if (opts.initialPrompt) args.push('--prompt', opts.initialPrompt);
+    const permission = opencodeLaunchPermission(opts);
     return {
       command: OPENCODE_BIN,
       args,
-      env: {},
+      env: permission ? { OPENCODE_PERMISSION: permission } : {},
       ...(ownedPaths ? { ownedPaths } : {}),
     };
   }
@@ -1182,4 +1185,21 @@ export class OpencodeAdapter implements AgentAdapter {
       ...(parsed.usage ? { usage: parsed.usage } : {}),
     };
   }
+}
+
+/**
+ * The `OPENCODE_PERMISSION` overlay for a launch, or undefined when none is
+ * needed. opencode merges this env AFTER every config file, so it wins over a
+ * project `opencode.json` that allows everything — which also overrides the
+ * built-in `plan` agent's deny, why that agent is not used. The TUI has no
+ * extra-directory flag; `addDirs` become `external_directory` allows instead.
+ */
+function opencodeLaunchPermission(opts: InteractiveCommandOpts): string | undefined {
+  const dirs = opts.addDirs ?? [];
+  if (!opts.readOnly && dirs.length === 0) return undefined;
+  const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
+  return JSON.stringify({
+    ...(opts.readOnly ? { edit: 'deny', bash: 'ask' } : {}),
+    ...(dirs.length > 0 ? { external_directory: external } : {}),
+  });
 }

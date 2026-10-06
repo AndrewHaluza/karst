@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import type { Manifest } from '../manifest/types.js';
@@ -18,6 +19,7 @@ import { runCompactCommand } from './compact.js';
 import { runEnvCommand } from './envCommand.js';
 import { runServersCommand } from './serversCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
+import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
@@ -104,6 +106,11 @@ function loadProjectSlug(manifestPath: string | undefined): string | undefined {
  *             ticket, resolved via `--manifest` like `stage`/`env`; writes
  *             through the shared `createSubtask` writer (see subtaskCommand.ts).
  *
+ *   draft:    `printf '%s' '<json>' | … draft propose`
+ *             a PLANNING session proposes a draft ticket: one JSON object on
+ *             stdin, written into `$KARST_OUTBOX`. No store, no flags — the host
+ *             ingests it and a human confirms (see draftCommand.ts, cli.md).
+ *
  *   message / inbox: `… message send --to parent|<child-key> --body <t> --db <db> --ticket <key>`
  *             `… inbox [--all] [--json] --db <db> --ticket <key>`
  *             the async parent<->child mailbox (see messageCommand.ts). The
@@ -144,6 +151,33 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
   return { db, manifest, ticket, rest };
 }
 
+/** The process I/O `runCli` reads; injected so tests need no real stdin. */
+export interface CliIo {
+  /** Read stdin, at most `max + 1` bytes (the extra byte signals oversize). */
+  readStdin: (max: number) => string;
+}
+
+/** Synchronous bounded stdin read: stops after `max + 1` bytes. */
+function readStdinBounded(max: number): string {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  const buf = Buffer.alloc(8192);
+  while (total <= max) {
+    let n: number;
+    try {
+      n = readSync(0, buf, 0, Math.min(buf.length, max + 1 - total), null);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'EAGAIN') continue;
+      if ((e as NodeJS.ErrnoException).code === 'EOF') break;
+      throw e;
+    }
+    if (n === 0) break;
+    chunks.push(Buffer.from(buf.subarray(0, n)));
+    total += n;
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 /**
  * Run the CLI for a parsed argv and return the text to print on stdout. Throws a
  * plain `Error` on any failure so the caller decides how to surface it (the
@@ -153,9 +187,18 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
 export function runCli(
   argv: string[],
   env: Readonly<Record<string, string | undefined>> = process.env,
+  io: CliIo = { readStdin: readStdinBounded },
 ): string {
   const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
+
+  // `karst draft propose` — a PLANNING session proposes a draft ticket. Its OWN
+  // parse path, taken BEFORE any flag is honoured: the RAW argv goes in, so a
+  // `--db`/`--manifest`/`--session` is refused rather than stripped, and it
+  // never opens a store. Input is stdin, output a file in KARST_OUTBOX.
+  if (subcommand === 'draft') {
+    return runDraftCommand(argv, { outboxEnv: env.KARST_OUTBOX, readStdin: io.readStdin });
+  }
 
   if (subcommand === 'context') {
     if (!db) throw new Error('missing --db <path>');
@@ -403,7 +446,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'message', 'inbox', 'fix-brief' or 'conflict-brief')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief' or 'conflict-brief')`,
   );
 }
 

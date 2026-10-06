@@ -52,6 +52,21 @@ describe('AntigravityAdapter', () => {
       expect(cmd.args).toEqual([]);
     });
 
+    // `agy --help` (1.2.17): "--mode  Set the agent execution mode (accept-edits, plan)".
+    // Any other value is rejected and agy falls back to its SAVED mode.
+    it('launches readOnly with a --mode agy accepts, never accept-edits', () => {
+      const AGY_VALID_MODES = ['accept-edits', 'plan'];
+      const { args } = new AntigravityAdapter().buildInteractiveCommand({ cwd: '/s', readOnly: true });
+      const mode = args[args.indexOf('--mode') + 1];
+      expect(AGY_VALID_MODES).toContain(mode);
+      expect(mode).toBe('plan');
+    });
+
+    it('declares readOnlyInteractive unsupported with a reason', () => {
+      const ro = new AntigravityAdapter().surfaces.readOnlyInteractive;
+      expect(ro.supported).toBe(false);
+    });
+
     it('passes resume and model', () => {
       const adapter = new AntigravityAdapter();
       const cmd = adapter.buildInteractiveCommand({

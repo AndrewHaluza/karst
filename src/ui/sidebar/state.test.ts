@@ -5,6 +5,9 @@ import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { buildSidebarState, RECENT_DONE_LIMIT } from './state.js';
+import { upsertProject } from '../../store/projects.js';
+import { insertProposal, discardProposal } from '../../store/planningProposals.js';
+import { createPlanningSession, linkPlanningTicket, setPlanningSessionStatus } from '../../store/planningSessions.js';
 
 /** Stamp a ticket done at a specific completion time (stage row + current stage). */
 function markDone(store: Store, id: number, doneAt: string): void {
@@ -532,3 +535,56 @@ describe('buildSidebarState', () => {
   });
 });
 
+
+describe('buildSidebarState — planning sessions', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('lists the project planning sessions in the All view, separate from tickets', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'codex', model: 'gpt-5' });
+    const t = createTicket(store, { key: 'A-1', title: 'drafted', projectId });
+    linkPlanningTicket(store, s.id, t.id);
+    createPlanningSession(store, { projectId: upsertProject(store, { slug: 'q' }).id, title: 'other', core: 'claude', model: null });
+
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId, planningLive: (id) => id === s.id });
+    expect(state.planning).toEqual([
+      { sessionId: s.id, title: 'Auth rework', status: 'filed', ticketCount: 1, live: true, agent: { provider: 'codex', model: 'gpt-5' }, proposals: [] },
+    ]);
+    expect(state.sections.current.map((r) => r.ticketId)).toEqual([t.id]);
+  });
+
+  it('lists a session\'s pending proposals (id + title) and drops resolved ones', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    const body = { description: 'd', summary: 's', repos: [] };
+    const a = insertProposal(store, s.id, { title: 'First', ...body });
+    discardProposal(store, insertProposal(store, s.id, { title: 'Gone', ...body }));
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(state.planning[0]!.proposals).toEqual([{ id: a, title: 'First' }]);
+  });
+
+  it('filters planning sessions by the search query and hides them outside the All view', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    expect(buildSidebarState(store, { facets: ['all'], filter: 'billing', projectId }).planning).toEqual([]);
+    expect(buildSidebarState(store, { facets: ['all'], filter: 'AUTH', projectId }).planning).toHaveLength(1);
+    expect(buildSidebarState(store, { facets: ['done'], filter: '', projectId }).planning).toEqual([]);
+  });
+
+  it('lists only archived planning sessions under the Archived facet, and hides them from All', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const live = createPlanningSession(store, { projectId, title: 'Live plan', core: 'claude', model: null });
+    const gone = createPlanningSession(store, { projectId, title: 'Old plan', core: 'claude', model: null });
+    setPlanningSessionStatus(store, gone.id, 'archived');
+    expect(buildSidebarState(store, { facets: ['all'], filter: '', projectId }).planning.map((p) => p.sessionId)).toEqual([live.id]);
+    const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
+    expect(archived.map((p) => [p.sessionId, p.status])).toEqual([[gone.id, 'archived']]);
+    expect(buildSidebarState(store, { facets: ['archived'], filter: 'zzz', projectId }).planning).toEqual([]);
+  });
+
+  it('shows no planning sessions before a project is bound', () => {
+    expect(buildSidebarState(store, { facets: ['all'], filter: '' }).planning).toEqual([]);
+  });
+});

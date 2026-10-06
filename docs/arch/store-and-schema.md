@@ -13,6 +13,7 @@ The registry is shared by every IDE window, so every rule here is about scoping 
 - The per-ticket env overrides column
 - One worktrees row per (ticket, path)
 - v64: sub-task autostart and parent–child mailbox schema
+- Planning sessions (v65)
 - New schema column checklist
 
 ## SQLite is source of truth
@@ -102,7 +103,13 @@ Indexes: `idx_ticket_messages_inbox (to_ticket_id, read_at)` for inbox reads; `i
 
 **Repair** (`repairTicketMessages`): early (unreleased) v64 DBs carry `ticket_messages` without `woke_at` or AUTOINCREMENT. `migrate` runs the repair at the end of the v64 step and, on a DB already at 64, whenever `ticketMessagesNeedsRepair` is true (in an immediate transaction with foreign keys off): rename, recreate, copy every row with its id (`woke_at` kept if it existed, else NULL), drop the old table, ensure the indexes. A no-op when the table is absent or current. Nothing is derived from stage evidence.
 
-**Cross-window risk (L1).** Bumping to v64 makes the graph verbs of every OLDER build refuse this DB: `openGraphWritableStore` calls `assertExactSchema` (`cli/assertMigrated.ts`, `user_version !== SCHEMA_VERSION` throws), so `karst graph submit` and `karst node complete|block|replan` from a v63 window sharing the same global-storage registry fail with "requires exactly v63" until that window's extension is updated. The non-graph verbs use `assertMigratedSchema`, which only refuses an OLDER registry.
+**Cross-window risk (L1) — applies to EVERY version bump.** `openGraphWritableStore` calls `assertExactSchema` (`cli/assertMigrated.ts`, `user_version !== SCHEMA_VERSION` throws), so any bump makes the graph verbs of every OLDER build refuse this DB: `karst graph submit` and `karst node complete|block|replan` from a window still on the previous build (sharing the same global-storage registry) fail with "requires exactly v<N-1>" until that window's extension is updated. v64 did this to v63 windows; v65 (planning sessions) does it to v64 windows. The non-graph verbs use `assertMigratedSchema`, which only refuses an OLDER registry.
+
+## Planning sessions (v65)
+
+`planning_sessions` (`src/store/planningSessions.ts`) holds a read-only, stack-aware agent conversation that investigates before a ticket exists. It is project-scoped, is NOT a ticket, and has no stage: planning has no deterministic verdict, so it stays out of the stage graph. `status` is `active` | `filed` | `archived`. `planning_session_tickets(session_id, ticket_id)` records the drafts a session filed, and linking the first one moves `active` to `filed`; unarchiving returns to `filed` if any ticket is linked, else `active`. The title is normalized in ONE place, `createPlanningSession` (control chars and whitespace runs collapse to one space, capped at `PLANNING_TITLE_MAX` = 120), because it becomes a terminal tab name. There are no resume columns (agent session id, transcript path): resume is out of scope, and a reload re-adopts the still-running terminal instead (`planningOps.adopt`, matched by env, then the scratch cwd, then the `Karst plan #<id>:` tab name). The migration step is purely additive (`CREATE TABLE IF NOT EXISTS`) and backfills nothing.
+
+`planning_proposals` (`src/store/planningProposals.ts`, folded into the unshipped v65 DDL) holds the draft tickets a planning session handed over. A planning agent never touches the DB: `karst draft propose` writes `<uuid>.json` into the session scratch `outbox/`, and the host's vscode-free scan (`src/extension/ops/planningOutbox.ts`) ingests it. The scan checks the outbox is a real directory at its expected realpath, takes only `<uuid>.json` names, claims each by atomic rename to `.claim-<windowId>-<name>` (ENOENT = another window won; a claim older than 5 minutes is re-claimed), reads it through `O_NOFOLLOW|O_NONBLOCK` with an fstat regular-file check and a `MAX_PROPOSAL_BYTES` (64 KiB) bounded read, decodes strict UTF-8, and validates with `validateProposal` plus repos ⊂ the live manifest. Each session holds at most 20 pending rows. A valid file becomes a `pending` row and a rejected one is unlinked with a warning naming the reason. `status` is `pending` | `accepted` | `discarded`; `ticket_id` is set on accept (`ON DELETE SET NULL`); deleting the session cascades. `acceptProposal` is host-only and runs ONE better-sqlite3 transaction (`createTicket` nests as a savepoint): create with source `planning` in the session's project, write description/brief/repos, `linkPlanningTicket`, mark accepted. A non-pending proposal is refused.
 
 ## New schema column checklist
 

@@ -1,0 +1,61 @@
+import { describe, it, expect } from 'vitest';
+import { repo } from '../manifest/fixtures.js';
+import { planningPreamble, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
+
+const manifest = {
+  baselineBranch: 'main',
+  repositories: {
+    api: repo({ repoPath: '/src/api', baselineBranch: 'develop' }),
+    web: repo({ repoPath: '/src/web' }),
+    old: repo({ repoPath: '/src/old', enabled: false }),
+  },
+};
+
+describe('planningPreamble', () => {
+  const text = planningPreamble({ sessionId: 7, title: 'Auth rework', manifest });
+
+  it('lists every enabled repository with its path and base branch', () => {
+    expect(text).toContain('- api: /src/api (base develop)');
+    expect(text).toContain('- web: /src/web (base main)');
+    expect(text).not.toContain('/src/old');
+  });
+
+  it('does not promise a hard read-only boundary, and names the propose verb over stdin', () => {
+    expect(text).not.toMatch(/session is read-only/i);
+    expect(text).toMatch(/blocked or need your approval/);
+    expect(text).toContain('| node "$KARST_CLI" draft propose');
+    expect(text).toMatch(/ONE shell command/);
+    expect(text).toMatch(/user reviews/i);
+  });
+
+  it('never references the registry, the manifest path or the retired create verb', () => {
+    for (const banned of ['KARST_DB', 'KARST_MANIFEST', '--db', '--manifest', 'draft create', '--session', '-file']) {
+      expect(text).not.toContain(banned);
+    }
+  });
+
+  it('names the repositories a proposal may list', () => {
+    expect(text).toMatch(/"repos".*api, web/s);
+  });
+
+  it('carries the session title', () => {
+    expect(text).toContain('Auth rework');
+  });
+});
+
+describe('planningAddDirs', () => {
+  it('returns enabled repository paths, deduplicated (monorepos share a repoPath)', () => {
+    const shared = {
+      ...manifest,
+      repositories: { ...manifest.repositories, admin: repo({ repoPath: '/src/web' }) },
+    };
+    expect(planningAddDirs(shared)).toEqual(['/src/api', '/src/web']);
+  });
+});
+
+describe('planningOutboxDir', () => {
+  it('is the outbox under the scratch dir, exported through KARST_OUTBOX', () => {
+    expect(planningOutboxDir('/s/7')).toBe('/s/7/outbox');
+    expect(PLANNING_OUTBOX_ENV).toBe('KARST_OUTBOX');
+  });
+});

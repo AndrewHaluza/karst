@@ -97,6 +97,8 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'toolActivity',
       'skillDiscovery',
       'entryOrchestrators',
+      'readOnlyInteractive',
+      'addDirsInteractive',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -141,6 +143,87 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
     await adapter.runHeadless({ ...baseOpts(), resume: 'ses_prev' });
     expect(calls[0]!.args, `${provider} headless resume`).toContain('ses_prev');
+  });
+
+  /**
+   * The read-only planning launch, per core. Each mechanism was verified
+   * against the installed CLI (claude/codex by live probe, opencode by its
+   * effective `agent list` rules, agy by `agy --help`): edits must be blocked
+   * or approval-gated, the stack repos readable, and the karst CLI's
+   * `draft propose` (which writes only the cwd's outbox) must still be possible.
+   * No planning launch may make the registry writable or name it.
+   *
+   * Native "plan" modes are deliberately NOT used: claude's refuses the filing
+   * command outright (leaving the mode makes the session writable), and
+   * opencode's plan agent is overridden by a project `opencode.json`. agy is
+   * the exception: `plan` is its only non-editing mode, so it is used and
+   * readOnlyInteractive is DECLARED unsupported.
+   */
+  type Launch = { args: string[]; env: Record<string, string> };
+  const opencodePermission = (l: Launch): Record<string, unknown> =>
+    JSON.parse(l.env.OPENCODE_PERMISSION ?? '{}') as Record<string, unknown>;
+  const after = (args: string[], flag: string): string | undefined => args[args.indexOf(flag) + 1];
+
+  const READ_ONLY: Record<AgentProvider, (l: Launch) => void> = {
+    claude: ({ args }) => {
+      expect(after(args, '--permission-mode')).toBe('default');
+      const i = args.indexOf('--disallowedTools');
+      expect(args.slice(i + 1, i + 4)).toEqual(['Edit', 'Write', 'NotebookEdit']);
+    },
+    codex: ({ args }) => {
+      expect(after(args, '--sandbox')).toBe('workspace-write');
+      // Only the cwd (the scratch dir holding the outbox) is writable.
+      expect(args).toContain('sandbox_workspace_write.writable_roots=[]');
+      // An --add-dir is WRITABLE under workspace-write; the sandbox reads the whole disk anyway.
+      expect(args).not.toContain('/repos/api');
+    },
+    opencode: (l) => {
+      expect(opencodePermission(l)).toMatchObject({ edit: 'deny', bash: 'ask' });
+    },
+    // agy 1.2.17 accepts only `accept-edits` | `plan` (anything else falls back
+    // to the SAVED mode). `plan` is the only non-editing one; nothing verifies it
+    // enforces read-only, so agy DECLARES readOnlyInteractive unsupported.
+    antigravity: ({ args }) => {
+      expect(after(args, '--mode')).toBe('plan');
+    },
+  };
+
+  const READS_DIR: Record<AgentProvider, (l: Launch, dir: string) => void> = {
+    claude: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+    codex: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+    opencode: (l, dir) =>
+      expect(opencodePermission(l).external_directory).toMatchObject({ '*': 'ask', [`${dir}/**`]: 'allow' }),
+    antigravity: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+  };
+
+  it('launches a read-only planning session by its verified mechanism', () => {
+    expect(surfacesOf(provider).readOnlyInteractive.supported).toBe(provider !== 'antigravity');
+    const launch = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/karst/scratch',
+      readOnly: true,
+      addDirs: ['/repos/api'],
+      initialPrompt: 'plan it',
+    });
+    READ_ONLY[provider](launch);
+    expect(JSON.stringify(launch), `${provider} planning launch names no registry`).not.toMatch(/karst\.db|KARST_DB/);
+    expect(launch.args.at(-1), `${provider} prompt stays last`).toBe('plan it');
+  });
+
+  it('never applies the read-only policy to an ordinary launch', () => {
+    const { args, env } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
+    for (const token of ['--disallowedTools', 'workspace-write', '--mode']) expect(args).not.toContain(token);
+    expect(env.OPENCODE_PERMISSION).toBeUndefined();
+  });
+
+  it('makes every extra directory readable', () => {
+    expect(surfacesOf(provider).addDirsInteractive.supported).toBe(true);
+    const launch = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/stack',
+      addDirs: ['/repos/api', '/repos/web'],
+      initialPrompt: 'plan it',
+    });
+    for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
+    expect(launch.args.at(-1)).toBe('plan it');
   });
 
   const MCP_ISOLATION_FLAG: Record<AgentProvider, string | null> = {

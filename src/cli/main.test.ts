@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
@@ -496,5 +496,36 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
       '--to',
       'parent',
     ]);
+  });
+});
+
+describe('runCli — draft propose (planning sessions)', () => {
+  let dir: string;
+  const proposal = JSON.stringify({ title: 'Add auth', description: 'd', summary: 's', repos: ['api'] });
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-propose-')));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('writes a proposal into KARST_OUTBOX from stdin without any store', () => {
+    const out = JSON.parse(runCli(['draft', 'propose'], { KARST_OUTBOX: dir }, { readStdin: () => proposal }));
+    expect(out.ok).toBe(true);
+    expect(readdirSync(dir)).toEqual([basename(out.file)]);
+  });
+
+  it('refuses --db / --manifest / --session and never opens a store', () => {
+    const db = join(dir, 'karst.db');
+    for (const extra of [['--db', db], ['--manifest', join(dir, 'k.yml')], ['--session', '1']]) {
+      expect(() =>
+        runCli(['draft', 'propose', ...extra], { KARST_OUTBOX: dir }, { readStdin: () => proposal }),
+      ).toThrow(/draft propose/);
+    }
+    expect(existsSync(db)).toBe(false);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  it('requires KARST_OUTBOX', () => {
+    expect(() => runCli(['draft', 'propose'], {}, { readStdin: () => proposal })).toThrow(/KARST_OUTBOX/);
   });
 });

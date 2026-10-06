@@ -367,6 +367,8 @@ export class CodexAdapter implements AgentAdapter {
     toolActivity: SUPPORTED,
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: SUPPORTED,
   };
 
   constructor(private readonly spawnHeadless: SpawnHeadless = defaultSpawn) {}
@@ -381,6 +383,21 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
+    if (opts.readOnly) {
+      // Not `read-only`: that sandbox EPERMs `draft propose`'s outbox write.
+      // Under `workspace-write` with NO extra roots only cwd (a karst scratch
+      // dir, a tree apart from the registry) is writable; the sandbox reads
+      // the whole disk, so the stack repos need no `--add-dir` — which would
+      // make them WRITABLE here.
+      args.push(
+        '--sandbox',
+        'workspace-write',
+        '--config',
+        'sandbox_workspace_write.writable_roots=[]',
+      );
+    } else {
+      for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
+    }
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     if (opts.hookChannel) {
       appendHookArgs(

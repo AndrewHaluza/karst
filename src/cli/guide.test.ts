@@ -20,9 +20,20 @@ describe('karst guide — content', () => {
     // and env are intercepted by runCliAsync.
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'fix-brief', 'conflict-brief', 'servers', 'env']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'draft', 'fix-brief', 'conflict-brief', 'servers', 'env']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
+  });
+
+  it('documents draft propose for planning sessions: stdin JSON into the outbox, a human confirms', () => {
+    expect(AGENT_GUIDE).toContain('draft propose');
+    expect(AGENT_GUIDE).not.toContain('draft create');
+    expect(AGENT_GUIDE).not.toContain('--description-file');
+    for (const key of ['title', 'description', 'summary', 'repos', 'KARST_OUTBOX']) {
+      expect(AGENT_GUIDE).toContain(key);
+    }
+    expect(AGENT_GUIDE).toMatch(/planning session/);
+    expect(AGENT_GUIDE).toMatch(/confirm/);
   });
 
   it('documents the subtask create flags', () => {

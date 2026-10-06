@@ -1,4 +1,4 @@
-import type { SidebarState, SidebarSections, TicketRow, SidebarPr } from './state.js';
+import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow } from './state.js';
 import type { SidebarWorktree } from './state.js';
 import type { TicketPeek } from './peek.js';
 import type { FacetKey } from './facets.js';
@@ -40,7 +40,7 @@ function fixtureCounts(overrides?: Partial<Record<FacetKey, number>>): Record<Fa
   return { ...base, ...overrides };
 }
 
-const HOSTILE_LABEL = '<script>alert(1)</script>';
+export const HOSTILE_LABEL = '<script>alert(1)</script>';
 const HOSTILE_LONG = 'W'.repeat(300);
 
 function fixturePeek(overrides?: Partial<TicketPeek>): TicketPeek {
@@ -88,6 +88,20 @@ function emptyState(): SidebarState {
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: [],
     rows: [],
+    planning: [],
+  };
+}
+
+export function fixturePlanningRow(sessionId: number, overrides: Partial<PlanningRow> = {}): PlanningRow {
+  return {
+    sessionId,
+    title: `Planning ${sessionId}`,
+    status: 'active',
+    ticketCount: 0,
+    live: false,
+    agent: { provider: 'claude', model: 'opus' },
+    proposals: [],
+    ...overrides,
   };
 }
 
@@ -108,6 +122,7 @@ function allSectionsState(): SidebarState {
     },
     done: [],
     rows: [],
+    planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [{ id: 501, title: 'Add rate limit' }] }), fixturePlanningRow(89)],
   };
 }
 
@@ -123,6 +138,7 @@ function doneFacetState(): SidebarState {
     sections: { current: [], awaitingReview: [], recentlyDone: [], olderDone: [] },
     done: doneRows,
     rows: [],
+    planning: [],
   };
 }
 
@@ -138,6 +154,7 @@ function archivedFacetState(): SidebarState {
       fixtureRow(1, { label: 'DELETED-2', glyph: 'gray' }),
       fixtureRow(2, { label: 'DELETED-3', glyph: 'gray' }),
     ],
+    planning: [fixturePlanningRow(77, { title: 'Old plan', status: 'archived' })],
   };
 }
 
@@ -154,6 +171,7 @@ function multiFacetState(): SidebarState {
       fixtureRow(2, { glyph: 'red' }),
       fixtureRow(3, { glyph: 'red' }),
     ],
+    planning: [],
   };
 }
 
@@ -170,6 +188,7 @@ function filteredState(): SidebarState {
     },
     done: [],
     rows: [],
+    planning: [],
   };
 }
 
@@ -211,6 +230,7 @@ function subtasksState(): SidebarState {
     },
     done: [],
     rows: [],
+    planning: [],
   };
 }
 
@@ -229,6 +249,7 @@ function hostileState(): SidebarState {
     },
     done: [],
     rows: [],
+    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [{ id: 502, title: HOSTILE_LABEL }], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
   };
 }
 

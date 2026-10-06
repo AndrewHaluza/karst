@@ -1203,3 +1203,33 @@ CREATE TABLE IF NOT EXISTS ticket_messages (
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_inbox ON ticket_messages(to_ticket_id, read_at);
 CREATE INDEX IF NOT EXISTS idx_ticket_messages_wake ON ticket_messages(project_id, kind, woke_at, id);
 CREATE INDEX IF NOT EXISTS idx_tickets_autostart ON tickets(autostart_pending);
+
+-- v65 planning sessions (kept in sync with PLANNING_SESSIONS_DDL in planningSessions.ts).
+-- A read-only, stack-aware agent conversation that files draft tickets.
+CREATE TABLE IF NOT EXISTS planning_sessions (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id       INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  title            TEXT NOT NULL,
+  core             TEXT NOT NULL,
+  model            TEXT,
+  status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'filed', 'archived')),
+  created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_planning_sessions_project ON planning_sessions(project_id, status);
+CREATE TABLE IF NOT EXISTS planning_session_tickets (
+  session_id INTEGER NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  linked_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (session_id, ticket_id)
+);
+CREATE TABLE IF NOT EXISTS planning_proposals (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id   INTEGER NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
+  payload_json TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),
+  ticket_id    INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+  created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  resolved_at  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_planning_proposals_session ON planning_proposals(session_id, status);

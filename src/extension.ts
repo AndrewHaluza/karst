@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
@@ -159,6 +159,11 @@ import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
+import { createPlanningOps } from './extension/ops/planningOps.js';
+import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
+import { createPlanningProposalOps, proposalPreview, type ProposalChoice } from './extension/ops/planningProposalOps.js';
+import { listPendingProposals } from './store/planningProposals.js';
+import type { TicketFormPrefill } from './ui/ticketForm/panel.js';
 import {
   resolveClaudeProjectsDir,
   transcriptPathFor,
@@ -736,6 +741,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // manager holds facet/filter + re-pushes state; its action factory maps webview
   // messages to the existing karst.* commands (executeCommand passthrough) so the
   // command handlers stay the single source of behavior.
+  // Planning sessions (read-only, stack-aware agent terminals). Bindings only;
+  // the logic is ops/planningOps.ts. The terminal host is resolved per launch
+  // (a click), long after `terminalIdentity` below is initialized.
+  const planning = createPlanningOps({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    manifest: () => currentManifest(),
+    // A tree apart from karst.db, so codex's only writable root never covers it.
+    scratchDir: (id) => join(storageDir, 'planning-scratch', String(id)),
+    // Same resolution as an interactive session's default (preset slot, else
+    // the manifest's core + defaultModel), so planning launches the model the
+    // user configured instead of the CLI's own default.
+    defaultAgent: () => {
+      const d = resolvePresetDefaults(currentManifest() ?? emptyManifest(), 'implementation');
+      return { provider: d.provider, model: d.model ?? null };
+    },
+    host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
+    cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry,
+    notify,
+    confirmUnsafeCore: async () => (await vscode.window.showWarningMessage(
+      'agy cannot block edits; approve each action.', { modal: true }, 'Start')) === 'Start',
+    debug: (m) => logger.debug(m),
+    onChange: () => provider.refresh(),
+  });
+  const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
+    confirmPreview: async (p) => (await vscode.window.showWarningMessage(`Create ticket "${p.payload.title}"?`,
+      { modal: true, detail: proposalPreview(p) }, 'Create ticket')) === 'Create ticket',
+    choose: async (text) => ({ Review: 'review', Create: 'create', Discard: 'discard' } as Record<string, ProposalChoice>)[
+      (await vscode.window.showInformationMessage(text, 'Review', 'Create', 'Discard')) ?? ''],
+    openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
+    notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
     setFilter: (query) => mgr.setFilter(query),
@@ -782,11 +818,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
     },
+    // Acks at once (UI-R13/R14): the input box is not the action — the new
+    // Planning row arriving is the result, and a cancelled box adds none.
+    planCreate: () => void vscode.window.showInputBox({ prompt: 'What do you want to plan?', ignoreFocusOut: true })
+      .then((title) => (title?.trim() ? planning.create(title.trim()) : undefined))
+      .then(undefined, (e) => logError('planning: create failed', e)),
+    planOpen: (id) => void planning.open(id).catch((e) => logError('planning: open failed', e)),
+    planArchive: (id) => planning.archive(id),
+    planUnarchive: (id) => planning.unarchive(id),
+    planProposalReview: (id) => proposalOps.review(id),
+    planProposalDiscard: (id) => proposalOps.discard(id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
     () => activeTicket.get(),
-    () => currentManifest());
+    () => currentManifest(),
+    (id) => planning.isLive(id));
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);
@@ -5725,11 +5772,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Shared entry: resolve the manifest, remember it for ticket-form actions, and
   // open the create-mode page. Backs the ticket-form command and the deprecated
   // onboarding alias.
-  const openTicketFormCreate = async (): Promise<void> => {
+  const openTicketFormCreate = async (prefill?: TicketFormPrefill): Promise<void> => {
     const manifest = await resolveManifest(logger.info);
     if (!manifest) return; // no folder / scaffolded / invalid — message shown
     manifests.set(manifest, manifestPathOrThrow());
-    ticketForm.openCreate();
+    ticketForm.openCreate(prefill);
   };
 
   // Cross-window freshness (§ projects / multi-window). Sidebar refreshes are
@@ -6660,6 +6707,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   await Promise.all(
     vscode.window.terminals.map((terminal) => terminalIdentity.resolve(terminal)),
   );
+  // Planning terminals survive a reload but the ops' live map does not —
+  // re-register them so open focuses (not duplicates) and archive disposes.
+  planning.adopt(vscode.window.terminals.map((terminal) => ({
+    name: terminal.name,
+    env: terminalEnv(terminal),
+    cwd: graphTerminalCwd(terminal) || undefined,
+    exited: terminal.exitStatus !== undefined,
+    terminal: wrapTerminal(terminal),
+  })));
+  // Planning proposals: the host scans session outboxes (watch + a poll while a
+  // session is live) and the user confirms each one (ops/planningProposalOps.ts).
+  const planRoot = join(storageDir, 'planning-scratch');
+  mkdirSync(planRoot, { recursive: true });
+  const outbox = createPlanningOutbox({ store: localStore, projectId: () => currentProject()?.id,
+    sessions: () => planning.list().map((s) => ({ id: s.id, scratch: join(planRoot, String(s.id)) })),
+    knownRepos: () => { const m = currentManifest(); return m && Object.entries(m.repositories).filter(([, d]) => d.enabled !== false).map(([n]) => n); },
+    windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
+    onProposal: (p) => { provider.refresh(); void proposalOps.announce(p); } });
+  let planScanTimer: NodeJS.Timeout | undefined;
+  const planScan = (): void => { clearTimeout(planScanTimer); planScanTimer = setTimeout(() => { try { outbox.scan(); } catch (e) { logError('planning: outbox scan failed', e); } }, 200); };
+  let planWatcher: { close(): void } | undefined;
+  try { planWatcher = fsWatch(planRoot, { recursive: true }, planScan); } catch (e) { logger.debug(`[planning] outbox watch unavailable: ${String(e)}`); }
+  const planPoll = setInterval(() => { if (planning.list().some((s) => s.live)) planScan(); }, 3000);
+  context.subscriptions.push({ dispose: () => { planWatcher?.close(); clearInterval(planPoll); clearTimeout(planScanTimer); } });
+  planScan();
+  for (const p of listPendingProposals(localStore, currentProject()?.id ?? -1)) void proposalOps.announce(p);
 
   const adoptedVisibleSessions = sessions.reconcileRestoredSessions((ticketId) => {
     return classifyRestoredSession(candidateById.get(ticketId));

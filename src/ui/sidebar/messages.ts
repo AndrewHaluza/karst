@@ -27,7 +27,15 @@ export type SidebarWebviewMessage =
   | { type: 'unarchive'; ticketId: number }
   | { type: 'delete'; ticketId: number }
   | { type: 'create-follow-up'; ticketId: number }
-  | { type: 'resolve-conflicts'; ticketId: number; repo: string };
+  | { type: 'resolve-conflicts'; ticketId: number; repo: string }
+  // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
+  | { type: 'plan-create' }
+  | { type: 'plan-open'; sessionId: number }
+  | { type: 'plan-archive'; sessionId: number }
+  | { type: 'plan-unarchive'; sessionId: number }
+  // A pending planning proposal carries its own `proposalId`.
+  | { type: 'plan-proposal-review'; proposalId: number }
+  | { type: 'plan-proposal-discard'; proposalId: number };
 
 /**
  * Host → webview. The old channel was ONLY `state` — `spin`/`archive`/`delete`
@@ -64,6 +72,12 @@ export interface SidebarActions {
   delete(ticketId: number): void | Promise<void>;
   createFollowUp(ticketId: number): void | Promise<void>;
   resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
+  planCreate(): void | Promise<void>;
+  planOpen(sessionId: number): void | Promise<void>;
+  planArchive(sessionId: number): void | Promise<void>;
+  planProposalReview(proposalId: number): void | Promise<void>;
+  planProposalDiscard(proposalId: number): void | Promise<void>;
+  planUnarchive(sessionId: number): void | Promise<void>;
 }
 
 const FACET_KEYS = new Set<string>(FACETS.map((f) => f.key));
@@ -85,7 +99,19 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'open-settings':
     case 'open-resources':
     case 'open-token-usage':
+    case 'plan-create':
       return { type: m.type };
+    case 'plan-open':
+    case 'plan-archive':
+    case 'plan-unarchive':
+      return typeof m.sessionId === 'number' && Number.isFinite(m.sessionId)
+        ? { type: m.type, sessionId: m.sessionId }
+        : null;
+    case 'plan-proposal-review':
+    case 'plan-proposal-discard':
+      return typeof m.proposalId === 'number' && Number.isFinite(m.proposalId)
+        ? { type: m.type, proposalId: m.proposalId }
+        : null;
     case 'toggle-facet':
       return typeof m.facet === 'string' && FACET_KEYS.has(m.facet)
         ? { type: 'toggle-facet', facet: m.facet as FacetKey }
@@ -157,5 +183,17 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.createFollowUp(msg.ticketId);
     case 'resolve-conflicts':
       return actions.resolveConflicts(msg.ticketId, msg.repo);
+    case 'plan-create':
+      return actions.planCreate();
+    case 'plan-open':
+      return actions.planOpen(msg.sessionId);
+    case 'plan-archive':
+      return actions.planArchive(msg.sessionId);
+    case 'plan-unarchive':
+      return actions.planUnarchive(msg.sessionId);
+    case 'plan-proposal-review':
+      return actions.planProposalReview(msg.proposalId);
+    case 'plan-proposal-discard':
+      return actions.planProposalDiscard(msg.proposalId);
   }
 }

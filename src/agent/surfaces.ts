@@ -130,4 +130,8 @@ export interface AdapterSurfaces {
   /** The adapter materializes the four entry-point orchestrators (start-task, resume,
    *  fix, resolve-conflict) in its own artifact shape and reports their invocations. */
   readonly entryOrchestrators: SurfaceSupport;
+  /** `InteractiveCommandOpts.readOnly` → the core's plan / read-only mode (planning sessions). */
+  readonly readOnlyInteractive: SurfaceSupport;
+  /** `InteractiveCommandOpts.addDirs` → the core's extra-workspace-directory flag. */
+  readonly addDirsInteractive: SurfaceSupport;
 }
