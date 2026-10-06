@@ -145,6 +145,7 @@ function mkCtx(ticketId?: number): TicketFormActionsCtx & {
     bindTicket: (id: number) => {
       boundId = id;
     },
+    commitPrefill: () => {},
     close: () => {
       closes += 1;
     },
@@ -223,7 +224,7 @@ describe('buildTicketFormActions', () => {
       pushState: () => {},
       mode: 'edit',
       ticketId: t.id,
-      bindTicket: () => {}, close: () => {},
+      bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -349,7 +350,7 @@ describe('buildTicketFormActions', () => {
   it('fetchSource posts an error when the provider rejects', async () => {
     deps.provider = fakeProvider({ fetchTicket: vi.fn(async () => { throw new Error('boom'); }) });
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.fetchSource('CU-9');
@@ -364,7 +365,7 @@ describe('buildTicketFormActions', () => {
       ]),
     });
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.searchTickets('pay', 'to do');
@@ -391,7 +392,7 @@ describe('buildTicketFormActions', () => {
       searchTickets: vi.fn(async () => { throw new Error('rate limited'); }),
     });
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.searchTickets('pay', null);
@@ -415,7 +416,7 @@ describe('buildTicketFormActions', () => {
   it('searchStatuses posts the provider status names', async () => {
     deps.provider = fakeProvider({ listStatuses: vi.fn(async () => ['to do', 'in progress']) });
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.searchStatuses();
@@ -428,7 +429,7 @@ describe('buildTicketFormActions', () => {
   it('searchStatuses reports a provider failure on the dropdown channel', async () => {
     deps.provider = fakeProvider({ listStatuses: vi.fn(async () => { throw new Error('no list'); }) });
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.searchStatuses();
@@ -440,7 +441,7 @@ describe('buildTicketFormActions', () => {
 
   it('suggestSignals posts the suggested words for a service', async () => {
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.suggestSignals('fe');
@@ -453,7 +454,7 @@ describe('buildTicketFormActions', () => {
 
   it('saveSignals writes to the manifest and re-pushes state', async () => {
     let pushes = 0;
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.saveSignals('be', ['api', 'endpoint']);
@@ -468,7 +469,7 @@ describe('buildTicketFormActions', () => {
       post: () => {},
       pushState: () => order.push('push'),
       mode: 'create',
-      bindTicket: () => {}, close: () => {},
+      bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -480,7 +481,7 @@ describe('buildTicketFormActions', () => {
   it('saveSignals does not reload or push when the write throws', async () => {
     writeSignals.mockImplementation(() => { throw new Error('bad yml'); });
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.saveSignals('be', ['api']);
@@ -489,7 +490,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit in create mode creates a ticket with the entered fields', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-1', title: 'a title', description: 'a desc', repos: ['fe'], approach: 'rpi', agent: null, model: null, ticketType: null,
@@ -504,7 +505,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit generates a unique key when the key field is left blank (manual creation)', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: '', title: 'no key please', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -515,7 +516,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('a blank key is derived from the title, not a random MANUAL- id', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -525,7 +526,7 @@ describe('buildTicketFormActions', () => {
 
   it('two blank-key submissions of the SAME title still get distinct keys', async () => {
     const mk = () => buildTicketFormActions(deps)({
-      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     });
     const fields = { key: '', title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
       createInProvider: false };
@@ -538,7 +539,7 @@ describe('buildTicketFormActions', () => {
 
   it('auto-derived (non-blank preview) submissions of the SAME title still get distinct keys', async () => {
     const mk = () => buildTicketFormActions(deps)({
-      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     });
     // Simulates the webview: the Key field holds the derived preview (non-empty),
     // and keyAutoDerived tells the host it is NOT user-owned.
@@ -552,7 +553,7 @@ describe('buildTicketFormActions', () => {
 
   it('a user-owned key is kept verbatim even when it matches another ticket (no auto re-key)', async () => {
     const mk = () => buildTicketFormActions(deps)({
-      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     });
     const base = { title: 'Fix login redirect', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null, createInProvider: false };
 
@@ -567,10 +568,10 @@ describe('buildTicketFormActions', () => {
 
   it('two blank-key submissions generate distinct keys — no collision', async () => {
     const actionsA = buildTicketFormActions(deps)({
-      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     });
     const actionsB = buildTicketFormActions(deps)({
-      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     });
 
     await actionsA.submit({ key: '', title: 'first', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -582,7 +583,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit persists the create-mode repo + approach selection before starting', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-R', title: 't', description: '', repos: ['fe', 'be'], approach: 'rpi', agent: null, model: null, ticketType: null,
@@ -593,7 +594,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit persists the per-ticket model when chosen, and leaves it null on inherit', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-M', title: 't', description: '', repos: [], approach: null, agent: null, model: 'claude-opus-4-8', ticketType: null,
@@ -602,7 +603,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit persists the chosen agentProvider on a newly created ticket', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
@@ -614,7 +615,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit with a null model leaves the ticket inheriting the default', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW-I', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -623,7 +624,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('submit persists the agent selection when present', async () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({
@@ -636,9 +637,11 @@ describe('buildTicketFormActions', () => {
 
   it('submit binds the create panel to the new draft before starting it', async () => {
     let bound: number | undefined;
+    let committed = 0;
     const ctx: TicketFormActionsCtx = {
       post: () => {}, pushState: () => {}, mode: 'create',
       bindTicket: (id) => { bound = id; },
+      commitPrefill: () => { committed += 1; },
       close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
@@ -647,6 +650,8 @@ describe('buildTicketFormActions', () => {
       createInProvider: false });
     const id = listTickets(store)[0]!.id;
     expect(bound).toBe(id);
+    // The user's Save/Submit is what commits a prefilled page (never a bind).
+    expect(committed).toBe(1);
     expect(startTicket).toHaveBeenCalledWith(id, { pullBase: true });
   });
 
@@ -720,7 +725,7 @@ describe('buildTicketFormActions', () => {
 
   it('submit in edit mode updates key/title of the existing ticket', async () => {
     const t = createTicket(store, { key: 'OLD', title: 'old' });
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.submit({ key: 'NEW', title: 'new', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
@@ -993,7 +998,7 @@ describe('buildTicketFormActions', () => {
       pushState: () => { pushes += 1; },
       mode: 'edit',
       ticketId: t.id,
-      bindTicket: () => {}, close: () => {},
+      bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1032,7 +1037,7 @@ describe('buildTicketFormActions', () => {
     );
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1053,7 +1058,7 @@ describe('buildTicketFormActions', () => {
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
       post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id,
-      bindTicket: () => {}, close: () => {},
+      bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
       // The user picked (or at least interacted with) the approach picker
       // earlier in this form session — the host never clears the flag.
       pickerTouched: true,
@@ -1077,7 +1082,7 @@ describe('buildTicketFormActions', () => {
     );
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1094,7 +1099,7 @@ describe('buildTicketFormActions', () => {
     deps.adapter = { ...fakeAdapter(), runHeadless: vi.fn(async () => { throw new Error('agent down'); }) };
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1125,6 +1130,7 @@ describe('buildTicketFormActions', () => {
         return bound;
       },
       bindTicket: (id) => { bound = id; },
+      commitPrefill: () => {},
       close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
@@ -1148,6 +1154,45 @@ describe('buildTicketFormActions', () => {
     expect(pushes).toBe(1);
   });
 
+  it('analyze in create mode uses the prefill summary as the brief before the panel binds', async () => {
+    const prompts: string[] = [];
+    deps.adapter = {
+      ...fakeAdapter(),
+      runHeadless: vi.fn(async (input: { prompt: string }) => {
+        prompts.push(input.prompt);
+        const raw = input.prompt.includes('conventional-commit type')
+          ? '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}'
+          : 'Improved p';
+        return { sessionId: 's', verdict: null, raw };
+      }),
+    };
+    const posted: TicketFormHostMessage[] = [];
+    let bound: number | undefined;
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m),
+      pushState: () => {},
+      get mode(): 'create' | 'edit' {
+        return bound === undefined ? 'create' : 'edit';
+      },
+      get ticketId() {
+        return bound;
+      },
+      get prefillSummary() {
+        return 'PROPOSAL SUMMARY TEXT';
+      },
+      bindTicket: (id) => { bound = id; },
+      commitPrefill: () => {},
+      close: () => {},
+    };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('do the thing');
+
+    // The review form's Context brief reaches the analyzer before any ticket
+    // exists, not just after a bind.
+    expect(prompts.some((p) => p.includes('PROPOSAL SUMMARY TEXT'))).toBe(true);
+  });
+
   it('analyze runs through the configured ticket-analysis process and snapshots its identity', async () => {
     const classifyRaw = '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r"}';
     const runHeadless = vi.fn(async (opts: { prompt: string; model?: string }) => {
@@ -1164,7 +1209,7 @@ describe('buildTicketFormActions', () => {
     });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1212,7 +1257,7 @@ describe('buildTicketFormActions', () => {
     });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1234,7 +1279,7 @@ describe('buildTicketFormActions', () => {
     deps.resolveAnalysisProcess = () => null;
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1251,7 +1296,7 @@ describe('buildTicketFormActions', () => {
 
   it('analyze is a no-op with no bound ticket AND no live prompt (nothing to reason over)', async () => {
     const posted: TicketFormHostMessage[] = [];
-    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.analyze('');
@@ -1262,7 +1307,7 @@ describe('buildTicketFormActions', () => {
     const t = createTicket(store, { key: 'P-1', title: 't' }); // no description/brief
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1279,7 +1324,7 @@ describe('buildTicketFormActions', () => {
     deps.adapter = { ...fakeAdapter(), runHeadless };
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1296,7 +1341,7 @@ describe('buildTicketFormActions', () => {
     updateTicketFields(store, t.id, { brief: 'the brief text' });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1315,7 +1360,7 @@ describe('buildTicketFormActions', () => {
     updateTicketFields(store, t.id, { brief: 'the brief text' });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1342,7 +1387,7 @@ describe('buildTicketFormActions', () => {
     const warns: string[] = [];
     deps.warn = (msg: string) => { warns.push(msg); };
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1378,7 +1423,7 @@ describe('buildTicketFormActions', () => {
     updateTicketFields(store, t2.id, { brief: 'the brief text', selectedRepos: [] });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t2.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t2.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1406,7 +1451,7 @@ describe('buildTicketFormActions', () => {
     deps.adapter = { ...fakeAdapter(), runHeadless };
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1434,7 +1479,7 @@ describe('buildTicketFormActions', () => {
     deps.adapter = { ...fakeAdapter(), runHeadless };
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1446,7 +1491,7 @@ describe('buildTicketFormActions', () => {
 
   it('setApproach and setRepos persist onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P', title: 't' });
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setApproach('rpi');
@@ -1465,7 +1510,7 @@ describe('buildTicketFormActions', () => {
       { fe: svc({ signals: ['ui'], repoPath: '/repo/fe' }), be: svc({ signals: ['api'], repoPath: '/repo/be' }) },
       { portRange: [4000, 4100] },
     );
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setBaseRef('fe', 'epic/x');
@@ -1474,7 +1519,7 @@ describe('buildTicketFormActions', () => {
 
   it('drops an override that equals the manifest default', () => {
     const t = createTicket(store, { key: 'P-BR-2', title: 't' });
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     // MANIFEST's baseline branch (the manifest default with no repo-level
@@ -1495,6 +1540,7 @@ describe('buildTicketFormActions', () => {
       mode: 'edit',
       ticketId: t.id,
       bindTicket: () => {},
+      commitPrefill: () => {},
       close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
@@ -1513,7 +1559,7 @@ describe('buildTicketFormActions', () => {
     // MANIFEST's `fe` and `be` share repoPath '/repo' by default.
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1531,7 +1577,7 @@ describe('buildTicketFormActions', () => {
   it('save refuses conflicting base refs for entries sharing a repoPath, and creates nothing', async () => {
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1552,7 +1598,7 @@ describe('buildTicketFormActions', () => {
     const t = createTicket(store, { key: 'P-BR-EDIT', title: 'original title' });
     const posted: TicketFormHostMessage[] = [];
     const ctx: TicketFormActionsCtx = {
-      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {},
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
     };
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -1570,7 +1616,7 @@ describe('buildTicketFormActions', () => {
 
   it('setAgent persists onto an existing ticket', () => {
     const t = createTicket(store, { key: 'P-A', title: 't' });
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setAgent('reviewer');
@@ -1578,7 +1624,7 @@ describe('buildTicketFormActions', () => {
   });
 
   it('setAgent is a no-op in create mode with no bound ticket', () => {
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     expect(() => actions.setAgent('reviewer')).not.toThrow();
@@ -1587,7 +1633,7 @@ describe('buildTicketFormActions', () => {
 
   it('setModel persists onto an existing ticket, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-M', title: 't' });
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setModel('claude-sonnet-5');
@@ -1598,7 +1644,7 @@ describe('buildTicketFormActions', () => {
 
   it('setEffort persists onto an existing ticket, and empty clears it to inherit', () => {
     const t = createTicket(store, { key: 'P-EF', title: 't' });
-    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, close: () => {} };
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: t.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
     const actions = buildTicketFormActions(deps)(ctx);
 
     actions.setEffort('high');
