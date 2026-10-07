@@ -14,6 +14,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
+import { compileExpertSpend, graphRecoveryRefusalNotice, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -3957,6 +3958,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       transaction: <T>(fn: () => T): T => runImmediateTransaction(gs!.db, fn),
       now: () => new Date().toISOString(),
       debug: (message) => logger.debug(message),
+      // The human Replan bypass's hard cap — the project `limits.maxReplans`
+      // (packaged default fallback), NEVER the revision document's frozen
+      // `budgets.maxReplans` (see `graphReplanBudget`).
+      projectMaxReplans: projectMaxReplans(
+        graphApproachConfigFor(graphRunApproachId(graphRunId))?.limits.maxReplans,
+      ),
       resolveEffective: ({ revisionId, nodeId }) => {
         if (!gs) return { promptOverride: false };
         const override = nodeOverrideFor(gs.db, revisionId, nodeId, 'prompt');
@@ -4520,17 +4527,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       commands,
       repositories,
       artifactFileExists,
-      expertSpend: {
-        // The bootstrap planner already ran (spent); the compile reserves the
-        // permitted replan budget and charges no bootstrap for the future.
-        spentPlannerRuns: 1,
-        permittedReplans: config?.limits.maxReplans ?? 0,
-        bootstrapUnspent: false,
-      },
+      expertSpend: compileExpertSpend(
+        config?.limits.maxReplans,
+        graphCoordinatorStore?.db,
+        graphRunId,
+      ),
       projectMaxima: {
         maxNodeRuns: config?.limits.maxNodeRuns ?? DEFAULT_GRAPH_LIMITS.maxNodeRuns,
         maxExpertRuns: config?.limits.maxExpertRuns ?? DEFAULT_GRAPH_LIMITS.maxExpertRuns,
-        maxReplans: config?.limits.maxReplans ?? DEFAULT_GRAPH_LIMITS.maxReplans,
+        maxReplans: projectMaxReplans(config?.limits.maxReplans),
       },
     };
   };
@@ -7568,7 +7573,7 @@ function makeInsideActionHost(
       }
       if (recovery.kind === 'refused') {
         void vscode.window.showInformationMessage(
-          `Ticket #${ticketId}: the implementation graph cannot ${mode} itself (${recovery.reason}).`,
+          graphRecoveryRefusalNotice(ticketId, mode, recovery.reason),
         );
         return;
       }
@@ -7653,7 +7658,7 @@ function makeInsideActionHost(
           );
         } else if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
+            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
           );
         }
         // Keep this legacy Resume route on the same post-recovery seam as the
@@ -8044,7 +8049,7 @@ function makeDashboardActions(
           driveAfterResume(ticketId);
         } else if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the implementation graph cannot retry itself (${recovery.reason}) — open the Inside panel to discard the unknown process.`,
+            graphRecoveryRefusalNotice(ticketId, 'resume', recovery.reason),
           );
         }
       }

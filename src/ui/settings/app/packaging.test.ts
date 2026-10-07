@@ -182,7 +182,15 @@ describe('stage-vsix copy list packaging', () => {
 
   it('only names required entries that exist in the repo', () => {
     for (const entry of COPY_LIST.required) {
-      expect(existsSync(join(ROOT, entry)), `required stage entry is missing: ${entry}`).toBe(true);
+      // A node_modules entry may resolve OUTSIDE this checkout: a git worktree
+      // (`.karst/worktrees/<name>/`) has no node_modules of its own and inherits
+      // the main checkout's install. Resolve those through the same walked-up
+      // directory the closure walk above uses, not raw ROOT — otherwise this
+      // guard fails on every worktree and proves nothing.
+      const resolved = entry.startsWith('node_modules/')
+        ? join(NODE_MODULES, entry.slice('node_modules/'.length))
+        : join(ROOT, entry);
+      expect(existsSync(resolved), `required stage entry is missing: ${entry}`).toBe(true);
     }
   });
 });
