@@ -399,6 +399,103 @@ describe('acceptSubmittedPlan', () => {
     expect(planArtifacts.n).toBe(1);
   });
 
+  it('numbers a recovery bootstrap revision monotonically past a surviving draining revision', () => {
+    // The replan-park leaves revision #1 `draining`; a bootstrap relaunch then
+    // re-accepts. A hardcoded revision number 1 would collide with the
+    // UNIQUE (graph_run_id, revision_number) and throw on every tick.
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'old',
+      status: 'draining',
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'planning' WHERE id = ?").run(graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'fp1.json'), gateGraphJson());
+    const planDir = join(h.root, String(graphRunId), 'artifacts');
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, 'plan.md'), '# plan');
+
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('accepted');
+    if (result.kind !== 'accepted') return;
+    expect(result.revisionNumber).toBe(2);
+    // The abandoned drain is superseded, so never two live `draining`
+    // revisions — otherwise the drain selectors disagree and strand the next
+    // replan.
+    const revisions = h.db
+      .prepare(
+        'SELECT revision_number, status FROM approach_graph_revisions WHERE graph_run_id = ? ORDER BY revision_number',
+      )
+      .all(graphRunId);
+    expect(revisions).toEqual([
+      { revision_number: 1, status: 'superseded' },
+      { revision_number: 2, status: 'active' },
+    ]);
+  });
+
+  it('cancels the abandoned drain’s blocked requester node when bootstrap recovery supersedes it', () => {
+    // Left `blocked`, the requester (and its held lease) blocks the recovered
+    // revision's END quiescence run-wide — the run reads as faulted immediately.
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    const rev1 = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'old',
+      status: 'draining',
+      now: NOW,
+    });
+    h.db
+      .prepare(
+        `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status, outcome)
+         VALUES (?, ?, 'a', 'agent', 1, 'blocked', 'replan')`,
+      )
+      .run(graphRunId, rev1);
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'planning' WHERE id = ?").run(graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'fp1.json'), gateGraphJson());
+    const planDir = join(h.root, String(graphRunId), 'artifacts');
+    mkdirSync(planDir, { recursive: true });
+    writeFileSync(join(planDir, 'plan.md'), '# plan');
+
+    const result = acceptSubmittedPlan(h.deps, graphRunId);
+    expect(result.kind).toBe('accepted');
+    const requester = h.db
+      .prepare('SELECT status, outcome FROM approach_node_runs WHERE revision_id = ?')
+      .get(rev1) as { status: string; outcome: string | null };
+    expect(requester).toEqual({ status: 'cancelled', outcome: 'replan' });
+  });
+
   /** A planning run with a submitted bootstrap planner and a snapshot. */
   function submittedPlan(h: Harness, snapshotId: string, json: string): number {
     const graphRunId = createGraphRun(h.db, {
@@ -1490,8 +1587,8 @@ describe('acceptSubmittedReplan', () => {
     h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(graphRunId);
     h.db
       .prepare(
-        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
-         VALUES (?, 2, 'replan', 'submitted', 'rpl', ?)`,
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, target_revision_number, submitted_at)
+         VALUES (?, 2, 'replan', 'submitted', 'rpl', 2, ?)`,
       )
       .run(graphRunId, NOW);
     const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
@@ -1517,6 +1614,54 @@ describe('acceptSubmittedReplan', () => {
     expect(entries.n).toBe(1);
   });
 
+  it('accepts the CURRENT drain\u2019s replan, never a prior drain\u2019s still-submitted planner', () => {
+    // A completed replan's planner stays `submitted` forever. An unscoped
+    // `ORDER BY id LIMIT 1` lookup resolves to it and lands its stale document
+    // as the next revision. The accept must be scoped to the draining
+    // revision's successor: here revision 2 drains, so target 3.
+    const h = harness();
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 2,
+      canonicalGraph: '{}',
+      fingerprint: 'old',
+      status: 'draining',
+      now: NOW,
+    });
+    h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(graphRunId);
+    // Prior drain's planner (target 2) is still submitted and points at a
+    // missing snapshot; the current drain's planner (target 3) has the real one.
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs
+           (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, target_revision_number, submitted_at)
+         VALUES (?, 2, 'replan', 'submitted', 'stale-rpl', 2, ?)`,
+      )
+      .run(graphRunId, NOW);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs
+           (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, target_revision_number, submitted_at)
+         VALUES (?, 3, 'replan', 'submitted', 'rpl', 3, ?)`,
+      )
+      .run(graphRunId, NOW);
+    const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
+    mkdirSync(snapshotDir, { recursive: true });
+    writeFileSync(join(snapshotDir, 'rpl.json'), gateGraphJson());
+    // 'stale-rpl.json' is deliberately absent — accepting it would reject.
+
+    const result = acceptSubmittedReplan(h.deps, graphRunId);
+    expect(result.kind).toBe('accepted');
+    if (result.kind !== 'accepted') return;
+    expect(result.revisionNumber).toBe(3);
+  });
+
   it('G1b: declines to judge a replan while the manifest is unresolved', () => {
     const h = harness();
     const graphRunId = createGraphRun(h.db, {
@@ -1536,8 +1681,8 @@ describe('acceptSubmittedReplan', () => {
     h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(graphRunId);
     h.db
       .prepare(
-        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
-         VALUES (?, 2, 'replan', 'submitted', 'rpl', ?)`,
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, target_revision_number, submitted_at)
+         VALUES (?, 2, 'replan', 'submitted', 'rpl', 2, ?)`,
       )
       .run(graphRunId, NOW);
     const snapshotDir = join(h.root, String(graphRunId), 'snapshots');
@@ -1580,8 +1725,8 @@ describe('acceptSubmittedReplan', () => {
     h.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(graphRunId);
     h.db
       .prepare(
-        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
-         VALUES (?, 2, 'replan', 'submitted', 'rpl', ?)`,
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, target_revision_number, submitted_at)
+         VALUES (?, 2, 'replan', 'submitted', 'rpl', 2, ?)`,
       )
       .run(graphRunId, NOW);
     const snapshotDir = join(h.root, String(graphRunId), 'snapshots');

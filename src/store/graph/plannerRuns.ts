@@ -18,6 +18,11 @@ export interface CreatePlannerRun {
   graphRunId: number;
   plannerRunNumber: number;
   kind: 'bootstrap' | 'replan';
+  /** For a replan planner: the revision it is compiling (the draining
+   *  revision's successor). It scopes the planner to ONE drain, so a run that
+   *  has replanned before is not judged against a prior drain's planner.
+   *  Bootstrap planners (and legacy rows) leave it null. */
+  targetRevisionNumber?: number;
 }
 
 export interface PlannerRunRow {
@@ -49,10 +54,15 @@ export interface PlannerRunRow {
 export function createPlannerRun(db: GraphDb, input: CreatePlannerRun): number {
   const res = db
     .prepare(
-      `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
-       VALUES (?, ?, ?, 'ready')`,
+      `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, target_revision_number, status)
+       VALUES (?, ?, ?, ?, 'ready')`,
     )
-    .run(input.graphRunId, input.plannerRunNumber, input.kind);
+    .run(
+      input.graphRunId,
+      input.plannerRunNumber,
+      input.kind,
+      input.targetRevisionNumber ?? null,
+    );
   return Number(res.lastInsertRowid);
 }
 
@@ -126,6 +136,45 @@ export function submittedPlannerRunForGraphRun(
        ORDER BY id LIMIT 1`,
     )
     .get(graphRunId, kind) as Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined;
+}
+
+/** The submitted replan planner that serves a specific target revision (the
+ *  drain's successor). STRICTLY target-scoped: a legacy NULL-target row is a
+ *  PRIOR drain's already-submitted plan, so accepting it would re-land a stale
+ *  document as the next revision. */
+export function submittedReplanPlannerForTarget(
+  db: GraphDb,
+  graphRunId: number,
+  targetRevisionNumber: number,
+): Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'> | undefined {
+  return db
+    .prepare(
+      `SELECT id, status, graph_snapshot_id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'replan' AND status = 'submitted'
+         AND target_revision_number = ?
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId, targetRevisionNumber) as
+    | Pick<PlannerRunRow, 'id' | 'status' | 'graph_snapshot_id'>
+    | undefined;
+}
+
+/** How many replan planners belong to the drain that produces
+ *  `targetRevisionNumber` (target-scoped, plus still-live legacy NULL ones).
+ *  Used to bound the `ready`-relaunch loop so a persistently failing launch
+ *  cannot allocate a new planner every sweep. */
+export function countReplanPlannersForTarget(
+  db: GraphDb,
+  graphRunId: number,
+  targetRevisionNumber: number,
+): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'replan' AND ${replanCurrentDrainPredicate()}`,
+    )
+    .get(graphRunId, targetRevisionNumber, ...LEGACY_INFLIGHT_REPLAN_STATUSES) as { n: number };
+  return row.n;
 }
 
 /** The newest planner run of a graph run and kind (launch-identity columns),
@@ -243,6 +292,79 @@ export function plannerRunExistsOutsideStatusesForGraphRun(
        WHERE id = ? AND graph_run_id = ? AND status NOT IN (${placeholders}) LIMIT 1`,
     )
     .get(id, graphRunId, ...terminalStatuses);
+  return row !== undefined;
+}
+
+/** A legacy NULL-target replan planner (allocated before `createPlannerRun`
+ *  wrote targets) is adopted for the current drain ONLY while it is provably
+ *  still IN FLIGHT for it — allocated/launching/running/blocked, i.e. it has
+ *  NOT yet submitted. A `submitted` legacy row belongs to whatever earlier
+ *  drain it produced and must never be re-accepted, nor block a fresh planner;
+ *  `stale`/`cancelled` are abandoned. */
+export const LEGACY_INFLIGHT_REPLAN_STATUSES = [
+  'ready',
+  'launching',
+  'running',
+  'blocked',
+  'launch-unknown',
+] as const;
+
+/** The `target_revision_number = ?` OR legacy-NULL predicate shared by the
+ *  replan lookups. A NULL-target row is legacy; it is matched only while it is
+ *  still in flight (see `LEGACY_INFLIGHT_REPLAN_STATUSES`), so an abandoned or
+ *  already-submitted legacy row never satisfies — or blocks — a later drain.
+ *  The placeholder count is fixed (1 target + the legacy-status list), so
+ *  callers can append their own clauses. */
+export function replanCurrentDrainPredicate(): string {
+  const legacyPlaceholders = LEGACY_INFLIGHT_REPLAN_STATUSES.map(() => '?').join(',');
+  return `(target_revision_number = ? OR (target_revision_number IS NULL AND status IN (${legacyPlaceholders})))`;
+}
+
+/** The newest replan planner that serves a specific target revision (the
+ *  revision the drain will produce), adopting a still-in-flight legacy
+ *  NULL-target planner in its place. A real target scopes the planner to
+ *  exactly one drain, so a run that replanned before is never judged against a
+ *  prior drain's planner; abandoned or already-submitted legacy rows are
+ *  likewise ignored. */
+export function latestReplanPlannerForTarget(
+  db: GraphDb,
+  graphRunId: number,
+  targetRevisionNumber: number,
+): Pick<PlannerRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'> | undefined {
+  return db
+    .prepare(
+      `SELECT id, status, owner_nonce, process_run_id FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'replan' AND ${replanCurrentDrainPredicate()}
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId, targetRevisionNumber, ...LEGACY_INFLIGHT_REPLAN_STATUSES) as
+    | Pick<PlannerRunRow, 'id' | 'status' | 'owner_nonce' | 'process_run_id'>
+    | undefined;
+}
+
+/** True when a replan planner for `targetRevisionNumber` (or a still-in-flight
+ *  legacy NULL one) exists OUTSIDE `terminalStatuses` — the single-flight gate
+ *  for allocating a second replan planner for the same drain. An abandoned or
+ *  already-submitted legacy row never blocks a replacement. */
+export function replanPlannerForTargetExistsOutsideStatuses(
+  db: GraphDb,
+  graphRunId: number,
+  targetRevisionNumber: number,
+  terminalStatuses: readonly string[],
+): boolean {
+  const terminalPlaceholders = terminalStatuses.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT 1 AS x FROM approach_planner_runs
+       WHERE graph_run_id = ? AND kind = 'replan' AND ${replanCurrentDrainPredicate()}
+         AND status NOT IN (${terminalPlaceholders}) LIMIT 1`,
+    )
+    .get(
+      graphRunId,
+      targetRevisionNumber,
+      ...LEGACY_INFLIGHT_REPLAN_STATUSES,
+      ...terminalStatuses,
+    );
   return row !== undefined;
 }
 
@@ -375,13 +497,13 @@ export function markPlannerRunStarted(db: GraphDb, id: number, now: string): boo
  * planner in one of these is working, waiting to be launched, or waiting to be
  * re-prompted, and something will still move it.
  *
- * ONE definition, because three call sites ask the same question about a
- * `draining` run and must never disagree: the Inside projection decides
- * whether to mint the H2 Restart control, the action dispatch re-checks it
- * before routing the click, and `restartStoppedGraph` re-checks it again
- * inside the coordinator. A status added to `PLANNER_RUN_TRANSITIONS` is
- * added here once, or those three drift into disagreeing about whether a
- * Restart is legal.
+ * ONE definition, shared by the call sites that ask "is a replan still in
+ * flight for this drain": the Inside projection and the action dispatch derive
+ * it from the revision status (a Stop drain keeps its revision `active`; a
+ * mid-replan drain has only a `draining` revision) plus `hasLiveReplanPlanner`,
+ * and `restartStoppedGraph` re-checks `hasLiveReplanPlanner` again inside the
+ * coordinator. A status added to `PLANNER_RUN_TRANSITIONS` is added here once,
+ * or those call sites drift into disagreeing about whether a Restart is legal.
  */
 export const LIVE_PLANNER_STATUSES = [
   'ready',
@@ -397,15 +519,38 @@ export const LIVE_PLANNER_STATUSES = [
  * revision N+1, or Stop halted the run — and this is what tells them apart:
  * true means the coordinator owns the run's exit, false means the run was
  * stopped and only a deliberate Restart (H2) will move it.
+ *
+ * A Stop drain NEVER touches the revision, so the run is mid-replan only while
+ * a revision is `draining`; the planner must be bound to THAT drain's target
+ * (`draining revision + 1`) — or be a still-in-flight legacy NULL-target
+ * planner that the upgrade has not yet seen a target for. A prior drain's
+ * already-submitted or abandoned planner never reads as "in flight" for a run
+ * that is merely stopped, so a genuine Stop drain is never refused as
+ * `replan-in-flight`.
  */
 export function hasLiveReplanPlanner(db: GraphDb, graphRunId: number): boolean {
+  const draining = db
+    .prepare(
+      `SELECT revision_number FROM approach_graph_revisions
+       WHERE graph_run_id = ? AND status = 'draining' ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId) as { revision_number: number } | undefined;
+  if (!draining) return false;
+  const target = draining.revision_number + 1;
+  const livePlaceholders = LIVE_PLANNER_STATUSES.map(() => '?').join(',');
   const row = db
     .prepare(
       `SELECT 1 AS live FROM approach_planner_runs
        WHERE graph_run_id = ? AND kind = 'replan'
-         AND status IN (${LIVE_PLANNER_STATUSES.map(() => '?').join(',')})
+         AND status IN (${livePlaceholders})
+         AND (target_revision_number = ? OR (target_revision_number IS NULL AND status IN (${LEGACY_INFLIGHT_REPLAN_STATUSES.map(() => '?').join(',')})))
        LIMIT 1`,
     )
-    .get(graphRunId, ...LIVE_PLANNER_STATUSES) as { live: number } | undefined;
+    .get(
+      graphRunId,
+      ...LIVE_PLANNER_STATUSES,
+      target,
+      ...LEGACY_INFLIGHT_REPLAN_STATUSES,
+    ) as { live: number } | undefined;
   return row !== undefined;
 }

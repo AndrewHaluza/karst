@@ -14,9 +14,10 @@ import {
   setPlannerRunReason,
   setPlannerRunReasonEndedAt,
   submittedPlannerRunForGraphRun,
+  submittedReplanPlannerForTarget,
   transitionPlannerRun,
 } from '../../store/graph/plannerRuns.js';
-import { activeRevision, createRevision } from '../../store/graph/revisions.js';
+import { activeRevision, createRevision, drainingRevision, nextRevisionNumber } from '../../store/graph/revisions.js';
 import { insertEntryTokens } from '../../store/graph/tokens.js';
 import type { GraphDocument } from './parse.js';
 import { parseGraphDocument } from './parse.js';
@@ -26,6 +27,8 @@ import {
   type CompileResult,
 } from './compile.js';
 import { submitReplanDocument } from './coordinator/replan.js';
+import { cancelNodeRuns } from './coordinator/abandonedNodes.js';
+import { ACTIVE_NODE_STATUSES } from './coordinator/completion.js';
 import {
   MAX_COMPILE_ATTEMPTS,
   nextCompileAttempt,
@@ -150,13 +153,53 @@ export function acceptSubmittedPlan(
   }
   const { compiled: c } = compiled;
   const confirm = configConfirmOf(deps, run.approach_id);
-  const revisionNumber = 1;
   const outcome = deps.transaction(() => {
     const existing = activeRevision(deps.db, graphRunId);
     if (existing) {
       finishPlanning(deps.db, graphRunId, confirm);
       return { id: existing.id, revisionNumber: existing.revision_number, already: true } as const;
     }
+    // A bootstrap relaunch can recover a run whose earlier revision is still
+    // `draining` (the replan-park leaves exactly one). This recovery abandons
+    // that drain, so supersede it AND cancel its still-active node runs: a
+    // lingering second `draining` revision would make the drain selectors
+    // disagree, and a surviving `blocked` replan requester (or its held lease)
+    // would block the recovered revision's END quiescence run-wide forever.
+    const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
+    const abandoned = deps.db
+      .prepare(
+        `SELECT n.id, n.status, n.node_kind, n.revision_id, n.node_id
+         FROM approach_node_runs n
+         JOIN approach_graph_revisions r ON r.id = n.revision_id
+         WHERE n.graph_run_id = ? AND r.status = 'draining' AND n.status IN (${placeholders})`,
+      )
+      .all(graphRunId, ...ACTIVE_NODE_STATUSES) as Array<{
+      id: number;
+      status: string;
+      node_kind: string;
+      revision_id: number;
+      node_id: string;
+    }>;
+    deps.db
+      .prepare(
+        `UPDATE approach_graph_revisions SET status = 'superseded', superseded_at = ?
+         WHERE graph_run_id = ? AND status = 'draining'`,
+      )
+      .run(deps.now(), graphRunId);
+    cancelNodeRuns(
+      { db: deps.db, now: deps.now },
+      graphRunId,
+      abandoned.map((n) => ({
+        id: n.id,
+        status: n.status,
+        nodeKind: n.node_kind,
+        revisionId: n.revision_id,
+        nodeId: n.node_id,
+      })),
+    );
+    // Monotonic: normally 1 (the first plan), but it continues past an
+    // abandoned prior revision so UNIQUE (graph_run_id, revision_number) holds.
+    const revisionNumber = nextRevisionNumber(deps.db, graphRunId);
     const id = createRevision(deps.db, {
       graphRunId,
       revisionNumber,
@@ -208,7 +251,18 @@ export function acceptSubmittedReplan(
 ): AcceptReplanResult {
   const run = graphRunById(deps.db, graphRunId);
   if (!run || run.status !== 'draining') return { kind: 'no-op' };
-  const planner = submittedPlannerRunForGraphRun(deps.db, graphRunId, 'replan');
+  // Scope the accept to the CURRENT drain: its planner is bound to the
+  // draining revision's successor. A completed replan's planner row stays
+  // `submitted` forever, so an unscoped lookup (`ORDER BY id LIMIT 1`) would
+  // resolve to a PRIOR drain's planner and land its stale document as the next
+  // revision. A Stop drain has no draining revision and nothing to accept.
+  const draining = drainingRevision(deps.db, graphRunId);
+  if (!draining) return { kind: 'no-op' };
+  const planner = submittedReplanPlannerForTarget(
+    deps.db,
+    graphRunId,
+    draining.revision_number + 1,
+  );
   if (!planner || !planner.graph_snapshot_id) {
     deps.debug?.(
       `[graph] run ${graphRunId}: nothing to accept — ${

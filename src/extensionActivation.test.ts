@@ -617,6 +617,18 @@ describe('extension activation', () => {
     expect(source).toContain('const launchBootstrapRelaunchHost = async (launch: BootstrapRelaunchRequest)');
   });
 
+  it('closes the election→launch gap: a committed replan election immediately begins a planner', () => {
+    // `electReplan` commits the drain in its own transaction. Without the
+    // follow-up launch the run sat `draining` with no planner row, and only the
+    // 15s reconcile retried — which a restart could turn into a permanent
+    // `no-revision` strand. The election path now fires the SAME host seam
+    // reconcile uses. Pinned as source: extension.ts imports `vscode`.
+    const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
+    expect(source).toMatch(
+      /if \(elected\.elected\) \{\s*void relaunchReplanPlannerHost\(graphRunId\);\s*\}/,
+    );
+  });
+
   it('refreshes and wakes recovered graph work, while describing blocked Stop accurately', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
 

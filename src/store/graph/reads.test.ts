@@ -236,6 +236,7 @@ describe('planner-run read helpers (NDL-60)', () => {
       graphRunId: h.graphRunId,
       plannerRunNumber: 2,
       kind: 'replan',
+      targetRevisionNumber: 2,
     });
     expect(nextPlannerRunNumber(h.db, h.graphRunId)).toBe(3);
     expect(plannerRunStatus(h.db, first)).toBe('ready');
@@ -252,11 +253,26 @@ describe('planner-run read helpers (NDL-60)', () => {
       status: 'submitted',
       graph_snapshot_id: 's1',
     });
-    // A `ready` replan planner still owes a submission.
+    // A `ready` replan planner still owes a submission — but only while the
+    // run is genuinely mid-replan, i.e. a revision is `draining` and the
+    // planner is bound to that drain's target revision (1 + 1).
+    h.db
+      .prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE id = ?")
+      .run(h.revisionId);
     expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(true);
     h.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?").run(second);
     expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(false);
     h.db.prepare("UPDATE approach_planner_runs SET status = 'running' WHERE id = ?").run(second);
     expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(true);
+    // A still-IN-FLIGHT legacy NULL-target planner is adopted for the upgrade path.
+    h.db.prepare('UPDATE approach_planner_runs SET target_revision_number = NULL WHERE id = ?').run(second);
+    expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(true);
+    // An already-SUBMITTED legacy NULL-target row is a prior drain's plan, not
+    // live for the current one.
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'submitted' WHERE id = ?").run(second);
+    expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(false);
+    // As is an abandoned legacy NULL-target row.
+    h.db.prepare("UPDATE approach_planner_runs SET status = 'stale' WHERE id = ?").run(second);
+    expect(hasLiveReplanPlanner(h.db, h.graphRunId)).toBe(false);
   });
 });

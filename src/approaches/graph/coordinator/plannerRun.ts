@@ -207,6 +207,7 @@ export function finishPlanning(
 export function nextPlannerIdentity(
   db: GraphDb,
   graphRunId: number,
+  targetRevisionNumber?: number,
 ): { plannerRunId: number; plannerRunNumber: number } | undefined {
   const run = graphRunById(db, graphRunId);
   if (!run) return undefined;
@@ -215,6 +216,7 @@ export function nextPlannerIdentity(
     graphRunId,
     plannerRunNumber,
     kind: 'replan',
+    targetRevisionNumber,
   });
   return { plannerRunId, plannerRunNumber };
 }

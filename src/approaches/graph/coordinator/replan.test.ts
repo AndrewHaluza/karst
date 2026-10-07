@@ -432,6 +432,69 @@ describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file
     expect(planners.n).toBe(1);
   });
 
+  it('is single-flight: a second call for the same drain allocates no second planner', () => {
+    const ctx = electedCtx();
+    const first = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(first.ok).toBe(true);
+    const second = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(second).toEqual({ ok: false, reason: 'already-planned' });
+    const planners = ctx.db
+      .prepare("SELECT COUNT(*) AS n FROM approach_planner_runs WHERE kind = 'replan'")
+      .get() as { n: number };
+    expect(planners.n).toBe(1);
+  });
+
+  it('binds the allocated replan planner to the revision it compiles (target N+1)', () => {
+    const ctx = electedCtx();
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const target = ctx.db
+      .prepare('SELECT target_revision_number FROM approach_planner_runs WHERE id = ?')
+      .get(result.plannerRunId) as { target_revision_number: number | null };
+    expect(target.target_revision_number).toBe(2); // draining revision 1 → 2
+  });
+
+  it('targets the NEWEST draining revision when one lingers (selectors agree)', () => {
+    const ctx = electedCtx(); // revision 1 draining
+    // Defensive: the recovery now supersedes an abandoned drain, but if a
+    // second `draining` revision ever survives, the allocator and the acceptor
+    // must both pick the newest — otherwise the target diverges and the next
+    // replan strands forever.
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions
+           (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (?, 2, '{}', 'fp-N2', 'draining', '2026-08-12T00:00:01.000Z')`,
+      )
+      .run(ctx.graphRunId);
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const target = ctx.db
+      .prepare('SELECT target_revision_number FROM approach_planner_runs WHERE id = ?')
+      .get(result.plannerRunId) as { target_revision_number: number | null };
+    expect(target.target_revision_number).toBe(3); // newest draining (2) → 3
+  });
+
+  it('ignores the drain’s own blocked replan requester when checking quiescence', () => {
+    // The election leaves its reporting node `blocked` with outcome `replan`.
+    // That requester is the drain's reason, not active work — counting it would
+    // refuse the drain's own planner forever (the strand this ticket fixes).
+    const ctx = electedCtx();
+    nodeRun(ctx, 77, 'a', 'blocked');
+    ctx.db.prepare("UPDATE approach_node_runs SET outcome = 'replan' WHERE id = 77").run();
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result.ok).toBe(true);
+  });
+
+  it('still refuses when a genuinely blocked node (no replan outcome) is active', () => {
+    const ctx = electedCtx();
+    nodeRun(ctx, 78, 'a', 'blocked');
+    const result = beginReplanPlannerRun(launchDeps(ctx), { graphRunId: ctx.graphRunId });
+    expect(result).toEqual({ ok: false, reason: 'not-quiescent' });
+  });
+
   it('refuses before quiescence: a running node blocks the planner run', () => {
     const ctx = electedCtx();
     nodeRun(ctx, 51, 'a', 'running');
@@ -524,6 +587,26 @@ describe('submitReplanDocument — validate, supersede, resume (steps 8–10)', 
     expect(entries).toEqual([
       { edge_id: 'entry-b', destination_node_id: 'b', status: 'pending' },
     ]);
+  });
+
+  it('cancels the superseded revision’s blocked replan requester on submit', () => {
+    // Left `blocked`, the requester would block N+1's END quiescence run-wide,
+    // trip the first-fault block, and re-fire the election.
+    const ctx = harness(1);
+    nodeRun(ctx, 77, 'a', 'blocked');
+    ctx.db.prepare("UPDATE approach_node_runs SET outcome = 'replan' WHERE id = 77").run();
+    electReplan(ctx.makeDeps(), { graphRunId: ctx.graphRunId });
+    plannerRun(ctx, 2, 2, 'running', { graphSnapshotId: 'reasons/abc.json' });
+    const result = submitReplanDocument(submitDeps(ctx), {
+      plannerRunId: 2,
+      document: draftN1(),
+      rationale: 'redo',
+    });
+    expect(result.ok).toBe(true);
+    const requester = ctx.db
+      .prepare('SELECT status, outcome FROM approach_node_runs WHERE id = 77')
+      .get() as { status: string; outcome: string | null };
+    expect(requester).toEqual({ status: 'cancelled', outcome: 'replan' });
   });
 
   it('a late submission for a competed revision is a no-op: planner stale, no revision N+1', () => {
