@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { defineConfig, configDefaults } from 'vitest/config';
 
 export default defineConfig({
   test: {
@@ -6,6 +6,15 @@ export default defineConfig({
     // mutation mini report). They stay .mjs so CI runs them directly with
     // `node`, with no build/tsx step between Stryker and the summary.
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.mjs'],
+    // The naming rule (see CONTRIBUTING.md §5) is a filename suffix, not a
+    // directory: a file that spawns a real process, binds a real port, or
+    // renders a full settings/dashboard jsdom document is named
+    // `*.integration.test.*`; a headless end-to-end file is `*.e2e.test.*`.
+    // Both are excluded here so the unit suite stays fast and hermetic; they
+    // are run together by `vitest.integration.config.ts` (npm run
+    // test:integration). `configDefaults.exclude` is spread first so the
+    // library's node_modules/.git excludes are not dropped.
+    exclude: [...configDefaults.exclude, '**/*.e2e.test.*', '**/*.integration.test.*'],
     environment: 'node',
     // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
     setupFiles: ['./scripts/vitest-setup-env.mjs'],
@@ -21,7 +30,7 @@ export default defineConfig({
     // takes effect. That surfaced as order/load-dependent failures that only
     // reproduced under full-suite CI (Linux) while passing in per-file
     // isolation — e.g. `mergeGate.test.ts`'s `transition` `mockImplementationOnce`
-    // leaking across tests, and `worktreeServers.test.ts`'s `removeContainer`
+    // leaking across tests, and `worktreeServers.integration.test.ts`'s `removeContainer`
     // mock not applying. `forks` is slower than vmThreads was, but a correctly
     // isolated suite that always runs the same is worth the wall time.
     // Native addon errors (better-sqlite3) stay within one process under forks,

@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Typecheck, build, unit, e2e
+    name: Typecheck, build, unit
     # The scheduled run exists only for branch-drift; the test suite must not
     # run on a timer.
     if: github.event_name != 'schedule'
@@ -60,14 +60,45 @@ jobs:
       - name: Build
         run: npm run build
 
-      # `pretest:unit` rebuilds better-sqlite3 for the Node ABI. The e2e suite
-      # has no such hook of its own, so it MUST run after this step — see the
-      # note in the plan's Constraints.
+      # `pretest:unit` rebuilds better-sqlite3 for the Node ABI. This job runs
+      # the unit suite only; the integration job below is self-sufficient.
       - name: Unit tests
         run: npm run test:unit
 
-      - name: E2E tests
-        run: npm run test:e2e
+  # Runs the `*.integration.test.*` and `*.e2e.test.*` suites as a parallel job.
+  # They used to share the verify job with the unit suite (and the e2e files ran
+  # twice, since the unit include matched them). Splitting by filename suffix
+  # means each file runs in exactly one suite, and the two jobs no longer have
+  # an ordering dependency: `pretest:integration` gives this job its own
+  # better-sqlite3 rebuild.
+  integration:
+    name: Integration and e2e
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # Several integration suites create real git repos and commit in temp
+      # dirs, so the same global identity the unit job configures is required.
+      - name: Configure git for test fixtures
+        run: |
+          git config --global user.name "karst-ci"
+          git config --global user.email "ci@karst.invalid"
+          git config --global init.defaultBranch main
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Integration and e2e tests
+        run: npm run test:integration
 
   mutation:
     name: Mutation score

@@ -163,8 +163,8 @@ describe('extension activation', () => {
     // exact formatting, so a reflow of the statement (line wrap, spacing) can't
     // break this for no behavioral reason. What the sweep decides, and what it
     // is allowed to signal, are behavioural and are pinned where they can
-    // actually run: `worktreeServers.test.ts` (real detached processes) and
-    // `serverIdentity.test.ts`.
+    // actually run: `worktreeServers.integration.test.ts` (real detached processes) and
+    // `serverIdentity.integration.test.ts`.
     expect(source).toMatch(/reapStaleServers\(deps\.store[,{]/);
     expect(source).toMatch(/reapStaleServers\(deps\.store[,{][\s\S]{0,200}?deps\.info\(\s*describeReap\(/);
   });

@@ -3,7 +3,7 @@ src/**
 tsconfig.json
 tsconfig.build.json
 vitest.config.ts
-vitest.e2e.config.ts
+vitest.integration.config.ts
 vitest.mutation.config.ts
 stryker.config.json
 

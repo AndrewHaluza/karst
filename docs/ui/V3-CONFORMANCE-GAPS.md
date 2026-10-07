@@ -141,7 +141,7 @@ passes without them.
 ## Known RUNTIME violations
 
 Discovered by the jsdom render harness cross-view sweep
-(`src/ui/runtimeConformance.render.test.ts`).  Each is a ratchet — the count
+(`src/ui/runtimeConformance.render.integration.test.ts`).  Each is a ratchet — the count
 may only shrink.
 
 | View | Rule | Count | Note |

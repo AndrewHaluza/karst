@@ -2,16 +2,16 @@
  * E2E harness for the dynamic graph approach — real CLI + real temp-file
  * registry + real git.
  *
- * The graph unit suites (`driver.test.ts`, `pipeline.test.ts`) seed graph
+ * The graph in-process suites (`driver.test.ts`, `integration/pipeline.integration.test.ts`) seed graph
  * runs in-process with an in-memory store and faked transport/git. This
  * harness drives the full lifecycle against a REAL SQLite file through
  * `openGraphWritableStore` (node:sqlite, the exact seam an agent session
  * invokes) and the REAL CLI verbs, faking only the agent transport and the
  * workspace-provider clone (no real agent CLI exists).
  *
- * Imported by the graph e2e suites; it declares no tests of its own. No
- * better-sqlite3 is touched anywhere, so it is ABI-agnostic like the other
- * e2e suites.
+ * Imported by the graph e2e suites; it also declares one smoke test of its
+ * own. It is named `*.integration.test.*` because it spawns real git, so the
+ * integration config runs it (it is excluded from the unit suite).
  */
 
 import { expect } from 'vitest';

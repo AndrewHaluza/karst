@@ -13,7 +13,7 @@ Everything karst believes about a PR is re-probed state, never assumed. Related:
 
 ## A merge probe's file list is PARSED output, and the format is not what it looks like
 
-`git merge-tree --write-tree --name-only` prints the tree OID and the conflicted paths on CONSECUTIVE lines, then a blank line, then git's own chatter ("Auto-merging x", "CONFLICT (content): …"). It is not a uniformly blank-separated three-section document: splitting it as one made section 1 the chatter, and `mergeCheck.ts` reported "CONFLICT (content): Merge conflict in x" as a filename to the panel and into the agent's conflict brief. Any fixture for this must be VERBATIM git output (`mergeCheck.test.ts`, `mergeSync.test.ts`, `ship.test.ts` all carry one) — the invented layout is what let the bug pass its own tests.
+`git merge-tree --write-tree --name-only` prints the tree OID and the conflicted paths on CONSECUTIVE lines, then a blank line, then git's own chatter ("Auto-merging x", "CONFLICT (content): …"). It is not a uniformly blank-separated three-section document: splitting it as one made section 1 the chatter, and `mergeCheck.ts` reported "CONFLICT (content): Merge conflict in x" as a filename to the panel and into the agent's conflict brief. Any fixture for this must be VERBATIM git output (`mergeCheck.test.ts`, `mergeSync.test.ts`, `ship.integration.test.ts` all carry one) — the invented layout is what let the bug pass its own tests.
 
 ## PR facts are re-probed state, never assumed
 
