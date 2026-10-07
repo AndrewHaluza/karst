@@ -141,6 +141,9 @@ export class ClaudeAdapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+    // Measured on the local Claude TUI: a typed burst is read as a paste, and
+    // its paste heuristic needs a wider gap before the separate `\r` submits.
+    submitDelayMs: 120,
   };
   readonly requiredBinary = CLAUDE_BIN;
 

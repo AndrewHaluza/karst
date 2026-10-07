@@ -70,6 +70,18 @@ describe('makeTerminalDelivery', () => {
     expect(d.nudge).not.toHaveBeenCalled();
   });
 
+  it('defers a busy agy recipient and types nothing', () => {
+    const d = deps({ agyBusy: vi.fn(() => true) });
+    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('deferred');
+    expect(d.nudge).not.toHaveBeenCalled();
+  });
+
+  it('delivers once the agy session reports idle', () => {
+    const d = deps({ agyBusy: vi.fn(() => false) });
+    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('delivered');
+    expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(2, 5, undefined, LITERAL));
+  });
+
   it('defers (types nothing) when a literal path is unsafe', () => {
     const d = deps({ literal: () => ({ ...LITERAL, cli: '/x/$(rm)/cli.js' }) });
     expect(makeTerminalDelivery(d).deliver(5, 1)).toBe('deferred');

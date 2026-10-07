@@ -116,6 +116,18 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     }
   });
 
+  // MAILBOX-DELIVERY-RELIABLE-SUBMIT: typed nudges type the text, wait this
+  // per-core window, then send the submit `\r`. A core that forgets to declare
+  // it would fall back to a shared default and submit mid-paste on exactly the
+  // core whose TUI needed the longer window — so every resolved adapter MUST
+  // state its own measured delay.
+  it('declares a positive submit delay for typed nudges', () => {
+    const delay = resolveAdapter(provider).capabilities.submitDelayMs;
+    expect(typeof delay, `${provider}.capabilities.submitDelayMs`).toBe('number');
+    expect(Number.isSafeInteger(delay), `${provider}.capabilities.submitDelayMs integer`).toBe(true);
+    expect(delay, `${provider}.capabilities.submitDelayMs`).toBeGreaterThan(0);
+  });
+
   it('pins the resolved model on a headless run when it declares model support', async () => {
     const surfaces = surfacesOf(provider);
     const adapter = resolveAdapter(provider);
@@ -622,5 +634,31 @@ describe('the seam itself', () => {
       const path = join(configDir, provider, 'hook-failures.jsonl');
       expect(dirname(dirname(path))).toBe(configDir);
     }
+  });
+});
+
+/**
+ * The measured typed-submit window is a per-core fact (PARITY.md §6): a wrong
+ * value or a stale doc row silently breaks the core whose TUI needed it, and
+ * the conformance suite above only asserts the value is a positive integer. Pin
+ * every row of the table to the adapter registry resolves, so neither side can
+ * drift alone.
+ */
+describe('submit-delay parity with PARITY.md §6', () => {
+  const doc = readFileSync(join(process.cwd(), 'docs/agent-cores/PARITY.md'), 'utf8');
+  const section = doc.split(/^## 6\./m)[1]?.split(/^## /m)[0] ?? '';
+  const table = new Map<string, number>();
+  for (const line of section.split('\n')) {
+    const row = /^\|\s*([a-z0-9]+)\s*\|\s*(\d+)\s*\|/.exec(line.trim());
+    if (row) table.set(row[1]!, Number(row[2]));
+  }
+
+  it('records exactly the providers the registry resolves', () => {
+    expect([...table.keys()].sort()).toEqual([...IMPLEMENTED_PROVIDERS].sort());
+  });
+
+  it.each(IMPLEMENTED_PROVIDERS)('pins %s to its measured window', (provider) => {
+    const measured = resolveAdapter(provider).capabilities.submitDelayMs;
+    expect(measured, `${provider}.submitDelayMs`).toBe(table.get(provider));
   });
 });

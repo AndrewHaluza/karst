@@ -69,6 +69,7 @@ describe('OpencodeAdapter capabilities', () => {
       lifecycleEvents: true,
       resume: true,
       interactiveUsage: true,
+      submitDelayMs: 60,
     });
   });
 });

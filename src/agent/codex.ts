@@ -344,6 +344,9 @@ export class CodexAdapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+    // Measured on the local codex TUI: a short gap is enough for the typed
+    // line to be consumed before the separate `\r` submits it.
+    submitDelayMs: 60,
   };
 
   /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */

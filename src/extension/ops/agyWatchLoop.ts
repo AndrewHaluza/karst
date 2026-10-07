@@ -5,6 +5,7 @@ import {
   agyWatchTick,
   findConversationForWorktree,
   openAgyConversationDb,
+  readAgyConversationIdle,
   resolveAgyAppDataDir,
   type AgyConversationSnapshot,
   type AgyWatchState,
@@ -55,11 +56,13 @@ export interface AgyWatchLoop {
  * resolves it to status = 3. The sweep locates the conversation by the
  * worktree path stored in the DB's workspace blob, diffs the pending
  * approval state per ticket, and posts the normalized events (SessionStart /
- * permission.asked / UserPromptSubmit) through the SAME dispatchHook seam
- * and closures as the hook endpoint, so session-id capture (--conversation
- * resume), launch-intent confirmation, the generation barrier, the amber
- * glyph, the Now line and the dashboard refresh are shared. Session end →
- * idle is the terminal-close sweep's job, not this one's.
+ * permission.asked / UserPromptSubmit / idle) through the SAME dispatchHook
+ * seam and closures as the hook endpoint, so session-id capture
+ * (--conversation resume), launch-intent confirmation, the generation barrier,
+ * the amber glyph, the Now line and the dashboard refresh are shared. The
+ * idle/turn-end edge comes from the summary DB's run status and normalizes to
+ * `Stop` (the same turn-end signal claude/opencode emit); session end → idle
+ * remains the terminal-close sweep's job, not this one's.
  *
  * Conversation-DB token usage: agy 1.1.12 persists per-call usage in this
  * same DB (steps.metadata field-9 submessage — see agyUsageWatch.ts), so the
@@ -142,6 +145,11 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
                 dbPath: found.dbPath,
                 conversationId: found.conversationId,
                 pendingApproval: db.pendingApprovalCount() > 0,
+                // The per-conversation DB cannot say whether a turn is in
+                // flight; the CLI's summary DB carries the run status. `null`
+                // (no row / unreadable) stays UNKNOWN — the typed route defers
+                // only on an explicit running status, never holds forever.
+                idle: readAgyConversationIdle(appDataDir, found.conversationId),
               };
               // Read usage while the DB is open — the lifecycle watch
               // doubles as the usage channel for antigravity sessions.
@@ -155,10 +163,15 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
           continue;
         }
         deps.debug(
-          `[agy] ticket ${named.ticketId}: conversation=${snapshot?.conversationId ?? 'none'}, usage=${agyUsage ? `${agyUsage.input}/${agyUsage.output}/${agyUsage.cacheRead}` : 'null'}, launchId=${named.launchId ?? 'none'}`,
+          `[agy] ticket ${named.ticketId}: conversation=${snapshot?.conversationId ?? 'none'}, usage=${agyUsage ? `${agyUsage.input}/${agyUsage.output}/${agyUsage.cacheRead}` : 'null'}, launchId=${named.launchId ?? 'none'}, idle=${snapshot ? snapshot.idle : 'none'}`,
         );
         const state =
-          deps.agyWatchStates.get(named.ticketId) ?? { dbPath: null, started: false, awaiting: false };
+          deps.agyWatchStates.get(named.ticketId) ?? {
+            dbPath: null,
+            started: false,
+            awaiting: false,
+            idle: null,
+          };
         const events = agyWatchTick(state, snapshot);
         if (events.length === 0) {
           // Lifecycle produced no events, but still dispatch any usage
@@ -184,7 +197,9 @@ export function createAgyWatchLoop(deps: AgyWatchLoopDeps): AgyWatchLoop {
               ? { hook_event_name: 'SessionStart', ...base }
               : event.kind === 'permission.asked'
                 ? { hook_event_name: 'permission.asked', ...base }
-                : { hook_event_name: 'UserPromptSubmit', ...base };
+                : event.kind === 'idle'
+                  ? { hook_event_name: 'Stop', ...base }
+                  : { hook_event_name: 'UserPromptSubmit', ...base };
           try {
             dispatchHook(
               deps.store,

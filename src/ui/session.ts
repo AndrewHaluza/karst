@@ -9,6 +9,8 @@ import {
 } from '../agent/cliEnv.js';
 import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
 import type { SessionInstructions } from '../agent/instructions.js';
+import { submitDelayFor } from '../agent/registry.js';
+import { NudgeQueue } from './nudgeQueue.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -22,8 +24,13 @@ export interface SessionTerminal {
    * reveals this terminal beside a panel the user just clicked.
    */
   show(preserveFocus?: boolean): void;
-  /** Type a line into the running shell (real: `Terminal.sendText(text, true)`). */
-  sendText(text: string): void;
+  /**
+   * Type into the running shell (real: `Terminal.sendText(text, addNewLine)`).
+   * `addNewLine` defaults to true — the historical behaviour. A typed nudge
+   * passes `false` so the text is not submitted with the paste, then sends a
+   * separate `\r`; see `NudgeQueue`.
+   */
+  sendText(text: string, addNewLine?: boolean): void;
   dispose(): void;
   /**
    * `exitCode` is the child process's exit code when known (real:
@@ -205,6 +212,8 @@ export interface FakeTerminal extends SessionTerminal {
   /** The `preserveFocus` argument of every `show`, in order. */
   shownPreserveFocus: Array<boolean | undefined>;
   sent: string[];
+  /** The `addNewLine` argument of every `sendText`, in order (default true). */
+  sentNewLine: Array<boolean | undefined>;
   disposed: boolean;
   disposeHandler?: (exitCode?: number) => void;
 }
@@ -300,6 +309,12 @@ interface TrackedSession {
    * must use literal paths.
    */
   cliEnv?: ExportedCliEnv;
+  /**
+   * The launching adapter's measured typed-submit delay. Absent for a revived
+   * or adopted handle this window did not launch — `nudge` then resolves it
+   * from the handle's provider.
+   */
+  submitDelayMs?: number;
 }
 
 /**
@@ -323,6 +338,14 @@ export class SessionManager {
    * clear the guard while the disposed tab is still listed.
    */
   private readonly recentlyDisposed = new Map<number, SessionTerminal>();
+  /**
+   * One typed-nudge FIFO per LIVE terminal INSTANCE — not per ticket. A ticket
+   * can be relaunched (an agent switch, a recovery retry) and the replacement
+   * must start with an empty queue; keying by instance gives that for free,
+   * and the close handler drops the entry so a queued line never fires into a
+   * terminal that is gone.
+   */
+  private readonly nudgeQueues = new Map<SessionTerminal, NudgeQueue>();
 
   constructor(
     private readonly host: TerminalHost,
@@ -383,6 +406,7 @@ export class SessionManager {
     options: OpenSessionOptions = {},
     identity?: SessionIdentity,
     cliEnv?: ExportedCliEnv,
+    submitDelayMs?: number,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
     this.terminals.set(ticketId, {
@@ -390,8 +414,13 @@ export class SessionManager {
       ...(launchId ? { launchId } : {}),
       ...(identity ? { identity } : {}),
       ...(cliEnv ? { cliEnv } : {}),
+      ...(submitDelayMs !== undefined ? { submitDelayMs } : {}),
     });
     terminal.onDidClose((exitCode) => {
+      // The terminal is gone: drop its typed-nudge queue (and any line still
+      // waiting its submit window) so nothing types into a dead handle. Keyed
+      // to the handle, so a replacement session's queue is untouched.
+      this.dropNudgeQueue(terminal);
       // A recovery timeout can dispose one terminal and immediately create its
       // retry before VS Code delivers the old close event. Only the handle that
       // is still current may clear the ticket or announce that its session ended.
@@ -555,6 +584,7 @@ export class SessionManager {
       options,
       identity,
       exportedCliEnv(cliEnv),
+      adapter.capabilities.submitDelayMs,
     );
     if (options.reveal !== false) terminal.show();
   }
@@ -666,12 +696,36 @@ export class SessionManager {
    * it forgot is still running. Without this adoption the fallback launched a
    * SECOND agent beside it (869ecmk6v). Adoption never reveals the terminal —
    * an automated continuation must not yank the user out of what they are doing.
+   *
+   * Returns true once the line is ACCEPTED — queued into the terminal's typed
+   * FIFO, not necessarily typed-and-submitted yet. The boolean answers "did a
+   * live terminal take it?", which is all the callers need to choose between
+   * nudging and launching; the queue owns the per-core submit timing.
    */
   nudge(ticketId: number, prompt: string): boolean {
     const tracked = this.terminals.get(ticketId) ?? this.adoptRevivedSession(ticketId);
     if (!tracked) return false;
-    tracked.terminal.sendText(toSingleLine(prompt));
+    const delay =
+      tracked.submitDelayMs ?? submitDelayFor(tracked.identity?.provider);
+    let queue = this.nudgeQueues.get(tracked.terminal);
+    if (!queue) {
+      queue = new NudgeQueue(tracked.terminal, delay);
+      this.nudgeQueues.set(tracked.terminal, queue);
+    }
+    // The line is QUEUED, not necessarily typed-and-submitted: the boolean
+    // contract is unchanged (a live terminal accepted it), while the queue
+    // guarantees each nudge types, waits its core's window, and submits on its
+    // own `\r` before the next line starts.
+    queue.enqueue(toSingleLine(prompt));
     return true;
+  }
+
+  /** Drop a terminal's typed-nudge queue — the terminal is closing or gone. */
+  private dropNudgeQueue(terminal: SessionTerminal): void {
+    const queue = this.nudgeQueues.get(terminal);
+    if (queue === undefined) return;
+    queue.close();
+    this.nudgeQueues.delete(terminal);
   }
 
   /**
@@ -754,6 +808,9 @@ export class SessionManager {
     // `adoptRevivedSession` call (during the async gap of an agent core
     // switch) does not re-adopt the terminal VS Code has not yet cleaned up.
     this.recentlyDisposed.set(ticketId, tracked.terminal);
+    // Retire this terminal's nudge queue now: VS Code delivers the close event
+    // asynchronously, and a pending line must never type into a disposed handle.
+    this.dropNudgeQueue(tracked.terminal);
     try {
       // Release this launch's assets while it still owns the ticket slot. A
       // retry can safely reuse the same paths as soon as this method returns.

@@ -351,6 +351,14 @@ export interface InteractiveCommand {
   instructionsChannel?: InstructionChannel;
 }
 
+/**
+ * The last-resort typed-submit delay when a session's core is unknown (a
+ * revived handle whose provider cannot be resolved, or a test fake). Real
+ * launches carry the adapter's MEASURED `submitDelayMs`; this shared value is
+ * never the per-core answer.
+ */
+export const DEFAULT_SUBMIT_DELAY_MS = 100;
+
 export interface AgentCapabilities {
   lifecycleEvents: boolean;
   resume: boolean;
@@ -362,6 +370,19 @@ export interface AgentCapabilities {
    * `provider.ts`, never an adapter's absence.
    */
   interactiveUsage?: boolean;
+  /**
+   * MAILBOX-DELIVERY-RELIABLE-SUBMIT: how long a typed nudge must wait between
+   * the text and the separate `\r` that submits it, in milliseconds. A core's
+   * TUI reads a burst of bytes as a paste, so a newline appended to the text
+   * does NOT submit — the submit must be its own keystroke after the paste has
+   * been consumed. The window differs per core (Claude's paste heuristic is
+   * wider than a plain shell), so it is a MEASURED per-core fact, not one
+   * shared constant. Optional here only so the many test fakes that implement
+   * `AgentAdapter` keep compiling; every adapter `registry.ts` resolves
+   * declares it, which `adapterConformance.test.ts` enforces. See
+   * `docs/agent-cores/PARITY.md` for the per-core measurements.
+   */
+  submitDelayMs?: number;
 }
 
 export interface AgentAdapter {

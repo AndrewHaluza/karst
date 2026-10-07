@@ -32,7 +32,7 @@ name is agent-authored input.
 | permission asked | `Notification` | `Notification: permission_prompt` | `permission.asked` / `question.asked` (+ v2) | `steps.status = 9` |
 | ask resolved | `UserPromptSubmit` | `UserPromptSubmit` | `permission.replied` / `question.replied` | status 9 clearing |
 | running | `PostToolUse` (type:http) | `PostToolUse` | `session.status: busy\|retry` | — |
-| end | `Stop` / `SessionEnd` | `Stop` / `SessionEnd` | `session.idle` + terminal close | terminal close |
+| end | `Stop` / `SessionEnd` | `Stop` / `SessionEnd` | `session.idle` + terminal close | `Stop` (turn end, from the summary DB run status) + terminal close |
 | usage | session transcript (`claudeTranscriptWatch.ts`) | bridge `UsageUpdate` | bridge `UsageUpdate` | conversation DB (`agyUsageWatch.ts`) |
 | endpoint rebind after reload | ✓ (bridge re-reads `current-endpoint`) | ✓ | ✓ | n/a (no channel) |
 | hook failure logging | ✓ (`claude/hook-failures.jsonl`) | ✓ (`codex/hook-failures.jsonl`) | ✓ (`opencode/hook-failures.jsonl`) | n/a |

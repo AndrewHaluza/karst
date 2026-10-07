@@ -331,6 +331,8 @@ export class Opencode2Adapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+    // Measured on the local opencode2 TUI: same submit window as v1.
+    submitDelayMs: 60,
   };
 
   readonly surfaces: AdapterSurfaces = {

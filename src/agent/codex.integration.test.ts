@@ -223,6 +223,7 @@ describe('CodexAdapter interactive commands', () => {
       lifecycleEvents: true,
       resume: true,
       interactiveUsage: true,
+      submitDelayMs: 60,
     });
   });
 

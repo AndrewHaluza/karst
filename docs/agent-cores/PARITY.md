@@ -177,3 +177,34 @@ Deliberately NOT done, and why: claude's headless run was not switched to
 parsing every claude call depends on (verdict, session id, usage) and is a behavior
 change to the default core, not a parity fix — it belongs in its own ticket with its own
 verification. The gap is declared on `surfaces.consoleStream` in the meantime.
+
+## 6. Typed-submit delay (MAILBOX-DELIVERY-RELIABLE-SUBMIT)
+
+A nudge is no longer one `sendText(line)`. A core's TUI reads a burst of bytes as a
+paste, so the newline VS Code appends does NOT submit — the pointer sits half typed
+until a human presses Enter. `SessionManager.nudge` therefore types the text with
+`addNewLine=false`, waits a per-core window, and sends a separate `\r`; a per-terminal
+FIFO serializes nudges so two inside one window cannot merge into `AB`.
+
+The window is a per-core MEASURED fact on `AgentCapabilities.submitDelayMs`, never one
+shared constant (`src/ui/session.ts`'s `DEFAULT_SUBMIT_DELAY_MS` is only the last-resort
+fallback for a handle whose provider cannot be resolved). `adapterConformance.test.ts`
+requires every adapter `registry.ts` resolves to declare a positive delay.
+
+| core | `submitDelayMs` | measurement |
+|---|---|---|
+| claude | 120 | local Claude TUI: its paste heuristic needs the widest gap before the `\r` registers as a keystroke |
+| codex | 60 | local codex TUI: the typed line is consumed well inside 60 ms |
+| opencode | 60 | local opencode TUI: same window as codex |
+| opencode2 | 60 | local opencode2 TUI: same window as v1 |
+| antigravity | 250 | local agy TUI: its input line buffers the burst for longer, so the submit waits well after the paste |
+
+The agy route adds one more gate: agy swallows a line typed mid-turn, so the pointer is
+`deferred` while the conversation watch reports the run status explicitly RUNNING, and the
+delivery sweep retries once it turns idle. A conversation the watch has NOT observed yet
+also defers — a fresh session, or a fresh activation map, has no state until the sweep's
+first tick (up to `AGY_WATCH_INTERVAL_MS` away), and a pointer typed in that window could
+land mid-turn. An UNKNOWN status (the summary DB or the conversation's row is missing, or
+the read failed) does NOT gate — a summary the CLI has not written must never strand mail
+forever, and the read is isolated so a summary failure cannot drop the lifecycle tick.
+Every other core accepts a typed line at any time.

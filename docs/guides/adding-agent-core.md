@@ -441,9 +441,13 @@ rather than its docs.
   workspace path as `file://<path>` bytes, which locates the conversation for a
   ticket's worktree. Karst's `agyConversationWatch` sweep reads this state
   read-only and normalizes it into the closed hook vocabulary
-  (`SessionStart` / `permission.asked` / `UserPromptSubmit`) through the same
-  `dispatchHook` seam as the HTTP endpoint. `--conversation <id>` resumes a
-  session (verified: the CLI prints `agy --conversation=<id>` on exit).
+  (`SessionStart` / `permission.asked` / `UserPromptSubmit` / `Stop`) through
+  the same `dispatchHook` seam as the HTTP endpoint. The turn-end `Stop` is
+  derived from the CLI's summary DB (`conversation_summaries.db`), whose
+  per-conversation `status` is `CASCADE_RUN_STATUS_IDLE` once a turn has ended
+  — the per-conversation DB cannot tell an in-flight turn from an idle prompt.
+  `--conversation <id>` resumes a session (verified: the CLI prints
+  `agy --conversation=<id>` on exit).
 - `ANTIGRAVITY_CONVERSATION_ID` exists in the binary but is NOT set on the CLI
   process environment — do not rely on it for discovery.
 - The `-p` (print/headless) mode runs no hooks and writes no conversation DB;

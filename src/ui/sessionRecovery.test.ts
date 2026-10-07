@@ -290,6 +290,7 @@ describe('recovery lifecycle ordering', () => {
         shown: 0,
         shownPreserveFocus: [],
         sent: [],
+        sentNewLine: [],
         disposed: false,
         show: () => {},
         sendText: () => {},

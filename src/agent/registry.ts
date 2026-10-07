@@ -1,5 +1,6 @@
 import type { AgentProvider } from '../manifest/types.js';
-import type { AgentAdapter } from './adapter.js';
+import { isKnownProvider } from './provider.js';
+import { DEFAULT_SUBMIT_DELAY_MS, type AgentAdapter } from './adapter.js';
 import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
@@ -27,4 +28,16 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
  */
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
   return FACTORIES[provider]();
+}
+
+/**
+ * The measured typed-submit delay for a provider, or the shared last-resort
+ * default when the provider is unknown. Used to deliver a nudge into a session
+ * this window did NOT launch (a revived handle), where no adapter instance is
+ * on hand — real launches carry their own adapter's `submitDelayMs`.
+ */
+export function submitDelayFor(provider: string | undefined): number {
+  return isKnownProvider(provider)
+    ? (resolveAdapter(provider).capabilities.submitDelayMs ?? DEFAULT_SUBMIT_DELAY_MS)
+    : DEFAULT_SUBMIT_DELAY_MS;
 }
