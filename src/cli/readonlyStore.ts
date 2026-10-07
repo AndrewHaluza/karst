@@ -1,8 +1,10 @@
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../store/db.js';
 import { assertMigratedSchema } from './assertMigrated.js';
+import { loadSqlite } from './sqlite.js';
 
 export function openReadonlyStore(dbPath: string): Store {
+  const { DatabaseSync } = loadSqlite();
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
     assertMigratedSchema(db, dbPath);

@@ -59,6 +59,14 @@ work and the gates re-run.
 Run the CLI with plain \`node\`, exactly as the commands below show. Stdout is
 machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
 
+Instead of a long flag list, most commands can take their input as ONE JSON
+object — pass \`--file <path>\` or pipe it to \`--stdin\`. The object is
+validated before anything runs, so a mistyped field fails once, clearly. Run
+\`schema\` to see each command's input shape and whether it accepts
+\`--file\`/\`--stdin\` (its \`structured\` flag). Structured input carries the
+whole input; repeating the command's own subcommand (e.g.
+\`subtask create --file …\`) is fine, but any other argument is refused.
+
 - \`context <key> [--json|--md]\` — **read** the ticket's live state: prompt,
   brief, current stage and its verdict/blocking, gate runs, findings,
   worktrees, branches, running servers, pull requests, merge checks. Re-run it
@@ -170,6 +178,11 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
    merge conflict for a ticket whose PR has a conflict. Print-only; it
    mutates nothing.
  - \`guide\` — this document.
+ - \`schema [command]\` — print the input schema for one command (or every
+   command, with no argument) as JSON. Use it to discover a command's exact
+   input shape before calling it; a command whose \`structured\` flag is true
+   also accepts that shape via \`--file <path>\` or \`--stdin\` instead of
+   named flags.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and
 only \`pass\`. A gate stage (\`uat\`/\`review\`/\`ship\`) is decided by exit
