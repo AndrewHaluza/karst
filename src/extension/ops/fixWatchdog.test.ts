@@ -30,6 +30,7 @@ import {
   runFixWatchdog,
   stallTimeoutMinutes,
   startFixWatchdog,
+  sessionDelivery,
   redeliveryPrompt,
   FIX_WATCHDOG_INTERVAL_MS,
   DELIVERY_CHECK_MS,
@@ -913,5 +914,31 @@ describe('fixWatchdog', () => {
     store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(ticketId);
     const prompt = redeliveryPrompt(store, ticketId);
     expect(prompt).toContain(`#${ticketId}`);
+  });
+
+  describe('sessionDelivery', () => {
+    it('delegates liveness and the send to the session host', () => {
+      const isLive = vi.fn(() => true);
+      const nudge = vi.fn(() => true);
+      const delivery = sessionDelivery(store, { isLive, nudge });
+
+      expect(delivery.isLive(ticketId)).toBe(true);
+      expect(delivery.nudge(ticketId, 'brief')).toBe(true);
+      expect(isLive).toHaveBeenCalledWith(ticketId);
+      expect(nudge).toHaveBeenCalledWith(ticketId, 'brief');
+    });
+
+    it('marks a graph-owned ticket as graph, a plain ticket as not', () => {
+      const delivery = sessionDelivery(store, { isLive: () => false, nudge: () => false });
+      expect(delivery.isGraphTicket(ticketId)).toBe(false);
+      store.db
+        .prepare(
+          `INSERT INTO approach_graph_runs
+             (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+           VALUES (?, 'impl', 0, 'karst-graph-engineering', 'running', ?)`,
+        )
+        .run(ticketId, T0);
+      expect(delivery.isGraphTicket(ticketId)).toBe(true);
+    });
   });
 });

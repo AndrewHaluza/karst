@@ -23,6 +23,7 @@ import { composeStageCommand } from '../../cli/stage.js';
 import { composeContextCommand } from '../../cli/context.js';
 import { karstCliRefs } from '../../agent/cliEnv.js';
 import { isKnownProvider, providerConfirmsLaunch } from '../../agent/provider.js';
+import { graphTicketSurface } from '../../approaches/graph/entryPoints.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 
 export interface FixWatchdogDeps {
@@ -54,6 +55,34 @@ export interface FixWatchdogDeps {
    * ticket is never nudged by the guard (the coordinator owns continuation).
    */
   isGraphTicket: (ticketId: number) => boolean;
+}
+
+/**
+ * The session-manager seams the delivery guard draws on: whether a ticket's
+ * terminal is live in this window, and the blind send into it. Structural, so
+ * this ops module never imports the vscode-adjacent `SessionManager`.
+ */
+export interface SessionDeliveryHost {
+  isLive: (ticketId: number) => boolean;
+  nudge: (ticketId: number, prompt: string) => boolean;
+}
+
+/**
+ * Build the guard's delivery seams from the host's session manager and store:
+ * liveness and the send live on the session manager, and "the graph coordinator
+ * owns this ticket" is a store read. Kept here rather than in `extension.ts`
+ * because the wiring is more than the thin binding that file's line ratchet
+ * allows — and `extension.ts` passes only one argument for it.
+ */
+export function sessionDelivery(
+  store: Store,
+  sessions: SessionDeliveryHost,
+): Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket'> {
+  return {
+    isLive: (id) => sessions.isLive(id),
+    nudge: (id, prompt) => sessions.nudge(id, prompt),
+    isGraphTicket: (id) => graphTicketSurface(store.db, id) !== 'none',
+  };
 }
 
 /**
