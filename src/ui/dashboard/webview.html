@@ -80,6 +80,7 @@
   .agentLiveDot{width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:var(--k-pending);flex:none}
   .agentLiveDot.running{background:var(--k-running)}
   .agentLiveDot.waiting{background:var(--k-attention)}
+  .agentLiveDot.not-started{background:var(--k-attention)}
   /* The header + controls-menu icons are sized EXPLICITLY. An inline k-icon
      svg carries no intrinsic size — the shared `.k-icon` rule applies only
      the stroke treatment — so an unsized one renders at the browser's default
@@ -4100,7 +4101,7 @@
     const st = state.agentState || 'none';
     const dot = el('agentDot');
     if (dot) {
-      dot.classList.remove('idle', 'running', 'waiting', 'none');
+      dot.classList.remove('idle', 'running', 'waiting', 'none', 'not-started');
       dot.classList.add(st);
     }
     const liveText = el('agentLiveText');

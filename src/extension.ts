@@ -1455,7 +1455,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   // Registered after `currentProject`; project-scoped, so this manifest's window never reaches another project's fix. Its immediate first tick covers activation.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError));
+  context.subscriptions.push(
+    startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, {
+      isLive: (id) => sessions.isLive(id),
+      nudge: (id, prompt) => sessions.nudge(id, prompt),
+      isGraphTicket: (id) => graphTicketSurface(localStore.db, id) !== 'none',
+    }),
+  );
 
   // Backfill: spill any pre-existing oversized descriptions/briefs to the
   // attachment shelf.  Idempotent (a pointer is under threshold and won't

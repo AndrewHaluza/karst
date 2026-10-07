@@ -62,6 +62,14 @@ export interface RailNeedsInput {
   /** The agent asked a question (`agentState === 'waiting'`). */
   agentWaiting: boolean;
   /**
+   * The launch-delivery guard flagged the ticket (`agentState === 'not-started'`):
+   * the prepared launch never confirmed, so the session never got its brief. A
+   * needs-you state like `waiting`, but with its own wording — the rail is the
+   * surface that words every other needs-you, so it must not render an empty
+   * detail line for this one.
+   */
+  agentNotStarted: boolean;
+  /**
    * The stored status of the SHIP stage row — `running` while ship is actively
    * committing, pushing and opening PRs. A live agent question does NOT outrank
    * that: the hooks that set `agentWaiting` fire inside ship's own headless run,
@@ -107,6 +115,16 @@ const count = (repos: readonly string[]): string =>
  * there is no action to name.
  */
 export function railNeeds(input: RailNeedsInput): RailNeeds | null {
+  if (input.agentNotStarted) {
+    // The launch-delivery guard's own needs-you: no agent is asking, and no
+    // stage is parked — the session simply never started, so only a human can
+    // get it going. Wording mirrors `attention.ts`'s "session did not start".
+    return {
+      detail: 'the session did not start',
+      action: 'Open session',
+      cta: { kind: 'open-session' },
+    };
+  }
   if (input.agentWaiting) {
     if (input.stage === 'ship' && input.shipStatus === 'running') return null;
     return {

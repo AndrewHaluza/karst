@@ -20,6 +20,8 @@ import {
   archiveTicket,
   detachSubtaskParent,
   setAutostartPending,
+  setAgentState,
+  setStageCurrent,
   unarchiveTicket,
   pauseTicket,
   unpauseTicket,
@@ -116,6 +118,24 @@ describe('ticket + stage persistence', () => {
     const t = createTicket(store, { key: 'FIND-1', title: 'findable' });
     expect(getTicketByKey(store, 'FIND-1')?.id).toBe(t.id);
     expect(getTicketByKey(store, 'NOPE')).toBeUndefined();
+  });
+
+  it('setStageCurrent clears the launch-delivery guard flag when advancing past impl/fix', () => {
+    const t = createTicket(store, { key: 'NS-1', title: 'ns' });
+    setAgentState(store, t.id, 'not-started');
+    setStageCurrent(store, t.id, 'impl');
+    expect(getTicket(store, t.id).agentState).toBe('not-started');
+    setStageCurrent(store, t.id, 'fix');
+    expect(getTicket(store, t.id).agentState).toBe('not-started');
+    setStageCurrent(store, t.id, 'uat');
+    expect(getTicket(store, t.id).agentState).toBe('none');
+  });
+
+  it('setStageCurrent never clears a live hook state when advancing', () => {
+    const t = createTicket(store, { key: 'NS-2', title: 'ns2' });
+    setAgentState(store, t.id, 'waiting');
+    setStageCurrent(store, t.id, 'done');
+    expect(getTicket(store, t.id).agentState).toBe('waiting');
   });
 
   it('getTicketByKey prefers a non-archived namesake over the archived row', () => {

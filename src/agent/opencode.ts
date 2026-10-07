@@ -659,18 +659,20 @@ function readKickoffPrompt(path) {
 // Post SessionStart for a resumed session id the plugin knows up front. The
 // endpoint's URL carries the launch generation, so the launch intent confirms
 // against this exact prepared launch even though no session.created fired.
+// Called ONLY after the kickoff is accepted (see deliverResume): a SessionStart
+// posted first made a silently dropped brief look confirmed.
 function postResumedSessionStart(sessionId, directory, worktree) {
   const cwd = extractCwd(null, directory, worktree);
   if (!sessionId || !cwd) return;
   send({ hook_event_name: 'SessionStart', cwd, session_id: sessionId });
 }
 
-// Deliver a resumed launch: confirm the intent, then push the kickoff into the
-// resumed session through the SDK. Confirmation comes FIRST so a prompt that
-// never lands cannot leave the launch intent pending forever (the resumed
-// session emits no session.created, the only other SessionStart source).
+// Deliver a resumed launch: push the kickoff into the resumed session through
+// the SDK, and confirm the intent (SessionStart) ONLY once that delivery is
+// accepted. A rejected promptAsync leaves the intent pending so the host's
+// delivery guard re-sends the brief; a kickoff that was never posted therefore
+// can never read as a confirmed start.
 function deliverResume(client, sessionId, kickoffFile, directory, worktree) {
-  postResumedSessionStart(sessionId, directory, worktree);
   const prompt = readKickoffPrompt(kickoffFile);
   if (
     !prompt ||
@@ -678,6 +680,8 @@ function deliverResume(client, sessionId, kickoffFile, directory, worktree) {
     !client.session ||
     typeof client.session.promptAsync !== 'function'
   ) {
+    // Nothing to deliver, so there is no SessionStart to earn: leave the
+    // intent pending for the delivery guard to catch.
     return;
   }
   try {
@@ -689,9 +693,16 @@ function deliverResume(client, sessionId, kickoffFile, directory, worktree) {
         path: { id: sessionId },
         body: { parts: [{ type: 'text', text: prompt }] },
       }),
-    ).catch(() => {});
-  } catch {
+    ).then(
+      () => postResumedSessionStart(sessionId, directory, worktree),
+      (err) => {
+        // Leave the intent pending so the delivery guard re-sends the brief.
+        console.error('[karst] resumed kickoff delivery failed', err);
+      },
+    );
+  } catch (err) {
     // Fail open — a dead SDK must never throw into the agent's event loop.
+    console.error('[karst] resumed kickoff delivery failed', err);
   }
 }
 

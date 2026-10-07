@@ -80,6 +80,14 @@ describe('attentionItems', () => {
     });
   });
 
+  it('reports a not-started agent as input, naming the launch-delivery reason', () => {
+    const items = attentionItems([ticket({ agentState: 'not-started' })]);
+    expect(items[0]).toMatchObject({
+      kind: 'input',
+      reason: 'session did not start',
+    });
+  });
+
   it('reports a pending confirm stage as input, naming the stage', () => {
     const items = attentionItems([
       ticket({ stageCurrent: 'ship', stages: [stage('ship', 'pending')] }),

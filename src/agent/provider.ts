@@ -63,6 +63,38 @@ export function providerInteractiveUsage(provider: AgentProvider): ProviderCapab
 }
 
 /**
+ * Whether an interactive launch on this provider emits a `SessionStart` that can
+ * CONFIRM its prepared launch intent (`session_launch_intents.status`). This is
+ * the per-core fact the launch-delivery guard (v68) reads before it accuses a
+ * launch of never starting: a core with no confirmation path would otherwise be
+ * re-delivered a duplicate brief and then flagged `not-started` forever, because
+ * nothing it does can ever move its pending intent.
+ *
+ *  - claude / codex / opencode — the installed hook channel posts SessionStart;
+ *  - antigravity — the conversation-DB watch synthesizes SessionStart
+ *    (`agyWatchLoop.ts`, ~10s poll);
+ *  - opencode2 — no hook bridge yet (its own ticket), so its launches are
+ *    EXEMPT: the guard never acts on them.
+ *
+ * Kept beside `PROVIDER_INTERACTIVE_USAGE` for the same reason: it is a pure
+ * provider fact a vscode-free consumer must read without importing the adapters.
+ */
+export const PROVIDER_CONFIRMS_LAUNCH: Readonly<Record<AgentProvider, boolean>> = {
+  claude: true,
+  codex: true,
+  antigravity: true,
+  opencode: true,
+  // No SessionStart source exists for opencode2 yet, so its prepared launch can
+  // never confirm — the guard must not treat that as "never started".
+  opencode2: false,
+};
+
+/** Whether the provider's launches can confirm their prepared intent. */
+export function providerConfirmsLaunch(provider: AgentProvider): boolean {
+  return PROVIDER_CONFIRMS_LAUNCH[provider];
+}
+
+/**
  * Resolve the effective agent provider (§ agent core selection): the
  * ticket's own override wins, else the manifest default, else `'claude'`.
  * Mirrors `resolveModel`'s precedence in `agent/models.ts`.

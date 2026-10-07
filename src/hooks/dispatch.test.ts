@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, getTicket } from '../store/tickets.js';
+import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { dispatchHook, parseHookPayload } from './dispatch.js';
 import { createHookChannelRecorder } from '../diagnostics/hookChannel.js';
 import { recordSessionLaunchIntent } from '../store/sessionLaunchIntents.js';
@@ -384,6 +384,25 @@ describe('dispatchHook', () => {
     expect(timeline.segments[0]!.status).toBe('running');
     expect(timeline.segments[0]!.provider).toBe('claude');
     expect(getTicket(store, id).sessionId).toBe('sess-1');
+  });
+
+  it('a confirming SessionStart clears the delivery guard’s not-started state', () => {
+    const id = ticketAt();
+    recordSessionLaunchIntent(store, {
+      ticketId: id, launchId: 'launch-1', purpose: 'implementation',
+      provider: 'claude', model: 'opus', reason: 'initial', sessionOrigin: 'new',
+      at: '2026-08-01T10:00:00.000Z',
+    });
+    setAgentState(store, id, 'not-started');
+    dispatchHook(
+      store,
+      { hook_event_name: 'SessionStart', cwd: WT, session_id: 'sess-1', launchId: 'launch-1' },
+      undefined,
+      () => true,
+      () => 'claude',
+    );
+    expect(getSessionLaunchIntent(store, 'launch-1')!.status).toBe('confirmed');
+    expect(getTicket(store, id).agentState).toBe('running');
   });
 
   it('SessionStart with an unknown launch id creates no segment', () => {

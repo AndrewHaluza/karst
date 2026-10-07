@@ -27,6 +27,9 @@ export type Glyph = 'gray' | 'blue' | 'amber' | 'green' | 'red';
  */
 export function glyphFor(stageStatus: StageStatus, agentState: AgentState): Glyph {
   if (agentState === 'waiting') return 'amber'; // needs-you, highest priority
+  // The launch-delivery guard's "the agent never got its brief" state (v68) is
+  // needs-you too: a human must open the session and get it started.
+  if (agentState === 'not-started') return 'amber';
   if (stageStatus === 'failed') return 'red';
   if (stageStatus === 'running' || agentState === 'running') return 'blue';
   if (stageStatus === 'passed') return 'green';

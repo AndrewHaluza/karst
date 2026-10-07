@@ -1346,6 +1346,18 @@ describe('dashboard webview.html', () => {
     expect(HTML).toContain('id="agentButton"');
   });
 
+  it('maps the needs-you agent states (waiting, not-started) to the attention dot', () => {
+    // The dot's class is set from the raw agent state, so EVERY state it can add
+    // must also be in the remove list — otherwise the class survives the next
+    // transition. `not-started` (the launch-delivery guard's needs-you) reads
+    // amber exactly like `waiting`.
+    expect(HTML).toMatch(
+      /dot\.classList\.remove\('idle', 'running', 'waiting', 'none', 'not-started'\)/,
+    );
+    expect(HTML).toContain('.agentLiveDot.waiting{background:var(--k-attention)}');
+    expect(HTML).toContain('.agentLiveDot.not-started{background:var(--k-attention)}');
+  });
+
   // Model ids are long ("claude-opus-4-1-20250805", "anthropic/claude-sonnet-4"):
   // at 20 control-heights the model rows ellipsised almost immediately and the
   // popover read as a narrow column. The width is still composed from control

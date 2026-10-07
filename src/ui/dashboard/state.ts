@@ -693,6 +693,7 @@ export function buildDashboardState(
             stage: ticket.stageCurrent,
             blockedKind: currentStage?.blocked?.kind,
             agentWaiting: (ticket.agentState ?? 'none') === 'waiting',
+            agentNotStarted: (ticket.agentState ?? 'none') === 'not-started',
             // A RUNNING ship is the driver's own work, so the agent-waiting
             // banner must not outrank it (869ed7bpd). `needsUser` already
             // excludes that case — this is the rail's own guard, belt and

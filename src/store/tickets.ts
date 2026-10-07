@@ -426,7 +426,7 @@ function loadStages(store: Store, id: number): Stage[] {
 export function setAgentState(
   store: Store,
   ticketId: number,
-  agentState: 'running' | 'waiting' | 'idle' | 'none',
+  agentState: 'running' | 'waiting' | 'idle' | 'none' | 'not-started',
 ): void {
   store.db
     .prepare('UPDATE tickets SET agent_state = ? WHERE id = ?')
@@ -441,11 +441,26 @@ export function setAgentState(
  * checks) cannot be silently bypassed by a call site that skipped this
  * function. Deliberately does not touch `stages` rows — pair this with
  * `setStage` calls the same way the raw writers it replaces did.
+ *
+ * One agent_state side effect: leaving the interactive stages clears the
+ * launch-delivery guard's `not-started` flag. That flag (v68) accuses a ticket
+ * whose prepared launch never started; once the ticket advances past `impl`/`fix`
+ * the accusation is stale — a marker advanced the stage, so the work happened —
+ * and leaving it would keep a shipped ticket in "Needs you" forever. Narrow to
+ * `not-started`: `running`/`waiting`/`idle` are hook liveness, not the stage
+ * pointer's to reset.
  */
 export function setStageCurrent(store: Store, ticketId: number, stage: StageKey): void {
   store.db
     .prepare('UPDATE tickets SET stage_current = ? WHERE id = ?')
     .run(stage, ticketId);
+  if (
+    stage !== 'impl' &&
+    stage !== 'fix' &&
+    getTicket(store, ticketId).agentState === 'not-started'
+  ) {
+    setAgentState(store, ticketId, 'none');
+  }
 }
 
 /**

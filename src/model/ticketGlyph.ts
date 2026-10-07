@@ -67,6 +67,10 @@ export function needsUser(t: TicketWithStages): boolean {
   // only its needs-you READING yields while the agent works, and returns
   // once the session ends (SessionEnd → idle).
   if (((t.agentState ?? 'none') as AgentState) === 'running') return false;
+  // `not-started` (v68) is the launch-delivery guard's needs-you: the launch
+  // never confirmed, so the agent never received its brief and only a human can
+  // get the session going.
+  if (((t.agentState ?? 'none') as AgentState) === 'not-started') return true;
   // `waiting` normally IS the needs-you signal — except while a ship is
   // RUNNING, where the ticket is moving, not parked (see `waitingWhileShipRuns`).
   if (waitingWhileShipRuns(t)) return false;

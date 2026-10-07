@@ -23,6 +23,8 @@ describe('glyphFor', () => {
     ['skipped', 'idle', 'gray'],
     ['bypassed', 'idle', 'gray'], // P2-18: disabled gates are not a green pass
     ['bypassed', 'none', 'gray'],
+    ['running', 'not-started', 'amber'], // v68 launch-delivery guard: needs-you
+    ['passed', 'not-started', 'amber'],
   ];
 
   it.each(cases)('stage=%s agent=%s → %s', (stage, agent, expected) => {
@@ -35,5 +37,9 @@ describe('glyphFor', () => {
 
   it('prioritizes waiting(amber) over failed(red)', () => {
     expect(glyphFor('failed', 'waiting')).toBe('amber');
+  });
+
+  it('prioritizes not-started(amber) over failed(red)', () => {
+    expect(glyphFor('failed', 'not-started')).toBe('amber');
   });
 });
