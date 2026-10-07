@@ -60,6 +60,13 @@ export interface SessionLaunchIntent {
   status: LaunchIntentStatus;
   createdAt: string;
   resolvedAt: string | null;
+  /**
+   * v68: when the launch-delivery guard re-sent this launch's brief into its
+   * live session. NULL = never re-delivered. A pending intent that still
+   * carries one on the next watchdog tick never got its brief through, so its
+   * ticket is marked needs-you.
+   */
+  redeliveredAt: string | null;
 }
 
 interface SessionLaunchIntentRow {
@@ -79,12 +86,13 @@ interface SessionLaunchIntentRow {
   status: string;
   created_at: string;
   resolved_at: string | null;
+  redelivered_at: string | null;
 }
 
 const INTENT_SELECT =
   `SELECT id, ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
           recovery_round_id, provider, model, agent_name, reason, session_origin,
-          provider_session_id, status, created_at, resolved_at
+          provider_session_id, status, created_at, resolved_at, redelivered_at
      FROM session_launch_intents`;
 
 function rowToIntent(r: SessionLaunchIntentRow): SessionLaunchIntent {
@@ -105,6 +113,7 @@ function rowToIntent(r: SessionLaunchIntentRow): SessionLaunchIntent {
     status: r.status as LaunchIntentStatus,
     createdAt: r.created_at,
     resolvedAt: r.resolved_at,
+    redeliveredAt: r.redelivered_at,
   };
 }
 
@@ -265,6 +274,30 @@ export function failSessionLaunchIntent(store: Store, launchId: string, at: stri
     )
     .run(at, launchId);
   return info.changes > 0;
+}
+
+/**
+ * Mark EVERY still-pending intent for a ticket RE-DELIVERED in one stamp.
+ *
+ * The one-shot re-delivery limit is per SESSION, not per intent: a ticket can
+ * hold two pending intents at once (a never-confirmed implementation launch that
+ * survived into the fix stage, plus the fix launch), and both address the same
+ * live session. Stamping them together guarantees the brief goes out exactly
+ * once even if one intent later resolves and the other stays pending — otherwise
+ * the survivor would be nudged again on a later tick.
+ */
+export function markTicketLaunchIntentsRedelivered(
+  store: Store,
+  ticketId: number,
+  at: string,
+): number {
+  const info = store.db
+    .prepare(
+      `UPDATE session_launch_intents SET redelivered_at = ?
+        WHERE ticket_id = ? AND status = 'pending' AND redelivered_at IS NULL`,
+    )
+    .run(at, ticketId);
+  return info.changes;
 }
 
 export type ConfirmLaunchIntentResult =

@@ -31,8 +31,14 @@ export type StageStatus = 'pending' | 'running' | 'passed' | 'failed' | 'skipped
 /**
  * Agent liveness, driven ONLY by hooks (§5.4, §5.6) — orthogonal to StageStatus.
  * `waiting` is the needs-you signal (amber glyph); it never comes from stage state.
+ *
+ * `not-started` is the launch-delivery guard's own signal (v68): a prepared
+ * launch stayed `pending` past its delivery window, so no SessionStart ever
+ * confirmed it and the agent never received its brief. It reads amber "Needs
+ * you" like `waiting`, and is cleared the moment the intent confirms (a
+ * SessionStart writes `running`).
  */
-export type AgentState = 'running' | 'waiting' | 'idle' | 'none';
+export type AgentState = 'running' | 'waiting' | 'idle' | 'none' | 'not-started';
 
 /**
  * The transition currency (§5.4). A transition REQUIRES a definite verdict;

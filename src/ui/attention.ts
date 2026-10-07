@@ -31,6 +31,7 @@ export interface AttentionItem {
 function reasonFor(t: TicketWithStages, kind: AttentionKind, stage: string): string {
   if (kind === 'failed') return `${stage} failed`;
   if (((t.agentState ?? 'none') as AgentState) === 'waiting') return 'agent asked a question';
+  if (((t.agentState ?? 'none') as AgentState) === 'not-started') return 'session did not start';
   return `awaiting confirmation · ${stage}`;
 }
 

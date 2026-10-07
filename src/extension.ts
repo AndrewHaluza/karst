@@ -30,7 +30,7 @@ import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
-import { startFixWatchdog } from './extension/ops/fixWatchdog.js';
+import { startFixWatchdog, sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
 import {
   stopServerRow, startServerRow, restartServerRow, openServerRow, copyServerUrlRow,
@@ -1451,7 +1451,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
   // Registered after `currentProject`; project-scoped, so this manifest's window never reaches another project's fix. Its immediate first tick covers activation.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError));
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, sessionDelivery(localStore, sessions)));
 
   // Backfill: spill any pre-existing oversized descriptions/briefs to the
   // attachment shelf.  Idempotent (a pointer is under threshold and won't

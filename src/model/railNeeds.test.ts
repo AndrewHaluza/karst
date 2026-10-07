@@ -7,6 +7,7 @@ function input(over: Partial<RailNeedsInput> = {}): RailNeedsInput {
   return {
     stage: null,
     agentWaiting: false,
+    agentNotStarted: false,
     shipStatus: 'pending',
     shipAwaitingMerge: false,
     mergeGate: null,
@@ -19,6 +20,14 @@ describe('railNeeds', () => {
   it('says the agent is waiting, and names the way back to it', () => {
     expect(railNeeds(input({ stage: 'impl', agentWaiting: true }))).toEqual({
       detail: 'the agent asked you something',
+      action: 'Open session',
+      cta: { kind: 'open-session' },
+    });
+  });
+
+  it('says the session did not start, and names the way back to it', () => {
+    expect(railNeeds(input({ stage: 'impl', agentNotStarted: true }))).toEqual({
+      detail: 'the session did not start',
       action: 'Open session',
       cta: { kind: 'open-session' },
     });

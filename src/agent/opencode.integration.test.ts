@@ -972,10 +972,13 @@ describe('generated karst-bridge plugin — SessionStart capture', () => {
     return mod.KarstBridge;
   }
 
-  it('posts SessionStart for the resumed id and delivers the kickoff through the SDK', async () => {
+  it('posts SessionStart for the resumed id only AFTER the kickoff is accepted', async () => {
     const worktree = makeWorktree();
     const r = await receiver();
-    const promptAsync = vi.fn().mockResolvedValue({ data: {} });
+    let resolvePrompt!: (value: unknown) => void;
+    const promptAsync = vi.fn(
+      () => new Promise((resolve) => { resolvePrompt = resolve; }),
+    );
     try {
       const bridge = await loadResumeBridge(worktree, r.endpointUrl, 'go');
       // The plugin is constructed with the opencode SDK client; the delivery is
@@ -985,6 +988,23 @@ describe('generated karst-bridge plugin — SessionStart capture', () => {
         directory: worktree,
         worktree,
       });
+      await vi.waitFor(() => expect(promptAsync).toHaveBeenCalledTimes(1));
+      expect(promptAsync).toHaveBeenCalledWith({
+        path: { id: 'ses_abc' },
+        body: { parts: [{ type: 'text', text: 'go' }] },
+      });
+      // The kickoff is still in flight — a SessionStart posted now would make a
+      // silently failed delivery look confirmed.
+      await expect(
+        Promise.race([
+          r.received,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('no SessionStart while prompt pending')), 150),
+          ),
+        ]),
+      ).rejects.toThrow('no SessionStart while prompt pending');
+
+      resolvePrompt({ data: {} });
       const bodies = await Promise.race([
         r.received,
         new Promise<never>((_, reject) =>
@@ -994,16 +1014,39 @@ describe('generated karst-bridge plugin — SessionStart capture', () => {
       expect(bodies).toEqual([
         { hook_event_name: 'SessionStart', cwd: worktree, session_id: 'ses_abc' },
       ]);
-      expect(promptAsync).toHaveBeenCalledWith({
-        path: { id: 'ses_abc' },
-        body: { parts: [{ type: 'text', text: 'go' }] },
-      });
     } finally {
       await r.close();
     }
   });
 
-  it('posts SessionStart for a resume even when there is no kickoff file', async () => {
+  it('leaves the intent pending (no SessionStart) when the kickoff is rejected', async () => {
+    const worktree = makeWorktree();
+    const r = await receiver();
+    const promptAsync = vi.fn().mockRejectedValue(new Error('sdk down'));
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const bridge = await loadResumeBridge(worktree, r.endpointUrl, 'go');
+      await bridge({
+        client: { session: { promptAsync } },
+        directory: worktree,
+        worktree,
+      });
+      await expect(
+        Promise.race([
+          r.received,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('no posts within 150ms')), 150),
+          ),
+        ]),
+      ).rejects.toThrow('no posts within 150ms');
+      expect(errorSpy).toHaveBeenCalled();
+    } finally {
+      errorSpy.mockRestore();
+      await r.close();
+    }
+  });
+
+  it('posts no SessionStart for a resume with no kickoff file to deliver', async () => {
     const worktree = makeWorktree();
     const r = await receiver();
     const promptAsync = vi.fn().mockResolvedValue({ data: {} });
@@ -1014,15 +1057,16 @@ describe('generated karst-bridge plugin — SessionStart capture', () => {
         directory: worktree,
         worktree,
       });
-      const bodies = await Promise.race([
-        r.received,
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error('plugin posted no SessionStart')), 2_000),
-        ),
-      ]);
-      expect(bodies).toEqual([
-        { hook_event_name: 'SessionStart', cwd: worktree, session_id: 'ses_abc' },
-      ]);
+      // Nothing was delivered, so there is no SessionStart to earn: the intent
+      // stays pending for the host's delivery guard to catch.
+      await expect(
+        Promise.race([
+          r.received,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('no posts within 150ms')), 150),
+          ),
+        ]),
+      ).rejects.toThrow('no posts within 150ms');
       expect(promptAsync).not.toHaveBeenCalled();
     } finally {
       await r.close();

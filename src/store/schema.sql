@@ -253,6 +253,11 @@ CREATE TABLE IF NOT EXISTS session_launch_intents (
   status        TEXT NOT NULL CHECK (status IN ('pending','confirmed','failed','superseded')),
   created_at    TEXT NOT NULL,
   resolved_at   TEXT,                 -- confirmed/failed/superseded stamp; NULL while pending
+  -- v68: set once when the launch-delivery guard re-sent a pending launch's
+  -- brief into its live session. NULL = never re-delivered. A pending intent
+  -- that still carries a redelivered_at on the NEXT tick never got its brief
+  -- through, so its ticket is marked needs-you ("session did not start").
+  redelivered_at TEXT,
   -- v30: the recovery round a fix launch belongs to (see recovery_rounds below).
   -- NULL for an implementation launch; REQUIRED for a fix launch — a pending
   -- Fix launch has a durable owner before its process run exists.

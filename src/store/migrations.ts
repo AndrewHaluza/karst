@@ -2470,5 +2470,17 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 68) {
+    // v68: `session_launch_intents.redelivered_at` — set once when the
+    // launch-delivery guard re-sent a pending launch's brief into its live
+    // session. NULL is the honest "never re-delivered" for every pre-v68 row:
+    // the guard did not exist. The guard reads the CURRENT columns, so a fresh
+    // DB (schema.sql already carries it) is a no-op and a re-open is idempotent.
+    const intentCols68 = tableColumns(db, 'session_launch_intents');
+    if (intentCols68.size > 0 && !intentCols68.has('redelivered_at')) {
+      db.exec('ALTER TABLE session_launch_intents ADD COLUMN redelivered_at TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

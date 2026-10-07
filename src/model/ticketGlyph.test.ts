@@ -29,6 +29,15 @@ describe('ticketGlyph', () => {
   it('waiting agent → amber (needs-you wins)', () => {
     expect(ticketGlyph(ticket({ agentState: 'waiting' }))).toBe('amber');
   });
+  it('not-started agent → amber and needs-you (the launch-delivery guard)', () => {
+    expect(ticketGlyph(ticket({ agentState: 'not-started' }))).toBe('amber');
+    expect(needsUser(ticket({ agentState: 'not-started' }))).toBe(true);
+  });
+  it('a paused not-started ticket is gray, never needs-you', () => {
+    expect(ticketGlyph(ticket({ agentState: 'not-started', pausedAt: '2026-08-01T00:00:00.000Z' }))).toBe(
+      'gray',
+    );
+  });
   it('failed current stage → red', () => {
     expect(
       ticketGlyph(
