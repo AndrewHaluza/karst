@@ -876,6 +876,8 @@ export class OpencodeAdapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+    // Measured on the local opencode TUI: a short gap before the separate `\r`.
+    submitDelayMs: 60,
   };
 
   /** Declared seam positions (869ej1zpv R1) — pinned against argv by the conformance suite. */

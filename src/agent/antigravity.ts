@@ -150,6 +150,9 @@ export class AntigravityAdapter implements AgentAdapter {
     lifecycleEvents: true,
     resume: true,
     interactiveUsage: true,
+    // Measured on the local agy TUI: its input line buffers a typed burst for
+    // longer, so the submit keystroke waits well after the paste.
+    submitDelayMs: 250,
   };
   readonly requiredBinary = AGY_BIN;
 

@@ -440,6 +440,7 @@ describe('Opencode2Adapter capabilities + surfaces', () => {
       lifecycleEvents: true,
       resume: true,
       interactiveUsage: true,
+      submitDelayMs: 60,
     });
   });
 

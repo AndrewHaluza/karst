@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { resolveAdapter, resolveProvider, IMPLEMENTED_PROVIDERS, isKnownProvider } from './registry.js';
+import {
+  resolveAdapter,
+  resolveProvider,
+  submitDelayFor,
+  IMPLEMENTED_PROVIDERS,
+  isKnownProvider,
+} from './registry.js';
+import { DEFAULT_SUBMIT_DELAY_MS } from './adapter.js';
 import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
@@ -25,6 +32,21 @@ describe('resolveAdapter', () => {
 
   it('resolves opencode2 to an Opencode2Adapter instance', () => {
     expect(resolveAdapter('opencode2')).toBeInstanceOf(Opencode2Adapter);
+  });
+});
+
+describe('submitDelayFor', () => {
+  it('returns the adapter\u2019s declared measured delay for a known provider', () => {
+    for (const provider of IMPLEMENTED_PROVIDERS) {
+      expect(submitDelayFor(provider)).toBe(
+        resolveAdapter(provider).capabilities.submitDelayMs,
+      );
+    }
+  });
+
+  it('falls back to the shared default for an unknown or absent provider', () => {
+    expect(submitDelayFor(undefined)).toBe(DEFAULT_SUBMIT_DELAY_MS);
+    expect(submitDelayFor('evil')).toBe(DEFAULT_SUBMIT_DELAY_MS);
   });
 });
 

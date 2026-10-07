@@ -32,6 +32,27 @@ export const POINTER_INTERVAL_MS = 30_000;
 export const WAKE_COOLDOWN_MS = 60_000;
 export const EVENT_MAX_AGE_MS = 30 * 60_000;
 
+/**
+ * The typed-pointer gate's provider half: is the recipient's LIVE session an
+ * agy one? Prefer the session's RECORDED launch identity (accurate for a
+ * session this window launched or adopted with a persisted identity) and fall
+ * back to the configured provider for a handle whose identity this window never
+ * recorded. Reading the CURRENT session — never a leftover watch-state entry —
+ * is what lets a core switch AWAY from agy deliver immediately: the retired
+ * agy state survives (the switch tracks the replacement before VS Code
+ * delivers the old handle's close, so the close sweep never runs), but it must
+ * not gate the replacement.
+ */
+export function isAgyRecipient(
+  ticketId: number,
+  sessions: { sessionIdentity(id: number): { provider?: string } | null },
+  configuredProvider: (id: number) => string | null,
+): boolean {
+  return (
+    (sessions.sessionIdentity(ticketId)?.provider ?? configuredProvider(ticketId)) === 'antigravity'
+  );
+}
+
 export interface MessageDeliveryDeps {
   store: Store;
   projectId: () => number | undefined;

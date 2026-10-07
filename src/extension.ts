@@ -23,7 +23,7 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
-import { makeMessageDeliverySweep } from './extension/ops/messageDeliveryOps.js';
+import { isAgyRecipient, makeMessageDeliverySweep } from './extension/ops/messageDeliveryOps.js';
 import { makeTerminalDelivery } from './workflow/messageDelivery.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
@@ -161,7 +161,7 @@ import {
 } from './agent/entrySeed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
-import { type AgyWatchState } from './agent/agyConversationWatch.js';
+import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js';
@@ -1952,14 +1952,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
-  // Mailbox delivery (Wave 3): pointer nudges to live recipients in this
-  // window, and a background (unrevealed, recovery) open for a woken parent.
+  // Mailbox delivery (Wave 3): pointer nudges to live recipients, plus parent wakes.
   const messageDelivery = makeMessageDeliverySweep({
     store: localStore,
     projectId: () => currentProject()?.id,
     delivery: makeTerminalDelivery({
       isLive: (id) => sessions.isLive(id),
       graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
+      agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
       nudge: (id, line) => sessions.nudge(id, line),
       sessionCliEnv: (id) => sessions.sessionCliEnv(id),
       literal: () => cliLiteral(context, dbPath),
@@ -7387,7 +7387,7 @@ function restoredSessionOf(
 function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
   return {
     show: (preserveFocus) => terminal.show(preserveFocus),
-    sendText: (text) => terminal.sendText(text, true),
+    sendText: (text, addNewLine = true) => terminal.sendText(text, addNewLine),
     dispose: () => terminal.dispose(),
     onDidClose: (handler) => {
       const sub = vscode.window.onDidCloseTerminal((closed) => {

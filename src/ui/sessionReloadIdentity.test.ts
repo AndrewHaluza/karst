@@ -50,12 +50,16 @@ function fakeTerminal(): FakeTerminal {
     shown: 0,
     shownPreserveFocus: [],
     sent: [],
+    sentNewLine: [],
     disposed: false,
     show: (preserveFocus) => {
       terminal.shown++;
       terminal.shownPreserveFocus.push(preserveFocus);
     },
-    sendText: (text) => terminal.sent.push(text),
+    sendText: (text, addNewLine) => {
+      terminal.sent.push(text);
+      terminal.sentNewLine.push(addNewLine);
+    },
     dispose: () => {
       terminal.disposed = true;
       terminal.disposeHandler?.();

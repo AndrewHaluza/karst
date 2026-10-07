@@ -7,10 +7,21 @@ import { cliTokensFor, quoteArg, type CliTokens, type ExportedCliEnv } from '../
  * an agent wrote can reach another agent's input except through `inbox`,
  * which frames it as untrusted.
  *
- * `nudge` sends ONE line (sendText + newline). Mid-turn, the pointer becomes
- * the agent's next queued input; that is the existing nudge mechanism.
+ * `nudge` types ONE line and submits it with a separate `\r` (the
+ * MAILBOX-DELIVERY-RELIABLE-SUBMIT Enter-fix). Mid-turn, the pointer becomes
+ * the agent's next queued input; that is the existing nudge mechanism. For agy
+ * the pointer waits until the conversation reports idle — its TUI swallows a
+ * line typed mid-turn.
  */
 
+/**
+ * `delivered` means the pointer was ACCEPTED by the recipient's live terminal —
+ * for a typed nudge, queued into that terminal's FIFO (`NudgeQueue`), which
+ * types it and submits with its own `\r`. It does NOT mean the agent has read
+ * it yet: `nudge` is intentionally synchronous (it returns once the line is
+ * queued, keeping the boolean contract its callers depend on). `deferred` means
+ * nothing was typed and the sweep retries.
+ */
 export type DeliveryResult = 'delivered' | 'deferred';
 
 export interface MessageDelivery {
@@ -69,6 +80,14 @@ export interface TerminalDeliveryDeps {
   isLive: (ticketId: number) => boolean;
   /** The graph coordinator owns the session (`nudgeSurface === 'no-op'`). */
   graphOwned: (ticketId: number) => boolean;
+  /**
+   * True while the recipient's agy session has NOT reported idle (its run
+   * status is still running, or its conversation is not yet observed). The agy
+   * TUI swallows a line typed mid-turn, so the pointer is deferred and the
+   * sweep retries once the turn ends. Absent → no idle gate (every other core
+   * accepts a typed line at any time).
+   */
+  agyBusy?: (ticketId: number) => boolean;
   nudge: (ticketId: number, line: string) => boolean;
   sessionCliEnv: (ticketId: number) => ExportedCliEnv | undefined;
   literal: () => CliTokens;
@@ -79,6 +98,8 @@ export function makeTerminalDelivery(deps: TerminalDeliveryDeps): MessageDeliver
   return {
     deliver(toTicketId, unread) {
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
+      // agy only: hold the pointer until the turn ends, then the sweep retries.
+      if (deps.agyBusy?.(toTicketId)) return 'deferred';
       const line = messagePointer(unread, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
       if (line === null) return 'deferred';
       return deps.nudge(toTicketId, line) ? 'delivered' : 'deferred';

@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import {
+  AGY_SUMMARIES_DB,
+  agyPointerBusy,
   agyWatchTick,
   findConversationForWorktree,
   openAgyConversationDb,
+  openAgySummariesDb,
+  readAgyConversationIdle,
   resolveAgyAppDataDir,
   type AgyConversationSnapshot,
   type AgyWatchState,
@@ -93,18 +97,31 @@ describe('agyConversationWatch', () => {
     db.close();
   });
 
-  it('emits SessionStart on first observation, then permission.asked when a step is pending', () => {
-    const state: AgyWatchState = { dbPath: null, started: false, awaiting: false };
-    const first: AgyConversationSnapshot = {
-      dbPath: '/data/conversations/c1.db',
-      conversationId: 'c1',
-      pendingApproval: true,
+  /** A snapshot with every field, so tests only state what they vary. */
+  function snapshot(
+    over: Partial<AgyConversationSnapshot> & { conversationId: string },
+  ): AgyConversationSnapshot {
+    return {
+      dbPath: `/data/conversations/${over.conversationId}.db`,
+      pendingApproval: false,
+      idle: false,
+      ...over,
     };
+  }
+
+  it('emits SessionStart on first observation, then permission.asked when a step is pending', () => {
+    const state: AgyWatchState = { dbPath: null, started: false, awaiting: false, idle: false };
+    const first = snapshot({ conversationId: 'c1', pendingApproval: true });
     expect(agyWatchTick(state, first)).toEqual([
       { kind: 'SessionStart', sessionId: 'c1' },
       { kind: 'permission.asked' },
     ]);
-    expect(state).toEqual({ dbPath: '/data/conversations/c1.db', started: true, awaiting: true });
+    expect(state).toEqual({
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: true,
+      idle: false,
+    });
   });
 
   it('emits nothing on an unchanged pending step', () => {
@@ -112,13 +129,11 @@ describe('agyConversationWatch', () => {
       dbPath: '/data/conversations/c1.db',
       started: true,
       awaiting: true,
+      idle: false,
     };
-    const same: AgyConversationSnapshot = {
-      dbPath: '/data/conversations/c1.db',
-      conversationId: 'c1',
-      pendingApproval: true,
-    };
-    expect(agyWatchTick(state, same)).toEqual([]);
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', pendingApproval: true }))).toEqual(
+      [],
+    );
   });
 
   it('emits UserPromptSubmit when the pending step resolves', () => {
@@ -126,18 +141,16 @@ describe('agyConversationWatch', () => {
       dbPath: '/data/conversations/c1.db',
       started: true,
       awaiting: true,
+      idle: false,
     };
-    const resolved: AgyConversationSnapshot = {
-      dbPath: '/data/conversations/c1.db',
-      conversationId: 'c1',
-      pendingApproval: false,
-    };
-    expect(agyWatchTick(state, resolved)).toEqual([{ kind: 'UserPromptSubmit' }]);
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1' }))).toEqual([
+      { kind: 'UserPromptSubmit' },
+    ]);
     expect(state.awaiting).toBe(false);
   });
 
   it('emits nothing when no conversation is found yet', () => {
-    const state: AgyWatchState = { dbPath: null, started: false, awaiting: false };
+    const state: AgyWatchState = { dbPath: null, started: false, awaiting: false, idle: false };
     expect(agyWatchTick(state, null)).toEqual([]);
   });
 
@@ -146,13 +159,191 @@ describe('agyConversationWatch', () => {
       dbPath: '/data/conversations/c1.db',
       started: true,
       awaiting: false,
+      idle: false,
     };
-    const fresh: AgyConversationSnapshot = {
-      dbPath: '/data/conversations/c2.db',
-      conversationId: 'c2',
-      pendingApproval: false,
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c2' }))).toEqual([
+      { kind: 'SessionStart', sessionId: 'c2' },
+    ]);
+  });
+
+  it('baselines idle on first observation without emitting a turn-end', () => {
+    const state: AgyWatchState = { dbPath: null, started: false, awaiting: false, idle: false };
+    // A freshly launched session can read idle before its first turn starts —
+    // that is not a turn that just ended.
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: true }))).toEqual([
+      { kind: 'SessionStart', sessionId: 'c1' },
+    ]);
+    expect(state.idle).toBe(true);
+  });
+
+  it('emits idle on a running→idle edge and stays silent while idle', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
     };
-    expect(agyWatchTick(state, fresh)).toEqual([{ kind: 'SessionStart', sessionId: 'c2' }]);
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: true }))).toEqual([
+      { kind: 'idle' },
+    ]);
+    expect(state.idle).toBe(true);
+    // Unchanged idle emits nothing.
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: true }))).toEqual([]);
+  });
+
+  it('clears idle when the conversation is busy again', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: true,
+    };
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: false }))).toEqual([]);
+    expect(state.idle).toBe(false);
+  });
+
+  it('baselines an UNKNOWN status without claiming a turn ended', () => {
+    const state: AgyWatchState = { dbPath: null, started: false, awaiting: false, idle: false };
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: null }))).toEqual([
+      { kind: 'SessionStart', sessionId: 'c1' },
+    ]);
+    expect(state.idle).toBeNull();
+  });
+
+  it('tracks an UNKNOWN status verbatim so it can never hold mail or fake a turn-end', () => {
+    const running: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: false,
+    };
+    // running → unknown: no idle event, and the state becomes unknown (the
+    // typed route's gate is `=== false`, so unknown does NOT hold the pointer).
+    expect(agyWatchTick(running, snapshot({ conversationId: 'c1', idle: null }))).toEqual([]);
+    expect(running.idle).toBeNull();
+
+    const idle: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: true,
+    };
+    // idle → unknown: still no event; the last known idle is not re-claimed.
+    expect(agyWatchTick(idle, snapshot({ conversationId: 'c1', idle: null }))).toEqual([]);
+    expect(idle.idle).toBeNull();
+  });
+
+  it('does not emit an idle event on an unknown→idle edge (no proven turn-end)', () => {
+    const state: AgyWatchState = {
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle: null,
+    };
+    expect(agyWatchTick(state, snapshot({ conversationId: 'c1', idle: true }))).toEqual([]);
+    expect(state.idle).toBe(true);
+  });
+
+  describe('agyPointerBusy', () => {
+    const state = (idle: boolean | null): AgyWatchState => ({
+      dbPath: '/data/conversations/c1.db',
+      started: true,
+      awaiting: false,
+      idle,
+    });
+
+    it('holds the pointer while an agy conversation has not been observed yet', () => {
+      // The first sweep tick is up to AGY_WATCH_INTERVAL_MS away; a pointer
+      // typed into that mid-turn TUI is swallowed, so it must defer.
+      expect(agyPointerBusy(undefined, true)).toBe(true);
+    });
+
+    it('holds the pointer while the observed run status is explicitly running', () => {
+      expect(agyPointerBusy(state(false), true)).toBe(true);
+    });
+
+    it('delivers once the observed run status is idle', () => {
+      expect(agyPointerBusy(state(true), true)).toBe(false);
+    });
+
+    it('delivers on an observed-but-unknown status — a summary the CLI never wrote must not strand mail', () => {
+      expect(agyPointerBusy(state(null), true)).toBe(false);
+    });
+
+    it('never gates a non-agy recipient, observed or not', () => {
+      expect(agyPointerBusy(undefined, false)).toBe(false);
+      expect(agyPointerBusy(state(false), false)).toBe(false);
+      expect(agyPointerBusy(state(true), false)).toBe(false);
+    });
+  });
+
+  describe('readAgyConversationIdle', () => {
+    /** Write the CLI's summary DB with one conversation's run status. */
+    function summaryFixture(
+      appDataDir: string,
+      conversationId: string,
+      status: string,
+    ): void {
+      const db = new Database(join(appDataDir, AGY_SUMMARIES_DB));
+      db.exec(
+        'CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, status TEXT);',
+      );
+      db.prepare(
+        'INSERT INTO conversation_summaries (conversation_id, status) VALUES (?, ?)',
+      ).run(conversationId, status);
+      db.close();
+    }
+
+    it('is true when the conversation run status is idle', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      summaryFixture(dir, 'c1', 'CASCADE_RUN_STATUS_IDLE');
+      expect(readAgyConversationIdle(dir, 'c1')).toBe(true);
+    });
+
+    it('is false when the conversation is still running', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      summaryFixture(dir, 'c1', 'CASCADE_RUN_STATUS_RUNNING');
+      expect(readAgyConversationIdle(dir, 'c1')).toBe(false);
+    });
+
+    it('is null when the summary DB or the conversation row is absent', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      expect(readAgyConversationIdle(dir, 'c1')).toBeNull();
+      summaryFixture(dir, 'other', 'CASCADE_RUN_STATUS_IDLE');
+      expect(readAgyConversationIdle(dir, 'c1')).toBeNull();
+    });
+
+    it('is null (never throws) when opening the summary DB fails', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      summaryFixture(dir, 'c1', 'CASCADE_RUN_STATUS_IDLE');
+      expect(
+        readAgyConversationIdle(dir, 'c1', () => {
+          throw new Error('locked');
+        }),
+      ).toBeNull();
+    });
+
+    it('is null (never throws) when the summary query fails', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      summaryFixture(dir, 'c1', 'CASCADE_RUN_STATUS_IDLE');
+      expect(
+        readAgyConversationIdle(dir, 'c1', () => ({
+          isIdle: () => {
+            throw new Error('schema drift');
+          },
+          close: () => {},
+        })),
+      ).toBeNull();
+    });
+
+    it('opens the summary DB read-only and closes it', () => {
+      dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-'));
+      summaryFixture(dir, 'c1', 'CASCADE_RUN_STATUS_IDLE');
+      const db = openAgySummariesDb(join(dir, AGY_SUMMARIES_DB));
+      expect(db.isIdle('c1')).toBe(true);
+      expect(db.isIdle('missing')).toBeNull();
+      db.close();
+    });
   });
 
   describe('usage()', () => {

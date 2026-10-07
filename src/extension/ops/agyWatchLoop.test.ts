@@ -7,7 +7,7 @@ import Database from 'better-sqlite3';
 import { openStore, type Store } from '../../store/db.js';
 import { createHookChannelRecorder } from '../../diagnostics/hookChannel.js';
 import { createAgyWatchLoop, type AgyTerminalNamed, type AgyWatchLoopDeps } from './agyWatchLoop.js';
-import type { AgyWatchState } from '../../agent/agyConversationWatch.js';
+import { AGY_SUMMARIES_DB, type AgyWatchState } from '../../agent/agyConversationWatch.js';
 import type { AgyUsageState } from '../../agent/agyUsageWatch.js';
 
 // `dispatchHook` is observed through a spy that keeps the real implementation:
@@ -103,6 +103,34 @@ function insertUsageStep(dbPath: string, idx: number, metadata: Buffer): void {
 function setStepStatus(dbPath: string, idx: number, status: number): void {
   const db = new Database(dbPath);
   db.prepare('UPDATE steps SET status = ? WHERE idx = ?').run(status, idx);
+  db.close();
+}
+
+/** The app-data dir the mocked homedir resolves to. */
+function agyAppDataDir(home: string): string {
+  return join(home, '.gemini', 'antigravity-cli');
+}
+
+/** Write the CLI's summary DB with one conversation's run status. */
+function summaryFixture(home: string, conversationId: string, status: string): void {
+  const appDataDir = agyAppDataDir(home);
+  mkdirSync(appDataDir, { recursive: true });
+  const db = new Database(join(appDataDir, 'conversation_summaries.db'));
+  db.exec('CREATE TABLE conversation_summaries (conversation_id TEXT PRIMARY KEY, status TEXT);');
+  db.prepare('INSERT INTO conversation_summaries (conversation_id, status) VALUES (?, ?)').run(
+    conversationId,
+    status,
+  );
+  db.close();
+}
+
+/** Change one conversation's run status in the fixture summary DB. */
+function setSummaryStatus(home: string, conversationId: string, status: string): void {
+  const db = new Database(join(agyAppDataDir(home), 'conversation_summaries.db'));
+  db.prepare('UPDATE conversation_summaries SET status = ? WHERE conversation_id = ?').run(
+    status,
+    conversationId,
+  );
   db.close();
 }
 
@@ -233,6 +261,8 @@ describe('createAgyWatchLoop', () => {
       dbPath: join(dir, '.gemini', 'antigravity-cli', 'conversations', '11111111-1111-4111-8111-111111111111.db'),
       started: true,
       awaiting: false,
+      // No summary DB in the fixture → the run status is UNKNOWN, not running.
+      idle: null,
     });
   });
 
@@ -260,7 +290,7 @@ describe('createAgyWatchLoop', () => {
     expect(deps.notifyHook).not.toHaveBeenCalled();
     // The null-snapshot debug line names every optional field explicitly.
     expect(deps.debug).toHaveBeenCalledWith(
-      `[agy] ticket ${ticketId}: conversation=none, usage=null, launchId=none`,
+      `[agy] ticket ${ticketId}: conversation=none, usage=null, launchId=none, idle=none`,
     );
     // A missing conversation is not a read failure.
     expect(deps.logError).not.toHaveBeenCalled();
@@ -347,7 +377,7 @@ describe('createAgyWatchLoop', () => {
     });
     // The found-conversation debug line names conversation, usage and launch id.
     expect(deps.debug).toHaveBeenCalledWith(
-      `[agy] ticket ${ticketId}: conversation=${convId}, usage=9737/288/8110, launchId=none`,
+      `[agy] ticket ${ticketId}: conversation=${convId}, usage=9737/288/8110, launchId=none, idle=null`,
     );
     // The events path injects the loop's debug into dispatch (passDebugToDispatch: true)
     // and does NOT log each usage event itself (logEachEvent: false).
@@ -460,6 +490,82 @@ describe('createAgyWatchLoop', () => {
     });
   });
 
+  it('emits a Stop when the summary run status turns idle, and records the idle flag', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const convId = '66666666-6666-4666-8666-666666666666';
+    fixtureDb(dir, convId, worktreePath, false);
+    summaryFixture(dir, convId, 'CASCADE_RUN_STATUS_RUNNING');
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+
+    const named: AgyTerminalNamed = { ticketId, identity: { provider: 'antigravity' } };
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => named,
+    });
+    const loop = createAgyWatchLoop(deps);
+
+    withHome(dir, () => loop.run());
+    // Running: SessionStart only, idle flag false.
+    expect(deps.notifyHook).toHaveBeenCalledTimes(1);
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBe(false);
+
+    // The turn ends: the run status flips to idle.
+    setSummaryStatus(dir, convId, 'CASCADE_RUN_STATUS_IDLE');
+    withHome(dir, () => loop.run());
+
+    expect(deps.notifyHook).toHaveBeenCalledTimes(2);
+    expect(deps.notifyHook.mock.calls[1]![1]).toEqual({
+      hook_event_name: 'Stop',
+      cwd: worktreePath,
+      session_id: convId,
+    });
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBe(true);
+
+    // Unchanged idle emits nothing further.
+    withHome(dir, () => loop.run());
+    expect(deps.notifyHook).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not drop the lifecycle tick when the summary DB cannot be read', () => {
+    dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
+    const worktreePath = join(dir, 'wt');
+    mkdirSync(worktreePath, { recursive: true });
+    const convId = '77777777-7777-4777-8777-777777777777';
+    fixtureDb(dir, convId, worktreePath, false);
+    // A garbage summary file: opening/preparing it throws, which must read as
+    // UNKNOWN, never abort the whole sweep before the lifecycle event posts.
+    writeFileSync(join(agyAppDataDir(dir), AGY_SUMMARIES_DB), 'not a sqlite database');
+
+    const store = openStore(':memory:');
+    const ticketId = Number(
+      store.db.prepare("INSERT INTO tickets (key) VALUES ('T-1')").run().lastInsertRowid,
+    );
+    seedWorktree(store, ticketId, worktreePath);
+
+    const named: AgyTerminalNamed = { ticketId, identity: { provider: 'antigravity' } };
+    const deps = baseDeps(store, {
+      listTerminals: () => [{}],
+      identifyTerminal: () => named,
+    });
+    const loop = createAgyWatchLoop(deps);
+
+    withHome(dir, () => loop.run());
+
+    expect(deps.notifyHook).toHaveBeenCalledWith(
+      ticketId,
+      expect.objectContaining({ hook_event_name: 'SessionStart', session_id: convId }),
+    );
+    expect(deps.agyWatchStates.get(ticketId)?.idle).toBeNull();
+    expect(deps.logError).not.toHaveBeenCalled();
+  });
+
   it('carries the launch id on both the lifecycle and usage payloads', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-agy-watch-loop-'));
     const worktreePath = join(dir, 'wt');
@@ -492,7 +598,7 @@ describe('createAgyWatchLoop', () => {
     expect(sessionStart).toMatchObject({ launchId: 'L-1' });
     expect(usage).toMatchObject({ launchId: 'L-1' });
     expect(deps.debug).toHaveBeenCalledWith(
-      `[agy] ticket ${ticketId}: conversation=${convId}, usage=9737/288/8110, launchId=L-1`,
+      `[agy] ticket ${ticketId}: conversation=${convId}, usage=9737/288/8110, launchId=L-1, idle=null`,
     );
   });
 

@@ -15,7 +15,10 @@ import { KARST_INSTRUCTIONS_ENV } from '../agent/cliEnv.js';
 import { hashInstructions } from '../agent/instructions.js';
 
 /** Records the interactive command built, so the test can assert on it. */
-function fakeAdapter(binary = 'fake-agent'): {
+function fakeAdapter(
+  binary = 'fake-agent',
+  submitDelayMs = 100,
+): {
   adapter: AgentAdapter;
   calls: InteractiveCommandOpts[];
 } {
@@ -27,7 +30,7 @@ function fakeAdapter(binary = 'fake-agent'): {
     },
     runHeadless: () => Promise.reject(new Error('not used')),
     requiredBinary: binary,
-    capabilities: { lifecycleEvents: true, resume: true },
+    capabilities: { lifecycleEvents: true, resume: true, submitDelayMs },
   };
   return { adapter, calls };
 }
@@ -70,6 +73,7 @@ function fakeHost(
         shownPreserveFocus: [],
         disposed: false,
         sent: [],
+        sentNewLine: [],
         show: (preserveFocus) => {
           // A disposed VS Code terminal throws on `.show()` ("Terminal has
           // already been disposed") — the exact failure this module's
@@ -78,7 +82,10 @@ function fakeHost(
           term.shown++;
           term.shownPreserveFocus.push(preserveFocus);
         },
-        sendText: (text) => term.sent.push(text),
+        sendText: (text, addNewLine) => {
+          term.sent.push(text);
+          term.sentNewLine.push(addNewLine);
+        },
         dispose: () => {
           term.disposed = true;
           if (!term.disposeHandler) return;
@@ -131,6 +138,7 @@ function fakeRestored(
   terminal: {
     shown: number;
     sent: string[];
+    sentNewLine: Array<boolean | undefined>;
     disposed: boolean;
     disposeHandler?: (exitCode?: number) => void;
   };
@@ -138,10 +146,14 @@ function fakeRestored(
   const terminal = {
     shown: 0,
     sent: [] as string[],
+    sentNewLine: [] as Array<boolean | undefined>,
     disposed: false,
     disposeHandler: undefined as ((exitCode?: number) => void) | undefined,
     show: () => terminal.shown++,
-    sendText: (text: string) => terminal.sent.push(text),
+    sendText: (text: string, addNewLine?: boolean) => {
+      terminal.sent.push(text);
+      terminal.sentNewLine.push(addNewLine);
+    },
     dispose: () => {
       terminal.disposed = true;
       terminal.disposeHandler?.();
@@ -596,16 +608,21 @@ describe('SessionManager', () => {
     expect(mgr.isOpen(7)).toBe(false);
   });
 
-  it('nudge sends one line — a newline would submit the prompt half-typed', () => {
-    const { adapter } = fakeAdapter();
-    const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
-    mgr.openSession(adapter, 1, '/wt/a');
+  it('nudge collapses a multi-line prompt to one typed line', () => {
+    vi.useFakeTimers();
+    try {
+      const { adapter } = fakeAdapter();
+      const { host, terminals } = fakeHost();
+      const mgr = new SessionManager(host, channelFor);
+      mgr.openSession(adapter, 1, '/wt/a');
 
-    mgr.nudge(1, 'The review gate failed.\n\nIt reported: gates failed: test\n\nThen: fire the marker');
-    expect(terminals[0]!.sent).toEqual([
-      'The review gate failed. It reported: gates failed: test Then: fire the marker',
-    ]);
+      mgr.nudge(1, 'The review gate failed.\n\nIt reported: gates failed: test\n\nThen: fire the marker');
+      expect(terminals[0]!.sent).toEqual([
+        'The review gate failed. It reported: gates failed: test Then: fire the marker',
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('nudge reports no live session rather than silently dropping the prompt', () => {
@@ -613,6 +630,191 @@ describe('SessionManager', () => {
     const { host } = fakeHost();
     const mgr = new SessionManager(host, channelFor);
     expect(mgr.nudge(99, 'anything')).toBe(false);
+  });
+
+  // MAILBOX-DELIVERY-RELIABLE-SUBMIT: a core's TUI reads the typed burst as a
+  // paste, so a newline appended to the text never submits. `nudge` types the
+  // text with `addNewLine=false`, waits the core's measured window, then sends
+  // the submit `\r` as its own keystroke. A per-terminal FIFO serializes nudges
+  // so two inside one window cannot merge into `AB`.
+  describe('typed nudge delivery (MAILBOX-DELIVERY-RELIABLE-SUBMIT)', () => {
+    it('types without a newline, waits the adapter delay, then submits with a bare CR', async () => {
+      vi.useFakeTimers();
+      try {
+        const { adapter } = fakeAdapter('claude', 42);
+        const { host, terminals } = fakeHost();
+        const mgr = new SessionManager(host, channelFor);
+        mgr.openSession(adapter, 1, '/wt/a');
+
+        expect(mgr.nudge(1, 'review failed: lint')).toBe(true);
+        expect(terminals[0]!.sent).toEqual(['review failed: lint']);
+        expect(terminals[0]!.sentNewLine).toEqual([false]);
+
+        await vi.advanceTimersByTimeAsync(41);
+        expect(terminals[0]!.sent).toEqual(['review failed: lint']);
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(terminals[0]!.sent).toEqual(['review failed: lint', '\r']);
+        expect(terminals[0]!.sentNewLine).toEqual([false, false]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('submits two back-to-back nudges as two separate lines', async () => {
+      vi.useFakeTimers();
+      try {
+        const { adapter } = fakeAdapter('codex', 60);
+        const { host, terminals } = fakeHost();
+        const mgr = new SessionManager(host, channelFor);
+        mgr.openSession(adapter, 1, '/wt/a');
+
+        mgr.nudge(1, 'first');
+        mgr.nudge(1, 'second');
+        // The second line waits — only the first is on screen.
+        expect(terminals[0]!.sent).toEqual(['first']);
+
+        await vi.advanceTimersByTimeAsync(60);
+        expect(terminals[0]!.sent).toEqual(['first', '\r', 'second']);
+        await vi.advanceTimersByTimeAsync(60);
+        expect(terminals[0]!.sent).toEqual(['first', '\r', 'second', '\r']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('sends exactly one submit per nudge', async () => {
+      vi.useFakeTimers();
+      try {
+        const { adapter } = fakeAdapter('opencode', 50);
+        const { host, terminals } = fakeHost();
+        const mgr = new SessionManager(host, channelFor);
+        mgr.openSession(adapter, 1, '/wt/a');
+
+        mgr.nudge(1, 'a');
+        mgr.nudge(1, 'b');
+        mgr.nudge(1, 'c');
+        await vi.advanceTimersByTimeAsync(150);
+
+        expect(terminals[0]!.sent.filter((line) => line === '\r')).toHaveLength(3);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('carries a long fix brief as a single typed line with one submit', async () => {
+      vi.useFakeTimers();
+      try {
+        const { adapter } = fakeAdapter('claude', 120);
+        const { host, terminals } = fakeHost();
+        const mgr = new SessionManager(host, channelFor);
+        mgr.openSession(adapter, 1, '/wt/a');
+        const brief = `UAT gate failed.\n\n${'detail '.repeat(800)}`;
+
+        mgr.nudge(1, brief);
+        await vi.advanceTimersByTimeAsync(120);
+
+        expect(terminals[0]!.sent[0]).toBe(brief.replace(/\s+/g, ' ').trim());
+        expect(terminals[0]!.sent).toHaveLength(2);
+        expect(terminals[0]!.sent[1]).toBe('\r');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('drops a pending nudge when the terminal closes', async () => {
+      vi.useFakeTimers();
+      try {
+        const { adapter } = fakeAdapter('claude', 120);
+        const { host, terminals } = fakeHost();
+        const mgr = new SessionManager(host, channelFor);
+        mgr.openSession(adapter, 1, '/wt/a');
+
+        mgr.nudge(1, 'first');
+        mgr.nudge(1, 'second');
+        terminals[0]!.dispose();
+        await vi.advanceTimersByTimeAsync(500);
+
+        // Neither the in-flight submit nor the queued second line fires.
+        expect(terminals[0]!.sent).toEqual(['first']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('uses each core\u2019s measured submit delay for the typed route', async () => {
+      const matrix: Array<[string, number]> = [
+        ['claude', 120],
+        ['codex', 60],
+        ['opencode', 60],
+        ['opencode2', 60],
+        ['antigravity', 250],
+      ];
+      for (const [core, delay] of matrix) {
+        vi.useFakeTimers();
+        try {
+          const { adapter } = fakeAdapter(core, delay);
+          const { host, terminals } = fakeHost();
+          const mgr = new SessionManager(host, channelFor);
+          mgr.openSession(adapter, 1, '/wt/a');
+
+          mgr.nudge(1, `pointer for ${core}`);
+          await vi.advanceTimersByTimeAsync(delay - 1);
+          expect(terminals[0]!.sent, `${core}: submit must wait its delay`).toEqual([
+            `pointer for ${core}`,
+          ]);
+          await vi.advanceTimersByTimeAsync(1);
+          expect(terminals[0]!.sent, `${core}: submit at its delay`).toEqual([
+            `pointer for ${core}`,
+            '\r',
+          ]);
+        } finally {
+          vi.useRealTimers();
+        }
+      }
+    });
+
+    it('a core switch leaves nothing queued on the replacement terminal', async () => {
+      vi.useFakeTimers();
+      try {
+        const first = fakeAdapter('claude', 120);
+        const second = fakeAdapter('codex', 60);
+        const { host, terminals } = fakeHost();
+        const mgr = new SessionManager(host, channelFor);
+
+        mgr.openSession(first.adapter, 7, '/wt/a');
+        mgr.nudge(7, 'old core line');
+        // The switch disposes the claude terminal and launches codex.
+        mgr.disposeSession(7);
+        mgr.openSession(second.adapter, 7, '/wt/a');
+        mgr.nudge(7, 'new core line');
+
+        await vi.advanceTimersByTimeAsync(120);
+
+        // The retired terminal never submitted its queued line; the new one
+        // used its own (shorter) window and submitted exactly once.
+        expect(terminals[0]!.sent).toEqual(['old core line']);
+        expect(terminals[1]!.sent).toEqual(['new core line', '\r']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('a revived terminal this window did not launch starts with an empty queue', async () => {
+      vi.useFakeTimers();
+      try {
+        const revived = fakeRestored(7);
+        const { host } = fakeHost([revived]);
+        const mgr = new SessionManager(host, channelFor);
+
+        // Adopted, never launched here: the nudge types immediately (no
+        // leftover line from any earlier terminal instance).
+        expect(mgr.nudge(7, 'pointer')).toBe(true);
+        expect(revived.terminal.sent).toEqual(['pointer']);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   it('revealSession reveals an open terminal, like focusSession', () => {

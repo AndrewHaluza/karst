@@ -13,6 +13,7 @@ import {
   EVENT_MAX_AGE_MS,
   POINTER_INTERVAL_MS,
   WAKE_COOLDOWN_MS,
+  isAgyRecipient,
   makeMessageDeliverySweep,
   type MessageDeliveryDeps,
 } from './messageDeliveryOps.js';
@@ -653,6 +654,30 @@ describe('message delivery sweep — wake aging, cooldown, and failure paths', (
     expect(sweeper.sweep().woke).toEqual([parentId]);
     expect(wake).toHaveBeenCalledTimes(1);
     expect(wake).toHaveBeenCalledWith(parentId);
+  });
+});
+
+describe('isAgyRecipient', () => {
+  const sessions = (provider?: string) => ({
+    sessionIdentity: () => (provider === undefined ? null : { provider }),
+  });
+  const configured = (provider: string | null) => () => provider;
+
+  it('reads the session’s recorded identity first', () => {
+    expect(isAgyRecipient(1, sessions('antigravity'), configured('claude'))).toBe(true);
+    expect(isAgyRecipient(1, sessions('claude'), configured('antigravity'))).toBe(false);
+  });
+
+  it('falls back to the configured provider when the session has no recorded identity', () => {
+    expect(isAgyRecipient(1, sessions(), configured('antigravity'))).toBe(true);
+    expect(isAgyRecipient(1, sessions(), configured('claude'))).toBe(false);
+    expect(isAgyRecipient(1, sessions(), configured(null))).toBe(false);
+  });
+
+  it('lets a core switch AWAY from agy deliver immediately (no stale agy gate)', () => {
+    // The retired agy watch state survives a switch, but the replacement is
+    // claude, so the gate must read the CURRENT session, not the leftover.
+    expect(isAgyRecipient(1, sessions('claude'), configured('claude'))).toBe(false);
   });
 });
 

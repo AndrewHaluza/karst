@@ -13,13 +13,43 @@ function bindable(port: number, host?: string): Promise<boolean> {
 }
 
 /**
- * Is this port free? Both binds are needed: Windows lets a fresh 127.0.0.1 bind
- * succeed while a process already listens on `::` for the same port — and that
- * process still answers IPv4 connections, so the 127.0.0.1 probe alone reports a
- * port free that a leftover server is provably serving.
+ * Does something ACCEPT a connection on `host:port` right now? A bind probe can
+ * miss a live listener (see `canBind`); a refused connection is the proof that
+ * nothing is there. Bounded so a filtered port cannot hang the probe.
+ */
+function accepts(port: number, host: string, timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const sock = connect({ host, port, signal: AbortSignal.timeout(timeoutMs) });
+    sock.once('connect', () => {
+      sock.destroy();
+      resolve(true);
+    });
+    sock.once('error', () => {
+      sock.destroy();
+      resolve(false);
+    });
+  });
+}
+
+/**
+ * Is this port free? A bind probe alone is NOT proof: on BSD/macOS a listener
+ * held on `0.0.0.0` (or on `::1`) still lets a fresh `::` and `127.0.0.1` bind
+ * succeed — Node sets SO_REUSEADDR, and the wildcard/specific pairs are
+ * independent — so a single family's bind reported a port free that a leaked
+ * server was provably serving, and `freePortWindow` handed it to a suite whose
+ * `startHot` then refused the stranger. Probe every shape a listener can take:
+ * bind the three wildcard/specific sockets AND prove both loopbacks refuse a
+ * connection. Windows still needs the `127.0.0.1` bind beside the `::` one: a
+ * process listening on `::` answers IPv4, but a fresh `127.0.0.1` bind there is
+ * what catches it when the `::` bind happens to succeed.
  */
 async function canBind(port: number): Promise<boolean> {
-  return (await bindable(port)) && (await bindable(port, '127.0.0.1'));
+  if (!(await bindable(port))) return false;
+  if (!(await bindable(port, '0.0.0.0'))) return false;
+  if (!(await bindable(port, '127.0.0.1'))) return false;
+  if (await accepts(port, '127.0.0.1')) return false;
+  if (await accepts(port, '::1')) return false;
+  return true;
 }
 
 /**
