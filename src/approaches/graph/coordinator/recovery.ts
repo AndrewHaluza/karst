@@ -22,13 +22,18 @@
  *   prompt-resnapshot   re-snapshot the effective prompt bytes, then retry
  *   replan / compile-new-revision
  *                       elect + begin a new planner run (Slice-4 T5),
- *                       subject to the planner/replan budget; a budget
- *                       refusal blocks the reporting node
- *                       `graph-budget-exhausted` and is REFUSED here
+ *                       subject to the planner/replan budget; an AUTOMATIC
+ *                       budget refusal blocks the reporting node
+ *                       `graph-budget-exhausted` and is REFUSED here, but an
+ *                       explicit human Replan bypasses the document ceiling
+ *                       (bounded only by the project maximum)
  *   discard-required    launch-unknown / termination-unknown — never
  *                       auto-retried; the T4 discard is the named exit
- *   config-then-resume  budget exhaustion — configuration change within
- *                       hard caps, then explicit Resume
+ *   config-then-resume  budget exhaustion — the document ceiling is frozen
+ *                       into the revision, so an explicit Replan bypasses it;
+ *                       at the project `limits.maxReplans` cap, raise it (up to
+ *                       the hard ceiling) and Replan. At the ceiling itself no
+ *                       replans remain, and the diagnostic says so
  *   artifact-recheck    output-artifact-missing / artifact-unsafe — a human
  *                       corrects the artifact out of band; an explicit Resume
  *                       RE-PROBES it through the same artifact resolution that
@@ -66,6 +71,7 @@ import { casStatus, GRAPH_RUN_TRANSITIONS } from '../../../store/graph/transitio
 import {
   clearGraphRunBlocked,
   graphRunIdStatusBlockedReason,
+  graphRunStatusReplanCount,
   type GraphRunRow,
 } from '../../../store/graph/graphRuns.js';
 import {
@@ -92,6 +98,7 @@ import {
 } from './replan.js';
 import { emitGraphDiagnostic } from '../diagnostics.js';
 import { ARTIFACT_FAULT_STATUSES, recheckArtifactFaults } from './artifactRecheck.js';
+import { DEFAULT_GRAPH_LIMITS, GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
 
 /** The one graph blocker kind (defined here, on the graph side; the stage
  *  boundary module and the model's `BlockerKind` refer to this string). */
@@ -125,6 +132,14 @@ export interface RecoveryDeps {
   transaction: <T>(fn: () => T) => T;
   now: () => string;
   debug?: (message: string) => void;
+  /**
+   * The project's hard replan cap (`limits.maxReplans`, `DEFAULT_GRAPH_LIMITS`
+   * fallback). A human Replan bypasses a revision document's
+   * `budgets.maxReplans` but is still bounded by this project maximum; when
+   * the run's accepted replan count has reached it, the human Replan is
+   * refused WITHOUT mutating anything. Automatic replans never consult it.
+   */
+  projectMaxReplans?: number;
   /**
    * The effective node prompt TEXT for a node's next launch (the packaged
    * base prompt overlaid with the project override and any per-node `prompt`
@@ -376,14 +391,19 @@ function retryReservedVisits(
 
 /**
  * The replan / compile-new-revision action (Slice-4 T5 machinery). The blocked
- * run is atomically re-opened, then `electReplan` drains it (subject to the
- * document's replan budget); the stage block clears only once the run has
- * durably left `blocked`. Budget exhaustion is REFUSED — the election already
- * blocked the reporting node with `graph-budget-exhausted`.
+ * run is atomically re-opened, then `electReplan` drains it (an AUTOMATIC
+ * replan is subject to the revision document's `budgets.maxReplans`); the
+ * stage block clears only once the run has durably left `blocked`.
+ *
+ * A HUMAN Replan (`humanReplan`) bypasses the document ceiling — the budget
+ * lives in the frozen revision, so raising config cannot lift it. It is
+ * bounded only by the project `limits.maxReplans`, and that check runs BEFORE
+ * the run is claimed: at the cap the recovery refuses and mutates NOTHING (no
+ * run CAS, no `blocked_reason` change, no node-clobbering budget block).
  */
 function replanRecovery(
   deps: RecoveryDeps,
-  input: { ticketId: number; graphRunId: number },
+  input: { ticketId: number; graphRunId: number; humanReplan?: boolean },
 ): RecoveryResult {
   const db = deps.store.db;
 
@@ -408,6 +428,35 @@ function replanRecovery(
       detail: 'replan has no active revision — relaunching the bootstrap planner instead',
     });
     return plannerRelaunchRecovery(deps, input);
+  }
+
+  // The human bypass's ONLY ceiling: the project hard cap. Check it BEFORE the
+  // claim, so a refusal leaves the run `blocked`, the stage block parked, and
+  // every node row exactly as it was — the node's original failure reason is
+  // never overwritten by a budget block. Automatic replans skip this and
+  // enforce the document budget inside the election.
+  if (input.humanReplan === true) {
+    const cap = deps.projectMaxReplans ?? DEFAULT_GRAPH_LIMITS.maxReplans;
+    const count = graphRunStatusReplanCount(db, input.graphRunId)?.replan_count ?? 0;
+    if (count >= cap) {
+      // The advice must be FOLLOWABLE: `limits.maxReplans` can only be raised
+      // up to the hard ceiling, so at the ceiling "raise it" is a lie that
+      // routes the user into a manifest-validation refusal. Only name the
+      // config change while there is headroom above the cap; at the ceiling
+      // say plainly that the run has spent its maximum replans.
+      const detail =
+        cap < GRAPH_HARD_CEILINGS.maxReplans
+          ? `human Replan would exceed the project replan limit (limits.maxReplans=${cap}) — ` +
+            `raise limits.maxReplans, then Replan`
+          : `human Replan has reached the maximum replans ` +
+            `(limits.maxReplans=${cap}, the maximum allowed) — no further replans are possible`;
+      emitGraphDiagnostic({ db, debug: deps.debug }, {
+        category: 'recovery',
+        graphRunId: input.graphRunId,
+        detail: `refused (config-then-resume): ${detail}`,
+      });
+      return { kind: 'refused', reason: 'config-then-resume' };
+    }
   }
 
   const claimed = deps.transaction(() => {
@@ -436,13 +485,17 @@ function replanRecovery(
   const elected = electReplan(replanDeps, {
     graphRunId: input.graphRunId,
     requestNodeRunId: firstBlocked,
+    bypassDocumentBudget: input.humanReplan === true,
   });
   if (!elected.elected) {
     if (elected.reason === 'max-replans-exhausted') {
       emitGraphDiagnostic({ db, debug: deps.debug }, {
         category: 'replan',
         graphRunId: input.graphRunId,
-        detail: 'refused (config-then-resume): replan budget exhausted — config change + Resume',
+        detail:
+          'refused (config-then-resume): the revision document’s replan budget ' +
+          '(budgets.maxReplans) is exhausted — Replan bypasses it; raise limits.maxReplans ' +
+          'if the project cap is reached',
       });
       return { kind: 'refused', reason: 'config-then-resume' };
     }
@@ -654,7 +707,11 @@ export function recoverGraphRun(
   // Replan is the explicit human alternative to category-aware Resume. It
   // deliberately enters the existing election path, which owns the budget,
   // single-winner drain, and revision lifecycle; it never advances the stage.
-  if (input.mode === 'replan') return replanRecovery(deps, input);
+  // A human Replan bypasses the revision document's frozen replan ceiling —
+  // see `replanRecovery`.
+  if (input.mode === 'replan') {
+    return replanRecovery(deps, { ...input, humanReplan: true });
+  }
 
   const category = recoveryCategoryFor(run.blocked_reason);
   deps.debug?.(
@@ -667,7 +724,7 @@ export function recoverGraphRun(
       return retryReservedVisits(deps, input, category);
     case 'replan':
     case 'compile-new-revision':
-      return replanRecovery(deps, input);
+      return replanRecovery(deps, { ...input, humanReplan: false });
     case 'planner-relaunch':
       return plannerRelaunchRecovery(deps, input);
     case 'discard-required':
@@ -681,7 +738,10 @@ export function recoverGraphRun(
       emitGraphDiagnostic({ db: deps.store.db, debug: deps.debug }, {
         category: 'recovery',
         graphRunId: input.graphRunId,
-        detail: `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — config change within hard caps, then Resume`,
+        detail:
+          `refused (config-then-resume): ${run.blocked_reason ?? 'unknown reason'} — ` +
+          `Replan bypasses the revision document’s frozen budget; raise limits.maxReplans ` +
+          `if the project hard cap is reached`,
       });
       return { kind: 'refused', reason: 'config-then-resume' };
     case 'explicit-resolution':

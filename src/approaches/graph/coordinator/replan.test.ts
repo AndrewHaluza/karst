@@ -358,6 +358,42 @@ describe('electReplan — the single-winner election (step 1)', () => {
       .get(ctx.revisionId) as { status: string };
     expect(revision.status).toBe('active');
   });
+
+  it('a human-bypass election ignores the document replan budget', () => {
+    // The document forbids any further replan (maxReplans 1, already spent 1),
+    // but a human Replan is bounded only by the project maximum the caller
+    // checked before claiming the run.
+    const ctx = harness(1, 'running', 1);
+    const result = electReplan(ctx.makeDeps(), {
+      graphRunId: ctx.graphRunId,
+      bypassDocumentBudget: true,
+    });
+    expect(result).toEqual({ elected: true });
+    expect(runRow(ctx)).toMatchObject({ status: 'draining', replan_count: 2 });
+  });
+
+  it('a human-bypass election never clobbers the requesting node’s failure reason', () => {
+    const ctx = harness(1, 'running', 1);
+    nodeRun(ctx, 41, 'a');
+    ctx.db
+      .prepare(
+        `UPDATE approach_node_runs
+         SET status = 'blocked', outcome = 'replan', reason = 'real failure',
+             failure_category = 'integration-conflict'
+         WHERE id = 41`,
+      )
+      .run();
+    const result = electReplan(ctx.makeDeps(), {
+      graphRunId: ctx.graphRunId,
+      requestNodeRunId: 41,
+      bypassDocumentBudget: true,
+    });
+    expect(result).toEqual({ elected: true });
+    expect(nodeRow(ctx, 41)).toMatchObject({
+      reason: 'real failure',
+      failure_category: 'integration-conflict',
+    });
+  });
 });
 
 describe('beginReplanPlannerRun — quiescence, planner allocation, reasons file (steps 5–7)', () => {

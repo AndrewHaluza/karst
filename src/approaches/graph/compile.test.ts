@@ -621,6 +621,42 @@ describe('compileGraphDocument — budgets', () => {
     expect(result.ok).toBe(true);
   });
 
+  it('compiles a human-bypass replan revision with no remaining project replans', () => {
+    // After a human bypass, `replan_count` may exceed the revision document's
+    // maxReplans and the run's remaining project budget can be zero. The reserve
+    // is the remaining budget capped by what the document declares — 0 here — so
+    // the compile charges only the planner runs the run already spent (bootstrap
+    // + 2 accepted replans) and still compiles when the document allows them.
+    const ctx = context({
+      expertSpend: { spentPlannerRuns: 3, permittedReplans: 0, bootstrapUnspent: false },
+    });
+    const result = compile(
+      ref((d) => {
+        (d['budgets'] as Record<string, unknown>)['maxReplans'] = 1;
+        (d['budgets'] as Record<string, unknown>)['maxExpertRuns'] = 3;
+      }),
+      ctx,
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it('never charges a negative replan reserve when the remaining budget is below zero', () => {
+    const diag = expectError(
+      ref((d) => {
+        (d['budgets'] as Record<string, unknown>)['maxReplans'] = 2;
+        (d['budgets'] as Record<string, unknown>)['maxExpertRuns'] = 0;
+      }),
+      'expert-budget-exceeded',
+      'budgets.maxExpertRuns',
+      context({
+        expertSpend: { spentPlannerRuns: 1, permittedReplans: -1, bootstrapUnspent: false },
+      }),
+    );
+    // 1 spent + 0 clamped reserve + 0 bootstrap + 0 expert visits = 1.
+    expect(diag.message).toContain('at least 1');
+    expect(diag.message).toContain('+ 0 replan reserve');
+  });
+
   it('names the minimum the document must declare when the expert budget fails', () => {
     const diag = expectError(
       ref((d) => {

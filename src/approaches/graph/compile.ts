@@ -999,10 +999,13 @@ export function compileGraphDocument(
   // number leaves a document declaring fewer replans permanently unsatisfiable
   // and the planner resubmitting identical budgets until its attempts run out.
   // The run's remaining permitted replans still cap it, so a replan compile
-  // never reserves more than the run can still spend.
-  const replanReserve = Math.min(
-    context.expertSpend.permittedReplans,
-    document.budgets.maxReplans,
+  // never reserves more than the run can still spend. Clamped at zero: after a
+  // human bypass the remaining budget can reach zero (or, defensively, below
+  // it), and a negative reserve would both under-charge and render as a
+  // nonsense diagnostic.
+  const replanReserve = Math.max(
+    0,
+    Math.min(context.expertSpend.permittedReplans, document.budgets.maxReplans),
   );
   const bootstrapReserve = context.expertSpend.bootstrapUnspent ? 1 : 0;
   const expertTotal =

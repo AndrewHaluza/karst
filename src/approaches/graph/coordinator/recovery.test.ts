@@ -25,6 +25,7 @@ import { setStage } from '../../../store/stages.js';
 import { stageBlock } from '../../../store/stageBlocks.js';
 import { writeNodeOverride, clearNodeOverride, nodeOverrideFor } from '../../../store/graph/nodeRuns.js';
 import { sha256Hex } from './plannerRun.js';
+import { GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
 import {
   recoverGraphRun,
   recoveryCategoryFor,
@@ -467,10 +468,140 @@ describe('recoverGraphRun', () => {
 
   it('budget exhaustion refuses as config-change-then-Resume', () => {
     const { ticketId, graphRunId } = blockedGraph('graph-budget-exhausted', [{ id: 7, status: 'blocked' }]);
-    const result = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+    const lines: string[] = [];
+    const result = recoverGraphRun(makeDeps({ debug: (m) => lines.push(m) }), { ticketId, graphRunId });
     expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
     expect(runRow(graphRunId).status).toBe('blocked');
     expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
+    // The truth: the ceiling is frozen into the revision, so Replan (the
+    // bypass) is the exit — raising limits.maxReplans helps only at the cap.
+    const told = lines.join('\n');
+    expect(told).toContain('Replan');
+    expect(told).toContain('limits.maxReplans');
+  });
+
+  it('a human Replan bypasses the document budget when the project limit allows', () => {
+    // The stuck shape this ticket fixes: the frozen revision declares
+    // maxReplans 1 and replan_count is already 1, so Resume refuses. A human
+    // Replan is bounded only by the project maximum — here it still has room.
+    const { ticketId, graphRunId } = blockedGraph(
+      'graph-budget-exhausted',
+      [{ id: 7, status: 'blocked' }],
+      validGraph(1),
+      1,
+    );
+    // The node carries its ORIGINAL failure; a human bypass must not overwrite it.
+    store.db
+      .prepare(
+        "UPDATE approach_node_runs SET failure_category = 'integration-conflict', reason = 'git refused' WHERE id = 7",
+      )
+      .run();
+    const result = recoverGraphRun(makeDeps({ projectMaxReplans: 3 }), {
+      ticketId,
+      graphRunId,
+      mode: 'replan',
+    });
+    expect(result.kind).toBe('replanned');
+    expect(runRow(graphRunId)).toEqual({ status: 'draining', blocked_reason: null });
+    const node = store.db
+      .prepare('SELECT reason, failure_category FROM approach_node_runs WHERE id = 7')
+      .get() as { reason: string | null; failure_category: string | null };
+    expect(node).toEqual({ reason: 'git refused', failure_category: 'integration-conflict' });
+  });
+
+  it('a human Replan at the project hard cap refuses without mutating the run or the node', () => {
+    const { ticketId, graphRunId } = blockedGraph(
+      'graph-budget-exhausted',
+      [{ id: 7, status: 'blocked' }],
+      validGraph(1),
+      2,
+    );
+    store.db
+      .prepare(
+        "UPDATE approach_node_runs SET failure_category = 'integration-conflict', reason = 'git refused' WHERE id = 7",
+      )
+      .run();
+    const blockBefore = stageBlock(store, ticketId, 'impl');
+    const lines: string[] = [];
+    const result = recoverGraphRun(makeDeps({ projectMaxReplans: 2, debug: (m) => lines.push(m) }), {
+      ticketId,
+      graphRunId,
+      mode: 'replan',
+    });
+    // A hard-cap refusal is a config problem (raise limits.maxReplans) — never
+    // a run-claimed, node-clobbering refusal.
+    expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
+    // The exit is Replan (the bypass), NOT Resume: `graph-budget-exhausted`
+    // stays in the config-then-resume category, which Resume refuses
+    // unconditionally even after the cap is raised.
+    expect(lines.join('\n')).toContain('limits.maxReplans=2');
+    expect(lines.join('\n')).toContain('then Replan');
+    expect(lines.join('\n')).not.toContain('then Resume');
+    expect(runRow(graphRunId)).toEqual({ status: 'blocked', blocked_reason: 'graph-budget-exhausted' });
+    const node = store.db
+      .prepare('SELECT status, reason, failure_category FROM approach_node_runs WHERE id = 7')
+      .get() as { status: string; reason: string | null; failure_category: string | null };
+    expect(node).toEqual({
+      status: 'blocked',
+      reason: 'git refused',
+      failure_category: 'integration-conflict',
+    });
+    // No run CAS, no blocked_reason change, no stage-block change, no planner.
+    const run = store.db
+      .prepare('SELECT replan_count FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { replan_count: number };
+    expect(run.replan_count).toBe(2);
+    expect(plannerRunsOf(graphRunId)).toEqual([]);
+    expect(stageBlock(store, ticketId, 'impl')).toEqual(blockBefore);
+  });
+
+  it('at the absolute replan ceiling the refusal names no raisable limit', () => {
+    // limits.maxReplans can only be raised up to GRAPH_HARD_CEILINGS; at the
+    // ceiling "raise limits.maxReplans" is advice the manifest itself refuses,
+    // so the diagnostic must say the run has spent its maximum replans instead.
+    const { ticketId, graphRunId } = blockedGraph(
+      'graph-budget-exhausted',
+      [{ id: 7, status: 'blocked' }],
+      validGraph(1),
+      GRAPH_HARD_CEILINGS.maxReplans,
+    );
+    const lines: string[] = [];
+    const result = recoverGraphRun(
+      makeDeps({ projectMaxReplans: GRAPH_HARD_CEILINGS.maxReplans, debug: (m) => lines.push(m) }),
+      { ticketId, graphRunId, mode: 'replan' },
+    );
+    expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
+    const told = lines.join('\n');
+    expect(told).toContain('no further replans are possible');
+    expect(told).not.toContain('raise limits.maxReplans');
+  });
+
+  it('an automatic (node-requested) replan still enforces the document budget', () => {
+    // Project headroom is irrelevant to an automatic replan: the document's
+    // frozen maxReplans is the ceiling, exactly as before this ticket.
+    const { ticketId, graphRunId } = blockedGraph(
+      'graph-plan-invalid: planner produced an invalid document',
+      [{ id: 5, status: 'blocked' }],
+      validGraph(1),
+      1,
+    );
+    const lines: string[] = [];
+    const result = recoverGraphRun(
+      makeDeps({ projectMaxReplans: 5, debug: (m) => lines.push(m) }),
+      { ticketId, graphRunId },
+    );
+    expect(result).toEqual({ kind: 'refused', reason: 'config-then-resume' });
+    const node = store.db
+      .prepare('SELECT status, effective_outcome, failure_category FROM approach_node_runs WHERE id = 5')
+      .get() as { status: string; effective_outcome: string | null; failure_category: string | null };
+    expect(node).toMatchObject({
+      status: 'blocked',
+      effective_outcome: 'blocked',
+      failure_category: 'graph-budget-exhausted',
+    });
+    expect(runRow(graphRunId)).toEqual({ status: 'blocked', blocked_reason: 'graph-budget-exhausted' });
+    // The project cap is irrelevant here (5): the truthful exit is Replan.
+    expect(lines.join('\n')).toContain('Replan bypasses it');
   });
 
   it('launch-unknown is never auto-retried — the discard action is the exit', () => {

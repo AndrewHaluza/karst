@@ -36,12 +36,15 @@
  *  10. N+1's root entry tokens are created and the run resumes scheduling
  *      (`draining → running`).
  *
- * Budget refusal: when the accepted replan count has reached the document's
- * `budgets.maxReplans`, the election is REFUSED rather than attempted — the
- * reporting node's effective outcome becomes `blocked` with reason
- * `graph-budget-exhausted`, the run transitions to `blocked`, and the node's
- * isolation and leases are retained for inspection. Never routed as an
- * unbounded replan, never silently dropped.
+ * Budget refusal: when an AUTOMATIC (node-requested) replan's accepted count
+ * has reached the document's `budgets.maxReplans`, the election is REFUSED
+ * rather than attempted — the reporting node's effective outcome becomes
+ * `blocked` with reason `graph-budget-exhausted`, the run transitions to
+ * `blocked`, and the node's isolation and leases are retained for inspection.
+ * Never routed as an unbounded replan, never silently dropped. A HUMAN Replan
+ * (`bypassDocumentBudget`) skips the document ceiling entirely: the caller
+ * enforces the project maximum BEFORE claiming the run, so a hard-cap refusal
+ * mutates nothing and never clobbers the node's original failure reason.
  *
  * A planner submission whose revision is no longer draining (a concurrent
  * replan won election while this planner ran) is the idempotent no-op: the
@@ -118,6 +121,12 @@ export interface ElectReplanInput {
   /** The node run reporting `replan`; its row is the election's evidence
    *  (the budget-refusal path writes its effective outcome here). */
   requestNodeRunId?: number;
+  /** A human-initiated Replan bypasses the revision document's
+   *  `budgets.maxReplans`. The caller has already refused at the project
+   *  hard cap BEFORE claiming the run, so a bypass never reaches the
+   *  node-clobbering budget block. Absent/`false` is an automatic
+   *  (node-requested) election, which enforces the document budget. */
+  bypassDocumentBudget?: boolean;
 }
 
 /**
@@ -163,8 +172,13 @@ export function electReplan(deps: ReplanDeps, input: ElectReplanInput): ElectRep
     // Budget refusal: the accepted count has reached the document ceiling.
     // The request is REFUSED, never routed and never dropped — the node's
     // effective outcome becomes blocked, the run blocks, and the node's
-    // isolation and leases are retained for inspection.
-    if (run.replan_count >= parsed.document.budgets.maxReplans) {
+    // isolation and leases are retained for inspection. A human Replan
+    // bypasses this document ceiling; its project cap is checked by the
+    // caller before the run was claimed.
+    if (
+      input.bypassDocumentBudget !== true &&
+      run.replan_count >= parsed.document.budgets.maxReplans
+    ) {
       if (input.requestNodeRunId !== undefined) {
         setNodeRunBudgetBlock(
           db,
