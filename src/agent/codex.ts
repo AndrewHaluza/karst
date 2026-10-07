@@ -371,6 +371,9 @@ export class CodexAdapter implements AgentAdapter {
     entryOrchestrators: SUPPORTED,
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
+    mcpConfigInteractive: unsupported(
+      'codex takes MCP servers as TOML config keys, not a config file karst can hand it; run `karst mcp install` at user scope',
+    ),
   };
 
   /**

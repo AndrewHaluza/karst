@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { ClaudeAdapter } from '../agent/claude.js';
 import {
   continueSessionInBackground,
   KARST_LAUNCH_ENV,
@@ -181,6 +185,41 @@ describe('SessionManager', () => {
       [KARST_LAUNCH_ENV]: launchId,
     });
     expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
+  });
+
+  it('writes a launch-time MCP config in host storage for a supporting core, never a repo file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-session-mcp-'));
+    try {
+      const { host, terminals } = fakeHost();
+      const mgr = new SessionManager(host, () => ({
+        endpointUrl: 'http://127.0.0.1:4567/hooks',
+        configDir: dir,
+        launchId,
+      }));
+      mgr.openSession(new ClaudeAdapter(), 7, '/wt/a', { key: 'K-1' }, undefined, undefined, undefined, undefined, undefined, undefined, {
+        cliEntry: '/cli/main.js',
+        dbPath: '/db',
+        manifestPath: '/m.yml',
+        ticketKey: 'K-1',
+      });
+
+      const args = terminals[0]!.shellArgs;
+      const at = args.indexOf('--mcp-config');
+      expect(at).toBeGreaterThanOrEqual(0);
+      const configPath = args[at + 1]!;
+      // Host-owned storage, never the worktree — a repo `.mcp.json` would dirty git.
+      expect(configPath.startsWith(dir)).toBe(true);
+      expect(existsSync(configPath)).toBe(true);
+      const written = JSON.parse(readFileSync(configPath, 'utf8')) as {
+        mcpServers: { karst: { command: string; args: string[] } };
+      };
+      expect(written.mcpServers.karst.command).toBe('node');
+      expect(written.mcpServers.karst.args).toEqual([
+        '/cli/main.js', 'mcp', 'serve', '--db', '/db', '--manifest', '/m.yml', '--ticket', 'K-1',
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('three reloads retain one provider-neutral restored terminal without relaunching', () => {

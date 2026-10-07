@@ -199,6 +199,10 @@ export class AntigravityAdapter implements AgentAdapter {
         'mode is unverified as an enforced read-only boundary and may refuse the draft-create filing',
     ),
     addDirsInteractive: SUPPORTED,
+    mcpConfigInteractive: unsupported(
+      'agy manages MCP servers only through its own `agy mcp` state, with no per-launch ' +
+        'config flag; run `karst mcp install` to register the server at user scope',
+    ),
   };
 
   /**

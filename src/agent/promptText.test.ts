@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { buildTicketContext, renderTicketContext } from '../context/ticketContext.js';
-import { AGENT_GUIDE } from '../cli/guide.js';
+import { AGENT_GUIDE, renderGuideInstruction } from '../cli/guide.js';
+import { planningInstructions } from '../planning/preamble.js';
 import { renderDoneMarkerInstruction } from './workflowCommand.js';
-import { MARKER_REFUSED, SERVERS_VIA_CLI_RULE } from './promptText.js';
+import { MARKER_REFUSED, MCP_TOOLS_PREFERRED, SERVERS_VIA_CLI_RULE } from './promptText.js';
 
 /**
  * PROMPT-06 — single source of truth for reused agent prompt text.
@@ -53,5 +54,17 @@ describe('promptText — marker rule by identity', () => {
   it('binds a session to the CLI for running ticket services', () => {
     expect(SERVERS_VIA_CLI_RULE).toContain('servers spin');
     expect(SERVERS_VIA_CLI_RULE).toContain('npm run dev');
+  });
+
+  it('states the MCP preference by identity in the guide, the guide pointer, and the planning preamble', () => {
+    expect(AGENT_GUIDE).toContain(MCP_TOOLS_PREFERRED);
+    expect(renderGuideInstruction('node "/ext/cli.js" guide')).toContain(MCP_TOOLS_PREFERRED);
+    expect(
+      planningInstructions({
+        sessionId: 1,
+        title: 'plan it',
+        manifest: { baselineBranch: 'main', repositories: {} },
+      }),
+    ).toContain(MCP_TOOLS_PREFERRED);
   });
 });

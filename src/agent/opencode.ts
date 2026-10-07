@@ -915,6 +915,10 @@ export class OpencodeAdapter implements AgentAdapter {
     entryOrchestrators: SUPPORTED,
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
+    mcpConfigInteractive: unsupported(
+      'opencode reads MCP servers from its own opencode.json `mcp` section and has no ' +
+        'per-launch config-file flag; run `karst mcp install --agent opencode` at user scope',
+    ),
   };
 
   /**

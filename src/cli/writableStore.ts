@@ -78,9 +78,18 @@ export function openWritableStore(dbPath: string): Store {
      * better-sqlite3 parity: `transaction(fn)` returns a function; calling it
      * runs `fn` in a single transaction. Nested BEGINs are not expected (the
      * machine wraps exactly one), so we keep it flat.
+     *
+     * `BEGIN IMMEDIATE`, not a deferred `BEGIN`: a marker transaction READS
+     * (to derive the transition) and then WRITES, and SQLite does not invoke the
+     * busy handler when a deferred transaction tries to upgrade its read
+     * snapshot to a write after another connection already holds the lock — it
+     * returns SQLITE_BUSY in ~0ms, so the `busy_timeout` above would never apply.
+     * Taking the write lock up front makes a marker fired while the extension is
+     * mid-write WAIT out the lock (then fail with SQLITE_BUSY only after
+     * `MARKER_BUSY_TIMEOUT_MS`), which is the contract the pragma promises.
      */
     transaction: <A extends unknown[], R>(fn: (...args: A) => R) =>
-      transactionFamily(db, fn, 'BEGIN'),
+      transactionFamily(db, fn, 'BEGIN IMMEDIATE'),
   };
 
   return {

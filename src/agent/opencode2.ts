@@ -27,6 +27,7 @@ import {
   opencode2IsolationEnv,
 } from './opencode2Binary.js';
 import { KARST_OPENCODE_HEADLESS_ENV, writeOpencode2Bridge } from './opencode2Bridge.js';
+import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 
 /**
  * The opencode v2 (`@opencode/cli` 2.x) core — a SEPARATE adapter from v1
@@ -291,6 +292,8 @@ export function buildOpencode2ConfigContent(opts: {
   headless: boolean;
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
+  /** The `mcp` section when a launch-time karst MCP config was supplied. */
+  mcp?: Record<string, unknown> | undefined;
 }): string {
   const config: Record<string, unknown> = {};
   if (opts.model) {
@@ -299,6 +302,7 @@ export function buildOpencode2ConfigContent(opts: {
   if (opts.headless) config['snapshot'] = false;
   const permission = opencodeLaunchPermission(opts);
   if (permission) config['permission'] = permission;
+  if (opts.mcp && Object.keys(opts.mcp).length > 0) config['mcp'] = opts.mcp;
   return JSON.stringify(config);
 }
 
@@ -363,6 +367,7 @@ export class Opencode2Adapter implements AgentAdapter {
     entryOrchestrators: SUPPORTED,
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
+    mcpConfigInteractive: SUPPORTED,
   };
 
   readonly instructions: InstructionDelivery = {
@@ -404,6 +409,9 @@ export class Opencode2Adapter implements AgentAdapter {
     // No `--model`: v2 preselects through the config blob (verified PASS,
     // including the `#<effort>` variant).
     if (kickoff) args.push('--prompt', kickoff);
+    const mcp = opts.mcpConfigPath
+      ? opencodeMcpSection(readMcpServersConfig(opts.mcpConfigPath))
+      : undefined;
     const env: Record<string, string> = {
       ...opencode2IsolationEnv(opencode2Config().home),
       OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
@@ -412,6 +420,7 @@ export class Opencode2Adapter implements AgentAdapter {
         headless: false,
         readOnly: opts.readOnly,
         addDirs: opts.addDirs,
+        ...(mcp ? { mcp } : {}),
       }),
     };
     return {

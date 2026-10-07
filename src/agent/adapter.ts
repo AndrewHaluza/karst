@@ -192,6 +192,14 @@ export interface InteractiveCommandOpts {
    * Absent → a normal launch.
    */
   soloAgent?: boolean;
+  /**
+   * The launch-time MCP config file karst wrote for this session (a scratch
+   * path, never a repo `.mcp.json`). An adapter that supports the core's
+   * `--mcp-config`-style flag points the CLI at it so the karst MCP tools
+   * appear; a core with no per-launch flag ignores it and its agent runs
+   * `karst mcp install` instead (see `AdapterSurfaces.mcpConfigInteractive`).
+   */
+  mcpConfigPath?: string;
 }
 
 export interface HookChannel {

@@ -5,7 +5,7 @@ import { runCli } from './main.js';
 import { MARKER_STAGES } from '../agent/markerStage.js';
 import { renderTestSkill, TEST_SKILL_NAME, TEST_SKILL_DESCRIPTION } from '../agent/testSkill.js';
 import { GENERATED_STAMP } from '../agent/generatedArtifact.js';
-import { SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
+import { SERVERS_VIA_CLI_RULE, MCP_TOOLS_PREFERRED } from '../agent/promptText.js';
 
 /**
  * The guard that keeps the agent guide honest (869edmcme, Option A): a new CLI
@@ -20,9 +20,14 @@ describe('karst guide — content', () => {
     // and env are intercepted by runCliAsync.
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'draft', 'fix-brief', 'conflict-brief', 'servers', 'env', 'schema']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'draft', 'fix-brief', 'conflict-brief', 'servers', 'env', 'schema', 'mcp']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
+  });
+
+  it('prefers the MCP tools when present, falling back to the CLI', () => {
+    expect(AGENT_GUIDE).toContain(MCP_TOOLS_PREFERRED);
+    expect(AGENT_GUIDE).toMatch(/mcp serve/);
   });
 
   it('documents structured input and the schema discovery verb', () => {

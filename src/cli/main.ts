@@ -29,6 +29,7 @@ import { notifyGraphWakeup } from '../hooks/graphEndpoint.js';
 import { getCommandSpec } from './registry.js';
 import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
+import { runMcpCommand } from './mcp/command.js';
 import { installSqliteWarningFilter } from './suppressWarning.js';
 
 /**
@@ -490,7 +491,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief', 'conflict-brief' or 'schema')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief', 'conflict-brief', 'schema' or 'mcp')`,
   );
 }
 
@@ -500,8 +501,17 @@ export function runCli(
  * which are async. So the one async verb is handled here and everything else
  * delegates unchanged.
  */
-export async function runCliAsync(argv: string[]): Promise<string> {
+export async function runCliAsync(
+  argv: string[],
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Promise<string> {
   const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
+  // `mcp serve` is a long-running async verb (it never resolves); `mcp install`
+  // is a quick one. It reads the same global flags plus the KARST_* env the CLI
+  // agents use today (see cli/mcp/config.ts).
+  if (rest[0] === 'mcp') {
+    return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
+  }
   if (rest[0] !== 'servers') return runCli(argv);
   if (!db) throw new Error('missing --db <path>');
   if (!ticket) throw new Error('missing --ticket <key>');
