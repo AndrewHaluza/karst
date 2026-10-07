@@ -70,6 +70,11 @@ export function planningInstructions(input: PreambleInput): string {
     'The summary holds the decisions reached and the options rejected, with reasons;',
     'it becomes the ticket brief the implementing agent reads. Propose one draft per piece of work,',
     'and state any ordering between them in each description.',
+    '',
+    'Each propose prints the draft\'s id, e.g. {"ok":true,"id":3}. Cite drafts to the user as #N.',
+    'To REVISE a draft you already filed (new findings, changed repos), add that integer as "id" to',
+    'the JSON object and propose again: the host replaces the draft in place while it is still',
+    `pending. \`node ${cli} draft list\` re-reads the ids and statuses of this session's drafts.`,
     `Run \`node ${cli} guide\` for the full CLI reference.`,
   ].join('\n');
 }

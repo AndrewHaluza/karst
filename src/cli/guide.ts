@@ -96,7 +96,17 @@ machine-read JSON or markdown; diagnostics go to stderr and never corrupt it.
     exists yet: karst shows the user the full proposal and they confirm (or
     discard) it. The summary holds the decisions reached and the options
     rejected; it becomes the ticket's brief. Propose once per ticket when the
-    work splits.
+    work splits. On success it prints \`{"ok":true,"file":…,"id":N}\` — the draft's #id;
+    if the host has not answered within ~10s it prints \`{"ok":true,"file":…,"id":null}\` with
+    a hint, and \`draft list\` will show the id once the host has ingested it.
+    To REVISE a draft you already filed, add an integer \`id\` to the same JSON
+    object: the host replaces that draft's content in place (only while it is
+    still pending and yours), prints the same id, and re-announces it. Cite
+    drafts to the user as \`#N\`.
+ - \`draft list\` — ONLY inside a planning session. Reads the session's proposal
+    index and prints its drafts as JSON \`[{"id":N,"status":…,"title":…}]\`; use
+    it to re-read the ids and statuses (a draft a human already accepted or
+    discarded cannot be revised). It opens no store and takes no flags.
  - \`message send --to parent|<child-key> --body <text>\` — leave an async
    note for your direct parent or one of your direct children (nobody else:
    siblings route through the parent). The sender is the ticket \`--ticket\`

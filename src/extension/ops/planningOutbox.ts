@@ -1,9 +1,16 @@
 import * as nodeFs from 'node:fs';
 import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
-import { countPending, getProposal, insertProposal, type PlanningProposal } from '../../store/planningProposals.js';
+import {
+  countPending,
+  getProposal,
+  insertProposal,
+  updateProposalPayload,
+  type PlanningProposal,
+} from '../../store/planningProposals.js';
 import { MAX_PROPOSAL_BYTES, validateProposal, type Proposal } from '../../planning/proposal.js';
 import { planningOutboxDir } from '../../planning/preamble.js';
+import { refreshProposalIndex } from './planningIndex.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -33,7 +40,8 @@ export interface PlanningOutboxDeps {
   fs?: typeof nodeFs;
   notify: Notify;
   debug?: (line: string) => void;
-  onProposal(p: PlanningProposal): void;
+  /** A new draft (`change` undefined) or an in-place revision (`'updated'`). */
+  onProposal(p: PlanningProposal, change?: 'updated'): void;
 }
 
 export interface PlanningOutbox {
@@ -121,23 +129,79 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     return v;
   }
 
-  function ingest(sessionId: number, claimed: string, proposal: string): void {
+  /** Unlink and warn about a claimed file the host refused, naming the reason. */
+  function reject(sessionId: number, claimed: string, proposal: string, reason: string): void {
+    remove(claimed);
+    debug(`session ${sessionId}: ${proposal} rejected (${reason})`);
+    deps.notify.warn(`Karst: planning session #${sessionId} proposal rejected — ${reason}.`);
+  }
+
+  /**
+   * Refresh the session index, swallowing a failure: the store write already
+   * committed, and the index is a convenience. Throwing here would skip the
+   * claim removal and the announcement, leaving the file to be re-claimed and
+   * the proposal inserted a second time.
+   */
+  function safeRefresh(sessionId: number, scratch: string): void {
+    try {
+      refreshProposalIndex(deps.store, sessionId, scratch, { fs });
+    } catch (e) {
+      debug(`session ${sessionId}: proposal index refresh failed (${e instanceof Error ? e.message : String(e)})`);
+    }
+  }
+
+  function ingest(sessionId: number, scratch: string, claimed: string, proposal: string): void {
     const read = readBounded(claimed);
-    const result: Read =
-      read.ok && countPending(deps.store, sessionId) >= PLANNING_OUTBOX_RATE_CAP
-        ? { ok: false, reason: `session already has ${PLANNING_OUTBOX_RATE_CAP} pending proposals` }
-        : read;
-    if (result.ok) {
-      const id = insertProposal(deps.store, sessionId, result.value);
-      debug(`session ${sessionId}: ${proposal} → proposal ${id}`);
-      remove(claimed);
-      const row = getProposal(deps.store, id);
-      if (row) deps.onProposal(row);
+    if (!read.ok) {
+      reject(sessionId, claimed, proposal, read.reason);
       return;
     }
+    const { id: requestedId, ...payload } = read.value;
+    const uuid = proposal.replace(/\.json$/, '');
+
+    // In-place revision: only a pending proposal of THIS session may be
+    // replaced. A miss (unknown id, another session, or already resolved) is
+    // refused and writes nothing — the agent is told to re-read `draft list`.
+    if (requestedId !== undefined) {
+      const existing = getProposal(deps.store, requestedId);
+      const reason =
+        !existing
+          ? `no proposal #${requestedId}`
+          : existing.sessionId !== sessionId
+            ? `proposal #${requestedId} belongs to another session`
+            : existing.status !== 'pending'
+              ? `proposal #${requestedId} is ${existing.status}`
+              : undefined;
+      if (reason) {
+        reject(sessionId, claimed, proposal, reason);
+        return;
+      }
+      updateProposalPayload(deps.store, requestedId, payload, uuid);
+      safeRefresh(sessionId, scratch);
+      remove(claimed);
+      const row = getProposal(deps.store, requestedId);
+      if (row) deps.onProposal(row, 'updated');
+      debug(`session ${sessionId}: ${proposal} → proposal ${requestedId} updated`);
+      return;
+    }
+
+    // A new draft: the per-session pending cap applies only here — an update
+    // replaces an existing row and never grows the pending count.
+    if (countPending(deps.store, sessionId) >= PLANNING_OUTBOX_RATE_CAP) {
+      reject(
+        sessionId,
+        claimed,
+        proposal,
+        `session already has ${PLANNING_OUTBOX_RATE_CAP} pending proposals`,
+      );
+      return;
+    }
+    const id = insertProposal(deps.store, sessionId, payload, uuid);
+    safeRefresh(sessionId, scratch);
     remove(claimed);
-    debug(`session ${sessionId}: ${proposal} rejected (${result.reason})`);
-    deps.notify.warn(`Karst: planning session #${sessionId} proposal rejected — ${result.reason}.`);
+    const row = getProposal(deps.store, id);
+    if (row) deps.onProposal(row);
+    debug(`session ${sessionId}: ${proposal} → proposal ${id}`);
   }
 
   function remove(path: string): void {
@@ -164,7 +228,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       if (!proposal) continue;
       if (proposal !== name && !isStale(join(dir, name))) continue;
       const claimed = claim(dir, name, proposal);
-      if (claimed) ingest(sessionId, claimed, proposal);
+      if (claimed) ingest(sessionId, scratch, claimed, proposal);
     }
   }
 

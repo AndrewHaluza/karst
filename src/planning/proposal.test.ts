@@ -9,12 +9,24 @@ describe('validateProposal', () => {
     expect(MAX_PROPOSAL_BYTES).toBe(65536);
   });
 
+  it('accepts and returns an optional integer id (a revise), without inventing one', () => {
+    expect(validateProposal({ ...ok, id: 7 })).toEqual({ ok: true, value: { ...ok, id: 7 } });
+    // No id in, no id key out — a create never carries one.
+    expect(validateProposal(ok)).toEqual({ ok: true, value: ok });
+    expect('id' in (validateProposal(ok) as { value: object }).value).toBe(false);
+  });
+
   it.each([
     ['a non-object', 'x'],
     ['null', null],
     ['an array', []],
     ['an extra key', { ...ok, extra: 1 }],
     ['a missing key', { title: 't', description: '', summary: '' }],
+    ['a string id', { ...ok, id: '7' }],
+    ['a zero id', { ...ok, id: 0 }],
+    ['a negative id', { ...ok, id: -1 }],
+    ['a fractional id', { ...ok, id: 1.5 }],
+    ['a null id', { ...ok, id: null }],
     ['a non-string title', { ...ok, title: 3 }],
     ['an empty title', { ...ok, title: '  ' }],
     ['a multi-line title', { ...ok, title: 'a\nb' }],

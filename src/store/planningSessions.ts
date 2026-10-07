@@ -34,7 +34,9 @@ CREATE TABLE IF NOT EXISTS planning_proposals (
   payload_json TEXT NOT NULL,
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),
   ticket_id    INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+  source_uuid  TEXT NOT NULL DEFAULT '',
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at   TEXT NOT NULL DEFAULT (datetime('now')),
   resolved_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_planning_proposals_session ON planning_proposals(session_id, status);

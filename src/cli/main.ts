@@ -155,6 +155,10 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
 export interface CliIo {
   /** Read stdin, at most `max + 1` bytes (the extra byte signals oversize). */
   readStdin: (max: number) => string;
+  /** Bounded id-wait overrides for `draft propose`; tests shrink the wait. */
+  now?: () => number;
+  sleep?: (ms: number) => void;
+  timeoutMs?: number;
 }
 
 /** Synchronous bounded stdin read: stops after `max + 1` bytes. */
@@ -197,7 +201,13 @@ export function runCli(
   // `--db`/`--manifest`/`--session` is refused rather than stripped, and it
   // never opens a store. Input is stdin, output a file in KARST_OUTBOX.
   if (subcommand === 'draft') {
-    return runDraftCommand(argv, { outboxEnv: env.KARST_OUTBOX, readStdin: io.readStdin });
+    return runDraftCommand(argv, {
+      outboxEnv: env.KARST_OUTBOX,
+      readStdin: io.readStdin,
+      now: io.now,
+      sleep: io.sleep,
+      timeoutMs: io.timeoutMs,
+    });
   }
 
   if (subcommand === 'context') {

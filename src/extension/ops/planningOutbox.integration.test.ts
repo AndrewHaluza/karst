@@ -7,8 +7,17 @@ import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createPlanningSession } from '../../store/planningSessions.js';
-import { listPendingProposals, countPending } from '../../store/planningProposals.js';
+import {
+  countPending,
+  discardProposal,
+  getProposal,
+  insertProposal,
+  listPendingProposals,
+  markProposalAccepted,
+} from '../../store/planningProposals.js';
+import { createTicket } from '../../store/tickets.js';
 import { MAX_PROPOSAL_BYTES } from '../../planning/proposal.js';
+import { readProposalIndex } from '../../planning/proposalIndex.js';
 import {
   createPlanningOutbox,
   PLANNING_OUTBOX_RATE_CAP,
@@ -82,6 +91,75 @@ describe('planning outbox', () => {
     expect(lines.some((l) => l.includes('→ proposal'))).toBe(true);
     expect(lines.some((l) => l.includes(`session ${sessionId}`))).toBe(true);
     expect(warns).toEqual([]);
+  });
+
+  it('writes the session proposal index on ingest, carrying the file uuid', () => {
+    put(`${UUID(1)}.json`, good);
+    make().scan();
+    const id = pending()[0]!.id;
+    expect(readProposalIndex(scratch)).toEqual([
+      { id, uuid: UUID(1), title: 'Fix auth', status: 'pending', updatedAt: expect.any(String) },
+    ]);
+  });
+
+  it('a failed index write still removes the claim and announces, never double-inserting', () => {
+    const onProposal = vi.fn();
+    const fsBadIndex = {
+      ...nodeFs,
+      renameSync: (from: string, to: string) => {
+        if (to.endsWith('proposals.json')) throw new Error('index write failed');
+        return nodeFs.renameSync(from, to);
+      },
+    } as unknown as typeof nodeFs;
+    put(`${UUID(1)}.json`, good);
+    make({ fs: fsBadIndex, onProposal }).scan();
+    // The store insert committed; the index failed, but the claim is gone and
+    // the proposal was announced, so a later scan cannot reclaim and duplicate.
+    expect(pending()).toHaveLength(1);
+    expect(onProposal).toHaveBeenCalledTimes(1);
+    expect(readdirSync(outbox)).toEqual([]);
+    make({ fs: fsBadIndex, onProposal }).scan();
+    expect(pending()).toHaveLength(1);
+  });
+
+  it('revises a pending proposal of the same session in place and re-announces it as updated', () => {
+    const id = insertProposal(store, sessionId, good);
+    const onProposal = vi.fn();
+    put(`${UUID(2)}.json`, { ...good, id, title: 'Revised auth', repos: ['web'] });
+    make({ onProposal }).scan();
+    expect(getProposal(store, id)).toMatchObject({ id, status: 'pending', payload: { title: 'Revised auth', repos: ['web'] } });
+    expect(countPending(store, sessionId)).toBe(1);
+    expect(onProposal).toHaveBeenCalledTimes(1);
+    expect(onProposal.mock.calls[0]![1]).toBe('updated');
+    expect(readProposalIndex(scratch)).toEqual([
+      { id, uuid: UUID(2), title: 'Revised auth', status: 'pending', updatedAt: expect.any(String) },
+    ]);
+    expect(readdirSync(outbox)).toEqual([]);
+  });
+
+  it('refuses a revision of another session, an accepted or a discarded proposal, writing nothing', () => {
+    const other = createPlanningSession(store, { projectId, title: 'other', core: 'claude', model: null }).id;
+    const foreign = insertProposal(store, other, good);
+    const accepted = insertProposal(store, sessionId, good);
+    markProposalAccepted(store, accepted, createTicket(store, { key: 'K-acc', title: 'accepted', projectId }).id);
+    const discarded = insertProposal(store, sessionId, good);
+    discardProposal(store, discarded);
+
+    put(`${UUID(3)}.json`, { ...good, id: foreign, title: 'hijack' });
+    put(`${UUID(4)}.json`, { ...good, id: accepted, title: 'hijack' });
+    put(`${UUID(5)}.json`, { ...good, id: discarded, title: 'hijack' });
+    make().scan();
+
+    expect(getProposal(store, foreign)!.payload.title).toBe('Fix auth');
+    expect(getProposal(store, accepted)!.payload.title).toBe('Fix auth');
+    expect(getProposal(store, discarded)!.payload.title).toBe('Fix auth');
+    expect(warns.join()).toMatch(/another session/);
+    expect(warns.join()).toMatch(/accepted/);
+    expect(warns.join()).toMatch(/discarded/);
+    expect(readdirSync(outbox)).toEqual([]);
+    // A refused revision is not an update: it writes nothing, not even an index.
+    expect(readProposalIndex(scratch)).toEqual([]);
+    expect(countPending(store, sessionId)).toBe(0);
   });
 
   it('ignores names that are not <uuid>.json and never touches them', () => {
