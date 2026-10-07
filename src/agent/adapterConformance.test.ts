@@ -170,6 +170,19 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   type Launch = { args: string[]; env: Record<string, string> };
   const opencodePermission = (l: Launch): Record<string, unknown> =>
     JSON.parse(l.env.OPENCODE_PERMISSION ?? '{}') as Record<string, unknown>;
+  // v2 carries the same object nested under CONFIG_CONTENT's singular
+  // `permission` key; the ordered `permissions` array is the RESOLVED internal
+  // shape, never an input. `?? {}` keeps the absent case assertable.
+  const opencode2Permission = (l: Launch): Record<string, unknown> => {
+    const parsed = JSON.parse(l.env.OPENCODE_CONFIG_CONTENT ?? '{}') as {
+      permission?: Record<string, unknown>;
+    };
+    return parsed.permission ?? {};
+  };
+  const configPermission = (env: Record<string, string>): unknown => {
+    if (!env.OPENCODE_CONFIG_CONTENT) return undefined;
+    return (JSON.parse(env.OPENCODE_CONFIG_CONTENT) as { permission?: unknown }).permission;
+  };
   const after = (args: string[], flag: string): string | undefined => args[args.indexOf(flag) + 1];
 
   const READ_ONLY: Record<AgentProvider, (l: Launch) => void> = {
@@ -194,10 +207,13 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     antigravity: ({ args }) => {
       expect(after(args, '--mode')).toBe('plan');
     },
-    // opencode2's read-only mechanism (its `permission` config) lands with its
-    // permissions ticket; until then it DECLARES readOnlyInteractive unsupported
-    // and the test above does not exercise this entry.
-    opencode2: () => {},
+    // opencode2's read-only mechanism is a singular `permission` object in
+    // `OPENCODE_CONFIG_CONTENT`: `edit` deny blocks a file edit (live-verified on
+    // 2.0.24) and `bash` ask gates shell, so the core CAN block edits and a
+    // planning launch needs no acknowledgement.
+    opencode2: (l) => {
+      expect(opencode2Permission(l)).toMatchObject({ edit: 'deny', bash: 'ask' });
+    },
   };
 
   const READS_DIR: Record<AgentProvider, (l: Launch, dir: string) => void> = {
@@ -206,13 +222,16 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     opencode: (l, dir) =>
       expect(opencodePermission(l).external_directory).toMatchObject({ '*': 'ask', [`${dir}/**`]: 'allow' }),
     antigravity: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
-    // Declared unsupported until the permissions ticket (see above).
-    opencode2: () => {},
+    opencode2: (l, dir) =>
+      expect(opencode2Permission(l).external_directory).toMatchObject({
+        '*': 'ask',
+        [`${dir}/**`]: 'allow',
+      }),
   };
 
   it('launches a read-only planning session by its verified mechanism', () => {
     const supported = surfacesOf(provider).readOnlyInteractive.supported;
-    expect(supported).toBe(provider !== 'antigravity' && provider !== 'opencode2');
+    expect(supported).toBe(provider !== 'antigravity');
     const launch = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/karst/scratch',
       readOnly: true,
@@ -228,11 +247,13 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const { args, env } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
     for (const token of ['--disallowedTools', 'workspace-write', '--mode']) expect(args).not.toContain(token);
     expect(env.OPENCODE_PERMISSION).toBeUndefined();
+    // v2 must likewise omit the nested permission object on an ordinary launch.
+    expect(configPermission(env), `${provider} ordinary launch carries no permission blob`).toBeUndefined();
   });
 
   it('makes every extra directory readable', () => {
     const supported = surfacesOf(provider).addDirsInteractive.supported;
-    expect(supported).toBe(provider !== 'opencode2');
+    expect(supported).toBe(true);
     const launch = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/stack',
       addDirs: ['/repos/api', '/repos/web'],
@@ -242,6 +263,20 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
     }
     expect(launch.args.at(-1)).toBe('plan it');
+  });
+
+  it('encodes opencode2 permissions as the singular object, never a permissions array', () => {
+    if (provider !== 'opencode2') return;
+    const launch = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/karst/scratch',
+      readOnly: true,
+      addDirs: ['/repos/api'],
+      initialPrompt: 'plan it',
+    });
+    const config = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT!) as Record<string, unknown>;
+    expect(config.permission, 'the config uses the singular `permission` key').toBeDefined();
+    expect(config.permissions, 'the ordered `permissions` array is never an input').toBeUndefined();
+    expect(Array.isArray(config.permission)).toBe(false);
   });
 
   const MCP_ISOLATION_FLAG: Record<AgentProvider, string | null> = {
@@ -485,6 +520,12 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     expect(argv, `${provider} must never inline the instruction body`).not.toContain(
       'NEVER-INLINE-THIS-BODY',
     );
+    // The body must not leak into the launch env either — opencode2's
+    // `OPENCODE_CONFIG_CONTENT` blob is the one place it could be smuggled in.
+    expect(
+      JSON.stringify(launched.env),
+      `${provider} must never inline the instruction body in the env/config blob`,
+    ).not.toContain('NEVER-INLINE-THIS-BODY');
     if (delivery.interactive === 'native-file') {
       expect(launched.args, `${provider} native-file flag`).toContain('--append-system-prompt-file');
       expect(launched.args, `${provider} native-file path`).toContain(INSTRUCTIONS.path);

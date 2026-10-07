@@ -20,7 +20,7 @@ import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
-import { OpencodeAdapter } from './opencode.js';
+import { OpencodeAdapter, opencodeLaunchPermission } from './opencode.js';
 import {
   opencode2Command,
   opencode2Config,
@@ -43,8 +43,16 @@ import { KARST_OPENCODE_HEADLESS_ENV, writeOpencode2Bridge } from './opencode2Br
  *   `opencode.db`, so the user's real dirs are never touched.
  * - Headless prompt is STDIN only — positional, `--`, and `--file` all mangle
  *   the bytes.
- * - `OPENCODE_CONFIG_CONTENT` carries top-level `model` (TUI preselection) and,
- *   for headless only, `snapshot:false` (drops the shadow-git snapshot cost).
+ * - `OPENCODE_CONFIG_CONTENT` carries top-level `model` (TUI preselection),
+ *   `snapshot:false` (headless only, drops the shadow-git snapshot cost), and —
+ *   for a read-only/add-dirs launch — a singular `permission` object that wins
+ *   over a project `opencode.json` by last-match-wins. The v1
+ *   `OPENCODE_PERMISSION` env is ignored by v2, and the ordered `permissions`
+ *   array is the resolved internal shape, not an input.
+ * - The instruction layer rides a one-line POINTER in the TUI `--prompt`
+ *   kickoff: v2 ignores the config `instructions` key (verified on 2.0.24), and
+ *   an `AGENTS.md` file is rejected (repo pollution, collision, accidental
+ *   commits), so the body stays on disk at `$KARST_INSTRUCTIONS`.
  * - The interactive hook channel is a generated v2 plugin
  *   (`opencode2Bridge.ts`) — `export default { id, setup(ctx) }` — that maps
  *   `session.*`/`permission.*` events to karst's closed hook vocabulary.
@@ -269,21 +277,28 @@ export function parseOpencode2Export(stdout: string): TokenUsage | null {
 
 /**
  * The one per-spawn `OPENCODE_CONFIG_CONTENT` builder. This ticket adds
- * top-level `model` (TUI preselection; effort rides as the `#<effort>` suffix)
- * and, for HEADLESS spawns only, `snapshot:false` (removes the shadow-git
- * snapshot cost; interactive keeps snapshots for undo). A later permissions
- * ticket extends this same object.
+ * top-level `model` (TUI preselection; effort rides as the `#<effort>` suffix),
+ * `snapshot:false` for HEADLESS spawns (removes the shadow-git snapshot cost;
+ * interactive keeps snapshots for undo), and the read-only/add-dirs
+ * `permission` object (singular — v2 rejects the v1 `OPENCODE_PERMISSION` env
+ * and the ordered `permissions` array shape). The ruleset wins over a project
+ * `opencode.json`: v2 appends CONFIG_CONTENT rules after the file's, and the
+ * last matching rule decides (verified against 2.0.24).
  */
 export function buildOpencode2ConfigContent(opts: {
   model?: string | undefined;
   effort?: string | undefined;
   headless: boolean;
+  readOnly?: boolean | undefined;
+  addDirs?: string[] | undefined;
 }): string {
   const config: Record<string, unknown> = {};
   if (opts.model) {
     config['model'] = opts.effort ? `${opts.model}#${opts.effort}` : opts.model;
   }
   if (opts.headless) config['snapshot'] = false;
+  const permission = opencodeLaunchPermission(opts);
+  if (permission) config['permission'] = permission;
   return JSON.stringify(config);
 }
 
@@ -346,13 +361,8 @@ export class Opencode2Adapter implements AgentAdapter {
     ),
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
-    readOnlyInteractive: unsupported(
-      'the opencode2 read-only planning mechanism (permission config) lands with its '
-        + 'permissions ticket',
-    ),
-    addDirsInteractive: unsupported(
-      'opencode2 extra-directory permission lands with its permissions ticket',
-    ),
+    readOnlyInteractive: SUPPORTED,
+    addDirsInteractive: SUPPORTED,
   };
 
   readonly instructions: InstructionDelivery = {
@@ -400,6 +410,8 @@ export class Opencode2Adapter implements AgentAdapter {
         model: opts.model,
         effort: opts.effort,
         headless: false,
+        readOnly: opts.readOnly,
+        addDirs: opts.addDirs,
       }),
     };
     return {
