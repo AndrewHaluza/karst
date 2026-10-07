@@ -159,6 +159,20 @@ function alive(pid: number): boolean {
   }
 }
 
+/**
+ * Poll until the OS stops reporting `pid`, so a test never races the reap.
+ * `stopServer` waits for the listening socket to close, but the SIGKILLed child
+ * is reaped a beat later — on a loaded machine that beat is visible as a live
+ * pid, while a genuinely still-running server keeps the poll from ever settling.
+ */
+async function waitUntilDead(pid: number, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (alive(pid)) {
+    if (Date.now() > deadline) throw new Error(`pid ${pid} still alive ${timeoutMs}ms after stop`);
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
+
 let portCounter = 28000;
 function nextPort(): number {
   return portCounter++;
@@ -1126,7 +1140,9 @@ createServer((_req, res) => {
 
     // The moment stopServer returns, the port must already be released.
     expect(await isPortOpen('127.0.0.1', port)).toBe(false);
-    expect(alive(rec.pid)).toBe(false);
+    // The process is reaped a beat after its socket closes; wait for the OS to
+    // stop reporting it rather than racing the reap.
+    await waitUntilDead(rec.pid);
   });
 
   it('stopServer waits for process teardown when server has no recorded port', async () => {

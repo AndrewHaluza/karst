@@ -35,17 +35,19 @@
  * - `bridge.last/all` → `view.last/all` (the harness `posted` array).
  */
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { ApproachDef, Manifest } from '../../../../manifest/types.js';
 import { buildSettingsState } from '../../state.js';
 import { FIXTURE_MANIFEST } from '../testFixtures.js';
-import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
+import {
+  closeSettingsRealm,
+  renderSettingsApp,
+  type RenderedSettings,
+} from '../renderSettingsApp.js';
 
-let open: RenderedSettings | null = null;
-
-afterEach(() => {
-  open?.close();
-  open = null;
+// One jsdom realm per file, reset per mount (`renderSettingsApp`).
+afterAll(() => {
+  closeSettingsRealm();
 });
 
 /** The packaged built-ins the host ships, which the delta rule is measured against. */
@@ -93,7 +95,6 @@ interface Mounted {
 
 async function mountOnApproaches(manifest: Manifest = MANIFEST): Promise<Mounted> {
   const view = await renderSettingsApp();
-  open = view;
   await view.receive({
     type: 'state',
     state: buildSettingsState(

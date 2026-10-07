@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import {
+  cpSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -13,7 +14,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   defaultGitRunner,
   GIT_TERMINATION_GRACE_MS,
@@ -41,8 +42,23 @@ import {
 // testTimeout, which exists for exactly this class of real-git test.
 const TEST_GIT_OPTIONS = { timeout: 30_000, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8' } as const;
 
+/**
+ * Environment for the fixture's own git calls.
+ *
+ * `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` make the fixture
+ * hermetic: a developer's global `commit.gpgsign`/`core.hooksPath` (or a
+ * system config) can no longer make a fixture commit sign, prompt for a
+ * passphrase, or run a hook, which is exactly the "disable hooks/gpg via env"
+ * the suite needs before it can build a template repo once and reuse it.
+ */
+const FIXTURE_GIT_ENV = {
+  ...process.env,
+  GIT_CONFIG_GLOBAL: '/dev/null',
+  GIT_CONFIG_NOSYSTEM: '1',
+} as const;
+
 function fixtureGit(cwd: string, args: string[]): string {
-  return execFileSync('git', args, { cwd, ...TEST_GIT_OPTIONS });
+  return execFileSync('git', args, { cwd, env: FIXTURE_GIT_ENV, ...TEST_GIT_OPTIONS });
 }
 
 function write(cwd: string, path: string, content: string): void {
@@ -54,11 +70,45 @@ function commit(cwd: string, message: string): void {
   fixtureGit(cwd, ['commit', '-m', message]);
 }
 
-function createWorktreeFixture(): { dir: string; spec: WorktreeSpec; base: string } {
-  const dir = mkdtempSync(join(tmpdir(), 'karst-diff-'));
+/**
+ * The two real-git fixtures were rebuilt from scratch on EVERY test — a git
+ * init, a config pair and several commits, then a git install per commit. They
+ * are built ONCE here and copied per test instead: a copy of a few-commit repo
+ * is a fraction of the cost and leaves the test free to mutate its own copy
+ * (`reset --hard`, `add`, `commit`) without touching its siblings. The commits
+ * are baked in, so tests read the same deterministic `base` OID every time.
+ */
+interface WorktreeTemplate {
+  readonly dir: string;
+  readonly base: string;
+}
+
+let worktreeTemplate: WorktreeTemplate;
+let conflictTemplate: WorktreeTemplate;
+
+beforeAll(() => {
+  worktreeTemplate = buildWorktreeTemplate();
+  conflictTemplate = buildConflictTemplate();
+});
+
+afterAll(() => {
+  rmSync(worktreeTemplate.dir, { recursive: true, force: true });
+  rmSync(conflictTemplate.dir, { recursive: true, force: true });
+});
+
+/** Fresh hermetic repo with gpg/hooks disabled in its own config. */
+function initTemplateRepo(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
   fixtureGit(dir, ['init', '-q']);
   fixtureGit(dir, ['config', 'user.name', 'Karst Test']);
   fixtureGit(dir, ['config', 'user.email', 'karst-test@example.com']);
+  fixtureGit(dir, ['config', 'commit.gpgsign', 'false']);
+  fixtureGit(dir, ['config', 'core.hooksPath', join(dir, '.git', 'no-hooks')]);
+  return dir;
+}
+
+function buildWorktreeTemplate(): WorktreeTemplate {
+  const dir = initTemplateRepo('karst-diff-template-');
 
   write(dir, 'value.txt', 'value=1\n');
   write(dir, 'unstaged.txt', 'unstaged=1\n');
@@ -84,19 +134,22 @@ function createWorktreeFixture(): { dir: string; spec: WorktreeSpec; base: strin
   write(dir, 'unstaged.txt', 'unstaged=2\n');
   write(dir, 'untracked file.txt', 'untracked\n');
 
+  return { dir, base };
+}
+
+/** A worktree fixture: a fresh copy of the prebuilt template. */
+function createWorktreeFixture(): { dir: string; spec: WorktreeSpec; base: string } {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-diff-'));
+  cpSync(worktreeTemplate.dir, dir, { recursive: true });
   return {
     dir,
-    base,
-    spec: { label: 'Repository', path: dir, branch: 'feature/diff', baseRef: base },
+    base: worktreeTemplate.base,
+    spec: { label: 'Repository', path: dir, branch: 'feature/diff', baseRef: worktreeTemplate.base },
   };
 }
 
-/** A worktree stopped mid-merge: `conflict.txt` has no stage-zero index entry. */
-function createConflictFixture(): { dir: string; spec: WorktreeSpec } {
-  const dir = mkdtempSync(join(tmpdir(), 'karst-diff-conflict-'));
-  fixtureGit(dir, ['init', '-q']);
-  fixtureGit(dir, ['config', 'user.name', 'Karst Test']);
-  fixtureGit(dir, ['config', 'user.email', 'karst-test@example.com']);
+function buildConflictTemplate(): WorktreeTemplate {
+  const dir = initTemplateRepo('karst-diff-conflict-template-');
 
   write(dir, 'conflict.txt', 'base\n');
   write(dir, 'staged.txt', 'staged=1\n');
@@ -123,7 +176,17 @@ function createConflictFixture(): { dir: string; spec: WorktreeSpec } {
   write(dir, 'unstaged.txt', 'unstaged=2\n');
   write(dir, 'untracked.txt', 'untracked\n');
 
-  return { dir, spec: { label: 'Conflicted Repository', path: dir, branch: 'ticket', baseRef: base } };
+  return { dir, base };
+}
+
+/** A worktree stopped mid-merge: `conflict.txt` has no stage-zero index entry. */
+function createConflictFixture(): { dir: string; spec: WorktreeSpec } {
+  const dir = mkdtempSync(join(tmpdir(), 'karst-diff-conflict-'));
+  cpSync(conflictTemplate.dir, dir, { recursive: true });
+  return {
+    dir,
+    spec: { label: 'Conflicted Repository', path: dir, branch: 'ticket', baseRef: conflictTemplate.base },
+  };
 }
 
 const workingFile = {

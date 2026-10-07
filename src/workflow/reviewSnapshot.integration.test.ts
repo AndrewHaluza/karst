@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { defaultGitRunner, runGit, type GitRunner } from '../integrations/git.js';
@@ -9,7 +9,43 @@ import {
   snapshotRefName,
 } from './reviewSnapshot.js';
 
-async function freshRepo(tag: string): Promise<string> {
+/**
+ * Every case used to build a repo from scratch (`git init` + config + a base
+ * commit) before it could test ONE snapshot behaviour. The repo is built once
+ * and copied per case instead, so only the behaviour under test runs real git;
+ * `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_NOSYSTEM=1` keep the fixture
+ * hermetic (no user-global gpg signing or hooks).
+ */
+let templateDir: string;
+
+beforeAll(async () => {
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  templateDir = mkdtempSync(join(tmpdir(), 'karst-snapshot-template-'));
+  const init = await runGit(['init', '-b', 'main'], templateDir);
+  expect(init.exitCode).toBe(0);
+  await runGit(['config', 'user.name', 'Test'], templateDir);
+  await runGit(['config', 'user.email', 'test@example.com'], templateDir);
+  await runGit(['config', 'commit.gpgsign', 'false'], templateDir);
+  await runGit(['config', 'core.hooksPath', join(templateDir, '.git', 'no-hooks')], templateDir);
+  await writeAndCommit(templateDir, 'a.txt', 'a', 'base');
+});
+
+afterAll(() => {
+  rmSync(templateDir, { recursive: true, force: true });
+  delete process.env.GIT_CONFIG_GLOBAL;
+  delete process.env.GIT_CONFIG_NOSYSTEM;
+});
+
+/** A fresh copy of the prebuilt repo (one `base` commit). */
+function freshRepo(tag: string): string {
+  const dir = mkdtempSync(join(tmpdir(), `karst-snapshot-${tag}-`));
+  cpSync(templateDir, dir, { recursive: true });
+  return dir;
+}
+
+/** The one case that needs HEAD unborn gets a repo with no commits at all. */
+async function freshEmptyRepo(tag: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), `karst-snapshot-${tag}-`));
   const init = await runGit(['init', '-b', 'main'], dir);
   expect(init.exitCode).toBe(0);
@@ -61,7 +97,6 @@ describe('reviewSnapshot', () => {
   it('leaves HEAD, the branch and the index untouched', async () => {
     const dir = await freshRepo('untouched');
     try {
-      await writeAndCommit(dir, 'a.txt', 'a', 'base');
       writeFileSync(join(dir, 'a.txt'), 'b');
       const beforeHead = (await runGit(['rev-parse', 'HEAD'], dir)).stdout;
       const beforeBranch = (await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], dir)).stdout;
@@ -85,7 +120,6 @@ describe('reviewSnapshot', () => {
   it('the snapshot ref is reachable and its parent is the pre-call HEAD', async () => {
     const dir = await freshRepo('reachable');
     try {
-      await writeAndCommit(dir, 'a.txt', 'a', 'base');
       const head = (await runGit(['rev-parse', 'HEAD'], dir)).stdout.trim();
       const ref = await createReviewSnapshot(defaultGitRunner, {
         ticketId: 44,
@@ -102,7 +136,6 @@ describe('reviewSnapshot', () => {
   it('honors .gitignore', async () => {
     const dir = await freshRepo('ignore');
     try {
-      await writeAndCommit(dir, 'a.txt', 'a', 'base');
       writeFileSync(join(dir, '.gitignore'), 'ignored.txt\n');
       writeFileSync(join(dir, 'ignored.txt'), 'ignored');
       const ref = await createReviewSnapshot(defaultGitRunner, {
@@ -120,7 +153,6 @@ describe('reviewSnapshot', () => {
   it('a clean worktree still produces a ref whose tree equals HEAD\'s tree', async () => {
     const dir = await freshRepo('clean');
     try {
-      await writeAndCommit(dir, 'a.txt', 'a', 'base');
       const head = (await runGit(['rev-parse', 'HEAD'], dir)).stdout.trim();
       const ref = await createReviewSnapshot(defaultGitRunner, {
         ticketId: 46,
@@ -137,7 +169,7 @@ describe('reviewSnapshot', () => {
   });
 
   it('returns null and never throws when HEAD is unborn', async () => {
-    const dir = await freshRepo('unborn');
+    const dir = await freshEmptyRepo('unborn');
     try {
       await expect(
         createReviewSnapshot(defaultGitRunner, {
@@ -154,7 +186,6 @@ describe('reviewSnapshot', () => {
   it('returns null when update-ref fails', async () => {
     const dir = await freshRepo('update-ref');
     try {
-      await writeAndCommit(dir, 'a.txt', 'a', 'base');
       const git: GitRunner = async (args, cwd) => {
         if (args[0] === 'update-ref') return { stdout: '', stderr: 'boom', exitCode: 1 };
         return defaultGitRunner(args, cwd);
@@ -174,7 +205,6 @@ describe('reviewSnapshot', () => {
   it('deleteReviewSnapshot removes the ref and is safe to call twice', async () => {
     const dir = await freshRepo('delete');
     try {
-      await writeAndCommit(dir, 'a.txt', 'a', 'base');
       const ref = (await createReviewSnapshot(defaultGitRunner, {
         ticketId: 49,
         repoPath: dir,

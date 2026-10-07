@@ -22,7 +22,12 @@
  * manually-mounted probe that serialised reducer internals is gone with the
  * phase-3 helper: the reducer's own suite covers those derivations.
  */
-import { pumpRenderRealm, renderWebviewReady, type RenderHandle } from '../../testing/renderHarness.js';
+import {
+  pumpRenderRealm,
+  renderWebviewReady,
+  waitForSettingsReady,
+  type RenderHandle,
+} from '../../testing/renderHarness.js';
 import type { SettingsHostMessage, SettingsWebviewMessage } from '../messages.js';
 
 /** One outbound message, including the async-action correlation id (UI-R13). */
@@ -52,8 +57,44 @@ export interface RenderedSettings extends RenderHandle {
   readonly state: unknown;
 }
 
+/**
+ * The file-wide jsdom realm, reused across a test file's mounts.
+ *
+ * Booting the full settings document — jsdom parsing ~1 MB of injected React
+ * bundle plus the shared runtimes, then executing it — costs the better part of
+ * a second, and every rendered test used to pay it. The realm is created once
+ * and each subsequent `renderSettingsApp` reboots the SAME realm: the old
+ * bridge is neutralized, `data-karst-ready`/`#root` are reset, and the page
+ * script runs again. A fresh React app therefore starts from the initial state
+ * every time, while the expensive document parse happens once per file.
+ *
+ * `closeSettingsRealm` (an `afterAll`) tears the realm down; a view's `close()`
+ * is intentionally a no-op so an `afterEach` cannot kill the shared realm
+ * mid-file.
+ */
+let sharedRealm: RenderHandle | null = null;
+
+async function currentRealm(): Promise<RenderHandle> {
+  if (sharedRealm) {
+    sharedRealm.resetRealm();
+    const script = sharedRealm.pageScript;
+    if (!script) throw new Error('renderSettingsApp: the settings page has no re-runnable script');
+    (sharedRealm.window as unknown as { eval(code: string): unknown }).eval(script);
+    await waitForSettingsReady(sharedRealm);
+    return sharedRealm;
+  }
+  sharedRealm = await renderWebviewReady('settings');
+  return sharedRealm;
+}
+
+/** Tear down the shared realm. Call from `afterAll`, never per test. */
+export function closeSettingsRealm(): void {
+  sharedRealm?.close();
+  sharedRealm = null;
+}
+
 export async function renderSettingsApp(): Promise<RenderedSettings> {
-  const handle = await renderWebviewReady('settings');
+  const handle = await currentRealm();
 
   const posted = handle.posted as readonly Outbound[];
   const settle = async (): Promise<void> => {
@@ -99,8 +140,11 @@ export async function renderSettingsApp(): Promise<RenderedSettings> {
     queryAll: handle.queryAll,
     cssRules: handle.cssRules,
     pendingWorkTimers: (horizonMs: number) => handle.pendingWorkTimers(horizonMs),
+    pageScript: handle.pageScript,
+    resetRealm: () => handle.resetRealm(),
     close: () => {
-      handle.close();
+      // The realm is shared across the file; a per-test close would tear down
+      // the realm the NEXT test reboots. `closeSettingsRealm` owns teardown.
     },
   };
 }

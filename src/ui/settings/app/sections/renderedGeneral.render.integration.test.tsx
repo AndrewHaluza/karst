@@ -25,15 +25,17 @@
  * — never through a second, test-only mount.
  */
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { renderSettingsApp, type Outbound, type RenderedSettings } from '../renderSettingsApp.js';
+import {
+  closeSettingsRealm,
+  renderSettingsApp,
+  type Outbound,
+  type RenderedSettings,
+} from '../renderSettingsApp.js';
 
-let open: RenderedSettings | null = null;
-
-afterEach(() => {
-  open?.close();
-  open = null;
+afterAll(() => {
+  closeSettingsRealm();
 });
 
 interface Mounted {
@@ -44,7 +46,6 @@ interface Mounted {
 
 async function mount(): Promise<Mounted> {
   const view = await renderSettingsApp();
-  open = view;
   await view.receive({ type: 'state', state: FIXTURE_STATE_PUSH });
   const lastDraft = (): Record<string, unknown> | undefined => {
     const msg = [...view.posted].reverse().find((m) => m.type === 'save' || m.type === 'validate');
