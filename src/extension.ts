@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
+import { describeBuildInfo, readBuildInfo } from './buildInfo.js';
 import { openStore, type Store } from './store/db.js';
 import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
@@ -718,6 +719,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const hookChannelRecorder = createHookChannelRecorder();
   const activatedAt = Date.now();
   logger.info('Karst activated');
+  // Which build this window is running — every installer stamps dist/build-info.json
+  // so a stale install is identifiable from the log alone.
+  logger.info(describeBuildInfo(readBuildInfo()));
 
   // The karst mark every panel tab wears. Materialized once per window and
   // handed to each panel host — a tab that carries no ticket has no glyph to
