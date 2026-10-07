@@ -8,6 +8,8 @@ export default defineConfig({
   test: {
     include: ['src/extension/**/*.test.ts'],
     environment: 'node',
+    // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
+    setupFiles: ['./scripts/vitest-setup-env.mjs'],
     pool: 'forks',
     testTimeout: 30_000,
   },
