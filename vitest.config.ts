@@ -7,6 +7,8 @@ export default defineConfig({
     // `node`, with no build/tsx step between Stryker and the summary.
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.mjs'],
     environment: 'node',
+    // Scrub the KARST_* vars karst-launched terminals inject, so the suite is hermetic.
+    setupFiles: ['./scripts/vitest-setup-env.mjs'],
     // The webview message-sender bundles are generated esbuild output; build
     // them once per run so jsdom/VM tests that hydrate dashboard or settings
     // can read them from RUNTIME_ASSETS_ROOT (the src root here).

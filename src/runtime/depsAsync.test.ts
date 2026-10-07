@@ -1,21 +1,41 @@
 import { describe, expect, it } from 'vitest';
+import { unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { dependencyRegistry } from './deps.js';
 import { commandSucceedsAsync, ensureCapabilityAsync } from './depsAsync.js';
 
 describe('commandSucceedsAsync', () => {
   it('leaves the event loop free while a readiness command runs', async () => {
     const order: string[] = [];
-    const probe = commandSucceedsAsync(
-      process.execPath,
-      ['-e', 'setTimeout(() => process.exit(0), 80)'],
-      { timeoutMs: 500 },
-    ).then((ready) => {
+    // The child polls for a release file this test writes only AFTER proving
+    // the event loop ran, so the ordering is deterministic under load — a
+    // wall-clock race (timer vs child exit) flaked on a busy CI box.
+    const releaseFile = join(tmpdir(), `karst-deps-async-${process.pid}-${Date.now()}`);
+    const childScript = [
+      "const fs = require('fs');",
+      `const release = ${JSON.stringify(releaseFile)};`,
+      'const t = setInterval(() => {',
+      '  if (fs.existsSync(release)) { clearInterval(t); process.exit(0); }',
+      '}, 5);',
+    ].join('');
+
+    const probe = commandSucceedsAsync(process.execPath, ['-e', childScript], {
+      timeoutMs: 5_000,
+    }).then((ready) => {
       order.push(`probe:${ready}`);
     });
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    // Reaching this line proves the probe did not block; the child is still
+    // running, so `probe` cannot have settled yet.
+    await new Promise<void>((resolve) => setImmediate(resolve));
     order.push('event-loop');
-    await probe;
+    writeFileSync(releaseFile, '');
+    try {
+      await probe;
+    } finally {
+      unlinkSync(releaseFile);
+    }
 
     expect(order).toEqual(['event-loop', 'probe:true']);
   });
