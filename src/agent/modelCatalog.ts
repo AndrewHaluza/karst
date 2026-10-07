@@ -34,7 +34,7 @@ export interface ModelOption {
 
 export type ModelCatalog = Readonly<Record<AgentProvider, readonly ModelOption[]>>;
 
-const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
+const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$/;
 const CONTROL_CHARACTER = /[\u0000-\u001F\u007F-\u009F]/;
 const EFFORT_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -82,6 +82,19 @@ const BUNDLED_CATALOG: ModelCatalog = {
     { id: 'gpt-oss-120b-medium', label: 'GPT-OSS 120B (Medium)', providers: ['antigravity'], tags: ['text-only'] },
   ],
   opencode: [],
+  // opencode2 (v2) ids are `provider/model` and, in the same way, ultimately
+  // account-dependent. The v2 CLI also reads its catalog from models.dev, so
+  // `cli` discovery is unsupported; these curated rows are the offline fallback
+  // and mirror the published feed's `opencode2` section. Effort rides as the
+  // `#<effort>` suffix on the launch model, never a separate flag.
+  opencode2: [
+    // mimo-v2.5 has no effort variants (live `session export` reports
+    // `variant: "default"`; `--model …#high` → provider.no-route "Variant
+    // unavailable"), so it deliberately advertises none.
+    { id: 'opencode-go/mimo-v2.5', label: 'OpenCode Go · MiMo v2.5', providers: ['opencode2'] },
+    { id: 'opencode-go/space-bunny', label: 'OpenCode Go · Space Bunny', providers: ['opencode2'], efforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+    { id: 'opencode-go/deepseek-v4.1-flash', label: 'OpenCode Go · DeepSeek v4.1 Flash', providers: ['opencode2'], efforts: ['low', 'high', 'max'] },
+  ],
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {

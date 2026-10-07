@@ -14,6 +14,7 @@ const CATALOG: ModelCatalog = {
   codex: [{ id: 'codex-x', label: 'Codex X', providers: ['codex'] }],
   antigravity: [{ id: 'agy-x', label: 'Agy X', providers: ['antigravity'] }],
   opencode: [],
+  opencode2: [],
 };
 
 describe('agent switch presentation', () => {
@@ -40,6 +41,7 @@ describe('agent switch presentation', () => {
       { id: 'codex', label: 'Codex' },
       { id: 'antigravity', label: 'Antigravity CLI' },
       { id: 'opencode', label: 'OpenCode' },
+      { id: 'opencode2', label: 'OpenCode v2' },
     ]);
   });
 
@@ -105,6 +107,7 @@ describe('agent switch presentation', () => {
       codex: [{ id: 'shared', label: 'Codex Shared', providers: ['codex'] }],
       antigravity: [],
       opencode: [],
+      opencode2: [],
     };
 
     expect(buildAgentSessionView({

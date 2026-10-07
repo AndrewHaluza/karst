@@ -386,6 +386,18 @@ export interface AgentAdapter {
    */
   materializeApproach?(opts: MaterializeOpts): Materialized;
 
+  /**
+   * Optional async validation of a resume id BEFORE an interactive launch.
+   * Returns the id to resume, or `undefined` to launch fresh. A core whose
+   * resume id can go stale (opencode2: a deleted session) implements this so a
+   * dangling `--session`/`--resume` is dropped with a logged reason instead of
+   * being handed to the CLI. Adapters with no such failure mode omit it.
+   */
+  resolveResume?(
+    sessionId: string,
+    opts: { cwd: string; debug?: (message: string) => void },
+  ): Promise<string | undefined>;
+
   capabilities: AgentCapabilities;
 
   /**

@@ -163,7 +163,7 @@ import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
-import { createPlanningProposalOps, proposalPreview, type ProposalChoice } from './extension/ops/planningProposalOps.js';
+import { createPlanningProposalOps, type ProposalChoice } from './extension/ops/planningProposalOps.js';
 import { listPendingProposals } from './store/planningProposals.js';
 import type { TicketFormPrefill } from './ui/ticketForm/panel.js';
 import {
@@ -504,11 +504,17 @@ import {
   commandSucceeds,
   dependencyRegistry,
   ensureCapability,
+  readCommandOutput,
   renderDependencyFault,
   type Capability,
   type DependencyFault,
 } from './runtime/deps.js';
-import { ensureCapabilityAsync } from './runtime/depsAsync.js';
+import { ensureCapabilityAsync, commandOutputAsync } from './runtime/depsAsync.js';
+import {
+  applyOpencode2Config,
+  checkOpencode2Binary,
+  opencode2LoginCommand,
+} from './extension/ops/opencode2Ops.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
@@ -769,13 +775,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     onChange: () => provider.refresh(),
   });
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
-    confirmPreview: async (p) => (await vscode.window.showWarningMessage(`Create ticket "${p.payload.title}"?`,
-      { modal: true, detail: proposalPreview(p) }, 'Create ticket')) === 'Create ticket',
-    choose: async (text) => ({ Review: 'review', Create: 'create', Discard: 'discard' } as Record<string, ProposalChoice>)[
-      (await vscode.window.showInformationMessage(text, 'Review', 'Create', 'Discard')) ?? ''],
+    choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
+      (await vscode.window.showInformationMessage(text, 'Review', 'Discard')) ?? ''],
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
-    showDraft: async (p) => void (await vscode.window.showInformationMessage(`Draft: "${p.payload.title}"`,
-      { modal: true, detail: proposalPreview(p) })),
     notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
@@ -833,7 +835,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     planUnarchive: (id) => planning.unarchive(id),
     planProposalReview: (id) => proposalOps.review(id),
     planProposalDiscard: (id) => proposalOps.discard(id),
-    planProposalView: (id) => proposalOps.view(id),
   }), () => worktreePathContext(currentManifest(), logger.warn, logger.info), () => currentManifest()?.ticketLabelTemplate, logError,
     () => currentProject()?.id,
     () => currentManifest()?.agentProvider,
@@ -865,6 +866,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
 
   const settingsDir = context.globalStorageUri.fsPath;
+  // opencode2 (v2) is the one core whose binary is a required SETTING, never a
+  // PATH lookup (v2 ships a launcher also named `opencode`). Configure the
+  // resolver before anything resolves a dependency or launches a session.
+  const applyOpencode2 = (): void =>
+    applyOpencode2Config({
+      binaryPathSetting:
+        vscode.workspace.getConfiguration('karst').get<string>('opencode2.binaryPath') ?? '',
+      globalStoragePath: settingsDir,
+    });
+  applyOpencode2();
+  const checkOpencode2 = (): void =>
+    checkOpencode2Binary({ readVersion: readCommandOutput, info: logger.info, warn: logger.warn });
+  checkOpencode2();
   const { strandedFixResumes } = await runBootSweeps({
     store: localStore,
     globalStorageRoot: settingsDir,
@@ -1487,7 +1501,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // status bar still claiming it's missing.
     refreshDepsStatus();
     return buildGettingStartedState(
-      buildSetupStatus({ manifestExists, provider, probe: binaryExists, ready: commandSucceeds }),
+      buildSetupStatus({
+        manifestExists,
+        provider,
+        probe: binaryExists,
+        ready: commandSucceeds,
+        readOutput: readCommandOutput,
+      }),
     );
   };
 
@@ -1513,7 +1533,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   /** Reprobe, repaint the status bar, and report what is still unusable. */
   const refreshDepsStatus = (): DependencyFault[] => {
     const provider = currentManifest()?.agentProvider ?? 'claude';
-    const faults = checkDependencyFaults(dependencyRegistry(provider), binaryExists, commandSucceeds);
+    const faults = checkDependencyFaults(
+      dependencyRegistry(provider),
+      binaryExists,
+      commandSucceeds,
+      readCommandOutput,
+    );
     const indicator = buildDepsIndicator(faults);
     if (!indicator) {
       depsStatus.hide();
@@ -1525,6 +1550,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     depsStatus.show();
     return faults;
   };
+
+  // Re-read the opencode2 binary setting and re-check it whenever it changes,
+  // then repaint the dependency status (the core is unavailable while unset).
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration((e) => {
+      if (!e.affectsConfiguration('karst.opencode2.binaryPath')) return;
+      applyOpencode2();
+      checkOpencode2();
+      refreshDepsStatus();
+    }),
+  );
+
+  // The login command opens a terminal running `<binaryPath> auth login` under
+  // the SAME isolated XDG env every spawn uses, so the credentials land in
+  // karst's own store and never the user's real opencode dirs.
+  context.subscriptions.push(
+    vscode.commands.registerCommand('karst.opencode2.login', () => {
+      applyOpencode2();
+      const login = opencode2LoginCommand();
+      if (!login) {
+        void vscode.window.showWarningMessage(
+          "Set 'karst.opencode2.binaryPath' to the OpenCode v2 launcher before logging in.",
+        );
+        return;
+      }
+      const terminal = vscode.window.createTerminal({ name: login.name, env: login.env });
+      terminal.show();
+      terminal.sendText(login.text);
+    }),
+  );
 
   /**
    * Refuse an action whose tools are missing, and say what to install.
@@ -1551,6 +1606,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dependencyRegistry(agentProvider),
       binaryExists,
       commandSucceeds,
+      readCommandOutput,
     );
     if (faults.length === 0) return true;
     // The bar may predate this: a tool can go missing (or be installed) after
@@ -1587,7 +1643,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     capability: Capability,
     agentProvider: AgentProvider,
   ): Promise<boolean> => {
-    const faults = await ensureCapabilityAsync(capability, dependencyRegistry(agentProvider));
+    const faults = await ensureCapabilityAsync(
+      capability,
+      dependencyRegistry(agentProvider),
+      undefined,
+      commandOutputAsync,
+    );
     if (faults.length === 0) return true;
     for (const fault of faults) logger.warn(`blocked: '${fault.dep.binary}' is ${fault.state}`);
     const message = faults
@@ -6088,7 +6149,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         modelCatalog,
       );
       const launchProvider = identity.provider;
-      const resumeId = shouldResumeSession({
+      let resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
         stageCurrent: t.stageCurrent as StageKey,
@@ -6097,6 +6158,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
         ? (t.sessionId ?? undefined)
         : undefined;
+      // A core whose resume id can go stale validates it here (opencode2). A
+      // missing id is dropped BEFORE the seed is composed, so the launch is a
+      // fresh full seed rather than a dangling `--session`. Adapters with no
+      // such failure mode omit `resolveResume`.
+      if (resumeId && adapter.resolveResume) {
+        resumeId = await adapter.resolveResume(resumeId, {
+          cwd: wt.path,
+          debug: (message: string) => logger.debug(message),
+        });
+      }
       const fixBrief =
         t.stageCurrent === 'fix' ? fixBriefForTicket(localStore, ticketId) : null;
 

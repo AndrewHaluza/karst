@@ -406,3 +406,14 @@ export async function discoverOpencodeModels(
     ? { status: 'available', models }
     : unavailable('invalid-output', 'opencode returned an invalid or empty model list');
 }
+
+/**
+ * opencode2 (v2) reads its model catalog from models.dev over the network and
+ * its launcher is a configured absolute path, not a PATH command, so karst has
+ * no CLI probe to run. The bundled/feed `opencode2` section is the fallback —
+ * `unsupported` (karst has no probe) rather than `command-unavailable` (the
+ * user's machine is missing a tool it is not).
+ */
+export async function discoverOpencode2Models(): Promise<DiscoveryResult> {
+  return unavailable('unsupported', 'opencode2 model discovery is unsupported');
+}

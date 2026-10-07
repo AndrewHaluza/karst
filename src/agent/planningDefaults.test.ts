@@ -58,13 +58,13 @@ describe('resolvePlanningDefaults', () => {
       ...BASE,
       processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol' } },
       agentPresets: {
-        smart: { slots: { planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5' } } },
+        smart: { slots: { planning: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } } },
       },
       activeAgentPreset: 'smart',
     };
     expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
       provider: 'opencode',
-      model: 'opencode-go/mimo-v2.5',
+      model: 'opencode-go/deepseek-v4-flash',
     });
   });
 
@@ -116,7 +116,7 @@ describe('resolvePlanningInherited', () => {
   it('ignores the processes.planning row, keeping the preset + implementation fallback', () => {
     const m: Manifest = {
       ...BASE,
-      processes: { planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5' } },
+      processes: { planning: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
       agentPresets: {
         turbo: { slots: { implementation: { provider: 'codex', model: 'gpt-5.6-sol' } } },
       },

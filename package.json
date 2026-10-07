@@ -208,6 +208,10 @@
         "title": "Karst: Re-check Required Tools"
       },
       {
+        "command": "karst.opencode2.login",
+        "title": "Karst: Log in to OpenCode v2"
+      },
+      {
         "command": "karst.reportIssue",
         "title": "Karst: Report Issue"
       },
@@ -367,6 +371,11 @@
           "type": "string",
           "default": "",
           "description": "Exact path to an editor CLI (e.g. /usr/local/bin/code) used to open the development window. When set, it wins over karst.launchWorktreeDev.ide."
+        },
+        "karst.opencode2.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the OpenCode v2 launcher (@opencode/cli 2.x). Required for the 'opencode2' agent core: v2 ships a launcher also named 'opencode', so karst never searches PATH for it. Leave empty to keep the core unavailable."
         }
       }
     }

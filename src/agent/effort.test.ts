@@ -59,6 +59,7 @@ describe('effortsForModel', () => {
       codex: [],
       antigravity: [],
       opencode: [],
+      opencode2: [],
     };
     expect(effortsForModel('claude', 'plain', narrow)).toBeUndefined();
   });
@@ -89,6 +90,7 @@ describe('assertProfileEffort', () => {
       codex: [],
       antigravity: [],
       opencode: [],
+      opencode2: [],
     };
     expect(() => assertProfileEffort('claude', 'plain', 'high', narrow))
       .toThrow(/advertises no effort/);
@@ -135,6 +137,7 @@ describe('assertProfileEffort', () => {
       codex: [{ id: 'gpt-6-extra', label: 'GPT-6 Extra', providers: ['codex'], efforts: ['low', 'high'] }],
       antigravity: [],
       opencode: [],
+      opencode2: [],
     };
     expect(() => assertProfileEffort('codex', 'gpt-6-extra', 'high', feed)).not.toThrow();
     expect(() => assertProfileEffort('codex', 'gpt-6-extra', 'medium', feed)).toThrow(EffortError);

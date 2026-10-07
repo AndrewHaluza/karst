@@ -22,6 +22,7 @@ const REMOTE_MODELS: ModelCatalog = {
   codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
   antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
   opencode: [],
+  opencode2: [],
 };
 
 // The bundled catalog ships an empty opencode section, so a preset targeting
@@ -540,7 +541,7 @@ describe('buildTicketFormState — agent core (provider) fields', () => {
   it('create mode offers every implemented provider, selects none, and defaults to the manifest provider', () => {
     const m: Manifest = { ...MANIFEST, agentProvider: 'codex' };
     const s = buildTicketFormState(store, m, () => [], () => []);
-    expect(s.agentProviders).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    expect(s.agentProviders).toEqual(['claude', 'codex', 'antigravity', 'opencode', 'opencode2']);
     expect(s.selectedAgentProvider).toBeNull();
     expect(s.defaultAgentProvider).toBe('codex');
   });

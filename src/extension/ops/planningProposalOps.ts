@@ -1,7 +1,6 @@
 import type { Store } from '../../store/db.js';
 import { getPlanningSession } from '../../store/planningSessions.js';
 import {
-  acceptProposal,
   discardProposal,
   getProposal,
   markProposalAccepted,
@@ -13,23 +12,18 @@ import type { Notify } from './notify.js';
 /**
  * The human confirmation of planning proposals (vscode-free). A proposal is
  * agent-authored, so it becomes a ticket ONLY through an explicit user action
- * with its content visible: Create (after a full-content preview the user
- * accepts) or Review (the prefilled ticket form, which the user saves).
- * Dismissing anything leaves the proposal pending.
+ * with its content visible: Review opens the prefilled ticket form, which the
+ * user edits and saves. Dismissing anything leaves the proposal pending.
  */
 
-export type ProposalChoice = 'review' | 'create' | 'discard';
+export type ProposalChoice = 'review' | 'discard';
 
 export interface PlanningProposalOpsDeps {
   store: Store;
   projectId(): number | undefined;
-  /** Modal showing `proposalPreview(p)`; true only on an explicit accept. */
-  confirmPreview(p: PlanningProposal): Promise<boolean>;
-  /** Notification with Review (first), Create, Discard; undefined = dismissed. */
+  /** Notification with Review (first), Discard; undefined = dismissed. */
   choose(text: string, p: PlanningProposal): Promise<ProposalChoice | undefined>;
   openForm(prefill: TicketFormPrefill): void;
-  /** Show the draft's full content read-only (no accept, no edit). */
-  showDraft(p: PlanningProposal): Promise<void>;
   notify: Notify;
   onChange(): void;
   debug?: (line: string) => void;
@@ -38,24 +32,7 @@ export interface PlanningProposalOpsDeps {
 export interface PlanningProposalOps {
   announce(p: PlanningProposal): Promise<void>;
   review(id: number): Promise<void>;
-  view(id: number): Promise<void>;
-  create(id: number): Promise<void>;
   discard(id: number): Promise<void>;
-}
-
-/** The full, untruncated content the user confirms. */
-export function proposalPreview(p: PlanningProposal): string {
-  const { title, description, summary, repos } = p.payload;
-  return [
-    `Title: ${title}`,
-    `Repositories: ${repos.length ? repos.join(', ') : '(none)'}`,
-    '',
-    'Summary:',
-    summary || '(empty)',
-    '',
-    'Description:',
-    description || '(empty)',
-  ].join('\n');
 }
 
 const errText = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -99,40 +76,19 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       const choice = await deps.choose(text, p);
       debug(`proposal ${p.id}: choice ${choice ?? 'dismissed'}`);
       if (choice === 'review') await ops.review(p.id);
-      else if (choice === 'create') await ops.create(p.id);
       else if (choice === 'discard') await ops.discard(p.id);
     },
 
     async review(id) {
       const p = await pending(id);
       if (!p) return;
-      const { title, description, repos } = p.payload;
+      const { title, description, summary, repos } = p.payload;
       deps.openForm({
         title,
         description,
+        summary,
         repos,
         onCreated: (ticketId) => void guarded('link', id, () => markProposalAccepted(deps.store, id, ticketId)),
-      });
-    },
-
-    async view(id) {
-      const p = await pending(id);
-      if (!p) return;
-      debug(`proposal ${id}: shown read-only`);
-      await deps.showDraft(p);
-    },
-
-    async create(id) {
-      const p = await pending(id);
-      if (!p) return;
-      if (!(await deps.confirmPreview(p))) {
-        debug(`proposal ${id}: preview declined, stays pending`);
-        return;
-      }
-      const projectId = deps.projectId();
-      await guarded('create a ticket from', id, () => {
-        const ticketId = acceptProposal(deps.store, id, projectId === undefined ? {} : { projectId });
-        debug(`proposal ${id}: accepted as ticket ${ticketId}`);
       });
     },
 

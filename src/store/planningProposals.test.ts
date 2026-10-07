@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { upsertProject } from './projects.js';
-import { createTicket, getTicket } from './tickets.js';
-import { createPlanningSession, getPlanningSession, listPlanningTickets, setPlanningSessionStatus } from './planningSessions.js';
+import { createTicket, getTicket, updateTicketFields } from './tickets.js';
+import { createPlanningSession, listPlanningTickets, setPlanningSessionStatus } from './planningSessions.js';
 import {
   insertProposal,
   listPendingProposals,
   getProposal,
   discardProposal,
   countPending,
-  acceptProposal,
   markProposalAccepted,
   type ProposalPayload,
 } from './planningProposals.js';
@@ -54,44 +53,31 @@ describe('planning proposals', () => {
     expect(() => discardProposal(store, id)).toThrow(/not pending/);
   });
 
-  it('accept creates, fills, links and marks the proposal in one go', () => {
-    const id = insertProposal(store, sessionId, payload);
-    const ticketId = acceptProposal(store, id);
-    const t = getTicket(store, ticketId)!;
-    expect(t).toMatchObject({ title: 'Fix auth', source: 'planning', projectId, description: 'desc', brief: 'sum' });
-    expect(t.selectedRepos).toEqual(['api']);
-    expect(listPlanningTickets(store, sessionId)).toEqual([ticketId]);
-    expect(getPlanningSession(store, sessionId)?.status).toBe('filed');
-    expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId });
-    expect(() => acceptProposal(store, id)).toThrow(/not pending/);
-  });
-
-  it('accept refuses a proposal from another project', () => {
-    const id = insertProposal(store, sessionId, payload);
-    expect(() => acceptProposal(store, id, { projectId: projectId + 99 })).toThrow(/project/);
-    expect(getProposal(store, id)?.status).toBe('pending');
-  });
-
-  it('accept is atomic: a failure rolls back the ticket', () => {
-    const id = insertProposal(store, sessionId, payload);
-    store.db.exec(`CREATE TRIGGER boom BEFORE INSERT ON planning_session_tickets BEGIN SELECT RAISE(ABORT, 'boom'); END;`);
-    expect(() => acceptProposal(store, id)).toThrow(/boom/);
-    expect(store.db.prepare('SELECT COUNT(*) AS n FROM tickets').get()).toEqual({ n: 0 });
-    expect(getProposal(store, id)?.status).toBe('pending');
-  });
-
   it('deleting the session cascades its proposals', () => {
     const id = insertProposal(store, sessionId, payload);
     store.db.prepare('DELETE FROM planning_sessions WHERE id = ?').run(sessionId);
     expect(getProposal(store, id)).toBeUndefined();
   });
 
-  it('markProposalAccepted links a form-saved ticket and resolves the proposal', () => {
+  it('markProposalAccepted links a form-saved ticket, marks it planning, copies the summary to its brief, and resolves the proposal', () => {
     const id = insertProposal(store, sessionId, payload);
     const t = createTicket(store, { key: 'K-1', title: 'saved', projectId });
     markProposalAccepted(store, id, t.id);
     expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
+    const saved = getTicket(store, t.id)!;
+    expect(saved.brief).toBe('sum');
+    expect(saved.source).toBe('planning');
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
+  });
+
+  it('markProposalAccepted keeps a brief the ticket already has (but still records the origin)', () => {
+    const id = insertProposal(store, sessionId, payload);
+    const t = createTicket(store, { key: 'K-2', title: 'saved', projectId });
+    updateTicketFields(store, t.id, { brief: 'user wrote this' });
+    markProposalAccepted(store, id, t.id);
+    const saved = getTicket(store, t.id)!;
+    expect(saved.brief).toBe('user wrote this');
+    expect(saved.source).toBe('planning');
   });
 });

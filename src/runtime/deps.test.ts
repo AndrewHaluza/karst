@@ -14,6 +14,10 @@ import {
   AGENT_CLI_DEPENDENCIES,
 } from './deps.js';
 import { resolveAdapter } from '../agent/registry.js';
+import {
+  configureOpencode2,
+  resetOpencode2Config,
+} from '../agent/opencode2Binary.js';
 
 describe('GH_DEPENDENCY', () => {
   // Ship shells out to `gh`. Without this, a missing gh stayed invisible until the
@@ -70,6 +74,83 @@ describe('agentDependency', () => {
 
   it('probes the same binary the opencode adapter launches', () => {
     expect(agentDependency('opencode').binary).toBe(resolveAdapter('opencode').requiredBinary);
+  });
+
+  // opencode2 is the one core whose binary is a SETTING, never a PATH lookup:
+  // v2 ships a launcher also named `opencode`, so a lookup would run v1.
+  it('probes the configured opencode2 path, or a never-on-PATH sentinel when unset', () => {
+    resetOpencode2Config();
+    try {
+      const unset = agentDependency('opencode2');
+      expect(unset.binary).toBe('opencode2');
+      expect(unset.install).toMatch(/karst\.opencode2\.binaryPath/);
+      expect(unset.unavailable).toBeTruthy();
+      // Even when a real `opencode2` alias is on PATH (the probe answers true),
+      // an unset setting must read missing — never a PATH lookup.
+      expect(dependencyState(unset, () => true, () => true)).toBe('missing');
+      configureOpencode2({ binaryPath: '/opt/opencode2/bin/opencode' });
+      expect(agentDependency('opencode2').binary).toBe('/opt/opencode2/bin/opencode');
+      expect(resolveAdapter('opencode2').requiredBinary).toBe('/opt/opencode2/bin/opencode');
+    } finally {
+      resetOpencode2Config();
+    }
+  });
+
+  // Criterion 1: a configured path that exits 0 is not proof of v2 — the same
+  // launcher name ships as v1, so the version must be range-checked or the
+  // guard would launch v1 with v2 flags.
+  it('refuses a v1 opencode2 binary and accepts a v2 one via readyOutput', () => {
+    configureOpencode2({ binaryPath: '/opt/opencode2' });
+    try {
+      const dep = agentDependency('opencode2');
+      const probe = () => true;
+      const ready = () => true;
+      const readV1 = () => ({ stdout: 'opencode v1.18.32', exitCode: 0 });
+      const readV2 = () => ({ stdout: 'opencode v2.0.24', exitCode: 0 });
+      expect(dependencyState(dep, probe, ready, readV1)).toBe('not-ready');
+      expect(dependencyState(dep, probe, ready, readV2)).toBe('ok');
+      // No output probe → never silently trust the exit code.
+      expect(dependencyState(dep, probe, ready)).toBe('not-ready');
+      expect(checkDependencyFaults([dep], probe, ready, readV1)).toHaveLength(1);
+      expect(checkDependencyFaults([dep], probe, ready, readV2)).toHaveLength(0);
+    } finally {
+      resetOpencode2Config();
+    }
+  });
+
+  // Criterion 2: isolation on EVERY opencode2 spawn. `--version` is itself a v2
+  // process, so even the existence/version probes must carry the karst dirs.
+  it('runs opencode2 probes under the isolated XDG env', () => {
+    configureOpencode2({ binaryPath: '/opt/opencode2', home: '/gs/opencode2' });
+    try {
+      const dep = agentDependency('opencode2');
+      expect(dep.probeEnv).toMatchObject({
+        XDG_DATA_HOME: '/gs/opencode2/data',
+        XDG_CONFIG_HOME: '/gs/opencode2/config',
+        XDG_CACHE_HOME: '/gs/opencode2/cache',
+        XDG_STATE_HOME: '/gs/opencode2/state',
+        OPENCODE_DISABLE_AUTOUPDATE: '1',
+      });
+      let probeEnv: Record<string, string> | undefined;
+      let readEnv: Record<string, string> | undefined;
+      const probe = (_binary: string, env?: Record<string, string>): boolean => {
+        probeEnv = env;
+        return true;
+      };
+      const readOutput = (
+        _binary: string,
+        _args: readonly string[],
+        env?: Record<string, string>,
+      ): { stdout: string; exitCode: number } => {
+        readEnv = env;
+        return { stdout: 'opencode v2.0.24', exitCode: 0 };
+      };
+      expect(dependencyState(dep, probe, () => true, readOutput)).toBe('ok');
+      expect(probeEnv).toMatchObject({ XDG_DATA_HOME: '/gs/opencode2/data' });
+      expect(readEnv).toMatchObject({ XDG_DATA_HOME: '/gs/opencode2/data' });
+    } finally {
+      resetOpencode2Config();
+    }
   });
 });
 

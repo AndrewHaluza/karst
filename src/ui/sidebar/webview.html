@@ -498,7 +498,6 @@
     // the status-tinted row marker.
     mark:'<svg aria-hidden="true" width="13" height="13" viewBox="0 0 215 215" fill="currentColor"><path d="M 96 20 L 25 67 L 25 156 L 98 203 L 98 180 L 44 145 L 44 78 L 97 44 Z"/><path d="M 151 42 L 138 58 L 170 78 L 170 144 L 138 165 L 150 180 L 188 156 L 188 67 Z"/><circle cx="106.5" cy="111.5" r="26.5"/></svg>',
     del: karstIcon('trash', 13),
-    eye: karstIcon('eye', 13),
     check: karstIcon('check', 13),
     x: karstIcon('x', 13),
     plus: karstIcon('plus', 13),
@@ -977,31 +976,31 @@
       + `</div>`;
   }
 
-  // A draft: pending ones carry Review (read-only) / Approve (the prefilled
-  // ticket form) / Discard; accepted ones stay, struck through, linked to the
-  // ticket they became.
+  // A draft: its `#<id>` (the planning_proposals row id agents refer to) is
+  // shown before the title. Pending ones carry Approve (the prefilled ticket
+  // form) / Discard; accepted ones stay, struck through, linked to the ticket
+  // they became.
   function planDraftHtml(d) {
     const t = esc(d.title);
-    const node = `d${Number(d.id)}`;
+    const id = Number(d.id);
+    const node = `d${id}`;
     if (d.status === 'accepted') {
       const tid = Number(d.ticketId);
       const has = d.ticketId != null && Number.isFinite(tid);
-      const label = esc(has ? `${d.title}, accepted as ticket #${tid}` : `${d.title}, accepted`);
+      const label = esc(has ? `#${id} ${d.title}, accepted as ticket #${tid}` : `#${id} ${d.title}, accepted`);
       return `<div role="treeitem" aria-level="2" class="pt-l2 pt-accepted" data-node="${node}" tabindex="-1" aria-label="${label}">`
         + `<div class="pt-row" title="${label}">`
         + karstIcon('circle-check', 14, 'pt-icon pt-c-passed')
-        + `<span class="pt-label">${t}</span>`
+        + `<span class="pt-label">#${id} ${t}</span>`
         + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket #${tid}" aria-label="Open ticket #${tid}" title="Open ticket #${tid}">#${tid}</button>` : '')
         + `</div></div>`;
     }
-    const label = esc(`${d.title}, needs review`);
-    const id = Number(d.id);
+    const label = esc(`#${id} ${d.title}, needs review`);
     return `<div role="treeitem" aria-level="2" class="pt-l2" data-node="${node}" tabindex="-1" aria-label="${label}">`
       + `<div class="pt-row" title="${label}">`
       + karstIcon('file-text', 14, 'pt-icon pt-c-attention')
-      + `<span class="pt-label">${t}</span>`
+      + `<span class="pt-label">#${id} ${t}</span>`
       + `<span class="pt-actions">`
-      + planBtn(`data-act="plan-proposal-view" data-proposal="${id}"`, 'Review', `Review draft: ${t}`, ic.eye)
       + planBtn(`data-act="plan-proposal-review" data-proposal="${id}"`, 'Approve', `Approve draft: ${t}`, ic.check)
       + planBtn(`data-act="plan-proposal-discard" data-proposal="${id}"`, 'Discard', `Discard draft: ${t}`, ic.x)
       + `</span></div></div>`;

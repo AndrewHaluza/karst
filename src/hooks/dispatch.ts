@@ -132,6 +132,7 @@ const SHELL_TOOL_NAME: Record<AgentProvider, string | null> = {
   claude: 'Bash',
   codex: null,
   opencode: null,
+  opencode2: 'shell',
   antigravity: null,
 };
 

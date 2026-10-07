@@ -20,9 +20,12 @@ describe('commandSucceedsAsync', () => {
       '}, 5);',
     ].join('');
 
-    const probe = commandSucceedsAsync(process.execPath, ['-e', childScript], {
-      timeoutMs: 5_000,
-    }).then((ready) => {
+    const probe = commandSucceedsAsync(
+      process.execPath,
+      ['-e', childScript],
+      undefined,
+      { timeoutMs: 5_000 },
+    ).then((ready) => {
       order.push(`probe:${ready}`);
     });
 
@@ -45,6 +48,7 @@ describe('commandSucceedsAsync', () => {
     const ready = await commandSucceedsAsync(
       process.execPath,
       ['-e', 'setInterval(() => undefined, 1_000)'],
+      undefined,
       { timeoutMs: 20 },
     );
 

@@ -36,6 +36,7 @@ export const AGENT_PROVIDERS: Readonly<Record<AgentProvider, AgentCoreMeta>> = {
   codex: { label: 'Codex', icon: 'codex.svg' },
   antigravity: { label: 'Antigravity CLI', icon: 'antigravity-cli.svg' },
   opencode: { label: 'OpenCode', icon: 'opencode.svg' },
+  opencode2: { label: 'OpenCode v2', icon: 'opencode.svg' },
 };
 
 /** Agent provider id → display label, derived from the registry. */
