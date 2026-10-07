@@ -15,11 +15,19 @@ export interface Proposal {
   description: string;
   summary: string;
   repos: string[];
+  /**
+   * Optional host proposal id. Present, the proposal REVISES that existing
+   * draft in place instead of creating a new one; the host authorizes the
+   * update (same session, still pending) and rejects it otherwise. It is never
+   * part of the stored payload — the id is the host's, not the agent's.
+   */
+  id?: number;
 }
 
 export type ProposalResult = { ok: true; value: Proposal } | { ok: false; reason: string };
 
 const KEYS = ['description', 'repos', 'summary', 'title'];
+const KEYS_WITH_ID = [...KEYS, 'id'].sort() as string[];
 // C0 (minus \t \n), DEL, C1, and bidi embedding/override/isolate/mark controls.
 const BODY_CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
 const ALL_CONTROLS = /[\u0000-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
@@ -35,8 +43,19 @@ function body(raw: Record<string, unknown>, key: 'description' | 'summary'): str
 export function validateProposal(raw: unknown): ProposalResult {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return fail('proposal must be a JSON object');
   const rec = raw as Record<string, unknown>;
-  const keys = Object.keys(rec).sort();
-  if (keys.join(',') !== KEYS.join(',')) return fail(`proposal keys must be exactly ${KEYS.join(', ')}`);
+  const keys = Object.keys(rec).sort().join(',');
+  if (keys !== KEYS.join(',') && keys !== KEYS_WITH_ID.join(',')) {
+    return fail(`proposal keys must be exactly ${KEYS.join(', ')} (plus an optional id)`);
+  }
+
+  let id: number | undefined;
+  if ('id' in rec) {
+    const v = rec.id;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
+      return fail('id must be a positive integer');
+    }
+    id = v;
+  }
 
   const t = rec.title;
   if (typeof t !== 'string' || /[\r\n]/.test(t)) return fail('title must be a single-line string');
@@ -53,5 +72,7 @@ export function validateProposal(raw: unknown): ProposalResult {
   if (!repos.every((r): r is string => typeof r === 'string' && PROPOSAL_REPO_NAME.test(r))) {
     return fail('every repo must be a name matching [A-Za-z0-9._-]{1,64}');
   }
-  return { ok: true, value: { title, description, summary, repos: [...repos] } };
+  const value: Proposal = { title, description, summary, repos: [...repos] };
+  if (id !== undefined) value.id = id;
+  return { ok: true, value };
 }

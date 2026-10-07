@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
@@ -509,16 +509,29 @@ describe('runCli — draft propose (planning sessions)', () => {
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
   it('writes a proposal into KARST_OUTBOX from stdin without any store', () => {
-    const out = JSON.parse(runCli(['draft', 'propose'], { KARST_OUTBOX: dir }, { readStdin: () => proposal }));
+    const out = JSON.parse(
+      runCli(['draft', 'propose'], { KARST_OUTBOX: dir }, { readStdin: () => proposal, timeoutMs: 0 }),
+    );
     expect(out.ok).toBe(true);
     expect(readdirSync(dir)).toEqual([basename(out.file)]);
+  });
+
+  it('draft list reads the session index and opens no store', () => {
+    const indexPath = join(dirname(dir), 'proposals.json');
+    writeFileSync(
+      indexPath,
+      JSON.stringify([{ id: 1, uuid: 'u', title: 'A', status: 'pending', updatedAt: 't' }]),
+    );
+    const out = JSON.parse(runCli(['draft', 'list'], { KARST_OUTBOX: dir }, { readStdin: () => '' }));
+    expect(out).toEqual([{ id: 1, status: 'pending', title: 'A' }]);
+    rmSync(indexPath, { force: true });
   });
 
   it('refuses --db / --manifest / --session and never opens a store', () => {
     const db = join(dir, 'karst.db');
     for (const extra of [['--db', db], ['--manifest', join(dir, 'k.yml')], ['--session', '1']]) {
       expect(() =>
-        runCli(['draft', 'propose', ...extra], { KARST_OUTBOX: dir }, { readStdin: () => proposal }),
+        runCli(['draft', 'propose', ...extra], { KARST_OUTBOX: dir }, { readStdin: () => proposal, timeoutMs: 0 }),
       ).toThrow(/draft propose/);
     }
     expect(existsSync(db)).toBe(false);
