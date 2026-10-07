@@ -10,6 +10,11 @@
 #   Error: ... compiled against a different Node.js version using
 #   NODE_MODULE_VERSION 127. This version of Node.js requires 137.
 #
+# Every run does a fresh `npm run build` and packages from a throwaway stage via
+# scripts/stage-vsix.mjs, so this script never edits the repo's package.json and
+# never rebuilds the shared node_modules/better-sqlite3 addon. It is safe to run
+# concurrently with install-local.sh.
+#
 # Usage: scripts/package-remote.sh
 #
 # Copy to the VM (optional, prompted) needs two env vars — kept out of the repo:
@@ -60,25 +65,35 @@ OUT="karst-$VERSION-$PLATFORM-$ARCH-$INDEX-$COMMIT.vsix"
 echo "Target: node $NODE_VERSION (ABI $ABI) $PLATFORM-$ARCH -> $OUT"
 echo "Build:  #$INDEX at commit $COMMIT"
 
-# Restore the local tree on ANY exit: this rewrites package.json (prepublish
-# hook, below) and better-sqlite3's addon (now a foreign-platform binary).
-# Leaving either behind breaks F5 and `npm test` in ways that look unrelated.
-MODULE_DIR="$(node -p "require('path').dirname(require.resolve('better-sqlite3/package.json'))")"
-PKG_BACKUP="$(mktemp)"
-cp package.json "$PKG_BACKUP"
-restore() {
-  cp "$PKG_BACKUP" package.json
-  rm -f "$PKG_BACKUP"
-  echo "Restoring the local Electron addon (this tree is for F5, not the vsix)..."
-  npm run rebuild:electron >/dev/null 2>&1 || echo "  rebuild:electron failed — run it yourself before F5." >&2
-}
-trap restore EXIT
-
-npm run build
-
+# --- Foreign-platform addon ---------------------------------------------
+# Fetch better-sqlite3's published linux-x64 prebuild into a TEMP copy of the
+# package (never the shared node_modules addon). It cannot be ABI-probed under
+# this machine's node — the runtime is a foreign platform — so the artifact is
+# pinned twice instead: prebuild-install's cache filename carries the ABI, and
+# the vsix member is shasum-compared to the fetched file after packaging.
+BSQLITE_DIR="$(node -p "require('path').dirname(require.resolve('better-sqlite3/package.json'))")"
 PREBUILD_BIN="$(node -p "require('module').createRequire(require.resolve('better-sqlite3/package.json')).resolve('prebuild-install/bin.js')")"
-(cd "$MODULE_DIR" && node "$PREBUILD_BIN" \
-  --runtime node --target "$NODE_VERSION" --platform "$PLATFORM" --arch "$ARCH")
+
+CACHE_DIR=".karst-cache"
+# Per-process stage name: two package-remote.sh runs must not share
+# `.karst-cache/stage-remote`, or one run's wipe deletes the directory the other
+# is still packaging from.
+STAGE_NAME="remote-$$"
+ADDON_TMP="$(mktemp -d)"
+cleanup() { rm -rf "$ADDON_TMP" "$CACHE_DIR/stage-$STAGE_NAME"; }
+trap cleanup EXIT
+
+mkdir -p "$ADDON_TMP/node_modules"
+cp -R "$BSQLITE_DIR" "$ADDON_TMP/node_modules/better-sqlite3"
+printf '{"name":"karst-addon-build","version":"0.0.0","private":true}\n' > "$ADDON_TMP/package.json"
+ADDON="$ADDON_TMP/node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+
+echo "Fetching better-sqlite3 prebuild for node $NODE_VERSION $PLATFORM-$ARCH..."
+(
+  cd "$ADDON_TMP/node_modules/better-sqlite3" &&
+    node "$PREBUILD_BIN" \
+      --runtime node --target "$NODE_VERSION" --platform "$PLATFORM" --arch "$ARCH"
+)
 
 # prebuild-install exits 0 whether it downloaded or reused cache, and `file` only
 # proves platform, never ABI. The cache filename carries both — assert on it.
@@ -89,18 +104,18 @@ if ! ls "$HOME"/.npm/_prebuilds/ 2>/dev/null | grep -q -- "$CACHE_TAG"; then
 fi
 echo "Addon: $(basename "$(ls -t "$HOME"/.npm/_prebuilds/*"$CACHE_TAG"* | head -1)")"
 
-# vsce always runs `vscode:prepublish`, and karst's runs rebuild:electron, which
-# would overwrite the addon just fetched with a local-Electron one. No
-# --no-prepublish flag exists, so drop the hook; the EXIT trap puts it back.
-npm pkg delete scripts.vscode:prepublish
-npx @vscode/vsce package \
-  --skip-license --allow-missing-repository \
-  --target "$PLATFORM-$ARCH" -o "$OUT"
+# --- One fresh build + stage + package -----------------------------------
+# The helper runs a full `npm run build`, stages only the shipped files, drops
+# scripts.vscode:prepublish in the stage, writes dist/build-info.json, places
+# the addon above and packages with --target linux-x64. Nothing here mutates the
+# repo's package.json or its shared addon.
+node scripts/stage-vsix.mjs --name "$STAGE_NAME" \
+  --addon "$ADDON" --target "$PLATFORM-$ARCH" --out "$OUT"
 
 # Prove the addon INSIDE the vsix is the one fetched — vsce ignore rules and a
 # stray rebuild have both silently swapped it before.
 packed="$(unzip -p "$OUT" 'extension/node_modules/better-sqlite3/build/Release/better_sqlite3.node' | shasum | cut -d' ' -f1)"
-tree="$(shasum "$MODULE_DIR/build/Release/better_sqlite3.node" | cut -d' ' -f1)"
+tree="$(shasum "$ADDON" | cut -d' ' -f1)"
 if [ "$packed" != "$tree" ]; then
   echo "Addon in $OUT does not match the fetched one ($packed != $tree)." >&2
   exit 1

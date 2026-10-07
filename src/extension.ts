@@ -5,12 +5,14 @@ import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 
+import { describeBuildInfo, readBuildInfo } from './buildInfo.js';
 import { openStore, type Store } from './store/db.js';
 import { baselineDependentsFor } from './store/baselineRefs.js';
 import { backfillSpillOversized } from './attachments/spill.js';
 import { runImmediateTransaction } from './store/transactions.js';
 import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
+import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
@@ -718,24 +720,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const hookChannelRecorder = createHookChannelRecorder();
   const activatedAt = Date.now();
   logger.info('Karst activated');
+  // Which build this window is running — every installer stamps dist/build-info.json
+  // so a stale install is identifiable from the log alone.
+  logger.info(describeBuildInfo(readBuildInfo()));
 
   // The karst mark every panel tab wears. Materialized once per window and
   // handed to each panel host — a tab that carries no ticket has no glyph to
   // derive an icon from, and would otherwise be indistinguishable from a file.
   const brandIcon = brandTabIcon(context);
 
-  /**
-   * A base branch that could not be refreshed before its worktree was cut
-   * (§ pull switch). Deliberately a warning, not an error: the ticket exists and
-   * is usable — it just starts from what this clone already had, which the user
-   * must be told rather than left to discover in a diff. The reason is git's own
-   * first line, already bounded by `pullBaseRef`.
-   */
-  const warnBaseNotPulled = (repoPath: string, baseRef: string, reason: string): void => {
-    const message = `Could not refresh ${baseRef} in ${repoPath} — the worktree was created from the local branch: ${reason}`;
-    logger.warn(message);
-    void vscode.window.showWarningMessage(message);
-  };
+  const warnBaseNotPulled = (repoPath: string, baseRef: string, reason: string): void =>
+    warnBaseNotPulledOp(repoPath, baseRef, reason, { warn: logger.warn, notify });
   let modelCatalog = bundledModelCatalog();
   const modelCatalogCache = makeMementoCatalogCache(context.globalState);
 

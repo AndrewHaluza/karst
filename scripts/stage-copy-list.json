@@ -1,0 +1,34 @@
+{
+  "$comment": "Explicit top-level entries scripts/stage-vsix.mjs copies into the throwaway stage directory before vsce packages it. This list IS the vsix contents when there is no .vscodeignore in the stage: every entry is copied whole (no pruning), so the packaged extension matches what a root-based vsce run would ship, minus vsce's own defaultIgnore (CONTRIBUTING.md, CODE_OF_CONDUCT.md, .github, package-lock.json, ...). It is consulted by src/ui/settings/app/packaging.test.ts, which pins the runtime dependency closure against the node_modules entries below. Keep both sides in sync if a new root asset ships.",
+  "required": [
+    "dist",
+    "package.json",
+    "node_modules/better-sqlite3",
+    "node_modules/bindings",
+    "node_modules/file-uri-to-path",
+    "node_modules/js-yaml"
+  ],
+  "optional": [
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "AGENTS.md",
+    "SECURITY.md",
+    "THIRD_PARTY_NOTICES.md",
+    "TRADEMARK.md",
+    "CLA.md",
+    "eslint.config.mjs",
+    "karst.example.yml",
+    "karst.uat-review-setup.md",
+    "model-catalog.json",
+    "opencode.json",
+    ".nvmrc",
+    ".claudeignore",
+    ".agents",
+    ".playwright-mcp",
+    "media/karst-icon.png",
+    "media/karst.svg",
+    "media/karst-icons.woff"
+  ],
+  "nodeModulesPackages": ["better-sqlite3", "bindings", "file-uri-to-path", "js-yaml"]
+}

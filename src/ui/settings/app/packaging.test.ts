@@ -1,22 +1,25 @@
 /**
- * Packaging guard for the React migration (NDL-126 §1).
+ * Packaging guard for the staged-VSIX pipeline.
  *
- * The design calls for a `vsce ls` assertion that no `react*` path ships. `vsce`
- * is not a repo dependency and `npx` is not hermetic (and in this workspace npm
- * redacts the dependency UUIDs `vsce ls` needs), so this test pins the same
- * property statically instead: `.vscodeignore` must keep its one-glob-per-line
- * shape, and replaying those rules over a candidate file list must exclude every
- * React/dev path.
+ * `install-local.sh` and `package-remote.sh` no longer run `vsce` against the
+ * repo root, where it walked ~750k files (`.karst/` worktrees, `.stryker-tmp/`)
+ * before `.vscodeignore` filtered them. They package from a throwaway stage
+ * built by `scripts/stage-vsix.mjs`, whose contents ARE `scripts/stage-copy-list.json`.
+ * This test pins that list against the real runtime dependency closure, so a
+ * packaged VSIX can never ship `better-sqlite3` while pruning `bindings` (or
+ * `js-yaml`) — a failure that only surfaces as `Cannot find module` on the first
+ * `openStore` in a user's IDE, because F5 and `npm test` both read the repo's
+ * node_modules and never see the package.
  *
- * The keep-list is NOT a hardcoded pair. Every package `build-extension.mjs`
- * leaves `external` is resolved by walking the `require()` calls its shipped
- * entry actually makes, transitively. That is the runtime closure — a packaged
- * VSIX that keeps `better-sqlite3` but prunes `bindings` fails on the first
- * `openStore` with `Cannot find module 'bindings'`, and only a closure derived
- * from real requires catches that. Install-time-only dependencies
- * (`prebuild-install`'s tree, run from better-sqlite3's `install` script rather
- * than from its runtime code) are deliberately not required at runtime, so they
- * stay pruned and do not bloat the VSIX.
+ * The keep-list is NOT a hardcoded pair. Every package the bundles leave
+ * `external` (see `scripts/build-extension.mjs`) is resolved by walking the
+ * `require()` calls its shipped entry actually makes, transitively. Install-time
+ * dependencies (`prebuild-install`'s tree, js-yaml's CLI-only `argparse`) are
+ * deliberately not required at runtime, so `stage-vsix.mjs` stubs them out for
+ * vsce's npm-list check and the stage `.vscodeignore` keeps them out of the VSIX.
+ *
+ * `.vscodeignore` is left in place for now (a follow-up cleans it up); it no
+ * longer decides what ships, so nothing here replays it.
  */
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
@@ -43,43 +46,15 @@ function findNodeModulesDir(start: string): string {
 }
 const NODE_MODULES = findNodeModulesDir(ROOT);
 
-const LINES = readFileSync(join(ROOT, '.vscodeignore'), 'utf8').split('\n');
-const RULES = LINES.map((line) => line.trim()).filter(
-  (line) => line.length > 0 && !line.startsWith('#'),
-);
-
-function globToRegExp(glob: string): RegExp {
-  let source = '^';
-  for (let i = 0; i < glob.length; i += 1) {
-    const char = glob[i]!;
-    if (char === '*') {
-      if (glob[i + 1] === '*') {
-        source += '.*';
-        i += 1;
-        if (glob[i + 1] === '/') i += 1;
-      } else {
-        source += '[^/]*';
-      }
-    } else if (char === '?') {
-      source += '[^/]';
-    } else if ('.+^${}()|[]\\'.includes(char)) {
-      source += `\\${char}`;
-    } else {
-      source += char;
-    }
-  }
-  return new RegExp(`${source}$`);
-}
-
-function isIgnored(path: string): boolean {
-  let ignored = false;
-  for (const rule of RULES) {
-    const negated = rule.startsWith('!');
-    const pattern = negated ? rule.slice(1) : rule;
-    if (globToRegExp(pattern).test(path)) ignored = !negated;
-  }
-  return ignored;
-}
+type StageCopyList = {
+  required: string[];
+  optional: string[];
+  nodeModulesPackages: string[];
+};
+const COPY_LIST = JSON.parse(
+  readFileSync(join(ROOT, 'scripts', 'stage-copy-list.json'), 'utf8'),
+) as StageCopyList;
+const STAGE_ENTRIES = [...COPY_LIST.required, ...COPY_LIST.optional];
 
 /** Packages `scripts/build-extension.mjs` leaves unbundled, and so that must ship. */
 const EXTERNAL_PACKAGES = ['better-sqlite3', 'js-yaml'] as const;
@@ -166,38 +141,7 @@ function runtimeClosure(roots: readonly string[]): Set<string> {
   return closure;
 }
 
-/** Every path inside a package that a replay can be asked about. */
-function samplePaths(name: string): string[] {
-  const packageDir = join(NODE_MODULES, name);
-  const samples = [`node_modules/${name}/index.js`];
-  for (const relative of ['lib/database.js', 'build/Release/better_sqlite3.node']) {
-    if (existsSync(join(packageDir, relative))) {
-      samples.push(`node_modules/${name}/${relative}`);
-    }
-  }
-  return samples;
-}
-
-describe('.vscodeignore packaging', () => {
-  it('keeps exactly one glob per line (vsce splits on newlines only)', () => {
-    for (const line of RULES) {
-      expect(line.split(/\s+/), `"${line}" is not a single glob`).toHaveLength(1);
-    }
-  });
-
-  it('excludes React, testing-library and eslint from the VSIX', () => {
-    for (const path of [
-      'node_modules/react/index.js',
-      'node_modules/react-dom/index.js',
-      'node_modules/@testing-library/react/index.js',
-      'node_modules/@testing-library/dom/index.js',
-      'node_modules/eslint/bin/eslint.js',
-      'node_modules/@types/react/index.d.ts',
-    ]) {
-      expect(isIgnored(path), `${path} would ship`).toBe(true);
-    }
-  });
-
+describe('stage-vsix copy list packaging', () => {
   it('derives a non-empty runtime closure from real require() calls', () => {
     const closure = runtimeClosure(EXTERNAL_PACKAGES);
     // Non-vacuity: a walker that silently resolved nothing would pass every
@@ -208,34 +152,37 @@ describe('.vscodeignore packaging', () => {
 
   it('keeps every package in the runtime dependency closure', () => {
     for (const name of runtimeClosure(EXTERNAL_PACKAGES)) {
-      for (const path of samplePaths(name)) {
-        expect(isIgnored(path), `${path} would be pruned from the VSIX`).toBe(false);
-      }
-    }
-  });
-
-  it('keeps the native addon path the bindings loader opens', () => {
-    // better-sqlite3 ships prebuilds under bin/<platform>-<abi>/ and
-    // rebuild:electron copies one into build/Release. `bindings` opens exactly
-    // that path, so pruning the package but not the tree breaks openStore.
-    expect(
-      isIgnored('node_modules/better-sqlite3/build/Release/better_sqlite3.node'),
-    ).toBe(false);
-  });
-
-  it('keeps the native binaries better-sqlite3 prebuild-installs', () => {
-    // prebuild-install runs at install time, but the binaries it produced are
-    // what `bindings` loads, so the .node payloads must survive the prune.
-    for (const name of ['better-sqlite3', 'bindings', 'file-uri-to-path']) {
-      expect(isIgnored(`node_modules/${name}/`), `${name} is pruned`).toBe(false);
-    }
-  });
-
-  it('never re-includes a React path with a negation rule', () => {
-    for (const rule of RULES.filter((line) => line.startsWith('!'))) {
-      expect(/react|testing-library|eslint/i.test(rule), `${rule} re-includes a dev dependency`).toBe(
-        false,
+      expect(COPY_LIST.nodeModulesPackages, `${name} would be pruned from the VSIX`).toContain(
+        name,
       );
+    }
+  });
+
+  it('copies every runtime package whole (bindings included, not just better-sqlite3)', () => {
+    // The transitive closure above is what proves the list is complete; this
+    // asserts the shape the helper relies on — one top-level entry per package.
+    for (const name of ['better-sqlite3', 'bindings', 'file-uri-to-path', 'js-yaml']) {
+      expect(COPY_LIST.nodeModulesPackages).toContain(name);
+      expect(STAGE_ENTRIES).toContain(`node_modules/${name}`);
+    }
+  });
+
+  it('includes the package that carries the native addon the bindings loader opens', () => {
+    // better-sqlite3 ships prebuilds under bin/<platform>-<abi>/ and the helper
+    // copies one into build/Release. `bindings` opens exactly that path, so the
+    // whole package must be staged (the addon is placed into it after copy).
+    expect(COPY_LIST.required).toContain('node_modules/better-sqlite3');
+  });
+
+  it('excludes React, testing-library and eslint runtime packages from the stage', () => {
+    for (const name of COPY_LIST.nodeModulesPackages) {
+      expect(/react|testing-library|eslint/i.test(name), `${name} would ship`).toBe(false);
+    }
+  });
+
+  it('only names required entries that exist in the repo', () => {
+    for (const entry of COPY_LIST.required) {
+      expect(existsSync(join(ROOT, entry)), `required stage entry is missing: ${entry}`).toBe(true);
     }
   });
 });

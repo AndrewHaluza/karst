@@ -7,9 +7,27 @@ better-sqlite3 ships an ABI-140 prebuild (`bin/darwin-arm64-140/`); `rebuild:ele
 F5 auto-copies via `dev:extension`; `npm run test:unit` auto-recompiles via `pretest:unit`.
 On VS Code upgrade that changes ABI: update the `darwin-arm64-<N>` folder name + `rebuild:electron` copy path.
 
-## The addon is shared across checkouts; install-local is the final word
+## The addon is shared across checkouts; the installers build private copies
 
-**`install-local.sh`'s final word is the addon INSIDE the packaged vsix, never the one in `build/Release`.** The addon is a single shared file that any `npm run test:unit` (main checkout or ANY worktree — a worktree has no node_modules of its own and resolves the main checkout's better-sqlite3) flips back to the Node ABI via `pretest:unit`/`rebuild:node`. vsce takes ~1 minute to package, so a pre-package ABI verify is a TOCTOU, not a guarantee: it passed, then the packaged vsix carried the Node binary, and the IDE failed at activation (the v1.0.0 Cursor install). install-local probes the addon extracted from the fresh vsix (`unzip -p …`) and — when a concurrent rebuild flipped it during the ~1-minute packaging window — PATCHES the vsix member in place from a private verified copy taken before packaging (one instant zip replacement, no race window), with a bounded rebuild + repackage (3 attempts) only as the fallback; either way the ARTIFACT must match before anything is installed.
+better-sqlite3's addon in `node_modules/better-sqlite3/build/Release` is a single
+shared file that any `npm run test:unit` (main checkout or ANY worktree — a
+worktree with no node_modules of its own resolves the main checkout's
+better-sqlite3) flips back to the Node ABI via `pretest:unit`/`rebuild:node`.
+
+`install-local.sh` and `package-remote.sh` no longer read or write that shared
+file. Each builds its addon in a TEMP copy of the package (prebuild-install, with
+an electron-rebuild fallback), verifies its ABI (for the local, same-platform
+case), caches it under `.karst-cache/addons/` keyed by bsqlite version + ABI +
+platform/arch, and hands it to `scripts/stage-vsix.mjs`. The helper runs one
+fresh `npm run build`, copies only the shipped files into a private
+`.karst-cache/stage-<name>/`, places the addon there, and lets `vsce` package the
+stage — so a concurrent `npm test` can no longer flip the addon during the
+~1-minute packaging window. `install-local.sh` then re-probes the addon extracted
+from the finished vsix (`unzip -p …`) and refuses to install on a mismatch:
+there is no retry loop and no in-place zip patch, because the packaged addon was
+never the shared one to begin with. `package-remote.sh` builds a foreign
+(linux-x64) addon that this machine cannot ABI-probe, so it pins the artifact by
+prebuild-install's ABI-bearing cache tag and a vsix-vs-fetched shasum instead.
 
 ## rebuild-better-sqlite3.mjs delivers VERIFIED addons only
 
