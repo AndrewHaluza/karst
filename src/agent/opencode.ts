@@ -1000,7 +1000,7 @@ export class OpencodeAdapter implements AgentAdapter {
       args.push('--prompt', kickoff);
     }
     const permission = opencodeLaunchPermission(opts);
-    if (permission) env.OPENCODE_PERMISSION = permission;
+    if (permission) env.OPENCODE_PERMISSION = JSON.stringify(permission);
     return {
       command: OPENCODE_BIN,
       args,
@@ -1349,18 +1349,26 @@ export class OpencodeAdapter implements AgentAdapter {
 }
 
 /**
- * The `OPENCODE_PERMISSION` overlay for a launch, or undefined when none is
- * needed. opencode merges this env AFTER every config file, so it wins over a
- * project `opencode.json` that allows everything — which also overrides the
- * built-in `plan` agent's deny, why that agent is not used. The TUI has no
- * extra-directory flag; `addDirs` become `external_directory` allows instead.
+ * The read-only/add-dirs permission overlay for an opencode-family launch, or
+ * `undefined` when none is needed. This is the ONE permission object both
+ * cores translate: v1 rides it as the `OPENCODE_PERMISSION` env (merged AFTER
+ * every config file, so it wins over a project `opencode.json` that allows
+ * everything — which also overrides the built-in `plan` agent's deny, why that
+ * agent is not used); v2 nests it under the `permission` key of
+ * `OPENCODE_CONFIG_CONTENT` (also last-match-wins, verified on 2.0.24). The
+ * shell config key is `bash` on both, while the v2 event action is `shell`.
+ * Neither TUI has an extra-directory flag; `addDirs` become
+ * `external_directory` allows instead.
  */
-function opencodeLaunchPermission(opts: InteractiveCommandOpts): string | undefined {
+export function opencodeLaunchPermission(opts: {
+  readOnly?: boolean | undefined;
+  addDirs?: string[] | undefined;
+}): Record<string, unknown> | undefined {
   const dirs = opts.addDirs ?? [];
   if (!opts.readOnly && dirs.length === 0) return undefined;
   const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
-  return JSON.stringify({
+  return {
     ...(opts.readOnly ? { edit: 'deny', bash: 'ask' } : {}),
     ...(dirs.length > 0 ? { external_directory: external } : {}),
-  });
+  };
 }

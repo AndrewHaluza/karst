@@ -148,6 +148,34 @@ describe('buildOpencode2ConfigContent', () => {
     expect(JSON.parse(buildOpencode2ConfigContent({ headless: true }))).toEqual({ snapshot: false });
     expect(JSON.parse(buildOpencode2ConfigContent({ headless: false }))).toEqual({});
   });
+
+  it('nests a read-only ruleset under the singular `permission` key', () => {
+    const config = JSON.parse(buildOpencode2ConfigContent({ headless: false, readOnly: true }));
+    expect(config).toEqual({ permission: { edit: 'deny', bash: 'ask' } });
+    expect(config.permissions).toBeUndefined();
+  });
+
+  it('adds an external_directory allow per add dir, with the default ask', () => {
+    const config = JSON.parse(
+      buildOpencode2ConfigContent({ headless: false, addDirs: ['/repos/api', '/repos/web'] }),
+    );
+    expect(config).toEqual({
+      permission: {
+        external_directory: {
+          '*': 'ask',
+          '/repos/api/**': 'allow',
+          '/repos/web/**': 'allow',
+        },
+      },
+    });
+  });
+
+  it('carries no permission key when neither readOnly nor addDirs applies', () => {
+    expect(JSON.parse(buildOpencode2ConfigContent({ headless: false }))).toEqual({});
+    expect(JSON.parse(buildOpencode2ConfigContent({ model: 'a/b', headless: false }))).toEqual({
+      model: 'a/b',
+    });
+  });
 });
 
 describe('parseOpencode2Jsonl', () => {
@@ -385,6 +413,23 @@ describe('Opencode2Adapter interactive argv/env', () => {
     expect(cmd.args[i + 1]).toBe('ses_prev');
     expect(cmd.args.join(' ')).not.toContain('NEVER-INLINE-THIS-BODY');
     expect(cmd.args.join(' ')).toContain('KARST_INSTRUCTIONS');
+  });
+
+  it('nests the planning ruleset in the config blob, never a permissions array', () => {
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: '/wt',
+      readOnly: true,
+      addDirs: ['/repos/api'],
+      initialPrompt: 'plan it',
+    });
+    const config = JSON.parse(cmd.env.OPENCODE_CONFIG_CONTENT!) as Record<string, unknown>;
+    expect(config.permissions).toBeUndefined();
+    expect(config.permission).toEqual({
+      edit: 'deny',
+      bash: 'ask',
+      external_directory: { '*': 'ask', '/repos/api/**': 'allow' },
+    });
   });
 });
 
