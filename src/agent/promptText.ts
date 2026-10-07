@@ -33,6 +33,16 @@ export const GATE_DECIDED_BY_EXIT_CODES = 'decided by its gate exit codes';
  *  run <cmd>". One clause on purpose — the guide is pulled on demand. */
 export const GUIDE_POINTER_INTRO = 'To understand how Karst works and what this CLI can do';
 
+/**
+ * The MCP preference every session preamble and the guide carry: when the
+ * karst MCP server is configured, its typed tools mirror the CLI commands and
+ * should be preferred (the registry schema validates the call before it runs,
+ * and there is no shell quoting); the CLI stays the fallback. ONE sentence,
+ * imported wherever it is stated, so the two surfaces cannot drift.
+ */
+export const MCP_TOOLS_PREFERRED =
+  'If the karst MCP server is configured for this session, prefer its typed tools — the same commands, with input validated before the call runs and no shell quoting; fall back to `node "$KARST_CLI"` when no MCP tool is available.';
+
 /** The orientation heading of the gate-lane scope block, shared verbatim by
  *  both lanes via `agentScope.ts`. */
 export const SCOPE_ORIENTATION_HEADING =

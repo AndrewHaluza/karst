@@ -10,6 +10,35 @@ import { insertAttachment } from '../store/attachments.js';
 import { openWritableStore, MARKER_BUSY_TIMEOUT_MS } from './writableStore.js';
 
 /**
+ * Run a contender write with `busy_timeout = 0` in a child process; true when a
+ * held write lock blocked it (it could not write at all, so it exited 2 with a
+ * busy/locked error rather than succeeding).
+ */
+function contenderBlockedByHeldWriteLock(dbPath: string): boolean {
+  const contender = spawnSync(
+    process.execPath,
+    [
+      '-e',
+      `const { DatabaseSync } = require('node:sqlite');
+       const db = new DatabaseSync(process.argv[1]);
+       db.exec('PRAGMA busy_timeout = 0');
+       try {
+         db.prepare('UPDATE tickets SET title = ? WHERE id = 1').run('contender');
+         db.close();
+         process.exit(0);
+       } catch (err) {
+         console.error(err instanceof Error ? err.message : String(err));
+         db.close();
+         process.exit(2);
+       }`,
+      dbPath,
+    ],
+    { encoding: 'utf8' },
+  );
+  return contender.status === 2 && /busy|locked/i.test(contender.stderr);
+}
+
+/**
  * The writable node:sqlite adapter must satisfy the exact `store.db` surface the
  * stage machine uses — `.prepare()` AND `.transaction()` — so the marker CLI can
  * advance a stage under plain `node` (no better-sqlite3 ABI addon).
@@ -80,34 +109,33 @@ describe('openWritableStore', () => {
 
   it('offers better-sqlite-compatible immediate transactions that lock before the body', () => {
     const store = openWritableStore(dbPath);
-    let contenderWasBlocked = false;
     try {
+      let contenderWasBlocked = false;
       const transaction = store.db.transaction(() => {
-        const contender = spawnSync(
-          process.execPath,
-          [
-            '-e',
-            `const { DatabaseSync } = require('node:sqlite');
-             const db = new DatabaseSync(process.argv[1]);
-             db.exec('PRAGMA busy_timeout = 0');
-             try {
-               db.prepare('UPDATE tickets SET title = ? WHERE id = 1').run('contender');
-               db.close();
-               process.exit(0);
-             } catch (err) {
-               console.error(err instanceof Error ? err.message : String(err));
-               db.close();
-               process.exit(2);
-             }`,
-            dbPath,
-          ],
-          { encoding: 'utf8' },
-        );
-        contenderWasBlocked =
-          contender.status === 2 && /busy|locked/i.test(contender.stderr);
+        contenderWasBlocked = contenderBlockedByHeldWriteLock(dbPath);
       });
 
       transaction.immediate();
+
+      expect(contenderWasBlocked).toBe(true);
+    } finally {
+      store.close();
+    }
+  });
+
+  it('defaults to an immediate transaction, so the machine’s marker write locks before its body', () => {
+    // The stage machine calls `store.db.transaction(fn)` with NO mode; if that
+    // default stayed deferred, the contender below would slip in before the
+    // marker takes the write lock, and a marker fired while the extension is
+    // mid-write would fail instantly instead of honouring busy_timeout.
+    const store = openWritableStore(dbPath);
+    try {
+      let contenderWasBlocked = false;
+      const transaction = store.db.transaction(() => {
+        contenderWasBlocked = contenderBlockedByHeldWriteLock(dbPath);
+      });
+
+      transaction();
 
       expect(contenderWasBlocked).toBe(true);
     } finally {

@@ -167,6 +167,7 @@ export class ClaudeAdapter implements AgentAdapter {
     entryOrchestrators: SUPPORTED,
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
+    mcpConfigInteractive: SUPPORTED,
   };
 
   /**
@@ -238,6 +239,13 @@ export class ClaudeAdapter implements AgentAdapter {
       // Agent-specific launch additions from materializeApproach (e.g. a plugin
       // dir). Appended before the `--`/positional so they parse as options.
       args.push(...opts.extraArgs);
+    }
+    if (opts.mcpConfigPath) {
+      // Register the karst MCP server for THIS session from a scratch file karst
+      // wrote (never a repo `.mcp.json`). The launch is therefore interactive-
+      // only: headless runs stay isolated (`--strict-mcp-config` alone), since a
+      // one-shot automation call has no use for the karst tools.
+      args.push('--mcp-config', opts.mcpConfigPath);
     }
     if (opts.readOnly) {
       // Not `plan`: plan mode refuses the `draft propose` shell command, and

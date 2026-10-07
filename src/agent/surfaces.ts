@@ -134,4 +134,12 @@ export interface AdapterSurfaces {
   readonly readOnlyInteractive: SurfaceSupport;
   /** `InteractiveCommandOpts.addDirs` → the core's extra-workspace-directory flag. */
   readonly addDirsInteractive: SurfaceSupport;
+  /**
+   * `InteractiveCommandOpts.mcpConfigPath` → the core's launch-time MCP config
+   * flag (`claude --mcp-config <file>`), so the karst MCP tools are registered
+   * for the session from a scratch file and no repo `.mcp.json` is committed.
+   * `unsupported` means the core has no per-launch flag; its agent uses
+   * `karst mcp install` to register the server at user scope instead.
+   */
+  readonly mcpConfigInteractive: SurfaceSupport;
 }

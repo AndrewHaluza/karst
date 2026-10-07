@@ -18,7 +18,12 @@
  * the workflow command and the ticket-context note.
  */
 
-import { MARKER_REFUSED, GUIDE_POINTER_INTRO, SERVERS_VIA_CLI_RULE } from '../agent/promptText.js';
+import {
+  MARKER_REFUSED,
+  GUIDE_POINTER_INTRO,
+  SERVERS_VIA_CLI_RULE,
+  MCP_TOOLS_PREFERRED,
+} from '../agent/promptText.js';
 import { quoteArg } from '../agent/cliEnv.js';
 
 /**
@@ -66,6 +71,10 @@ validated before anything runs, so a mistyped field fails once, clearly. Run
 \`--file\`/\`--stdin\` (its \`structured\` flag). Structured input carries the
 whole input; repeating the command's own subcommand (e.g.
 \`subtask create --file …\`) is fine, but any other argument is refused.
+
+${MCP_TOOLS_PREFERRED} The tools mirror the commands below one-for-one (only
+the \`test\` verb is never a tool), and each tool's input schema is the same one
+\`schema\` prints.
 
 - \`context <key> [--json|--md]\` — **read** the ticket's live state: prompt,
   brief, current stage and its verdict/blocking, gate runs, findings,
@@ -179,10 +188,14 @@ whole input; repeating the command's own subcommand (e.g.
    mutates nothing.
  - \`guide\` — this document.
  - \`schema [command]\` — print the input schema for one command (or every
-   command, with no argument) as JSON. Use it to discover a command's exact
-   input shape before calling it; a command whose \`structured\` flag is true
-   also accepts that shape via \`--file <path>\` or \`--stdin\` instead of
-   named flags.
+    command, with no argument) as JSON. Use it to discover a command's exact
+    input shape before calling it; a command whose \`structured\` flag is true
+    also accepts that shape via \`--file <path>\` or \`--stdin\` instead of
+    named flags.
+ - \`mcp serve\` — start the stdio MCP server for this session (long-running;
+    started by the host with \`--db\`/\`--manifest\`/\`--ticket\`, or the
+    \`KARST_*\` env). \`mcp install\` prints the user-scope MCP config for an
+    agent karst cannot configure at launch.
 
 The marker is deliberately narrow: \`stage\` accepts only \`impl\`/\`fix\` and
 only \`pass\`. A gate stage (\`uat\`/\`review\`/\`ship\`) is decided by exit
@@ -226,7 +239,8 @@ export function composeGuideCommand(cliEntry: string): string {
 export function renderGuideInstruction(guideCommand: string): string {
   return (
     `${GUIDE_POINTER_INTRO}, run ` +
-    `\`${guideCommand}\` and read its output.`
+    `\`${guideCommand}\` and read its output. ` +
+    MCP_TOOLS_PREFERRED
   );
 }
 

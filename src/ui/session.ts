@@ -1,5 +1,8 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
+import { mcpServersConfig, type McpConnection } from '../agent/mcpConfig.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import {
   KARST_DB_ENV,
@@ -453,6 +456,36 @@ export class SessionManager {
   }
 
   /**
+   * Write the session's MCP config to a scratch file under the extension's
+   * global storage (`hookChannel.configDir`) and return its path, or `undefined`
+   * when the core has no launch-time MCP flag or the launch has no CLI entry.
+   * NEVER a repo/worktree `.mcp.json` — committing one would dirty `git status`
+   * and leak a machine path into the diff, which is exactly why the config is
+   * launch-time and host-owned.
+   */
+  private writeMcpConfig(
+    adapter: AgentAdapter,
+    ticketId: number,
+    options: OpenSessionOptions,
+    hookChannel: HookChannel | undefined,
+  ): string | undefined {
+    if (!adapter.surfaces?.mcpConfigInteractive?.supported) return undefined;
+    if (!hookChannel || !options.cliEntry || !options.dbPath) return undefined;
+    const connection: McpConnection = {
+      cliEntry: options.cliEntry,
+      dbPath: options.dbPath,
+      ...(options.manifestPath ? { manifestPath: options.manifestPath } : {}),
+      ...(options.ticketKey ? { ticketKey: options.ticketKey } : {}),
+    };
+    const dir = join(hookChannel.configDir, 'mcp-config');
+    const path = join(dir, `${options.ticketKey ?? String(ticketId)}.json`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path, JSON.stringify(mcpServersConfig(connection)));
+    options.debug?.(`[agent] launch-time MCP config written to ${path}`);
+    return path;
+  }
+
+  /**
    * Open (or focus) the interactive session for a ticket. The optional `label`
    * carries the ticket's key + title so the terminal reads `Karst: <key>` with
    * the title as its description, rather than the raw internal id. The optional
@@ -500,6 +533,7 @@ export class SessionManager {
     // its ticket. Adapters whose CLI has no naming flag ignore it.
     const terminalName = naming?.name ?? `Karst: ${label?.key ?? `#${ticketId}`}`;
     const hookChannel = this.hookChannelFor(ticketId);
+    const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
       hookChannel,
@@ -512,6 +546,7 @@ export class SessionManager {
       ...(options.instructions && adapter.instructions?.interactive !== 'n/a'
         ? { instructions: options.instructions }
         : {}),
+      ...(mcpConfigPath ? { mcpConfigPath } : {}),
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 

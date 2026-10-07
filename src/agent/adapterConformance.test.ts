@@ -21,7 +21,7 @@ import type { AgentAdapter, MaterializeOpts, RunHeadlessOpts } from './adapter.j
 import type { AgentProvider } from '../manifest/types.js';
 import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
 import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
-import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, sep } from 'node:path';
 
@@ -104,6 +104,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'entryOrchestrators',
       'readOnlyInteractive',
       'addDirsInteractive',
+      'mcpConfigInteractive',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -275,6 +276,40 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
     }
     expect(launch.args.at(-1)).toBe('plan it');
+  });
+
+  it('registers a launch-time MCP config on the cores that declare support', () => {
+    const supported = surfacesOf(provider).mcpConfigInteractive.supported;
+    const dir = mkdtempSync(join(tmpdir(), 'karst-mcp-conf-'));
+    const configPath = join(dir, 'mcp.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        mcpServers: { karst: { command: 'node', args: ['/cli/main.js', 'mcp', 'serve', '--db', '/db'] } },
+      }),
+    );
+    try {
+      const launch = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', mcpConfigPath: configPath });
+      if (!supported) {
+        expect(launch.args, `${provider} must not pass --mcp-config`).not.toContain('--mcp-config');
+        const blob = launch.env.OPENCODE_CONFIG_CONTENT;
+        if (blob) expect(JSON.parse(blob).mcp, `${provider} config blob`).toBeUndefined();
+        return;
+      }
+      if (provider === 'claude') {
+        expect(launch.args).toContain('--mcp-config');
+        expect(launch.args).toContain(configPath);
+      } else if (provider === 'opencode2') {
+        const config = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT!) as {
+          mcp?: { karst?: { command?: string[] } };
+        };
+        expect(config.mcp?.karst?.command).toEqual(['node', '/cli/main.js', 'mcp', 'serve', '--db', '/db']);
+      } else {
+        throw new Error(`provider ${provider} declares mcp support with no assertion`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('encodes opencode2 permissions as the singular object, never a permissions array', () => {

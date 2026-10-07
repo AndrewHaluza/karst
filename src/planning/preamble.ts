@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { Manifest } from '../manifest/types.js';
 import { KARST_CLI_ENV, envRef } from '../agent/cliEnv.js';
+import { MCP_TOOLS_PREFERRED } from '../agent/promptText.js';
 
 /**
  * The env var a planning terminal exports. Used ONLY to re-adopt the terminal
@@ -75,6 +76,7 @@ export function planningInstructions(input: PreambleInput): string {
     'To REVISE a draft you already filed (new findings, changed repos), add that integer as "id" to',
     'the JSON object and propose again: the host replaces the draft in place while it is still',
     `pending. \`node ${cli} draft list\` re-reads the ids and statuses of this session's drafts.`,
+    MCP_TOOLS_PREFERRED,
     `Run \`node ${cli} guide\` for the full CLI reference.`,
   ].join('\n');
 }
