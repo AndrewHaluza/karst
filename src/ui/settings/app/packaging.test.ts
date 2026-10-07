@@ -167,6 +167,23 @@ describe('stage-vsix copy list packaging', () => {
     }
   });
 
+  it('declares only packages the stage actually ships as production dependencies', () => {
+    // vsce runs `npm list --production` inside the STAGE, whose node_modules is
+    // exactly COPY_LIST.nodeModulesPackages. A production dependency the stage
+    // does not carry fails it with `npm error missing: <pkg>, required by
+    // karst` — which is how a bundled-at-build-time package (the MCP SDK,
+    // inlined into dist/cli/main.js by esbuild) breaks every `install-local.sh`
+    // run. Build-time packages belong in devDependencies, exactly where this
+    // repo already keeps react for the same reason (architecture.test.ts).
+    const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as PackageJson;
+    for (const name of Object.keys(manifest.dependencies ?? {})) {
+      expect(
+        COPY_LIST.nodeModulesPackages,
+        `${name} is a production dependency but the stage does not ship it`,
+      ).toContain(name);
+    }
+  });
+
   it('includes the package that carries the native addon the bindings loader opens', () => {
     // better-sqlite3 ships prebuilds under bin/<platform>-<abi>/ and the helper
     // copies one into build/Release. `bindings` opens exactly that path, so the
