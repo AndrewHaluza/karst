@@ -5875,7 +5875,26 @@
   window.addEventListener('load', place);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(place);
 
-  window.addEventListener('message', (e) => {
+  const XTERM_BUNDLE_SHA256 = 'KARST_XTERM_BUNDLE_SHA256';
+
+  async function sha256Base64(input) {
+    const bytes = new TextEncoder().encode(input);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    let binary = '';
+    const arr = new Uint8Array(digest);
+    for (let i = 0; i < arr.length; i++) binary += String.fromCharCode(arr[i]);
+    return btoa(binary);
+  }
+
+  async function isTrustedXtermBundle(js) {
+    if (typeof js !== 'string' || !js) return false;
+    // Placeholder is replaced at build/render time with the expected bundle hash.
+    if (!XTERM_BUNDLE_SHA256 || XTERM_BUNDLE_SHA256 === 'KARST_XTERM_BUNDLE_SHA256') return false;
+    const actual = await sha256Base64(js);
+    return actual === XTERM_BUNDLE_SHA256;
+  }
+
+  window.addEventListener('message', async (e) => {
     const msg = e.data;
     if (!msg) return;
     // Transient inside-progress events (the inside redesign): the live header
@@ -5910,11 +5929,15 @@
     // output that arrived while the bundle was in flight.
     if (msg.type === 'xterm') {
       if (typeof msg.js === 'string' && msg.js) {
-        const script = document.createElement('script');
-        const tagged = document.querySelector('script[nonce]');
-        script.nonce = tagged ? tagged.nonce : '';
-        script.textContent = msg.js;
-        document.head.appendChild(script);
+        if (await isTrustedXtermBundle(msg.js)) {
+          const script = document.createElement('script');
+          const tagged = document.querySelector('script[nonce]');
+          script.nonce = tagged ? tagged.nonce : '';
+          script.textContent = msg.js;
+          document.head.appendChild(script);
+        } else {
+          xtermState = 'failed';
+        }
       }
       xtermState = typeof Terminal !== 'undefined' ? 'ready' : 'failed';
       if (termView && !termBlurbed) {
