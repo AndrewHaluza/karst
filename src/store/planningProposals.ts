@@ -25,7 +25,12 @@ export interface PlanningProposal {
   payload: ProposalPayload;
   status: ProposalStatus;
   ticketId: number | null;
+  /** The outbox file uuid that created or last revised this proposal. Host-owned
+   *  correlation data, persisted here so the index is never read back. */
+  sourceUuid: string;
   createdAt: string;
+  /** Last mutation (created, revised, accepted, discarded) — feeds the index. */
+  updatedAt: string;
   resolvedAt: string | null;
 }
 
@@ -35,11 +40,16 @@ interface ProposalRow {
   payload_json: string;
   status: ProposalStatus;
   ticket_id: number | null;
+  source_uuid: string;
   created_at: string;
+  /** Nullable: the v66 ALTER cannot add a function default, so a row inserted
+   *  between the ALTER and the code that sets it could read NULL. */
+  updated_at: string | null;
   resolved_at: string | null;
 }
 
-const COLUMNS = 'p.id, p.session_id, p.payload_json, p.status, p.ticket_id, p.created_at, p.resolved_at';
+const COLUMNS =
+  'p.id, p.session_id, p.payload_json, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
 
 function toProposal(r: ProposalRow): PlanningProposal {
   return {
@@ -48,15 +58,32 @@ function toProposal(r: ProposalRow): PlanningProposal {
     payload: JSON.parse(r.payload_json) as ProposalPayload,
     status: r.status,
     ticketId: r.ticket_id,
+    sourceUuid: r.source_uuid,
     createdAt: r.created_at,
+    // The v66 column is nullable on a migrated DB (SQLite forbids a function
+    // default in ALTER TABLE ADD COLUMN), so a NULL falls back to created_at:
+    // "never revised" is the honest last-touched time, and the index's
+    // string-only entry filter must never drop a real proposal over it.
+    updatedAt: r.updated_at ?? r.created_at,
     resolvedAt: r.resolved_at,
   };
 }
 
-export function insertProposal(store: Store, sessionId: number, payload: ProposalPayload): number {
+export function insertProposal(
+  store: Store,
+  sessionId: number,
+  payload: ProposalPayload,
+  sourceUuid = '',
+): number {
+  // `updated_at` is set EXPLICITLY, not left to the schema default: on a
+  // migrated v65 DB the v66 column is nullable (SQLite forbids a function
+  // default in ALTER TABLE ADD COLUMN), so a bare INSERT would write NULL and
+  // the proposal would vanish from the session index.
   const { lastInsertRowid } = store.db
-    .prepare('INSERT INTO planning_proposals (session_id, payload_json) VALUES (?, ?)')
-    .run(sessionId, JSON.stringify(payload));
+    .prepare(
+      "INSERT INTO planning_proposals (session_id, payload_json, source_uuid, updated_at) VALUES (?, ?, ?, datetime('now'))",
+    )
+    .run(sessionId, JSON.stringify(payload), sourceUuid);
   return Number(lastInsertRowid);
 }
 
@@ -96,6 +123,19 @@ export function listVisibleProposals(store: Store, projectId: number): PlanningP
   return rows.map(toProposal);
 }
 
+/**
+ * Every proposal of ONE session, oldest first — pending, accepted and
+ * discarded alike. The host rebuilds the session's on-disk proposal index from
+ * this (the agent sees its whole proposal history, including what a human
+ * rejected).
+ */
+export function listSessionProposals(store: Store, sessionId: number): PlanningProposal[] {
+  const rows = store.db
+    .prepare(`SELECT ${COLUMNS} FROM planning_proposals p WHERE p.session_id = ? ORDER BY p.id`)
+    .all(sessionId) as ProposalRow[];
+  return rows.map(toProposal);
+}
+
 export function countPending(store: Store, sessionId: number): number {
   const row = store.db
     .prepare("SELECT COUNT(*) AS n FROM planning_proposals WHERE session_id = ? AND status = 'pending'")
@@ -110,11 +150,49 @@ function requirePending(store: Store, id: number): PlanningProposal {
   return p;
 }
 
+/**
+ * Replace a pending proposal's payload IN PLACE (a planning agent revising a
+ * draft), stamping `updated_at`. The caller has already authorized the update
+ * (same session, still pending); `requirePending` is the last-line guard.
+ */
+export function updateProposalPayload(
+  store: Store,
+  id: number,
+  payload: ProposalPayload,
+  sourceUuid?: string,
+): void {
+  requirePending(store, id);
+  if (sourceUuid === undefined) {
+    store.db
+      .prepare("UPDATE planning_proposals SET payload_json = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(JSON.stringify(payload), id);
+    return;
+  }
+  store.db
+    .prepare(
+      "UPDATE planning_proposals SET payload_json = ?, source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
+    )
+    .run(JSON.stringify(payload), sourceUuid, id);
+}
+
 export function discardProposal(store: Store, id: number): void {
   requirePending(store, id);
   store.db
-    .prepare("UPDATE planning_proposals SET status = 'discarded', resolved_at = datetime('now') WHERE id = ?")
+    .prepare(
+      "UPDATE planning_proposals SET status = 'discarded', updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
+    )
     .run(id);
+}
+
+/** Exact content equality (repos order-sensitive), independent of JSON key order. */
+export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): boolean {
+  return (
+    a.title === b.title &&
+    a.description === b.description &&
+    a.summary === b.summary &&
+    a.repos.length === b.repos.length &&
+    a.repos.every((r, i) => r === b.repos[i])
+  );
 }
 
 /**
@@ -122,10 +200,22 @@ export function discardProposal(store: Store, id: number): void {
  * 'planning', the session's project), fill description/brief/repos, link it
  * to the session, mark the proposal accepted. Returns the new ticket id.
  * `projectId`, when given, must be the session's project.
+ *
+ * `expectedPayload` is the content the human confirmed in the preview. An
+ * in-place revision (`updateProposalPayload`) can land while that modal is
+ * open, so accept re-reads INSIDE the transaction and refuses if the payload
+ * moved: the human must never confirm one thing and create another.
  */
-export function acceptProposal(store: Store, id: number, opts: { projectId?: number } = {}): number {
+export function acceptProposal(
+  store: Store,
+  id: number,
+  opts: { projectId?: number; expectedPayload?: ProposalPayload } = {},
+): number {
   return store.db.transaction((): number => {
     const p = requirePending(store, id);
+    if (opts.expectedPayload !== undefined && !proposalPayloadEquals(p.payload, opts.expectedPayload)) {
+      throw new Error(`planning proposal ${id} changed since it was reviewed`);
+    }
     const session = getPlanningSession(store, p.sessionId);
     if (!session) throw new Error(`planning session ${p.sessionId} not found`);
     if (opts.projectId !== undefined && opts.projectId !== session.projectId) {
@@ -142,7 +232,7 @@ export function acceptProposal(store: Store, id: number, opts: { projectId?: num
     linkPlanningTicket(store, session.id, ticket.id);
     store.db
       .prepare(
-        "UPDATE planning_proposals SET status = 'accepted', ticket_id = ?, resolved_at = datetime('now') WHERE id = ?",
+        "UPDATE planning_proposals SET status = 'accepted', ticket_id = ?, updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
       )
       .run(ticket.id, id);
     return ticket.id;
@@ -152,6 +242,13 @@ export function acceptProposal(store: Store, id: number, opts: { projectId?: num
 /**
  * A ticket the user saved from the ticket form while reviewing a proposal:
  * link it to the session and mark the proposal accepted, in one transaction.
+ *
+ * The form's ticket is built from content the human SAW (the prefill they may
+ * have edited), and it is created OUTSIDE this transaction, so an in-place
+ * revision that lands while the form is open must NOT refuse here — that would
+ * orphan the saved ticket and leave the draft pending (re-review then makes a
+ * second ticket). The human's save is authoritative; `planningProposalOps`
+ * warns when the draft had moved, so the revision is not dropped silently.
  */
 export function markProposalAccepted(store: Store, id: number, ticketId: number): void {
   store.db.transaction((): void => {
@@ -159,7 +256,7 @@ export function markProposalAccepted(store: Store, id: number, ticketId: number)
     linkPlanningTicket(store, p.sessionId, ticketId);
     store.db
       .prepare(
-        "UPDATE planning_proposals SET status = 'accepted', ticket_id = ?, resolved_at = datetime('now') WHERE id = ?",
+        "UPDATE planning_proposals SET status = 'accepted', ticket_id = ?, updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
       )
       .run(ticketId, id);
   })();

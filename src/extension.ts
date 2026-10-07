@@ -162,6 +162,7 @@ import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
+import { refreshProposalIndex } from './extension/ops/planningIndex.js';
 import { createPlanningProposalOps, proposalPreview, type ProposalChoice } from './extension/ops/planningProposalOps.js';
 import { listPendingProposals } from './store/planningProposals.js';
 import type { TicketFormPrefill } from './ui/ticketForm/panel.js';
@@ -774,6 +775,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     openForm: (prefill) => void openTicketFormCreate(prefill).catch((e) => logError('planning: review failed', e)),
     showDraft: async (p) => void (await vscode.window.showInformationMessage(`Draft: "${p.payload.title}"`,
       { modal: true, detail: proposalPreview(p) })),
+    refreshIndex: (sessionId) =>
+      refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId))),
     notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
@@ -6755,7 +6758,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessions: () => planning.list().map((s) => ({ id: s.id, scratch: join(planRoot, String(s.id)) })),
     knownRepos: () => { const m = currentManifest(); return m && Object.entries(m.repositories).filter(([, d]) => d.enabled !== false).map(([n]) => n); },
     windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
-    onProposal: (p) => { provider.refresh(); void proposalOps.announce(p); } });
+    onProposal: (p, change) => { provider.refresh(); void proposalOps.announce(p, change); } });
   let planScanTimer: NodeJS.Timeout | undefined;
   const planScan = (): void => { clearTimeout(planScanTimer); planScanTimer = setTimeout(() => { try { outbox.scan(); } catch (e) { logError('planning: outbox scan failed', e); } }, 200); };
   let planWatcher: { close(): void } | undefined;

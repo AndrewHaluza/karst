@@ -5,6 +5,7 @@ import {
   discardProposal,
   getProposal,
   markProposalAccepted,
+  proposalPayloadEquals,
   type PlanningProposal,
 } from '../../store/planningProposals.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
@@ -32,11 +33,13 @@ export interface PlanningProposalOpsDeps {
   showDraft(p: PlanningProposal): Promise<void>;
   notify: Notify;
   onChange(): void;
+  /** Rewrite the session's on-disk proposal index after a state change. */
+  refreshIndex?(sessionId: number): void;
   debug?: (line: string) => void;
 }
 
 export interface PlanningProposalOps {
-  announce(p: PlanningProposal): Promise<void>;
+  announce(p: PlanningProposal, change?: 'updated'): Promise<void>;
   review(id: number): Promise<void>;
   view(id: number): Promise<void>;
   create(id: number): Promise<void>;
@@ -90,11 +93,25 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     deps.onChange();
   }
 
+  /**
+   * The index is a convenience, never the source of truth: a failed refresh
+   * (mkdir/write/rename in the agent-writable scratch) must not turn a
+   * committed accept or discard into a user-facing failure.
+   */
+  function refresh(sessionId: number): void {
+    try {
+      deps.refreshIndex?.(sessionId);
+    } catch (e) {
+      debug(`session ${sessionId}: proposal index refresh failed: ${errText(e)}`);
+    }
+  }
+
   const ops: PlanningProposalOps = {
-    async announce(p) {
+    async announce(p, change) {
       const session = getPlanningSession(deps.store, p.sessionId);
       const { title, description, summary } = p.payload;
-      const text = `Planning session "${session?.title ?? '?'}" (#${p.sessionId}) proposes a ticket: "${title}" `
+      const verb = change === 'updated' ? 'updated its draft' : 'proposes a ticket';
+      const text = `Planning session "${session?.title ?? '?'}" (#${p.sessionId}) ${verb}: "${title}" `
         + `(description ${description.length} chars, summary ${summary.length} chars).`;
       const choice = await deps.choose(text, p);
       debug(`proposal ${p.id}: choice ${choice ?? 'dismissed'}`);
@@ -107,11 +124,25 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       const p = await pending(id);
       if (!p) return;
       const { title, description, repos } = p.payload;
+      const reviewed = p.payload;
       deps.openForm({
         title,
         description,
         repos,
-        onCreated: (ticketId) => void guarded('link', id, () => markProposalAccepted(deps.store, id, ticketId)),
+        onCreated: (ticketId) =>
+          void guarded('link', id, () => {
+            const current = getProposal(deps.store, id);
+            markProposalAccepted(deps.store, id, ticketId);
+            // The form's ticket is what the human saw and saved, so it is
+            // linked regardless; but if the agent revised the draft while the
+            // form was open, say so rather than dropping it silently.
+            if (current && !proposalPayloadEquals(current.payload, reviewed)) {
+              deps.notify.warn(
+                `Planning draft #${id} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
+              );
+            }
+            refresh(p.sessionId);
+          }),
       });
     },
 
@@ -131,14 +162,22 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       }
       const projectId = deps.projectId();
       await guarded('create a ticket from', id, () => {
-        const ticketId = acceptProposal(deps.store, id, projectId === undefined ? {} : { projectId });
+        const ticketId = acceptProposal(deps.store, id, {
+          ...(projectId === undefined ? {} : { projectId }),
+          expectedPayload: p.payload,
+        });
+        refresh(p.sessionId);
         debug(`proposal ${id}: accepted as ticket ${ticketId}`);
       });
     },
 
     async discard(id) {
-      if (!(await pending(id))) return;
-      await guarded('discard', id, () => discardProposal(deps.store, id));
+      const p = await pending(id);
+      if (!p) return;
+      await guarded('discard', id, () => {
+        discardProposal(deps.store, id);
+        refresh(p.sessionId);
+      });
     },
   };
   return ops;

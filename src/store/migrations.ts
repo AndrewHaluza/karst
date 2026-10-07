@@ -2437,5 +2437,38 @@ function migrateLocked(db: Database): void {
     db.exec(PLANNING_SESSIONS_DDL);
   }
 
+  if (current < 66) {
+    // v66: `planning_proposals.updated_at` — when a proposal was last touched
+    // (created, revised in place, accepted, or discarded). It is the timestamp
+    // the host writes into the session's on-disk proposal index, so a planning
+    // agent can see which of its drafts changed. The guard reads the CURRENT
+    // columns, so a fresh DB (schema.sql and PLANNING_SESSIONS_DDL already carry
+    // it) is a no-op and a re-open is idempotent.
+    //
+    // ADD COLUMN cannot take a non-constant default (SQLite forbids
+    // `DEFAULT (datetime('now'))` in ALTER TABLE), so a pre-v66 row gets a NULL
+    // and is backfilled with its `created_at`: that is the honest last-touched
+    // time for a row that has never been updated, not an invented one.
+    const proposalCols66 = tableColumns(db, 'planning_proposals');
+    if (proposalCols66.size > 0 && !proposalCols66.has('updated_at')) {
+      db.exec('ALTER TABLE planning_proposals ADD COLUMN updated_at TEXT');
+      db.exec('UPDATE planning_proposals SET updated_at = created_at WHERE updated_at IS NULL');
+    }
+  }
+
+  if (current < 67) {
+    // v67: `planning_proposals.source_uuid` — the outbox file uuid that created
+    // or last revised a proposal. The host needs it to rebuild the session's
+    // on-disk proposal index WITHOUT reading the agent-writable index back
+    // (trusting that file for correlation let an edited index resolve a
+    // `draft propose` to the wrong id). A constant default is allowed in
+    // ADD COLUMN, and '' is honest for rows that predate the column: they have
+    // no live `draft propose` waiting on a uuid.
+    const proposalCols67 = tableColumns(db, 'planning_proposals');
+    if (proposalCols67.size > 0 && !proposalCols67.has('source_uuid')) {
+      db.exec("ALTER TABLE planning_proposals ADD COLUMN source_uuid TEXT NOT NULL DEFAULT ''");
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
