@@ -730,12 +730,29 @@ describe('dispatchInsideAction', () => {
     });
     expect(calls).toEqual(['graph-restart:1:1']);
 
-    // A run draining FOR a replan planner is mid-replan: the coordinator owns
-    // its exit, and a restart would race the submission it is waiting for.
+    // A legacy/prior-drain replan planner row (here `submitted`) on a genuine
+    // Stop drain (revision still `active`) must NOT read as a replan in flight
+    // and suppress the restart.
     store.db
       .prepare(
         `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
-         VALUES (1, 2, 'replan', 'running')`,
+         VALUES (1, 2, 'replan', 'submitted')`,
+      )
+      .run();
+    const legacy = registry(11);
+    legacy.register({ kind: 'graph-restart', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, legacy, 'snapshot-11:action-0', deps(calls))).toEqual({
+      outcome: 'dispatched',
+    });
+    store.db.prepare("DELETE FROM approach_planner_runs WHERE kind = 'replan'").run();
+
+    // A run MID-replan (revision draining) with a live planner bound to this
+    // drain is the coordinator's: a restart would race its submission.
+    store.db.prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE graph_run_id = 1").run();
+    store.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, target_revision_number)
+         VALUES (1, 2, 'replan', 'running', 2)`,
       )
       .run();
     const mid = registry(8);
@@ -751,6 +768,17 @@ describe('dispatchInsideAction', () => {
     const stale = registry(9);
     stale.register({ kind: 'graph-restart', ticketId: 1, graphRunId: 1 });
     expect(dispatchInsideAction(store, stale, 'snapshot-9:action-0', deps([]))).toEqual({
+      outcome: 'rejected',
+      reason: 'graph is not a stopped drain',
+    });
+
+    // A draining run whose only revision is draining (mid-replan with no
+    // planner row, e.g. an election that was never followed by a launch) has
+    // no active revision to resume: refused too.
+    store.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = 1").run();
+    const midDrain = registry(10);
+    midDrain.register({ kind: 'graph-restart', ticketId: 1, graphRunId: 1 });
+    expect(dispatchInsideAction(store, midDrain, 'snapshot-10:action-0', deps([]))).toEqual({
       outcome: 'rejected',
       reason: 'graph is not a stopped drain',
     });

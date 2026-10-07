@@ -316,10 +316,13 @@ describe('stop (coordinator-level controller)', () => {
   it('H2: refuses to restart a run that is draining FOR a replan planner', () => {
     const ctx = harness('running');
     ctx.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(ctx.graphRunId);
+    // Mid-replan: the election drained the revision too, and a live planner is
+    // bound to this drain (target = revision 1 + 1).
+    ctx.db.prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE id = ?").run(ctx.revisionId);
     ctx.db
       .prepare(
-        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status)
-         VALUES (?, 2, 'replan', 'running')`,
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, target_revision_number)
+         VALUES (?, 2, 'replan', 'running', 2)`,
       )
       .run(ctx.graphRunId);
 
@@ -328,6 +331,47 @@ describe('stop (coordinator-level controller)', () => {
       graphRunId: ctx.graphRunId,
     });
     expect(result).toMatchObject({ restarted: false, outcome: 'replan-in-flight' });
+    const run = ctx.db
+      .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
+      .get(ctx.graphRunId) as { status: string };
+    expect(run.status).toBe('draining');
+  });
+
+  it('H2: a genuine Stop drain still restarts even when a prior replan planner row exists', () => {
+    // A completed prior replan leaves a `submitted` planner behind. The run is
+    // later STOPPED (revision still active): that stale row must not read as a
+    // replan in flight and refuse the restart.
+    const ctx = harness('running');
+    ctx.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(ctx.graphRunId);
+    ctx.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, target_revision_number)
+         VALUES (?, 2, 'replan', 'submitted', 2)`,
+      )
+      .run(ctx.graphRunId);
+
+    const result = restartStoppedGraph(ctx.makeDeps(), {
+      ticketId: ctx.ticketId,
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result).toMatchObject({ restarted: true, outcome: 'restarted' });
+  });
+
+  it('H2: refuses to restart a run whose only revision is draining (mid-replan, no planner row)', () => {
+    // The bug: an election committed (run + revision drained, replan_count++)
+    // but no replan planner row was ever created, and Stop/Start restored the
+    // run to `running` while the revision stayed `draining`. That run has no
+    // active revision, so restarting cannot resume "its active revision" —
+    // it is mid-replan and must heal through the drain, not be restarted.
+    const ctx = harness('running');
+    ctx.db.prepare("UPDATE approach_graph_runs SET status = 'draining' WHERE id = ?").run(ctx.graphRunId);
+    ctx.db.prepare("UPDATE approach_graph_revisions SET status = 'draining' WHERE id = ?").run(ctx.revisionId);
+
+    const result = restartStoppedGraph(ctx.makeDeps(), {
+      ticketId: ctx.ticketId,
+      graphRunId: ctx.graphRunId,
+    });
+    expect(result).toMatchObject({ restarted: false, outcome: 'replan-pending' });
     const run = ctx.db
       .prepare('SELECT status FROM approach_graph_runs WHERE id = ?')
       .get(ctx.graphRunId) as { status: string };

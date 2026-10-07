@@ -1186,7 +1186,7 @@ Expected: PASS.
 
 Run: `npm run typecheck`
 Run: `npm run test:unit`
-Run: `npm run test:e2e`
+Run: `npm run test:integration`
 Expected: all exit 0. Paste the summary lines into the commit body if anything was adjusted to get there.
 
 - [ ] **Step 5: Commit**

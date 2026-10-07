@@ -57,7 +57,9 @@ import {
 } from '../../../store/graph/nodeRuns.js';
 import { cancelGraphToken } from '../../../store/graph/tokens.js';
 import {
+  countReplanPlannersForTarget,
   latestPlannerRunForGraphRunKind,
+  latestReplanPlannerForTarget,
   plannerRunCompileAttempt,
   transitionPlannerRun,
 } from '../../../store/graph/plannerRuns.js';
@@ -65,6 +67,8 @@ import type { GraphRunRow as FullGraphRunRow } from '../../../store/graph/graphR
 import type { NodeRunRow as FullNodeRunRow } from '../../../store/graph/nodeRuns.js';
 import type { PlannerRunRow as FullPlannerRunRow } from '../../../store/graph/plannerRuns.js';
 import { markLeaseAmbiguous } from './leases.js';
+import { cancelNodeRuns, type AbandonedNodeRun } from './abandonedNodes.js';
+import { ACTIVE_NODE_STATUSES } from './completion.js';
 import { graphRunHasLiveNodeProcess } from './liveness.js';
 import { MAX_COMPILE_ATTEMPTS } from './repair.js';
 import {
@@ -86,6 +90,12 @@ const SUPERSEDABLE_RUN_STATUSES = [
 
 /** Run statuses a ticket that left `impl` may cancel from. */
 const CANCELLABLE_RUN_STATUSES = SUPERSEDABLE_RUN_STATUSES;
+
+/** How many times a `ready` (allocated-but-never-launched) replan planner may
+ *  be replaced before reconcile stops re-driving it. Bounds the row stream when
+ *  a launch keeps failing before its `ready → launching` CAS (e.g. the launch
+ *  worktree cannot be resolved). */
+const MAX_REPLAN_LAUNCH_ATTEMPTS = 3;
 
 export interface ReconcileGraphRunDeps {
   db: GraphDb;
@@ -156,10 +166,51 @@ function ticketAtImpl(db: GraphDb, ticketId: number): boolean {
   return row !== undefined && row.stage_current === 'impl';
 }
 
+/**
+ * True when the run's newest revision is `draining` and it has NO `active`
+ * revision. That is the stranded shape an election leaves: the election drained
+ * every revision in its transaction, and nothing ever allocated the replan
+ * planner — so no `draining → running` (replan acceptance) can ever fire. A
+ * `running` run in this shape is the extra corruption Stop/Start produced when
+ * `restartStoppedGraph` flipped the run back without checking for an active
+ * revision. Step 3 would otherwise no-op it forever: the sweep needs an active
+ * revision and `quiescenceBlockedBy` answers `no-revision`.
+ */
+function runHasStrandedDrainingRevision(db: GraphDb, graphRunId: number): boolean {
+  const active = db
+    .prepare(
+      "SELECT 1 AS x FROM approach_graph_revisions WHERE graph_run_id = ? AND status = 'active' LIMIT 1",
+    )
+    .get(graphRunId);
+  if (active !== undefined) return false;
+  const newest = db
+    .prepare(
+      'SELECT status FROM approach_graph_revisions WHERE graph_run_id = ? ORDER BY id DESC LIMIT 1',
+    )
+    .get(graphRunId) as { status: string } | undefined;
+  return newest?.status === 'draining';
+}
+
+/** The draining revision's number whose successor the current replan planner
+ *  is compiling (its `target_revision_number`), or undefined when no revision
+ *  is draining. */
+function drainingRevisionNumber(db: GraphDb, graphRunId: number): number | undefined {
+  const row = db
+    .prepare(
+      `SELECT revision_number FROM approach_graph_revisions
+       WHERE graph_run_id = ? AND status = 'draining' ORDER BY id DESC LIMIT 1`,
+    )
+    .get(graphRunId) as { revision_number: number } | undefined;
+  return row?.revision_number;
+}
+
 /** The run's node-linked process identity, or null when none exists (a null
  *  pid is equally no evidence — "never declared dead merely because this
  *  window cannot see its terminal"). */
-function processOf(db: GraphDb, node: NodeRunRow): { pid: number; startedAt: string | null } | null {
+function processOf(
+  db: GraphDb,
+  node: { process_run_id: number | null },
+): { pid: number; startedAt: string | null } | null {
   if (node.process_run_id === null) return null;
   const row = db
     .prepare('SELECT pid, started_at FROM process_runs WHERE id = ?')
@@ -203,6 +254,68 @@ async function attributeOf(
     { pid: proc.pid, cwd: null, startedAt: proc.startedAt },
     { isAlive: () => alive, liveCwd: () => liveCwd, processStartMs: () => processStartMs },
   );
+}
+
+/**
+ * The abandoned drain's node runs that must be cleared before a replan planner
+ * can pass the quiescence gate: every active node whose process is provably
+ * gone (dead/foreign, or no pid at all). A node this window is driving, another
+ * window's live/`unknown` process, and the drain's own `replan` requesters
+ * (already excluded from `replanQuiescenceBlockedBy`) are left alone.
+ * `completing`/`integrating` nodes are handed back for the completion pipeline
+ * to resume, never cancelled — their outcome is in hand and cancelling would
+ * skip the artifact recording. No revision filter: a stranded run has NO active
+ * revision, so every active node belongs to a draining or superseded revision.
+ */
+async function collectAbandonedDrainNodes(
+  deps: ReconcileGraphRunDeps,
+  run: { id: number },
+): Promise<{ cancellable: AbandonedNodeRun[]; resumable: number[] }> {
+  const cancellable: AbandonedNodeRun[] = [];
+  const resumable: number[] = [];
+  const rows = deps.db
+    .prepare(
+      `SELECT id, status, process_run_id, outcome, node_kind, revision_id, node_id
+       FROM approach_node_runs WHERE graph_run_id = ? ORDER BY id`,
+    )
+    .all(run.id) as Array<{
+    id: number;
+    status: string;
+    process_run_id: number | null;
+    outcome: string | null;
+    node_kind: string;
+    revision_id: number;
+    node_id: string;
+  }>;
+  for (const node of rows) {
+    if (!ACTIVE_NODE_STATUSES.includes(node.status)) continue;
+    if (node.outcome === 'replan') continue; // the drain's evidence; excluded from quiescence
+    if (deps.sessionFor(node.id)) continue;
+    const proc = processOf(deps.db, node);
+    if (proc !== null) {
+      const attribution = await attributeOf(deps.facts, proc);
+      // Cancel only a PROVABLY gone process. `attributable` is another window's
+      // live work; `unknown` is a live pid we cannot identify — both are left
+      // alone (reconcileRunning parks `unknown` as `termination-unknown` for an
+      // explicit discard, never a silent cancel). Only `dead`/`foreign` (or no
+      // pid at all) are void.
+      if (attribution !== 'dead' && attribution !== 'foreign') continue;
+    } else if (node.status === 'completing' || node.status === 'integrating') {
+      continue; // no pid evidence — never judged (mirrors reconcileCompleting)
+    }
+    if (node.status === 'completing' || node.status === 'integrating') {
+      resumable.push(node.id);
+      continue;
+    }
+    cancellable.push({
+      id: node.id,
+      status: node.status,
+      nodeKind: node.node_kind,
+      revisionId: node.revision_id,
+      nodeId: node.node_id,
+    });
+  }
+  return { cancellable, resumable };
 }
 
 /**
@@ -468,7 +581,57 @@ async function reconcilePlannerRun(
   kind: PlannerKind,
 ): Promise<ReconcileGraphRunResult> {
   const relaunch = kind === 'bootstrap' ? deps.relaunchPlanner : deps.relaunchReplanPlanner;
-  const planner = latestPlannerRunForGraphRunKind(deps.db, run.id, kind);
+
+  // ONLY a genuinely mid-replan drain may have its leftover replan planners
+  // judged. A STOP drain keeps its revision `active` (Stop never touches it),
+  // so any replan planner row it still carries belongs to an EARLIER drain —
+  // acting on it (compile repair, stale+relaunch) would launch a planner on a
+  // run the user deliberately stopped.
+  if (kind === 'replan' && !runHasStrandedDrainingRevision(deps.db, run.id)) {
+    return planningResult(deps, run, 0);
+  }
+
+  // A bootstrap planner is unique to its `planning` run. A REPLAN planner is
+  // scoped to the drain it serves by `target_revision_number`, so a run that
+  // replanned before is never judged against a prior drain's planner — the
+  // prior drain's `submitted` planner would otherwise read as a live planner
+  // and strand the new drain forever.
+  const drainTarget = kind === 'replan' ? drainingRevisionNumber(deps.db, run.id) : undefined;
+  const planner =
+    kind === 'bootstrap'
+      ? latestPlannerRunForGraphRunKind(deps.db, run.id, 'bootstrap')
+      : drainTarget === undefined
+        ? latestPlannerRunForGraphRunKind(deps.db, run.id, 'replan')
+        : latestReplanPlannerForTarget(deps.db, run.id, drainTarget + 1);
+
+  // The election→launch gap: a genuinely mid-replan drain (the run and its
+  // revision drained, counter incremented) with NO planner for THIS drain — or
+  // only an abandoned one — means the planner was never allocated (the host
+  // died between the election and the launch, or the recovery returned while
+  // the drain was not yet quiescent and nothing ever re-drove it), or its
+  // launch died. Launch one now; the host's `beginReplanPlannerRun` re-checks
+  // `draining` + quiescence + single-flight itself, so this is a safe,
+  // retryable dispatch.
+  //
+  // The revision discriminant matters: a STOP drain keeps its revision
+  // `active` (Stop never touches it) and must WAIT for a deliberate Restart —
+  // auto-launching a planner for it would defeat the H2 Stop/Restart design.
+  // Only `draining`-with-no-active is mid-replan. A `planning` run always has
+  // its bootstrap planner (created with the run in one transaction), so the
+  // no-row case is replan-only.
+  if (
+    kind === 'replan' &&
+    runHasStrandedDrainingRevision(deps.db, run.id) &&
+    (planner === undefined || planner.status === 'stale' || planner.status === 'cancelled')
+  ) {
+    deps.debug?.(
+      `[graph] reconcile: run ${run.id} draining with no planner for its target revision — launching one`,
+    );
+    relaunch(run.id);
+    // No durable transition happened HERE — the allocation (and its single-
+    // flight refusal) is the host's, so the count stays honest.
+    return planningResult(deps, run, 0);
+  }
   if (!planner) return planningResult(deps, run, 0);
   if (deps.sessionFor(planner.id)) return planningResult(deps, run, 0); // this window owns it
   const proc = plannerProcessOf(deps.db, planner);
@@ -518,6 +681,59 @@ async function reconcilePlannerRun(
     relaunch(run.id);
     return planningResult(deps, run, 1);
   };
+
+  if (planner.status === 'ready') {
+    // A bootstrap planner left `ready` is NOT this sweep's to retry — the base
+    // behaviour was a no-op, and re-driving it would stream a fresh planner row
+    // every pass when the profile/worktree is persistently unresolvable.
+    if (kind === 'bootstrap') return planningResult(deps, run, 0);
+    // A replan planner left `ready` was allocated but never launched: the
+    // window died between allocation and `launchReplanPlanner`, or the host
+    // returned before launching (e.g. the launch worktree could not be
+    // resolved). Mark it stale (the CAS makes this window the single-flight
+    // winner) and relaunch — BOUNDED, so a persistently failing launch cannot
+    // allocate a fresh row every sweep.
+    const attempts =
+      drainTarget === undefined
+        ? 0
+        : countReplanPlannersForTarget(deps.db, run.id, drainTarget + 1);
+    if (attempts > MAX_REPLAN_LAUNCH_ATTEMPTS) {
+      // Exhausted. Park the run `blocked` — the one status Resume reaches —
+      // instead of leaving a live-looking `ready` row that blocks both the
+      // single-flight gate and the H2 Restart. `planner-artifact-missing` maps
+      // to the replan recovery tier, so Resume has a real exit.
+      const parked = deps.transaction(() => {
+        if (!transitionPlannerRun(deps.db, planner.id, 'ready', 'stale')) return false;
+        if (
+          !casStatus(
+            deps.db,
+            'approach_graph_runs',
+            GRAPH_RUN_TRANSITIONS,
+            run.id,
+            'draining',
+            'blocked',
+          )
+        ) {
+          return false;
+        }
+        markGraphRunBlocked(
+          deps.db,
+          run.id,
+          `planner-artifact-missing: replan planner ${planner.id} never launched after ${attempts} attempts`,
+          deps.now(),
+        );
+        return true;
+      });
+      if (!parked) return planningResult(deps, run, 0);
+      deps.debug?.(
+        `[graph] reconcile: run ${run.id} replan planner ${planner.id} could not launch after ${attempts} attempts — blocking for recovery`,
+      );
+      return planningResult(deps, run, 1);
+    }
+    return staleAndRelaunch(
+      `[graph] reconcile: run ${run.id} ${kind} planner ${planner.id} is ready but was never launched — relaunching the planner`,
+    );
+  }
 
   if (planner.status === 'running') {
     if (proc === null) return planningResult(deps, run, 0); // no pid evidence — never declared dead
@@ -625,6 +841,36 @@ export async function reconcileGraphRun(
     return await reconcilePlannerRun(deps, run, 'bootstrap');
   }
 
+  // 2.55. Self-heal a STRANDED running run: its newest revision is `draining`
+  //       and it has no `active` revision. That is the shape a Stop/Start over
+  //       an in-flight replan produced — the election had drained the revision,
+  //       and a restart (before its guard) flipped the run back to `running`.
+  //       Step 3 would no-op it forever (the sweep needs an active revision;
+  //       `quiescenceBlockedBy` answers `no-revision`), so CAS it back to
+  //       `draining` — and CANCEL the abandoned revision's still-active node
+  //       runs, which the Stop left non-terminal. The replan planner's
+  //       quiescence gate counts those node runs, so without cancelling them no
+  //       planner is ever allocated and the repair re-strands.
+  let selfHealed = 0;
+  if (run.status === 'running' && runHasStrandedDrainingRevision(db, run.id)) {
+    const { cancellable, resumable } = await collectAbandonedDrainNodes(deps, run);
+    // Hand the resumable completions back to the host BEFORE the run moves: the
+    // running-gated node sweep can never reach them once the run is `draining`.
+    for (const id of resumable) deps.resumePipeline(id);
+    selfHealed = deps.transaction(() => {
+      if (!casStatus(db, 'approach_graph_runs', GRAPH_RUN_TRANSITIONS, run.id, 'running', 'draining')) {
+        return 0;
+      }
+      return 1 + cancelNodeRuns(deps, run.id, cancellable);
+    });
+    if (selfHealed > 0) {
+      deps.debug?.(
+        `[graph] reconcile: run ${run.id} running with a draining revision and no active revision — re-draining for replan recovery (cancelled ${selfHealed - 1} abandoned node run(s))`,
+      );
+    }
+    run.status = graphRunStatus(db, run.id) ?? run.status;
+  }
+
   // 2.6. Draining-run replan planner crash matrix. `draining` is entered to
   //      let a replan planner compile the next revision, and it is the one
   //      run status with no exit of its own — only that planner's accepted
@@ -634,7 +880,22 @@ export async function reconcileGraphRun(
   //      draining: `draining` has no `blocked` edge, and the fresh planner's
   //      submission is only accepted while it drains.
   if (run.status === 'draining') {
-    return await reconcilePlannerRun(deps, run, 'replan');
+    // A stranded drain (no active revision) whose non-terminal node's process
+    // died can never pass the replan quiescence gate, and the running-gated node
+    // sweep can never reach it — clear the abandoned nodes first. A Stop drain
+    // keeps its revision `active` and is left for a deliberate Restart. Skip
+    // when the self-heal already collected this tick (it just moved the run here).
+    let nodeTransitions = 0;
+    if (selfHealed === 0 && runHasStrandedDrainingRevision(db, run.id)) {
+      const { cancellable, resumable } = await collectAbandonedDrainNodes(deps, run);
+      for (const id of resumable) deps.resumePipeline(id);
+      if (cancellable.length > 0) {
+        nodeTransitions = deps.transaction(() => cancelNodeRuns(deps, run.id, cancellable));
+      }
+    }
+    const replanResult = await reconcilePlannerRun(deps, run, 'replan');
+    const extra = selfHealed + nodeTransitions;
+    return extra === 0 ? replanResult : { ...replanResult, transitions: replanResult.transitions + extra };
   }
 
   // 3. Run-level gates: blocked stays, marker-ready stays, draining waits.

@@ -31,17 +31,19 @@
  *   recording bridge.
  */
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { Manifest, TicketingConfig } from '../../../../manifest/types.js';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
+import {
+  closeSettingsRealm,
+  renderSettingsApp,
+  type RenderedSettings,
+} from '../renderSettingsApp.js';
 import type { SettingsState } from '../../state.js';
 
-let open: RenderedSettings | null = null;
-
-afterEach(() => {
-  open?.close();
-  open = null;
+// One jsdom realm per file, reset per mount (`renderSettingsApp`).
+afterAll(() => {
+  closeSettingsRealm();
 });
 
 interface Mounted {
@@ -56,7 +58,6 @@ async function mountOnTicketing(
   tokenConfigured = true,
 ): Promise<Mounted> {
   const view = await renderSettingsApp();
-  open = view;
   const state: SettingsState = {
     ...FIXTURE_STATE_PUSH,
     tokenConfigured,

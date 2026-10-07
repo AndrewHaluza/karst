@@ -80,10 +80,6 @@ suite**:
 The unit config *excludes* both non-unit suffixes, so a test that crosses the
 line must be renamed, not left for the reviewer to catch. See §5.
 
-`npm run test:e2e` is kept as a deprecated alias for `npm run test:integration`
-(it runs the same config), so older docs and the project's own UAT manifest
-gate keep working.
-
 Press F5 in VS Code to launch the Extension Development Host. This rebuilds
 the native addon for Electron's ABI; `npm run test:unit` rebuilds it for
 Node's. That switch is automatic — see `docs/arch/ABI.md` if it misbehaves.

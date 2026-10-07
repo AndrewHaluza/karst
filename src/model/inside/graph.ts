@@ -61,7 +61,6 @@ import {
 
 export { sanitizeGraphText, GRAPH_TEXT_MAX, AMBIGUOUS_NODE_STATUSES, NODE_OVERRIDE_EDITABLE };
 import { durationBetween, relativeAge, runAge } from './age.js';
-import { LIVE_PLANNER_STATUSES } from '../../store/graph/plannerRuns.js';
 
 const MAX_DIAGNOSTIC_ROWS = 8;
 const MAX_ARTIFACT_ROWS = 8;
@@ -357,13 +356,14 @@ function revisionStatus(status: string, runStatus: string): InsideStatus {
  */
 function isStopDrained(input: GraphInsideInput): boolean {
   if (input.graphRun?.status !== 'draining') return false;
-  // The same closed status set `hasLiveReplanPlanner` reads in SQL — this
-  // projection answers it from the rows it was handed, never a second list.
-  return !input.plannerRuns.some(
-    (planner) =>
-      planner.kind === 'replan' &&
-      (LIVE_PLANNER_STATUSES as readonly string[]).includes(planner.status),
-  );
+  // Stop drains the RUN and never touches the revision, so a genuine stopped
+  // drain keeps its revision `active`. A run draining FOR a replan has only a
+  // `draining` revision (the election drains the revision in the same
+  // transaction it drains the run). The revision status is therefore the whole
+  // discriminant: a stale/legacy planner row can never make a stopped drain
+  // read as mid-replan, and no live replan planner can exist while the
+  // revision is active.
+  return input.revision?.status === 'active';
 }
 
 const STOPPABLE_RUN_STATUSES: readonly string[] = [

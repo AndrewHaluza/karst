@@ -144,7 +144,7 @@ describe('planning ops', () => {
     expect(created[0]!.opts.shellArgs).toContain('sandbox_workspace_write.writable_roots=[]');
   });
 
-  it.each(['claude', 'codex', 'opencode', 'antigravity'] as const)(
+  it.each(['claude', 'codex', 'opencode', 'opencode2', 'antigravity'] as const)(
     'never puts the registry or manifest path in a %s planning launch',
     async (provider) => {
       const ops = createPlanningOps({
@@ -159,7 +159,7 @@ describe('planning ops', () => {
     },
   );
 
-  it.each(['claude', 'codex', 'opencode', 'antigravity'] as const)(
+  it.each(['claude', 'codex', 'opencode', 'opencode2', 'antigravity'] as const)(
     'delivers the planning instructions through %s own channel, never inline',
     async (provider) => {
       const ops = createPlanningOps({
@@ -241,6 +241,18 @@ describe('planning ops', () => {
       await ops.open(s.id);
       expect(created).toHaveLength(0);
       expect(getPlanningSession(store, s.id)!.status).toBe('active');
+    });
+
+    it('does not ask for opencode2, which now blocks edits via its permission config', async () => {
+      let asked = 0;
+      const ops = createPlanningOps({
+        ...deps,
+        defaultAgent: () => ({ provider: 'opencode2', model: null }),
+        confirmUnsafeCore: async () => { asked++; return false; },
+      });
+      await ops.create('t');
+      expect(asked).toBe(0);
+      expect(created).toHaveLength(1);
     });
 
     it('never asks for a core that blocks edits', async () => {

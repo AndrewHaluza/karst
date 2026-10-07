@@ -63,17 +63,17 @@ const FOCUS_CAP = 12;
  * controls (the ticket's Done-when) that replace the old pill/text buttons and
  * cannot fold into an existing focusable; they show on hover and on focus.
  *
- * Lowered from 69 to 68 after the planning-drafts UI change removed the
- * read-only Review (eye) action from the pending draft row (Approve and
- * Discard stay); the sidebar corpus has one pending draft, so exactly one
- * focusable disappeared. A shrink needs no justification, only the note.
+ * Restored from 68 to 69: the planning-drafts change that removed the pending
+ * draft's Review (eye) action lowered this ratchet, but it did not reduce the
+ * SIDEBAR corpus count — the rendered sidebar still exposes 69 focusables (the
+ * sweep measures 69), so the lowering never held. Back at its true value.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 46,
   usage: 11,
   resources: 17,
   serverLogs: 11,
-  sidebar: 68, // lowered from 69 when the pending draft's Review (eye) action was removed; was raised from 57 before that (see sixth update)
+  sidebar: 69, // restored: the sidebar corpus still renders 69 focusables (see seventh note); was 57 before the planning-tree redesign
   diffs: 35,
   settings: 193,
   ticketForm: 25,

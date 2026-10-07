@@ -59,6 +59,21 @@ export interface RenderHandle {
    * through exactly this queue (jsdom has no MessageChannel or setImmediate).
    */
   pendingWorkTimers(horizonMs: number): number;
+  /**
+   * The page's inline script block, exactly as jsdom executed it — re-runnable
+   * through {@link resetRealm} to mount the page again in the same realm. `null`
+   * when the document carries no inline script.
+   */
+  readonly pageScript: string | null;
+  /**
+   * Test-only reset for a page that mounts once: neutralize the bridge the
+   * current page acquired (so the old tree can no longer post or persist),
+   * clear `posted`/`errors`/`state`, drop `data-karst-ready`, and leave a fresh
+   * empty `#root` for the next run of {@link pageScript}. It does not run the
+   * script or wait for a mount — `renderSettingsApp` owns that, because only the
+   * settings page has a readiness flag to wait on.
+   */
+  resetRealm(): void;
   /** Idempotent teardown. */
   close(): void;
 }
@@ -73,19 +88,39 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   let state: unknown = undefined;
   /** Set by `beforeParse`: reads the realm's pending-timer queue (see below). */
   let pendingWorkProbe: ((horizonMs: number) => number) | null = null;
+  /**
+   * The bridge the page most recently acquired. Kept across a {@link resetRealm}
+   * so the OLD page tree — which is detached, never unmounted — can be made
+   * inert: once `dead`, its `postMessage`/`setState` are no-ops, so an old app's
+   * lingering listener cannot pollute the next mount's message log or state.
+   */
+  interface PageApi {
+    dead: boolean;
+    postMessage(message: unknown): void;
+    getState(): unknown;
+    setState(next: unknown): void;
+  }
+  let currentApi: PageApi | null = null;
 
   const beforeParse = (w: DOMWindow): void => {
     // acquireVsCodeApi — the bridge between the webview script and the host.
-    // Throws on second call (NDL-126 §1 requires detecting double-acquisition).
-    let acquired = false;
-    (w as unknown as Record<string, unknown>).acquireVsCodeApi = () => {
-      if (acquired) throw new Error('acquireVsCodeApi() already called');
-      acquired = true;
-      return {
-        postMessage: (msg: unknown) => { posted.push(msg); },
+    // Throws on second call (NDL-126 §1 requires detecting double-acquisition);
+    // resetRealm marks the previous bridge dead, so a deliberate re-run may
+    // acquire again without tripping the guard.
+    (w as unknown as Record<string, unknown>).acquireVsCodeApi = (): PageApi => {
+      if (currentApi && !currentApi.dead) throw new Error('acquireVsCodeApi() already called');
+      const api: PageApi = {
+        dead: false,
+        postMessage: (msg: unknown) => {
+          if (!api.dead) posted.push(msg);
+        },
         getState: () => state,
-        setState: (s: unknown) => { state = s; },
+        setState: (next: unknown) => {
+          if (!api.dead) state = next;
+        },
       };
+      currentApi = api;
+      return api;
     };
 
     // Instrument the realm's one-shot timer queue BEFORE any script runs, so a
@@ -156,12 +191,38 @@ export function renderWebview(name: WebviewName, opts?: { nonce?: string }): Ren
   const w = dom.window;
   let closed = false;
 
+  // The document's inline script block, captured while it is still intact so a
+  // reset can execute the exact same page again. Which scripts ran is jsdom's
+  // business; the harness only needs the last inline one, which is the entry
+  // point every webview document carries.
+  const pageScript =
+    [...w.document.scripts]
+      .map((script) => script.textContent ?? '')
+      .filter((text) => text.trim().length > 0)
+      .at(-1) ?? null;
+
   const handle: RenderHandle = {
     window: w,
     document: w.document,
     posted,
     errors,
     get state() { return state; },
+    pageScript,
+    resetRealm() {
+      if (currentApi) currentApi.dead = true;
+      currentApi = null;
+      posted.length = 0;
+      errors.length = 0;
+      state = undefined;
+      const doc = w.document;
+      doc.documentElement.removeAttribute('data-karst-ready');
+      const oldRoot = doc.getElementById('root');
+      if (oldRoot) {
+        const fresh = doc.createElement('div');
+        fresh.id = 'root';
+        oldRoot.replaceWith(fresh);
+      }
+    },
     receive(message: unknown) {
       const evt = new w.MessageEvent('message', { data: message });
       w.dispatchEvent(evt);
@@ -256,13 +317,27 @@ export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: str
   const hasReactRoot = handle.document.querySelector('#root') !== null;
   if (!hasReactRoot) return handle;
 
+  await waitForSettingsReady(handle);
+  return handle;
+}
+
+/**
+ * Wait until the settings React app sets `data-karst-ready` after a commit.
+ *
+ * Split out of `renderWebviewReady` so a same-realm reboot (see
+ * `renderSettingsApp`) can run the page script and wait again without building
+ * a second jsdom document. The caller must have cleared `data-karst-ready`
+ * first — `RenderHandle.resetRealm` does — or the wait would return before the
+ * new mount had committed.
+ */
+export async function waitForSettingsReady(handle: RenderHandle): Promise<void> {
   const WORK_HORIZON_MS = 500;
   const TRIPWIRE_MS = 15_000;
   const startTime = Date.now();
   let idleConfirmations = 0;
 
   for (;;) {
-    if (handle.document.documentElement.hasAttribute('data-karst-ready')) return handle;
+    if (handle.document.documentElement.hasAttribute('data-karst-ready')) return;
     if (Date.now() - startTime > TRIPWIRE_MS) {
       handle.close();
       throw new Error(
@@ -281,7 +356,7 @@ export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: str
     // The queue looks empty: pump one confirming turn (microtasks and any
     // just-fired zero-delay work flush there) before believing it.
     await pumpRenderRealm(handle);
-    if (handle.document.documentElement.hasAttribute('data-karst-ready')) return handle;
+    if (handle.document.documentElement.hasAttribute('data-karst-ready')) return;
     idleConfirmations += 1;
     if (idleConfirmations >= 3) {
       const seen = handle.errors.slice(-3);
