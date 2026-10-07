@@ -389,11 +389,12 @@ describe('defaultGitRunner', () => {
         // grandchild before arming it — it gets a budget wide enough for the
         // spawn chain instead. At 100ms a loaded machine reaped git before its
         // own child had spawned, and the test failed on an empty pid rather
-        // than on the descendant it means to check.
-        const r = await runGit(hangTreeAlias(pidFile), process.cwd(), 2000, 1024, 500);
+        // than on the descendant it means to check; 500ms keeps that margin
+        // while shrinking the real-time wait.
+        const r = await runGit(hangTreeAlias(pidFile), process.cwd(), 500, 1024, 500);
 
         expect(r.exitCode).toBe(1);
-        expect(r.stderr).toContain('timed out after 2000ms');
+        expect(r.stderr).toContain('timed out after 500ms');
         await expectProcessDead(await readPidWhenWritten(pidFile));
       } finally {
         reapGrandchild(pidFile);
