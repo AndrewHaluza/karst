@@ -1650,6 +1650,15 @@ describe('agentProvider', () => {
     }
   });
 
+  it("preserves an explicit 'opencode2' setting", () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentProvider: opencode2\n`);
+    try {
+      expect(loadManifest(path).agentProvider).toBe('opencode2');
+    } finally {
+      cleanup();
+    }
+  });
+
   it('throws on an invalid value', () => {
     const { path, cleanup } = fixture(`${VALID}\nagentProvider: gpt\n`);
     try {

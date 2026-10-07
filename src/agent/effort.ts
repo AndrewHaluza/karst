@@ -53,6 +53,10 @@ const EFFORT_CAPABILITIES: Readonly<Record<AgentProvider, EffortCapability>> = {
   // TUI (it prints help and exits 1, killing the session at launch), so the
   // interactive binding cannot express effort; headless keeps it.
   opencode: { interactive: false, headless: true, customValues: false },
+  // opencode2 (v2) expresses effort as a `#<effort>` suffix on the launch model
+  // — headless `--model <id>#<effort>` and, interactively, the same form in the
+  // `OPENCODE_CONFIG_CONTENT` model preselection. So both bindings carry it.
+  opencode2: { interactive: true, headless: true, customValues: false },
 };
 
 /** The adapter capability declaration for one provider. An adapter whose CLI

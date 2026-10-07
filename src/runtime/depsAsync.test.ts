@@ -8,6 +8,7 @@ describe('commandSucceedsAsync', () => {
     const probe = commandSucceedsAsync(
       process.execPath,
       ['-e', 'setTimeout(() => process.exit(0), 80)'],
+      undefined,
       { timeoutMs: 500 },
     ).then((ready) => {
       order.push(`probe:${ready}`);
@@ -25,6 +26,7 @@ describe('commandSucceedsAsync', () => {
     const ready = await commandSucceedsAsync(
       process.execPath,
       ['-e', 'setInterval(() => undefined, 1_000)'],
+      undefined,
       { timeoutMs: 20 },
     );
 

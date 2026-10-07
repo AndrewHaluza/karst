@@ -16,6 +16,7 @@ export const IMPLEMENTED_PROVIDERS: readonly AgentProvider[] = [
   'codex',
   'antigravity',
   'opencode',
+  'opencode2',
 ];
 
 /** Type guard for a value that is a known, implemented agent provider. */
@@ -51,6 +52,9 @@ export const PROVIDER_INTERACTIVE_USAGE: Readonly<Record<AgentProvider, boolean>
   codex: true,
   antigravity: true,
   opencode: true,
+  // opencode2's hook bridge lands in its own ticket; until then a session
+  // produces no measured usage events.
+  opencode2: false,
 };
 
 /** The typed capability result for one provider. */

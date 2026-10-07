@@ -343,6 +343,18 @@ describe('resilientAdapter', () => {
     expect(adapter.materializeApproach).toBeUndefined();
   });
 
+  it('forwards resolveResume when the inner adapter has one', async () => {
+    const resolveResume = vi.fn(async () => undefined);
+    const adapter = resilientAdapter(fakeAdapter({ resolveResume }), opts());
+    await adapter.resolveResume?.('s1', { cwd: '/w' });
+    expect(resolveResume).toHaveBeenCalledWith('s1', { cwd: '/w' });
+  });
+
+  it('resolveResume is absent when the inner adapter has none', () => {
+    const adapter = resilientAdapter(fakeAdapter(), opts());
+    expect(adapter.resolveResume).toBeUndefined();
+  });
+
   it('notify is not called for a same-model retry', async () => {
     let calls = 0;
     const spy = vi.fn(async (): Promise<HeadlessResult> => {

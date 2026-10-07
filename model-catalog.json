@@ -42,6 +42,11 @@
       { "id": "claude-opus-4-6-thinking", "label": "Claude Opus 4.6 Thinking", "tags": ["multimodal", "vision"] },
       { "id": "gpt-oss-120b-medium", "label": "GPT-OSS 120B (Medium)", "tags": ["text-only"] }
     ],
-    "opencode": []
+    "opencode": [],
+    "opencode2": [
+      { "id": "opencode-go/mimo-v2.5", "label": "OpenCode Go · MiMo v2.5" },
+      { "id": "opencode-go/space-bunny", "label": "OpenCode Go · Space Bunny", "efforts": ["low", "medium", "high", "xhigh", "max"] },
+      { "id": "opencode-go/deepseek-v4.1-flash", "label": "OpenCode Go · DeepSeek v4.1 Flash", "efforts": ["low", "high", "max"] }
+    ]
   }
 }

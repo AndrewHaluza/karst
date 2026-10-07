@@ -62,6 +62,10 @@ const OK_STDOUT: Record<AgentProvider, string> = {
     JSON.stringify({ type: 'session', sessionID: 'ses_1' }),
     JSON.stringify({ type: 'text', part: { type: 'text', text: 'ok' } }),
   ].join('\n'),
+  opencode2: [
+    JSON.stringify({ type: 'step_start', sessionID: 'ses_1', part: { type: 'step-start' } }),
+    JSON.stringify({ type: 'text', sessionID: 'ses_1', part: { type: 'text', text: 'ok' } }),
+  ].join('\n'),
 };
 
 function baseOpts(): RunHeadlessOpts {
@@ -132,7 +136,10 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const surfaces = surfacesOf(provider);
     const adapter = resolveAdapter(provider);
     const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
-    await adapter.runHeadless({ ...baseOpts(), effort: 'high' });
+    // Effort is meaningless without a model to attach it to (opencode2 encodes
+    // it as a `#<effort>` suffix on the model id), so the probe always
+    // resolves a model first — exactly as karst's launch resolution does.
+    await adapter.runHeadless({ ...baseOpts(), model: 'a-model-id', effort: 'high' });
     const argv = calls[0]!.args.join(' ');
     expect(argv.includes('high'), `${provider} headless effort`).toBe(
       surfaces.effortHeadless.supported,
@@ -187,6 +194,10 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     antigravity: ({ args }) => {
       expect(after(args, '--mode')).toBe('plan');
     },
+    // opencode2's read-only mechanism (its `permission` config) lands with its
+    // permissions ticket; until then it DECLARES readOnlyInteractive unsupported
+    // and the test above does not exercise this entry.
+    opencode2: () => {},
   };
 
   const READS_DIR: Record<AgentProvider, (l: Launch, dir: string) => void> = {
@@ -195,17 +206,20 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     opencode: (l, dir) =>
       expect(opencodePermission(l).external_directory).toMatchObject({ '*': 'ask', [`${dir}/**`]: 'allow' }),
     antigravity: ({ args }, dir) => expect(args[args.indexOf(dir) - 1]).toBe('--add-dir'),
+    // Declared unsupported until the permissions ticket (see above).
+    opencode2: () => {},
   };
 
   it('launches a read-only planning session by its verified mechanism', () => {
-    expect(surfacesOf(provider).readOnlyInteractive.supported).toBe(provider !== 'antigravity');
+    const supported = surfacesOf(provider).readOnlyInteractive.supported;
+    expect(supported).toBe(provider !== 'antigravity' && provider !== 'opencode2');
     const launch = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/karst/scratch',
       readOnly: true,
       addDirs: ['/repos/api'],
       initialPrompt: 'plan it',
     });
-    READ_ONLY[provider](launch);
+    if (supported) READ_ONLY[provider](launch);
     expect(JSON.stringify(launch), `${provider} planning launch names no registry`).not.toMatch(/karst\.db|KARST_DB/);
     expect(launch.args.at(-1), `${provider} prompt stays last`).toBe('plan it');
   });
@@ -217,13 +231,16 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   });
 
   it('makes every extra directory readable', () => {
-    expect(surfacesOf(provider).addDirsInteractive.supported).toBe(true);
+    const supported = surfacesOf(provider).addDirsInteractive.supported;
+    expect(supported).toBe(provider !== 'opencode2');
     const launch = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/stack',
       addDirs: ['/repos/api', '/repos/web'],
       initialPrompt: 'plan it',
     });
-    for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
+    if (supported) {
+      for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
+    }
     expect(launch.args.at(-1)).toBe('plan it');
   });
 
@@ -231,6 +248,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     claude: '--strict-mcp-config',
     codex: 'mcp_servers={}',
     opencode: null,
+    opencode2: null,
     antigravity: null,
   };
 
@@ -246,6 +264,10 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     claude: ['--mcp-config'],
     codex: [],
     opencode: [],
+    // v2 `run` rejects all three: `--pure` suppresses the plugin the bridge
+    // needs, `--dir` is not a `run` flag, and `--variant` was replaced by the
+    // `#<effort>` model suffix.
+    opencode2: ['--pure', '--dir', '--variant'],
     antigravity: [],
   };
 
@@ -448,7 +470,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     expect(
       Boolean(delivery!.soloFallback),
       `${provider} soloFallback declaration`,
-    ).toBe(provider === 'codex' || provider === 'opencode');
+    ).toBe(provider === 'codex' || provider === 'opencode' || provider === 'opencode2');
   });
 
   it('delivers the instruction layer through its declared interactive channel, never inline', () => {
@@ -510,7 +532,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
   });
 
   it('reports fallback and leaves the rules in the kickoff for a solo-agent launch (codex/opencode)', () => {
-    if (provider !== 'codex' && provider !== 'opencode') return;
+    if (provider !== 'codex' && provider !== 'opencode' && provider !== 'opencode2') return;
     const launched = resolveAdapter(provider).buildInteractiveCommand({
       cwd: '/wt',
       instructions: INSTRUCTIONS,

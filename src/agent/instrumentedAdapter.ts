@@ -191,5 +191,14 @@ export function instrumentAdapter(
       adapter.materializeApproach!(opts);
   }
 
+  // Forwarded like `materializeApproach`: absent stays absent (a core with no
+  // stale-resume failure mode must not gain one), present is passed through.
+  if (adapter.resolveResume) {
+    instrumented.resolveResume = (
+      sessionId: string,
+      opts: { cwd: string; debug?: (message: string) => void },
+    ) => adapter.resolveResume!(sessionId, opts);
+  }
+
   return instrumented;
 }

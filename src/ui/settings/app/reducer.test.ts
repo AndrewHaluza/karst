@@ -173,8 +173,8 @@ describe('settingsAppReducer — independent refresh messages', () => {
     const refreshed = push(
       {
         type: 'models',
-        models: { claude: [], codex: [], antigravity: [], opencode: [] },
-        modelCompatibility: { claude: [], codex: [], antigravity: [], opencode: [] },
+        models: { claude: [], codex: [], antigravity: [], opencode: [], opencode2: [] },
+        modelCompatibility: { claude: [], codex: [], antigravity: [], opencode: [], opencode2: [] },
         recentModels: { claude: ['claude-opus'] },
       },
       edited,

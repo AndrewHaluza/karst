@@ -32,6 +32,7 @@ const REMOTE_MODELS: ModelCatalog = {
   codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
   antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
   opencode: [],
+  opencode2: [],
 };
 
 interface FakePanel extends TicketFormPanel {

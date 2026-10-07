@@ -68,6 +68,21 @@ export interface HeadlessSpawnOptions {
    * it. Only the KEYS are ever logged.
    */
   env?: Readonly<Record<string, string>>;
+  /**
+   * Adapter-owned environment applied VERBATIM (no `KARST_*` filter), layered
+   * over `env`. This exists for a core that MUST isolate its own XDG/state
+   * directories and disable its own auto-update on every spawn — opencode2
+   * (`XDG_*`, `OPENCODE_*`). It is adapter-owned by construction: a caller
+   * cannot reach it through `RunHeadlessOpts.env`, so the KARST_-only rule
+   * above still governs every caller-supplied key.
+   */
+  isolationEnv?: Readonly<Record<string, string>>;
+  /**
+   * Bytes to write to the child's stdin before it is closed. The prompt for a
+   * core whose only byte-identical delivery path is stdin (opencode2 `run`).
+   * Absent → stdin is `ignore`, exactly as before.
+   */
+  stdin?: string;
 }
 
 /** Overlay keys the headless env accepts: karst's own namespace only. */
@@ -148,13 +163,24 @@ export function spawnHeadlessCli(
     if (extraEnv) {
       onDebug?.(`[agent] headless run: env overlay keys [${Object.keys(extraEnv).join(', ')}]`);
     }
+    // The adapter-owned isolation env is applied verbatim (opencode2's XDG_* /
+    // OPENCODE_* must reach the child); only its KEYS are ever logged.
+    const isolationEnv = options.isolationEnv;
+    if (isolationEnv) {
+      onDebug?.(
+        `[agent] headless run: isolation env keys [${Object.keys(isolationEnv).join(', ')}]`,
+      );
+    }
+    const overlay =
+      extraEnv || isolationEnv ? { ...extraEnv, ...isolationEnv } : undefined;
+    const hasStdin = options.stdin !== undefined;
     let child: ChildProcess;
     try {
       child = spawnImpl(command, args, {
         cwd,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: [hasStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
         detached: true,
-        ...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
+        ...(overlay ? { env: { ...process.env, ...overlay } } : {}),
       });
     } catch (err) {
       onDebug?.(
@@ -164,6 +190,13 @@ export function spawnHeadlessCli(
       return;
     }
     onDebug?.(`[agent] headless run: spawned ${command} (pid ${child.pid ?? 'unavailable'}, cwd ${cwd})`);
+
+    if (hasStdin) {
+      // A core that exits before reading its prompt makes the write EPIPE; the
+      // run's real outcome is its exit code, so a stdin error is swallowed.
+      child.stdin?.on('error', () => {});
+      child.stdin?.end(options.stdin);
+    }
 
     let disposeRegistration: (() => void) | void = undefined;
     if (child.pid !== undefined && options.onSpawned) {

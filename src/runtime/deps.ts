@@ -1,6 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import type { AgentProvider } from '../manifest/types.js';
 import { prepareCommand } from './command.js';
+import {
+  OPENCODE2_BINARY_SENTINEL,
+  isSupportedOpencode2Version,
+  opencode2BinaryPath,
+  opencode2IsolationEnv,
+  opencode2Config,
+  parseOpencode2Version,
+} from '../agent/opencode2Binary.js';
 
 /**
  * Startup dependency preflight. karst shells out to
@@ -43,13 +51,51 @@ export interface RequiredDependency {
    * the whole story — there is nothing to be logged in to for git or npm.
    */
   ready?: { args: readonly string[]; fix: string };
+  /**
+   * When present, the readiness command's OUTPUT is validated, not just its
+   * exit code. opencode2 needs this: its binary is a required SETTING and the
+   * SAME launcher name ships as v1, so a path that merely exits 0 is not proof
+   * the right core is configured — `--version` must be range-checked. The
+   * caller must inject an output probe (`readOutput`) or the dependency reads
+   * not-ready rather than silently trusting an unreadable version.
+   */
+  readyOutput?: (stdout: string) => boolean;
+  /**
+   * The dependency is not usable WITHOUT probing anything — the setting that
+   * names its binary is unset, or it is deliberately off. This exists for
+   * opencode2: its unset sentinel is also the `@opencode/cli` PATH alias, so a
+   * probe would find a real `opencode2` on PATH and wrongly read the core as
+   * available. `unavailable` short-circuits BEFORE any PATH lookup.
+   */
+  unavailable?: string;
+  /**
+   * Environment every probe of this dependency must run under. opencode2 needs
+   * it: its `--version` is itself a v2 process that would touch the user's real
+   * XDG dirs, so even the existence/readiness probes must carry the karst-owned
+   * dirs (criterion 2: isolation on EVERY spawn, not just agent runs).
+   */
+  probeEnv?: Readonly<Record<string, string>>;
 }
 
+/** A probe environment, layered over the host's `process.env` by the caller. */
+export type ProbeEnv = Readonly<Record<string, string>>;
+
 /** Returns true when the binary exists and can be executed. */
-export type DependencyProbe = (binary: string) => boolean;
+export type DependencyProbe = (binary: string, env?: ProbeEnv) => boolean;
 
 /** Returns true when `<binary> <args>` exits 0. */
-export type ReadinessProbe = (binary: string, args: readonly string[]) => boolean;
+export type ReadinessProbe = (
+  binary: string,
+  args: readonly string[],
+  env?: ProbeEnv,
+) => boolean;
+
+/** Captures `<binary> <args>` stdout + exit code, for `readyOutput`. */
+export type OutputProbe = (
+  binary: string,
+  args: readonly string[],
+  env?: ProbeEnv,
+) => { stdout: string; exitCode: number };
 
 /** How usable a dependency is right now. */
 export type DependencyState = 'ok' | 'missing' | 'not-ready';
@@ -99,16 +145,27 @@ export const GH_DEPENDENCY: RequiredDependency = {
 };
 
 /**
+ * The spawn `env` for a probe: the host env with the dependency's isolated
+ * dirs layered on. Absent env → `undefined`, so the child inherits unchanged.
+ */
+function probeEnvOption(env?: ProbeEnv): { env: NodeJS.ProcessEnv } | Record<string, never> {
+  return env ? { env: { ...process.env, ...env } } : {};
+}
+
+/**
  * Real probe: run `<binary> --version` and treat a clean exit as "present".
  * A missing binary surfaces as a spawn `error` (ENOENT); a present one exits 0.
- * Mirrors `preflight.ts`'s `gitOk` spawnSync usage. Never throws.
+ * Mirrors `preflight.ts`'s `gitOk` spawnSync usage. Never throws. `env` carries
+ * a dependency's isolated dirs (opencode2) so the probe cannot touch the user's
+ * real state.
  */
-export function binaryExists(binary: string): boolean {
+export function binaryExists(binary: string, env?: ProbeEnv): boolean {
   try {
     const p = prepareCommand(binary, ['--version']);
     const r = spawnSync(p.command, p.args, {
       encoding: 'utf8',
       windowsVerbatimArguments: p.windowsVerbatimArguments,
+      ...probeEnvOption(env),
     });
     return !r.error && r.status === 0;
   } catch {
@@ -123,16 +180,51 @@ export function binaryExists(binary: string): boolean {
  * answer and a readiness check may print a secret — `gh auth token` writes the
  * user's token to stdout. Nothing karst never reads can ever be logged.
  */
-export function commandSucceeds(binary: string, args: readonly string[]): boolean {
+export function commandSucceeds(
+  binary: string,
+  args: readonly string[],
+  env?: ProbeEnv,
+): boolean {
   try {
     const p = prepareCommand(binary, args);
     const r = spawnSync(p.command, p.args, {
       stdio: 'ignore',
       windowsVerbatimArguments: p.windowsVerbatimArguments,
+      ...probeEnvOption(env),
     });
     return !r.error && r.status === 0;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Run `<binary> <args>` and return its captured stdout + exit code. Never
+ * throws. This is the ONE capture probe; it exists for a caller that must read
+ * the OUTPUT to judge readiness rather than the exit code alone — opencode2's
+ * `--version` must be range-checked (`>=2.0.24 <3`), which an exit code cannot
+ * express. Nothing sensitive is printed by `--version`; callers must not route
+ * other tools' output through it. `env` carries the isolated dirs so the probe
+ * process cannot touch the user's real state.
+ */
+export function readCommandOutput(
+  binary: string,
+  args: readonly string[],
+  env?: ProbeEnv,
+): { stdout: string; exitCode: number } {
+  try {
+    const p = prepareCommand(binary, args);
+    const r = spawnSync(p.command, p.args, {
+      encoding: 'utf8',
+      windowsVerbatimArguments: p.windowsVerbatimArguments,
+      ...probeEnvOption(env),
+    });
+    return {
+      stdout: typeof r.stdout === 'string' ? r.stdout : '',
+      exitCode: r.error ? 1 : r.status ?? 1,
+    };
+  } catch {
+    return { stdout: '', exitCode: 1 };
   }
 }
 
@@ -149,10 +241,22 @@ export function dependencyState(
   dep: RequiredDependency,
   probe: DependencyProbe,
   ready: ReadinessProbe,
+  readOutput?: OutputProbe,
 ): DependencyState {
-  if (!probe(dep.binary)) return 'missing';
+  // A dependency with no configured binary is missing before any probe: a PATH
+  // lookup could otherwise find an unrelated binary by the same name.
+  if (dep.unavailable) return 'missing';
+  if (!probe(dep.binary, dep.probeEnv)) return 'missing';
+  // An output-validating dependency (opencode2's version range) must have its
+  // readiness command's OUTPUT read; without the injected probe it reads
+  // not-ready rather than trusting an exit code that a v1 binary also passes.
+  if (dep.readyOutput) {
+    if (!dep.ready || !readOutput) return 'not-ready';
+    const { stdout, exitCode } = readOutput(dep.binary, dep.ready.args, dep.probeEnv);
+    return exitCode === 0 && dep.readyOutput(stdout) ? 'ok' : 'not-ready';
+  }
   if (!dep.ready) return 'ok';
-  return ready(dep.binary, dep.ready.args) ? 'ok' : 'not-ready';
+  return ready(dep.binary, dep.ready.args, dep.probeEnv) ? 'ok' : 'not-ready';
 }
 
 /**
@@ -197,6 +301,44 @@ export const AGENT_CLI_DEPENDENCIES: Partial<Record<AgentProvider, RequiredDepen
  * a generic honest fallback (binary = provider name) until real docs are added.
  */
 export function agentDependency(provider: AgentProvider): RequiredDependency {
+  // opencode2 is the one provider whose binary is NOT resolved on PATH: v2
+  // ships a launcher also named `opencode`, so a lookup would run v1. The
+  // configured absolute path is required; unset is a normal "unavailable"
+  // state whose message names the setting.
+  if (provider === 'opencode2') {
+    const configured = opencode2BinaryPath();
+    const binary = configured || OPENCODE2_BINARY_SENTINEL;
+    const install =
+      "Set 'karst.opencode2.binaryPath' to the @opencode/cli v2 launcher " +
+      '(https://www.npmjs.com/package/@opencode/cli), then reload the window.';
+    return {
+      binary,
+      label: 'the OpenCode v2 CLI',
+      install,
+      enables: 'sessions',
+      // UNSET must not become a PATH lookup: the sentinel is also the
+      // `@opencode/cli` alias, so probing it would find a real `opencode2`.
+      ...(configured
+        ? {}
+        : { unavailable: "karst.opencode2.binaryPath is not set" }),
+      // Even the `--version` probes are v2 processes that would touch the
+      // user's real dirs; every probe runs under the karst-owned XDG dirs.
+      probeEnv: opencode2IsolationEnv(opencode2Config().home),
+      // The SAME launcher name ships as v1, so a path that merely exits 0 is
+      // not proof the right core is configured. Validate `--version` against
+      // the accepted range, or the guard would launch v1 with v2 flags.
+      ready: {
+        args: ['--version'],
+        fix:
+          "Set 'karst.opencode2.binaryPath' to a @opencode/cli v2 binary " +
+          '(>= 2.0.24 < 3) — a v1 binary cannot run the v2 flags.',
+      },
+      readyOutput: (stdout) => {
+        const version = parseOpencode2Version(stdout);
+        return version !== null && isSupportedOpencode2Version(version);
+      },
+    };
+  }
   return (
     AGENT_CLI_DEPENDENCIES[provider] ?? {
       binary: provider,
@@ -240,9 +382,10 @@ export function checkDependencyFaults(
   registry: readonly RequiredDependency[],
   probe: DependencyProbe,
   ready: ReadinessProbe,
+  readOutput?: OutputProbe,
 ): DependencyFault[] {
   return registry
-    .map((dep) => ({ dep, state: dependencyState(dep, probe, ready) }))
+    .map((dep) => ({ dep, state: dependencyState(dep, probe, ready, readOutput) }))
     .filter((f): f is DependencyFault => f.state !== 'ok');
 }
 
@@ -259,8 +402,9 @@ export function ensureCapability(
   registry: readonly RequiredDependency[],
   probe: DependencyProbe,
   ready: ReadinessProbe,
+  readOutput?: OutputProbe,
 ): DependencyFault[] {
-  return checkDependencyFaults(requiredFor(capability, registry), probe, ready);
+  return checkDependencyFaults(requiredFor(capability, registry), probe, ready, readOutput);
 }
 
 /**
@@ -269,7 +413,8 @@ export function ensureCapability(
  * this same sentence, so github.ts no longer needs its own duplicate of it.
  */
 export function renderMissingDependency(dep: RequiredDependency): string {
-  return `Karst can't ${CAPABILITY_PHRASE[dep.enables]}: ${dep.label} isn't installed. ${dep.install}`;
+  const what = dep.unavailable ? 'is not configured' : "isn't installed";
+  return `Karst can't ${CAPABILITY_PHRASE[dep.enables]}: ${dep.label} ${what}. ${dep.install}`;
 }
 
 /**
@@ -286,5 +431,11 @@ export function renderDependencyFault(
 ): string | null {
   if (state === 'ok') return null;
   if (state === 'missing') return renderMissingDependency(dep);
-  return `Karst can't ${CAPABILITY_PHRASE[dep.enables]}: ${dep.label} is installed, but not signed in. ${dep.ready?.fix ?? ''}`;
+  const fix = dep.ready?.fix ?? '';
+  // An output-validating dependency (opencode2) is not "signed in" — it is the
+  // wrong build. Name the real cause rather than the gh-auth sentence.
+  if (dep.readyOutput) {
+    return `Karst can't ${CAPABILITY_PHRASE[dep.enables]}: ${dep.label} is installed but not usable. ${fix}`;
+  }
+  return `Karst can't ${CAPABILITY_PHRASE[dep.enables]}: ${dep.label} is installed, but not signed in. ${fix}`;
 }

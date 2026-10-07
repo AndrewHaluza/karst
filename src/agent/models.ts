@@ -45,6 +45,7 @@ export function compatibilityModelCatalog(
     codex: merge('codex'),
     antigravity: merge('antigravity'),
     opencode: merge('opencode'),
+    opencode2: merge('opencode2'),
   };
 }
 
