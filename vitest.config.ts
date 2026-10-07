@@ -2,7 +2,10 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // `scripts/**/*.test.mjs` covers plain-JS CI helper scripts (e.g. the
+    // mutation mini report). They stay .mjs so CI runs them directly with
+    // `node`, with no build/tsx step between Stryker and the summary.
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.mjs'],
     environment: 'node',
     // The webview message-sender bundles are generated esbuild output; build
     // them once per run so jsdom/VM tests that hydrate dashboard or settings

@@ -50,6 +50,7 @@ const REMOTE_MODELS: ModelCatalog = {
   codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
   antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
   opencode: [],
+  opencode2: [],
 };
 
 type ModelCatalogDependencyIsRequired =
@@ -181,6 +182,7 @@ describe('settings actions — validateProcessAssignments', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'planning',
     ]);
     const review = rows.find((r) => r.key === 'review');
     expect(review?.state).toBe('unknown-profile');
@@ -438,6 +440,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
       codex: [],
       antigravity: [],
       opencode: [],
+      opencode2: [],
     };
     const writes: Manifest[] = [];
     const { actions, posted } = harness({

@@ -46,13 +46,17 @@ agentProvider: claude
 # Named presets: a preset is a SPARSE matrix of capability → {provider, model,
 # effort?}, edited in Settings → Presets. A capability with no slot INHERITS —
 # the ticket's own field → the `processes:` row → the agentProvider /
-# defaultModel / defaultEffort defaults above. The ten capabilities, grouped
+# defaultModel / defaultEffort defaults above. The eleven capabilities, grouped
 # as the tab shows them:
 #   Quality: uatTester, uatFix, review, reviewFix
-#   Ticket: prDescription, ticketAnalysis, implementation
+#   Ticket: prDescription, ticketAnalysis, implementation, planning
 #   Graph roles: graphExpert, graphWorker, graphFast — the approach profile
 #     ids expert / worker / fast; an approach using another profile id is
 #     never touched by a preset.
+# `planning` is the read-only planning session (Settings → Agents, "Planner");
+# its Inherit falls back to the IMPLEMENTATION resolution, not the bare
+# manifest default, so a project that never picks a planner keeps launching
+# what it launched before.
 # `activeAgentPreset` names the preset applied to every ticket that names none
 # of its own (`defaultAgentPreset` is its deprecated alias — use ONE spelling;
 # a file carrying both is refused). Presets move provider/model/effort only —
@@ -78,6 +82,7 @@ agentProvider: claude
 #       prDescription: { provider: opencode, model: opencode-go/mimo-v2.5 }
 #       ticketAnalysis: { provider: opencode, model: opencode-go/mimo-v2.5 }
 #       implementation: { provider: opencode, model: opencode-go/mimo-v2.5 }
+#       planning: { provider: opencode, model: opencode-go/mimo-v2.5 }
 #       graphExpert: { provider: opencode, model: opencode-go/mimo-v2.5 }
 #       graphWorker: { provider: opencode, model: opencode-go/mimo-v2.5 }
 #       graphFast: { provider: opencode, model: opencode-go/mimo-v2.5 }
@@ -95,6 +100,7 @@ agentProvider: claude
 #       prDescription: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
 #       ticketAnalysis: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
 #       implementation: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
+#       planning: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
 #       graphExpert: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
 #       graphWorker: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
 #       graphFast: { provider: opencode, model: opencode-go/mimo-v2.5, effort: free }
@@ -114,6 +120,7 @@ agentProvider: claude
 #       prDescription: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
 #       ticketAnalysis: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
 #       implementation: { provider: claude, model: claude-opus-5, effort: low }
+#       planning: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
 #       graphExpert: { provider: claude, model: claude-opus-5, effort: low }
 #       graphWorker: { provider: opencode, model: opencode-go/deepseek-v4-flash, effort: high }
 #       graphFast: { provider: opencode, model: opencode-go/mimo-v2.5 }

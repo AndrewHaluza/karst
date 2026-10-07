@@ -201,10 +201,10 @@ export interface GraphProfileConfig {
 
 /**
  * The capabilities a preset can override — the ROWS of the preset matrix (§3).
- * Six are the inside-process roles (same manifest spellings as `PROCESS_KEYS`),
- * three are the launch paths outside them, and the three graph rows are the
- * profile ids `expert`/`worker`/`fast`: an approach whose graph declares a
- * different profile id is untouched by presets.
+ * The inside-process roles (same manifest spellings as `PROCESS_KEYS`, which
+ * includes `planning`), the launch paths outside them, and the three graph rows
+ * are the profile ids `expert`/`worker`/`fast`: an approach whose graph declares
+ * a different profile id is untouched by presets.
  *
  * The array is load-bearing beyond typing — the legacy-flat normalization below
  * widens one `{provider, model}` bundle to a slot on EVERY row, so adding a
@@ -218,6 +218,7 @@ export const PRESET_CAPABILITIES = [
   'prDescription',
   'ticketAnalysis',
   'implementation',
+  'planning',
   'graphExpert',
   'graphWorker',
   'graphFast',
@@ -344,7 +345,7 @@ export type WorktreePathDisplay = 'absolute' | 'relative';
 export type TicketProvider = 'clickup' | 'manual';
 
 /** Which coding-agent CLI karst launches sessions with. */
-export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode';
+export type AgentProvider = 'claude' | 'codex' | 'antigravity' | 'opencode' | 'opencode2';
 
 /**
  * Project-level templates for the git/GitHub artifacts Karst creates itself: the
@@ -605,7 +606,7 @@ export interface ProcessAssignmentConfig {
 }
 
 /**
- * The closed six-entry `processes:` block (Task 7 + ticket-form follow-up).
+ * The closed `processes:` block (Task 7 + ticket-form follow-up + planner).
  * Keys are the manifest spelling (`uatTester`); the resolver consumes the
  * kebab ROLE spellings (`uat-tester`) via `PROCESS_ROLE_BY_KEY` — both
  * vocabularies live in `manifest/validate/processAssignments.ts`.
@@ -622,6 +623,15 @@ export interface ProcessAssignmentsConfig {
    * agentProvider/defaultModel) apply, exactly like every other role.
    */
   ticketAnalysis?: ProcessAssignmentConfig;
+  /**
+   * The planning-session core/model (Settings → Agents, "Planner"). A planning
+   * session is not a ticket and not a stage, so this is not a `process_runs`
+   * role: it selects the read-only planning terminal's core and model. Absent →
+   * the implementation resolution applies (`resolvePlanningDefaults`,
+   * `agent/planningDefaults.ts`), so an existing project sees no change until
+   * it picks a planner. The active preset's `planning` slot outranks this block.
+   */
+  planning?: ProcessAssignmentConfig;
 }
 
 /**

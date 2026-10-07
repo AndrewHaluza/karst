@@ -390,4 +390,16 @@ describe('instrumentAdapter', () => {
     const adapter = instrumentAdapter(fakeAdapter(), { sink: sink() });
     expect(adapter.materializeApproach).toBeUndefined();
   });
+
+  it('forwards resolveResume when the wrapped adapter has one', async () => {
+    const resolveResume = vi.fn(async () => undefined);
+    const adapter = instrumentAdapter(fakeAdapter({ resolveResume }), { sink: sink() });
+    await adapter.resolveResume?.('s1', { cwd: '/w' });
+    expect(resolveResume).toHaveBeenCalledWith('s1', { cwd: '/w' });
+  });
+
+  it('omits resolveResume when the wrapped adapter has none', () => {
+    const adapter = instrumentAdapter(fakeAdapter(), { sink: sink() });
+    expect(adapter.resolveResume).toBeUndefined();
+  });
 });

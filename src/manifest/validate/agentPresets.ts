@@ -25,7 +25,7 @@ import {
   type ProcessAssignmentsConfig,
 } from '../types.js';
 
-const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
+const AGENT_PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 /** Model id bound — mirrors the graph profile model grammar. */
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:/~-]{0,127}$/;
@@ -77,7 +77,7 @@ function validateSlot(raw: unknown, where: string): PresetSlot {
 /**
  * Legacy flat preset → the same slot on EVERY capability (§6). This is what
  * preserves today's behaviour exactly: a flat preset applied globally, so a
- * normalized one must override all ten rows and inherit nothing.
+ * normalized one must override every row and inherit nothing.
  */
 function normalizeLegacyPreset(raw: Record<string, unknown>, where: string): AgentPreset {
   const slot = validateSlot(raw, where);

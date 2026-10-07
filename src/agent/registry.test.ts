@@ -4,6 +4,7 @@ import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
+import { Opencode2Adapter } from './opencode2.js';
 
 describe('resolveAdapter', () => {
   it('resolves claude to a ClaudeAdapter instance', () => {
@@ -21,6 +22,10 @@ describe('resolveAdapter', () => {
   it('resolves opencode to an OpencodeAdapter instance', () => {
     expect(resolveAdapter('opencode')).toBeInstanceOf(OpencodeAdapter);
   });
+
+  it('resolves opencode2 to an Opencode2Adapter instance', () => {
+    expect(resolveAdapter('opencode2')).toBeInstanceOf(Opencode2Adapter);
+  });
 });
 
 describe('IMPLEMENTED_PROVIDERS', () => {
@@ -30,6 +35,7 @@ describe('IMPLEMENTED_PROVIDERS', () => {
       'codex',
       'antigravity',
       'opencode',
+      'opencode2',
     ]);
   });
 });
@@ -56,6 +62,7 @@ describe('isKnownProvider', () => {
     expect(isKnownProvider('codex')).toBe(true);
     expect(isKnownProvider('antigravity')).toBe(true);
     expect(isKnownProvider('opencode')).toBe(true);
+    expect(isKnownProvider('opencode2')).toBe(true);
   });
 
   it('rejects an unrecognized string', () => {

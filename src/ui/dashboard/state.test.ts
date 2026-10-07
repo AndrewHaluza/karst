@@ -412,7 +412,7 @@ describe('buildDashboardState', () => {
   it('exposes the header agent-switch choices for every implemented core', () => {
     const t = createTicket(store, { key: 'SW-CH', title: 'switch' });
     const state = buildDashboardState(store, t.id);
-    expect(state.agentSwitch.cores.map((c) => c.id)).toEqual(['claude', 'codex', 'antigravity', 'opencode']);
+    expect(state.agentSwitch.cores.map((c) => c.id)).toEqual(['claude', 'codex', 'antigravity', 'opencode', 'opencode2']);
     expect(state.agentSwitch.cores.find((c) => c.id === 'codex')?.label).toBe('Codex');
     expect(Array.isArray(state.agentSwitch.models.codex)).toBe(true);
     expect(state.agentSwitch.models.codex!.some((m) => m.model === null)).toBe(true); // inherit choice
@@ -459,8 +459,14 @@ describe('buildDashboardState', () => {
   it('computes the effective identity for EVERY capability, not only the labelled three (NDL-116)', () => {
     const state = presetState('PRESET-ID', { agentPreset: 'turbo' });
 
-    expect(PRESET_CAPABILITIES).toHaveLength(10);
+    expect(PRESET_CAPABILITIES).toHaveLength(11);
     for (const capability of PRESET_CAPABILITIES) {
+      // Planning is not a ticket: the ticket's preset never reaches it, so it
+      // stays on the manifest's planning resolution (here the manifest default).
+      if (capability === 'planning') {
+        expect(state.capabilityIdentity[capability]).toEqual(MANIFEST_DEFAULT);
+        continue;
+      }
       expect(state.capabilityIdentity[capability]).toEqual(DEEPSEEK);
     }
   });

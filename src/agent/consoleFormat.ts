@@ -118,7 +118,10 @@ export function opencodeConsoleLine(line: string): string {
       if (part === null) return `${line}\n`;
       const tool = stringField(part, 'tool');
       const state = asRecord(part['state']);
-      if (tool === 'bash' && state !== null) {
+      // v1 names its shell tool `bash`; v2 (`opencode2`) names it `shell`.
+      // Both carry `state.input.command` / `state.output`, so one branch serves
+      // both cores.
+      if ((tool === 'bash' || tool === 'shell') && state !== null) {
         const input = asRecord(state['input']);
         const command = input === null ? '' : stringField(input, 'command');
         if (command.length === 0) return `${line}\n`;
@@ -231,6 +234,9 @@ export function claudeConsoleLine(line: string): string {
 export function consoleLineRendererFor(provider: AgentProvider): ConsoleLineRenderer | null {
   switch (provider) {
     case 'opencode':
+    // opencode2 emits the same NDJSON event vocabulary (`text`/`tool_use`/
+    // `step_start`/`step_finish`/`error`), with the shell tool named `shell`.
+    case 'opencode2':
       return opencodeConsoleLine;
     case 'codex':
       return codexConsoleLine;
@@ -249,10 +255,10 @@ export function consoleLineRendererFor(provider: AgentProvider): ConsoleLineRend
  * only after the bounded headless spawn settles.
  */
 export function renderConsoleStream(
-  provider: 'opencode' | 'codex',
+  provider: 'opencode' | 'opencode2' | 'codex',
   onOutput: (chunk: HeadlessOutputChunk) => void,
 ): { append: (chunk: HeadlessOutputChunk) => void; flush: () => void } {
-  const renderer = provider === 'opencode' ? opencodeConsoleLine : codexConsoleLine;
+  const renderer = provider === 'codex' ? codexConsoleLine : opencodeConsoleLine;
   const format = new StreamingConsoleFormat(renderer);
   return {
     append: (chunk) => {

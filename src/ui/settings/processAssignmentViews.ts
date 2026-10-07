@@ -36,6 +36,7 @@ import type {
 import { PROCESS_KEYS, PROCESS_ROLE_BY_KEY, type ProcessKey } from '../../manifest/validate/processAssignments.js';
 import { IMPLEMENTED_PROVIDERS } from '../../agent/provider.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { resolvePlanningInherited } from '../../agent/planningDefaults.js';
 import {
   isModelCompatibleWithProvider,
   resolveModelForProvider,
@@ -109,6 +110,7 @@ const ROLE_LABELS: Record<ProcessKey, string> = {
   reviewFix: 'Review Fix',
   prDescription: 'PR description',
   ticketAnalysis: 'Ticket analysis',
+  planning: 'Planner',
 };
 
 /** Handoff §7 per-row descriptions (what each process does, when it runs). */
@@ -120,6 +122,7 @@ const ROLE_DESCRIPTIONS: Record<ProcessKey, string> = {
   prDescription: 'Writes the pull request description at ship time',
   ticketAnalysis:
     'Synthesizes the ticket prompt; suggests approach, repos and type on the ticket form',
+  planning: 'Model used by planning sessions',
 };
 
 /**
@@ -135,6 +138,28 @@ function coreLabel(provider: AgentProvider): string {
   return AGENT_PROVIDER_LABELS[provider];
 }
 
+/**
+ * The manifest a row's defaults are read from. For every role but planning it
+ * is the manifest itself: its `agentProvider`/`defaultModel` are the floor a
+ * slot composes over. The Planner row's floor is the IMPLEMENTATION resolution
+ * (`resolvePlanningInherited`), so its Default hints and Inherit identity show
+ * what a planning launch would take with the Planner row empty.
+ */
+function defaultsManifest(
+  key: ProcessKey,
+  manifest: Manifest,
+  catalog: ModelCatalog,
+): Manifest {
+  if (key !== 'planning') return manifest;
+  const inherited = resolvePlanningInherited(manifest, catalog);
+  return {
+    ...manifest,
+    agentProvider: inherited.provider,
+    defaultModel: inherited.model,
+    defaultEffort: inherited.effort,
+  };
+}
+
 export function buildProcessAssignmentView(
   key: ProcessKey,
   cfg: ProcessAssignmentConfig,
@@ -144,11 +169,12 @@ export function buildProcessAssignmentView(
 ): SettingsProcessAssignmentView {
   const roleLabel = ROLE_LABELS[key];
   const description = ROLE_DESCRIPTIONS[key];
+  const floor = defaultsManifest(key, manifest, catalog);
 
   // The approved defaults: the PR-description role's profile default is the
   // ticket-resolved adapter label (never a fixed agent name), the other roles'
   // are the approved role names. The core default follows the effective preset.
-  const presetDefaults = resolvePresetDefaults(manifest, key, { rolePreset: cfg.preset });
+  const presetDefaults = resolvePresetDefaults(floor, key, { rolePreset: cfg.preset });
   const manifestCore = presetDefaults.provider;
   const role = PROCESS_ROLE_BY_KEY[key];
   const defaultProfile =
@@ -168,7 +194,7 @@ export function buildProcessAssignmentView(
 
   // The effective defaults for THIS row: the preset supplies model/effort only
   // when its own core is the one the row will actually run on.
-  const defaults = resolvePresetDefaults(manifest, key, {
+  const defaults = resolvePresetDefaults(floor, key, {
     rolePreset: cfg.preset,
     explicitProvider: effectiveProvider,
   });
@@ -213,10 +239,15 @@ export function buildProcessAssignmentView(
 
   if (cfg.enabled === false) {
     // Handoff: "Preserve selections but disable execution; explain what will
-    // be skipped." Not a fault — a deliberate off switch.
+    // be skipped." Not a fault — a deliberate off switch. For the Planner the
+    // switch turns the OVERRIDE off (planning always launches), so the row
+    // inherits the implementation resolution instead of being skipped.
     state = 'disabled';
     stateTone = 'note';
-    stateMessage = `Disabled — ${roleLabel} is skipped. Selections are kept.`;
+    stateMessage =
+      key === 'planning'
+        ? 'Disabled — Planner inherits the ticket implementation setting.'
+        : `Disabled — ${roleLabel} is skipped. Selections are kept.`;
   } else if (cfg.agent !== undefined && !profileOptions.includes(cfg.agent)) {
     // Handoff: "Unknown profile — Inline error naming the missing profile."
     state = 'unknown-profile';

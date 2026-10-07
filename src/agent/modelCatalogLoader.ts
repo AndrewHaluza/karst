@@ -11,13 +11,14 @@ import {
   discoverAntigravityModels,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverOpencode2Models,
   discoverOpencodeModels,
   type DiscoveryResult,
 } from './modelDiscovery.js';
 
 const DEFAULT_TIMEOUT_MS = 3_000;
 const MAX_BODY_BYTES = 256 * 1024;
-const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode'];
+const PROVIDERS: readonly AgentProvider[] = ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'];
 
 export type CatalogSource = 'cli' | 'feed' | 'cache' | 'bundled';
 
@@ -163,6 +164,7 @@ const DEFAULT_CLI_LOADERS: Record<AgentProvider, ModelDiscoveryLoader> = {
   codex: discoverCodexModels,
   antigravity: discoverAntigravityModels,
   opencode: discoverOpencodeModels,
+  opencode2: discoverOpencode2Models,
 };
 
 async function readBody(response: Response, maxBodyBytes: number): Promise<string | undefined> {

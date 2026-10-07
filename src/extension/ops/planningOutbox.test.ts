@@ -8,16 +8,22 @@ import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createPlanningSession } from '../../store/planningSessions.js';
 import {
-  acceptProposal,
   countPending,
   discardProposal,
   getProposal,
   insertProposal,
   listPendingProposals,
+  markProposalAccepted,
 } from '../../store/planningProposals.js';
+import { createTicket } from '../../store/tickets.js';
 import { MAX_PROPOSAL_BYTES } from '../../planning/proposal.js';
 import { readProposalIndex } from '../../planning/proposalIndex.js';
-import { createPlanningOutbox, PLANNING_OUTBOX_RATE_CAP, type PlanningOutboxDeps } from './planningOutbox.js';
+import {
+  createPlanningOutbox,
+  PLANNING_OUTBOX_RATE_CAP,
+  PLANNING_CLAIM_STALE_MS,
+  type PlanningOutboxDeps,
+} from './planningOutbox.js';
 import type { Notify } from './notify.js';
 
 const UUID = (n: number): string => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -80,7 +86,10 @@ describe('planning outbox', () => {
     expect(pending().map((p) => p.payload)).toEqual([good]);
     expect(readdirSync(outbox)).toEqual([]);
     expect(onProposal).toHaveBeenCalledWith(expect.objectContaining({ sessionId, payload: good }));
-    expect(debug.mock.calls.some(([l]) => String(l).startsWith('[planning]'))).toBe(true);
+    const lines = debug.mock.calls.map(([l]) => String(l));
+    expect(lines.some((l) => l.startsWith('[planning]'))).toBe(true);
+    expect(lines.some((l) => l.includes('→ proposal'))).toBe(true);
+    expect(lines.some((l) => l.includes(`session ${sessionId}`))).toBe(true);
     expect(warns).toEqual([]);
   });
 
@@ -132,7 +141,7 @@ describe('planning outbox', () => {
     const other = createPlanningSession(store, { projectId, title: 'other', core: 'claude', model: null }).id;
     const foreign = insertProposal(store, other, good);
     const accepted = insertProposal(store, sessionId, good);
-    acceptProposal(store, accepted);
+    markProposalAccepted(store, accepted, createTicket(store, { key: 'K-acc', title: 'accepted', projectId }).id);
     const discarded = insertProposal(store, sessionId, good);
     discardProposal(store, discarded);
 
@@ -174,10 +183,12 @@ describe('planning outbox', () => {
     expect(warns.join()).toMatch(/outbox/);
   });
 
-  it('a missing outbox dir is silently skipped', () => {
+  it('a missing outbox dir is silently skipped without a scan failure', () => {
     rmSync(outbox, { recursive: true });
-    make().scan();
+    const debug = vi.fn();
+    make({ debug }).scan();
     expect(warns).toEqual([]);
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('scan failed'));
   });
 
   it('rejects a symlinked proposal file without reading its target', () => {
@@ -301,5 +312,204 @@ describe('planning outbox', () => {
     expect(countPending(store, sessionId)).toBe(PLANNING_OUTBOX_RATE_CAP);
     expect(warns.join()).toMatch(/pending/);
     expect(readdirSync(outbox)).toEqual([]);
+  });
+
+  it('pins the stale-claim window', () => {
+    expect(PLANNING_CLAIM_STALE_MS).toBe(5 * 60_000);
+  });
+
+  it('rejects an outbox whose realpath is not the expected directory, with the code', () => {
+    put(`${UUID(1)}.json`, good);
+    const debug = vi.fn();
+    const expected = join(nodeFs.realpathSync(scratch), 'outbox');
+    const fs = {
+      ...nodeFs,
+      realpathSync: (p: string) => (String(p) === expected ? '/somewhere/else/outbox' : nodeFs.realpathSync(p)),
+    } as unknown as typeof nodeFs;
+    make({ fs, debug }).scan();
+    expect(pending()).toEqual([]);
+    expect(warns.join()).toContain('not a plain directory');
+    expect(debug.mock.calls.some(([l]) => String(l).includes('outbox rejected (EBADDIR)'))).toBe(true);
+  });
+
+  it('logs a lost claim when the rename fails and ingests nothing', () => {
+    put(`${UUID(1)}.json`, good);
+    const debug = vi.fn();
+    const fs = {
+      ...nodeFs,
+      renameSync: () => { throw new Error('nope'); },
+    } as unknown as typeof nodeFs;
+    make({ fs, debug }).scan();
+    expect(pending()).toEqual([]);
+    expect(warns).toEqual([]);
+    expect(debug.mock.calls.some(([l]) => String(l).includes('lost (error)'))).toBe(true);
+  });
+
+  it('stamps a claimed file with the current time in seconds', () => {
+    put(`${UUID(1)}.json`, good);
+    const lutimes = vi.fn();
+    const fs = { ...nodeFs, lutimesSync: lutimes } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    const claimed = join(nodeFs.realpathSync(scratch), 'outbox', `.claim-w1-${UUID(1)}.json`);
+    expect(lutimes).toHaveBeenCalledWith(claimed, now / 1000, now / 1000);
+  });
+
+  it('logs a failed touch but still ingests the claim', () => {
+    put(`${UUID(1)}.json`, good);
+    const debug = vi.fn();
+    const fs = {
+      ...nodeFs,
+      lutimesSync: () => { throw new Error('nope'); },
+    } as unknown as typeof nodeFs;
+    make({ fs, debug }).scan();
+    expect(pending()).toHaveLength(1);
+    expect(debug.mock.calls.some(([l]) => String(l).includes('touch failed (error)'))).toBe(true);
+  });
+
+  it('rejects a file that cannot be opened and names the reason', () => {
+    put(`${UUID(1)}.json`, good);
+    const fs = {
+      ...nodeFs,
+      openSync: () => { throw new Error('nope'); },
+    } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    expect(pending()).toEqual([]);
+    expect(warns.join()).toContain('cannot open (error; symlinks are refused)');
+  });
+
+  it('closes the file descriptor after reading', () => {
+    put(`${UUID(1)}.json`, good);
+    const closed: number[] = [];
+    const fs = {
+      ...nodeFs,
+      closeSync: (fd: number) => { closed.push(fd); return nodeFs.closeSync(fd); },
+    } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    expect(closed).toHaveLength(1);
+  });
+
+  it('accepts a proposal exactly at the byte cap', () => {
+    const base = JSON.stringify(good);
+    put(`${UUID(1)}.json`, base + ' '.repeat(MAX_PROPOSAL_BYTES - Buffer.byteLength(base)));
+    make().scan();
+    expect(pending()).toHaveLength(1);
+    expect(warns).toEqual([]);
+  });
+
+  it('logs a failed unlink after a successful ingest', () => {
+    put(`${UUID(1)}.json`, good);
+    const debug = vi.fn();
+    const fs = {
+      ...nodeFs,
+      unlinkSync: () => { throw new Error('nope'); },
+    } as unknown as typeof nodeFs;
+    make({ fs, debug }).scan();
+    expect(pending()).toHaveLength(1);
+    expect(debug.mock.calls.some(([l]) => String(l).includes('unlink ') && String(l).includes(': error'))).toBe(true);
+  });
+
+  it('logs a rejected proposal with its reason', () => {
+    put(`${UUID(1)}.json`, '{nope');
+    const debug = vi.fn();
+    make({ debug }).scan();
+    expect(debug.mock.calls.some(([l]) => String(l).includes('rejected (not valid JSON)'))).toBe(true);
+  });
+
+  it('treats a claim exactly at the stale boundary as fresh', () => {
+    const name = `.claim-w1-${UUID(1)}.json`;
+    writeFileSync(join(outbox, name), JSON.stringify(good));
+    const mtime = now - PLANNING_CLAIM_STALE_MS;
+    const fs = {
+      ...nodeFs,
+      lstatSync: (p: string) =>
+        String(p).includes('.claim')
+          ? ({ mtimeMs: mtime } as unknown as nodeFs.Stats)
+          : nodeFs.lstatSync(p),
+    } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    expect(pending()).toEqual([]);
+    expect(readdirSync(outbox)).toContain(name);
+  });
+
+  it('treats a claim whose stat fails as not stale', () => {
+    const name = `.claim-w1-${UUID(1)}.json`;
+    writeFileSync(join(outbox, name), JSON.stringify(good));
+    const fs = {
+      ...nodeFs,
+      lstatSync: (p: string) => {
+        if (String(p).includes('.claim')) throw new Error('nope');
+        return nodeFs.lstatSync(p);
+      },
+    } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    expect(pending()).toEqual([]);
+    expect(readdirSync(outbox)).toContain(name);
+  });
+
+  it('does not treat a suffixed claim name as a claim', () => {
+    const name = `.claim-dead-${UUID(1)}.json.bak`;
+    writeFileSync(join(outbox, name), JSON.stringify(good));
+    const fs = {
+      ...nodeFs,
+      lstatSync: (p: string) =>
+        String(p).includes('.claim')
+          ? ({ mtimeMs: 0 } as unknown as nodeFs.Stats)
+          : nodeFs.lstatSync(p),
+    } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    expect(pending()).toEqual([]);
+    expect(readdirSync(outbox)).toContain(name);
+  });
+
+  it('does not treat a uuid-prefixed file as a proposal', () => {
+    const name = `${UUID(1)}.json.bak`;
+    writeFileSync(join(outbox, name), JSON.stringify(good));
+    make().scan();
+    expect(pending()).toEqual([]);
+    expect(readdirSync(outbox)).toContain(name);
+  });
+
+  it('ignores a malformed claim name without a scan failure', () => {
+    writeFileSync(join(outbox, '.claim-bad.json'), JSON.stringify(good));
+    const debug = vi.fn();
+    make({ debug }).scan();
+    expect(pending()).toEqual([]);
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('scan failed'));
+  });
+
+  it('ignores a non-proposal name even when stale', () => {
+    const name = 'notes.txt';
+    writeFileSync(join(outbox, name), JSON.stringify(good));
+    const fs = {
+      ...nodeFs,
+      lstatSync: (p: string) =>
+        String(p) === join(outbox, name)
+          ? ({ mtimeMs: 0 } as unknown as nodeFs.Stats)
+          : nodeFs.lstatSync(p),
+    } as unknown as typeof nodeFs;
+    make({ fs }).scan();
+    expect(pending()).toEqual([]);
+    expect(readdirSync(outbox)).toContain(name);
+  });
+
+  it('logs a session scan failure and continues', () => {
+    const debug = vi.fn();
+    const fs = {
+      ...nodeFs,
+      readdirSync: () => { throw Object.assign(new Error('nope'), { code: 'EIO' }); },
+    } as unknown as typeof nodeFs;
+    make({ fs, debug }).scan();
+    expect(debug.mock.calls.some(([l]) => String(l).includes('scan failed (EIO)'))).toBe(true);
+  });
+
+  it('names every unknown repository and the no-manifest case', () => {
+    put(`${UUID(1)}.json`, { ...good, repos: ['nope', 'nah'] });
+    make().scan();
+    expect(warns.join()).toContain('unknown repositories nope, nah');
+
+    known = undefined;
+    put(`${UUID(2)}.json`, { ...good, repos: ['api'] });
+    make().scan();
+    expect(warns.join()).toContain('repositories cannot be checked (no manifest)');
   });
 });

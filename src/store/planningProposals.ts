@@ -1,13 +1,14 @@
 import type { Store } from './db.js';
-import { createTicket, generateTicketKey, updateTicketFields } from './tickets.js';
-import { getPlanningSession, linkPlanningTicket } from './planningSessions.js';
+import { getTicket, updateTicketFields } from './tickets.js';
+import { linkPlanningTicket } from './planningSessions.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
  * host through its outbox. The host validated it on ingest; the user decides
- * (accept → a real ticket, or discard). Nothing here runs in the CLI: accept
- * is host-side, so ONE better-sqlite3 transaction covers it (createTicket's
- * own transaction nests as a savepoint).
+ * (accept → a real ticket, or discard). Nothing here runs in the CLI: accept is
+ * host-side, so `markProposalAccepted` covers it in ONE better-sqlite3
+ * transaction. A proposal never becomes a ticket directly — the user's own Save
+ * of the prefilled ticket form mints the ticket, then this links and resolves it.
  */
 
 export interface ProposalPayload {
@@ -196,63 +197,24 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
 }
 
 /**
- * Turn a pending proposal into a ticket, atomically: create (source
- * 'planning', the session's project), fill description/brief/repos, link it
- * to the session, mark the proposal accepted. Returns the new ticket id.
- * `projectId`, when given, must be the session's project.
- *
- * `expectedPayload` is the content the human confirmed in the preview. An
- * in-place revision (`updateProposalPayload`) can land while that modal is
- * open, so accept re-reads INSIDE the transaction and refuses if the payload
- * moved: the human must never confirm one thing and create another.
- */
-export function acceptProposal(
-  store: Store,
-  id: number,
-  opts: { projectId?: number; expectedPayload?: ProposalPayload } = {},
-): number {
-  return store.db.transaction((): number => {
-    const p = requirePending(store, id);
-    if (opts.expectedPayload !== undefined && !proposalPayloadEquals(p.payload, opts.expectedPayload)) {
-      throw new Error(`planning proposal ${id} changed since it was reviewed`);
-    }
-    const session = getPlanningSession(store, p.sessionId);
-    if (!session) throw new Error(`planning session ${p.sessionId} not found`);
-    if (opts.projectId !== undefined && opts.projectId !== session.projectId) {
-      throw new Error(`planning proposal ${id} belongs to another project`);
-    }
-    const { title, description, summary, repos } = p.payload;
-    const ticket = createTicket(store, {
-      key: generateTicketKey(store, { projectId: session.projectId }, title),
-      title,
-      source: 'planning',
-      projectId: session.projectId,
-    });
-    updateTicketFields(store, ticket.id, { description, brief: summary, selectedRepos: repos });
-    linkPlanningTicket(store, session.id, ticket.id);
-    store.db
-      .prepare(
-        "UPDATE planning_proposals SET status = 'accepted', ticket_id = ?, updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
-      )
-      .run(ticket.id, id);
-    return ticket.id;
-  })();
-}
-
-/**
  * A ticket the user saved from the ticket form while reviewing a proposal:
- * link it to the session and mark the proposal accepted, in one transaction.
- *
- * The form's ticket is built from content the human SAW (the prefill they may
- * have edited), and it is created OUTSIDE this transaction, so an in-place
- * revision that lands while the form is open must NOT refuse here — that would
- * orphan the saved ticket and leave the draft pending (re-review then makes a
- * second ticket). The human's save is authoritative; `planningProposalOps`
- * warns when the draft had moved, so the revision is not dropped silently.
+ * link it to the session, record the planning origin, and mark the proposal
+ * accepted, in one transaction. The proposal's summary becomes the ticket's
+ * brief — the form carries only title/description/repos, so this is the one
+ * place that preserves it — unless the ticket already has a brief.
  */
 export function markProposalAccepted(store: Store, id: number, ticketId: number): void {
   store.db.transaction((): void => {
     const p = requirePending(store, id);
+    const ticket = getTicket(store, ticketId);
+    // Seed the summary as the brief only when the ticket has none AND the
+    // summary actually carries text — an empty summary leaves brief NULL rather
+    // than storing ''.
+    const seedBrief = (!ticket.brief || !ticket.brief.trim()) && p.payload.summary.trim();
+    updateTicketFields(store, ticketId, {
+      source: 'planning',
+      ...(seedBrief ? { brief: p.payload.summary } : {}),
+    });
     linkPlanningTicket(store, p.sessionId, ticketId);
     store.db
       .prepare(

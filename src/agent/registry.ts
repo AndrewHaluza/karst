@@ -4,6 +4,7 @@ import { ClaudeAdapter } from './claude.js';
 import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
+import { Opencode2Adapter } from './opencode2.js';
 
 // Pure provider facts live in `provider.ts` so read-only consumers can use the
 // precedence rule without importing the adapters (and their process spawns).
@@ -18,6 +19,7 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
   codex: () => new CodexAdapter(),
   antigravity: () => new AntigravityAdapter(),
   opencode: () => new OpencodeAdapter(),
+  opencode2: () => new Opencode2Adapter(),
 };
 
 /**

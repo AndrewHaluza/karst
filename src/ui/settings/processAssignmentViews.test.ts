@@ -31,6 +31,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'planning',
     ]);
     expect(all.map((v) => v.roleLabel)).toEqual([
       'UAT Tester',
@@ -39,6 +40,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'Review Fix',
       'PR description',
       'Ticket analysis',
+      'Planner',
     ]);
     expect(all.map((v) => v.description)).toEqual([
       'Runs after required UAT gates pass',
@@ -47,7 +49,37 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'Runs to fix a failed review gate',
       'Writes the pull request description at ship time',
       'Synthesizes the ticket prompt; suggests approach, repos and type on the ticket form',
+      'Model used by planning sessions',
     ]);
+  });
+
+  it('renders the Planner row, whose default core/model is the implementation resolution', () => {
+    const m: Manifest = { ...BASE, agentProvider: 'codex', defaultModel: 'gpt-5.6-sol' };
+    const v = row(m, 'planning');
+    expect(v.roleLabel).toBe('Planner');
+    expect(v.state).toBe('omitted');
+    expect(v.effectiveProvider).toBe('codex');
+    expect(v.effectiveModel).toBe('gpt-5.6-sol');
+    expect(v.coreHint).toBe('Default: Codex');
+    expect(v.modelHint).toBe('Default: GPT-5.6 Sol');
+  });
+
+  it('keys the Planner row off processes.planning when it is set', () => {
+    const m: Manifest = {
+      ...BASE,
+      processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol' } },
+    };
+    const v = row(m, 'planning');
+    expect(v.state).toBe('valid');
+    expect(v.effectiveProvider).toBe('codex');
+    expect(v.effectiveModel).toBe('gpt-5.6-sol');
+  });
+
+  it('explains the Planner switch as turning the override off, not skipping planning', () => {
+    const m: Manifest = { ...BASE, processes: { planning: { enabled: false } } };
+    const v = row(m, 'planning');
+    expect(v.state).toBe('disabled');
+    expect(v.stateMessage).toContain('inherits the ticket implementation setting');
   });
 
   it('defaults the ticket-analysis row like any other omitted role', () => {

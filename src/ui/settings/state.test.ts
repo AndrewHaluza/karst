@@ -24,6 +24,7 @@ const REMOTE_MODELS: ModelCatalog = {
   codex: [{ id: 'codex-remote', label: 'Codex Remote', providers: ['codex'] }],
   antigravity: [{ id: 'agy-remote', label: 'Antigravity Remote', providers: ['antigravity'] }],
   opencode: [],
+  opencode2: [],
 };
 
 describe('buildSettingsState', () => {
@@ -137,6 +138,7 @@ describe('buildSettingsState', () => {
       'reviewFix',
       'prDescription',
       'ticketAnalysis',
+      'planning',
     ]);
     const uat = s.processAssignments.find((v) => v.key === 'uatTester');
     expect(uat?.state).toBe('unknown-profile');

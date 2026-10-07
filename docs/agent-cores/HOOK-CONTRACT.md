@@ -28,7 +28,7 @@ name is agent-authored input.
 | | claude | codex | opencode | antigravity (agy) |
 |---|---|---|---|---|
 | channel | `--settings` file with shared bridge (`settings.ts`) | generated `bridge.cjs` | generated `.opencode/plugins/karst-bridge.js` | **none** — conversation-DB watch |
-| SessionStart | bridge (replaces old `type:command` curl) | native | `session.created` | synthesized per conversation |
+| SessionStart | bridge (replaces old `type:command` curl) | native | `session.created`, or plugin init on a `--session` resume (which emits none) | synthesized per conversation |
 | permission asked | `Notification` | `Notification: permission_prompt` | `permission.asked` / `question.asked` (+ v2) | `steps.status = 9` |
 | ask resolved | `UserPromptSubmit` | `UserPromptSubmit` | `permission.replied` / `question.replied` | status 9 clearing |
 | running | `PostToolUse` (type:http) | `PostToolUse` | `session.status: busy\|retry` | — |
@@ -36,6 +36,33 @@ name is agent-authored input.
 | usage | session transcript (`claudeTranscriptWatch.ts`) | bridge `UsageUpdate` | bridge `UsageUpdate` | conversation DB (`agyUsageWatch.ts`) |
 | endpoint rebind after reload | ✓ (bridge re-reads `current-endpoint`) | ✓ | ✓ | n/a (no channel) |
 | hook failure logging | ✓ (`claude/hook-failures.jsonl`) | ✓ (`codex/hook-failures.jsonl`) | ✓ (`opencode/hook-failures.jsonl`) | n/a |
+
+**opencode resume is special-cased.** opencode 1.18.35 DROPS `--prompt` when
+`--session` is present and never emits `session.created` for the resumed session
+(verified on a real TUI, pty via `script`, with a probe plugin logging every
+event: only `plugin.added`/`catalog.updated` fired; the control run without
+`--session` submitted the prompt and emitted `session.created`). So a resumed
+launch cannot hang SessionStart off `session.created` and cannot receive its
+kickoff on argv. The adapter instead writes the kickoff to a file named by
+`KARST_KICKOFF_FILE` (with `KARST_RESUME_SESSION_ID` in the terminal env) and
+the generated plugin, at init, posts `SessionStart` for the resumed id and
+pushes the kickoff through the opencode SDK (`client.session.promptAsync`). The
+SDK call is deliberately NOT awaited in plugin init — opencode awaits plugin
+construction before it serves the session API, so a synchronous call deadlocks
+the bootstrap. Because the plugin IS the channel, the adapter also overrides an
+ambient `OPENCODE_PURE` to `0` on every hook-channel launch: opencode reads that
+env var like `--pure` (any value but `0`/`false`, including empty, disables every
+external plugin) and would otherwise silently kill the whole hook channel, not
+just the resume. The adapter-agnostic safety net for a delivery that still fails
+is the stranded-fix sweep, not a silent park.
+
+**Historical backlog, not a live defect.** The registry's 142 pending opencode
+`implementation/initial` launch intents are almost entirely pre-`SessionStart`:
+141 predate 2026-08-14, when the opencode bridge did not post SessionStart at
+all (the `session.created` capture landed in #218 that day). Confirmed intents
+begin exactly 2026-08-14 and run at ~99% after (September 106 confirmed vs 1
+pending, October 17/17). The lone September pending captured no session id — a
+one-off missed hook, a different family from the resumed-launch bug fixed here.
 
 ### The SPLIT decision (PROMPT-16 measured)
 
