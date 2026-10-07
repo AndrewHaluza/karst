@@ -25,8 +25,8 @@ Closes #
 ## Tests
 
 - [ ] A test fails before this change and passes after it (RED → GREEN).
-- [ ] `npm run typecheck`, `npm run test:unit` and `npm run test:e2e` pass
-      locally.
+- [ ] `npm run typecheck`, `npm run test:unit` and `npm run test:integration`
+      pass locally.
 
 <!-- If a test was not written, say why here. "Refactor, covered by existing
      tests" is an answer; silence is not. -->

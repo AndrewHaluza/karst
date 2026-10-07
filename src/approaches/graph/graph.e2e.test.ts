@@ -2,12 +2,12 @@
  * E2E: the dynamic graph approach, driven through the REAL CLI and a REAL
  * temp-file registry.
  *
- * The graph unit suites (`driver.test.ts`, `pipeline.test.ts`) seed graph
+ * The graph in-process suites (`driver.test.ts`, `integration/pipeline.integration.test.ts`) seed graph
  * runs in-process with an in-memory store and faked transport/git. They can
  * never catch the drift between what the REAL `karst graph submit` / `karst
  * node complete` CLIs write and what the host-agnostic driver/pipeline read,
  * nor whether a graph-approach ticket actually launches a graph run at all.
- * The shared harness in `graphE2eHarness.test.ts` drives the full lifecycle
+ * The shared harness in `graphE2eHarness.integration.test.ts` drives the full lifecycle
  * against a REAL SQLite file through `openGraphWritableStore` (node:sqlite,
  * the exact seam an agent session invokes) and the REAL CLI verbs, faking
  * only the agent transport and the workspace-provider clone (no real agent
@@ -19,9 +19,6 @@
  * implementation are marked `it.fails` with the defect named, so a repair
  * that flips them to passing is a visible event, not a silent behaviour
  * change.
- *
- * No better-sqlite3 is touched anywhere: the e2e config runs without the
- * Node-ABI rebuild, so this suite is ABI-agnostic like the other e2e suites.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -48,7 +45,7 @@ import {
   NOW,
   GRAPH_APPROACH,
   type Harness,
-} from './graphE2eHarness.test.js';
+} from './graphE2eHarness.integration.test.js';
 describe('dynamic graph lifecycle e2e — real CLI + real store', () => {
   it('a graph-approach ticket bootstraps a graph run, not a plain session', async () => {
     const h = makeHarness();

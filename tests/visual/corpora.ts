@@ -120,7 +120,7 @@ export function dashboardCorpora(): readonly {
 /**
  * MINIMAL state for the two views with no renderFixtures module — the
  * smallest payload their render function handles without crashing.  Lifted
- * from the render harness smoke test (renderHarness.render.test.ts) and the
+ * from the render harness smoke test (renderHarness.render.integration.test.ts) and the
  * per-view webview.test.ts files.
  *
  * These are what is left of FEAT-37. Unlike the six views already converted,

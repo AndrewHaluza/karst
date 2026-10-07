@@ -1,20 +1,21 @@
 # karst — VS Code extension: AI-agent ticket orchestration across multi-repo stack
 
 ## Commands
-- `npm run test:unit` — vitest run (in-memory SQLite via `openStore(':memory:')`); `pretest:unit` rebuilds better-sqlite3 for Node ABI
-- `npm run test:e2e` — vitest run with `vitest.e2e.config.ts` (`src/**/*.e2e.test.ts`, 30s timeout)
+- `npm run test:unit` — the fast unit suite (`vitest.config.ts`); excludes `*.integration.test.*` and `*.e2e.test.*`. In-memory SQLite via `openStore(':memory:')`; `pretest:unit` rebuilds better-sqlite3 for Node ABI
+- `npm run test:integration` — the non-unit suite (`vitest.integration.config.ts`): `src/**/*.integration.test.*` + `src/**/*.e2e.test.*`, 30s timeout; `pretest:integration` rebuilds better-sqlite3 for Node ABI, so it is self-contained
 - `npm run typecheck` — `tsc --noEmit`
 - `npm run build` — compile (`tsconfig.build.json`) + copy webview asset into `dist/`
 - Single test: `npx vitest run src/path/to.test.ts`
-- Single e2e: `npx vitest run --config vitest.e2e.config.ts src/path/to.e2e.test.ts`
-- Single render test: `npx vitest run src/path/to.render.test.ts` (jsdom, forks pool)
+- Single integration/e2e: `npx vitest run --config vitest.integration.config.ts src/path/to.integration.test.ts`
+- Single render test (unit): `npx vitest run src/path/to.render.test.ts` (jsdom, forks pool)
+- **Naming rule (binding):** a test file that spawns a real child/git process, binds or connects a real network port, or renders a full settings/dashboard jsdom document is named `*.integration.test.*`; a headless end-to-end file is `*.e2e.test.*`; everything else stays `*.test.*`. A file must never match two suites — the unit config excludes both suffixes.
 - F5 in VS Code runs `dev:extension` (build + `rebuild:electron`) then launches the Extension Dev Host
 - `npm run test:coverage` — vitest with v8 coverage; `pretest:coverage` rebuilds better-sqlite3 for Node ABI. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
 - `npm run test:mutation` — Stryker over `src/extension/**`, breaks under 85; `pretest:mutation` rebuilds better-sqlite3 for Node ABI.
 - **Mutation gate:** any change under `src/extension/**` must keep the Stryker score ≥ 85. Run `npm run test:mutation` (or `npx stryker run --mutate <changed files>` for speed) before opening a PR; new/changed code needs tests that kill its mutants. Never lower `thresholds.break`, add `mutate` excludes, or use `// Stryker disable` without a per-line reason.
 - `npm run inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
 - `npm run test:visual:docker` — the Playwright visual gate in the pinned image the baselines come from; `:update` re-records. **Run it after any webview change.** CI does not run it (only the UAT gate does), so stale baselines/ratchets surface on the next ticket. Never judge a visual failure from the host `test:visual` run. Ratchet raises (`focus.visual.ts`, `a11y.visual.ts`) need a justification comment.
-- CI: `.github/workflows/ci.yml` runs typecheck + build + `test:unit` + `test:e2e` on every PR to `main`/`develop` (blocking), plus a blocking `Mutation score` job on PRs only — Stryker exits 1 (score < 85) and fails the check.
+- CI: `.github/workflows/ci.yml` runs typecheck + build + `test:unit` (job `verify`) and `test:integration` (parallel job `integration`) on every PR to `main`/`develop` (blocking), plus a blocking `Mutation score` job on PRs only — Stryker exits 1 (score < 85) and fails the check.
 
 ## Native ABI split (better-sqlite3)
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.
@@ -52,7 +53,7 @@ Full detail — install (structure-preserving fetch, classify, entrypoint/contri
 
 ## UI/UX (binding — read `docs/ui/UI-RULES.md` before touching any webview)
 
-Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0) — numbered rules, each with a Check and a verification mode (STATIC / RUNTIME / VISUAL / REVIEW). Tokens in `docs/ui/DESIGN-SYSTEM.md`; naming and copy tone in `docs/ui/STYLE-GUIDE.md`; the rendered catalog is `docs/ui/KARST-UI-CATALOG.html`; the four known v3.0 gaps are `docs/ui/V3-CONFORMANCE-GAPS.md`. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). The jsdom render harness (`src/ui/testing/renderHarness.ts`) and cross-view RUNTIME sweep (`src/ui/runtimeConformance.render.test.ts`) cover UI-R09, R10, R25, R36 across all views; state-dependent rules are dashboard-only until FEAT-37. The Playwright visual sweep (`npm run test:visual`) covers 14 of 15 VISUAL rules — see `docs/ui/VISUAL-COVERAGE.md` for the binding coverage table.
+Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0) — numbered rules, each with a Check and a verification mode (STATIC / RUNTIME / VISUAL / REVIEW). Tokens in `docs/ui/DESIGN-SYSTEM.md`; naming and copy tone in `docs/ui/STYLE-GUIDE.md`; the rendered catalog is `docs/ui/KARST-UI-CATALOG.html`; the four known v3.0 gaps are `docs/ui/V3-CONFORMANCE-GAPS.md`. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). The jsdom render harness (`src/ui/testing/renderHarness.ts`) and cross-view RUNTIME sweep (`src/ui/runtimeConformance.render.integration.test.ts`) cover UI-R09, R10, R25, R36 across all views; state-dependent rules are dashboard-only until FEAT-37. The Playwright visual sweep (`npm run test:visual`) covers 14 of 15 VISUAL rules — see `docs/ui/VISUAL-COVERAGE.md` for the binding coverage table.
 
 **React views — the Settings webview (NDL-126):** the Settings webview is the ONE React surface, scoped to `src/ui/settings/app/**`. The **UI-RULES v3.1 "React views" annex** (`docs/ui/UI-RULES.md` §Appendix) governs it — it adds checks by construction (type-enforced rules, single-owner hooks/components, new R-X1…R-X7 rules, the COMPONENT verification mode) and removes nothing from v3.0. Vanilla views keep v3.0. Three invariants are load-bearing there: the app is mounted once by the injector chain into `#root` (tests go through `renderWebviewReady('settings')`, never a second mount); `app/main.tsx` owns the single `acquireVsCodeApi()`; and the conformance sweep's Settings floor stayed vanilla-measured (the React DOM satisfies it as the union across all eight tabs). See `docs/ui/UI-INVARIANTS.md`.
 

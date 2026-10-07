@@ -107,7 +107,7 @@ R6b is the aggregate's half of the defence; the parser's half is `findings.ts`'s
 
 ## Nothing that runs in the extension host may block its event loop
 
-The hook endpoint, every webview, and the whole UI share it. Gates shell out to arbitrary repo scripts (`npm run test:unit` — minutes), and the session-close sweep fires them from an ordinary terminal close, so a sync spawn froze every other session's hook channel. All gate commands go through `workflow/gates/run.ts` (`runCommand`, async `spawn`); `spawnSync` is banned on this path. Guard: `gates/run.test.ts` "leaves the event loop free while the child runs".
+The hook endpoint, every webview, and the whole UI share it. Gates shell out to arbitrary repo scripts (`npm run test:unit` — minutes), and the session-close sweep fires them from an ordinary terminal close, so a sync spawn froze every other session's hook channel. All gate commands go through `workflow/gates/run.ts` (`runCommand`, async `spawn`); `spawnSync` is banned on this path. Guard: `gates/run.integration.test.ts` "leaves the event loop free while the child runs".
 
 ## The stage driver's host seam is `workflow/driveTicket.ts`, and `extension.ts` holds nothing but the vscode bindings
 

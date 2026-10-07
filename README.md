@@ -507,9 +507,9 @@ and validated as the merged result.
 ```bash
 npm install
 npm run typecheck    # tsc --noEmit
-npm run test:unit    # vitest — auto-rebuilds the native dep for the Node ABI
-npm run test:e2e     # e2e suite (src/**/*.e2e.test.ts)
-npm run test:visual  # Playwright sweep over every webview
+npm run test:unit         # fast unit suite — excludes *.integration/*.e2e test files
+npm run test:integration  # integration + e2e suites (*.integration.test.*, *.e2e.test.*)
+npm run test:visual       # Playwright sweep over every webview
 npm run build        # clean → bundle → copy assets → verify
 ```
 

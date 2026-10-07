@@ -61,12 +61,28 @@ The four that break most pull requests:
 ```bash
 npm install
 npm run typecheck      # tsc --noEmit
-npm run test:unit      # vitest; rebuilds better-sqlite3 for the Node ABI
-npm run test:e2e       # vitest with vitest.e2e.config.ts
+npm run test:unit      # fast unit suite; rebuilds better-sqlite3 for the Node ABI
+npm run test:integration  # integration + e2e; rebuilds better-sqlite3 for the Node ABI
 npm run build          # compile + copy webview assets into dist/
 ```
 
 Single test: `npx vitest run src/path/to.test.ts`
+
+The suite is split by filename suffix, and **a file belongs to exactly one
+suite**:
+
+| Suffix | Suite | What it means |
+|---|---|---|
+| `*.test.ts` / `*.test.tsx` | `test:unit` (`vitest.config.ts`) | Pure functions, mocked collaborators, in-memory SQLite, isolated components |
+| `*.integration.test.*` | `test:integration` (`vitest.integration.config.ts`) | Spawns a real child/git process, binds or connects a real network port, or renders a full settings/dashboard jsdom document |
+| `*.e2e.test.*` | `test:integration` (same config) | Headless end-to-end over the real workflow |
+
+The unit config *excludes* both non-unit suffixes, so a test that crosses the
+line must be renamed, not left for the reviewer to catch. See §5.
+
+`npm run test:e2e` is kept as a deprecated alias for `npm run test:integration`
+(it runs the same config), so older docs and the project's own UAT manifest
+gate keep working.
 
 Press F5 in VS Code to launch the Extension Development Host. This rebuilds
 the native addon for Electron's ABI; `npm run test:unit` rebuilds it for
@@ -77,6 +93,13 @@ produces thousands of spurious `openStore` failures. Use `npm run test:coverage`
 
 ## 5. Code conventions
 
+- **Test naming is a rule, not a preference.** A test file that spawns a real
+  child/git process, binds or connects a real network port, or renders a full
+  settings/dashboard jsdom document is named `*.integration.test.*`; a headless
+  end-to-end file is `*.e2e.test.*`; everything else stays `*.test.*`. The unit
+  config excludes both non-unit suffixes, and a file must never match two
+  suites. Keep pure-function and mocked tests in the unit suite — the split is
+  what keeps local and CI wall time down.
 - **Strict TDD.** Write the failing test first (RED), then the minimal
   implementation (GREEN). Pull requests adding behaviour without a test that
   fails before the change will be asked for one.
@@ -128,7 +151,8 @@ Conventional commits: `feat:`, `fix:`, `refactor:`, `docs:`, `test:`,
 When a change exists to satisfy a UI rule, cite the rule id in the commit
 message (UI-R35).
 
-CI runs typecheck, build, unit tests, and e2e tests on every pull request to
+CI runs typecheck, build, and the unit tests (job `verify`) plus the
+integration/e2e suite (parallel job `integration`) on every pull request to
 `main` and `develop`. All are blocking. A `Mutation score` job also runs on
 pull requests and is blocking: Stryker exits non-zero when the score drops
 below 85.

@@ -125,7 +125,7 @@ const V10_RENAMED_TABLES = ['servers', 'port_allocations', 'baseline_refs'] as c
 
 /**
  * v35's eight graph tables (Slice 2, design "Persistence"). Byte-identical in
- * intent to the schema.sql block it mirrors — `db.test.ts` pins that with a
+ * intent to the schema.sql block it mirrors — `db.integration.test.ts` pins that with a
  * `toContain` over this exact text. Exported so the interruption-atomicity
  * test can drive the REAL step DDL inside a transaction.
  *
@@ -539,7 +539,7 @@ ALTER TABLE stages_v53 RENAME TO stages;
 
 /**
  * v39's workspace-ledger table (Slice 5 Task 1). Byte-identical in intent to
- * the schema.sql block it mirrors; `db.test.ts` pins that with a `toContain`.
+ * the schema.sql block it mirrors; `db.integration.test.ts` pins that with a `toContain`.
  * The two v39 COLUMNS (`approach_graph_runs.workspace_bytes`,
  * `approach_node_runs.base_heads`) already live inside `GRAPH_MIGRATION_DDL`
  * above for fresh DBs — this step's guarded ALTERs bring legacy DBs up.
@@ -560,7 +560,7 @@ CREATE INDEX IF NOT EXISTS idx_graph_workspaces_node ON approach_graph_workspace
 
 /**
  * v40's deferral ledger (Slice 5 Task 3). Byte-identical in intent to the
- * schema.sql block it mirrors; `db.test.ts` pins that with a `toContain`. The
+ * schema.sql block it mirrors; `db.integration.test.ts` pins that with a `toContain`. The
  * `approach_graph_runs.active_processes` COLUMN already lives inside
  * `GRAPH_MIGRATION_DDL` above for fresh DBs — this step's guarded ALTER
  * brings legacy DBs up.
@@ -581,7 +581,7 @@ CREATE INDEX IF NOT EXISTS idx_node_deferrals_run ON approach_node_deferrals(gra
 
 /**
  * v58's `pr_feedback` table — one row per review THREAD plus one per review body.
- * Byte-identical in intent to the schema.sql block it mirrors; `db.test.ts` pins
+ * Byte-identical in intent to the schema.sql block it mirrors; `db.integration.test.ts` pins
  * that with a `toContain`. A whole new table, so the migration step is the same
  * IF NOT EXISTS DDL as schema.sql rather than an ALTER.
  *

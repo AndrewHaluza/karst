@@ -1,5 +1,5 @@
 // Standalone child-process entry point for the NDL-36 regression test
-// (db.test.ts, "two windows opening a legacy DB concurrently"). Runs as a
+// (db.integration.test.ts, "two windows opening a legacy DB concurrently"). Runs as a
 // SEPARATE OS process — not an in-process helper — because the race it
 // reproduces (two real VS Code extension hosts calling `openStore` on the
 // same file at once) needs two genuinely concurrent SQLite connections;

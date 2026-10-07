@@ -6,7 +6,7 @@
  * empty-means-delete rule for the optional templates, the two-tuple port range,
  * the positive-integer snap-back on the archive delay, and the toggle
  * delete-on-uncheck. The state-dependent rules (R11–R18, R26, R27) and the
- * dirty-marker / nav-dot plumbing are proven in `renderedGeneral.render.test.tsx`
+ * dirty-marker / nav-dot plumbing are proven in `renderedGeneral.render.integration.test.tsx`
  * against the real document.
  */
 // @vitest-environment jsdom
