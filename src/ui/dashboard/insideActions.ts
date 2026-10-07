@@ -10,6 +10,7 @@ import { liveImplementationRun } from '../../store/implementationRuns.js';
 import { canonicalPath, isPathUnder } from '../../runtime/pathScope.js';
 import { nodeRunTicketId } from '../../store/graph/nodeRuns.js';
 import { graphRunStatusForTicket } from '../../store/graph/graphRuns.js';
+import { activeRevision } from '../../store/graph/revisions.js';
 import { hasLiveReplanPlanner, plannerRunTicketId } from '../../store/graph/plannerRuns.js';
 import type { StageKey } from '../../model/types.js';
 import type {
@@ -465,11 +466,18 @@ export function dispatchInsideAction(
     }
     case 'graph-restart': {
       // H2: legal only for the shape that has no other exit — a `draining`
-      // run with no replan planner still owing it a submission. A run
-      // draining FOR a replan is mid-replan and the coordinator owns its
-      // exit; restarting it would race the submission it is waiting for.
+      // run with no replan planner still owing it a submission AND a still
+      // `active` revision to resume. A run draining FOR a replan is mid-replan
+      // and the coordinator owns its exit; restarting it would race the
+      // submission it is waiting for. A run with no active revision (only a
+      // `draining` one) is mid-replan even without a planner row — restarting
+      // it would strand a running run with no active revision.
       const status = graphRunStatusForTicket(store.db, target.graphRunId, target.ticketId);
-      if (status !== 'draining' || hasLiveReplanPlanner(store.db, target.graphRunId)) {
+      if (
+        status !== 'draining' ||
+        hasLiveReplanPlanner(store.db, target.graphRunId) ||
+        !activeRevision(store.db, target.graphRunId)
+      ) {
         return { outcome: 'rejected', reason: 'graph is not a stopped drain' };
       }
       void deps.host.graphRestart(target.ticketId, target.graphRunId);

@@ -407,10 +407,74 @@ describe('graphInsideProcess', () => {
           stageAttempt: 0,
           createdAt: '2026-08-11T00:00:00.000Z',
         },
+        // Mid-replan: the election drained the REVISION too, and a live replan
+        // planner is compiling its successor. Not a stopped drain.
+        revision: { revisionNumber: 1, status: 'draining', fingerprint: null },
         plannerRuns: [
           { plannerRunNumber: 1, kind: 'bootstrap', status: 'submitted', compileAttempt: 0, reason: null },
           { plannerRunNumber: 2, kind: 'replan', status: 'running', compileAttempt: 0, reason: null },
         ],
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:action-1', kind: target.kind };
+        },
+      }),
+    )!;
+    if (view.evidence?.kind !== 'rows') return;
+    expect(view.evidence.rows[0]!.action).toBeUndefined();
+    expect(targets).not.toContainEqual({ kind: 'graph-restart', graphRunId: 7 });
+  });
+
+  it('H2: a Stop drain still offers restart when a prior/legacy replan planner row exists', () => {
+    // A completed prior replan leaves a `submitted` planner behind. The run is
+    // later STOPPED (revision still active) — the stale planner must not read
+    // as a replan in flight and suppress the restart control.
+    const targets: GraphActionTarget[] = [];
+    const view = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 7,
+          status: 'draining',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'submitted', compileAttempt: 0, reason: null },
+          { plannerRunNumber: 2, kind: 'replan', status: 'submitted', compileAttempt: 0, reason: null },
+        ],
+        revision: { revisionNumber: 1, status: 'active', fingerprint: null },
+        attach: (target) => {
+          targets.push(target);
+          return { actionId: 'snapshot-1:action-1', kind: target.kind };
+        },
+      }),
+    )!;
+    if (view.evidence?.kind !== 'rows') return;
+    expect(view.evidence.rows[0]!.action).toMatchObject({ kind: 'graph-restart' });
+    expect(targets).toContainEqual({ kind: 'graph-restart', graphRunId: 7 });
+  });
+
+  it('H2: a run draining mid-replan (draining revision, no active) carries no restart control', () => {
+    const targets: GraphActionTarget[] = [];
+    const view = graphInsideProcess(
+      input({
+        graphRun: {
+          id: 7,
+          runNumber: 7,
+          status: 'draining',
+          approachId: 'g',
+          stageAttempt: 0,
+          createdAt: '2026-08-11T00:00:00.000Z',
+        },
+        // The election committed but no replan planner row exists yet — this
+        // is NOT a stopped drain; restarting it would strand a running run
+        // with no active revision.
+        plannerRuns: [
+          { plannerRunNumber: 1, kind: 'bootstrap', status: 'submitted', compileAttempt: 0, reason: null },
+        ],
+        revision: { revisionNumber: 1, status: 'draining', fingerprint: null },
         attach: (target) => {
           targets.push(target);
           return { actionId: 'snapshot-1:action-1', kind: target.kind };

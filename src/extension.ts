@@ -3818,6 +3818,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           logger.debug(
             `[graph] run ${graphRunId} replan election for node ${blockedNode.id} → ${JSON.stringify(elected)}`,
           );
+          // Close the election→launch gap: `electReplan` commits the drain but
+          // allocates no planner, so the run sat `draining` forever. Same host
+          // seam reconcile uses; it re-checks `draining` + quiescence, so a raced
+          // double-fire is harmless and a non-quiescent drain stays deferred.
+          if (elected.elected) {
+            void relaunchReplanPlannerHost(graphRunId);
+          }
           return;
         }
         const reason = `node-blocked: node ${blockedNode.id} (${blockedNode.reason ?? 'blocked by agent'})`;
@@ -5331,8 +5338,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       logger.info(`[graph] restart: run ${result.graphRunId} outcome=${result.outcome}`);
       if (!result.restarted) {
         void vscode.window.showWarningMessage(
-          result.outcome === 'replan-in-flight'
-            ? `Ticket #${ticketId}: the graph is compiling a new plan — it will resume on its own when that plan lands.`
+          result.outcome === 'replan-in-flight' || result.outcome === 'replan-pending'
+            ? `Ticket #${ticketId}: the graph is mid-replan — it will resume on its own when the new plan lands.`
             : `Ticket #${ticketId}: the graph run could not be restarted (${result.outcome}).`,
         );
         return;

@@ -30,6 +30,7 @@
 
 import type { GraphDb } from '../../store/graph/transitions.js';
 import { GRAPH_RUN_TRANSITIONS, casStatus } from '../../store/graph/transitions.js';
+import { activeRevision } from '../../store/graph/revisions.js';
 import type { AgentTransport, SupervisedAgentSession } from './transport/supervisedCliTransport.js';
 import type { ProcessFactsSource } from '../../runtime/serverIdentity.js';
 import { graphRunHasLiveNodeProcess } from './coordinator/liveness.js';
@@ -188,7 +189,12 @@ export interface StopActiveGraphResult {
  * reach it; nothing alive → there is no work left to strand and the drain is
  * honest.
  */
-export type RestartOutcome = 'restarted' | 'not-draining' | 'replan-in-flight' | 'raced';
+export type RestartOutcome =
+  | 'restarted'
+  | 'not-draining'
+  | 'replan-in-flight'
+  | 'replan-pending'
+  | 'raced';
 
 export interface RestartStoppedGraphResult {
   graphRunId: number;
@@ -207,7 +213,12 @@ export interface RestartStoppedGraphResult {
  * and nothing needs recompiling. It is REFUSED for a run draining because a
  * replan planner still owes it a submission — that run is mid-replan, the
  * coordinator owns its exit, and restarting would race the submission it is
- * waiting for.
+ * waiting for. It is ALSO refused when the run has no `active` revision: a
+ * drain whose only revision is `draining` is mid-replan even when no planner
+ * row exists yet (the election committed but the launch never happened), and
+ * a `draining → running` there would strand a running run with no active
+ * revision — no sweep revisits it and `quiescenceBlockedBy` answers
+ * `no-revision` forever.
  *
  * Deliberate by construction: the caller is a click. A Stop is a considered
  * halt, and nothing here ever fires from a sweep.
@@ -224,6 +235,15 @@ export function restartStoppedGraph(
       `[graph] restart: run ${input.graphRunId} is draining for a replan planner — refused`,
     );
     return { graphRunId: input.graphRunId, restarted: false, outcome: 'replan-in-flight' };
+  }
+  // No active revision and the only (newest) revision is draining: the run is
+  // mid-replan, planner row or not. Refuse instead of manufacturing a running
+  // run with no active revision — the permanent `no-revision` deadlock.
+  if (!activeRevision(deps.db, input.graphRunId)) {
+    deps.debug?.(
+      `[graph] restart: run ${input.graphRunId} has no active revision (mid-replan) — refused`,
+    );
+    return { graphRunId: input.graphRunId, restarted: false, outcome: 'replan-pending' };
   }
   const restarted = deps.transaction(() =>
     casStatus(

@@ -63,6 +63,7 @@ import {
 import { activeRevision, createRevision } from '../../../store/graph/revisions.js';
 import {
   plannerRunSubmissionRef,
+  replanPlannerForTargetExistsOutsideStatuses,
   setPlannerRunEndedAt,
   setPlannerRunGraphSnapshot,
   setPlannerRunPromptHashArtifact,
@@ -77,7 +78,6 @@ import {
   markGraphRunBlocked,
 } from '../../../store/graph/graphRuns.js';
 import {
-  countNodeRunsInStatusesForGraphRun,
   nodeRunChangeSetIdsForGraphRun,
   nodeRunFailuresForGraphRun,
   replanNodeRunReasons,
@@ -86,6 +86,7 @@ import {
 import { cancelGraphToken, insertEntryTokens } from '../../../store/graph/tokens.js';
 import { nextPlannerIdentity, sha256Hex } from './plannerRun.js';
 import { ACTIVE_NODE_STATUSES } from './completion.js';
+import { cancelNodeRuns } from './abandonedNodes.js';
 import { parseGraphDocument, type GraphDocument } from '../parse.js';
 import type { CompileResult } from '../compile.js';
 
@@ -241,7 +242,10 @@ export interface ReplanLaunchRequest {
 
 export type BeginReplanResult =
   | { ok: true; plannerRunId: number; plannerRunNumber: number; launch: ReplanLaunchRequest }
-  | { ok: false; reason: 'not-draining' | 'not-quiescent' | 'instructions-missing' };
+  | {
+      ok: false;
+      reason: 'not-draining' | 'not-quiescent' | 'instructions-missing' | 'already-planned';
+    };
 
 /** The drain's active-work quiescence: no non-terminal node run and no held
  *  ambiguous-process lease. Held (`held`) leases are deliberately NOT a block
@@ -250,9 +254,19 @@ export type BeginReplanResult =
  *  `ACTIVE_NODE_STATUSES`, so its never-releasing lease keeps the drain
  *  waiting — the discard action (Task 4) is the named exit. */
 function replanQuiescenceBlockedBy(db: GraphDb, graphRunId: number): string | null {
-  if (countNodeRunsInStatusesForGraphRun(db, graphRunId, ACTIVE_NODE_STATUSES) > 0) {
-    return 'active-node-runs';
-  }
+  // The drain's OWN replan requesters are `blocked` with outcome `replan`: they
+  // are the reason for the drain (and the source of its reasons artifact), not
+  // active work. Counting them would make the drain refuse its own planner
+  // forever — the exact strand this ticket fixes — so they are excluded.
+  const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
+  const active = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM approach_node_runs
+       WHERE graph_run_id = ? AND status IN (${placeholders})
+         AND (outcome IS NULL OR outcome <> 'replan')`,
+    )
+    .get(graphRunId, ...ACTIVE_NODE_STATUSES) as { n: number };
+  if (active.n > 0) return 'active-node-runs';
   const leases = db
     .prepare(
       `SELECT COUNT(*) AS n FROM approach_resource_leases
@@ -289,7 +303,7 @@ export function beginReplanPlannerRun(
       .prepare(
         `SELECT id, revision_number, planner_graph_snapshot_id, planner_artifact_snapshot_id
          FROM approach_graph_revisions
-         WHERE graph_run_id = ? AND status = 'draining'`,
+         WHERE graph_run_id = ? AND status = 'draining' ORDER BY id DESC LIMIT 1`,
       )
       .get(input.graphRunId) as {
       id: number;
@@ -298,6 +312,25 @@ export function beginReplanPlannerRun(
       planner_artifact_snapshot_id: string | null;
     } | undefined;
     if (!revision) return { ok: false, reason: 'not-draining' };
+
+    // Step 6's single-flight: a replan planner bound to THIS drain (the same
+    // target revision, or a legacy unscoped one) that is not abandoned already
+    // owns the allocation. This is what makes concurrent callers — the live
+    // election, the reconcile sweep in another window — allocate EXACTLY one
+    // planner instead of one each. A `stale`/`cancelled` planner is abandoned
+    // (the crash matrix replaces it), so it does not block.
+    const targetRevisionNumber = revision.revision_number + 1;
+    if (
+      replanPlannerForTargetExistsOutsideStatuses(db, input.graphRunId, targetRevisionNumber, [
+        'stale',
+        'cancelled',
+      ])
+    ) {
+      deps.debug?.(
+        `[graph] replan begin: run ${input.graphRunId} already has a planner for revision ${targetRevisionNumber} — no second allocation`,
+      );
+      return { ok: false, reason: 'already-planned' };
+    }
 
     // Step 6's quiescence gate: exactly one PlannerRun, and only after the
     // drain quiesces. A caller that is not quiescent yet gets a bounded
@@ -334,7 +367,7 @@ export function beginReplanPlannerRun(
     const promptSnapshotPath = `prompts/${promptHash}`;
 
     // Step 6: allocate exactly one replan PlannerRun with the next counter.
-    const identity = nextPlannerIdentity(db, input.graphRunId);
+    const identity = nextPlannerIdentity(db, input.graphRunId, targetRevisionNumber);
     if (!identity) return { ok: false, reason: 'not-draining' };
     setPlannerRunPromptHashArtifact(db, identity.plannerRunId, promptHash, promptSnapshotPath);
     deps.writeSnapshot(input.graphRunId, promptSnapshotPath, promptBytes);
@@ -519,7 +552,7 @@ export function submitReplanDocument(
     const revision = db
       .prepare(
         `SELECT id, revision_number FROM approach_graph_revisions
-         WHERE graph_run_id = ? AND status = 'draining'`,
+         WHERE graph_run_id = ? AND status = 'draining' ORDER BY id DESC LIMIT 1`,
       )
       .get(graphRunId) as { id: number; revision_number: number } | undefined;
     if (!revision) return { ok: false, reason: 'not-draining' };
@@ -535,6 +568,34 @@ export function submitReplanDocument(
     db.prepare('UPDATE approach_graph_revisions SET superseded_at = ? WHERE id = ?').run(
       deps.now(),
       revision.id,
+    );
+    // The superseded revision's still-active node runs — its replan requesters —
+    // are void. Cancel them in the SAME transaction: left `blocked`, a requester
+    // would block the NEW revision's END quiescence (counted run-wide), trip the
+    // sweep's first-fault block, and re-fire the election on the next tick.
+    const placeholders = ACTIVE_NODE_STATUSES.map(() => '?').join(', ');
+    const abandoned = db
+      .prepare(
+        `SELECT id, status, node_kind, revision_id, node_id FROM approach_node_runs
+         WHERE graph_run_id = ? AND revision_id = ? AND status IN (${placeholders})`,
+      )
+      .all(graphRunId, revision.id, ...ACTIVE_NODE_STATUSES) as Array<{
+      id: number;
+      status: string;
+      node_kind: string;
+      revision_id: number;
+      node_id: string;
+    }>;
+    cancelNodeRuns(
+      { db, now: deps.now },
+      graphRunId,
+      abandoned.map((n) => ({
+        id: n.id,
+        status: n.status,
+        nodeKind: n.node_kind,
+        revisionId: n.revision_id,
+        nodeId: n.node_id,
+      })),
     );
     const nextNumber = db
       .prepare(
