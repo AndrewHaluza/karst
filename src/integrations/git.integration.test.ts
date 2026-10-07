@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterAll, beforeAll, describe, it, expect } from 'vitest';
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -489,13 +489,37 @@ describe('defaultGitRunner', () => {
  */
 const KEY = '11111111-2222-3333-4444-555555555555';
 
+/**
+ * A pristine repo (init + identity + gpg/hooks off) is built ONCE and copied
+ * per quarantine test rather than spawned from git init each time. The copy
+ * starts with no commits — every test still writes and commits its own base —
+ * so this is purely the repeated setup cut, not a change to what is exercised.
+ * `GIT_CONFIG_GLOBAL=/dev/null` + `GIT_CONFIG_NOSYSTEM=1` keep it hermetic
+ * against a developer's global signing/hooks config.
+ */
+let templateRepoDir: string;
+
+beforeAll(async () => {
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  templateRepoDir = mkdtempSync(join(tmpdir(), 'karst-ship-template-'));
+  const init = await runGit(['init', '-b', 'main'], templateRepoDir);
+  expect(init.exitCode).toBe(0);
+  await runGit(['config', 'user.name', 'Test'], templateRepoDir);
+  await runGit(['config', 'user.email', 'test@example.com'], templateRepoDir);
+  await runGit(['config', 'commit.gpgsign', 'false'], templateRepoDir);
+  await runGit(['config', 'core.hooksPath', join(templateRepoDir, '.git', 'no-hooks')], templateRepoDir);
+});
+
+afterAll(() => {
+  rmSync(templateRepoDir, { recursive: true, force: true });
+  delete process.env.GIT_CONFIG_GLOBAL;
+  delete process.env.GIT_CONFIG_NOSYSTEM;
+});
+
 async function freshRepo(tag: string): Promise<string> {
   const dir = mkdtempSync(join(tmpdir(), `karst-ship-${tag}-`));
-  const init = await runGit(['init', '-b', 'main'], dir);
-  expect(init.exitCode).toBe(0);
-  await runGit(['config', 'user.name', 'Test'], dir);
-  await runGit(['config', 'user.email', 'test@example.com'], dir);
-  await runGit(['config', 'commit.gpgsign', 'false'], dir);
+  cpSync(templateRepoDir, dir, { recursive: true });
   return dir;
 }
 

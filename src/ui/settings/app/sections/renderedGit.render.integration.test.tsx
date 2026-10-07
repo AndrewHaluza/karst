@@ -31,17 +31,19 @@
  *   recording bridge.
  */
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import { FIXTURE_MANIFEST, FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
+import {
+  closeSettingsRealm,
+  renderSettingsApp,
+  type RenderedSettings,
+} from '../renderSettingsApp.js';
 import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../../../../workflow/conventionPresets.js';
 
-let open: RenderedSettings | null = null;
-
-afterEach(() => {
-  open?.close();
-  open = null;
+// One jsdom realm per file, reset per mount (`renderSettingsApp`).
+afterAll(() => {
+  closeSettingsRealm();
 });
 
 interface Mounted {
@@ -51,7 +53,6 @@ interface Mounted {
 /** Mount the app, push the file, then switch to Git the way a user would. */
 async function mountOnGit(state = FIXTURE_STATE_PUSH): Promise<Mounted> {
   const view = await renderSettingsApp();
-  open = view;
   await view.receive({ type: 'state', state });
   await view.click(view.document.querySelector('[id="root"] [data-section="git"]') as Element);
   return { view };

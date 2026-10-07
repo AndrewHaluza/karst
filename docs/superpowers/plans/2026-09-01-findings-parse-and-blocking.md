@@ -882,9 +882,9 @@ and points at the existing Send back to Implement action."
 Run: `npm run test:unit`
 Expected: PASS, zero failures.
 
-- [ ] **Step 2: E2E suite**
+- [ ] **Step 2: Integration suite**
 
-Run: `npm run test:e2e`
+Run: `npm run test:integration`
 Expected: PASS.
 
 - [ ] **Step 3: Typecheck and build**

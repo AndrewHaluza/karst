@@ -1031,7 +1031,7 @@ git commit -m "feat(agent): resolve process assignments through the effective pr
 
 - [ ] **Step 1: Write the failing test**
 
-Find the existing unit test that pins `karst.openSession`'s resolved identity (grep `src/extension*.test.ts` for `resolveModelForProvider` or the launch-intent `recordSessionLaunchIntent`). Add a case that builds a ticket whose `agentPreset` names a manifest preset and asserts the recorded launch identity uses the preset's provider/model. If no such unit seam exists, this task is covered by Task 7's `dashboard/state.ts` unit test and the change is verified by `npm run typecheck` + `npm run test:e2e`; state that explicitly in the commit and skip this step.
+Find the existing unit test that pins `karst.openSession`'s resolved identity (grep `src/extension*.test.ts` for `resolveModelForProvider` or the launch-intent `recordSessionLaunchIntent`). Add a case that builds a ticket whose `agentPreset` names a manifest preset and asserts the recorded launch identity uses the preset's provider/model. If no such unit seam exists, this task is covered by Task 7's `dashboard/state.ts` unit test and the change is verified by `npm run typecheck` + `npm run test:integration`; state that explicitly in the commit and skip this step.
 
 - [ ] **Step 2: Run it to verify it fails**
 

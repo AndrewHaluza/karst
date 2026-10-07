@@ -30,17 +30,19 @@
  * - `bridge.last/all` → `view.last/all` (the harness `posted` array).
  */
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import type { Manifest, UatConfig } from '../../../../manifest/types.js';
 import { runnableRepo } from '../../../../manifest/fixtures.js';
 import { FIXTURE_STATE_PUSH } from '../testFixtures.js';
-import { renderSettingsApp, type RenderedSettings } from '../renderSettingsApp.js';
+import {
+  closeSettingsRealm,
+  renderSettingsApp,
+  type RenderedSettings,
+} from '../renderSettingsApp.js';
 
-let open: RenderedSettings | null = null;
-
-afterEach(() => {
-  open?.close();
-  open = null;
+// One jsdom realm per file, reset per mount (`renderSettingsApp`).
+afterAll(() => {
+  closeSettingsRealm();
 });
 
 interface Mounted {
@@ -62,7 +64,6 @@ const INERT_UAT = {
 /** Mount the app, push the file, then switch to Quality the way a user would. */
 async function mountOnQuality(manifest: Partial<Manifest> = {}): Promise<Mounted> {
   const view = await renderSettingsApp();
-  open = view;
   await view.receive({
     type: 'state',
     state: {
