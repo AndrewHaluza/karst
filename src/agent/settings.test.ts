@@ -153,6 +153,10 @@ describe('buildHookSettings', () => {
       provider: 'opencode',
       interactiveUsage: true,
     });
+    expect(providerInteractiveUsage('opencode2')).toEqual({
+      provider: 'opencode2',
+      interactiveUsage: true,
+    });
   });
 
   it('refuses a non-loopback or unbound endpoint', () => {

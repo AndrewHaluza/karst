@@ -1026,10 +1026,10 @@ describe('hookFailureLog endpoint file', () => {
     expect(readCurrentEndpoint(configDir)).toBeUndefined();
   });
 
-  it('writes current-endpoint for every BRIDGE_PROVIDERS entry (codex, opencode, claude)', () => {
+  it('writes current-endpoint for every BRIDGE_PROVIDERS entry (codex, opencode, opencode2, claude)', () => {
     const configDir = makeWorktree();
     writeCurrentEndpoint(configDir, 'http://127.0.0.1:5051/hooks');
-    for (const provider of ['codex', 'opencode', 'claude'] as const) {
+    for (const provider of ['codex', 'opencode', 'opencode2', 'claude'] as const) {
       const target = currentEndpointPath(configDir, provider);
       expect(existsSync(target), `${provider} endpoint file`).toBe(true);
       expect(readFileSync(target, 'utf8')).toBe('http://127.0.0.1:5051/hooks');

@@ -24,10 +24,12 @@ export function hookFailureLogPath(configDir: string, provider: BridgeProvider =
  * opencode plugin needs exactly the same rebind after a VS Code reload, and
  * hardcoding one provider is what made a fix for one core a fix for one core.
  * claude's lifecycle events now use the same bridge (PROMPT-16), so its
- * failures are recorded and its endpoint rebinds. agy (no executable hook
- * channel at all) is absent — see its `surfaces.endpointRebind`.
+ * failures are recorded and its endpoint rebinds. opencode2 (v2) generates the
+ * same kind of plugin and rebinds it after a reload, so it reads the same file.
+ * agy (no executable hook channel at all) is absent — see its
+ * `surfaces.endpointRebind`.
  */
-export const BRIDGE_PROVIDERS = ['codex', 'opencode', 'claude'] as const;
+export const BRIDGE_PROVIDERS = ['codex', 'opencode', 'opencode2', 'claude'] as const;
 
 export type BridgeProvider = (typeof BRIDGE_PROVIDERS)[number];
 

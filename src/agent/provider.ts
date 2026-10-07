@@ -52,9 +52,9 @@ export const PROVIDER_INTERACTIVE_USAGE: Readonly<Record<AgentProvider, boolean>
   codex: true,
   antigravity: true,
   opencode: true,
-  // opencode2's hook bridge lands in its own ticket; until then a session
-  // produces no measured usage events.
-  opencode2: false,
+  // opencode2's hook bridge posts cumulative `session.usage.updated` tallies,
+  // so a live session is measured exactly like v1's.
+  opencode2: true,
 };
 
 /** The typed capability result for one provider. */

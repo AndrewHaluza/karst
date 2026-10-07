@@ -26,6 +26,7 @@ import {
   opencode2Config,
   opencode2IsolationEnv,
 } from './opencode2Binary.js';
+import { KARST_OPENCODE_HEADLESS_ENV, writeOpencode2Bridge } from './opencode2Bridge.js';
 
 /**
  * The opencode v2 (`@opencode/cli` 2.x) core — a SEPARATE adapter from v1
@@ -44,9 +45,9 @@ import {
  *   the bytes.
  * - `OPENCODE_CONFIG_CONTENT` carries top-level `model` (TUI preselection) and,
  *   for headless only, `snapshot:false` (drops the shadow-git snapshot cost).
- *
- * The hook bridge (permissions, lifecycle, usage events) is a SEPARATE ticket;
- * this adapter declares that channel unsupported until then.
+ * - The interactive hook channel is a generated v2 plugin
+ *   (`opencode2Bridge.ts`) — `export default { id, setup(ctx) }` — that maps
+ *   `session.*`/`permission.*` events to karst's closed hook vocabulary.
  */
 
 const OPENCODE2_TOOL_LABEL = 'OpenCode v2';
@@ -310,10 +311,11 @@ export class Opencode2Adapter implements AgentAdapter {
   }
 
   readonly capabilities: AgentCapabilities = {
-    // The hook bridge lands in its own ticket.
-    lifecycleEvents: false,
+    // The generated v2 plugin posts SessionStart / session.status / session.idle
+    // / permission.* and cumulative UsageUpdate events.
+    lifecycleEvents: true,
     resume: true,
-    interactiveUsage: false,
+    interactiveUsage: true,
   };
 
   readonly surfaces: AdapterSurfaces = {
@@ -332,19 +334,15 @@ export class Opencode2Adapter implements AgentAdapter {
       '`opencode2 run --format json` emits raw JSON session events, never a '
         + 'schema-constrained final document',
     ),
-    hookChannel: unsupported(
-      'the opencode2 hook bridge is a separate ticket; until it lands this core has no '
-        + 'executable lifecycle channel',
-    ),
-    endpointRebind: unsupported(
-      'no hook channel exists yet for opencode2, so there is no endpoint to rebind',
-    ),
+    hookChannel: SUPPORTED,
+    endpointRebind: SUPPORTED,
     mcpIsolationHeadless: unsupported(
       'opencode2 has no per-run MCP-isolation flag; the isolated XDG_CONFIG_HOME keeps '
         + 'the operator\'s config out but is not a per-server drop',
     ),
     toolActivity: unsupported(
-      'opencode2\'s event stream has no per-tool PostToolUse event until its bridge lands',
+      'opencode2\'s event stream has no per-tool PostToolUse event; the bridge can post '
+        + 'execution/permission/usage signals but tool activity per turn is unobservable',
     ),
     skillDiscovery: SUPPORTED,
     entryOrchestrators: SUPPORTED,
@@ -373,6 +371,20 @@ export class Opencode2Adapter implements AgentAdapter {
 
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = ['--standalone'];
+    let ownedPaths: string[] | undefined;
+    if (opts.hookChannel) {
+      // The generated v2 plugin is the ONLY hook authority karst introduces. It
+      // is auto-discovered from `.opencode/plugins/` for a session launched in
+      // this worktree, and it is adapter-owned so session close removes it. No
+      // `--pure`-style isolation flag is passed on an interactive launch: it
+      // would suppress the very plugin the hooks depend on.
+      const pluginPath = writeOpencode2Bridge(
+        opts.cwd,
+        opts.hookChannel.endpointUrl,
+        opts.hookChannel.configDir,
+      );
+      ownedPaths = [pluginPath];
+    }
     if (opts.resume && opts.resume.length > 0) args.push('--session', opts.resume);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
     const deliver = opts.instructions !== undefined && opts.soloAgent !== true;
@@ -394,6 +406,7 @@ export class Opencode2Adapter implements AgentAdapter {
       command: opencode2Command(),
       args,
       env,
+      ...(ownedPaths ? { ownedPaths } : {}),
       ...(opts.instructions
         ? {
             instructionsChannel:
@@ -437,7 +450,12 @@ export class Opencode2Adapter implements AgentAdapter {
         signal: opts?.signal,
         timeoutMs: opts?.timeoutMs ?? SESSION_PROBE_TIMEOUT_MS,
         onDebug: opts?.debug,
-        isolationEnv: opencode2IsolationEnv(opencode2Config().home),
+        // Every non-interactive spawn carries the headless marker so a plugin
+        // left in the worktree stays silent (see opencode2Bridge.ts).
+        isolationEnv: {
+          ...opencode2IsolationEnv(opencode2Config().home),
+          [KARST_OPENCODE_HEADLESS_ENV]: '1',
+        },
       });
     } catch {
       // A probe failure is not proof the session is gone.
@@ -514,6 +532,10 @@ export class Opencode2Adapter implements AgentAdapter {
         isolationEnv: {
           ...opencode2IsolationEnv(opencode2Config().home),
           OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({ headless: true }),
+          // A headless `run` may discover a plugin an earlier interactive
+          // session left in the worktree; the marker makes setup() return
+          // immediately so the run emits no interactive hooks.
+          [KARST_OPENCODE_HEADLESS_ENV]: '1',
         },
         stdin: opts.prompt,
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,

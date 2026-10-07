@@ -1,4 +1,13 @@
-import { readFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  utimesSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -19,6 +28,12 @@ import {
   parseOpencode2Version,
   resetOpencode2Config,
 } from './opencode2Binary.js';
+import {
+  KARST_OPENCODE_HEADLESS_ENV,
+  renderOpencode2Bridge,
+  writeOpencode2Bridge,
+} from './opencode2Bridge.js';
+import { cleanupOwnedPaths } from './materializedCleanup.js';
 import type { HeadlessSpawnOptions } from './headlessSpawn.js';
 
 const fixture = (name: string): string =>
@@ -53,12 +68,23 @@ function fakeSpawn(options: {
   return { spawn, calls };
 }
 
+const temporaryRoots: string[] = [];
+
+function makeWorktree(): string {
+  const root = mkdtempSync(join(tmpdir(), 'karst-oc2-worktree-'));
+  temporaryRoots.push(root);
+  return root;
+}
+
 beforeEach(() => {
   configureOpencode2({ binaryPath: '/opt/opencode2', home: '/gs/opencode2' });
 });
 
 afterEach(() => {
   resetOpencode2Config();
+  while (temporaryRoots.length > 0) {
+    rmSync(temporaryRoots.pop()!, { recursive: true, force: true });
+  }
 });
 
 describe('opencode2 binary + version', () => {
@@ -359,5 +385,162 @@ describe('Opencode2Adapter interactive argv/env', () => {
     expect(cmd.args[i + 1]).toBe('ses_prev');
     expect(cmd.args.join(' ')).not.toContain('NEVER-INLINE-THIS-BODY');
     expect(cmd.args.join(' ')).toContain('KARST_INSTRUCTIONS');
+  });
+});
+
+describe('Opencode2Adapter capabilities + surfaces', () => {
+  it('declares the lifecycle/usage bridge capabilities', () => {
+    const a = new Opencode2Adapter();
+    expect(a.capabilities).toEqual({
+      lifecycleEvents: true,
+      resume: true,
+      interactiveUsage: true,
+    });
+  });
+
+  it('declares the hook channel and endpoint rebind supported', () => {
+    const a = new Opencode2Adapter();
+    expect(a.surfaces?.hookChannel.supported).toBe(true);
+    expect(a.surfaces?.endpointRebind.supported).toBe(true);
+  });
+});
+
+describe('opencode2 headless marker', () => {
+  it('sets KARST_OPENCODE_HEADLESS on every headless run spawn', async () => {
+    const { spawn, calls } = fakeSpawn({
+      run: { stdout: RUN_TEXT, exitCode: 0 },
+      export: { stdout: SESSION_EXPORT, exitCode: 0 },
+    });
+    const adapter = new Opencode2Adapter(spawn);
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt' });
+    const run = calls.find((c) => c.args[0] === 'run')!;
+    expect(run.opts?.isolationEnv?.[KARST_OPENCODE_HEADLESS_ENV]).toBe('1');
+  });
+
+  it('sets the marker on the resume pre-check (session export) too', async () => {
+    const { spawn, calls } = fakeSpawn({
+      run: { stdout: RUN_TEXT, exitCode: 0 },
+      export: { stdout: SESSION_EXPORT, exitCode: 0 },
+    });
+    const adapter = new Opencode2Adapter(spawn);
+    await adapter.probeResume('ses_live', '/wt');
+    const probe = calls.find((c) => c.args[0] === 'session')!;
+    expect(probe.opts?.isolationEnv?.[KARST_OPENCODE_HEADLESS_ENV]).toBe('1');
+  });
+
+  it('never sets the marker on an interactive launch', () => {
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
+    expect(cmd.env[KARST_OPENCODE_HEADLESS_ENV]).toBeUndefined();
+  });
+});
+
+describe('renderOpencode2Bridge module shape', () => {
+  const body = renderOpencode2Bridge(
+    'http://127.0.0.1:4567/hooks?karstLaunch=gen-1',
+    '/cfg/opencode2/current-endpoint',
+  );
+
+  it('emits the v2 default-export module contract with an async-iterator subscription', () => {
+    expect(body).toContain('export default');
+    expect(body).toContain('async setup(ctx)');
+    expect(body).toContain('for await (const event of ctx.event.subscribe())');
+    expect(body).toContain('http://127.0.0.1:4567/hooks?karstLaunch=gen-1');
+    expect(body).toContain('/cfg/opencode2/current-endpoint');
+    expect(body).toContain(KARST_OPENCODE_HEADLESS_ENV);
+  });
+
+  it('maps the live v2 event types and does NOT listen for v1-only events', () => {
+    for (const type of [
+      'session.created',
+      'session.execution.started',
+      'session.execution.succeeded',
+      'session.execution.failed',
+      'session.execution.interrupted',
+      'session.retry.scheduled',
+      'session.usage.updated',
+      'permission.asked',
+      'permission.replied',
+    ]) {
+      expect(body).toContain(`case '${type}':`);
+    }
+    // v2 has no session.idle/status/updated INPUT events — they are only posted.
+    expect(body).not.toContain("case 'session.idle':");
+    expect(body).not.toContain("case 'session.status':");
+    expect(body).not.toContain("case 'session.updated':");
+  });
+
+  it('keeps cache reads and writes separate and marks form.* unmapped', () => {
+    expect(body).toContain('cache_read');
+    expect(body).toContain('cache_write');
+    expect(body).not.toContain('cached_input');
+    expect(body).toContain('form.created');
+  });
+});
+
+describe('writeOpencode2Bridge', () => {
+  it('writes to .opencode/plugins/karst-bridge.js and is adapter-owned', () => {
+    const worktree = makeWorktree();
+    const pluginPath = writeOpencode2Bridge(worktree, 'http://127.0.0.1:4567/hooks');
+    expect(pluginPath).toBe(join(worktree, '.opencode', 'plugins', 'karst-bridge.js'));
+    expect(existsSync(pluginPath)).toBe(true);
+    cleanupOwnedPaths(worktree, [pluginPath]);
+    expect(existsSync(pluginPath)).toBe(false);
+  });
+
+  it('refuses a non-loopback endpoint', () => {
+    const worktree = makeWorktree();
+    expect(() => writeOpencode2Bridge(worktree, 'https://example.com/hooks')).toThrow(/loopback/i);
+  });
+
+  it('does not rewrite identical content across launches (atomic write)', () => {
+    const worktree = makeWorktree();
+    const pluginPath = writeOpencode2Bridge(worktree, 'http://127.0.0.1:4567/hooks');
+    const old = new Date('2020-01-01T00:00:00Z');
+    utimesSync(pluginPath, old, old);
+    writeOpencode2Bridge(worktree, 'http://127.0.0.1:4567/hooks');
+    expect(statSync(pluginPath).mtimeMs).toBe(old.getTime());
+  });
+});
+
+describe('Opencode2Adapter interactive hook channel', () => {
+  it('writes the bridge and owns it when a hook channel is present', () => {
+    const worktree = makeWorktree();
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: {
+        endpointUrl: 'http://127.0.0.1:4567/hooks?karstLaunch=gen-1',
+        configDir: join(worktree, '.karst-runtime'),
+        launchId: 'gen-1',
+      },
+      initialPrompt: 'go',
+    });
+    const pluginPath = join(worktree, '.opencode', 'plugins', 'karst-bridge.js');
+    expect(cmd.ownedPaths).toEqual([pluginPath]);
+    expect(existsSync(pluginPath)).toBe(true);
+    expect(cmd.env[KARST_OPENCODE_HEADLESS_ENV]).toBeUndefined();
+    // Interactive must not pass an isolation flag that suppresses the plugin.
+    expect(cmd.args).not.toContain('--pure');
+  });
+
+  it('writes no plugin and owns nothing when hookChannel is absent', () => {
+    const worktree = makeWorktree();
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({ cwd: worktree, initialPrompt: 'go' });
+    expect(cmd.ownedPaths).toBeUndefined();
+    expect(existsSync(join(worktree, '.opencode', 'plugins', 'karst-bridge.js'))).toBe(false);
+  });
+
+  it('refuses a non-loopback hook endpoint', () => {
+    const worktree = makeWorktree();
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    expect(() =>
+      adapter.buildInteractiveCommand({
+        cwd: worktree,
+        hookChannel: { endpointUrl: 'https://example.com/hooks', configDir: '/cfg' },
+        initialPrompt: 'go',
+      }),
+    ).toThrow(/loopback/i);
   });
 });
