@@ -71,7 +71,10 @@ export class ServerLogsReader {
   private lastSizes = new Map<string, number>();
   private timers = new Map<string, ReturnType<typeof setInterval>>();
 
-  constructor(private readonly debug?: (msg: string) => void) {}
+  constructor(
+    private readonly debug?: (msg: string) => void,
+    private readonly pollIntervalMs = 1000,
+  ) {}
 
   readLogs(
     servers: Array<{ service: string; logPath: string | null }>,
@@ -107,11 +110,16 @@ export class ServerLogsReader {
     };
   }
 
+  /**
+   * Start tailing. The returned promise resolves once the initial sizes are
+   * recorded (the baseline every later tick diffs against); ticks are skipped
+   * until then. Callers that do not need to await the baseline may ignore it.
+   */
   startPolling(
     servers: Array<{ service: string; logPath: string | null }>,
     ticketId: number,
     onOutput: (ticketId: number, service: string, text: string) => void,
-  ): void {
+  ): Promise<void> {
     this.stopPolling(ticketId);
     const tailed = servers.filter((s): s is { service: string; logPath: string } => !!s.logPath);
     let busy = true;
@@ -122,8 +130,7 @@ export class ServerLogsReader {
       }),
     ).finally(() => {
       busy = false;
-    });
-    void prime;
+    }).then(() => undefined);
     const key = String(ticketId);
     const timer = setInterval(() => {
       // A slow disk must never stack ticks: skip while the previous one runs.
@@ -136,8 +143,9 @@ export class ServerLogsReader {
       void Promise.all(tailed.map((s) => this.pollOne(s, ticketId, emit))).finally(() => {
         busy = false;
       });
-    }, 1000);
+    }, this.pollIntervalMs);
     this.timers.set(key, timer);
+    return prime;
   }
 
   /** One tick for one log: stat, then read only the bytes appended since the last tick. */

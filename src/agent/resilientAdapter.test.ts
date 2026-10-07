@@ -364,13 +364,16 @@ describe('resilientAdapter', () => {
     });
     const inner = fakeAdapter({ runHeadless: spy });
     const notify = vi.fn();
+    const sleep = vi.fn(async () => {});
     const adapter = resilientAdapter(inner, opts({
       retries: 1,
       chain: () => ['a'],
       notify,
+      sleep,
     }));
 
     await adapter.runHeadless({ prompt: 'hi', cwd: '.' });
     expect(notify).not.toHaveBeenCalled();
+    expect(sleep).toHaveBeenCalledTimes(1);
   });
 });

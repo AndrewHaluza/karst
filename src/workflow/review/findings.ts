@@ -178,7 +178,7 @@ function tryParseJson(text: string): unknown {
  * quadratic scan; past this bound only the TAIL is scanned, because the report
  * a model is asked for is the last thing it writes.
  */
-const SCAN_MAX_CHARS = 2_000_000;
+export const SCAN_MAX_CHARS = 2_000_000;
 
 /**
  * Bound on how many findings-shaped values the extraction fallback will keep

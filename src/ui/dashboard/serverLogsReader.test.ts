@@ -26,6 +26,23 @@ import { ServerLogsReader, SERVER_LOG_READ_CAP_BYTES } from './serverLogsReader.
 let reader: ServerLogsReader;
 let dir: string;
 
+/**
+ * The poller is an interval over real fs I/O, so fake timers cannot drive it
+ * (its callback detaches the async read, which a fake clock never awaits). The
+ * poll interval is injected instead — a few ms here — and `waitFor` blocks on
+ * the read actually completing rather than on a fixed multi-second idle.
+ */
+const POLL_MS = 10;
+
+/** Resolve once `cond` holds, polling the real event loop; throws (never hangs) on timeout. */
+async function waitFor(cond: () => boolean, timeoutMs = 2000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error('waitFor: condition not met before timeout');
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 afterEach(() => {
   reads.length = 0;
   reader?.stopPolling(1);
@@ -90,18 +107,16 @@ describe('ServerLogsReader', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'poll.log');
     writeFileSync(logPath, 'initial\n');
-    reader = new ServerLogsReader();
+    reader = new ServerLogsReader(undefined, POLL_MS);
     const calls: Array<{ ticketId: number; service: string; text: string }> = [];
 
-    reader.startPolling(
+    await reader.startPolling(
       [{ service: 'web', logPath }],
       1,
       (ticketId, service, text) => calls.push({ ticketId, service, text }),
     );
-
-    await new Promise((r) => setTimeout(r, 1200));
     writeFileSync(logPath, 'initial\nnew line\n');
-    await new Promise((r) => setTimeout(r, 1200));
+    await waitFor(() => calls.length >= 1);
 
     expect(calls.length).toBeGreaterThanOrEqual(1);
     expect(calls.some((c) => c.text.includes('new line'))).toBe(true);
@@ -113,20 +128,18 @@ describe('ServerLogsReader', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'stop.log');
     writeFileSync(logPath, 'a\n');
-    reader = new ServerLogsReader();
+    reader = new ServerLogsReader(undefined, POLL_MS);
     const calls: Array<string> = [];
 
-    reader.startPolling(
+    await reader.startPolling(
       [{ service: 'web', logPath }],
       1,
       (_tid, _svc, text) => calls.push(text),
     );
-
-    await new Promise((r) => setTimeout(r, 1200));
     reader.stopPolling(1);
     const countBefore = calls.length;
     writeFileSync(logPath, 'a\nb\n');
-    await new Promise((r) => setTimeout(r, 1500));
+    await new Promise((r) => setTimeout(r, POLL_MS * 4));
 
     expect(calls.length).toBe(countBefore);
   });
@@ -141,18 +154,16 @@ describe('ServerLogsReader', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'utf8.log');
     writeFileSync(logPath, '\u20ac\n'); // "€\n": 4 bytes, 2 characters
-    reader = new ServerLogsReader();
+    reader = new ServerLogsReader(undefined, POLL_MS);
     const calls: string[] = [];
 
-    reader.startPolling(
+    await reader.startPolling(
       [{ service: 'web', logPath }],
       1,
       (_tid, _svc, text) => calls.push(text),
     );
-
-    await new Promise((r) => setTimeout(r, 1200));
     writeFileSync(logPath, '\u20ac\nafter\n');
-    await new Promise((r) => setTimeout(r, 1200));
+    await waitFor(() => calls.length >= 1);
 
     expect(calls).toEqual(['after\n']);
   });
@@ -182,14 +193,14 @@ describe('ServerLogsReader', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'big-tail.log');
     writeFileSync(logPath, 'x'.repeat(500_000));
-    reader = new ServerLogsReader();
+    reader = new ServerLogsReader(undefined, POLL_MS);
     const calls: string[] = [];
 
-    reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) => calls.push(text));
-
-    await new Promise((r) => setTimeout(r, 1200));
+    await reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) =>
+      calls.push(text),
+    );
     appendFileSync(logPath, 'tail\n');
-    await new Promise((r) => setTimeout(r, 1200));
+    await waitFor(() => calls.length >= 1);
 
     expect(calls).toEqual(['tail\n']);
     expect(reads).toEqual([5]);
@@ -199,14 +210,14 @@ describe('ServerLogsReader', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'rotated.log');
     writeFileSync(logPath, 'old content that is long\n');
-    reader = new ServerLogsReader();
+    reader = new ServerLogsReader(undefined, POLL_MS);
     const calls: string[] = [];
 
-    reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) => calls.push(text));
-
-    await new Promise((r) => setTimeout(r, 1200));
+    await reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) =>
+      calls.push(text),
+    );
     writeFileSync(logPath, 'new\n');
-    await new Promise((r) => setTimeout(r, 1200));
+    await waitFor(() => calls.length >= 1);
 
     expect(calls).toEqual(['new\n']);
   });
@@ -215,17 +226,22 @@ describe('ServerLogsReader', () => {
     dir = mkdtempSync(join(tmpdir(), 'karst-srvlog-'));
     const logPath = join(dir, 'partial.log');
     writeFileSync(logPath, 'a\n');
-    reader = new ServerLogsReader();
+    reader = new ServerLogsReader(undefined, POLL_MS);
     const calls: string[] = [];
 
-    reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) => calls.push(text));
+    await reader.startPolling([{ service: 'web', logPath }], 1, (_tid, _svc, text) =>
+      calls.push(text),
+    );
 
+    // A tick must actually read the partial bytes (and hold them back) before
+    // the rest arrives, or the two halves are read together and the partial
+    // path is never exercised. The read is the observable signal, not a sleep.
     const euro = Buffer.from('\u20ac');
-    await new Promise((r) => setTimeout(r, 1200));
+    const readsBefore = reads.length;
     appendFileSync(logPath, Buffer.concat([Buffer.from('b'), euro.subarray(0, 1)]));
-    await new Promise((r) => setTimeout(r, 1100));
+    await waitFor(() => reads.length > readsBefore);
     appendFileSync(logPath, Buffer.concat([euro.subarray(1), Buffer.from('\n')]));
-    await new Promise((r) => setTimeout(r, 1100));
+    await waitFor(() => calls.join('') === 'b\u20ac\n');
 
     expect(calls.join('')).toBe('b\u20ac\n');
     expect(calls.join('')).not.toContain('\uFFFD');
