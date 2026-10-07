@@ -1,5 +1,6 @@
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import { readSchema, SCHEMA_VERSION } from '../../store/migrations.js';
+import { loadSqlite } from '../sqlite.js';
 
 /**
  * The `karst test reset` subcommand — drop every table and rebuild the current
@@ -25,6 +26,7 @@ import { readSchema, SCHEMA_VERSION } from '../../store/migrations.js';
  * at a scratch file.
  */
 export function runReset(dbPath: string): string {
+  const { DatabaseSync } = loadSqlite();
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA foreign_keys = OFF');

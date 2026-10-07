@@ -1,6 +1,7 @@
-import { DatabaseSync } from 'node:sqlite';
+import type { DatabaseSync } from 'node:sqlite';
 import type { Store } from '../store/db.js';
 import { assertExactSchema, assertMigratedSchema } from './assertMigrated.js';
+import { loadSqlite } from './sqlite.js';
 
 type BeginMode = 'BEGIN' | 'BEGIN IMMEDIATE' | 'BEGIN EXCLUSIVE';
 
@@ -53,6 +54,7 @@ function transactionFamily<A extends unknown[], R>(
  * schema is NOT migrated here (the extension already created the file).
  */
 export function openWritableStore(dbPath: string): Store {
+  const { DatabaseSync } = loadSqlite();
   const db = new DatabaseSync(dbPath);
   // Writable, but still NOT a migrator — only the extension migrates. Refuse a
   // stale file loudly rather than writing a stage marker through queries that
@@ -107,6 +109,7 @@ export const GRAPH_BUSY_TIMEOUT_MS = 5000;
  *   error inside a plain `BEGIN`.
  */
 export function openGraphWritableStore(dbPath: string): Store {
+  const { DatabaseSync } = loadSqlite();
   const db = new DatabaseSync(dbPath);
   try {
     assertExactSchema(db, dbPath);

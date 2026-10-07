@@ -26,6 +26,10 @@ import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
 import { AssertionMismatchError } from './test/assert.js';
 import { notifyGraphWakeup } from '../hooks/graphEndpoint.js';
+import { getCommandSpec } from './registry.js';
+import { resolveStructuredInput } from './commandInput.js';
+import { runSchemaCommand } from './schemaCommand.js';
+import { installSqliteWarningFilter } from './suppressWarning.js';
 
 /**
  * Write each manifest diagnostic (warning or notice) to stderr, one line,
@@ -196,14 +200,37 @@ export function runCli(
   const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
 
+  // Structured input (registry): a command that declares a `toArgv` encoder may
+  // take its whole input as one JSON object via `--file <path>` or `--stdin`,
+  // validated against its registry schema. When neither flag is present this is
+  // a no-op and every verb keeps its existing named-flag parse path.
+  const spec = getCommandSpec(subcommand);
+  const structured = spec ? resolveStructuredInput(spec, rest, io) : undefined;
+  const effectiveRest = structured ? structured.argv : rest;
+
   // `karst draft propose` — a PLANNING session proposes a draft ticket. Its OWN
   // parse path, taken BEFORE any flag is honoured: the RAW argv goes in, so a
   // `--db`/`--manifest`/`--session` is refused rather than stripped, and it
   // never opens a store. Input is stdin, output a file in KARST_OUTBOX.
+  //
+  // The globals were already split out by `parseGlobalFlags`, so structured
+  // input must refuse them HERE too — otherwise `draft --file x.json --db …`
+  // would silently accept the flags the plain path refuses (a regression the
+  // UAT tester caught). Any other non-structured flag is left in `rest` and
+  // `runDraftCommand`'s own raw-argv check refuses it.
   if (subcommand === 'draft') {
-    return runDraftCommand(argv, {
+    if (db || manifestPath || ticket) {
+      // Name the subcommand the caller actually used; the message must not
+      // repeat the `karst:` prefix the wrapper adds.
+      throw new Error(
+        rest[1] === 'list'
+          ? 'draft list takes no arguments or flags'
+          : "draft propose takes no arguments or flags (usage: printf '%s' '<json>' | karst draft propose)",
+      );
+    }
+    return runDraftCommand(structured ? structured.argv : argv, {
       outboxEnv: env.KARST_OUTBOX,
-      readStdin: io.readStdin,
+      readStdin: structured ? () => JSON.stringify(structured.value) : io.readStdin,
       now: io.now,
       sleep: io.sleep,
       timeoutMs: io.timeoutMs,
@@ -212,7 +239,7 @@ export function runCli(
 
   if (subcommand === 'context') {
     if (!db) throw new Error('missing --db <path>');
-    const parsed = parseContextArgs(rest);
+    const parsed = parseContextArgs(effectiveRest);
     let manifest: Manifest | undefined;
     if (manifestPath) {
       try {
@@ -239,7 +266,7 @@ export function runCli(
   // is about the board the caller is standing on, not every board in the file.
   if (subcommand === 'stats') {
     if (!db) throw new Error('missing --db <path>');
-    const parsed = parseStatsArgs(rest);
+    const parsed = parseStatsArgs(effectiveRest);
     const fallbackSlug = loadProjectSlug(manifestPath);
     const store = openReadonlyStore(db);
     try {
@@ -259,7 +286,7 @@ export function runCli(
       // whichever row is older, and the marker advances the wrong board.
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return runStageCommand(store, found.id, rest, undefined, found);
+      return runStageCommand(store, found.id, effectiveRest, undefined, found);
     } finally {
       store.close();
     }
@@ -277,7 +304,7 @@ export function runCli(
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return runPhaseCommand(store, found.id, rest);
+      return runPhaseCommand(store, found.id, effectiveRest);
     } finally {
       store.close();
     }
@@ -297,7 +324,7 @@ export function runCli(
     }
     const store = openGraphWritableStore(db ?? process.env.KARST_GRAPH_DB!);
     try {
-      return runGraphCommand(store, process.env, rest);
+      return runGraphCommand(store, process.env, effectiveRest);
     } finally {
       store.close();
     }
@@ -314,7 +341,7 @@ export function runCli(
     }
     const store = openGraphWritableStore(db ?? process.env.KARST_GRAPH_DB!);
     try {
-      return runNodeCommand(store, process.env, rest);
+      return runNodeCommand(store, process.env, effectiveRest);
     } finally {
       store.close();
     }
@@ -333,13 +360,13 @@ export function runCli(
     // Validate the subcommand BEFORE opening the store, so an unknown subcommand
     // is named even when the `--db` path does not exist yet (a test script may
     // point at a file `reset` has not created). `runTestCommand` re-parses.
-    const parsedTest = parseTestArgs(rest);
+    const parsedTest = parseTestArgs(effectiveRest);
     if (parsedTest.subcommand === 'reset') {
       return runReset(db);
     }
     const store = openWritableStore(db);
     try {
-      return runTestCommand(store, ticket, loadProjectSlug(manifestPath), rest);
+      return runTestCommand(store, ticket, loadProjectSlug(manifestPath), effectiveRest);
     } finally {
       store.close();
     }
@@ -351,7 +378,7 @@ export function runCli(
   // env points at a registry and ticket (an agent inside a session). A bare
   // `karst guide` from a shell still returns the manual and touches no store.
   if (subcommand === 'guide') {
-    const guide = runGuideCommand(rest);
+    const guide = runGuideCommand(effectiveRest);
     const a = readGuideAttribution(process.env);
     if (a.dbPath && a.ticketId !== null) {
       try {
@@ -375,7 +402,7 @@ export function runCli(
     if (!db) throw new Error('missing --db <path>');
     const store = openWritableStore(db);
     try {
-      const result = runCompactCommand(store, rest);
+      const result = runCompactCommand(store, effectiveRest);
       return JSON.stringify(result);
     } finally {
       store.close();
@@ -391,7 +418,7 @@ export function runCli(
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return runEnvCommand(store, found.id, rest);
+      return runEnvCommand(store, found.id, effectiveRest);
     } finally {
       store.close();
     }
@@ -409,7 +436,7 @@ export function runCli(
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return runSubtaskCommand(store, found.id, rest);
+      return runSubtaskCommand(store, found.id, effectiveRest);
     } finally {
       store.close();
     }
@@ -427,7 +454,7 @@ export function runCli(
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return runMessageCommand(store, found, rest, { sessionTicketKey: env.KARST_TICKET });
+      return runMessageCommand(store, found, effectiveRest, { sessionTicketKey: env.KARST_TICKET });
     } finally {
       store.close();
     }
@@ -435,7 +462,7 @@ export function runCli(
 
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
-    const parsed = parseFixBriefArgs(rest);
+    const parsed = parseFixBriefArgs(effectiveRest);
     const store = openReadonlyStore(db);
     try {
       return runFixBriefCommand(store, parsed);
@@ -446,7 +473,7 @@ export function runCli(
 
   if (subcommand === 'conflict-brief') {
     if (!db) throw new Error('missing --db <path>');
-    const parsed = parseConflictBriefArgs(rest);
+    const parsed = parseConflictBriefArgs(effectiveRest);
     const store = openReadonlyStore(db);
     try {
       return runConflictBriefCommand(store, parsed);
@@ -455,8 +482,15 @@ export function runCli(
     }
   }
 
+  // `karst schema [command]` — the registry's discovery surface. Static
+  // karst-authored content: no store, no ticket, no DB. `--file`/`--stdin` can
+  // carry its optional `{command}` input like any other registered verb.
+  if (subcommand === 'schema') {
+    return runSchemaCommand(effectiveRest);
+  }
+
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief' or 'conflict-brief')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief', 'conflict-brief' or 'schema')`,
   );
 }
 
@@ -471,6 +505,12 @@ export async function runCliAsync(argv: string[]): Promise<string> {
   if (rest[0] !== 'servers') return runCli(argv);
   if (!db) throw new Error('missing --db <path>');
   if (!ticket) throw new Error('missing --ticket <key>');
+  // `servers` is the one async verb; it still accepts structured input via the
+  // same registry path as the synchronous verbs.
+  const structured = resolveStructuredInput(getCommandSpec('servers')!, rest, {
+    readStdin: readStdinBounded,
+  });
+  const effectiveRest = structured ? structured.argv : rest;
   let manifest: Manifest | undefined;
   if (manifestPath) {
     const loaded = loadManifestWithDiagnostics(manifestPath);
@@ -482,7 +522,7 @@ export async function runCliAsync(argv: string[]): Promise<string> {
   try {
     const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
     if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-    return await runServersCommand(store, manifest, found.id, rest, manifestPath);
+    return await runServersCommand(store, manifest, found.id, effectiveRest, manifestPath);
   } finally {
     store.close();
   }
@@ -497,6 +537,9 @@ function fail(message: string): never {
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
+  // Drop the one `node:sqlite` ExperimentalWarning before any store opens;
+  // every other warning still reaches stderr (never a blanket --no-warnings).
+  installSqliteWarningFilter();
   void (async () => {
     try {
       const argv = process.argv.slice(2);
