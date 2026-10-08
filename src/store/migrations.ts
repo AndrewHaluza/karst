@@ -5,6 +5,7 @@ import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
+import { BULLETIN_DDL } from './bulletinNotes.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2556,6 +2557,20 @@ function migrateLocked(db: Database): void {
     if (ticketCols71.size > 0 && !ticketCols71.has('source_ref_internal')) {
       db.exec('ALTER TABLE tickets ADD COLUMN source_ref_internal TEXT');
     }
+  }
+
+  if (current < 72) {
+    // v72: the project bulletin + `prs.merge_sha`. `bulletin_notes`/`bulletin_reads`
+    // are whole new tables (IF NOT EXISTS DDL, nothing backfilled: no note existed
+    // before the table). `prs.merge_sha` is additive and NULL for every pre-v72
+    // row — the merge commit was never probed, and NULL says so rather than
+    // guessing one. The column guard reads the CURRENT columns, so a fresh DB
+    // (schema.sql carries both) is a no-op and a re-open is idempotent.
+    const prCols72 = tableColumns(db, 'prs');
+    if (prCols72.size > 0 && !prCols72.has('merge_sha')) {
+      db.exec('ALTER TABLE prs ADD COLUMN merge_sha TEXT');
+    }
+    db.exec(BULLETIN_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import { findTicketById, getTicketsByKey, type Ticket } from '../store/tickets.js';
 import { checkMessaging } from '../model/ticketMessaging.js';
 import { quoteUntrusted, sanitizeInline } from '../model/messageText.js';
+import { assertSenderMatchesSession, ticketLabel } from './sessionIdentity.js';
 import {
   listInbox,
   markRead,
@@ -80,18 +81,7 @@ export interface MessageCommandOptions {
   sessionTicketKey?: string | undefined;
 }
 
-const label = (t: Pick<Ticket, 'id' | 'key'>): string => t.key ?? `#${t.id}`;
-
-/** Refuse a `--ticket` that disagrees with the session env's own ticket. */
-function assertSenderMatchesSession(sender: Ticket, sessionKey: string | undefined): void {
-  if (sessionKey === undefined || sessionKey === '') return;
-  if (sessionKey !== sender.key) {
-    throw new Error(
-      `--ticket resolves to '${label(sender)}' but this session's KARST_TICKET is '${sessionKey}' — ` +
-        `refusing: a session may act only as its own ticket`,
-    );
-  }
-}
+const label = (t: Pick<Ticket, 'id' | 'key'>): string => ticketLabel(t);
 
 /** Resolve `--to`: the literal `parent`, else a key (project-scoped, a child first). */
 function resolveRecipient(store: Store, sender: Ticket, to: string): Ticket {
