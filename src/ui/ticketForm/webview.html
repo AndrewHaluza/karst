@@ -628,12 +628,17 @@
       <span class="hint" id="pullBaseHint">Updates each base branch before the worktree is cut.</span>
     </div>
   </div>
+
+  <div class="card" id="dependenciesCard" hidden>
+    <h2>Dependencies</h2>
+    <div id="dependenciesList" class="chips"></div>
+  </div>
 </div>
 
 <!-- Sticky action bar: always rendered, pinned to the bottom of the view.
      Cancel · secondary save · primary launch. Labels are set per mode by
      render(); the static text here IS the create-mode label. -->
-<div class="actionbar" id="actionBar">
+  <div class="actionbar" id="actionBar">
   <span class="hint actionhint" id="actionHint">Create &amp; start session launches the agent in a new worktree. Save draft does not start an agent.</span>
   <button type="button" class="k-btn k-btn--ghost" id="cancelBtn">Cancel</button>
   <button type="button" class="k-btn k-btn--secondary" id="saveBtn">Save draft</button>
@@ -819,6 +824,10 @@
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     if (!el('desc').value) el('desc').value = state.description || '';
     el('attachments').innerHTML = renderAttachments(state.attachments || []);
+    const rels = state.relations || [];
+    const depsCard = el('dependenciesCard');
+    depsCard.hidden = rels.length === 0;
+    el('dependenciesList').innerHTML = rels.map((r) => `<div class="chip">${esc(r.kind)}: ${r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${r.ticketId}">${esc(r.label)}</a>` : esc(r.label)}${r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${r.id}">Retry</button>` : ''}</div>`).join('');
 
     renderGate(state.unclassified, state.repos);
     // Drawer header title: the persisted brief's first heading, else the ticket
@@ -1885,6 +1894,13 @@
       karstBeginPending(open, requestId);
       post({ type: 'open-attachment', id: Number(open.dataset.attachId), requestId });
     }
+  });
+  el('dependenciesList').addEventListener('click', function (e) {
+    const target = e.target.closest('[data-act]');
+    if (!target) return;
+    e.preventDefault();
+    if (target.dataset.act === 'retry-writeback') post({ type: 'retry-relation-writeback', relationId: Number(target.dataset.id) });
+    if (target.dataset.act === 'open-dependency') post({ type: 'open-dependency', ticketId: Number(target.dataset.id) });
   });
 
   function postPastedFile(file) {

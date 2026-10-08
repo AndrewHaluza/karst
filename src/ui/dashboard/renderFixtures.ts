@@ -885,6 +885,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     parent: null,
     subtaskParent: null,
     subtasks: [],
+    blockers: [],
     subtaskProgress: { done: 0, total: 0 },
     canAddSubtask: false,
     canDetachSubtask: false,

@@ -44,6 +44,7 @@ export type WebviewMessage =
   | { type: 'copy-pr-url'; url: string }
   | { type: 'open-ticket-link'; url: string }
   | { type: 'edit-ticket' }
+  | { type: 'open-dependency'; ticketId: number }
   | { type: 'stop-driver' }
   | { type: 'ship-ticket' }
   | { type: 'resume-ticket' }
@@ -388,6 +389,7 @@ export interface DashboardActions {
   copyPrUrl: (url: string) => void | Promise<void>;
   openTicketLink: (url: string) => void | Promise<void>;
   editTicket: () => void | Promise<void>;
+  openDependency: (ticketId: number) => void | Promise<void>;
   stopDriver: () => void | Promise<void>;
   shipTicket: () => void | Promise<void>;
   resumeTicket: () => void | Promise<void>;
@@ -584,6 +586,9 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'edit-ticket':
       return { type: 'edit-ticket' };
+    case 'open-dependency':
+      return typeof m.ticketId === 'number' && Number.isInteger(m.ticketId) && m.ticketId > 0
+        ? { type: 'open-dependency', ticketId: m.ticketId } : null;
     case 'stop-driver':
       return { type: 'stop-driver' };
     case 'ship-ticket':
@@ -888,6 +893,8 @@ export function routeAction(
       return actions.openTicketLink(msg.url);
     case 'edit-ticket':
       return actions.editTicket();
+    case 'open-dependency':
+      return actions.openDependency(msg.ticketId);
     case 'stop-driver':
       return actions.stopDriver();
     case 'ship-ticket':

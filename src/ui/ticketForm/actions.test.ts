@@ -910,6 +910,37 @@ describe('buildTicketFormActions', () => {
       expect(ctx.closes).toBe(1);
     });
 
+    it('queues a blocked sub-task silently; autostart will start it later', async () => {
+      const requestSubtaskAutostart = vi.fn<() => void>();
+      deps.requestSubtaskAutostart = requestSubtaskAutostart;
+      const { child, ctx } = subtaskCtx();
+      const blocker = createTicket(store, { key: 'BLOCK-7', title: 'blocker' });
+      setStageCurrent(store, blocker.id, 'impl');
+      addRelation(store, { ticketId: child.id, kind: 'blocked-by', targetTicketId: blocker.id, source: 'user' });
+
+      await buildTicketFormActions(deps)(ctx).submit(fields);
+
+      expect(startTicket).not.toHaveBeenCalled();
+      expect(getTicket(store, child.id).autostartPending).toBe(true);
+      expect(requestSubtaskAutostart).toHaveBeenCalledTimes(1);
+      expect(openDashboard).toHaveBeenCalledWith(child.id);
+      expect(ctx.closes).toBe(1);
+    });
+
+    it('queues a blocked sub-task with unresolved ref for autostart', async () => {
+      const requestSubtaskAutostart = vi.fn<() => void>();
+      deps.requestSubtaskAutostart = requestSubtaskAutostart;
+      const { child, ctx } = subtaskCtx();
+      addRelation(store, { ticketId: child.id, kind: 'blocked-by', targetRef: 'CU-GHOST', source: 'user' });
+
+      await buildTicketFormActions(deps)(ctx).submit(fields);
+
+      expect(startTicket).not.toHaveBeenCalled();
+      expect(getTicket(store, child.id).autostartPending).toBe(true);
+      expect(requestSubtaskAutostart).toHaveBeenCalledTimes(1);
+      expect(ctx.closes).toBe(1);
+    });
+
     it('a sub-task with no repositories is refused on the form and not queued', async () => {
       const requestSubtaskAutostart = vi.fn<() => void>();
       deps.requestSubtaskAutostart = requestSubtaskAutostart;

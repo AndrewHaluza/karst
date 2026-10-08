@@ -356,6 +356,7 @@ describe('parseTicketFormMessage', () => {
       setProvider: () => {}, setPreset: () => {}, setType: () => {}, analyze: () => {}, attachPick: async () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
+      retryRelationWriteback: () => {}, openDependency: () => {},
       closeForm: () => {},
     };
     routeTicketFormAction({ type: 'submit', key: 'K', title: 't', description: '', keyAutoDerived: true }, actions);
@@ -402,6 +403,8 @@ describe('routeTicketFormAction', () => {
       openAttachment: vi.fn(),
       openTicketLink: vi.fn(),
       createProviderTicket: vi.fn(),
+      retryRelationWriteback: vi.fn(),
+      openDependency: vi.fn(),
       submit: vi.fn(),
       save: vi.fn(),
       requestState: vi.fn(),
@@ -512,6 +515,8 @@ describe('attachment messages', () => {
       analyze: vi.fn(),
       openTicketLink: vi.fn(),
       createProviderTicket: vi.fn(),
+      retryRelationWriteback: vi.fn(),
+      openDependency: vi.fn(),
       submit: vi.fn(),
       save: vi.fn(),
       requestState: vi.fn(),

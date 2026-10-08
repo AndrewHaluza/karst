@@ -4,6 +4,7 @@ import { upsertProject } from '../store/projects.js';
 import { archiveTicket, createTicket, setStageCurrent } from '../store/tickets.js';
 import type { StageKey } from '../model/types.js';
 import { pickSubtasksToStart } from './subtaskAutostart.js';
+import { addRelation } from '../store/ticketRelations.js';
 
 let store: Store;
 let projectId: number;
@@ -102,6 +103,18 @@ describe('pickSubtasksToStart', () => {
       setStageCurrent(store, p, stage);
       expect(pickSubtasksToStart(store, projectId, caps)).toEqual([]);
     }
+  });
+
+  it('skips a queued child with an open or unresolved blocker and reports the blocked id', () => {
+    const p = ticket({ stage: 'impl' });
+    const openTarget = ticket({ stage: 'uat' });
+    const blocked = ticket({ parent: p, queued: true });
+    const dangling = ticket({ parent: p, queued: true });
+    addRelation(store, { ticketId: blocked, kind: 'blocked-by', targetTicketId: openTarget, source: 'user' });
+    addRelation(store, { ticketId: dangling, kind: 'blocked-by', targetRef: 'CU-404', source: 'user' });
+    const seen: number[] = [];
+    expect(pickSubtasksToStart(store, projectId, { ...caps, onBlocked: (id) => seen.push(id) })).toEqual([]);
+    expect(seen).toEqual([blocked, dangling]);
   });
 
   it('skips archived or detached children, non-scope children, and archived parents', () => {

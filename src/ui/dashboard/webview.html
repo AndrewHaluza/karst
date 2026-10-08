@@ -4012,6 +4012,9 @@
     const parts = [];
     if (state.subtaskParent) parts.push('Sub-task of ' + esc(state.subtaskParent.key));
     if (state.parent) parts.push('Follow-up of ' + esc(state.parent.key));
+    for (const blocker of (state.blockers || [])) parts.push(`<span class="k-chip">Blocked by ${blocker.ticketId
+      ? `<a href="#" data-act="open-dependency" data-ticket="${blocker.ticketId}">${esc(blocker.label)}</a>`
+      : esc(blocker.label)}</span>`);
     ref.hidden = parts.length === 0;
     ref.innerHTML = parts.join(' · ');
     // Detach rides the parent-relationship line: it is only meaningful for a
@@ -5455,6 +5458,7 @@
     'copy-pr-url': (btn, requestId) => karstSend.copyPrUrl(btn.dataset.url, requestId),
     'open-ticket-link': (btn, requestId) => karstSend.openTicketLink(btn.dataset.url, requestId),
     'edit-ticket': (btn, requestId) => karstSend.editTicket(requestId),
+    'open-dependency': (btn, requestId) => karstSend.openDependency(Number(btn.dataset.ticket), requestId),
     'stop-driver': (btn, requestId) => karstSend.stopDriver(requestId),
     'resume-ticket': (btn, requestId) => karstSend.resumeTicket(requestId),
     'create-follow-up-ticket': (btn, requestId) => karstSend.createFollowUpTicket(requestId),

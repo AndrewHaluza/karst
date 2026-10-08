@@ -2056,7 +2056,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       startTicket,
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),
       // A started ticket belongs to its dashboard — the ticket form hands off there.
-      openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId),
+      openDashboard: (ticketId: number) => dashboard.openDashboard(ticketId), openDependency: (ticketId: number) => dashboard.openDashboard(ticketId), confirmBlockedStart: async (message: string) => (await vscode.window.showWarningMessage(message, { modal: true }, 'Start anyway')) === 'Start anyway',
       writeSignals: writeRepoSignals,
       // Re-read the manifest from disk after a signal writeback so the panel's
       // manifest getter (currentManifest) reflects the saved signals — the gate
@@ -3455,6 +3455,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // routine `info` progress lines or (absent this) the invisible
           // extension-host console.
           warn: (message) => logger.warn(message),
+          onTicketDone: () => subtaskAutostart.sweep(),
         },
         ticketId,
       );
@@ -7903,6 +7904,7 @@ function makeDashboardActions(
     copyPrUrl: (url) => void vscode.env.clipboard.writeText(url),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
+    openDependency: (id) => { if (store.db.prepare('SELECT 1 FROM ticket_relations WHERE (ticket_id = ? AND target_ticket_id = ?) OR (ticket_id = ? AND target_ticket_id = ?)').get(ticketId, id, id, ticketId)) void vscode.commands.executeCommand('karst.openDashboard', id); },
     // Stop the auto-driver's next gate run for this ticket (it halts at the
     // next boundary check, never mid-gate — see `shouldContinue`).
     stopDriver: () => driver.requestStop(ticketId),

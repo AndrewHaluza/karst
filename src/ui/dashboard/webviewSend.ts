@@ -84,6 +84,7 @@ export function createSender(api: WebviewApi) {
     openTicketLink: (url: Msg<'open-ticket-link'>['url'], requestId?: string) =>
       send({ type: 'open-ticket-link', url }, requestId),
     editTicket: (requestId?: string) => send({ type: 'edit-ticket' }, requestId),
+    openDependency: (ticketId: number, requestId?: string) => send({ type: 'open-dependency', ticketId }, requestId),
     stopDriver: (requestId?: string) => send({ type: 'stop-driver' }, requestId),
     shipTicket: (requestId?: string) => send({ type: 'ship-ticket' }, requestId),
     resumeTicket: (requestId?: string) => send({ type: 'resume-ticket' }, requestId),

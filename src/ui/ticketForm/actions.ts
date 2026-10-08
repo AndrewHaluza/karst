@@ -15,12 +15,15 @@ import {
   getTicketSourceRef,
   ingestBriefRelations,
   listPendingWritebacks,
+  listBlockers,
   markWriteback,
   resolveDanglingRefs,
   unresolveStaleRelations,
   type TicketRelation,
+  list as listRelationViews,
 } from '../../store/ticketRelations.js';
 import { queueAutostart } from '../../store/autostart.js';
+import { postMessage } from '../../store/ticketMessages.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
@@ -122,6 +125,7 @@ export interface TicketFormActionsDeps {
   resolveAnalysisProcess: (ticketId: number) => DriveProcessBundle | null;
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
   onChange: () => void;
+  confirmBlockedStart?: (message: string) => Promise<boolean>;
   /**
    * Kick off a just-finished ticket: create worktrees for its selected repos,
    * arm the scope stage, and open the agent session seeded with its chosen
@@ -138,6 +142,7 @@ export interface TicketFormActionsDeps {
    * running. Injected (real: the `karst.openDashboard` command).
    */
   openDashboard: (ticketId: number) => void;
+  openDependency?: (ticketId: number) => void;
   /**
    * Run the sub-task autostart sweep now (plan §A). A sub-task submitted at
    * `scope` is QUEUED rather than started so it obeys the concurrency caps;
@@ -1161,6 +1166,22 @@ export function buildTicketFormActions(
       ctx.pushState();
     },
 
+    async retryRelationWriteback(relationId: number): Promise<void> {
+      const ticketId = ctx.ticketId;
+      if (ticketId === undefined) return;
+      const relation = listPendingWritebacks(deps.store, ticketId).find((r) => r.id === relationId);
+      if (!relation || relation.writebackState !== 'failed') return;
+      markWriteback(deps.store, relationId, 'pending');
+      await onSourceRefBound(deps, ticketId);
+      deps.onChange();
+      ctx.pushState();
+    },
+    openDependency(ticketId: number): void {
+      if (listRelationViews(deps.store, ctx.ticketId ?? -1).some((r) => r.targetTicketId === ticketId)) {
+        deps.openDependency?.(ticketId);
+      }
+    },
+
     async submit(input): Promise<void> {
       let ticketId: number;
       try {
@@ -1211,6 +1232,22 @@ export function buildTicketFormActions(
         ctx.close();
         return;
       }
+      let blockedOverride: string[] | null = null;
+      const blockers = listBlockers(deps.store, ticketId).filter((r) => {
+        if (r.targetTicketId === null) return true;
+        try { const target = getTicket(deps.store, r.targetTicketId); return target.stageCurrent !== 'done' && target.archivedAt === null; }
+        catch { return true; }
+      });
+      if (blockers.length) {
+        const labels = blockers.map((r) => r.targetTicketId === null
+          ? (r.targetRef ?? `proposal #${r.targetProposalId}`)
+          : (getTicket(deps.store, r.targetTicketId).key ?? `#${r.targetTicketId}`));
+        if (!deps.confirmBlockedStart || !(await deps.confirmBlockedStart(`Blocked by ${labels.join(', ')}. Start anyway?`))) {
+          ctx.pushState();
+          return;
+        }
+        blockedOverride = labels;
+      }
 
       ctx.post({ type: 'busy', what: 'submit', on: true });
       try {
@@ -1223,6 +1260,13 @@ export function buildTicketFormActions(
           ctx.pushState(); // the ticket exists now — re-seed the page for a retry
           return;
         }
+        if (blockedOverride) postMessage(deps.store, {
+          projectId: getTicket(deps.store, ticketId).projectId,
+          fromTicketId: null,
+          toTicketId: ticketId,
+          kind: 'event',
+          body: `Manual start override: started while blocked by ${blockedOverride.join(', ')}.`,
+        });
         // Running tickets belong to the dashboard: open it, then close this
         // page so the create/edit tab is replaced rather than left stale.
         deps.openDashboard(ticketId);

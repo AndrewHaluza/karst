@@ -14,9 +14,12 @@ import {
   isBlocked,
   list,
   listBlockers,
+  listOpenBlockers,
+  listOpenBlockersFor,
   removeRelation,
   resolveDanglingRefs,
   unresolveStaleRelations,
+  type BlockerView,
 } from './ticketRelations.js';
 import type { ContextBrief } from '../integrations/ticketing.js';
 
@@ -465,5 +468,149 @@ describe('ticketRelations', () => {
     };
     expect(row.subtask_parent_id).toBeNull();
     expect(list(store, a)[0]!.targetTicketId).toBe(p);
+  });
+
+  describe('listOpenBlockers', () => {
+    it('lists blockers that are open (stage not done)', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+
+      const blockers = listOpenBlockers(store, a);
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0]).toMatchObject({ targetTicketId: b });
+    });
+
+    it('filters out blockers that are done', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      setStageCurrent(store, b, 'done');
+
+      expect(listOpenBlockers(store, a)).toHaveLength(0);
+    });
+
+    it('filters out blockers that are archived', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      setStageCurrent(store, b, 'impl');
+      archiveTicket(store, b);
+
+      expect(listOpenBlockers(store, a)).toHaveLength(0);
+    });
+
+    it('includes unresolved refs as open', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetRef: 'CU-GHOST', source: 'user' });
+
+      const blockers = listOpenBlockers(store, a);
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0]).toMatchObject({ targetTicketId: null });
+    });
+
+    it('includes NULL-stage targets as open', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      store.db.prepare('UPDATE tickets SET stage_current = NULL WHERE id = ?').run(b);
+
+      expect(listOpenBlockers(store, a)).toHaveLength(1);
+    });
+
+    it('builds label as "key / ref" when both differ', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'DEF-456');
+      updateTicketFields(store, b, { sourceRef: 'DEF-456' });
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+
+      const blocker = listOpenBlockers(store, a)[0]!;
+      expect(blocker.label).toBe('B / DEF-456');
+    });
+
+    it('builds label as key only when ref equals key', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'B');
+      updateTicketFields(store, b, { sourceRef: 'B' });
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+
+      const blocker = listOpenBlockers(store, a)[0]!;
+      expect(blocker.label).toBe('B');
+    });
+
+    it('builds label as dangling ref when unresolved', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetRef: 'CU-GHOST', source: 'user' });
+
+      const blocker = listOpenBlockers(store, a)[0]!;
+      expect(blocker.label).toBe('CU-GHOST');
+    });
+
+    it('returns empty array when no open blockers', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+
+      expect(listOpenBlockers(store, a)).toHaveLength(0);
+    });
+  });
+
+  describe('listOpenBlockersFor', () => {
+    it('lists open blockers for multiple tickets', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      const c = ticket(store, 'C', 'CU-C');
+      const d = ticket(store, 'D', 'CU-D');
+
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: c, source: 'user' });
+      addRelation(store, { ticketId: d, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+
+      const result = listOpenBlockersFor(store, [a, d]);
+      expect(result.get(a)).toHaveLength(2);
+      expect(result.get(d)).toHaveLength(1);
+    });
+
+    it('returns empty map for empty id list', () => {
+      const store = openStore(':memory:');
+      const result = listOpenBlockersFor(store, []);
+      expect(result.size).toBe(0);
+    });
+
+    it('includes entries for tickets with no open blockers', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+
+      const result = listOpenBlockersFor(store, [a, b]);
+      expect(result.has(a)).toBe(true);
+      expect(result.has(b)).toBe(true);
+      expect(result.get(a)).toHaveLength(0);
+      expect(result.get(b)).toHaveLength(0);
+    });
+
+    it('filters done blockers from the batch result', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B', 'CU-B');
+      const c = ticket(store, 'C', 'CU-C');
+
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: c, source: 'user' });
+      setStageCurrent(store, b, 'done');
+
+      const result = listOpenBlockersFor(store, [a]);
+      const blockers = result.get(a)!;
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0]!.targetTicketId).toBe(c);
+    });
   });
 });

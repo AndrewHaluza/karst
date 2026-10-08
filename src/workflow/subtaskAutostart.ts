@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { HOLDS_SLOT_SQL, SLOT_STAGES_SQL, type AutostartCaps } from '../store/autostart.js';
+import { isBlocked } from '../store/ticketRelations.js';
 
 export { SLOT_STAGES, type AutostartCaps } from '../store/autostart.js';
 
@@ -23,6 +24,8 @@ export interface PickOptions extends AutostartCaps {
    * liveness check, which also adopts a terminal revived across a reload.
    */
   ownsParent?: (parentId: number) => boolean;
+  /** Explain why an otherwise eligible candidate is omitted from this sweep. */
+  onBlocked?: (ticketId: number) => void;
 }
 
 interface CandidateRow {
@@ -59,6 +62,10 @@ export function pickSubtasksToStart(store: Store, projectId: number, opts: PickO
 
   const picked: number[] = [];
   for (const c of candidates) {
+    if (isBlocked(store, c.id)) {
+      opts.onBlocked?.(c.id);
+      continue;
+    }
     const parentId = c.parent_id;
     if (opts.ownsParent && !opts.ownsParent(parentId)) continue;
     if (!underCap(total, opts.total)) break;

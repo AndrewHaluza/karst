@@ -206,6 +206,11 @@ export interface DriveTicketDeps {
     gateName: string,
     chunk: GateOutputChunk,
   ) => void;
+  /**
+   * Called when a ticket reaches the 'done' stage (merged), to trigger
+   * autostart of any sub-tasks that were waiting for this ticket to unblock them.
+   */
+  onTicketDone?: (ticketId: number) => void;
 }
 
 /**
@@ -581,6 +586,9 @@ export async function driveTicket(
       }
     }
 
+    if (outcome.stage === 'done') {
+      deps.onTicketDone?.(ticketId);
+    }
     return outcome;
   } finally {
     // The host signal outlives this run; leaving the listener on it would leak

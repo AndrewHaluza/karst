@@ -27,6 +27,19 @@ const envelope = (f: InsideRenderFixture) => {
 };
 
 describe('dashboard render — fixture corpus', () => {
+  it('renders a linked blocked-by chip from host state', () => {
+    const h = renderWebview('dashboard');
+    h.receive({
+      type: 'state',
+      state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, label: '#42 / CU-123' }] },
+    });
+    const chip = h.query('#parentRef .k-chip');
+    expect(chip?.textContent).toContain('Blocked by #42 / CU-123');
+    h.click('#parentRef [data-act="open-dependency"]');
+    expect(h.posted[0]).toMatchObject({ type: 'open-dependency', ticketId: 42 });
+    h.close();
+  });
+
   it.each(renderFixtures())(
     '$repositoryCount repos, $scenario ($stage): renders #inside with rows and zero errors',
     (f) => {

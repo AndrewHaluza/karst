@@ -55,6 +55,7 @@ import { buildAgentState } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
 import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './stateInside.js';
 import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
+import { isBlocked, listBlockers } from '../../store/ticketRelations.js';
 
 export type {
   DashboardAgentContext,
@@ -237,6 +238,18 @@ export function buildDashboardState(
   // and the alternative — a second stage-status derivation — would drift from
   // the one `stageBadge` every other surface paints with.
   const subtaskList = listSubtasks(store, ticketId);
+  const blockers = (isBlocked(store, ticketId) ? listBlockers(store, ticketId) : [])
+    .filter((r) => r.targetTicketId === null || (() => {
+      try { const target = getTicket(store, r.targetTicketId!); return target.stageCurrent !== 'done' && target.archivedAt === null; }
+      catch { return true; }
+    })())
+    .map((r) => {
+      if (r.targetTicketId !== null) {
+        try { const target = getTicket(store, r.targetTicketId); const key = target.key ?? `#${target.id}`; return { ticketId: target.id, label: r.targetRef && r.targetRef !== key ? `${key} / ${r.targetRef}` : key }; }
+        catch { /* keep the provider ref below */ }
+      }
+      return { ticketId: null, label: r.targetRef ?? `proposal #${r.targetProposalId}` };
+    });
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
     const child = getTicket(store, s.id);
     const badge = stageBadge(child);
@@ -657,6 +670,7 @@ export function buildDashboardState(
     parent,
     subtaskParent,
     subtasks,
+    blockers,
     subtaskProgress: subtaskProgress(subtaskList),
     canAddSubtask: canAddSubtask(ticket),
     canDetachSubtask: canDetachSubtask(ticket, subtaskList.length),

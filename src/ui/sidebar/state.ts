@@ -33,6 +33,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
+import { isBlocked, listBlockers } from '../../store/ticketRelations.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -244,6 +245,7 @@ export function buildSidebarState(
   for (const t of [...active, ...archived]) {
     if (t.key !== null) parentKeys.set(t.id, t.key);
   }
+  const ticketsById = new Map([...active, ...archived].map((t) => [t.id, t]));
 
   const enrich = (tickets: readonly TicketWithStages[]): TicketRow[] => {
     const agentDefaults = opts.manifest
@@ -256,6 +258,14 @@ export function buildSidebarState(
       opts.defaultProvider,
       parentKeys,
       agentDefaults,
+      new Map(tickets.map((t) => [t.id, (isBlocked(store, t.id) ? listBlockers(store, t.id) : []).filter((r) => {
+        if (r.targetTicketId === null) return true;
+        try { const target = ticketsById.get(r.targetTicketId); return !target || (target.stageCurrent !== 'done' && target.archivedAt === null); }
+        catch { return true; }
+      }).map((r) => {
+        const key = r.targetTicketId === null ? null : (parentKeys.get(r.targetTicketId) ?? `#${r.targetTicketId}`);
+        return { ...r, targetRef: key && r.targetRef && r.targetRef !== key ? `${key} / ${r.targetRef}` : (r.targetRef ?? key) };
+      })])),
     );
     const rows = tickets.map((t, i) => {
       const node = nodes[i]!;

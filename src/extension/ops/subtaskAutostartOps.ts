@@ -67,7 +67,7 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
 
   async function startOne(id: number, caps: AutostartCaps): Promise<boolean> {
     if (!claimAutostart(deps.store, id, caps)) {
-      deps.debug(`[driver] autostart #${id}: not claimed (claimed elsewhere or cap reached) — skipping`);
+      deps.debug(`[driver] autostart #${id}: not claimed (blocked, raced, or capped) — skipping`);
       return false;
     }
     deps.debug(`[driver] autostart #${id}: claimed — starting`);
@@ -126,7 +126,11 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
       const requeued = requeueStaleClaims(deps.store, projectId, STALE_CLAIM_MS);
       if (requeued > 0) deps.debug(`[driver] autostart: re-queued ${requeued} orphaned claim(s)`);
       const caps = deps.caps();
-      const picked = pickSubtasksToStart(deps.store, projectId, { ...caps, ownsParent: deps.ownsParent });
+      const picked = pickSubtasksToStart(deps.store, projectId, {
+        ...caps,
+        ownsParent: deps.ownsParent,
+        onBlocked: (id) => deps.debug(`[driver] autostart #${id}: blocked by dependency — skipping`),
+      });
       if (picked.length === 0) return [];
       deps.debug(`[driver] autostart: picked ${picked.join(', ')}`);
       const started: number[] = [];

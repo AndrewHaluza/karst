@@ -473,6 +473,138 @@ export function listBlockers(store: Store, ticketId: number): TicketRelation[] {
 }
 
 /**
+ * One open blocker with its resolved target info and display label.
+ * Built once per blocker: target ticket with ref, or dangling ref, or proposal-only.
+ */
+export interface BlockerView {
+  /** The relation row id. */
+  relationId: number;
+  /** The resolved target ticket id, or null when unresolved or proposal-only. */
+  targetTicketId: number | null;
+  /** Display label: 'key / ref' for resolved, 'ref' for dangling, '#N' for proposal-only. */
+  label: string;
+}
+
+/** The SQL predicate to identify an open blocker: unresolved or stage not done. NULL-safe. */
+const OPEN_BLOCKER_SQL = `
+  r.target_ticket_id IS NULL
+  OR (t.stage_current IS NOT 'done' AND t.archived_at IS NULL)
+`;
+
+/**
+ * The open blockers of one ticket: `blocked-by` rows that point at an unresolved
+ * target or a target still in progress. Label built once per blocker, matching
+ * the same open predicate as `isBlocked`.
+ */
+export function listOpenBlockers(store: Store, ticketId: number): BlockerView[] {
+  const rows = store.db
+    .prepare(
+      `SELECT
+        r.id AS relationId,
+        r.target_ticket_id AS targetTicketId,
+        COALESCE(t.key, '') AS targetKey,
+        r.target_ref AS targetRef,
+        r.target_proposal_id AS targetProposalId
+       FROM ticket_relations r
+       LEFT JOIN tickets t ON t.id = r.target_ticket_id
+       WHERE r.ticket_id = ? AND r.kind = 'blocked-by'
+         AND (${OPEN_BLOCKER_SQL})
+       ORDER BY r.id`,
+    )
+    .all(ticketId) as Array<{
+    relationId: number;
+    targetTicketId: number | null;
+    targetKey: string;
+    targetRef: string | null;
+    targetProposalId: number | null;
+  }>;
+
+  return rows.map((row) => ({
+    relationId: row.relationId,
+    targetTicketId: row.targetTicketId,
+    label: buildBlockerLabel(row.targetKey, row.targetRef, row.targetProposalId),
+  }));
+}
+
+/**
+ * The open blockers for multiple tickets in one query, grouped by blocked ticket id.
+ * Null-safe: a ticket with no open blockers maps to an empty array.
+ */
+export function listOpenBlockersFor(
+  store: Store,
+  ticketIds: readonly number[],
+): Map<number, BlockerView[]> {
+  const result = new Map<number, BlockerView[]>();
+  for (const id of ticketIds) {
+    result.set(id, []);
+  }
+
+  if (ticketIds.length === 0) return result;
+
+  const placeholders = ticketIds.map(() => '?').join(', ');
+  const rows = store.db
+    .prepare(
+      `SELECT
+        r.ticket_id AS blockedTicketId,
+        r.id AS relationId,
+        r.target_ticket_id AS targetTicketId,
+        COALESCE(t.key, '') AS targetKey,
+        r.target_ref AS targetRef,
+        r.target_proposal_id AS targetProposalId
+       FROM ticket_relations r
+       LEFT JOIN tickets t ON t.id = r.target_ticket_id
+       WHERE r.ticket_id IN (${placeholders}) AND r.kind = 'blocked-by'
+         AND (${OPEN_BLOCKER_SQL})
+       ORDER BY r.ticket_id, r.id`,
+    )
+    .all(...ticketIds) as Array<{
+    blockedTicketId: number;
+    relationId: number;
+    targetTicketId: number | null;
+    targetKey: string;
+    targetRef: string | null;
+    targetProposalId: number | null;
+  }>;
+
+  for (const row of rows) {
+    const blockers = result.get(row.blockedTicketId);
+    if (blockers) {
+      blockers.push({
+        relationId: row.relationId,
+        targetTicketId: row.targetTicketId,
+        label: buildBlockerLabel(row.targetKey, row.targetRef, row.targetProposalId),
+      });
+    }
+  }
+
+  return result;
+}
+
+/** Build the display label for a blocker: 'key / ref', 'ref', or 'proposal #N'. */
+function buildBlockerLabel(
+  targetKey: string,
+  targetRef: string | null,
+  targetProposalId: number | null,
+): string {
+  const key = targetKey || null;
+  const ref = trimToNull(targetRef);
+
+  if (key && ref && key !== ref) {
+    return `${key} / ${ref}`;
+  }
+  if (key) {
+    return key;
+  }
+  if (ref) {
+    return ref;
+  }
+  if (targetProposalId !== null) {
+    return `proposal #${targetProposalId}`;
+  }
+  return '(unknown)';
+}
+
+/**
  * Every relation as it applies to `ticketId`: the stored rows plus the derived
  * inverse (`blocks`/`child`) of each row stored on the OTHER ticket. A derived
  * view only exists when the other side resolved to a ticket id.
@@ -527,10 +659,7 @@ export function isBlocked(store: Store, ticketId: number): boolean {
       `SELECT 1 AS blocked FROM ticket_relations r
          LEFT JOIN tickets t ON t.id = r.target_ticket_id
         WHERE r.ticket_id = ? AND r.kind = 'blocked-by'
-          AND (
-            r.target_ticket_id IS NULL
-            OR (t.stage_current IS NOT 'done' AND t.archived_at IS NULL)
-          )
+          AND (${OPEN_BLOCKER_SQL})
         LIMIT 1`,
     )
     .get(ticketId);
