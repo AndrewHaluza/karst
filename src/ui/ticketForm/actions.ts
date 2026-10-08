@@ -1242,7 +1242,12 @@ export function buildTicketFormActions(
         const labels = blockers.map((r) => r.targetTicketId === null
           ? (r.targetRef ?? `proposal #${r.targetProposalId}`)
           : (getTicket(deps.store, r.targetTicketId).key ?? `#${r.targetTicketId}`));
-        if (!deps.confirmBlockedStart || !(await deps.confirmBlockedStart(`Blocked by ${labels.join(', ')}. Start anyway?`))) {
+        if (!deps.confirmBlockedStart) {
+          ctx.post({ type: 'error', message: 'Internal: confirmBlockedStart dialog not injected. This is a bug — please report it.' });
+          ctx.pushState();
+          return;
+        }
+        if (!(await deps.confirmBlockedStart(`Blocked by ${labels.join(', ')}. Start anyway?`))) {
           ctx.pushState();
           return;
         }
