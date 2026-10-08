@@ -2172,3 +2172,144 @@ describe('resolveGraphNodeProfile', () => {
     expect(result?.model).toBe('gpt-custom');
   });
 });
+
+describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
+  /** One single-node (impl → END) run, its node run `ready`, ready to launch. */
+  function readyImpl(h: Harness, revisionStatus: 'active' | 'draining' | 'superseded' = 'active'): number {
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    h.db
+      .prepare(
+        `INSERT INTO approach_planner_runs (graph_run_id, planner_run_number, kind, status, graph_snapshot_id, submitted_at)
+         VALUES (?, 1, 'bootstrap', 'submitted', 'fp1', ?)`,
+      )
+      .run(graphRunId, NOW);
+    const doc = gateGraphJson({
+      entries: ['impl'],
+      artifacts: [
+        { id: 'task', path: 'artifacts/task.md', producer: '$planner', consumers: ['impl'], mediaType: 'text/markdown', maxBytes: 1000, required: true },
+      ],
+      nodes: [
+        {
+          id: 'impl', kind: 'agent', label: 'Implement', profile: 'worker', instructionsArtifact: 'task',
+          inputs: [], outputs: [], resources: { reads: [], writes: [{ repo: 'api', paths: ['src/api'] }] },
+          outcomes: ['complete', 'blocked'], budget: { maxVisits: 1 },
+        },
+      ],
+      edges: [
+        { id: 'e1', from: 'impl', on: 'complete', to: 'END' },
+        { id: 'e2', from: 'impl', on: 'blocked', to: 'END' },
+      ],
+    });
+    const revisionId = createRevision(h.db, {
+      graphRunId, revisionNumber: 1, canonicalGraph: doc, fingerprint: 'fp', status: revisionStatus, now: NOW,
+    });
+    const [tokenId] = insertEntryTokens(
+      h.db, revisionId, [{ edgeId: 'entry-impl', destinationNodeId: 'impl', destinationEnd: false }], NOW,
+    );
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+           VALUES (?, ?, 'impl', 'agent', 1, 'ready')`,
+        )
+        .run(graphRunId, revisionId).lastInsertRowid,
+    );
+    h.db
+      .prepare("UPDATE approach_graph_tokens SET status = 'claimed', claiming_node_run_id = ? WHERE id = ?")
+      .run(nodeRunId, tokenId);
+    const artRoot = h.deps.artifactRootOf(graphRunId);
+    mkdirSync(join(artRoot, 'artifacts'), { recursive: true });
+    writeFileSync(join(artRoot, 'artifacts', 'task.md'), '# task');
+    const snap = h.deps.readBytes(graphRunId, 'artifacts/task.md')!;
+    h.db
+      .prepare(
+        `INSERT INTO approach_artifact_instances
+           (graph_run_id, revision_id, artifact_id, producer_planner_run_id, snapshot_path, sha256, media_type, byte_size, created_at)
+         VALUES (?, ?, 'task', ?, 'artifacts/task.md', ?, 'text/markdown', ?, ?)`,
+      )
+      .run(graphRunId, revisionId, plannerRunIdFor(h.db, graphRunId), sha256Hex(snap), snap.length, NOW);
+    return graphRunId;
+  }
+
+  /** Pending state read from the unread rows themselves, as the host binding does. */
+  function withMailbox(h: Harness): void {
+    h.deps.visitMailboxOf = (ticketId) => ({
+      unreadMail: (
+        h.db
+          .prepare('SELECT COUNT(*) AS n FROM ticket_messages WHERE to_ticket_id = ? AND read_at IS NULL')
+          .get(ticketId) as { n: number }
+      ).n,
+      unreadNotes: 0,
+      noteTitles: [],
+    });
+  }
+
+  const promptOf = (h: Harness): string =>
+    (h.starts[0] as { interactive: { initialPrompt: string } }).interactive.initialPrompt;
+
+  const sendMail = (h: Harness): void => {
+    h.db
+      .prepare("INSERT INTO ticket_messages (to_ticket_id, kind, body) VALUES (?, 'message', 'hi')")
+      .run(h.ticketId);
+  };
+
+  it('puts the pending pointer in the next visit brief, from the unread rows (survives a reload)', async () => {
+    const h = harness();
+    withMailbox(h);
+    sendMail(h);
+    const graphRunId = readyImpl(h);
+    // A reload rebuilds the deps; the pointer is re-derived from the same rows.
+    withMailbox(h);
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(promptOf(h)).toContain('1 unread message — run `karst inbox`');
+  });
+
+  it('adds no pointer when no mail or notes are pending', async () => {
+    const h = harness();
+    withMailbox(h);
+    const graphRunId = readyImpl(h);
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(promptOf(h)).not.toContain('karst inbox');
+  });
+
+  it('asks the completing visit (decided at visit time) for a note', async () => {
+    const h = harness();
+    withMailbox(h);
+    const graphRunId = readyImpl(h);
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(promptOf(h)).toContain('karst notes post');
+  });
+
+  it('does not ask a visit that has another active node run for a note', async () => {
+    const h = harness();
+    withMailbox(h);
+    const graphRunId = readyImpl(h);
+    const revisionId = (
+      h.db.prepare('SELECT id FROM approach_graph_revisions WHERE graph_run_id = ?').get(graphRunId) as { id: number }
+    ).id;
+    h.db
+      .prepare(
+        `INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+         VALUES (?, ?, 'other', 'agent', 1, 'running')`,
+      )
+      .run(graphRunId, revisionId);
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(promptOf(h)).not.toContain('karst notes post');
+  });
+
+  it.each(['draining', 'superseded'] as const)('injects nothing into a %s revision', async (status) => {
+    const h = harness();
+    withMailbox(h);
+    sendMail(h);
+    const graphRunId = readyImpl(h, status);
+    await driveReadyNodeRuns(h.deps, graphRunId);
+    expect(promptOf(h)).not.toContain('karst inbox');
+    expect(promptOf(h)).not.toContain('karst notes post');
+  });
+});

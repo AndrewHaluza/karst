@@ -8,8 +8,10 @@ import { join } from 'node:path';
 // the ONBOARDING-SETUP-AGENT binding: the setup feature's activation call is a
 // thin deps object in `activate()`, and its launch/proposal/watch logic lives in
 // `src/extension/setupWiring.ts` + `src/extension/ops/setup*.ts`. Anything
-// larger than a thin binding belongs in src/extension/ops/.
-const MAX_EXTENSION_LINES = 8425;
+// larger than a thin binding belongs in src/extension/ops/. Raised by 2 for the
+// graph-ticket mailbox binding (one import + one `visitMailboxOf` line in the
+// driver deps; the logic lives in `src/approaches/graph/visitMailbox*.ts`).
+const MAX_EXTENSION_LINES = 8427;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
