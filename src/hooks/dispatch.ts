@@ -57,6 +57,12 @@ export interface HookPayload {
    * megabyte). A count of tool uses per turn, not the content.
    */
   tool_name?: string;
+  /**
+   * Claude's `Stop` re-entry flag, forwarded by the shared bridge. True means
+   * the agent is CONTINUING from a prior block, so the mail reply must not fire
+   * (and must not spend the batch's one-block budget).
+   */
+  stop_hook_active?: boolean;
 }
 
 /** Called after a mutation so views (sidebar + dashboard) can refresh (§14). */
@@ -71,6 +77,19 @@ export type ShouldApplyHookState = (
   ticketId: number,
   payload: HookPayload,
 ) => boolean;
+
+/**
+ * What a hook dispatch resolved to. `admitted` is true only when the worktree
+ * resolved to a ticket AND the generation barrier let the hook through; the
+ * endpoint uses it to decide whether a mail reply is even eligible (a stale or
+ * unknown session must never receive a pointer, and a stale bridge can never
+ * claim delivery). The reply itself is built by the host from its in-memory
+ * unread cache — never here.
+ */
+export interface HookDispatchResult {
+  admitted: boolean;
+  ticketId?: number;
+}
 
 /**
  * Narrow untrusted JSON to a HookPayload — the hook body is external input, so
@@ -104,6 +123,11 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
   ) {
     return null;
   }
+  // The Stop re-entry flag is a boolean or absent; anything else is dropped
+  // (never coerced), so a malformed value cannot suppress or force a reply.
+  if (o.stop_hook_active !== undefined && typeof o.stop_hook_active !== 'boolean') {
+    return null;
+  }
   return {
     hook_event_name: o.hook_event_name as string | undefined,
     cwd: o.cwd as string | undefined,
@@ -112,6 +136,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     notification_type: o.notification_type as string | undefined,
     ...(usage !== undefined ? { usage } : {}),
     ...(o.tool_name !== undefined ? { tool_name: o.tool_name as string } : {}),
+    ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
   };
 }
 
@@ -374,7 +399,7 @@ export function dispatchHook(
   recorder?: HookChannelRecorder,
   debug?: (msg: string) => void,
   tracker?: TurnTracker,
-): void {
+): HookDispatchResult {
   // Observation only — a recorder defect may not change what a hook does.
   const observe = (outcome: HookDispatchOutcome): void => {
     try {
@@ -385,19 +410,19 @@ export function dispatchHook(
   };
   if (!payload.cwd) {
     observe('unknown-worktree');
-    return;
+    return { admitted: false };
   }
   const ticketId = ticketIdForWorktreePath(store, payload.cwd);
   if (ticketId === null) {
     observe('unknown-worktree');
-    return;
+    return { admitted: false };
   }
   // Generation ownership guards every lifecycle mutation, including session_id.
   // Checking only before agent_state let a rejected stale SessionStart replace
   // the current conversation id even though its running state was ignored.
   if (shouldApplyState && !shouldApplyState(ticketId, payload)) {
     observe('stale-generation');
-    return;
+    return { admitted: false };
   }
 
   // Usage is not a lifecycle event: it rides the same URL-guarded, generation-
@@ -409,7 +434,7 @@ export function dispatchHook(
     if (ingestUsageUpdate(store, payload, sessionProviderFor, debug)) {
       notify?.(ticketId, payload);
     }
-    return;
+    return { admitted: true, ticketId };
   }
 
   // A prepared launch snapshots the provider that is ACTUALLY starting. It
@@ -554,10 +579,11 @@ export function dispatchHook(
   const state = nextAgentState(payload, markerIsPending);
   if (state === null) {
     observe('no-signal');
-    return;
+    return { admitted: true, ticketId };
   }
 
   setAgentState(store, ticketId, state);
   observe('applied');
   notify?.(ticketId, payload);
+  return { admitted: true, ticketId };
 }

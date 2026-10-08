@@ -17,6 +17,7 @@ features actually require. This file is that statement (869ej1zpv R5).
 | in-progress (blue) | any running signal, or the absence of a wait | the ticket reads idle while the agent works |
 | session end → idle | terminal close is an acceptable substitute | a finished session reads as running |
 | interactive token usage | measured counts, per session | usage is unmeasured — which is NOT the same as zero (`PROVIDER_INTERACTIVE_USAGE`) |
+| mail delivery (unread pointer) | a **turn-end reply** channel that can carry a host-written pointer (`Stop` / `session.idle`) | mail waits in the inbox until the agent next runs `inbox` by hand |
 
 Everything above is normalized into karst's own **closed** vocabulary before it reaches
 `dispatchHook`. A core's native event names never travel further than its adapter or its
@@ -34,6 +35,7 @@ name is agent-authored input.
 | running | `PostToolUse` (type:http) | `PostToolUse` | `session.status: busy\|retry` | — |
 | end | `Stop` / `SessionEnd` | `Stop` / `SessionEnd` | `session.idle` + terminal close | `Stop` (turn end, from the summary DB run status) + terminal close |
 | usage | session transcript (`claudeTranscriptWatch.ts`) | bridge `UsageUpdate` | bridge `UsageUpdate` | conversation DB (`agyUsageWatch.ts`) |
+| mail delivery | `Stop` block → stdout JSON | `Stop` block → stdout JSON | plugin `session.idle` → SDK `promptAsync` | **none** — typed nudge |
 | endpoint rebind after reload | ✓ (bridge re-reads `current-endpoint`) | ✓ | ✓ | n/a (no channel) |
 | hook failure logging | ✓ (`claude/hook-failures.jsonl`) | ✓ (`codex/hook-failures.jsonl`) | ✓ (`opencode/hook-failures.jsonl`) | n/a |
 
@@ -94,6 +96,80 @@ own state — agy proves this is a first-class option, not a degraded one. What 
 acceptable is a fake: agy loads `hooks.json` but never runs the hook commands in the CLI
 conversation path, so installing a bridge script there would post nothing while looking
 installed.
+
+## Mail delivery reply channel (MAILBOX-DELIVERY-PER-CORE-PUSH)
+
+A mailbox pointer is no longer only a typed nudge. The delivery seam
+(`workflow/messageDelivery.ts`) resolves the RECIPIENT's current live core at
+delivery time and picks a route:
+
+| route | cores | how the pointer arrives |
+|---|---|---|
+| `hook-block` | claude, codex | the endpoint answers the core's `Stop` hook with `{decision:"block",reason:"<pointer>"}`; the shared `HOOK_BRIDGE` prints it to stdout, so the agent continues with the pointer as its next instruction |
+| `plugin-idle` | opencode v1 | the endpoint answers the plugin's `session.idle` POST with the same body; the plugin reads `.reason` and pushes it through `client.session.promptAsync` |
+| `typed` | opencode2, antigravity, unknown/retired | the #56 typed nudge into the live terminal |
+
+The endpoint returns a body **only** for a hook it ADMITTED (known worktree +
+current launch generation), so a stale bridge from a retired core gets no reply
+and cannot claim delivery. The unread count comes from an in-memory cache; the
+reply builder itself performs no DB query. The cache has two writers: the
+delivery sweep rebuilds it from the store every tick, and the endpoint tops up
+ONE ticket from the store when that ticket's turn ends. `message send` is a
+separate CLI process, so that per-turn top-up is what makes a send visible on
+the very next `Stop`/`session.idle` instead of waiting for the next sweep. The
+bridge bounds the WHOLE invocation at 1.5 s (below codex's 3 s and claude's 5 s
+Stop hook timeouts) — a Stop hook can carry a sibling `UsageUpdate` post, and
+per-request timeouts alone would let the total stack past the agent's ceiling;
+every failure, timeout or dead endpoint is fail-open (exit 0, no stdout). A
+non-2xx on a sibling non-reply post is logged but does NOT turn a captured
+block into an exit-1 (an agent that ignores stdout on a non-zero exit would
+lose it).
+
+A push route is only usable while the recipient is **mid-turn** (`agent_state`
+`running`): the reply fires at the END of a turn, so an idle recipient has
+already passed its `Stop`/`session.idle` and would never receive one. The sweep
+therefore types the pointer into an idle recipient instead. A **graph-owned**
+session is deferred by both halves — the sweep does not nudge it, and the
+endpoint does not answer its hook (the sweep computes route + graph-owned +
+busy in memory each tick and the endpoint reads that set, so the reply path
+stays DB-free).
+
+A reply IS that batch's delivery **once it is CONFIRMED received**. Building the
+block is not enough, and neither is a flushed response: the endpoint answers 200
+but a hung host can write the body into a socket the bridge already abandoned.
+So the bridge POSTs a positive `MailReplyAck` (URL carries the launch generation;
+the endpoint maps it back to the ticket) ONLY after it has written the block to
+stdout, and the endpoint confirms delivery only on that ACK. The sweep skips a
+batch only when a confirmation arrived AND the batch's watermark matches, so the
+recipient now idle (a block continuation fires no `UserPromptSubmit`) is not
+typed a SECOND copy — but a batch whose reply never reached the agent keeps the
+typed fallback instead of being stranded. The record is keyed by the batch
+watermark, so a genuinely NEW batch that arrives right after the reply is still
+delivered promptly. The `session.idle` (plugin) route is never confirmed this
+way: the plugin re-pushes through the SDK and does not ACK, and a rejected
+`promptAsync` is invisible to the endpoint, so that route relies on the sweep's
+idle fallback. The sweep's arm deliberately records nothing: a hook that never
+arrives must still fall back to typing (see "A push route is only usable while
+the recipient is mid-turn").
+
+Guards (host + bridge): never block when `stop_hook_active` is true — the bridge
+forwards the flag so the HOST declines a continuation `Stop` without spending
+the batch's one-block budget on a reply the bridge discards; never block a
+question turn (`Stop` remapped to `Notification idle_prompt`); and block at most
+once per BATCH, keyed by the unread watermark (highest message id), not the
+count — reading a batch and receiving a same-sized new one must block again, and
+the count alone cannot tell those apart (so a core that does not send
+`stop_hook_active` cannot loop either). opencode2 has no SDK client on its plugin
+`ctx`, so it is declared on the typed route until one turns up; the reply body
+is ignored by its plugin.
+
+**SPIKE-CODEX-STOP-BLOCK (codex-cli 0.153.0, bundled binary): PASS.**
+`StopCommandOutputWire` accepts `decision: "block"` + `reason` (the binary
+carries `BlockDecisionWire`, `HookEventNameWire`, and the error "Stop hook
+requested continuation without a prompt; ignoring the block"), and `reason` is
+the continuation prompt. codex therefore takes the `hook-block` route
+(`CODEX_STOP_BLOCK_SUPPORTED = true` in `extension.ts`). The route flag only
+selects the channel — the shared bridge implements the protocol for both cores.
 
 ## Rules for a new core
 

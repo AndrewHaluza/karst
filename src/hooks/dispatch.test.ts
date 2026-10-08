@@ -1051,6 +1051,25 @@ describe('parseHookPayload', () => {
     expect(parseHookPayload({ hook_event_name: 'PostToolUse', cwd: '/wt', tool_name: 123 })).toBeNull();
     expect(parseHookPayload({ hook_event_name: 'PostToolUse', cwd: '/wt', tool_name: ['Bash'] })).toBeNull();
   });
+
+  it('carries the Stop re-entry flag when it is a boolean', () => {
+    expect(
+      parseHookPayload({ hook_event_name: 'Stop', cwd: '/wt', session_id: 's', stop_hook_active: true })
+        ?.stop_hook_active,
+    ).toBe(true);
+    expect(
+      parseHookPayload({ hook_event_name: 'Stop', cwd: '/wt', session_id: 's' })?.stop_hook_active,
+    ).toBeUndefined();
+  });
+
+  it('rejects a non-boolean stop_hook_active (never coerced)', () => {
+    expect(
+      parseHookPayload({ hook_event_name: 'Stop', cwd: '/wt', session_id: 's', stop_hook_active: 'true' }),
+    ).toBeNull();
+    expect(
+      parseHookPayload({ hook_event_name: 'Stop', cwd: '/wt', session_id: 's', stop_hook_active: 1 }),
+    ).toBeNull();
+  });
 });
 
 /**

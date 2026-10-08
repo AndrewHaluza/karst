@@ -509,10 +509,13 @@ function sendTo(endpoint, body, done, next) {
   // a delivered payload would also be re-sent to the fallback endpoint and
   // done() would fire twice.
   let settled = false;
+  // A successful response may carry the mail reply body; done() hands it back so
+  // the session.idle handler can push the pointer. An empty body is the norm.
+  let responseBody = '';
   const succeed = () => {
     if (settled) return;
     settled = true;
-    if (done) done();
+    if (done) done(responseBody);
   };
   const advance = () => {
     if (settled) return;
@@ -538,7 +541,14 @@ function sendTo(endpoint, body, done, next) {
     req.on('response', (res) => {
       const status = res.statusCode || 0;
       const ok = status >= 200 && status < 300;
-      res.resume();
+      if (ok) {
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (responseBody.length <= MAX_PAYLOAD_BYTES) responseBody += chunk;
+        });
+      } else {
+        res.resume();
+      }
       res.on('aborted', () => advance());
       res.on('error', () => advance());
       res.on('end', () => (ok ? succeed() : advance()));
@@ -706,6 +716,42 @@ function deliverResume(client, sessionId, kickoffFile, directory, worktree) {
   }
 }
 
+// The endpoint's turn-end reply for an opencode recipient: a fixed host-written
+// pointer. opencode pushes it through the SAME SDK channel the resumed kickoff
+// uses (promptAsync), fire-and-forget — a synchronous await inside the event
+// handler would deadlock the bootstrap that serves it (verified on 1.18.35).
+// Every failure is swallowed: a malformed body or a dead SDK never throws into
+// the agent's event loop.
+function maybeDeliverMail(client, input, responseBody) {
+  if (
+    !responseBody ||
+    !client ||
+    !client.session ||
+    typeof client.session.promptAsync !== 'function'
+  ) {
+    return;
+  }
+  let reply;
+  try {
+    reply = JSON.parse(responseBody);
+  } catch {
+    return;
+  }
+  if (!reply || reply.decision !== 'block' || typeof reply.reason !== 'string') return;
+  const sessionId = extractSessionId(input);
+  if (!sessionId) return;
+  try {
+    Promise.resolve(
+      client.session.promptAsync({
+        path: { id: sessionId },
+        body: { parts: [{ type: 'text', text: reply.reason }] },
+      }),
+    ).catch(() => {});
+  } catch {
+    // Fail open — a dead SDK must never throw into the agent's event loop.
+  }
+}
+
 export const KarstBridge = async ({ client, directory, worktree }) => {
   // A resumed launch has no session.created to hang SessionStart off and no
   // '--prompt' delivery, so the plugin owns both. Deferred past plugin init:
@@ -748,12 +794,15 @@ export const KarstBridge = async ({ client, directory, worktree }) => {
         // observation for this session.
         postUsageAdvanced(event && event.id, input, directory, worktree);
       } else if (type === 'session.idle') {
-        // Lifecycle only. opencode 1.18.18 emits session.idle with just a
-        // sessionID — no tokens — so there is no usage to attach. (Kept as a
-        // defensive fallback: if a future opencode adds tokens here,
-        // extractUsage picks them up and the tally guard above still dedupes.)
-        post('session.idle', input, directory, worktree, undefined, () =>
-          postUsageAdvanced(event && event.id, input, directory, worktree));
+        // Lifecycle + the mail reply channel. The endpoint may answer the idle
+        // POST with a block body when this session has unread mail; the body is
+        // pushed through promptAsync before the usage fallback runs. opencode
+        // 1.18.18 emits session.idle with just a sessionID — no tokens — so the
+        // usage post is a defensive fallback for a future version.
+        post('session.idle', input, directory, worktree, undefined, (responseBody) => {
+          maybeDeliverMail(client, input, responseBody);
+          postUsageAdvanced(event && event.id, input, directory, worktree);
+        });
       } else if (type === 'session.error') {
         post('session.error', input, directory, worktree, extractErrorMessage(input));
       } else if (

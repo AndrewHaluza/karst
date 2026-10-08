@@ -27,6 +27,12 @@ const path = require('node:path');
 let eventName = 'unknown';
 const diagnosticsPath = process.argv[3];
 const provider = process.argv[4] || 'codex';
+// The reply channel's hard ceiling, deliberately BELOW the smallest Stop hook
+// timeout agents register (codex 3 s, claude 5 s): a hung endpoint must not
+// hold the agent's turn open. The endpoint answers synchronously, so this is a
+// backstop, not the normal path.
+const REPLY_TIMEOUT_MS = 1500;
+const MAX_REPLY_BYTES = 64 * 1024;
 
 // The launch-time URL is this session's own window while that window lives.
 // A VS Code reload rebinds an ephemeral hook port, so the extension also
@@ -72,6 +78,8 @@ for (const raw of [argvEndpoint, fileEndpoint]) {
   const candidate = candidateEndpoint(raw);
   if (candidate !== null && !endpoints.includes(candidate)) endpoints.push(candidate);
 }
+// Which candidate last answered — the ACK goes back to the same endpoint.
+let endpointIndex = 0;
 
 function logFailure(outcome) {
   try {
@@ -84,12 +92,83 @@ function logFailure(outcome) {
   } catch {}
 }
 
+// The mail reply captured from a Stop response, written to stdout at exit. Only
+// a Stop the endpoint answered with a block carries one; a timeout, a dead
+// endpoint or any failure leaves it null, so the bridge fails open (exit 0, no
+// output) exactly as it always has.
+let replyBlock = null;
 let finished = false;
+// A Stop hook can carry more than one post (the Stop reply plus a sibling
+// UsageUpdate), and each post's own timeout would let the TOTAL run past the
+// agent's Stop timeout (codex kills the hook at 3 s). This one deadline bounds
+// the WHOLE invocation whenever a reply is possible, so the block is flushed
+// before the agent gives up on the hook.
+let deadlineTimer = null;
+// The positive delivery confirmation posted to the endpoint AFTER the block was
+// written to stdout. A response that reached the bridge is not proof the agent
+// saw it — a hung endpoint can flush into a socket this bridge already gave up
+// on — so only this ACK confirms delivery and suppresses the sweep's typed
+// fallback. Best-effort: the payload is set from the validated input, and a
+// failure to post it just leaves the fallback in place.
+let ackPayload = null;
+const ACK_TIMEOUT_MS = 400;
 function finish(exitCode, outcome) {
   if (finished) return;
   finished = true;
+  if (deadlineTimer) {
+    clearTimeout(deadlineTimer);
+    deadlineTimer = null;
+  }
   if (outcome) logFailure(outcome);
-  process.exit(exitCode);
+  if (!replyBlock) {
+    process.exit(exitCode);
+    return;
+  }
+  try {
+    process.stdout.write(JSON.stringify(replyBlock));
+  } catch {}
+  // The block is out; confirm it so the host can trust the delivery, then exit.
+  ackReply(() => process.exit(exitCode));
+}
+
+// POST the positive delivery confirmation to the endpoint that answered. Bounded
+// by ACK_TIMEOUT_MS so a hung endpoint cannot hold the process; the block has
+// already been written to stdout, so the exit code never depends on this.
+function ackReply(done) {
+  if (!ackPayload) { done(); return; }
+  let target;
+  try {
+    target = new URL(endpoints[endpointIndex]);
+  } catch {
+    done();
+    return;
+  }
+  let settled = false;
+  const settleAck = () => { if (settled) return; settled = true; done(); };
+  try {
+    const body = JSON.stringify(ackPayload);
+    const req = http.request({
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname + target.search,
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': Buffer.byteLength(body),
+      },
+      timeout: ACK_TIMEOUT_MS,
+    }, (res) => {
+      res.resume();
+      res.on('end', settleAck);
+      res.on('error', settleAck);
+      res.on('aborted', settleAck);
+    });
+    req.on('error', settleAck);
+    req.on('timeout', () => { req.destroy(); settleAck(); });
+    req.end(body);
+  } catch {
+    settleAck();
+  }
 }
 
 // A stale endpoint is an expected IDE/session lifecycle race and fails open.
@@ -158,6 +237,9 @@ process.stdin.on('end', () => {
     finish(1, 'invalid-input');
     return;
   }
+  // The ACK the endpoint reads to confirm delivery of a captured block: the
+  // endpoint maps it back to the ticket via the URL's launch generation.
+  ackPayload = { hook_event_name: 'MailReplyAck', cwd: raw.cwd, session_id: raw.session_id };
   const mapped =
     event === 'PermissionRequest'
       ? { hook_event_name: 'Notification', message: 'permission_prompt' }
@@ -166,8 +248,26 @@ process.stdin.on('end', () => {
           /\?\s*$/.test(raw.last_assistant_message)
         ? { hook_event_name: 'Notification', message: 'idle_prompt' }
       : ['SessionStart', 'UserPromptSubmit', 'PostToolUse', 'Stop', 'SessionEnd', 'Notification'].includes(event)
-        ? { hook_event_name: event, ...(typeof raw.message === 'string' ? { message: raw.message } : {}) }
+        ? {
+            hook_event_name: event,
+            ...(typeof raw.message === 'string' ? { message: raw.message } : {}),
+            // Forward Claude's Stop re-entry flag so the host declines a
+            // continuation Stop WITHOUT spending the batch's one-block budget
+            // (the endpoint answers 204, not a block the bridge would discard).
+            ...(event === 'Stop' && raw.stop_hook_active === true ? { stop_hook_active: true } : {}),
+          }
         : null;
+
+  // The Stop-block reply is eligible only for an ORIGINAL Stop that was NOT
+  // remapped to a question turn (idle_prompt) and that the agent has not
+  // already re-entered (stop_hook_active). The endpoint returns a body at most
+  // once per change in the unread count, so a core that does not send
+  // stop_hook_active still cannot loop.
+  const stopBlockEligible =
+    event === 'Stop' &&
+    raw.stop_hook_active !== true &&
+    mapped !== null &&
+    mapped.hook_event_name === 'Stop';
 
   const posts = [];
   if (mapped) {
@@ -189,14 +289,22 @@ process.stdin.on('end', () => {
     return;
   }
 
+  // Bound the WHOLE invocation when a reply is possible: the Stop post plus a
+  // sibling usage post must not stack past the agent's Stop timeout.
+  if (stopBlockEligible) {
+    deadlineTimer = setTimeout(() => finish(0), REPLY_TIMEOUT_MS);
+  }
+
   let index = 0;
-  let endpointIndex = 0;
   function nextPost() {
     if (index >= posts.length) {
       finish(0);
       return;
     }
     const payload = posts[index];
+    // Only the Stop post can carry a reply; a usage post that rides the same
+    // Stop hook must not read the body.
+    const isReplyPost = stopBlockEligible && payload.hook_event_name === 'Stop';
     const body = JSON.stringify(payload);
     let target;
     try {
@@ -237,19 +345,44 @@ process.stdin.on('end', () => {
         'content-type': 'application/json',
         'content-length': Buffer.byteLength(body),
       },
-      timeout: 2000,
+      // A reply post waits for the endpoint's body, but never past the hard
+      // ceiling: a hung endpoint fails open (no output) rather than holding the
+      // turn. Non-reply posts keep the historical 2 s bound.
+      timeout: isReplyPost ? REPLY_TIMEOUT_MS : 2000,
     });
     req.on('response', (res) => {
-      res.resume();
+      const status = res.statusCode ?? 0;
+      const successful = status >= 200 && status < 300;
+      let responseBody = '';
+      if (isReplyPost && successful) {
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (responseBody.length <= MAX_REPLY_BYTES) responseBody += chunk;
+        });
+      } else {
+        res.resume();
+      }
       res.on('end', () => {
         if (attemptDone) return;
-        const status = res.statusCode ?? 0;
-        const successful = status >= 200 && status < 300;
         if (!successful) {
           if (switchEndpoint()) return;
           settle();
-          finish(1, 'http-error:' + status);
+          // The mail reply is fail-open: a non-2xx from a foreign or stale
+          // process on the port must not surface as a hook failure to the
+          // agent. A non-reply post keeps the historical exit-1 signal — unless
+          // a block was already captured, because an agent that ignores stdout
+          // on a non-zero exit would lose it.
+          if (isReplyPost) finish(0);
+          else finish(replyBlock ? 0 : 1, 'http-error:' + status);
           return;
+        }
+        if (isReplyPost && responseBody) {
+          try {
+            const parsed = JSON.parse(responseBody);
+            if (parsed && parsed.decision === 'block' && typeof parsed.reason === 'string') {
+              replyBlock = { decision: 'block', reason: parsed.reason };
+            }
+          } catch {}
         }
         settle();
         index += 1;

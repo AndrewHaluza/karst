@@ -21,12 +21,51 @@ import { cliTokensFor, quoteArg, type CliTokens, type ExportedCliEnv } from '../
  * it yet: `nudge` is intentionally synchronous (it returns once the line is
  * queued, keeping the boolean contract its callers depend on). `deferred` means
  * nothing was typed and the sweep retries.
+ *
+ * `armed` means a push route was chosen but NOTHING was delivered yet: the
+ * pointer will be pushed when the recipient's turn ends. The sweep must not
+ * treat an arm as a delivery — it leaves the watermark alone, so if the turn
+ * ends WITHOUT the turn-end hook reaching the endpoint (an interrupted or
+ * quarantined session), the next sweep re-evaluates and types the pointer
+ * instead of stranding the batch.
  */
-export type DeliveryResult = 'delivered' | 'deferred';
+export type DeliveryResult = 'delivered' | 'armed' | 'deferred';
+
+/**
+ * What the recipient is being told about. A closed shape with ONE member today
+ * (`mail`); #59 adds `notes` by widening this union, never by changing the seam
+ * signature. The host writes the pointer text, so the recipient's agent never
+ * receives an agent-authored body through this channel.
+ */
+export interface MessagePointer {
+  kind: 'mail';
+  unread: number;
+}
+
+/** The one mail pointer today; a helper so callers never spell the kind. */
+export function mailPointer(unread: number): MessagePointer {
+  return { kind: 'mail', unread };
+}
 
 export interface MessageDelivery {
-  deliver(toTicketId: number, unread: number): DeliveryResult;
+  deliver(toTicketId: number, pointer: MessagePointer): DeliveryResult;
 }
+
+/**
+ * How a recipient's core receives a mail pointer. Resolved from the recipient's
+ * CURRENT live session core at delivery time (never stored per ticket): a core
+ * can change between stages or resumes (a codex implement followed by a claude
+ * fix), and a route cached at send time would push into the dead core.
+ *
+ * - `hook-block` — the core's Stop hook replies with a block + the pointer
+ *   (claude, and codex once the Stop-block spike passes). The endpoint builds
+ *   the reply; the bridge prints it to stdout.
+ * - `plugin-idle` — the core's plugin reads the reply body on its turn-end
+ *   event and pushes the pointer through its SDK (opencode v1, session.idle).
+ * - `typed` — the #56 typed nudge into the live terminal (opencode2, agy, and
+ *   every route that cannot push).
+ */
+export type MessageRoute = 'hook-block' | 'plugin-idle' | 'typed';
 
 /** Everything outside printable ASCII is dropped from host-supplied tokens. */
 function printable(text: string): string {
@@ -96,13 +135,54 @@ export interface TerminalDeliveryDeps {
 /** v1: nudge the recipient's live terminal with the pointer line. */
 export function makeTerminalDelivery(deps: TerminalDeliveryDeps): MessageDelivery {
   return {
-    deliver(toTicketId, unread) {
+    deliver(toTicketId, pointer) {
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
       // agy only: hold the pointer until the turn ends, then the sweep retries.
       if (deps.agyBusy?.(toTicketId)) return 'deferred';
-      const line = messagePointer(unread, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
+      const line = messagePointer(pointer.unread, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
       if (line === null) return 'deferred';
       return deps.nudge(toTicketId, line) ? 'delivered' : 'deferred';
+    },
+  };
+}
+
+export interface RoutedDeliveryDeps {
+  /** The recipient's core route, resolved LIVE at delivery time. */
+  routeFor: (ticketId: number) => MessageRoute;
+  /** Live in THIS window (open or adoptable terminal). */
+  isLive: (ticketId: number) => boolean;
+  /** The graph coordinator owns the session. */
+  graphOwned: (ticketId: number) => boolean;
+  /**
+   * True while the recipient's agent is MID-TURN (agent_state `running`). A
+   * hook/plugin reply only ever fires at the END of a turn, so a push route is
+   * usable only while one is in flight: an IDLE recipient has already passed
+   * its Stop/idle event, and waiting for another would strand the pointer.
+   * An idle recipient takes the typed route (safe for every non-agy core).
+   */
+  isBusy: (ticketId: number) => boolean;
+  /** The typed route (#56), used for cores with no push channel and as the fallback. */
+  typed: MessageDelivery;
+}
+
+/**
+ * The one delivery seam: pick the recipient's route from its live core, and
+ * fall back to the typed nudge for any core the endpoint reply cannot reach
+ * (opencode2, agy, an unknown/retired session) OR any recipient that is not
+ * mid-turn (an idle recipient's Stop/idle already fired, so a push would never
+ * arrive). A busy hook route delivers nothing now — it ARMS the push; the
+ * pointer is pushed when the turn ends, from the unread cache the sweep
+ * refreshed, so nothing is typed mid-turn.
+ */
+export function makeRoutedDelivery(deps: RoutedDeliveryDeps): MessageDelivery {
+  return {
+    deliver(toTicketId, pointer) {
+      const route = deps.routeFor(toTicketId);
+      if (route === 'typed') return deps.typed.deliver(toTicketId, pointer);
+      if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
+      // Idle: the turn-end reply will not fire again — type the pointer now.
+      if (!deps.isBusy(toTicketId)) return deps.typed.deliver(toTicketId, pointer);
+      return 'armed';
     },
   };
 }

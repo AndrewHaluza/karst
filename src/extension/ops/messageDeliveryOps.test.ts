@@ -46,12 +46,18 @@ function deps(over: Partial<MessageDeliveryDeps> = {}): MessageDeliveryDeps {
     isLive: () => false,
     isGraphTicket: () => false,
     integrating: () => false,
+    refreshUnread: vi.fn(),
     wake: vi.fn(async () => {}),
     now: () => clock,
     debug: vi.fn(),
     warn: vi.fn(),
     ...over,
   };
+}
+
+/** The mail pointer the sweep passes for a recipient with `unread` rows. */
+function ptr(unread: number): { kind: 'mail'; unread: number } {
+  return { kind: 'mail', unread };
 }
 
 beforeEach(() => {
@@ -77,9 +83,56 @@ describe('message delivery sweep — pointers', () => {
     send(parentId);
     send(parentId);
     expect(sweep.sweep().delivered).toEqual([parentId]);
-    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, 2);
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, ptr(2));
     clock += POINTER_INTERVAL_MS;
     expect(sweep.sweep().delivered).toEqual([]);
+  });
+
+  it('refreshes the in-memory unread cache from this sweep and passes the mail pointer', () => {
+    const refreshUnread = vi.fn();
+    const d = deps({ refreshUnread });
+    const sweep = makeMessageDeliverySweep(d);
+    send(parentId);
+    send(parentId);
+    sweep.sweep();
+    expect(refreshUnread).toHaveBeenCalledWith([
+      expect.objectContaining({ toTicketId: parentId, unread: 2 }),
+    ]);
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, ptr(2));
+  });
+
+  it('an armed delivery is not a delivery: no watermark, no count, logs the arm', () => {
+    send(parentId);
+    const deliver = vi.fn(() => 'armed' as const);
+    const d = deps({ delivery: { deliver } });
+    const sweep = makeMessageDeliverySweep(d);
+    expect(sweep.sweep().delivered).toEqual([]);
+    expect(deliver).toHaveBeenCalledWith(parentId, ptr(1));
+    expect(d.debug).toHaveBeenCalledWith(expect.stringContaining('armed'));
+    // The arm left no watermark, so the next sweep calls deliver again (an idle
+    // recipient then gets typed instead of being stranded).
+    sweep.sweep();
+    expect(deliver).toHaveBeenCalledTimes(2);
+  });
+
+  it('alreadyPushed makes the sweep skip a batch the reply already delivered', () => {
+    send(parentId);
+    let pushedUpTo = 0;
+    const deliver = vi.fn().mockReturnValue('delivered' as const);
+    const alreadyPushed = vi.fn((_id: number, maxId: number) => maxId <= pushedUpTo);
+    const d = deps({ delivery: { deliver }, alreadyPushed });
+    const sweep = makeMessageDeliverySweep(d);
+    // The turn-end reply pushed this batch before the sweep ran.
+    pushedUpTo = 1;
+    expect(sweep.sweep().delivered).toEqual([]);
+    expect(deliver).not.toHaveBeenCalled();
+    expect(d.debug).toHaveBeenCalledWith(expect.stringContaining('already pushed'));
+    // The skip recorded the watermark, so the next tick does not even re-check.
+    expect(sweep.sweep().delivered).toEqual([]);
+    expect(alreadyPushed).toHaveBeenCalledTimes(1);
+    // A NEW batch (higher watermark) is still delivered: only THIS one is known.
+    send(parentId);
+    expect(sweep.sweep().delivered).toEqual([parentId]);
   });
 
   it('reload: a backlog yields exactly one pointer on first sight', () => {
@@ -90,7 +143,7 @@ describe('message delivery sweep — pointers', () => {
     clock += POINTER_INTERVAL_MS * 3;
     sweep.sweep();
     expect(d.delivery.deliver).toHaveBeenCalledTimes(1);
-    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, 5);
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, ptr(5));
   });
 
   it('a recipient that read everything is forgotten: its next message points at once', () => {
@@ -128,7 +181,7 @@ describe('message delivery sweep — pointers', () => {
     clock += 10_000;
     sweep.sweep();
     expect(d.delivery.deliver).toHaveBeenCalledTimes(2);
-    expect(d.delivery.deliver).toHaveBeenLastCalledWith(parentId, 3);
+    expect(d.delivery.deliver).toHaveBeenLastCalledWith(parentId, ptr(3));
     expect(POINTER_INTERVAL_MS).toBe(30_000);
   });
 

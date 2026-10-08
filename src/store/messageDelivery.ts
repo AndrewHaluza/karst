@@ -31,6 +31,25 @@ export function maxMessageId(store: Store): number {
   return Number(row.m);
 }
 
+/**
+ * The unread entry for ONE recipient, `null` when it has no unread mail. The
+ * reply path's per-turn top-up: `message send` is a separate CLI process, so
+ * the host refreshes this ticket's count when its turn ends instead of waiting
+ * for the next sweep.
+ */
+export function unreadForTicket(store: Store, toTicketId: number): RecipientUnread | null {
+  const row = store.db
+    .prepare(
+      `SELECT COUNT(*) AS unread, COALESCE(MAX(id), 0) AS maxId
+         FROM ticket_messages
+        WHERE to_ticket_id = ? AND read_at IS NULL`,
+    )
+    .get(toTicketId) as { unread: number | bigint; maxId: number | bigint };
+  const unread = Number(row.unread);
+  if (unread <= 0) return null;
+  return { toTicketId, unread, maxId: Number(row.maxId) };
+}
+
 /** Unread counts per recipient in one project, ordered by recipient id. */
 export function unreadByRecipient(
   store: Store,
