@@ -124,6 +124,38 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     index and prints its drafts as JSON \`[{"id":N,"status":…,"title":…}]\`; use
     it to re-read the ids and statuses (a draft a human already accepted or
     discarded cannot be revised). It opens no store and takes no flags.
+ - \`setup discover [--root <path>] [--default-branch <branch>]\` — ONLY inside a
+    setup session. Runs the deterministic discovery engine and prints the facts
+    you reason over as JSON: every git repository under the root, each one's
+    DETECTED baseline branch (origin HEAD, else a present main/master/develop,
+    else the default — never assumed \`develop\`), and its service candidate or
+    \`null\` with a reason. It never writes anything and opens no store.
+ - \`manifest validate --file <path>\` — ONLY inside a setup session. Validates a
+    draft \`karst.yml\` with the SAME loader + schema the extension uses and
+    prints \`{ok,id,repositories,warnings,notices}\`. Use it before proposing.
+ - \`manifest propose --file <path> [--summary <text>]\` — ONLY inside a setup
+    session. Validates the draft, then writes a \`kind:'manifest'\` proposal
+    (the raw YAML plus its target path) into the session's
+    \`$KARST_SETUP_OUTBOX\`. The extension diffs it against the current
+    \`karst.yml\`, lists every start command it would run, and applies it only
+    after the user approves — you NEVER write the manifest yourself. When an
+    existing manifest is present, propose a MINIMAL edit: keep \`id\`, presets,
+    agent settings, processes and every field you did not infer; only add or
+    correct repositories and services. The host re-enforces that on apply.
+ - \`setup propose-change\` — ONLY inside a setup session. Reads ONE JSON object
+    on stdin, \`{"kind":"change","repo":…,"reason":…,"command":…}\` (or
+    \`"patch"\` instead of \`"command"\`), and writes it into
+    \`$KARST_SETUP_OUTBOX\`. The extension shows the exact command or patch and
+    applies it only after the user agrees — git init, dependency installs,
+    \`.env\` creation and the like all need that consent; you must NOT edit a
+    tracked file yourself. A repo whose change is refused or skipped gets no
+    service and the gap is recorded in your report.
+ - \`setup verify [--repos a,b]\` — ONLY inside a setup session, AFTER the user
+    accepted the manifest. Starts the proposed manifest's baseline services with
+    health gates (the ticketless baseline path, so no ticket is needed) and
+    prints each service's outcome as JSON. If a service fails, report the
+    blocker; if a revision changes a start command, it must be accepted again
+    before you verify.
  - \`message send --to parent|<child-key> --body <text>\` — leave an async
    note for your direct parent or one of your direct children (nobody else:
    siblings route through the parent). The sender is the ticket \`--ticket\`

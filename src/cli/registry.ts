@@ -329,6 +329,62 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       return argv;
     },
   },
+  {
+    name: 'manifest',
+    summary: 'Setup session: validate or propose a draft karst.yml file.',
+    input: obj(
+      {
+        subcommand: { type: 'string', enum: ['validate', 'propose'] },
+        file: str,
+        summary: str,
+      },
+      ['subcommand', 'file'],
+    ),
+    writes: true,
+    // The encoder names `--file <path>` (a YAML path, not structured JSON), so
+    // `main.ts` dispatches this verb BEFORE structured-input resolution.
+    toArgv: (input) => {
+      const argv = ['manifest', requireString(input, 'subcommand'), '--file', requireString(input, 'file')];
+      pushFlag(argv, '--summary', input.summary);
+      return argv;
+    },
+  },
+  {
+    name: 'setup',
+    summary: 'Setup session: discover repos, or propose a consented repo change.',
+    input: obj(
+      {
+        subcommand: { type: 'string', enum: ['discover', 'propose-change', 'verify'] },
+        root: str,
+        defaultBranch: str,
+        repos: csvArray,
+        repo: str,
+        reason: str,
+        command: str,
+        patch: str,
+      },
+      ['subcommand'],
+    ),
+    globals: { db: true, manifest: true },
+    writes: true,
+    toArgv: (input) => {
+      const sub = requireString(input, 'subcommand');
+      if (sub === 'discover') {
+        const argv = ['setup', 'discover'];
+        pushFlag(argv, '--root', input.root);
+        pushFlag(argv, '--default-branch', input.defaultBranch);
+        return argv;
+      }
+      if (sub === 'verify') {
+        const argv = ['setup', 'verify'];
+        pushFlag(argv, '--repos', input.repos);
+        return argv;
+      }
+      // propose-change reads the change object on stdin; the caller feeds the
+      // validated object back, exactly like `draft propose`.
+      return ['setup', 'propose-change'];
+    },
+  },
 ];
 
 const BY_NAME: ReadonlyMap<string, CommandSpec> = new Map(

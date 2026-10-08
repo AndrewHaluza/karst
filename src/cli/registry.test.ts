@@ -27,6 +27,8 @@ describe('command registry', () => {
       'fix-brief',
       'conflict-brief',
       'schema',
+      'manifest',
+      'setup',
     ]) {
       expect(getCommandSpec(verb), verb).toBeDefined();
     }

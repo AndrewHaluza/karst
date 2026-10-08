@@ -33,7 +33,7 @@ exports[`gettingStarted render > complete > snapshot (was: full document render)
 
     <section>
       <h2>How Karst works</h2>
-      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Set up with agent</div><div class="step-desc">The agent discovers your repositories and proposes a manifest; you review and approve.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Start an onboarding setup session">Set up with agent</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
     </section>
 
     <section>
@@ -288,14 +288,24 @@ function karstIconInto(el, name, size, cls) {
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
-          if (s.action === 'settings' || s.action === 'create-ticket') {
-            const isSettings = s.action === 'settings';
+          const ACTIONS = {
+            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
+            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+          };
+          if (s.action && ACTIONS[s.action]) {
+            const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
-            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
-            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
-            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            b.textContent = a.label;
+            b.title = a.title;
+            if (s.enabled === false) {
+              b.disabled = true;
+              b.title = 'Install the agent CLI first — see the checklist above';
+            } else {
+              karstAction(b, (requestId) => post(a.msg, requestId));
+            }
             body.append(b);
           }
           li.append(body);
@@ -356,7 +366,7 @@ exports[`gettingStarted render > empty > snapshot (was: full document render) 1`
 
     <section>
       <h2>How Karst works</h2>
-      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Set up with agent</div><div class="step-desc">The agent discovers your repositories and proposes a manifest; you review and approve.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Start an onboarding setup session">Set up with agent</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
     </section>
 
     <section>
@@ -611,14 +621,24 @@ function karstIconInto(el, name, size, cls) {
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
-          if (s.action === 'settings' || s.action === 'create-ticket') {
-            const isSettings = s.action === 'settings';
+          const ACTIONS = {
+            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
+            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+          };
+          if (s.action && ACTIONS[s.action]) {
+            const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
-            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
-            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
-            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            b.textContent = a.label;
+            b.title = a.title;
+            if (s.enabled === false) {
+              b.disabled = true;
+              b.title = 'Install the agent CLI first — see the checklist above';
+            } else {
+              karstAction(b, (requestId) => post(a.msg, requestId));
+            }
             body.append(b);
           }
           li.append(body);
@@ -679,7 +699,7 @@ exports[`gettingStarted render > fresh > snapshot (was: full document render) 1`
 
     <section>
       <h2>How Karst works</h2>
-      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Set up with agent</div><div class="step-desc">The agent discovers your repositories and proposes a manifest; you review and approve.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Start an onboarding setup session">Set up with agent</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
     </section>
 
     <section>
@@ -934,14 +954,24 @@ function karstIconInto(el, name, size, cls) {
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
-          if (s.action === 'settings' || s.action === 'create-ticket') {
-            const isSettings = s.action === 'settings';
+          const ACTIONS = {
+            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
+            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+          };
+          if (s.action && ACTIONS[s.action]) {
+            const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
-            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
-            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
-            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            b.textContent = a.label;
+            b.title = a.title;
+            if (s.enabled === false) {
+              b.disabled = true;
+              b.title = 'Install the agent CLI first — see the checklist above';
+            } else {
+              karstAction(b, (requestId) => post(a.msg, requestId));
+            }
             body.append(b);
           }
           li.append(body);
@@ -1002,7 +1032,7 @@ exports[`gettingStarted render > hostile > snapshot (was: full document render) 
 
     <section>
       <h2>How Karst works</h2>
-      <ul class="steps" id="tutorial"><li><div class="step-body"><div>&lt;script&gt;alert(1)&lt;/script&gt;</div><div class="step-desc">fixture:&lt;script&gt;&amp;src/main.ts</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>A &amp; B "quoted" &lt;b&gt;</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>&lt;script&gt;alert(1)&lt;/script&gt;</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>A &amp; B "quoted" &lt;b&gt;</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>&lt;script&gt;alert(1)&lt;/script&gt;</div><div class="step-desc">fixture:&lt;script&gt;&amp;src/main.ts</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Start an onboarding setup session">Set up with agent</button></div></li><li><div class="step-body"><div>A &amp; B "quoted" &lt;b&gt;</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>&lt;script&gt;alert(1)&lt;/script&gt;</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>A &amp; B "quoted" &lt;b&gt;</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
     </section>
 
     <section>
@@ -1257,14 +1287,24 @@ function karstIconInto(el, name, size, cls) {
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
-          if (s.action === 'settings' || s.action === 'create-ticket') {
-            const isSettings = s.action === 'settings';
+          const ACTIONS = {
+            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
+            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+          };
+          if (s.action && ACTIONS[s.action]) {
+            const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
-            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
-            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
-            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            b.textContent = a.label;
+            b.title = a.title;
+            if (s.enabled === false) {
+              b.disabled = true;
+              b.title = 'Install the agent CLI first — see the checklist above';
+            } else {
+              karstAction(b, (requestId) => post(a.msg, requestId));
+            }
             body.append(b);
           }
           li.append(body);
@@ -1325,7 +1365,7 @@ exports[`gettingStarted render > partial > snapshot (was: full document render) 
 
     <section>
       <h2>How Karst works</h2>
-      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Configure repositories &amp; agent provider</div><div class="step-desc">Open Settings to point each repository at its path and pick your agent CLI.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
+      <ul class="steps" id="tutorial"><li><div class="step-body"><div>Set up with agent</div><div class="step-desc">The agent discovers your repositories and proposes a manifest; you review and approve.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Start an onboarding setup session">Set up with agent</button></div></li><li><div class="step-body"><div>Create your first ticket</div><div class="step-desc">Describe the work; Karst fetches or drafts the context brief.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the create-ticket panel">Create Ticket</button></div></li><li><div class="step-body"><div>Pick repos + approach and launch the session</div><div class="step-desc">Choose which repositories are in scope and how the agent should work, then start.</div></div></li><li><div class="step-body"><div>Watch stage progress on the ticket dashboard</div><div class="step-desc">Open a ticket to follow it through scope → impl → uat as the agent runs.</div></div></li><li><div class="step-body"><div>Optional: install an approach package</div><div class="step-desc">Add a curated method (agents, commands, skills) from Settings → Approaches.</div><button type="button" class="k-btn k-btn--secondary k-btn--sm step-action" title="Open the Karst settings panel">Open Settings</button></div></li></ul>
     </section>
 
     <section>
@@ -1580,14 +1620,24 @@ function karstIconInto(el, name, size, cls) {
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
-          if (s.action === 'settings' || s.action === 'create-ticket') {
-            const isSettings = s.action === 'settings';
+          const ACTIONS = {
+            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
+            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+          };
+          if (s.action && ACTIONS[s.action]) {
+            const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
-            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
-            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
-            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            b.textContent = a.label;
+            b.title = a.title;
+            if (s.enabled === false) {
+              b.disabled = true;
+              b.title = 'Install the agent CLI first — see the checklist above';
+            } else {
+              karstAction(b, (requestId) => post(a.msg, requestId));
+            }
             body.append(b);
           }
           li.append(body);

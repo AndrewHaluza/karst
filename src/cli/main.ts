@@ -29,6 +29,9 @@ import { notifyGraphWakeup } from '../hooks/graphEndpoint.js';
 import { getCommandSpec } from './registry.js';
 import { resolveStructuredInput } from './commandInput.js';
 import { runSchemaCommand } from './schemaCommand.js';
+import { runManifestCommand } from './manifestCommand.js';
+import { runSetupCommand, toChangeProposalInput } from './setupCommand.js';
+import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
 import { installSqliteWarningFilter } from './suppressWarning.js';
 
@@ -200,6 +203,14 @@ export function runCli(
 ): string {
   const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
+
+  // `karst manifest validate|propose --file <path>` — a SETUP session's own
+  // parse path, taken BEFORE structured-input resolution on purpose: here
+  // `--file` names a YAML file to validate/propose, not a JSON structured-input
+  // payload. It opens no store and reads only the file it is given.
+  if (subcommand === 'manifest') {
+    return runManifestCommand(rest, { outboxEnv: env.KARST_SETUP_OUTBOX });
+  }
 
   // Structured input (registry): a command that declares a `toArgv` encoder may
   // take its whole input as one JSON object via `--file <path>` or `--stdin`,
@@ -490,8 +501,23 @@ export function runCli(
     return runSchemaCommand(effectiveRest);
   }
 
+  // `karst setup discover|propose-change` — a SETUP session's discovery engine
+  // and its consented-change proposals. `discover` reads the filesystem + git
+  // (no store); `propose-change` validates one JSON object (stdin or `--stdin`)
+  // and writes it into `$KARST_SETUP_OUTBOX`. It never opens a store.
+  if (subcommand === 'setup') {
+    return runSetupCommand(effectiveRest, {
+      outboxEnv: env.KARST_SETUP_OUTBOX,
+      // Structured input for `propose-change` is the flat tool object
+      // `{subcommand, repo, reason, command?}`; the handler wants the change
+      // proposal itself, so `kind` is added and `subcommand` dropped. The
+      // shell path (plain stdin) already supplies the full proposal.
+      readStdin: structured ? () => JSON.stringify(toChangeProposalInput(structured.value)) : io.readStdin,
+    });
+  }
+
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief', 'conflict-brief', 'schema' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup' or 'mcp')`,
   );
 }
 
@@ -511,6 +537,29 @@ export async function runCliAsync(
   // agents use today (see cli/mcp/config.ts).
   if (rest[0] === 'mcp') {
     return runMcpCommand(rest, { db, manifest: manifestPath, ticket }, env);
+  }
+  // `setup verify` spins the proposed manifest's baseline services with health
+  // gates. It is async (like `servers`) and needs a store + manifest, but no
+  // ticket — the baseline singleton is ticketless.
+  if (rest[0] === 'setup' && rest[1] === 'verify') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!manifestPath) throw new Error('missing --manifest <path>');
+    const loaded = loadManifestWithDiagnostics(manifestPath);
+    writeManifestDiagnostics(loaded.warnings);
+    if (loaded.manifest.debug === true) writeManifestDiagnostics(loaded.notices);
+    const parsed = parseSetupVerifyArgs(rest);
+    const store = openWritableStore(db);
+    try {
+      // Load the baseline starter lazily: only `setup verify` needs it, so every
+      // other verb (including the long-lived `mcp serve`) keeps a light import
+      // graph and a fast, side-effect-free start.
+      const { ensureBaseline } = await import('../runtime/baseline.js');
+      return await runSetupVerifyCommand(store, loaded.manifest, parsed, (s, m, service) =>
+        ensureBaseline(s, m, service),
+      );
+    } finally {
+      store.close();
+    }
   }
   if (rest[0] !== 'servers') return runCli(argv);
   if (!db) throw new Error('missing --db <path>');
@@ -543,6 +592,22 @@ function fail(message: string): never {
   process.exit(1);
 }
 
+/**
+ * Does this verb start `detached` children that pin the short-lived CLI's event
+ * loop? `servers` starts dev servers; `setup verify` starts baseline servers
+ * through the same `ensureBaseline` path. Both must force-exit from the stdout
+ * write callback after flushing, or the invocation hangs until those servers
+ * exit (which is never) — the exact failure a setup session hit on its success
+ * branch, where the agent waits forever on a verify that already printed its
+ * result.
+ *
+ * Exported so the decision is pinned by a unit test rather than only lived out
+ * in the process-exit block, which vitest never takes.
+ */
+export function exitsAfterFlush(rest: readonly string[]): boolean {
+  return rest[0] === 'servers' || (rest[0] === 'setup' && rest[1] === 'verify');
+}
+
 // Only run when invoked directly (`node main.js …`), not when imported by a test.
 const invokedDirectly =
   process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href;
@@ -554,20 +619,20 @@ if (invokedDirectly) {
     try {
       const argv = process.argv.slice(2);
       const output = await runCliAsync(argv);
-      const command = parseGlobalFlags(argv).rest[0];
-      if (command === 'servers') {
-        // `spinTicket` spawns its children `detached` but never `.unref()`s them
-        // (src/runtime/supervisor.ts:395-406), so their ChildProcess handles keep
-        // THIS process's event loop alive — a short-lived CLI invocation would
-        // hang until the dev servers exit, which is never. The children have
-        // their own process group and survive this exit, which is the point of
-        // the verb. Exit from the write callback so a piped stdout is flushed
-        // rather than truncated.
+      const { rest } = parseGlobalFlags(argv);
+      if (exitsAfterFlush(rest)) {
+        // `spinTicket`/`ensureBaseline` spawn their children `detached` but never
+        // `.unref()` them (src/runtime/supervisor.ts:395-406), so their
+        // ChildProcess handles keep THIS process's event loop alive — a
+        // short-lived CLI invocation would hang until the servers exit, which is
+        // never. The children have their own process group and survive this
+        // exit, which is the point of both verbs. Exit from the write callback
+        // so a piped stdout is flushed rather than truncated.
         process.stdout.write(output + '\n', () => process.exit(0));
         return;
       }
       process.stdout.write(output + '\n');
-      if (command === 'graph' || command === 'node') {
+      if (rest[0] === 'graph' || rest[0] === 'node') {
         let committed = false;
         try {
           committed = (JSON.parse(output) as { ok?: unknown }).ok === true;

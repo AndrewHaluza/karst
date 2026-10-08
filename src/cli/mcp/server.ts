@@ -68,11 +68,12 @@ export async function callTool(
     return errorResult((e as Error).message);
   }
 
-  // `draft` is the one verb whose input rides stdin, not argv: the registry
-  // encoder names the verb and the validated object is fed back as stdin. Every
-  // other verb ignores `readStdin` (no `--file`/`--stdin` token is emitted).
+  // `draft` and `setup propose-change` are the verbs whose input rides stdin,
+  // not argv: the registry encoder names the verb and the validated object is
+  // fed back as stdin. Every other verb ignores `readStdin` (no `--file`/
+  // `--stdin` token is emitted).
   const io: CliIo =
-    name === 'draft' ? { readStdin: () => JSON.stringify(value) } : { readStdin: () => '' };
+    name === 'draft' || name === 'setup' ? { readStdin: () => JSON.stringify(value) } : { readStdin: () => '' };
 
   try {
     const text = await runner.run(argv, dispatchEnv(config, env), io);

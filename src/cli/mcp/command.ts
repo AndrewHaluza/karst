@@ -15,12 +15,15 @@ import { runMcpServe, type McpToolRunner } from './server.js';
 
 /**
  * The real tool runner: a call is the SAME dispatch as a shell call. `servers`
- * is the one async verb and still routes through `runCliAsync`; everything else
- * is the synchronous `runCli`, which opens and closes its store per call.
+ * and `setup verify` are the async verbs and route through `runCliAsync`;
+ * everything else is the synchronous `runCli`, which opens and closes its store
+ * per call.
  */
 export const defaultMcpRunner: McpToolRunner = {
   async run(argv: string[], env, io: CliIo): Promise<string> {
-    if (argv[0] === 'servers') return runCliAsync(argv, env);
+    if (argv[0] === 'servers' || (argv[0] === 'setup' && argv[1] === 'verify')) {
+      return runCliAsync(argv, env);
+    }
     return runCli(argv, env, io);
   },
 };

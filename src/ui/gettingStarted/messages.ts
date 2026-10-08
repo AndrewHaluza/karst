@@ -14,6 +14,7 @@ export type GettingStartedMessage =
   | { type: 'recheck-deps' }
   | { type: 'open-settings' }
   | { type: 'create-ticket' }
+  | { type: 'setup-agent' }
   | { type: 'report-issue' }
   | { type: 'dismiss' }
   | { type: 'request-state' };
@@ -38,6 +39,8 @@ export interface GettingStartedActions {
   recheckDeps: () => void | Promise<void>;
   openSettings: () => void | Promise<void>;
   createTicket: () => void | Promise<void>;
+  /** Start an onboarding setup session with the configured agent. */
+  setupAgent: () => void | Promise<void>;
   /** Hand off to the existing `karst.reportIssue` flow (§ issue reporting). */
   reportIssue: () => void | Promise<void>;
   dismiss: () => void | Promise<void>;
@@ -49,6 +52,7 @@ const KNOWN: ReadonlySet<GettingStartedMessage['type']> = new Set([
   'recheck-deps',
   'open-settings',
   'create-ticket',
+  'setup-agent',
   'report-issue',
   'dismiss',
   'request-state',
@@ -78,6 +82,8 @@ export function routeGettingStartedAction(msg: GettingStartedMessage, actions: G
       return actions.openSettings();
     case 'create-ticket':
       return actions.createTicket();
+    case 'setup-agent':
+      return actions.setupAgent();
     case 'report-issue':
       return actions.reportIssue();
     case 'dismiss':

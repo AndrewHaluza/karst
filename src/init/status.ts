@@ -3,6 +3,7 @@ import {
   dependencyRegistry,
   dependencyState,
   renderDependencyFault,
+  type Capability,
   type DependencyProbe,
   type DependencyState,
   type OutputProbe,
@@ -24,6 +25,12 @@ export interface SetupItem {
   done: boolean;
   /** Actionable guidance shown under an undone item (or the auth note). */
   detail: string | null;
+  /**
+   * The dependency's `enables` category (`'sessions'` for an agent CLI). Absent
+   * on the manifest item. The Getting Started page gates its "Set up with
+   * agent" action on the session-enabling item(s) being green.
+   */
+  enables?: Capability;
 }
 
 export interface SetupStatusInput {
@@ -71,6 +78,7 @@ export function buildSetupStatus(input: SetupStatusInput): SetupItem[] {
       label: `${dep.label} is installed`,
       done: state === 'ok',
       detail: detailFor(dep, state, dep.enables === 'sessions'),
+      enables: dep.enables,
     };
   });
 

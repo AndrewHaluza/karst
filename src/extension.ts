@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, watch as fsWatch } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, readdirSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { lstat as fsLstat, readFile as fsReadFile, readlink as fsReadlink, realpath as fsRealpath } from 'node:fs/promises';
@@ -166,6 +166,7 @@ import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
+import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
 import { createPlanningProposalOps, type ProposalChoice } from './extension/ops/planningProposalOps.js';
 import { listPendingProposals } from './store/planningProposals.js';
@@ -749,20 +750,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Planning sessions (read-only, stack-aware agent terminals). Bindings only;
   // the logic is ops/planningOps.ts. The terminal host is resolved per launch
   // (a click), long after `terminalIdentity` below is initialized.
+  // A planning session has its own core/model (Settings → Agents, "Planner",
+  // and the Presets `planning` row). Resolution: the active preset's
+  // `planning` slot → `processes.planning` → the implementation resolution, so
+  // an existing project keeps launching exactly what it launched before. The
+  // setup session shares it.
+  const planningAgent = (): { provider: AgentProvider; model: string | null } => {
+    const d = resolvePlanningDefaults(currentManifest() ?? emptyManifest());
+    return { provider: d.provider, model: d.model ?? null };
+  };
   const planning = createPlanningOps({
     store: localStore,
     projectId: () => currentProject()?.id,
     manifest: () => currentManifest(),
     // A tree apart from karst.db, so codex's only writable root never covers it.
     scratchDir: (id) => join(storageDir, 'planning-scratch', String(id)),
-    // A planning session has its own core/model (Settings → Agents, "Planner",
-    // and the Presets `planning` row). Resolution: the active preset's
-    // `planning` slot → `processes.planning` → the implementation resolution, so
-    // an existing project keeps launching exactly what it launched before.
-    defaultAgent: () => {
-      const d = resolvePlanningDefaults(currentManifest() ?? emptyManifest());
-      return { provider: d.provider, model: d.model ?? null };
-    },
+    defaultAgent: planningAgent,
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
     cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry,
     notify,
@@ -778,6 +781,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     refreshIndex: (sessionId) =>
       refreshProposalIndex(localStore, sessionId, join(storageDir, 'planning-scratch', String(sessionId))),
     notify, onChange: () => provider.refresh(), debug: (m) => logger.debug(m) });
+  // Onboarding setup sessions (§ ONBOARDING-SETUP-AGENT): a read-only agent
+  // terminal that discovers the workspace and proposes a manifest + consented
+  // repo changes. The binding lives in setupWiring.ts so this file stays thin.
+  activateSetupFeature(context, {
+    storageDir,
+    dbPath,
+    currentManifest: () => currentManifest(),
+    defaultAgent: planningAgent,
+    terminalHost: () => makeTerminalHost(terminalIdentity),
+    cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry,
+    notify,
+    logError,
+    debug: (m) => logger.debug(m),
+  });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
     setFilter: (query) => mgr.setFilter(query),

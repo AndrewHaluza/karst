@@ -10,15 +10,21 @@ export interface TutorialStep {
   label: string;
   description: string;
   /** Which jump button to render, or null for an informational step. */
-  action: 'settings' | 'create-ticket' | null;
+  action: 'settings' | 'create-ticket' | 'setup-agent' | null;
+  /**
+   * Whether the action's button is enabled. Absent means enabled. The
+   * "Set up with agent" action is gated on the agent-CLI checklist item being
+   * green — the agent cannot install its own CLI, so that stays manual.
+   */
+  enabled?: boolean;
 }
 
 export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     id: 'configure',
-    label: 'Configure repositories & agent provider',
-    description: 'Open Settings to point each repository at its path and pick your agent CLI.',
-    action: 'settings',
+    label: 'Set up with agent',
+    description: 'The agent discovers your repositories and proposes a manifest; you review and approve.',
+    action: 'setup-agent',
   },
   {
     id: 'create',
@@ -51,6 +57,22 @@ export interface GettingStartedState {
   tutorial: readonly TutorialStep[];
 }
 
+/**
+ * The setup agent can only run once its CLI is installed. Every dependency that
+ * `enables: 'sessions'` (the configured agent's CLI) must be green; the manifest
+ * item deliberately does NOT gate it, because creating the manifest is exactly
+ * what the setup agent does. With no session-enabling item (never, in practice)
+ * the action stays disabled rather than offering a button that cannot work.
+ */
+export function agentCliReady(checklist: readonly SetupItem[]): boolean {
+  const agentItems = checklist.filter((item) => item.enables === 'sessions');
+  return agentItems.length > 0 && agentItems.every((item) => item.done);
+}
+
 export function buildGettingStartedState(checklist: SetupItem[]): GettingStartedState {
-  return { checklist, tutorial: TUTORIAL_STEPS };
+  const ready = agentCliReady(checklist);
+  const tutorial = TUTORIAL_STEPS.map((step) =>
+    step.action === 'setup-agent' ? { ...step, enabled: ready } : step,
+  );
+  return { checklist, tutorial };
 }
