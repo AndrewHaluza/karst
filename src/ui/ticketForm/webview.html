@@ -827,7 +827,7 @@
     const rels = state.relations || [];
     const depsCard = el('dependenciesCard');
     depsCard.hidden = rels.length === 0;
-    el('dependenciesList').innerHTML = rels.map((r) => `<div class="chip">${esc(r.kind)}: ${r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${r.ticketId}">${esc(r.label)}</a>` : esc(r.label)}${r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${r.id}">Retry</button>` : ''}</div>`).join('');
+    el('dependenciesList').innerHTML = rels.map((r) => `<div class="chip">${esc(r.kind)}: ${r.ticketId ? `<a href="#" data-act="open-dependency" data-id="${esc(r.ticketId)}">${esc(r.label)}</a>` : esc(r.label)}${r.writebackError ? `<span class="error">${esc(r.writebackError)}</span><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="retry-writeback" data-id="${esc(r.id)}">Retry</button>` : ''}</div>`).join('');
 
     renderGate(state.unclassified, state.repos);
     // Drawer header title: the persisted brief's first heading, else the ticket
