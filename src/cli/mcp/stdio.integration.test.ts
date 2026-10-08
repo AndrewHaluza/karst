@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +26,15 @@ import { mcpToolNames } from './tools.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const CLI_ENTRY = join(REPO_ROOT, 'src', 'cli', 'main.ts');
-const TSX_CLI = join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+/**
+ * `tsx` resolved through Node's normal module lookup, NOT a hard per-worktree
+ * path: a karst worktree shares the repository root's `node_modules`, so a
+ * worktree that has no `node_modules/tsx` of its own still resolves it one
+ * directory up. The hardcoded `<REPO_ROOT>/node_modules/tsx/dist/cli.mjs` made
+ * the child die with a bare "Connection closed" whenever this worktree had not
+ * installed its own copy.
+ */
+const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli');
 
 /** Env for the child: the ambient environment WITHOUT karst refs (isolation), plus the outbox. */
 function childEnv(outbox: string): Record<string, string> {

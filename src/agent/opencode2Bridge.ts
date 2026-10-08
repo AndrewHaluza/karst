@@ -33,6 +33,13 @@ import { currentEndpointPath } from './hookFailureLog.js';
  * The `form.*` elicitation subsystem (`form.created`/`replied`/`cancelled`) is
  * deliberately NOT mapped here: no live fixture verified its payloads. See the
  * `default:` branch comment — a follow-up ticket maps it once a fixture exists.
+ *
+ * MAILBOX-DELIVERY-PER-CORE-PUSH: opencode2 takes the TYPED delivery route. Its
+ * `setup(ctx)` carries no SDK client (unlike v1's `{ client }`), so the plugin
+ * cannot push a pointer the way v1's `session.idle` handler does; the endpoint
+ * may answer the idle POST with a reply body, but this plugin ignores it and
+ * the delivery sweep types the pointer instead. If a future `ctx` exposes a
+ * session client, mirror v1's `maybeDeliverMail` and declare `plugin-idle`.
  */
 
 /**

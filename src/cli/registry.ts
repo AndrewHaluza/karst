@@ -309,6 +309,35 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     },
   },
   {
+    name: 'notes',
+    summary: 'Read the project bulletin, or post one learning for other tasks.',
+    input: obj({
+      action: { type: 'string', enum: ['list', 'post'] },
+      title: str,
+      body: str,
+      all: bool,
+      json: bool,
+    }),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => {
+      const argv = ['notes'];
+      if (input.action === 'post') {
+        argv.push(
+          'post',
+          '--title',
+          requireString(input, 'title'),
+          '--body',
+          requireString(input, 'body'),
+        );
+        return argv;
+      }
+      pushFlag(argv, '--all', input.all);
+      pushFlag(argv, '--json', input.json);
+      return argv;
+    },
+  },
+  {
     name: 'fix-brief',
     summary: 'Read a summary of the failing gate a fix session must address.',
     input: obj({ key: str }, ['key']),

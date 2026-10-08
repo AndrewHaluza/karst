@@ -107,16 +107,31 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
  * the generated workflow command (arg = `$ARGUMENTS`, substituted by the agent
  * CLI), a `direct`/no-approach launch, AND a fix resume (arg = the concrete
  * ticket key) — so it must not promise any one destination.
+ *
+ * When the stage command is the IMPLEMENTER's (`stage impl pass`), the brief also
+ * asks for ONE optional `karst notes post` learning for other tasks. The only
+ * ask is derived from the command itself, so every impl surface (the live seed,
+ * `karst context`, the generated `/karst:<id>` command) carries it and no fix or
+ * gate surface does. The composed notes command is the marker command with the
+ * `stage impl pass` tokens swapped for `notes post` — same cli/db/manifest tail.
  */
 export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: string): string {
-  return (
+  const base =
     "When you have finished this stage's work — whether that is code, research, or a " +
     `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
     'advance the ticket to its next stage. A session ending does not advance the ticket ' +
     `on its own — you must fire this marker explicitly. Do NOT fire it while you are ` +
     'waiting for the user to answer a question: a stage whose agent is waiting on the ' +
     `user is not complete, and the ${MARKER_REFUSED}. If access to the Karst registry ` +
-    'is denied, request approval to run this exact marker command outside the workspace sandbox.'
+    'is denied, request approval to run this exact marker command outside the workspace sandbox.';
+  const marker = ' stage impl pass ';
+  if (!stageCommand.includes(marker)) return base;
+  const notesCommand = `${stageCommand.replace(marker, ' notes post ')} ${ticketArg}`;
+  return (
+    base +
+    ' If you learned something another task should know, post ONE short note for the ' +
+    `project bulletin first: \`${notesCommand} --title <short title> --body <learnings>\`. ` +
+    'It is optional.'
   );
 }
 

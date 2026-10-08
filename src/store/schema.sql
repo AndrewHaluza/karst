@@ -668,6 +668,11 @@ CREATE TABLE IF NOT EXISTS prs (
   base_ref      TEXT,                 -- v16: target branch (gh baseRefName)
   created_at    TEXT,                 -- v16: PR creation stamp, ISO-8601 from gh
   merged_at     TEXT,                 -- v16: merge stamp; NULL until actually merged
+  -- v72: the merge commit sha gh reported (mergeCommit.oid). NULL until merged AND
+  -- probed. Written with COALESCE so a later degraded probe never un-sets it — the
+  -- same rule merged_at follows. It keys the host-fact bulletin note that fires on
+  -- the first merged-with-sha probe (store/bulletinNotes.ts).
+  merge_sha     TEXT,
   comments      TEXT,                 -- v16: JSON array of {author,at,body}; see store/prComments.ts
   -- v56: when a human declared this PR will never land — a PR closed because the
   -- changes turned out to be unneeded. NOT a status (GitHub's answer stays
@@ -1272,3 +1277,42 @@ CREATE TABLE IF NOT EXISTS ticket_relations (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_relations_unique
   ON ticket_relations(ticket_id, kind, COALESCE(target_ticket_id, ''), COALESCE(target_ref, ''), COALESCE(target_proposal_id, ''));
 CREATE INDEX IF NOT EXISTS idx_ticket_relations_target ON ticket_relations(target_ticket_id);
+
+-- v72 project bulletin (kept in sync with BULLETIN_DDL in store/bulletinNotes.ts).
+-- A pull-only, project-scoped board of notes a ticket may learn from. Two sources:
+--   'host'  — a TRUSTED fact written by recordTicketMerged at the first
+--             merged-with-sha probe: the ticket key, the repo and the merged
+--             diff's changed paths. merge_sha is mandatory for a host row (the
+--             CHECK), and the unique index makes the write idempotent.
+--   'agent' — an UNTRUSTED learning the implementer posted before its done
+--             marker. Its repos are stamped from the ticket's worktrees at post;
+--             its paths stay NULL until recordTicketMerged stamps them from the
+--             merged diff. Agent rows carry no merge_sha, and SQLite keeps NULLs
+--             distinct in a UNIQUE index, so two agent notes never collide.
+-- `repos`/`paths` are JSON string arrays, both nullable (NULL = not stamped).
+CREATE TABLE IF NOT EXISTS bulletin_notes (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_id     INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  source         TEXT NOT NULL CHECK (source IN ('host', 'agent')),
+  from_ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  merge_sha      TEXT,
+  title          TEXT NOT NULL,
+  body           TEXT NOT NULL,
+  repos          TEXT,
+  paths          TEXT,
+  created_at     TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (source <> 'host' OR merge_sha IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_bulletin_notes_source_ticket_sha
+  ON bulletin_notes(source, from_ticket_id, merge_sha);
+CREATE INDEX IF NOT EXISTS idx_bulletin_notes_ticket ON bulletin_notes(from_ticket_id, id);
+
+-- v72: one row per (note, reader) the reader has already seen. `karst notes`
+-- marks the rows it printed, exactly like `inbox`; `--all` lists already-read
+-- rows too. The composite key makes the mark idempotent.
+CREATE TABLE IF NOT EXISTS bulletin_reads (
+  note_id          INTEGER NOT NULL REFERENCES bulletin_notes(id) ON DELETE CASCADE,
+  reader_ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  read_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (note_id, reader_ticket_id)
+);

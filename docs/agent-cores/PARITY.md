@@ -208,3 +208,38 @@ land mid-turn. An UNKNOWN status (the summary DB or the conversation's row is mi
 the read failed) does NOT gate — a summary the CLI has not written must never strand mail
 forever, and the read is isolated so a summary failure cannot drop the lifecycle tick.
 Every other core accepts a typed line at any time.
+
+## 7. Mail delivery route + submit delay (MAILBOX-DELIVERY-PER-CORE-PUSH)
+
+A mail pointer reaches the recipient through a per-core route, resolved from the
+recipient's CURRENT live session core at delivery time (never stored per ticket — a core
+can change between stages or resumes). Every core must state BOTH its route and its
+`submitDelayMs`; a fifth core that omits either is incomplete.
+
+| core | mail delivery route | submitDelayMs |
+|---|---|---|
+| claude | `hook-block` — `Stop` reply `{decision:"block",reason}` on stdout | 120 |
+| codex | `hook-block` — same protocol (SPIKE-CODEX-STOP-BLOCK passed on 0.153.0) | 60 |
+| opencode | `plugin-idle` — plugin reads the `session.idle` reply and `promptAsync`s it | 60 |
+| opencode2 | `typed` — no SDK client on the plugin `ctx`; reply body ignored | 60 |
+| antigravity | `typed` — no executable hook channel; agy idle gate applies | 250 |
+
+`hook-block` and `plugin-idle` only ARM the push: the pointer is delivered when the
+recipient's turn ends, so nothing is typed mid-turn. A turn-end reply counts as
+that batch's delivery only once it is CONFIRMED — the bridge POSTs a positive
+`MailReplyAck` after writing the block to stdout (a flushed response is not
+enough: a hung host can write into a socket the bridge abandoned), and only then
+does the sweep skip that batch's watermark. A reply built but not confirmed keeps
+the sweep's typed fallback, so a lost reply never strands the mail. They are used
+only while the recipient is MID-TURN; an idle recipient has already passed its
+turn-end event, so it takes `typed` instead. A graph-owned session is deferred by
+both the sweep and the endpoint.
+`typed` is the #56 nudge and the fallback for every route that cannot push
+(opencode2, agy, an idle recipient, an unknown/retired session, and any hook-route
+failure). The endpoint's reply is bound to the recipient's current launch
+generation and blocked at most once per BATCH (the unread watermark — highest
+message id — not the count, so a same-sized new batch still blocks). The reply
+reads the host's in-memory unread cache, which the sweep rebuilds every tick and
+the endpoint tops up for one ticket at its turn end (so a `message send` in the
+sweep window is not missed). See `docs/agent-cores/HOOK-CONTRACT.md` § "Mail
+delivery reply channel".

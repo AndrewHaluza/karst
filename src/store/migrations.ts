@@ -5,6 +5,7 @@ import { RUNTIME_ASSETS_ROOT } from '../runtimeAssetsRoot.js';
 import { SCHEMA_VERSION } from './schemaVersion.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
+import { BULLETIN_DDL } from './bulletinNotes.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2559,26 +2560,40 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 72) {
-    // v72: `planning_proposals.depends_on` — a JSON array of the host proposal
+    // v72: the project bulletin + `prs.merge_sha`. `bulletin_notes`/`bulletin_reads`
+    // are whole new tables (IF NOT EXISTS DDL, nothing backfilled: no note existed
+    // before the table). `prs.merge_sha` is additive and NULL for every pre-v72
+    // row — the merge commit was never probed, and NULL says so rather than
+    // guessing one. The column guard reads the CURRENT columns, so a fresh DB
+    // (schema.sql carries both) is a no-op and a re-open is idempotent.
+    const prCols72 = tableColumns(db, 'prs');
+    if (prCols72.size > 0 && !prCols72.has('merge_sha')) {
+      db.exec('ALTER TABLE prs ADD COLUMN merge_sha TEXT');
+    }
+    db.exec(BULLETIN_DDL);
+  }
+
+  if (current < 73) {
+    // v73: `planning_proposals.depends_on` — a JSON array of the host proposal
     // ids a draft waits on (#64). Stored before accept so the accept transaction
     // resolves each id to a ticket or a still-pending proposal. A constant
-    // `'[]'` default is allowed in ADD COLUMN and is honest for every pre-v72
+    // `'[]'` default is allowed in ADD COLUMN and is honest for every pre-v73
     // row: none carried a structured dependency. The guard reads the CURRENT
     // columns, so a fresh DB (schema.sql already carries it) is a no-op.
-    const proposalCols72 = tableColumns(db, 'planning_proposals');
-    if (proposalCols72.size > 0 && !proposalCols72.has('depends_on')) {
+    const proposalCols73 = tableColumns(db, 'planning_proposals');
+    if (proposalCols73.size > 0 && !proposalCols73.has('depends_on')) {
       db.exec("ALTER TABLE planning_proposals ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
     }
   }
 
-  if (current < 73) {
-    // v73: `planning_proposals.depends_dropped` — the ids pruned from a pending
+  if (current < 74) {
+    // v74: `planning_proposals.depends_dropped` — the ids pruned from a pending
     // draft's `depends_on` because their target was discarded, so the sidebar can
     // warn on the card instead of silently losing the edge (#64). A constant
-    // `'[]'` default is honest for every pre-v73 row (none tracked it). The guard
+    // `'[]'` default is honest for every pre-v74 row (none tracked it). The guard
     // reads the CURRENT columns, so a fresh DB is a no-op.
-    const proposalCols73 = tableColumns(db, 'planning_proposals');
-    if (proposalCols73.size > 0 && !proposalCols73.has('depends_dropped')) {
+    const proposalCols74 = tableColumns(db, 'planning_proposals');
+    if (proposalCols74.size > 0 && !proposalCols74.has('depends_dropped')) {
       db.exec("ALTER TABLE planning_proposals ADD COLUMN depends_dropped TEXT NOT NULL DEFAULT '[]'");
     }
   }

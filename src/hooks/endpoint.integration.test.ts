@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, getTicket, getTicketByKey } from '../store/tickets.js';
+import { upsertProject } from '../store/projects.js';
+import { createTicket, getTicket, getTicketByKey, setAgentState } from '../store/tickets.js';
+import { postMessage } from '../store/ticketMessages.js';
+import { makeMailDeliveryWiring } from '../extension/ops/mailDeliveryWiring.js';
 import {
   parseHookRequestTarget,
   startHookEndpoint,
@@ -405,6 +408,304 @@ describe('startHookEndpoint', () => {
         socket.on('timeout', () => { socket.destroy(); resolve(); });
       }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('mail reply channel', () => {
+  let store: Store;
+  let ep: HookEndpoint;
+  const WT = '/repo/.karst/worktrees/x';
+
+  beforeEach(async () => {
+    store = openStore(':memory:');
+  });
+  afterEach(async () => {
+    await ep?.close();
+    store.close();
+  });
+
+  function ticketAt(): number {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, 'app', ?, 'karst/x', 'main', 'inherited')`,
+      )
+      .run(t.id, WT);
+    return t.id;
+  }
+
+  async function postBody(url: string, body: unknown): Promise<{ status: number; json: unknown }> {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const text = await res.text();
+    let json: unknown = null;
+    try {
+      json = text === '' ? null : JSON.parse(text);
+    } catch {
+      json = text;
+    }
+    return { status: res.status, json };
+  }
+
+  it('answers an admitted Stop with the hook-protocol JSON body', async () => {
+    const id = ticketAt();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: ({ ticketId, event }) =>
+        event === 'Stop' ? { decision: 'block', reason: `karst: 1 new message(s) (#${ticketId})` } : null,
+    });
+    const { status, json } = await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(200);
+    expect(json).toEqual({ decision: 'block', reason: `karst: 1 new message(s) (#${id})` });
+  });
+
+  it('answers opencode session.idle too', async () => {
+    ticketAt();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: () => ({ decision: 'block', reason: 'karst: 1 new message(s)' }),
+    });
+    const { status, json } = await postBody(ep.url, {
+      hook_event_name: 'session.idle',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(200);
+    expect(json).toEqual({ decision: 'block', reason: 'karst: 1 new message(s)' });
+  });
+
+  it('returns 204 when the reply callback declines', async () => {
+    ticketAt();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: () => null,
+    });
+    const { status, json } = await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(204);
+    expect(json).toBeNull();
+  });
+
+  it('never replies to a stale generation (the admitted barrier gates it)', async () => {
+    ticketAt();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, () => false, undefined, {
+      hookReply: () => ({ decision: 'block', reason: 'karst: 1 new message(s)' }),
+    });
+    const { status } = await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(204);
+  });
+
+  it('never replies for an unknown worktree', async () => {
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: () => ({ decision: 'block', reason: 'karst: 1 new message(s)' }),
+    });
+    const { status } = await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: '/elsewhere',
+      session_id: 's1',
+    });
+    expect(status).toBe(204);
+  });
+
+  it('fails open when the reply callback throws', async () => {
+    ticketAt();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: () => {
+        throw new Error('reply defect');
+      },
+    });
+    const { status } = await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(204);
+  });
+
+  it('passes the URL-authenticated launch generation to the reply callback', async () => {
+    ticketAt();
+    let seen: string | undefined;
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: ({ launchId }) => {
+        seen = launchId;
+        return null;
+      },
+    });
+    const launchId = '123e4567-e89b-42d3-a456-426614174000';
+    await postBody(`${ep.url}?karstLaunch=${launchId}`, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(seen).toBe(launchId);
+  });
+
+  it('forwards stop_hook_active to the reply callback', async () => {
+    ticketAt();
+    let seen: boolean | undefined;
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      hookReply: ({ stopHookActive }) => {
+        seen = stopHookActive;
+        return null;
+      },
+    });
+    await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+      stop_hook_active: true,
+    });
+    expect(seen).toBe(true);
+  });
+
+  it('tops up the unread cache for the admitted ticket BEFORE the reply', async () => {
+    const id = ticketAt();
+    const order: string[] = [];
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      refreshUnread: (ticketId) => order.push(`refresh:${ticketId}`),
+      hookReply: ({ ticketId }) => {
+        order.push(`reply:${ticketId}`);
+        return { decision: 'block', reason: 'karst: 1 new message(s)' };
+      },
+    });
+    const { status } = await postBody(ep.url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(200);
+    expect(order).toEqual([`refresh:${id}`, `reply:${id}`]);
+  });
+
+  it('does not top up the unread cache for a non-turn-end event', async () => {
+    ticketAt();
+    let refreshed = 0;
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      refreshUnread: () => {
+        refreshed += 1;
+      },
+      hookReply: () => null,
+    });
+    await postBody(ep.url, {
+      hook_event_name: 'SessionStart',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(refreshed).toBe(0);
+  });
+
+  // A wiring bound to a running recipient at WT with one unread message.
+  function mailWiring(): {
+    mailbox: ReturnType<typeof makeMailDeliveryWiring>;
+    id: number;
+    nudges: string[];
+  } {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const id = ticketAt();
+    setAgentState(store, id, 'running');
+    const nudges: string[] = [];
+    const mailbox = makeMailDeliveryWiring({
+      store,
+      projectId: () => projectId,
+      isLive: () => true,
+      isGraphTicket: () => false,
+      integrating: () => false,
+      wake: () => {},
+      now: () => Date.now(),
+      debug: () => {},
+      warn: () => {},
+      graphOwned: () => false,
+      agyBusy: () => false,
+      nudge: (_id, line) => {
+        nudges.push(line);
+        return true;
+      },
+      sessionCliEnv: () => undefined,
+      sessionProvider: () => 'claude',
+      literal: () => ({ cli: '/c.js', db: '/d.db' }),
+      isCurrentHook: () => true,
+    });
+    postMessage(store, { projectId, fromTicketId: null, toTicketId: id, kind: 'message', body: 'hi' });
+    return { mailbox, id, nudges };
+  }
+
+  const LAUNCH = '11111111-1111-4111-8111-111111111111';
+
+  it('a Stop block confirmed by the bridge ACK marks the batch pushed (no duplicate)', async () => {
+    const { mailbox, id, nudges } = mailWiring();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, () => 'claude', {
+      hookReply: mailbox.hookReply,
+      refreshUnread: mailbox.refreshUnread,
+      onReplyDelivered: mailbox.onReplyDelivered,
+    });
+    const url = `${ep.url}?karstLaunch=${LAUNCH}`;
+    // Mid-turn: the sweep arms the push (nothing typed).
+    expect(mailbox.sweep.sweep().delivered).toEqual([]);
+    const { status, json } = await postBody(url, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(200);
+    expect(json).toMatchObject({ decision: 'block' });
+    // The bridge prints the block, then POSTs the positive ACK.
+    const ack = await postBody(url, {
+      hook_event_name: 'MailReplyAck',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(ack.status).toBe(204);
+    setAgentState(store, id, 'idle');
+    // The next sweep must NOT type a second copy of the same batch.
+    expect(mailbox.sweep.sweep().delivered).toEqual([]);
+    expect(nudges).toEqual([]);
+  });
+
+  it('a Stop block with no ACK (a lost reply) keeps the typed fallback', async () => {
+    const { mailbox, id, nudges } = mailWiring();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, () => 'claude', {
+      hookReply: mailbox.hookReply,
+      refreshUnread: mailbox.refreshUnread,
+      onReplyDelivered: mailbox.onReplyDelivered,
+    });
+    expect(mailbox.sweep.sweep().delivered).toEqual([]);
+    const { status } = await postBody(`${ep.url}?karstLaunch=${LAUNCH}`, {
+      hook_event_name: 'Stop',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(status).toBe(200);
+    // No ACK: the bridge timed out and never received the block.
+    setAgentState(store, id, 'idle');
+    expect(mailbox.sweep.sweep().delivered).toEqual([id]);
+    expect(nudges).toHaveLength(1);
+  });
+
+  it('an ACK for an unknown launch confirms nothing', async () => {
+    const delivered: number[] = [];
+    ticketAt();
+    ep = await startHookEndpoint(store, 0, undefined, undefined, undefined, undefined, {
+      onReplyDelivered: (ticketId) => delivered.push(ticketId),
+    });
+    const ack = await postBody(`${ep.url}?karstLaunch=${LAUNCH}`, {
+      hook_event_name: 'MailReplyAck',
+      cwd: WT,
+      session_id: 's1',
+    });
+    expect(ack.status).toBe(204);
+    expect(delivered).toEqual([]);
   });
 });
 
