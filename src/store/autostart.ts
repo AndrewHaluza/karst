@@ -36,7 +36,7 @@ export interface AutostartCaps {
 
 /**
  * Claim a queued sub-task for starting: 1 → 2 with `claimed_at`, in one
- * statement whose WHERE re-checks both caps against the live rows. Returns
+ * statement whose WHERE re-checks both caps and blocks against the live rows. Returns
  * whether THIS caller won (exactly one caller can).
  */
 export function claimAutostart(store: Store, ticketId: number, caps: AutostartCaps): boolean {
@@ -47,6 +47,12 @@ export function claimAutostart(store: Store, ticketId: number, caps: AutostartCa
               autostart_claimed_at = datetime('now'), updated_at = datetime('now')
         WHERE id = @id AND autostart_pending = ${AUTOSTART_QUEUED}
           AND stage_current = 'scope' AND archived_at IS NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ticket_relations r
+            LEFT JOIN tickets t ON t.id = r.target_ticket_id
+            WHERE r.ticket_id = @id AND r.kind = 'blocked-by'
+              AND (r.target_ticket_id IS NULL OR (t.stage_current IS NOT 'done' AND t.archived_at IS NULL))
+          )
           AND (@perParent <= 0 OR (SELECT COUNT(*) FROM tickets s
                 WHERE s.subtask_parent_id = tickets.subtask_parent_id AND ${HOLDS_SLOT_SQL}) < @perParent)
           AND (@total <= 0 OR (SELECT COUNT(*) FROM tickets s

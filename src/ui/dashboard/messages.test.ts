@@ -31,6 +31,7 @@ function actions(): DashboardActions {
     copyPrUrl: vi.fn(),
     openTicketLink: vi.fn(),
     editTicket: vi.fn(),
+    openDependency: vi.fn(),
     stopDriver: vi.fn(),
     shipTicket: vi.fn(),
     resumeTicket: vi.fn(),

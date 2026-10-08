@@ -261,7 +261,7 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
     expect(d.startTicket).toHaveBeenCalledTimes(1);
     expect(d.startTicket).toHaveBeenCalledWith(b, { pullBase: false, quiet: true });
     expect(lines(d)).toContain(
-      `[driver] autostart #${a}: not claimed (claimed elsewhere or cap reached) — skipping`,
+      `[driver] autostart #${a}: not claimed (blocked, raced, or capped) — skipping`,
     );
     expect(lines(d)).toContain('[driver] autostart: started 1/2');
   });

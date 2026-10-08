@@ -4,8 +4,9 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { upsertProject } from './projects.js';
-import { createTicket, findTicketById, setStageCurrent } from './tickets.js';
+import { createTicket, findTicketById, setStageCurrent, updateTicketFields } from './tickets.js';
 import { setStage } from './stages.js';
+import { addRelation } from './ticketRelations.js';
 import {
   claimAutostart,
   queueAutostart,
@@ -163,6 +164,43 @@ describe('setStage clears autostart when scope passes', () => {
     const id = child();
     setStage(store, id, 'scope', { status: 'running' });
     setStage(store, id, 'impl', { status: 'passed' });
+    expect(pending(store, id)).toBe(1);
+  });
+});
+
+describe('blocked tickets', () => {
+  it('queueAutostart queues a blocked sub-task', () => {
+    const blocker = createTicket(store, { key: 'B', title: 'b', projectId }).id;
+    updateTicketFields(store, blocker, { sourceRef: 'B-1' });
+    const id = child(store, parentId, false);
+    updateTicketFields(store, id, { sourceRef: 'C-1' });
+    addRelation(store, { ticketId: id, kind: 'blocked-by', targetTicketId: blocker, source: 'user' });
+
+    expect(queueAutostart(store, id)).toBe(true);
+    expect(pending(store, id)).toBe(1);
+  });
+
+  it('claimAutostart refuses a blocked sub-task but claims it after the blocker is done', () => {
+    const blocker = createTicket(store, { key: 'B', title: 'b', projectId }).id;
+    updateTicketFields(store, blocker, { sourceRef: 'B-1' });
+    const id = child();
+    updateTicketFields(store, id, { sourceRef: 'C-1' });
+    addRelation(store, { ticketId: id, kind: 'blocked-by', targetTicketId: blocker, source: 'user' });
+
+    expect(claimAutostart(store, id, CAPS)).toBe(false);
+    expect(pending(store, id)).toBe(1);
+
+    setStageCurrent(store, blocker, 'done');
+    expect(claimAutostart(store, id, CAPS)).toBe(true);
+    expect(pending(store, id)).toBe(2);
+  });
+
+  it('claimAutostart refuses a blocked sub-task with an unresolved ref', () => {
+    const id = child();
+    updateTicketFields(store, id, { sourceRef: 'C-1' });
+    addRelation(store, { ticketId: id, kind: 'blocked-by', targetRef: 'CU-GHOST', source: 'user' });
+
+    expect(claimAutostart(store, id, CAPS)).toBe(false);
     expect(pending(store, id)).toBe(1);
   });
 });

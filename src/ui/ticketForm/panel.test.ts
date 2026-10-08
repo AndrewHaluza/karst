@@ -107,6 +107,8 @@ function recordingFactory(
       openAttachment: async () => {},
       openTicketLink: () => {},
       createProviderTicket: () => {},
+      retryRelationWriteback: () => {},
+      openDependency: () => {},
       submit: () => {},
       save: () => {},
       requestState: () => ctx.pushState(),

@@ -119,6 +119,8 @@ export interface DashboardState {
    * still offers the action.
    */
   subtasks: DashboardSubtaskRow[];
+  /** Open or unresolved blocked-by targets, shown as dependency chips. */
+  blockers: { ticketId: number | null; label: string; done?: boolean }[];
   /**
    * `n/m done` over `subtasks`, by their stored `stage_current` (design §8).
    * `0/0` when there are none — rendered as absence, not "0".

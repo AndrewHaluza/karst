@@ -33,6 +33,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
+import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
 export interface SidebarWorktree extends WorktreeView {
@@ -256,6 +257,7 @@ export function buildSidebarState(
       opts.defaultProvider,
       parentKeys,
       agentDefaults,
+      listOpenBlockersFor(store, tickets.map((t) => t.id)),
     );
     const rows = tickets.map((t, i) => {
       const node = nodes[i]!;

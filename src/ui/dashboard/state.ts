@@ -55,6 +55,7 @@ import { buildAgentState } from './stateAgent.js';
 import { buildDashboardRows } from './stateRows.js';
 import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './stateInside.js';
 import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
+import { listOpenBlockers } from '../../store/ticketRelations.js';
 
 export type {
   DashboardAgentContext,
@@ -237,6 +238,7 @@ export function buildDashboardState(
   // and the alternative — a second stage-status derivation — would drift from
   // the one `stageBadge` every other surface paints with.
   const subtaskList = listSubtasks(store, ticketId);
+  const blockers = listOpenBlockers(store, ticketId).map((b) => ({ ticketId: b.targetTicketId, label: b.label }));
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
     const child = getTicket(store, s.id);
     const badge = stageBadge(child);
@@ -657,6 +659,7 @@ export function buildDashboardState(
     parent,
     subtaskParent,
     subtasks,
+    blockers,
     subtaskProgress: subtaskProgress(subtaskList),
     canAddSubtask: canAddSubtask(ticket),
     canDetachSubtask: canDetachSubtask(ticket, subtaskList.length),

@@ -114,6 +114,8 @@ export type TicketFormMessage =
   // Edit-mode button: create the provider task for a ticket with no source_ref
   // yet and bind it (the create-mode checkbox rides `submit`/`save` instead).
   | { type: 'create-provider-ticket' }
+  | { type: 'retry-relation-writeback'; relationId: number }
+  | { type: 'open-dependency'; ticketId: number }
   | ({ type: 'submit' } & TicketDraftFields & { pullBase: boolean })
   // Persists the ticket like `submit`, but never calls startTicket — no
   // worktrees, no agent launch. The "save without a run" path.
@@ -223,6 +225,8 @@ export interface TicketFormActions {
    * `provider-ticket-created` or `provider-ticket-error` and stays retryable.
    */
   createProviderTicket: () => void | Promise<void>;
+  openDependency: (ticketId: number) => void | Promise<void>;
+  retryRelationWriteback: (relationId: number) => void | Promise<void>;
   submit: (input: SubmitFields) => void | Promise<void>;
   save: (input: TicketDraftFields) => void | Promise<void>;
   requestState: () => void | Promise<void>;
@@ -417,6 +421,10 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       return isHttpUrl(m.url) ? { type: 'open-ticket-link', url: m.url } : null;
     case 'create-provider-ticket':
       return { type: 'create-provider-ticket' };
+    case 'retry-relation-writeback':
+      return isRowId(m.relationId) ? { type: 'retry-relation-writeback', relationId: m.relationId } : null;
+    case 'open-dependency':
+      return isRowId(m.ticketId) ? { type: 'open-dependency', ticketId: m.ticketId } : null;
     case 'submit': {
       const fields = parseDraftFields(m);
       // Default ON: only an explicit `false` opts out. An absent or non-boolean
@@ -508,6 +516,12 @@ export function routeTicketFormAction(
     case 'create-provider-ticket':
       // Fire-and-forget: the action self-reports via busy/provider-ticket-* posts.
       void actions.createProviderTicket();
+      return;
+    case 'retry-relation-writeback':
+      void actions.retryRelationWriteback(msg.relationId);
+      return;
+    case 'open-dependency':
+      void actions.openDependency(msg.ticketId);
       return;
     case 'submit':
       // Fire-and-forget: `submit` reports its own outcome to the page (busy /

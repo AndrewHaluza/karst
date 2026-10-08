@@ -771,6 +771,7 @@
       : `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`;
     const rowContent = glyphHtml
       + `<span class="name">${esc(row.label)}</span>`
+      + ((row.blockedBy || []).length ? `<span class="k-chip" title="Blocked by ${(row.blockedBy || []).map(esc).join(', ')}">Blocked by ${(row.blockedBy || []).map(esc).join(', ')}</span>` : '')
       + (row.subtaskParentKey
         ? `<span class="parentref subtaskref" title="Sub-task of ${esc(row.subtaskParentKey)}">⊂ ${esc(row.subtaskParentKey)}</span>`
         : (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : ''))

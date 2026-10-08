@@ -20,6 +20,7 @@ import {
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
 import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
+import { buildBlockerLabel, list as listRelationViews, listRelations, listPendingWritebacks } from '../../store/ticketRelations.js';
 
 /**
  * Serializable state for the ticket form (§ ticket form). One surface serves
@@ -205,6 +206,8 @@ export interface TicketFormState {
   stepper: StepperCell[];
   /** Prompt attachments, oldest first. Empty in create mode (no ticket yet). */
   attachments: AttachmentView[];
+  relations?: { id: number; kind: string; ticketId: number | null; label: string; writebackError: string | null }[];
+  failedWritebacks?: number[];
 }
 
 /**
@@ -379,6 +382,8 @@ export function buildTicketFormState(
       sessionOpen: false, // create mode has no ticket → nothing to lock
       stepper: [], // no ticket yet → no workflow to show
       attachments: [],
+      relations: [],
+      failedWritebacks: [],
     };
   }
 
@@ -446,5 +451,15 @@ export function buildTicketFormState(
             byteSize: a.byteSize,
             src: attachmentPath(storageDir, ticketId, a.storedName),
           })),
+    relations: listRelationViews(store, ticketId).map((r) => {
+      let key = '';
+      if (r.targetTicketId !== null) {
+        try { key = getTicket(store, r.targetTicketId).key ?? ''; } catch { key = ''; }
+      }
+      const label = buildBlockerLabel(r.targetTicketId, key, r.targetRef, r.targetProposalId);
+      const stored = listRelations(store, r.derived && r.targetTicketId !== null ? r.targetTicketId : ticketId).find((x) => x.id === r.id);
+      return { id: r.id, kind: r.kind, ticketId: r.targetTicketId, label, writebackError: stored?.writebackError ?? null };
+    }),
+    failedWritebacks: listPendingWritebacks(store, ticketId).filter((r) => r.writebackState === 'failed').map((r) => r.id),
   };
 }

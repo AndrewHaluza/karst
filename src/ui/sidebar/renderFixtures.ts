@@ -210,6 +210,7 @@ function subtasksState(): SidebarState {
           subtaskParentKey: 'FEAT-100',
           subtaskDepth: 1,
           subtaskChildCount: 1,
+          blockedBy: ['BLOCK-7'],
         }),
         fixtureRow(2, {
           label: 'FEAT-100-s1-s1',
