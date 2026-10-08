@@ -512,4 +512,34 @@ describe('planning outbox', () => {
     make().scan();
     expect(warns.join()).toContain('repositories cannot be checked (no manifest)');
   });
+
+  it('ingests dependsOn naming a pending proposal of the same session', () => {
+    const a = insertProposal(store, sessionId, good);
+    put(`${UUID(1)}.json`, { ...good, title: 'dependent', dependsOn: [a] });
+    make().scan();
+    const dependent = pending().find((p) => p.id !== a)!;
+    expect(dependent.payload.dependsOn).toEqual([a]);
+    expect(warns).toEqual([]);
+  });
+
+  it('rejects dependsOn of another session, a discarded proposal, and a cycle, writing nothing', () => {
+    const other = createPlanningSession(store, { projectId, title: 'other', core: 'claude', model: null }).id;
+    const foreign = insertProposal(store, other, good);
+    const discarded = insertProposal(store, sessionId, good);
+    discardProposal(store, discarded);
+    const a = insertProposal(store, sessionId, good);
+    const b = insertProposal(store, sessionId, { ...good, title: 'b', dependsOn: [a] });
+
+    put(`${UUID(1)}.json`, { ...good, title: 'foreign dep', dependsOn: [foreign] });
+    put(`${UUID(2)}.json`, { ...good, title: 'dead dep', dependsOn: [discarded] });
+    // Revising `a` to wait on `b` closes the cycle a→b→a.
+    put(`${UUID(3)}.json`, { ...good, id: a, title: 'cycle', dependsOn: [b] });
+    make().scan();
+
+    expect(warns.join()).toMatch(/not a proposal of this session/);
+    expect(warns.join()).toMatch(/discarded/);
+    expect(warns.join()).toMatch(/cycle/);
+    expect(getProposal(store, a)!.payload.dependsOn ?? []).toEqual([]);
+    expect(readdirSync(outbox)).toEqual([]);
+  });
 });

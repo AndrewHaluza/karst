@@ -14,8 +14,11 @@ import {
   countPending,
   markProposalAccepted,
   proposalPayloadEquals,
+  validateProposalDependsOn,
   type ProposalPayload,
 } from './planningProposals.js';
+import { listRelations } from './ticketRelations.js';
+import { listInbox } from './ticketMessages.js';
 
 const payload: ProposalPayload = { title: 'Fix auth', description: 'desc', summary: 'sum', repos: ['api'] };
 
@@ -121,7 +124,9 @@ describe('planning proposals', () => {
     raw.exec(
       `CREATE TABLE planning_proposals (
          id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
-         payload_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+         payload_json TEXT NOT NULL, depends_on TEXT NOT NULL DEFAULT '[]',
+         depends_dropped TEXT NOT NULL DEFAULT '[]',
+         status TEXT NOT NULL DEFAULT 'pending',
          ticket_id INTEGER, source_uuid TEXT NOT NULL DEFAULT '',
          created_at TEXT NOT NULL DEFAULT (datetime('now')),
          updated_at TEXT, resolved_at TEXT)`,
@@ -163,5 +168,115 @@ describe('planning proposals', () => {
     const saved = getTicket(store, t.id)!;
     expect(saved.brief).toBe('user wrote this');
     expect(saved.source).toBe('planning');
+  });
+
+  it('stores dependsOn and replaces (or clears) it on revise', () => {
+    const id = insertProposal(store, sessionId, { ...payload, dependsOn: [3, 1] });
+    expect(getProposal(store, id)!.payload.dependsOn).toEqual([3, 1]);
+    updateProposalPayload(store, id, { ...payload, dependsOn: [5] });
+    expect(getProposal(store, id)!.payload.dependsOn).toEqual([5]);
+    updateProposalPayload(store, id, { ...payload });
+    expect(getProposal(store, id)!.payload.dependsOn ?? []).toEqual([]);
+  });
+
+  it('proposalPayloadEquals compares dependsOn', () => {
+    expect(proposalPayloadEquals({ ...payload, dependsOn: [] }, payload)).toBe(true);
+    expect(proposalPayloadEquals({ ...payload, dependsOn: [1] }, { ...payload, dependsOn: [1] })).toBe(true);
+    expect(proposalPayloadEquals({ ...payload, dependsOn: [1] }, { ...payload, dependsOn: [2] })).toBe(false);
+  });
+
+  it('validateProposalDependsOn rejects unknown, foreign and discarded ids, and cycles', () => {
+    const a = insertProposal(store, sessionId, payload);
+    const other = createPlanningSession(store, { projectId, title: 'o2', core: 'claude', model: null }).id;
+    const foreign = insertProposal(store, other, payload);
+    const gone = insertProposal(store, sessionId, payload);
+    discardProposal(store, gone);
+
+    expect(validateProposalDependsOn(store, sessionId, undefined, [a])).toBeUndefined();
+    expect(validateProposalDependsOn(store, sessionId, undefined, [999])).toMatch(/not a proposal of this session/);
+    expect(validateProposalDependsOn(store, sessionId, undefined, [foreign])).toMatch(/not a proposal of this session/);
+    expect(validateProposalDependsOn(store, sessionId, undefined, [gone])).toMatch(/discarded/);
+
+    // b waits on a; revising a to wait on b would close a→b→a.
+    const b = insertProposal(store, sessionId, { ...payload, dependsOn: [a] });
+    expect(validateProposalDependsOn(store, sessionId, undefined, [b])).toBeUndefined();
+    expect(validateProposalDependsOn(store, sessionId, a, [b])).toMatch(/cycle/);
+  });
+
+  it('accept resolves a dependency to a proposal link regardless of accept order', () => {
+    const p1 = insertProposal(store, sessionId, payload);
+    const p2 = insertProposal(store, sessionId, { ...payload, title: 'p2', dependsOn: [p1] });
+    const t1 = createTicket(store, { key: 'K1', title: 't1', projectId }).id;
+    const t2 = createTicket(store, { key: 'K2', title: 't2', projectId }).id;
+
+    // The dependent is accepted FIRST, while its prerequisite is still pending.
+    markProposalAccepted(store, p2, t2);
+    let rel = listRelations(store, t2).filter((r) => r.kind === 'blocked-by');
+    expect(rel).toHaveLength(1);
+    expect(rel[0]).toMatchObject({ targetTicketId: null, targetProposalId: p1, source: 'agent' });
+
+    // Accepting the prerequisite converts the pending link to a ticket link.
+    markProposalAccepted(store, p1, t1);
+    rel = listRelations(store, t2).filter((r) => r.kind === 'blocked-by');
+    expect(rel).toHaveLength(1);
+    expect(rel[0]).toMatchObject({ targetTicketId: t1, targetProposalId: null, source: 'agent' });
+  });
+
+  it('accept links the ticket directly when the prerequisite is accepted first', () => {
+    const p1 = insertProposal(store, sessionId, payload);
+    const p2 = insertProposal(store, sessionId, { ...payload, title: 'p2', dependsOn: [p1] });
+    const t1 = createTicket(store, { key: 'K1', title: 't1', projectId }).id;
+    const t2 = createTicket(store, { key: 'K2', title: 't2', projectId }).id;
+    markProposalAccepted(store, p1, t1);
+    markProposalAccepted(store, p2, t2);
+    const rel = listRelations(store, t2).filter((r) => r.kind === 'blocked-by');
+    expect(rel).toHaveLength(1);
+    expect(rel[0]).toMatchObject({ targetTicketId: t1, targetProposalId: null, source: 'agent' });
+  });
+
+  it('promotes a converted dependency to a pending provider write-back once both tickets are bound', () => {
+    const p1 = insertProposal(store, sessionId, payload);
+    const p2 = insertProposal(store, sessionId, { ...payload, title: 'p2', dependsOn: [p1] });
+    const t1 = createTicket(store, { key: 'K1', title: 't1', projectId }).id;
+    const t2 = createTicket(store, { key: 'K2', title: 't2', projectId }).id;
+    updateTicketFields(store, t1, { sourceRef: 'CU-1' });
+    updateTicketFields(store, t2, { sourceRef: 'CU-2' });
+
+    markProposalAccepted(store, p2, t2); // p1 pending → a proposal link, not yet writable
+    markProposalAccepted(store, p1, t1); // converts to a ticket link and arms the write-back
+
+    const rel = listRelations(store, t2).find((r) => r.kind === 'blocked-by')!;
+    expect(rel).toMatchObject({ targetTicketId: t1, targetProposalId: null, writebackState: 'pending' });
+  });
+
+  it('discard deletes rows targeting the proposal, warns dependents, and prunes every depends_on', () => {
+    const p1 = insertProposal(store, sessionId, payload);
+    const p2 = insertProposal(store, sessionId, { ...payload, title: 'p2', dependsOn: [p1] });
+    const p3 = insertProposal(store, sessionId, { ...payload, title: 'p3', dependsOn: [p1] });
+    const t2 = createTicket(store, { key: 'K2', title: 't2', projectId }).id;
+    markProposalAccepted(store, p2, t2);
+    expect(listRelations(store, t2).filter((r) => r.kind === 'blocked-by')).toHaveLength(1);
+
+    const pruned = discardProposal(store, p1);
+
+    expect(pruned).toEqual([p3]);
+    expect(listRelations(store, t2)).toEqual([]);
+    const inbox = listInbox(store, t2, { unreadOnly: false });
+    expect(inbox.some((m) => m.kind === 'event' && m.body.includes(`#${p1}`))).toBe(true);
+    // The still-pending dependent loses the edge and records it for the card warning.
+    expect(getProposal(store, p3)!.payload.dependsOn ?? []).toEqual([]);
+    expect(getProposal(store, p3)!.droppedDepends).toEqual([p1]);
+    // The accepted dependent stops advertising a draft that no longer exists.
+    expect(getProposal(store, p2)!.payload.dependsOn ?? []).toEqual([]);
+    expect(getProposal(store, p2)!.droppedDepends).toEqual([]);
+  });
+
+  it('a revision clears the dropped-dependency warning', () => {
+    const p1 = insertProposal(store, sessionId, payload);
+    const p2 = insertProposal(store, sessionId, { ...payload, title: 'p2', dependsOn: [p1] });
+    discardProposal(store, p1);
+    expect(getProposal(store, p2)!.droppedDepends).toEqual([p1]);
+    updateProposalPayload(store, p2, { ...payload, title: 'p2', dependsOn: [] });
+    expect(getProposal(store, p2)!.droppedDepends).toEqual([]);
   });
 });

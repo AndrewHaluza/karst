@@ -350,6 +350,8 @@
   .pt-icon{flex:none}
   .pt-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .pt-count{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .pt-deps{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-mono)}
+  .pt-deps--warn{color:var(--k-attention)}
   .pt-actions{display:none;flex:none;align-items:center;gap:var(--k-space-1)}
   .pt-actions .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   .pt-row:hover .pt-actions,.pt-row:focus-within .pt-actions,
@@ -980,6 +982,23 @@
   // shown before the title. Pending ones carry Approve (the prefilled ticket
   // form) / Discard; accepted ones stay, struck through, linked to the ticket
   // they became.
+  function planDeps(d) {
+    const deps = (d.dependsOn || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    if (!deps.length) return '';
+    const text = 'depends on ' + deps.map((n) => '#' + n).join(', ');
+    return `<span class="pt-deps" title="${esc(text)}">${esc(text)}</span>`;
+  }
+
+  // A dependency the host pruned because its target was discarded: the card
+  // must show the edge was lost, not fall silent (criterion 5). Pending only.
+  function planDropped(d) {
+    const dropped = (d.droppedDepends || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    if (!dropped.length) return '';
+    const ids = dropped.map((n) => '#' + n).join(', ');
+    const text = ids + (dropped.length === 1 ? ' was discarded' : ' were discarded');
+    return `<span class="pt-deps pt-deps--warn" title="${esc(text)}">${esc(text)}</span>`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -992,6 +1011,7 @@
         + `<div class="pt-row" title="${label}">`
         + karstIcon('circle-check', 14, 'pt-icon pt-c-passed')
         + `<span class="pt-label">#${id} ${t}</span>`
+        + planDeps(d)
         + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket #${tid}" aria-label="Open ticket #${tid}" title="Open ticket #${tid}">#${tid}</button>` : '')
         + `</div></div>`;
     }
@@ -1000,6 +1020,8 @@
       + `<div class="pt-row" title="${label}">`
       + karstIcon('file-text', 14, 'pt-icon pt-c-attention')
       + `<span class="pt-label">#${id} ${t}</span>`
+      + planDeps(d)
+      + planDropped(d)
       + `<span class="pt-actions">`
       + planBtn(`data-act="plan-proposal-review" data-proposal="${id}"`, 'Approve', `Approve draft: ${t}`, ic.check)
       + planBtn(`data-act="plan-proposal-discard" data-proposal="${id}"`, 'Discard', `Discard draft: ${t}`, ic.x)

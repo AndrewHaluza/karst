@@ -55,6 +55,8 @@ const strArray: JsonSchema = { type: 'array', items: str };
  * therefore may not contain a comma: `["a,b"]` would round-trip as two values.
  */
 const csvArray: JsonSchema = { type: 'array', items: { type: 'string', pattern: '^[^,]*$' } };
+/** Host proposal ids a draft waits on; `draft propose` takes them in its JSON. */
+const proposalIdArray: JsonSchema = { type: 'array', items: { type: 'integer', minimum: 1 } };
 
 function obj(
   properties: Readonly<Record<string, JsonSchema>>,
@@ -270,6 +272,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         summary: str,
         repos: csvArray,
         id: { type: 'integer', minimum: 1 },
+        dependsOn: proposalIdArray,
       },
       ['title', 'description', 'summary', 'repos'],
     ),

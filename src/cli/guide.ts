@@ -113,7 +113,11 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     exists yet: karst shows the user the full proposal and they confirm (or
     discard) it. The summary holds the decisions reached and the options
     rejected; it becomes the ticket's brief. Propose once per ticket when the
-    work splits. On success it prints \`{"ok":true,"file":…,"id":N}\` — the draft's #id;
+    work splits. When one draft waits on another, add \`"dependsOn":[N,…]\` —
+    the host ids already assigned to the drafts it needs (the #N each propose
+    prints and \`draft list\` shows), up to 32, of THIS session; the ordering
+    becomes blocked-by links when those drafts become tickets. Do NOT describe
+    ordering in prose. On success it prints \`{"ok":true,"file":…,"id":N}\` — the draft's #id;
     if the host has not answered within ~10s it prints \`{"ok":true,"file":…,"id":null}\` with
     a hint, and \`draft list\` will show the id once the host has ingested it.
     To REVISE a draft you already filed, add an integer \`id\` to the same JSON

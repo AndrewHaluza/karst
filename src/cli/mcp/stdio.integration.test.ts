@@ -37,6 +37,36 @@ function childEnv(outbox: string): Record<string, string> {
   return env;
 }
 
+/** One client spawn. On failure the child's piped stderr is folded into the error. */
+async function spawnClient(dbPath: string, outbox: string): Promise<{
+  client: Client;
+  transport: StdioClientTransport;
+}> {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [TSX_CLI, CLI_ENTRY, 'mcp', 'serve', '--db', dbPath, '--ticket', 'K-1'],
+    env: childEnv(outbox),
+    stderr: 'pipe',
+  });
+  // `stderr: 'pipe'` must be DRAINED or the child can block on a full pipe; it
+  // is also the only place a startup crash (a bad module, a missing file)
+  // shows up, so keep it for the error message.
+  let stderr = '';
+  transport.stderr?.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  const client = new Client({ name: 'karst-test-client', version: '1.0.0' }, { capabilities: {} });
+  try {
+    await client.connect(transport);
+  } catch (err) {
+    await client.close().catch(() => {});
+    await transport.close().catch(() => {});
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`karst mcp serve did not start: ${reason}${stderr ? `\n--- child stderr ---\n${stderr}` : ''}`);
+  }
+  return { client, transport };
+}
+
 describe('karst mcp serve over stdio', () => {
   let dir: string;
   let dbPath: string;
@@ -58,15 +88,21 @@ describe('karst mcp serve over stdio', () => {
     createTicket(extension, { key: 'K-1', title: 'mcp demo' });
     transition(extension, 1, 'scope', { kind: 'passed' }); // scope -> impl (running)
 
-    transport = new StdioClientTransport({
-      command: process.execPath,
-      args: [TSX_CLI, CLI_ENTRY, 'mcp', 'serve', '--db', dbPath, '--ticket', 'K-1'],
-      env: childEnv(outbox),
-      stderr: 'pipe',
-    });
-    client = new Client({ name: 'karst-test-client', version: '1.0.0' }, { capabilities: {} });
-    await client.connect(transport);
-  });
+    // Spawning a `tsx` child is the one step here that can fail transiently
+    // under the full parallel suite (a slow loader, a reaped process group).
+    // Retry a couple of times; the real reason is preserved if it never starts.
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        ({ client, transport } = await spawnClient(dbPath, outbox));
+        return;
+      } catch (err) {
+        lastError = err;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    throw lastError;
+  }, 120_000);
 
   afterAll(async () => {
     await client?.close();
