@@ -9,7 +9,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 import { subtaskAutostartPhase, type SubtaskAutostartPhase } from '../../model/subtask.js';
-import type { TicketRelation } from '../../store/ticketRelations.js';
+import type { BlockerView } from '../../store/ticketRelations.js';
 
 /** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
 export interface SidebarPr {
@@ -137,7 +137,7 @@ export function buildTicketNodes(
    * keeps its argument positions. Absent → the legacy `defaultProvider`.
    */
   agentDefaults?: (ticketPreset: string | null, ticketProvider: AgentProvider | null) => AgentDefaults,
-  blockersByTicket: Map<number, readonly TicketRelation[]> = new Map(),
+  blockersByTicket: Map<number, BlockerView[]> = new Map(),
 ): TicketNode[] {
   return tickets.map((t) => {
     const badge = stageBadge(t);
@@ -170,7 +170,7 @@ export function buildTicketNodes(
       subtaskDepth: 0,
       subtaskChildCount: 0,
       autostart: subtaskAutostartPhase(t),
-      blockedBy: (blockersByTicket.get(t.id) ?? []).map((r) => r.targetRef ?? (r.targetTicketId !== null ? (parentKeys.get(r.targetTicketId) ?? `#${r.targetTicketId}`) : 'unknown')),
+      blockedBy: (blockersByTicket.get(t.id) ?? []).map((b) => b.label),
       collapsible: true,
     };
   });

@@ -492,6 +492,16 @@ describe('ticketRelations', () => {
       expect(listOpenBlockers(store, a)).toHaveLength(0);
     });
 
+    it('labels a resolved target with no key as #id', () => {
+      const store = openStore(':memory:');
+      const a = ticket(store, 'A', 'CU-A');
+      const b = ticket(store, 'B');
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
+      store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(b);
+
+      expect(listOpenBlockers(store, a)[0]!.label).toBe(`#${b}`);
+    });
+
     it('filters out blockers that are archived', () => {
       const store = openStore(':memory:');
       const a = ticket(store, 'A', 'CU-A');

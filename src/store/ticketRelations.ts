@@ -481,7 +481,7 @@ export interface BlockerView {
   relationId: number;
   /** The resolved target ticket id, or null when unresolved or proposal-only. */
   targetTicketId: number | null;
-  /** Display label: 'key / ref' for resolved, 'ref' for dangling, '#N' for proposal-only. */
+  /** Display label: 'key / ref' for resolved, 'ref' for dangling, 'proposal #N' for proposal-only. */
   label: string;
 }
 
@@ -522,7 +522,7 @@ export function listOpenBlockers(store: Store, ticketId: number): BlockerView[] 
   return rows.map((row) => ({
     relationId: row.relationId,
     targetTicketId: row.targetTicketId,
-    label: buildBlockerLabel(row.targetKey, row.targetRef, row.targetProposalId),
+    label: buildBlockerLabel(row.targetTicketId, row.targetKey, row.targetRef, row.targetProposalId),
   }));
 }
 
@@ -572,7 +572,7 @@ export function listOpenBlockersFor(
       blockers.push({
         relationId: row.relationId,
         targetTicketId: row.targetTicketId,
-        label: buildBlockerLabel(row.targetKey, row.targetRef, row.targetProposalId),
+        label: buildBlockerLabel(row.targetTicketId, row.targetKey, row.targetRef, row.targetProposalId),
       });
     }
   }
@@ -582,11 +582,12 @@ export function listOpenBlockersFor(
 
 /** Build the display label for a blocker: 'key / ref', 'ref', or 'proposal #N'. */
 function buildBlockerLabel(
+  targetTicketId: number | null,
   targetKey: string,
   targetRef: string | null,
   targetProposalId: number | null,
 ): string {
-  const key = targetKey || null;
+  const key = targetKey || (targetTicketId !== null ? `#${targetTicketId}` : null);
   const ref = trimToNull(targetRef);
 
   if (key && ref && key !== ref) {

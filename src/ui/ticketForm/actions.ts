@@ -15,7 +15,7 @@ import {
   getTicketSourceRef,
   ingestBriefRelations,
   listPendingWritebacks,
-  listBlockers,
+  listOpenBlockers,
   markWriteback,
   resolveDanglingRefs,
   unresolveStaleRelations,
@@ -1233,15 +1233,9 @@ export function buildTicketFormActions(
         return;
       }
       let blockedOverride: string[] | null = null;
-      const blockers = listBlockers(deps.store, ticketId).filter((r) => {
-        if (r.targetTicketId === null) return true;
-        try { const target = getTicket(deps.store, r.targetTicketId); return target.stageCurrent !== 'done' && target.archivedAt === null; }
-        catch { return true; }
-      });
+      const blockers = listOpenBlockers(deps.store, ticketId);
       if (blockers.length) {
-        const labels = blockers.map((r) => r.targetTicketId === null
-          ? (r.targetRef ?? `proposal #${r.targetProposalId}`)
-          : (getTicket(deps.store, r.targetTicketId).key ?? `#${r.targetTicketId}`));
+        const labels = blockers.map((b) => b.label);
         if (!deps.confirmBlockedStart) {
           ctx.post({ type: 'error', message: 'Internal: confirmBlockedStart dialog not injected. This is a bug — please report it.' });
           ctx.pushState();
