@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import { subtaskStageEvent } from './stageEvents.js';
+import { blockerLandedEvents } from './blockerOutcome.js';
 import { clearAutostartOnScopePass } from './autostart.js';
 import { postMessage, type PostMessageInput } from './ticketMessages.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
@@ -132,6 +133,7 @@ export function setStage(
   exec(store, 'SAVEPOINT stage_write');
   try {
     const event = subtaskStageEvent(store, ticketId, stageKey, patch);
+    const dependentEvents = blockerLandedEvents(store, ticketId, stageKey, patch);
     store.db
       .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
       .run(...values, ticketId, stageKey);
@@ -139,6 +141,7 @@ export function setStage(
     // single place it is cleared, so a CLI start and a host start agree.
     if (stageKey === 'scope' && (patch.status === 'passed' || patch.status === 'bypassed')) clearAutostartOnScopePass(store, ticketId);
     if (event !== null) postEventBestEffort(store, event, opts.onEventError);
+    for (const e of dependentEvents) postEventBestEffort(store, e, opts.onEventError);
   } catch (err) {
     rollbackQuietly(store, 'stage_write');
     throw err;

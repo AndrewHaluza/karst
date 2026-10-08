@@ -18,6 +18,7 @@ import type { Store } from '../store/db.js';
 import type { StageKey } from '../model/types.js';
 import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
+import { landedBlockerOutcomes, renderBlockerOutcome, type BlockerOutcome } from '../store/blockerOutcome.js';
 import { unreadCount } from '../store/ticketMessages.js';
 import { NOTE_INDEX_TITLE_MAX, unreadNoteIndex } from '../store/bulletinNotes.js';
 import { getTicket, listSubtasks, type TicketWithStages } from '../store/tickets.js';
@@ -296,6 +297,8 @@ export interface TicketContext {
   inbox: TicketContextInbox;
   /** Unread project notes that match this ticket; read them with `karst notes`. */
   notes: TicketContextNotes;
+  /** Outcomes of this ticket's blockers that already landed (read-only). */
+  blockers: BlockerOutcome[];
   repos: TicketContextRepo[];
   /**
    * The ticket's CURRENT stage key — the stage a session is actually sitting
@@ -540,6 +543,7 @@ export function buildTicketContext(
     subtasks,
     inbox: { unread: unreadCount(store, ticketId) },
     notes: ticketNotes(store, ticketId),
+    blockers: landedBlockerOutcomes(store, ticketId),
     repos,
     stage,
   };
@@ -873,6 +877,13 @@ export function renderTicketContext(
 
   if (authored && ctx.notes.unread > 0) {
     parts.push(renderNotesSection(ctx));
+  }
+
+  // What the blockers that already landed delivered. Bounded per blocker (the
+  // mailbox cap) and quoted by the renderer; the rest is one `karst context` away.
+  if (authored && ctx.blockers.length > 0) {
+    const rows = ctx.blockers.map((b) => renderBlockerOutcome(b));
+    parts.push(`## Blockers\nThese blockers landed before you started.\n\n${rows.join('\n\n---\n\n')}`);
   }
 
   return parts.join('\n\n');

@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, updateTicketFields } from '../store/tickets.js';
+import { createTicket, setStageCurrent, updateTicketFields } from '../store/tickets.js';
+import { addRelation } from '../store/ticketRelations.js';
 import { listInbox, markRead, postMessage } from '../store/ticketMessages.js';
 import { insertAttachment } from '../store/attachments.js';
 import { postAgentNote } from '../store/bulletinNotes.js';
@@ -1329,6 +1330,29 @@ describe('renderTicketContext', () => {
       expect(md).toContain('karst inbox');
       // The count is a pointer, never the bodies.
       expect(md).not.toContain('\nb\n');
+    });
+  });
+
+  describe('blockers', () => {
+    it('lists only landed blockers, read-only, in the narrative render and not the facts render', () => {
+      const blocker = createTicket(store, { key: 'B-1', title: 'First' });
+      const dependent = createTicket(store, { key: 'D-1', title: 'Second' });
+      updateTicketFields(store, blocker.id, { brief: 'Ship the widget.' });
+      addRelation(store, { ticketId: dependent.id, kind: 'blocked-by', targetTicketId: blocker.id, source: 'user' });
+
+      let ctx = buildTicketContext(store, undefined, dependent.id);
+      expect(ctx.blockers).toEqual([]);
+      expect(renderTicketContext(ctx)).not.toContain('## Blockers');
+
+      setStageCurrent(store, blocker.id, 'done');
+      ctx = buildTicketContext(store, undefined, dependent.id);
+      expect(ctx.blockers.map((b) => b.key)).toEqual(['B-1']);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Blockers');
+      expect(md).toContain('B-1 landed: First');
+      expect(md).toContain('> Ship the widget.');
+      expect(md).toContain('karst context B-1');
+      expect(renderTicketContext(ctx, undefined, { sections: 'facts' })).not.toContain('## Blockers');
     });
   });
 });
