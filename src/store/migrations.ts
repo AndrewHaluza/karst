@@ -627,6 +627,43 @@ CREATE INDEX IF NOT EXISTS idx_pr_feedback_ticket
 
 
 /**
+ * v69's `ticket_relations` table — the persisted inter-ticket dependency links
+ * (blocked-by and parent). A whole new table, so the migration step is the same
+ * IF NOT EXISTS DDL as schema.sql rather than an ALTER; `db.integration.test.ts`
+ * pins the equality with a `toContain` over this exact text.
+ *
+ * Only the two ORDERING kinds are stored; `blocks`/`child` are derived on read
+ * as the inverse of a row on the other ticket. `target_ticket_id` is nullable
+ * because a provider link may name a ticket karst has not imported yet — the
+ * `target_ref` is kept so a deleted target degrades to a bare ref instead of
+ * vanishing (`ON DELETE SET NULL`). `target_proposal_id` is the #64 draft
+ * dependsOn target. The CHECK requires at least one target to be named.
+ *
+ * Uniqueness cannot be a table-level UNIQUE (SQLite forbids expressions there),
+ * so it is a separate expression index over the COALESCE'd target columns.
+ */
+export const TICKET_RELATIONS_DDL = `
+CREATE TABLE IF NOT EXISTS ticket_relations (
+  id                 INTEGER PRIMARY KEY,
+  ticket_id          INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  kind               TEXT NOT NULL CHECK (kind IN ('blocked-by', 'parent')),
+  target_ticket_id   INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+  target_ref         TEXT,
+  target_proposal_id INTEGER REFERENCES planning_proposals(id) ON DELETE CASCADE,
+  source             TEXT NOT NULL CHECK (source IN ('provider', 'agent', 'user')),
+  origin_ticket_id   INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  writeback_state    TEXT CHECK (writeback_state IN ('pending', 'done', 'failed')),
+  writeback_error    TEXT,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (target_ticket_id IS NOT NULL OR target_ref IS NOT NULL OR target_proposal_id IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_relations_unique
+  ON ticket_relations(ticket_id, kind, COALESCE(target_ticket_id, ''), COALESCE(target_ref, ''), COALESCE(target_proposal_id, ''));
+CREATE INDEX IF NOT EXISTS idx_ticket_relations_target ON ticket_relations(target_ticket_id);
+`;
+
+
+/**
  * Bring a freshly opened DB up to SCHEMA_VERSION.
  *
  * Every schema-mutating step below runs inside ONE `BEGIN IMMEDIATE`
@@ -2479,6 +2516,45 @@ function migrateLocked(db: Database): void {
     const intentCols68 = tableColumns(db, 'session_launch_intents');
     if (intentCols68.size > 0 && !intentCols68.has('redelivered_at')) {
       db.exec('ALTER TABLE session_launch_intents ADD COLUMN redelivered_at TEXT');
+    }
+  }
+
+  if (current < 69) {
+    // v69: `ticket_relations` — persisted inter-ticket dependency links. A whole
+    // new table, so the step is the same IF NOT EXISTS DDL as schema.sql and
+    // nothing is backfilled: no relation existed before the table did. The guard
+    // is the version (there is no existing table to inspect), and IF NOT EXISTS
+    // keeps a re-open idempotent.
+    db.exec(TICKET_RELATIONS_DDL);
+  }
+
+  if (current < 70) {
+    // v70: `ticket_relations.origin_ticket_id` — the ticket whose brief authored
+    // the row. A `blocks`/`child` relation is materialized as a row on the OTHER
+    // ticket, so an ingest that cleared only `ticket_id = ?` left a dropped
+    // inverse stuck on the other ticket; clearing `target_ticket_id = ?` instead
+    // deleted rows the OTHER ticket's own brief authored. Provenance tells them
+    // apart: an ingest removes exactly the rows IT authored. A pre-v70 row
+    // backfills to its own `ticket_id` — the only derivable author, and correct
+    // for every direct row (the common case).
+    const relCols70 = tableColumns(db, 'ticket_relations');
+    if (relCols70.size > 0 && !relCols70.has('origin_ticket_id')) {
+      db.exec(
+        'ALTER TABLE ticket_relations ADD COLUMN origin_ticket_id INTEGER REFERENCES tickets(id) ON DELETE CASCADE',
+      );
+      db.exec('UPDATE ticket_relations SET origin_ticket_id = ticket_id WHERE origin_ticket_id IS NULL');
+    }
+  }
+
+  if (current < 71) {
+    // v71: `tickets.source_ref_internal` — the provider's INTERNAL task id, kept
+    // alongside a custom-id `source_ref` so dependency refs resolve. ClickUp
+    // reports `depends_on` by internal id, while `source_ref` is the custom id
+    // when a `teamId` is configured; without the alias an internal ref can never
+    // match. Pre-v71 rows have no alias (NULL): unknown, never guessed.
+    const ticketCols71 = tableColumns(db, 'tickets');
+    if (ticketCols71.size > 0 && !ticketCols71.has('source_ref_internal')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN source_ref_internal TEXT');
     }
   }
 

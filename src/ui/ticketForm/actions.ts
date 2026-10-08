@@ -11,6 +11,15 @@ import {
   updateTicketFields,
   generateTicketKey,
 } from '../../store/tickets.js';
+import {
+  getTicketSourceRef,
+  ingestBriefRelations,
+  listPendingWritebacks,
+  markWriteback,
+  resolveDanglingRefs,
+  unresolveStaleRelations,
+  type TicketRelation,
+} from '../../store/ticketRelations.js';
 import { queueAutostart } from '../../store/autostart.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
@@ -189,6 +198,76 @@ function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** Whether a provider error means the dependency edge already exists. */
+function isAlreadyExistsError(message: string): boolean {
+  return /already\s+(exists|added|been)/i.test(message);
+}
+
+/**
+ * Attempt ONE pending write-back: record that the OWNER ticket is blocked by
+ * the TARGET ticket on the provider. Idempotent — if the owner's own brief
+ * already carries the edge it is marked done without a POST, and a provider
+ * that answers "already exists" is done too. Any other failure is recorded as
+ * `failed` with the reason; the row is retried on the next bind.
+ */
+async function writeBackRelation(
+  deps: TicketFormActionsDeps,
+  relation: TicketRelation,
+): Promise<void> {
+  if (!deps.provider.addDependency) return;
+  const ownerRef = getTicketSourceRef(deps.store, relation.ticketId);
+  const targetRef =
+    relation.targetTicketId === null
+      ? null
+      : getTicketSourceRef(deps.store, relation.targetTicketId);
+  if (ownerRef === null || targetRef === null) return;
+
+  // Idempotency: a brief we already hold that names the edge means there is
+  // nothing to write. A brief we cannot read must not block the POST.
+  if (deps.provider.fetchTicket) {
+    try {
+      const brief = await deps.provider.fetchTicket(ownerRef);
+      if ((brief.relations ?? []).some((r) => r.kind === 'blocked-by' && r.ref === targetRef)) {
+        markWriteback(deps.store, relation.id, 'done');
+        return;
+      }
+    } catch {
+      // fall through to the write
+    }
+  }
+
+  try {
+    await deps.provider.addDependency(ownerRef, targetRef);
+    markWriteback(deps.store, relation.id, 'done');
+  } catch (e) {
+    const message = errorMessage(e);
+    if (isAlreadyExistsError(message)) {
+      markWriteback(deps.store, relation.id, 'done');
+    } else {
+      markWriteback(deps.store, relation.id, 'failed', message);
+    }
+  }
+}
+
+/**
+ * The action-level hook that runs when a ticket's provider `source_ref` is
+ * bound (a create-bind or a fetch-bind). It re-resolves refs that pointed at
+ * this ticket before it was imported, then attempts every pending agent/user
+ * blocked-by write-back involving it. Deliberately NOT in the store layer and
+ * NOT on `updateTicketFields`: the store stays pure, and a ref CLEAR must not
+ * fire network work. A ticket with no ref is a no-op.
+ */
+export async function onSourceRefBound(
+  deps: TicketFormActionsDeps,
+  ticketId: number,
+): Promise<void> {
+  if (getTicketSourceRef(deps.store, ticketId) === null) return;
+  resolveDanglingRefs(deps.store, ticketId);
+  for (const relation of listPendingWritebacks(deps.store, ticketId)) {
+    await writeBackRelation(deps, relation);
+  }
+}
+
 /**
  * Mint the provider task for a persisted ticket and bind it as `sourceRef` —
  * the shared heart of the create-mode checkbox AND the edit-mode button.
@@ -219,7 +298,16 @@ async function bindProviderTask(
       title: ticket.title ?? '',
       description: ticket.description ?? undefined,
     });
-    updateTicketFields(deps.store, ticketId, { sourceRef: created.ref });
+    updateTicketFields(deps.store, ticketId, {
+      sourceRef: created.ref,
+      // The created task's internal id, when `created.ref` is a custom id, so a
+      // dependency ref (reported by internal id) resolves to this ticket.
+      sourceRefInternal: created.internalRef ?? '',
+    });
+    // The new ref can resolve relations that pointed at this ticket before it
+    // was imported, and can complete pending write-backs. Only for a non-empty
+    // ref (onSourceRefBound is a no-op otherwise, but skip the round trip).
+    if (created.ref.trim() !== '') await onSourceRefBound(deps, ticketId);
     deps.onChange(); // sidebar/dashboard refresh so the bound link appears
     ctx.post({ type: 'provider-ticket-created', ref: created.ref, url: created.url ?? null });
     return true;
@@ -651,8 +739,20 @@ export function buildTicketFormActions(
         if (descSpilled.kind === 'failed') {
           deps.warn?.(`spill failed for description on ticket ${ctx.ticketId}: ${descSpilled.reason}`);
         }
+        // Bind the provider's CANONICAL ref when the brief carries one, not the
+        // raw input: a legacy or alias ref converges to the form relation refs
+        // use, so a dangling edge can resolve on this fetch.
+        const boundRef = brief.sourceRef ?? ref;
+        // A ticket rebound to a DIFFERENT task no longer represents its old ref:
+        // edges that resolved to it through the old ref must degrade to a
+        // dangling (still blocking) ref, or the gate would read a target the
+        // ticket no longer is.
+        const previousRef = getTicketSourceRef(deps.store, ctx.ticketId!);
         updateTicketFields(deps.store, ctx.ticketId!, {
-          sourceRef: ref,
+          sourceRef: boundRef,
+          // The internal-id alias a dependency ref resolves through when
+          // `boundRef` is a custom id; '' clears a stale alias on rebind.
+          sourceRefInternal: brief.internalRef ?? '',
           sourceFetchedAt: new Date().toISOString(),
           ...(briefSpilled.kind === 'spilled' ? {} : { brief: renderedBrief }),
           ...(descSpilled.kind === 'spilled' ? {} : { description: brief.description }),
@@ -663,6 +763,15 @@ export function buildTicketFormActions(
           // priority must not keep a stale one.
           priority: brief.priority ?? '',
         });
+        if (previousRef !== null && previousRef !== boundRef) {
+          unresolveStaleRelations(deps.store, ctx.ticketId!, previousRef);
+        }
+
+        // Persist the brief's inter-ticket links, then run the source-ref-bound
+        // hook: it resolves refs that now point at this ticket and completes any
+        // pending write-back this bind makes eligible.
+        ingestBriefRelations(deps.store, ctx.ticketId!, brief);
+        if (boundRef.trim() !== '') await onSourceRefBound(deps, ctx.ticketId!);
 
         // Re-push edit-mode state (prefilled fields + scored repos), THEN post
         // the brief so the webview's auto suggest-approach runs against the

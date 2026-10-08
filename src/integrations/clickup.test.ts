@@ -709,6 +709,43 @@ describe('clickupProvider.searchTickets', () => {
     expect(calls[0]!.url).toContain('page=0');
   });
 
+  it('returns each task\'s custom id as its ref when a teamId is configured', async () => {
+    const { fn } = fakeFetch({
+      '/list/42/task?': {
+        json: {
+          tasks: [{ id: '9002', custom_id: 'DEF-456', name: 'Custom id ticket', status: { status: 'to do' } }],
+          last_page: true,
+        },
+      },
+    });
+    const provider = clickupProvider({
+      fetchFn: fn,
+      token: async () => 'tok',
+      listId: '42',
+      teamId: '9001',
+    });
+
+    // A picked result is fetched and bound as source_ref, so it must be the
+    // canonical (custom) id the brief will report.
+    const results = await provider.searchTickets!('custom');
+    expect(results[0]!.ref).toBe('DEF-456');
+  });
+
+  it('keeps the internal id as the ref when no teamId is configured', async () => {
+    const { fn } = fakeFetch({
+      '/list/42/task?': {
+        json: {
+          tasks: [{ id: '9002', custom_id: 'DEF-456', name: 'Custom id ticket', status: { status: 'to do' } }],
+          last_page: true,
+        },
+      },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    const results = await provider.searchTickets!('custom');
+    expect(results[0]!.ref).toBe('9002');
+  });
+
   it('sorts by priority with highest first, unknown priority last', async () => {
     const { fn } = listFetch();
     const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
@@ -817,6 +854,37 @@ describe('clickupProvider.createTicket', () => {
     expect(await provider.createTicket!({ title: 't' })).toEqual({ ref: 'cu-new-3' });
   });
 
+  it('returns the custom id (not the internal id) when a teamId is configured', async () => {
+    const { fn } = fakeFetch({
+      '/list/42/task': { json: { id: '9002', custom_id: 'DEF-456', name: 't' } },
+    });
+    const provider = clickupProvider({
+      fetchFn: fn,
+      token: async () => 'tok',
+      listId: '42',
+      teamId: '9001',
+    });
+
+    // The bound source_ref must be the custom id, matching the refs a brief
+    // reports in a custom-id workspace; the internal id is carried as the alias
+    // a dependency ref resolves through.
+    expect(await provider.createTicket!({ title: 't' })).toEqual({
+      ref: 'DEF-456',
+      internalRef: '9002',
+    });
+  });
+
+  it('keeps the internal id when no teamId is configured (custom ids are unaddressable)', async () => {
+    const { fn } = fakeFetch({
+      '/list/42/task': { json: { id: '9002', custom_id: 'DEF-456', name: 't' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+
+    // Without `teamId`, task URLs carry no `custom_task_ids` flag, so a custom
+    // ref could never be re-fetched — the internal id is the only usable form.
+    expect(await provider.createTicket!({ title: 't' })).toEqual({ ref: '9002' });
+  });
+
   it('rejects a description over ClickUp\'s 256 KB limit before any request', async () => {
     const { fn, calls } = fakeFetch({
       '/list/42/task': { json: { id: 'cu-big', name: 't' } },
@@ -874,5 +942,161 @@ describe('clickupProvider.createTicket', () => {
     const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
 
     await expect(provider.createTicket!({ title: 't' })).rejects.toThrow(/no id/i);
+  });
+});
+
+describe('clickupProvider.addDependency', () => {
+  it('POSTs {depends_on} to /task/{ref}/dependency', async () => {
+    const { fn, calls } = fakeFetch({ '/task/abc123/dependency': { json: {} } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await provider.addDependency!('abc123', 'def456');
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.method).toBe('POST');
+    expect(calls[0]!.url).toContain('/task/abc123/dependency');
+    expect(JSON.parse(calls[0]!.body!)).toEqual({ depends_on: 'def456' });
+    expect(calls[0]!.headers.Authorization).toBe('tok');
+  });
+
+  it('carries the custom-task-id suffix when a teamId is configured', async () => {
+    const { fn, calls } = fakeFetch({ '/task/abc123/dependency': { json: {} } });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    await provider.addDependency!('abc123', 'def456');
+
+    expect(calls[0]!.url).toContain('custom_task_ids=true&team_id=9001');
+  });
+
+  it('treats an "already exists" 4xx as success', async () => {
+    const { fn } = fakeFetch({
+      '/task/abc123/dependency': { status: 400, json: { err: 'Dependency already exists' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.addDependency!('abc123', 'def456')).resolves.toBeUndefined();
+  });
+
+  it('throws a ClickupError on any other non-ok response', async () => {
+    const { fn } = fakeFetch({
+      '/task/abc123/dependency': { status: 400, json: { err: 'bad request' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    await expect(provider.addDependency!('abc123', 'def456')).rejects.toThrow(/400/);
+  });
+});
+
+describe('clickupProvider relation id normalization', () => {
+  const A_TASK = {
+    id: '9001',
+    custom_id: 'ABC-123',
+    name: 'A',
+    dependencies: [{ task_id: '9001', depends_on: '9002' }],
+  };
+
+  it('rewrites an internal dependency ref to the custom id when a teamId is configured', async () => {
+    const { fn } = fakeFetch({
+      '/task/9002': { json: { id: '9002', custom_id: 'DEF-456', name: 'B', status: { status: 'done' } } },
+      '/task/ABC-123/comment': { json: {} },
+      '/task/ABC-123': { json: A_TASK },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    const brief = await provider.fetchTicket!('ABC-123');
+
+    // The blocker is named by ClickUp's INTERNAL id; the canonical (source_ref)
+    // form is its custom id, so the ref must be rewritten to it.
+    expect(brief.relations).toEqual([
+      { kind: 'blocked-by', ref: 'DEF-456', title: 'B', status: 'done' },
+    ]);
+  });
+
+  it('keeps the internal ref when the related task has no custom id', async () => {
+    const { fn } = fakeFetch({
+      '/task/9002': { json: { id: '9002', name: 'B' } },
+      '/task/ABC-123/comment': { json: {} },
+      '/task/ABC-123': { json: A_TASK },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    const brief = await provider.fetchTicket!('ABC-123');
+
+    expect(brief.relations?.[0]).toMatchObject({ kind: 'blocked-by', ref: '9002' });
+  });
+
+  it('reports the fetched task\'s canonical ref as sourceRef', async () => {
+    const { fn } = fakeFetch({
+      '/task/ABC-123/comment': { json: {} },
+      '/task/ABC-123': { json: { id: '9001', custom_id: 'ABC-123', name: 'A' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    // A fetch rebinds source_ref to this, so a legacy/alias ref converges.
+    expect((await provider.fetchTicket!('ABC-123')).sourceRef).toBe('ABC-123');
+  });
+
+  it('reports the internal ref as sourceRef when no teamId is configured', async () => {
+    const { fn } = fakeFetch({
+      '/task/9001/comment': { json: {} },
+      '/task/9001': { json: { id: '9001', custom_id: 'ABC-123', name: 'A' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    expect((await provider.fetchTicket!('9001')).sourceRef).toBe('9001');
+  });
+
+  it('keeps a relation whose metadata lookup fails in a custom-id workspace', async () => {
+    const { fn } = fakeFetch({
+      '/task/9002': { status: 403, json: {} },
+      '/task/ABC-123/comment': { json: {} },
+      '/task/ABC-123': { json: A_TASK },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    const brief = await provider.fetchTicket!('ABC-123');
+
+    // The internal ref is KEPT, not dropped: the ticket stores its internal id
+    // as an alias, so the ref still resolves; dropping it would erase a
+    // dependency the provider still reports on a transient metadata failure.
+    expect(brief.relations?.[0]).toMatchObject({ kind: 'blocked-by', ref: '9002' });
+  });
+
+  it('reports the internal id as internalRef when the canonical ref is a custom id', async () => {
+    const { fn } = fakeFetch({
+      '/task/ABC-123/comment': { json: {} },
+      '/task/ABC-123': { json: { id: '9001', custom_id: 'ABC-123', name: 'A' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', teamId: '9001' });
+
+    const brief = await provider.fetchTicket!('ABC-123');
+    expect(brief.sourceRef).toBe('ABC-123');
+    expect(brief.internalRef).toBe('9001');
+  });
+
+  it('omits internalRef when sourceRef is already the internal id', async () => {
+    const { fn } = fakeFetch({
+      '/task/9001/comment': { json: {} },
+      '/task/9001': { json: { id: '9001', custom_id: 'ABC-123', name: 'A' } },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const brief = await provider.fetchTicket!('9001');
+    expect(brief.sourceRef).toBe('9001');
+    expect(brief.internalRef).toBeUndefined();
+  });
+
+  it('does not rewrite refs when no teamId (internal ids) is configured', async () => {
+    const { fn, calls } = fakeFetch({
+      '/task/9002': { json: { id: '9002', custom_id: 'DEF-456', name: 'B', status: { status: 'done' } } },
+      '/task/ABC-123/comment': { json: {} },
+      '/task/ABC-123': { json: A_TASK },
+    });
+    const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok' });
+
+    const brief = await provider.fetchTicket!('ABC-123');
+
+    expect(brief.relations?.[0]).toMatchObject({ ref: '9002' });
+    expect(calls.some((c) => c.url.includes('custom_task_ids=true'))).toBe(false);
   });
 });

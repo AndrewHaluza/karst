@@ -111,6 +111,20 @@ export interface ContextBrief {
   priority?: string;
   /** Canonical ticket URL, for cross-reference from the brief. */
   url?: string;
+  /**
+   * The provider's canonical ref for THIS task (custom id when a `teamId` is
+   * configured and the task has one, else the internal id). A fetch rebinds
+   * `source_ref` to this form, so a legacy or alias ref converges on the form
+   * relation refs use and a dangling edge can resolve.
+   */
+  sourceRef?: string;
+  /**
+   * The provider's INTERNAL task id, carried only when it differs from
+   * `sourceRef` (i.e. `sourceRef` is a custom id). ClickUp reports dependency
+   * refs by internal id, so the ticket keeps this alias and resolves such a ref
+   * to the ticket even though its `source_ref` is the custom form.
+   */
+  internalRef?: string;
   /** Sprint / milestone / containing-list name. */
   milestone?: string;
   /** Assignees, reporter, and relevant watchers. */
@@ -160,6 +174,12 @@ export interface CreateTicketInput {
 /** A created task, normalized across providers. `ref` is what `fetchTicket`/`updateStatus` take. */
 export interface CreateTicketResult {
   ref: string;
+  /**
+   * The created task's INTERNAL id, present only when it differs from `ref`
+   * (i.e. `ref` is a custom id). Kept as the ticket's alias so dependency refs
+   * (which ClickUp reports by internal id) resolve to the created ticket.
+   */
+  internalRef?: string;
   /** Canonical task URL when the provider exposes one, else absent. */
   url?: string;
 }
@@ -196,6 +216,14 @@ export interface TicketingProvider {
    * so every Karst ticket can own a linked provider task.
    */
   createTicket?(input: CreateTicketInput): Promise<CreateTicketResult>;
+  /**
+   * Record that `ref` depends on `dependsOnRef` (i.e. `ref` is blocked by
+   * `dependsOnRef`). Optional: `manualProvider` has no remote. Called by the
+   * action-level write-back for agent/user blocked-by rows once both tickets
+   * are bound to a provider ref. A provider that treats an existing edge as
+   * success resolves rather than throwing.
+   */
+  addDependency?(ref: string, dependsOnRef: string): Promise<void>;
 }
 
 export interface ManualProvider extends TicketingProvider {

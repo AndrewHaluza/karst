@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   description       TEXT,                 -- ticket requirements / acceptance criteria
   brief             TEXT,                 -- synthesized context brief (from fetch)
   source_ref        TEXT,                 -- board task id/url the ticket was fetched from
+  -- v71 provider INTERNAL id, kept when source_ref is a custom id so dependency
+  -- refs (which ClickUp reports by internal id) still resolve to this ticket:
+  source_ref_internal TEXT,
   source_fetched_at TEXT,                 -- when the source was last fetched
   approach          TEXT,                 -- chosen development approach id
   agent             TEXT,                 -- chosen single-subagent id (nullable)
@@ -1240,3 +1243,30 @@ CREATE TABLE IF NOT EXISTS planning_proposals (
   resolved_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_planning_proposals_session ON planning_proposals(session_id, status);
+
+-- v69 ticket relations (kept in sync with TICKET_RELATIONS_DDL in migrations.ts).
+-- Persisted inter-ticket dependency links: only the two ORDERING kinds
+-- (`blocked-by`, `parent`) are stored; `blocks`/`child` are derived on read as
+-- the inverse of a row on the other ticket. `target_ticket_id` is nullable so a
+-- provider link can name a not-yet-imported ticket; `target_ref` is kept so a
+-- deleted target degrades to a bare ref (ON DELETE SET NULL) instead of
+-- vanishing. `target_proposal_id` is the #64 draft dependsOn target. The CHECK
+-- requires at least one target column to be named. Uniqueness is a separate
+-- expression index because SQLite forbids expressions in a table-level UNIQUE.
+CREATE TABLE IF NOT EXISTS ticket_relations (
+  id                 INTEGER PRIMARY KEY,
+  ticket_id          INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  kind               TEXT NOT NULL CHECK (kind IN ('blocked-by', 'parent')),
+  target_ticket_id   INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
+  target_ref         TEXT,
+  target_proposal_id INTEGER REFERENCES planning_proposals(id) ON DELETE CASCADE,
+  source             TEXT NOT NULL CHECK (source IN ('provider', 'agent', 'user')),
+  origin_ticket_id   INTEGER REFERENCES tickets(id) ON DELETE CASCADE,
+  writeback_state    TEXT CHECK (writeback_state IN ('pending', 'done', 'failed')),
+  writeback_error    TEXT,
+  created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  CHECK (target_ticket_id IS NOT NULL OR target_ref IS NOT NULL OR target_proposal_id IS NOT NULL)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ticket_relations_unique
+  ON ticket_relations(ticket_id, kind, COALESCE(target_ticket_id, ''), COALESCE(target_ref, ''), COALESCE(target_proposal_id, ''));
+CREATE INDEX IF NOT EXISTS idx_ticket_relations_target ON ticket_relations(target_ticket_id);
