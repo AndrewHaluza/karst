@@ -116,6 +116,13 @@ describe('bundledModelCatalog', () => {
     expect(sonnet?.efforts).toContain('low');
   });
 
+  it('lists Haiku 5.5 on the claude core with efforts', () => {
+    const haiku = bundledModelCatalog().claude.find((m) => m.id === 'claude-haiku-5-5');
+    expect(haiku?.providers).toEqual(['claude']);
+    expect(haiku?.efforts).toEqual(['low', 'medium', 'high']);
+    expect(haiku?.tags).toEqual(['multimodal', 'vision']);
+  });
+
   it('carries the curated capability tags for flagship models', () => {
     const catalog = bundledModelCatalog();
     const opus = catalog.claude.find((m) => m.id === 'claude-opus-5');
