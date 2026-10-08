@@ -290,6 +290,7 @@ import {
   PLANNER_SUBMIT_INSTRUCTION,
   type GraphDriverDeps,
 } from './approaches/graph/driver.js';
+import { visitMailboxFacts } from './approaches/graph/visitMailboxFacts.js';
 import { runGraphCommand } from './cli/graph.js';
 import { buildGraphSessionEnv, isGraphSessionEnv } from './approaches/graph/transport/env.js';
 import {
@@ -4371,6 +4372,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           undefined,
           { bounded: false },
         ),
+      visitMailboxOf: (ticketId) => visitMailboxFacts(localStore, ticketId),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
       manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
       physicalDomainsOf: (graphRunId, document, nodeId) => {
