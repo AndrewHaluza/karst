@@ -21,6 +21,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
+import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
@@ -7846,6 +7847,10 @@ function makeDashboardActions(
     debug,
   };
 
+  const dependencyOps = makeDependencyOps(store, {
+    openDashboard: (targetTicketId) => void vscode.commands.executeCommand('karst.openDashboard', targetTicketId),
+  });
+
   // Start/Restart mean "run the services" — `servicesOnly` drops serviceless repos.
   const spinServices = () =>
     void vscode.commands.executeCommand('karst.spinTicket', { ticketId, servicesOnly: true });
@@ -7904,7 +7909,7 @@ function makeDashboardActions(
     copyPrUrl: (url) => void vscode.env.clipboard.writeText(url),
     openTicketLink: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     editTicket,
-    openDependency: (id) => { if (store.db.prepare('SELECT 1 FROM ticket_relations WHERE (ticket_id = ? AND target_ticket_id = ?) OR (ticket_id = ? AND target_ticket_id = ?)').get(ticketId, id, id, ticketId)) void vscode.commands.executeCommand('karst.openDashboard', id); },
+    openDependency: (id) => dependencyOps.openDependency(ticketId, id),
     // Stop the auto-driver's next gate run for this ticket (it halts at the
     // next boundary check, never mid-gate — see `shouldContinue`).
     stopDriver: () => driver.requestStop(ticketId),

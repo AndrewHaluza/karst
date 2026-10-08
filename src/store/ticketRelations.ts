@@ -913,3 +913,13 @@ export function ingestBriefRelations(store: Store, ticketId: number, brief: Cont
     }
   })();
 }
+
+/** Whether there is ANY relation (blocked-by, blocks, parent, or child) between two tickets. */
+export function areRelated(store: Store, ticketId: number, otherTicketId: number): boolean {
+  const row = store.db
+    .prepare(
+      'SELECT 1 FROM ticket_relations WHERE (ticket_id = ? AND target_ticket_id = ?) OR (ticket_id = ? AND target_ticket_id = ?)',
+    )
+    .get(ticketId, otherTicketId, otherTicketId, ticketId);
+  return row !== undefined;
+}
