@@ -1215,7 +1215,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     appendLine: (m) => channel.appendLine(m),
     closeDoneTerminals: closeTicketDoneTerminals,
     manifest: currentManifest,
-    refresh: () => provider.refresh(),
+    refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); }, // an archived blocker unblocks children
   };
   /**
    * A model FALLBACK is user-visible (§ retry and model fallback): karst is
@@ -2547,7 +2547,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * asked for, once a minute, is noise.
    */
   const pushDoneStatus = async (ticketId: number, warn: boolean): Promise<void> => {
-    try {
+    try { void subtaskAutostart.sweep(); // done via merge unblocks queued children
       const res = await advanceTicketOnShip(
         localStore,
         ticketId,
@@ -3456,7 +3456,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // routine `info` progress lines or (absent this) the invisible
           // extension-host console.
           warn: (message) => logger.warn(message),
-          onTicketDone: () => subtaskAutostart.sweep(),
+          onTicketDone: () => void subtaskAutostart.sweep(),
         },
         ticketId,
       );
