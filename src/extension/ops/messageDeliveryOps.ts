@@ -5,10 +5,44 @@ import {
   maxMessageId,
   pendingWakeEvents,
   unreadByRecipient,
+  type RecipientUnread,
   type WakeEventRow,
 } from '../../store/messageDelivery.js';
-import type { MessageDelivery } from '../../workflow/messageDelivery.js';
+import {
+  mailPointer,
+  type MessageDelivery,
+  type MessageRoute,
+} from '../../workflow/messageDelivery.js';
 import { parentWakeDecision, type WakeDecision } from '../../workflow/parentWake.js';
+
+/**
+ * A recipient's push route from its CURRENT live-session core. Resolved at
+ * delivery time, never stored per ticket: a core can change between stages or
+ * resumes (a codex implement followed by a claude fix), and the route must
+ * follow the live session, not the history.
+ *
+ *  - claude pins the Stop-block reply.
+ *  - codex pins it only once the live CLI was verified to honor a Stop block
+ *    (`codexStopBlock`); until then it uses the typed route.
+ *  - opencode v1 pulls the pointer through its plugin on `session.idle`.
+ *  - opencode2 has no SDK client on the plugin context, agy has no executable
+ *    channel, and an unknown/absent core has no channel at all — all type.
+ */
+export function messageRouteFor(
+  provider: string | null | undefined,
+  codexStopBlock: boolean,
+): MessageRoute {
+  switch (provider) {
+    case 'claude':
+      return 'hook-block';
+    case 'codex':
+      return codexStopBlock ? 'hook-block' : 'typed';
+    case 'opencode':
+      return 'plugin-idle';
+    default:
+      return 'typed';
+  }
+}
 
 /**
  * Mailbox delivery sweep (plan Wave 3). Two jobs per tick, both in this
@@ -60,6 +94,21 @@ export interface MessageDeliveryDeps {
   isLive: (ticketId: number) => boolean;
   isGraphTicket: (ticketId: number) => boolean;
   integrating: (ticketId: number) => boolean;
+  /**
+   * Refresh the host's in-memory unread cache from this sweep's rows. The hook
+   * endpoint reads that cache when a recipient's turn ends, so it never queries
+   * the DB on the hook's hot path. Called every sweep, before delivery.
+   */
+  refreshUnread: (rows: readonly RecipientUnread[]) => void;
+  /**
+   * Whether the REPLY channel already pushed this batch (the turn-end hook
+   * block / plugin `promptAsync`). The reply IS that batch's delivery, so the
+   * sweep must skip it — otherwise the next tick sees the mail still unread,
+   * the recipient now idle (a block continuation fires no `UserPromptSubmit`),
+   * and types a SECOND copy into a terminal that is mid-turn on the block. The
+   * record is keyed by the batch's watermark, so a later batch still delivers.
+   */
+  alreadyPushed?: (ticketId: number, maxId: number) => boolean;
   /** Open the parent's session WITHOUT revealing it. */
   wake: (ticketId: number) => Promise<void> | void;
   now: () => number;
@@ -105,19 +154,40 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
 
   function deliverPointers(projectId: number, out: number[]): void {
     const rows = unreadByRecipient(deps.store, projectId);
+    // The endpoint's reply source: refresh it before any delivery decision so
+    // a Stop that lands during this sweep sees the current counts.
+    deps.refreshUnread(rows);
     // A truncated read cannot prove a recipient has nothing unread.
     if (rows.length < DELIVERY_READ_LIMIT) prune(new Set(rows.map((r) => r.toTicketId)));
     for (const r of rows) {
       if (disposed) return;
       const seen = watermark.get(r.toTicketId);
       if (seen !== undefined && r.maxId <= seen) continue;
+      // The turn-end reply may have pushed THIS batch already (the arm does not
+      // set a watermark, because a hook that never arrives must still fall back
+      // to typing). Skip it — and record the watermark so we do not re-check
+      // every tick — instead of typing a duplicate into a mid-turn terminal.
+      if (deps.alreadyPushed?.(r.toTicketId, r.maxId)) {
+        watermark.set(r.toTicketId, r.maxId);
+        deps.debug(`[driver] delivery #${r.toTicketId}: already pushed by the reply — skipping`);
+        continue;
+      }
       const last = lastPointerAt.get(r.toTicketId);
       if (last !== undefined && deps.now() - last < POINTER_INTERVAL_MS) {
         deps.debug(`[driver] delivery #${r.toTicketId}: rate-limited — coalescing`);
         continue;
       }
-      if (deps.delivery.deliver(r.toTicketId, r.unread) === 'deferred') {
+      const outcome = deps.delivery.deliver(r.toTicketId, mailPointer(r.unread));
+      if (outcome === 'deferred') {
         deps.debug(`[driver] delivery #${r.toTicketId}: deferred (${r.unread} unread)`);
+        continue;
+      }
+      if (outcome === 'armed') {
+        // A push route is armed but NOTHING is delivered yet — the turn-end
+        // reply will push it. The watermark stays put, so if that hook never
+        // arrives the next sweep re-evaluates and types the pointer once the
+        // recipient is idle, instead of silently stranding the batch.
+        deps.debug(`[driver] delivery #${r.toTicketId}: armed (${r.unread} unread)`);
         continue;
       }
       watermark.set(r.toTicketId, r.maxId);

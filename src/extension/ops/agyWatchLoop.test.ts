@@ -15,14 +15,14 @@ import type { AgyUsageState } from '../../agent/agyUsageWatch.js';
 // (which only reach the store when a provider binding exists) are asserted
 // directly on the call.
 const dispatchRef = vi.hoisted(() => ({
-  actual: undefined as unknown as (...args: unknown[]) => void,
+  actual: undefined as unknown as (...args: unknown[]) => unknown,
 }));
 vi.mock('../../hooks/dispatch.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../hooks/dispatch.js')>();
-  dispatchRef.actual = actual.dispatchHook as unknown as (...args: unknown[]) => void;
+  dispatchRef.actual = actual.dispatchHook as unknown as (...args: unknown[]) => unknown;
   return { ...actual, dispatchHook: vi.fn(actual.dispatchHook) };
 });
-import { dispatchHook } from '../../hooks/dispatch.js';
+import { dispatchHook, type HookDispatchResult } from '../../hooks/dispatch.js';
 
 /**
  * `resolveAgyAppDataDir()` — called with no args by the loop, exactly as the
@@ -702,7 +702,7 @@ describe('createAgyWatchLoop', () => {
     vi.mocked(dispatchHook).mockImplementation((...args: unknown[]) => {
       const payload = args[1] as { hook_event_name?: string };
       if (payload.hook_event_name === 'UsageUpdate') throw new Error('usage boom');
-      dispatchRef.actual(...args);
+      return dispatchRef.actual(...args) as HookDispatchResult;
     });
     const loop = createAgyWatchLoop(deps);
 

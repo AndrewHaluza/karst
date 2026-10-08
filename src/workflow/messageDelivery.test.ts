@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { makeTerminalDelivery, messagePointer } from './messageDelivery.js';
+import {
+  mailPointer,
+  makeRoutedDelivery,
+  makeTerminalDelivery,
+  messagePointer,
+  type MessageDelivery,
+  type MessageRoute,
+} from './messageDelivery.js';
 
 const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
 
@@ -54,41 +61,41 @@ describe('makeTerminalDelivery', () => {
 
   it('nudges a live, non-graph recipient with the pointer', () => {
     const d = deps();
-    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('delivered');
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('delivered');
     expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(2, 5, undefined, LITERAL));
   });
 
   it('defers when not live in this window', () => {
     const d = deps({ isLive: vi.fn(() => false) });
-    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('deferred');
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('deferred');
     expect(d.nudge).not.toHaveBeenCalled();
   });
 
   it('defers a graph-owned recipient', () => {
     const d = deps({ graphOwned: vi.fn(() => true) });
-    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('deferred');
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('deferred');
     expect(d.nudge).not.toHaveBeenCalled();
   });
 
   it('defers a busy agy recipient and types nothing', () => {
     const d = deps({ agyBusy: vi.fn(() => true) });
-    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('deferred');
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('deferred');
     expect(d.nudge).not.toHaveBeenCalled();
   });
 
   it('delivers once the agy session reports idle', () => {
     const d = deps({ agyBusy: vi.fn(() => false) });
-    expect(makeTerminalDelivery(d).deliver(5, 2)).toBe('delivered');
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('delivered');
     expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(2, 5, undefined, LITERAL));
   });
 
   it('defers (types nothing) when a literal path is unsafe', () => {
     const d = deps({ literal: () => ({ ...LITERAL, cli: '/x/$(rm)/cli.js' }) });
-    expect(makeTerminalDelivery(d).deliver(5, 1)).toBe('deferred');
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(1))).toBe('deferred');
     expect(d.nudge).not.toHaveBeenCalled();
   });
 
   it('defers when the nudge finds no terminal', () => {
-    expect(makeTerminalDelivery(deps({ nudge: vi.fn(() => false) })).deliver(5, 1)).toBe('deferred');
+    expect(makeTerminalDelivery(deps({ nudge: vi.fn(() => false) })).deliver(5, mailPointer(1))).toBe('deferred');
   });
 });
