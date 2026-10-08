@@ -13,7 +13,7 @@ import { killTree } from './processTree.js';
 import { prepareCommand, type ShimEnv } from './command.js';
 import { resolveCommandCwd } from './commandCwd.js';
 import { isPortOpen, reclaimPort, listenerPids, snapshotProcessFacts } from './portConflict.js';
-import { removeContainer, removeContainerAsync } from './dockerContainer.js';
+import { removeContainer, removeContainerAsync, removeContainerVerified } from './dockerContainer.js';
 import { attributeServer, systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
 import { runMarkerLine } from './serverLog.js';
 export { killTree } from './processTree.js';
@@ -688,7 +688,17 @@ export async function stopServer(
   // cannot go stale. Unconditional: an already-stopped row may still have a
   // container behind it (a kill that reached the client only), and `docker rm
   // -f` on a container that is gone is a no-op.
-  if (row.container) removeContainer(row.container);
+  if (row.container) {
+    try {
+      await removeContainerVerified(row.container, { debug: opts.debug });
+      opts.debug?.(`[runtime] server ${id}: container ${row.container} removed`);
+    } catch (err) {
+      opts.debug?.(
+        `[runtime] server ${id}: container removal failed for ${row.container}: ${err}, keeping row running`,
+      );
+      return; // keep the row as running so sweep/stop can retry later
+    }
+  }
   // A refused kill on a plain command leaves the process alive, so the row must
   // keep saying so. With a container the removal above has stopped it (docker
   // kills the process it runs), so the row may be cleared truthfully.

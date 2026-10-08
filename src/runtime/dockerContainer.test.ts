@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import type { spawn as SpawnFn } from 'node:child_process';
-import { removeContainer } from './dockerContainer.js';
+import { removeContainer, removeContainerVerified } from './dockerContainer.js';
 
 /** A child that records what was asked of it and can raise a spawn error. */
 function fakeChild() {
@@ -52,5 +52,40 @@ describe('removeContainer', () => {
     removeContainer('karst-t1-db', { spawnFn, debug });
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('[runtime]'));
     expect(debug).toHaveBeenCalledWith(expect.stringContaining('karst-t1-db'));
+  });
+});
+
+describe('removeContainerVerified', () => {
+  const run = (answers: (string | null)[], debug?: (m: string) => void) => {
+    const exec = vi.fn();
+    for (const a of answers) exec.mockResolvedValueOnce(a);
+    const p = removeContainerVerified('karst-t1-db', {
+      commandOutput: exec as never,
+      debug,
+    });
+    return { exec, p };
+  };
+
+  it('resolves when rm runs and the name query comes back empty', async () => {
+    const { exec, p } = run(['', '']);
+    await expect(p).resolves.toBeUndefined();
+    expect(exec.mock.calls[0]?.[1]).toEqual(['rm', '-f', 'karst-t1-db']);
+    expect(exec.mock.calls[1]?.[1]).toContain('ps');
+  });
+
+  it('rejects when the container is still listed after rm', async () => {
+    const { p } = run(['', 'e5864b19f2a8']);
+    await expect(p).rejects.toThrow(/still present after removal/);
+  });
+
+  it('rejects when docker does not answer, since absence is unverified', async () => {
+    const { p } = run([null, null]);
+    await expect(p).rejects.toThrow(/cannot verify/);
+  });
+
+  it('reports progress through the injected debug callback', async () => {
+    const debug = vi.fn();
+    await run(['', ''], debug).p;
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('is gone'));
   });
 });

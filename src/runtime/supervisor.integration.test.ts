@@ -15,7 +15,7 @@ import {
 import { freePortWindow, removeTempDir, waitUntilListening } from './fixtures.js';
 import { listenerPids, isPortOpen } from './portConflict.js';
 import { killTree } from './processTree.js';
-import { removeContainer, removeContainerAsync } from './dockerContainer.js';
+import { removeContainer, removeContainerAsync, removeContainerVerified } from './dockerContainer.js';
 import { RUN_MARKER_PREFIX } from './serverLog.js';
 
 // Container removal really spawns `docker`; stub it so these cases assert the
@@ -23,8 +23,10 @@ import { RUN_MARKER_PREFIX } from './serverLog.js';
 vi.mock('./dockerContainer.js', () => ({
   removeContainer: vi.fn(),
   removeContainerAsync: vi.fn(async () => {}),
+  removeContainerVerified: vi.fn(async () => {}),
 }));
 const removeContainerMock = vi.mocked(removeContainer);
+const removeContainerVerifiedMock = vi.mocked(removeContainerVerified);
 const removeContainerAsyncMock = vi.mocked(removeContainerAsync);
 
 /**
@@ -1282,6 +1284,8 @@ describe('stopServer attribution', () => {
   beforeEach(() => {
     store = openStore(':memory:');
     removeContainerMock.mockClear();
+    removeContainerVerifiedMock.mockReset();
+    removeContainerVerifiedMock.mockResolvedValue(undefined);
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -1363,7 +1367,22 @@ describe('stopServer attribution', () => {
     });
 
     expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
-    expect(removeContainerMock).toHaveBeenCalledWith('karst-x');
+    expect(removeContainerVerifiedMock).toHaveBeenCalledWith('karst-x', expect.anything());
+  });
+
+  it('keeps the row running when the container removal cannot be verified', async () => {
+    removeContainerVerifiedMock.mockRejectedValue(new Error('still present'));
+    const id = rowId({ container: 'karst-x' });
+
+    await stopServer(store, id, {
+      facts: {
+        isAlive: () => false,
+        liveCwd: () => null,
+        processStartMs: () => null,
+      },
+    });
+
+    expect(rowOf(id).status).toBe('running');
   });
 
   it('does not signal a foreign pid, but still marks the row stopped', async () => {
@@ -1428,7 +1447,7 @@ describe('stopServer attribution', () => {
     ).resolves.toBeUndefined();
 
     expect(rowOf(id)).toEqual({ status: 'stopped', pid: null });
-    expect(removeContainerMock).toHaveBeenCalledWith('karst-x');
+    expect(removeContainerVerifiedMock).toHaveBeenCalledWith('karst-x', expect.anything());
   });
 });
 
@@ -1446,6 +1465,8 @@ describe('supervisor — container services', () => {
     store = openStore(':memory:');
     dir = mkdtempSync(join(tmpdir(), 'karst-supervisor-docker-'));
     removeContainerMock.mockClear();
+    removeContainerVerifiedMock.mockReset();
+    removeContainerVerifiedMock.mockResolvedValue(undefined);
     removeContainerAsyncMock.mockClear();
   });
 
@@ -1501,7 +1522,7 @@ describe('supervisor — container services', () => {
     // Killing the attached client does NOT stop the container: without this the
     // container keeps its port bound and its memory held, with nothing pointing
     // at it any more.
-    expect(removeContainerMock).toHaveBeenCalledWith('karst-t1-db');
+    expect(removeContainerVerifiedMock).toHaveBeenCalledWith('karst-t1-db', expect.anything());
   });
 
   it('removes the container when the start never becomes healthy', async () => {

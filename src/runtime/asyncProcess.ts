@@ -5,6 +5,7 @@ export function commandOutput(
   command: string,
   args: string[],
   timeoutMs = 2_000,
+  spawnFn: typeof spawn = spawn,
 ): Promise<string | null> {
   return new Promise((resolve) => {
     let settled = false;
@@ -17,7 +18,7 @@ export function commandOutput(
     };
     let child;
     try {
-      child = spawn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+      child = spawnFn(command, args, { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
     } catch {
       finish(null);
       return;
