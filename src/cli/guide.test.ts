@@ -20,7 +20,7 @@ describe('karst guide — content', () => {
     // and env are intercepted by runCliAsync.
     // Verbs are named backtick-quoted (e.g. `phase <name>`), so match the
     // opening tick.
-    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'draft', 'fix-brief', 'conflict-brief', 'servers', 'env', 'schema', 'mcp', 'notes']) {
+    for (const verb of ['context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'subtask', 'draft', 'fix-brief', 'conflict-brief', 'servers', 'env', 'schema', 'mcp', 'manifest', 'setup', 'notes']) {
       expect(AGENT_GUIDE).toContain(`\`${verb}`);
     }
   });

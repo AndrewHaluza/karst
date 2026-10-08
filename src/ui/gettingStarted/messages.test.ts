@@ -8,6 +8,7 @@ describe('parseGettingStartedMessage', () => {
       'recheck-deps',
       'open-settings',
       'create-ticket',
+      'setup-agent',
       'report-issue',
       'dismiss',
       'request-state',
@@ -31,6 +32,7 @@ describe('routeGettingStartedAction', () => {
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      setupAgent: vi.fn(),
       reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),
@@ -39,6 +41,7 @@ describe('routeGettingStartedAction', () => {
     routeGettingStartedAction({ type: 'recheck-deps' }, actions);
     routeGettingStartedAction({ type: 'open-settings' }, actions);
     routeGettingStartedAction({ type: 'create-ticket' }, actions);
+    routeGettingStartedAction({ type: 'setup-agent' }, actions);
     routeGettingStartedAction({ type: 'report-issue' }, actions);
     routeGettingStartedAction({ type: 'dismiss' }, actions);
     routeGettingStartedAction({ type: 'request-state' }, actions);
@@ -46,6 +49,7 @@ describe('routeGettingStartedAction', () => {
     expect(actions.recheckDeps).toHaveBeenCalledOnce();
     expect(actions.openSettings).toHaveBeenCalledOnce();
     expect(actions.createTicket).toHaveBeenCalledOnce();
+    expect(actions.setupAgent).toHaveBeenCalledOnce();
     expect(actions.reportIssue).toHaveBeenCalledOnce();
     expect(actions.dismiss).toHaveBeenCalledOnce();
     expect(actions.requestState).toHaveBeenCalledOnce();
@@ -61,6 +65,7 @@ describe('routeGettingStartedAction', () => {
       recheckDeps: vi.fn(),
       openSettings: vi.fn(),
       createTicket: vi.fn(),
+      setupAgent: vi.fn(),
       reportIssue: vi.fn(),
       dismiss: vi.fn(),
       requestState: vi.fn(),

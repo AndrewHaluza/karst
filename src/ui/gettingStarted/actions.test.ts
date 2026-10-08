@@ -36,14 +36,16 @@ describe('buildGettingStartedActions', () => {
     expect(pushState).toHaveBeenCalledOnce();
   });
 
-  it('openSettings and createTicket run the matching commands', () => {
+  it('openSettings, createTicket and setupAgent run the matching commands', () => {
     const runCommand = vi.fn();
     const { ctx } = makeCtx();
     const actions = buildGettingStartedActions({ scaffoldManifest: vi.fn(), setDismissed: vi.fn(), runCommand })(ctx);
     actions.openSettings();
     actions.createTicket();
+    actions.setupAgent();
     expect(runCommand).toHaveBeenCalledWith('karst.openSettings');
     expect(runCommand).toHaveBeenCalledWith('karst.openTicketForm');
+    expect(runCommand).toHaveBeenCalledWith('karst.setupAgent');
   });
 
   it('reportIssue runs the existing report-issue command rather than a second reporting path', () => {

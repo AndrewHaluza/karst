@@ -171,14 +171,24 @@
           desc.className = 'step-desc';
           desc.textContent = s.description;
           body.append(label, desc);
-          if (s.action === 'settings' || s.action === 'create-ticket') {
-            const isSettings = s.action === 'settings';
+          const ACTIONS = {
+            settings: { label: 'Open Settings', title: 'Open the Karst settings panel', msg: 'open-settings' },
+            'create-ticket': { label: 'Create Ticket', title: 'Open the create-ticket panel', msg: 'create-ticket' },
+            'setup-agent': { label: 'Set up with agent', title: 'Start an onboarding setup session', msg: 'setup-agent' },
+          };
+          if (s.action && ACTIONS[s.action]) {
+            const a = ACTIONS[s.action];
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'k-btn k-btn--secondary k-btn--sm step-action';
-            b.textContent = isSettings ? 'Open Settings' : 'Create Ticket';
-            b.title = isSettings ? 'Open the Karst settings panel' : 'Open the create-ticket panel';
-            karstAction(b, (requestId) => post(isSettings ? 'open-settings' : 'create-ticket', requestId));
+            b.textContent = a.label;
+            b.title = a.title;
+            if (s.enabled === false) {
+              b.disabled = true;
+              b.title = 'Install the agent CLI first — see the checklist above';
+            } else {
+              karstAction(b, (requestId) => post(a.msg, requestId));
+            }
             body.append(b);
           }
           li.append(body);

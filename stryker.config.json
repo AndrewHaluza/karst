@@ -6,6 +6,7 @@
   "mutate": ["src/extension/**/*.ts", "!src/extension/**/*.test.ts",
              "!src/extension/secrets.ts", "!src/extension/reportIssue.ts",
              "!src/extension/manifestResolve.ts",
+             "!src/extension/setupWiring.ts",
              "!src/extension/diffsHost.ts"],
   "reporters": ["progress", "clear-text", "html", "json"],
   "coverageAnalysis": "perTest",

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { parseGlobalFlags, runCli } from './main.js';
+import { exitsAfterFlush, parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -540,5 +540,78 @@ describe('runCli — draft propose (planning sessions)', () => {
 
   it('requires KARST_OUTBOX', () => {
     expect(() => runCli(['draft', 'propose'], {}, { readStdin: () => proposal })).toThrow(/KARST_OUTBOX/);
+  });
+});
+
+describe('runCli — manifest / setup (setup sessions)', () => {
+  let dir: string;
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-setup-')));
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const validYaml = `host: localhost\nportRange: [4000, 4999]\nbaselineBranch: main\nrepositories:\n  web:\n    repoPath: ../web\n`;
+
+  it('routes `manifest validate --file` through the real loader', () => {
+    const file = join(dir, 'draft.yml');
+    writeFileSync(file, validYaml);
+    const out = JSON.parse(runCli(['manifest', 'validate', '--file', file]));
+    expect(out.ok).toBe(true);
+    expect(out.repositories).toEqual(['web']);
+  });
+
+  it('routes `manifest propose --file` into KARST_SETUP_OUTBOX', () => {
+    const file = join(dir, 'draft.yml');
+    writeFileSync(file, validYaml);
+    const out = JSON.parse(runCli(['manifest', 'propose', '--file', file], { KARST_SETUP_OUTBOX: dir }));
+    expect(out).toMatchObject({ ok: true, kind: 'manifest' });
+    expect(readdirSync(dir).some((f) => f.endsWith('.json'))).toBe(true);
+  });
+
+  it('routes `setup propose-change` from structured --stdin input', () => {
+    const change = JSON.stringify({ subcommand: 'propose-change', repo: 'web', reason: 'r', command: 'npm ci' });
+    const out = JSON.parse(
+      runCli(['setup', 'propose-change', '--stdin'], { KARST_SETUP_OUTBOX: dir }, { readStdin: () => change }),
+    );
+    expect(out).toMatchObject({ ok: true, kind: 'change' });
+  });
+
+  it('accepts the flat MCP tool object (globals + stdin, no --stdin token)', () => {
+    // The MCP runner emits `setup propose-change` plus the global --db/--manifest
+    // and feeds the validated tool object on stdin; the handler must normalize it.
+    const change = JSON.stringify({ subcommand: 'propose-change', repo: 'web', reason: 'r', command: 'npm ci' });
+    const out = JSON.parse(
+      runCli(
+        ['setup', 'propose-change', '--db', join(dir, 'x.db'), '--manifest', join(dir, 'k.yml')],
+        { KARST_SETUP_OUTBOX: dir },
+        { readStdin: () => change },
+      ),
+    );
+    expect(out).toMatchObject({ ok: true, kind: 'change' });
+  });
+
+  it('routes `setup discover` with structured input', () => {
+    const input = JSON.stringify({ subcommand: 'discover', root: dir });
+    const out = JSON.parse(runCli(['setup', 'discover', '--stdin'], {}, { readStdin: () => input }));
+    expect(out.empty).toBe(true);
+  });
+});
+
+describe('exitsAfterFlush', () => {
+  // Both verbs start `detached` children through the same runtime, whose
+  // ChildProcess handles pin the short-lived CLI's event loop. If this decision
+  // misses a verb, that invocation prints its result and then hangs forever —
+  // which is exactly what `setup verify` did on a successful spin.
+  it('force-exits the async verbs whose detached children pin the event loop', () => {
+    expect(exitsAfterFlush(['servers', 'list'])).toBe(true);
+    expect(exitsAfterFlush(['setup', 'verify'])).toBe(true);
+    expect(exitsAfterFlush(['setup', 'verify', '--repos', 'web'])).toBe(true);
+  });
+
+  it('leaves the ordinary synchronous verbs writing and returning normally', () => {
+    expect(exitsAfterFlush(['setup', 'discover'])).toBe(false);
+    expect(exitsAfterFlush(['setup', 'propose-change'])).toBe(false);
+    expect(exitsAfterFlush(['context', 'PROJ-9'])).toBe(false);
+    expect(exitsAfterFlush([])).toBe(false);
   });
 });

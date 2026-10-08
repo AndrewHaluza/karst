@@ -205,6 +205,10 @@
         "title": "Karst: Getting Started"
       },
       {
+        "command": "karst.setupAgent",
+        "title": "Karst: Set Up with Agent"
+      },
+      {
         "command": "karst.recheckDeps",
         "title": "Karst: Re-check Required Tools"
       },

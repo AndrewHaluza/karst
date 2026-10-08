@@ -41,6 +41,12 @@ export function buildGettingStartedActions(deps: GettingStartedActionsDeps): Get
     createTicket(): void {
       deps.runCommand('karst.openTicketForm');
     },
+    // The setup session is launched by its own command; the action is a jump-off
+    // point like openSettings/createTicket, so the whole launch + consent flow
+    // lives in one host handler.
+    setupAgent(): void {
+      deps.runCommand('karst.setupAgent');
+    },
     // A jump-off point, never a second reporting path: `karst.reportIssue`
     // owns the whole flow (collect → redact → review → finalize → GitHub
     // prefill), and duplicating any part of it here would mean a report that

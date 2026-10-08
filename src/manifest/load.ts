@@ -47,7 +47,15 @@ export function loadManifestWithDiagnostics(path: string): LoadedManifestResult 
   } catch (e) {
     throw new ManifestError(`cannot read ${path}: ${(e as Error).message}`);
   }
+  return parseManifestText(text, path);
+}
 
+/**
+ * Parse + migrate + validate manifest TEXT (no file read). The setup session's
+ * proposal carries the raw YAML text, so the host can validate it before
+ * applying without a temp file. `path` is only used to attribute an error.
+ */
+export function parseManifestText(text: string, path?: string): LoadedManifestResult {
   let parsed: unknown;
   try {
     parsed = yamlLoad(text);
@@ -72,7 +80,7 @@ export function loadManifestWithDiagnostics(path: string): LoadedManifestResult 
       notices: detectInertKeys(raw),
     };
   } catch (e) {
-    throw e instanceof ManifestError ? e.withPath(path) : e;
+    throw e instanceof ManifestError ? (path ? e.withPath(path) : e) : e;
   }
 }
 
