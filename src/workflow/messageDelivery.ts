@@ -32,19 +32,20 @@ import { cliTokensFor, quoteArg, type CliTokens, type ExportedCliEnv } from '../
 export type DeliveryResult = 'delivered' | 'armed' | 'deferred';
 
 /**
- * What the recipient is being told about. A closed shape with ONE member today
- * (`mail`); #59 adds `notes` by widening this union, never by changing the seam
- * signature. The host writes the pointer text, so the recipient's agent never
- * receives an agent-authored body through this channel.
+ * What the recipient is being told about: the mailbox (`mail`) or the project
+ * bulletin (`notes`). The host writes the pointer text, so the recipient's agent
+ * never receives an agent-authored body through this channel.
  */
-export interface MessagePointer {
-  kind: 'mail';
-  unread: number;
-}
+export type MessagePointer = { kind: 'mail'; unread: number } | { kind: 'notes'; unread: number };
 
-/** The one mail pointer today; a helper so callers never spell the kind. */
+/** The mail pointer; a helper so callers never spell the kind. */
 export function mailPointer(unread: number): MessagePointer {
   return { kind: 'mail', unread };
+}
+
+/** The project-notes pointer; the host writes its text, never a note body. */
+export function notesPointer(unread: number): MessagePointer {
+  return { kind: 'notes', unread };
 }
 
 export interface MessageDelivery {
@@ -79,19 +80,26 @@ function assertPositiveInt(n: number, what: string): void {
 /** Characters a literal path may not carry into a typed line. */
 const SHELL_META = /["$`\\']/;
 
+/** Fixed wording and the CLI command per pointer kind. */
+const POINTER_TEXT = {
+  mail: { noun: 'message(s)', command: 'inbox' },
+  notes: { noun: 'project note(s)', command: 'notes' },
+} as const;
+
 /**
- * The pointer line: fixed text, the unread count, and the `inbox` command in
- * the recipient session's env (refs when it exported them, literal host paths
- * and the numeric id otherwise). `null` when a literal path carries a shell
- * metacharacter — nothing is typed then.
+ * The pointer line: fixed text, the unread count, and the kind's CLI command
+ * (`inbox` or `notes`) in the recipient session's env (refs when it exported
+ * them, literal host paths and the numeric id otherwise). `null` when a literal
+ * path carries a shell metacharacter — nothing is typed then.
  */
 export function messagePointer(
-  unread: number,
+  pointer: MessagePointer,
   toTicketId: number,
   exported: ExportedCliEnv | undefined,
   literal: CliTokens,
 ): string | null {
-  assertPositiveInt(unread, 'unread count');
+  const { noun, command } = POINTER_TEXT[pointer.kind];
+  assertPositiveInt(pointer.unread, 'unread count');
   assertPositiveInt(toTicketId, 'ticket id');
   const tok = cliTokensFor(exported, { ...literal, ticket: String(toTicketId) });
   const literals = [tok.cli, tok.db, tok.manifest].filter(
@@ -104,14 +112,14 @@ export function messagePointer(
   const parts = [
     'node',
     arg(tok.cli),
-    'inbox',
+    command,
     '--db',
     arg(tok.db),
     ...(tok.manifest ? ['--manifest', arg(tok.manifest)] : []),
     '--ticket',
     ticket,
   ];
-  return printable(`karst: ${unread} new message(s) - run ${parts.join(' ')}`);
+  return printable(`karst: ${pointer.unread} new ${noun} - run ${parts.join(' ')}`);
 }
 
 export interface TerminalDeliveryDeps {
@@ -139,7 +147,7 @@ export function makeTerminalDelivery(deps: TerminalDeliveryDeps): MessageDeliver
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
       // agy only: hold the pointer until the turn ends, then the sweep retries.
       if (deps.agyBusy?.(toTicketId)) return 'deferred';
-      const line = messagePointer(pointer.unread, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
+      const line = messagePointer(pointer, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
       if (line === null) return 'deferred';
       return deps.nudge(toTicketId, line) ? 'delivered' : 'deferred';
     },
@@ -182,6 +190,8 @@ export function makeRoutedDelivery(deps: RoutedDeliveryDeps): MessageDelivery {
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
       // Idle: the turn-end reply will not fire again — type the pointer now.
       if (!deps.isBusy(toTicketId)) return deps.typed.deliver(toTicketId, pointer);
+      // Notes never arm (the hook reply only carries mail): wait until idle.
+      if (pointer.kind === 'notes') return 'deferred';
       return 'armed';
     },
   };

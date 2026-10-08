@@ -6,6 +6,8 @@
 export const KARST_CLI_ENV = 'KARST_CLI';
 /** Env key pointing the agent at the registry so a `karst guide` pull is attributable. */
 export const KARST_DB_ENV = 'KARST_DB';
+/** Env key carrying the host-set project id (a positive integer) for `notes --repos`. */
+export const KARST_PROJECT_ENV = 'KARST_PROJECT';
 /** Env key carrying the workspace manifest path, for `--manifest "$KARST_MANIFEST"`. */
 export const KARST_MANIFEST_ENV = 'KARST_MANIFEST';
 /** Env key carrying the ticket KEY (e.g. `NDL-7`); distinct from the numeric `KARST_TICKET_ID`. */

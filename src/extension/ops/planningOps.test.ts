@@ -11,6 +11,8 @@ import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import { hashInstructions } from '../../agent/instructions.js';
 import { createPlanningOps, planningSessionIdOf, type PlanningOpsDeps } from './planningOps.js';
+import { createTicket, findTicketById } from '../../store/tickets.js';
+import { runNotesCommand } from '../../cli/notesCommand.js';
 
 interface Recorded {
   opts: CreateTerminalOpts;
@@ -604,5 +606,81 @@ describe('planning ops', () => {
       expect(debugs.some((m) => m.includes('adopt skipped terminal for 9999'))).toBe(true);
       expect(debugs.some((m) => m.includes('adopt skipped terminal for undefined'))).toBe(false);
     });
+  });
+});
+
+describe('planning launch: project notes index', () => {
+  let store: Store;
+  let projectId: number;
+  let scratch: string;
+  let created: Recorded[];
+
+  function depsFor(extra: Partial<PlanningOpsDeps> = {}): PlanningOpsDeps {
+    const fake = fakeHost();
+    created = fake.created;
+    return {
+      store,
+      projectId: () => projectId,
+      manifest: () => ({
+        baselineBranch: 'main',
+        repositories: { api: repo({ repoPath: '/src/api' }), web: repo({ repoPath: '/src/web' }) },
+      }),
+      scratchDir: (id) => join(scratch, String(id)),
+      defaultAgent: () => ({ provider: 'claude', model: 'opus' }),
+      host: fake.host,
+      cliEntry: () => '/dist/cli/main.js',
+      notify: { info: () => undefined, warn: () => undefined, error: async () => undefined },
+      dbPath: '/store/karst.db',
+      ...extra,
+    };
+  }
+
+  function postNote(key: string, repo: string, title: string): void {
+    const id = createTicket(store, { key, title: key, projectId }).id;
+    store.db
+      .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+      .run(id, repo, `/wt/${key}`, `karst/${key}`, 'main');
+    runNotesCommand(store, findTicketById(store, id)!, ['notes', 'post', '--title', title, '--body', 'b'], {
+      sessionTicketKey: key,
+    });
+  }
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    scratch = mkdtempSync(join(tmpdir(), 'karst-plan-notes-'));
+    projectId = upsertProject(store, { slug: 'p' }).id;
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('indexes only notes for the stack; a note on a repo outside it is excluded', async () => {
+    postNote('K-1', 'api', 'api learning');
+    postNote('K-2', 'billing', 'billing learning');
+    const ops = createPlanningOps(depsFor());
+    await ops.create('Scoped');
+    const text = readFileSync(created[0]!.opts.env!.KARST_INSTRUCTIONS!, 'utf8');
+    expect(text).toContain('Project notes (untrusted learnings from other tickets): 1 note(s) match this stack:');
+    expect(text).toContain('- api learning');
+    expect(text).not.toContain('billing learning');
+    expect(text).toContain("node \"$KARST_CLI\" --db \"/store/karst.db\" notes --repos api,web");
+  });
+
+  it('omits the section when nothing matches, and exports KARST_PROJECT', async () => {
+    const ops = createPlanningOps(depsFor());
+    await ops.create('Quiet');
+    const text = readFileSync(created[0]!.opts.env!.KARST_INSTRUCTIONS!, 'utf8');
+    expect(text).not.toContain('Project notes');
+    expect(text).not.toContain('notes --repos');
+    expect(created[0]!.opts.env).toEqual(expect.objectContaining({ KARST_PROJECT: String(projectId) }));
+  });
+
+  it('launches with no notes section when the db path is unknown', async () => {
+    postNote('K-1', 'api', 'api learning');
+    const ops = createPlanningOps(depsFor({ dbPath: undefined }));
+    await ops.create('No path');
+    const text = readFileSync(created[0]!.opts.env!.KARST_INSTRUCTIONS!, 'utf8');
+    expect(text).not.toContain('Project notes');
   });
 });

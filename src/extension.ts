@@ -768,7 +768,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     scratchDir: (id) => join(storageDir, 'planning-scratch', String(id)),
     defaultAgent: planningAgent,
     host: { createTerminal: (opts) => makeTerminalHost(terminalIdentity).createTerminal(opts) },
-    cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry,
+    cliEntry: () => cliSessionInput(cliLiteral(context, dbPath)).cliEntry, dbPath,
     notify,
     confirmUnsafeCore: async () => (await vscode.window.showWarningMessage(
       'agy cannot block edits; approve each action.', { modal: true }, 'Start')) === 'Start',

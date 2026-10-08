@@ -3,7 +3,7 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, findTicketById } from '../store/tickets.js';
 import { upsertProject } from '../store/projects.js';
 import { recordTicketMerged } from '../store/bulletinNotes.js';
-import { parseNotesArgs, runNotesCommand } from './notesCommand.js';
+import { parseNotesArgs, runNotesCommand, runNotesReposCommand } from './notesCommand.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string): void {
   store.db
@@ -106,5 +106,78 @@ describe('runNotesCommand', () => {
     ) as { notes: Array<{ source: string; from: string; title: string }> };
     expect(parsed.notes).toHaveLength(1);
     expect(parsed.notes[0]).toMatchObject({ source: 'host', from: 'K-2' });
+  });
+});
+
+describe('notes --repos (planner read)', () => {
+  let store: Store;
+  let projectId: number;
+  let otherProjectId: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    projectId = upsertProject(store, { slug: 'p1' }).id;
+    otherProjectId = upsertProject(store, { slug: 'p2' }).id;
+    const authorId = createTicket(store, { key: 'K-1', title: 'author', projectId }).id;
+    const otherAuthorId = createTicket(store, { key: 'K-9', title: 'elsewhere', projectId: otherProjectId }).id;
+    seedWorktree(store, authorId, 'api');
+    seedWorktree(store, authorId, 'web');
+    seedWorktree(store, otherAuthorId, 'billing');
+    runNotesCommand(store, findTicketById(store, authorId)!, ['notes', 'post', '--title', 'api tip', '--body', 'use the pool'], {
+      sessionTicketKey: 'K-1',
+    });
+    runNotesCommand(store, findTicketById(store, otherAuthorId)!, ['notes', 'post', '--title', 'billing tip', '--body', 'x'], {
+      sessionTicketKey: 'K-9',
+    });
+  });
+  afterEach(() => store.close());
+
+  it('parses --repos as a comma list with optional --json', () => {
+    expect(parseNotesArgs(['notes', '--repos', 'api, web,api'])).toEqual({
+      verb: 'repos',
+      repos: ['api', 'web'],
+      json: false,
+    });
+    expect(parseNotesArgs(['notes', '--repos', 'api', '--json'])).toMatchObject({ verb: 'repos', json: true });
+  });
+
+  it('refuses an empty --repos, a missing value, and --repos combined with post', () => {
+    expect(() => parseNotesArgs(['notes', '--repos'])).toThrow(/--repos needs a value/);
+    expect(() => parseNotesArgs(['notes', '--repos', 'api,,web'])).toThrow(/non-empty/);
+    expect(() => parseNotesArgs(['notes', '--repos', ''])).toThrow(/non-empty/);
+    expect(() =>
+      parseNotesArgs(['notes', 'post', '--repos', 'api', '--title', 'T', '--body', 'B']),
+    ).toThrow(/--repos cannot be combined with post/);
+  });
+
+  it('lists only notes for the named repos in the given project, without marking reads', () => {
+    const out = runNotesReposCommand(store, String(projectId), ['notes', '--repos', 'api']);
+    expect(out).toContain('api tip');
+    expect(out).not.toContain('billing tip');
+    expect(out).toContain('from ticket K-1 (untrusted)');
+    const reads = store.db.prepare('SELECT COUNT(*) AS n FROM bulletin_reads').get() as { n: number };
+    expect(reads.n).toBe(0);
+    // Repeatable: nothing was marked, so the same note prints again.
+    expect(runNotesReposCommand(store, String(projectId), ['notes', '--repos', 'api'])).toContain('api tip');
+  });
+
+  it('prints a JSON envelope with from keys', () => {
+    const parsed = JSON.parse(runNotesReposCommand(store, String(projectId), ['notes', '--repos', 'web', '--json']));
+    expect(parsed.notes).toHaveLength(1);
+    expect(parsed.notes[0]).toMatchObject({ from: 'K-1', title: 'api tip' });
+  });
+
+  it('says so when nothing matches', () => {
+    expect(runNotesReposCommand(store, String(projectId), ['notes', '--repos', 'nope'])).toBe(
+      'No notes for these repos.',
+    );
+  });
+
+  it('refuses a missing or invalid KARST_PROJECT, never inferring one', () => {
+    for (const bad of [undefined, '', '0', '-3', '1.5', 'abc']) {
+      expect(() => runNotesReposCommand(store, bad, ['notes', '--repos', 'api'])).toThrow(
+        /notes --repos needs KARST_PROJECT/,
+      );
+    }
   });
 });

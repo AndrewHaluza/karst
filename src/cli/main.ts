@@ -21,7 +21,7 @@ import { runServersCommand } from './serversCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
-import { runNotesCommand } from './notesCommand.js';
+import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -477,6 +477,19 @@ export function runCli(
   // (notesCommand.ts), like `message`: the caller is `--ticket`, cross-checked
   // against the session env's `KARST_TICKET` (read HERE and injected). The CLI
   // always writes source='agent'; only the merge hook writes source='host'.
+  // `karst notes --repos a,b` — the planner's READ of the bulletin for a stack.
+  // Taken BEFORE the ticket requirement: read-only (no marks, no post), and the
+  // project comes only from the host-set KARST_PROJECT, never from cwd.
+  if (subcommand === 'notes' && effectiveRest.includes('--repos')) {
+    if (!db) throw new Error('missing --db <path>');
+    const store = openReadonlyStore(db);
+    try {
+      return runNotesReposCommand(store, env.KARST_PROJECT, effectiveRest);
+    } finally {
+      store.close();
+    }
+  }
+
   if (subcommand === 'notes') {
     if (!db) throw new Error('missing --db <path>');
     if (!ticket) throw new Error('missing --ticket <key>');

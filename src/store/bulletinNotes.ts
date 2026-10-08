@@ -1,5 +1,5 @@
 import type { Store } from './db.js';
-import { forbiddenBodyChar } from '../model/messageText.js';
+import { forbiddenBodyChar, sanitizeInline } from '../model/messageText.js';
 import { noteMatchesScope, type NoteScope } from '../model/bulletinRelevance.js';
 
 /**
@@ -356,4 +356,87 @@ export function markNotesRead(store: Store, readerTicketId: number, noteIds: rea
   );
   for (const id of noteIds) marked += Number(stmt.run(id, readerTicketId).changes);
   return marked;
+}
+
+/** At most this many titles reach a host-written index. */
+export const NOTE_INDEX_TITLE_MAX = 10;
+
+/** A host-written pointer to matching notes: counts and sanitized titles, never bodies. */
+export interface NoteIndex {
+  count: number;
+  /** Newest-last, capped at `NOTE_INDEX_TITLE_MAX`, control characters stripped. */
+  titles: string[];
+}
+
+function toIndex(notes: readonly BulletinNote[]): NoteIndex {
+  return {
+    count: notes.length,
+    titles: notes.slice(-NOTE_INDEX_TITLE_MAX).map((n) => sanitizeInline(n.title)),
+  };
+}
+
+/** The ticket's UNREAD matching notes as an index. Read-only: marks nothing. */
+export function unreadNoteIndex(store: Store, ticketId: number): NoteIndex {
+  const row = store.db.prepare('SELECT project_id FROM tickets WHERE id = ?').get(ticketId) as
+    | { project_id: number | null }
+    | undefined;
+  const notes = listNotes(store, {
+    readerTicketId: ticketId,
+    projectId: row?.project_id ?? null,
+    scope: ticketNoteScope(store, ticketId),
+    all: false,
+  });
+  return toIndex(notes);
+}
+
+/** Per-ticket unread note count and newest unread note id, for the delivery sweep. */
+export interface TicketNoteUnread {
+  toTicketId: number;
+  unread: number;
+  maxId: number;
+}
+
+/** Unread matching notes for every ticket in the project that has worktrees. */
+export function unreadNotesByTicket(store: Store, projectId: number): TicketNoteUnread[] {
+  const tickets = store.db
+    .prepare(
+      `SELECT DISTINCT t.id AS id FROM tickets t JOIN worktrees w ON w.ticket_id = t.id
+        WHERE t.project_id = ? ORDER BY t.id`,
+    )
+    .all(projectId) as Array<{ id: number }>;
+  const out: TicketNoteUnread[] = [];
+  for (const { id } of tickets) {
+    const notes = listNotes(store, {
+      readerTicketId: id,
+      projectId,
+      scope: ticketNoteScope(store, id),
+      all: false,
+    });
+    if (notes.length > 0) {
+      out.push({ toTicketId: id, unread: notes.length, maxId: Math.max(...notes.map((n) => n.id)) });
+    }
+  }
+  return out;
+}
+
+/**
+ * Notes for a planning stack: every project note whose repos intersect `repos`
+ * (repo-only match — a planner has no paths). Pure read: no read tracking.
+ */
+export function listNotesForRepos(
+  store: Store,
+  projectId: number,
+  repos: readonly string[],
+): BulletinNote[] {
+  const rows = store.db
+    .prepare('SELECT * FROM bulletin_notes WHERE project_id = ? ORDER BY id')
+    .all(projectId) as NoteRow[];
+  return rows
+    .map(rowToNote)
+    .filter((n) => noteMatchesScope(n, { repos, paths: null }));
+}
+
+/** The planner's index over `listNotesForRepos`. */
+export function repoNoteIndex(store: Store, projectId: number, repos: readonly string[]): NoteIndex {
+  return toIndex(listNotesForRepos(store, projectId, repos));
 }

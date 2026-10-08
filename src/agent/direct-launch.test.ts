@@ -44,6 +44,7 @@ describe('direct approach launch path (integration)', () => {
         subtaskParent: null,
         subtasks: [],
         inbox: { unread: 0 },
+        notes: { unread: 0, titles: [] },
         stageCurrent: null,
         selectedRepos: ['backend'],
         worktrees: [],

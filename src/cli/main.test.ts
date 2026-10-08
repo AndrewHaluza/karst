@@ -6,6 +6,8 @@ import { exitsAfterFlush, parseGlobalFlags, runCli } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
+import { upsertProject } from '../store/projects.js';
+import { runNotesCommand } from './notesCommand.js';
 import { transition } from '../workflow/machine.js';
 import { createGraphRun } from '../store/graph/graphRuns.js';
 import { createPlannerRun } from '../store/graph/plannerRuns.js';
@@ -613,5 +615,48 @@ describe('exitsAfterFlush', () => {
     expect(exitsAfterFlush(['setup', 'propose-change'])).toBe(false);
     expect(exitsAfterFlush(['context', 'PROJ-9'])).toBe(false);
     expect(exitsAfterFlush([])).toBe(false);
+  });
+});
+
+describe('runCli — notes --repos (planner read, real db)', () => {
+  let dir: string;
+  let db: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-notes-repos-')));
+    db = join(dir, 'karst.db');
+    const store = openStore(db);
+    const projectId = upsertProject(store, { slug: 'p1' }).id;
+    const author = createTicket(store, { key: 'K-1', title: 'author', projectId }).id;
+    store.db
+      .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+      .run(author, 'api', '/wt/api', 'karst/api', 'main');
+    runNotesCommand(store, getTicket(store, author)!, ['notes', 'post', '--title', 'api tip', '--body', 'b'], {
+      sessionTicketKey: 'K-1',
+    });
+    store.close();
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('reads by project without a ticket and marks nothing read', () => {
+    const out = runCli(['--db', db, 'notes', '--repos', 'api'], { KARST_PROJECT: '1' });
+    expect(out).toContain('api tip');
+    const store = openStore(db);
+    const reads = store.db.prepare('SELECT COUNT(*) AS n FROM bulletin_reads').get() as { n: number };
+    store.close();
+    expect(reads.n).toBe(0);
+  });
+
+  it('refuses a missing or invalid KARST_PROJECT and never falls back to cwd', () => {
+    expect(() => runCli(['--db', db, 'notes', '--repos', 'api'], {})).toThrow(/notes --repos needs KARST_PROJECT/);
+    expect(() => runCli(['--db', db, 'notes', '--repos', 'api'], { KARST_PROJECT: 'x' })).toThrow(
+      /notes --repos needs KARST_PROJECT/,
+    );
+  });
+
+  it('refuses --repos combined with post', () => {
+    expect(() =>
+      runCli(['--db', db, 'notes', 'post', '--repos', 'api', '--title', 'T', '--body', 'B'], { KARST_PROJECT: '1' }),
+    ).toThrow(/cannot be combined with post/);
   });
 });

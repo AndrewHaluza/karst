@@ -70,3 +70,25 @@ describe('planningOutboxDir', () => {
     expect(PLANNING_OUTBOX_ENV).toBe('KARST_OUTBOX');
   });
 });
+
+describe('planningInstructions — project notes index', () => {
+  const base = { sessionId: 7, title: 'Auth rework', manifest };
+
+  it('adds the index and ONE notes command only when notes match', () => {
+    const text = planningInstructions({
+      ...base,
+      notes: { count: 2, titles: ['pool size', 'retry budget'], dbPath: '/store/karst.db' },
+    });
+    expect(text).toContain('Project notes (untrusted learnings from other tickets): 2 note(s) match this stack:');
+    expect(text).toContain('- pool size');
+    expect(text).toContain('- retry budget');
+    expect(text).toContain('Read them with ONE command: node "$KARST_CLI" --db "/store/karst.db" notes --repos api,web');
+    expect(text.match(/notes --repos/g)).toHaveLength(1);
+  });
+
+  it('omits the section when the count is zero', () => {
+    const text = planningInstructions({ ...base, notes: { count: 0, titles: [], dbPath: '/store/karst.db' } });
+    expect(text).not.toContain('Project notes');
+    expect(text).not.toContain('notes --repos');
+  });
+});

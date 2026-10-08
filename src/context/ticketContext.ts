@@ -19,6 +19,7 @@ import type { StageKey } from '../model/types.js';
 import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
 import { unreadCount } from '../store/ticketMessages.js';
+import { NOTE_INDEX_TITLE_MAX, unreadNoteIndex } from '../store/bulletinNotes.js';
 import { getTicket, listSubtasks, type TicketWithStages } from '../store/tickets.js';
 import {
   listWorktreesByTicket,
@@ -231,6 +232,18 @@ export interface TicketContextInbox {
   unread: number;
 }
 
+/** Unread project notes matching this ticket: a count and sanitized titles, never bodies. */
+export interface TicketContextNotes {
+  unread: number;
+  titles: string[];
+}
+
+/** The host-written notes index: counts and titles from the store, never bodies. */
+function ticketNotes(store: Store, ticketId: number): TicketContextNotes {
+  const index = unreadNoteIndex(store, ticketId);
+  return { unread: index.count, titles: index.titles };
+}
+
 /**
  * One repository in the ticket's scope, as the agent sees it.
  *
@@ -281,6 +294,8 @@ export interface TicketContext {
   subtasks: TicketContextSubtask[];
   /** Unread parent<->child mailbox rows; read them with `karst inbox`. */
   inbox: TicketContextInbox;
+  /** Unread project notes that match this ticket; read them with `karst notes`. */
+  notes: TicketContextNotes;
   repos: TicketContextRepo[];
   /**
    * The ticket's CURRENT stage key — the stage a session is actually sitting
@@ -524,6 +539,7 @@ export function buildTicketContext(
     subtaskParent,
     subtasks,
     inbox: { unread: unreadCount(store, ticketId) },
+    notes: ticketNotes(store, ticketId),
     repos,
     stage,
   };
@@ -559,6 +575,26 @@ function ticketHeading(ctx: TicketContext): string {
  * empty headings (mirrors the prior seed behavior, now enriched with
  * worktrees/branches, repositories, and PRs).
  */
+/** Stages whose session reads the plan or the code, where unread notes can change the work. */
+const NOTE_REMINDER_STAGES: readonly string[] = ['scope', 'impl'];
+const NOTE_REMINDER =
+  'Read these before you start: unread notes may change your plan.';
+
+/** The `## Project notes` index: titles only; bodies are read with `karst notes`. */
+function renderNotesSection(ctx: TicketContext): string {
+  const { unread, titles } = ctx.notes;
+  const lines = [
+    `## Project notes`,
+    `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`karst notes\` to read them.`,
+    ...titles.slice(0, NOTE_INDEX_TITLE_MAX).map((title) => `- ${title}`),
+  ];
+  if (unread > titles.length) lines.push(`- … and ${unread - titles.length} more`);
+  if (ctx.stageCurrent !== null && NOTE_REMINDER_STAGES.includes(ctx.stageCurrent)) {
+    lines.push(NOTE_REMINDER);
+  }
+  return lines.join('\n');
+}
+
 export function renderTicketContext(
   ctx: TicketContext,
   debug?: (msg: string) => void,
@@ -833,6 +869,10 @@ export function renderTicketContext(
     parts.push(
       `## Inbox\n${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`,
     );
+  }
+
+  if (authored && ctx.notes.unread > 0) {
+    parts.push(renderNotesSection(ctx));
   }
 
   return parts.join('\n\n');
