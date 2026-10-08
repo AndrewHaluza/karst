@@ -160,6 +160,8 @@ describe('updatePrDetail', () => {
         comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
         checks: null,
         mergeBlock: 'unknown',
+        mergeSha: null,
+        changedPaths: null,
       },
     });
 
@@ -195,6 +197,8 @@ describe('updatePrDetail', () => {
         comments: [{ author: 'ada', at: null, body: 'lgtm' }],
         checks: null,
         mergeBlock: 'unknown',
+        mergeSha: null,
+        changedPaths: null,
       },
     });
 
@@ -211,6 +215,8 @@ describe('updatePrDetail', () => {
         comments: null,
         checks: null,
         mergeBlock: 'unknown',
+        mergeSha: null,
+        changedPaths: null,
       },
     });
 
@@ -235,6 +241,8 @@ describe('updatePrDetail', () => {
       mergedAt: null,
       checks: null,
       mergeBlock: 'unknown' as const,
+      mergeSha: null,
+      changedPaths: null,
     };
     updatePrDetail(store, {
       ticketId: a.id,
@@ -267,6 +275,8 @@ describe('updatePrDetail', () => {
         comments: null,
         checks: null,
         mergeBlock: 'unknown',
+        mergeSha: null,
+        changedPaths: null,
       },
     });
     const pr = listPrsByTicket(store, a.id)[0]!;
@@ -302,6 +312,8 @@ describe('updatePrDetail', () => {
         comments: null,
         checks: passing,
         mergeBlock: 'clean',
+        mergeSha: null,
+        changedPaths: null,
       },
     });
     const row = listSyncablePrs(store, { projectId: 1 })[0]!;
@@ -321,6 +333,8 @@ describe('updatePrDetail', () => {
       comments: null,
       checks: passing,
       mergeBlock: 'clean' as const,
+      mergeSha: null,
+      changedPaths: null,
     };
     updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
     updatePrDetail(store, {
@@ -344,6 +358,8 @@ describe('updatePrDetail', () => {
       comments: null,
       checks: null,
       mergeBlock: 'blocked' as const,
+      mergeSha: null,
+      changedPaths: null,
     };
     updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
     updatePrDetail(store, {
@@ -367,6 +383,8 @@ describe('updatePrDetail', () => {
       comments: null,
       checks: null,
       mergeBlock: 'blocked' as const,
+      mergeSha: null,
+      changedPaths: null,
     };
     updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
     updatePrDetail(store, {
@@ -376,6 +394,116 @@ describe('updatePrDetail', () => {
       detail: { ...detail, mergeBlock: 'clean' },
     });
     expect(listPrsByTicket(store, a.id)[0]!.mergeBlock).toBe('clean');
+  });
+});
+
+describe('updatePrDetail — merge hook', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const url = (n: number) => `https://github.com/o/r/pull/${n}`;
+
+  const mergedDetail = (mergeSha: string | null, changedPaths: string[] | null) => ({
+    status: 'merged' as const,
+    headRef: null,
+    baseRef: null,
+    createdAt: null,
+    mergedAt: '2026-07-28T09:30:00Z',
+    comments: null,
+    checks: null,
+    mergeBlock: 'unknown' as const,
+    mergeSha,
+    changedPaths,
+  });
+
+  const hostNotes = () =>
+    store.db
+      .prepare("SELECT * FROM bulletin_notes WHERE source = 'host'")
+      .all() as Array<{ title: string; merge_sha: string | null; paths: string | null; repos: string | null }>;
+
+  it('fires recordTicketMerged on the first merged-with-sha probe, idempotently', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    const detail = mergedDetail('sha1', ['src/store/prs.ts']);
+
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
+    expect(hostNotes()).toHaveLength(1);
+    expect(hostNotes()[0]!.merge_sha).toBe('sha1');
+    expect(JSON.parse(hostNotes()[0]!.paths!)).toEqual(['src/store/prs.ts']);
+
+    // A re-probe of the same merge writes no second note.
+    updatePrDetail(store, { ticketId: a.id, repo: 'api', url: url(12), detail });
+    expect(hostNotes()).toHaveLength(1);
+  });
+
+  it('does not fire while the sha is unknown, then fires on the next probe', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: mergedDetail(null, null),
+    });
+    expect(hostNotes()).toHaveLength(0);
+
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: mergedDetail('sha-later', ['src/x.ts']),
+    });
+    expect(hostNotes()).toHaveLength(1);
+    expect(hostNotes()[0]!.merge_sha).toBe('sha-later');
+  });
+
+  it('never un-sets a stored merge_sha when a later probe omits it', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: mergedDetail('sha1', ['src/x.ts']),
+    });
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: { ...mergedDetail(null, null), status: 'unknown' },
+    });
+    const row = store.db
+      .prepare('SELECT merge_sha, status FROM prs WHERE ticket_id = ?')
+      .get(a.id) as { merge_sha: string | null; status: string | null };
+    expect(row.merge_sha).toBe('sha1');
+    expect(row.status).toBe('merged');
+    expect(hostNotes()).toHaveLength(1);
+  });
+
+  it('stamps the ticket agent notes at merge', () => {
+    const a = createTicket(store, { key: 'A', title: 'a' });
+    seedPr(store, a.id, 'api', 12, 'open');
+    seedWorktree(store, a.id, 'api', '/wt/api');
+    store.db
+      .prepare(
+        `INSERT INTO bulletin_notes (source, from_ticket_id, title, body, repos, paths)
+         VALUES ('agent', ?, 'learning', 'prose', ?, NULL)`,
+      )
+      .run(a.id, JSON.stringify(['api']));
+
+    updatePrDetail(store, {
+      ticketId: a.id,
+      repo: 'api',
+      url: url(12),
+      detail: mergedDetail('sha1', ['src/store/prs.ts']),
+    });
+    const agent = store.db
+      .prepare("SELECT paths FROM bulletin_notes WHERE source = 'agent'")
+      .get() as { paths: string | null };
+    expect(JSON.parse(agent.paths!)).toEqual(['src/store/prs.ts']);
   });
 });
 

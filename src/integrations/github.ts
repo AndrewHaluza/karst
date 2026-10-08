@@ -393,6 +393,19 @@ export interface PrDetail {
    * UNKNOWN), so it is dropped on write exactly like `status: 'unknown'` is.
    */
   mergeBlock: MergeBlock;
+  /**
+   * The merge commit sha (`mergeCommit.oid`), or null while the PR is unmerged
+   * or gh did not state it. The merge hook keys the host-fact bulletin note on
+   * it (store/bulletinNotes.ts).
+   */
+  mergeSha: string | null;
+  /**
+   * The PR's changed paths (`files[].path`), or null when gh did not state them
+   * OR the list came back at gh's cap (100 entries, no paging) and is therefore
+   * INCOMPLETE. Null means "unknown" and makes relevance fall back to repo-only
+   * matching — never a partial list dressed up as the whole diff.
+   */
+  changedPaths: string[] | null;
 }
 
 /**
@@ -409,15 +422,43 @@ export const UNKNOWN_PR_DETAIL: PrDetail = {
   comments: null,
   checks: null,
   mergeBlock: 'unknown',
+  mergeSha: null,
+  changedPaths: null,
 };
 
 /** The `--json` fields `fetchPrDetail` requests, in one round trip. */
 const PR_DETAIL_FIELDS =
-  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup';
+  'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files';
+
+/** gh caps `--json files` at 100 entries with no paging; at the cap the list is incomplete. */
+const GH_FILES_CAP = 100;
 
 /** A gh string field, or null for absent/empty/wrong-typed. */
 function text(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null;
+}
+
+/** `mergeCommit.oid`, or null when absent/empty/wrong-typed. */
+function mergeSha(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  return text((value as Record<string, unknown>).oid);
+}
+
+/**
+ * The changed paths from `files[]`, or null when gh did not state them OR the
+ * list is at gh's 100-entry cap (incomplete, no paging) — a partial list must
+ * never read as the whole diff.
+ */
+function changedPaths(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  if (value.length >= GH_FILES_CAP) return null;
+  const paths: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'object' || entry === null) continue;
+    const path = text((entry as Record<string, unknown>).path);
+    if (path !== null) paths.push(path);
+  }
+  return paths;
 }
 
 /**
@@ -457,6 +498,8 @@ export async function fetchPrDetail(
     comments: normalizeComments(view.comments),
     checks: normalizeChecks(view.statusCheckRollup),
     mergeBlock: normalizeMergeBlock(view.mergeable, view.mergeStateStatus),
+    mergeSha: mergeSha(view.mergeCommit),
+    changedPaths: changedPaths(view.files),
   };
 }
 

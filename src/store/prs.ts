@@ -3,6 +3,7 @@ import type { ProjectScope } from './tickets.js';
 import type { PrDetail } from '../integrations/github.js';
 import { serializeComments } from '../model/prComments.js';
 import { serializeChecks } from '../model/prChecks.js';
+import { recordTicketMerged } from './bulletinNotes.js';
 
 /**
  * PR-status persistence, split out from the read-only `listPrsByTicket` in
@@ -132,39 +133,76 @@ export interface UpdatePrDetailInput {
  *    GitHub computes mergeability lazily and answers UNKNOWN at first, so writing
  *    it would erase a real `blocked` whenever GitHub is mid-think. A NULL
  *    `checks` ("gh did not say") keeps the stored rollup via COALESCE.
+ *
+ * The write runs in ONE transaction with a read of the OLD row, because it is
+ * also the merge hook: on the FIRST probe that reports the PR merged AND states
+ * a merge sha, `recordTicketMerged` writes the trusted host-fact bulletin note
+ * (and stamps the ticket's agent notes with the diff). `merge_sha` follows the
+ * `mergedAt` rule — COALESCE, never un-set. A probe that has not learned the sha
+ * yet fires nothing; the next probe that does fires it. Idempotence is the
+ * host note's unique index, so re-probing the same merge writes no second note.
  */
 export function updatePrDetail(store: Store, input: UpdatePrDetailInput): void {
   const { detail } = input;
   const mergeBlock = detail.mergeBlock === 'unknown' ? null : detail.mergeBlock;
-  store.db
-    .prepare(
-      `UPDATE prs SET
-         status     = CASE WHEN ? IS NULL THEN status ELSE ? END,
-         head_ref   = COALESCE(?, head_ref),
-         base_ref   = COALESCE(?, base_ref),
-         created_at = COALESCE(?, created_at),
-         merged_at  = COALESCE(?, merged_at),
-         comments   = COALESCE(?, comments),
-         checks      = COALESCE(?, checks),
-         merge_block = CASE WHEN ? IS NULL THEN merge_block ELSE ? END
-       WHERE ticket_id = ? AND repo = ? AND url = ?`,
-    )
-    .run(
-      // 'unknown' is not a status to store — it is the absence of an answer.
-      detail.status === 'unknown' ? null : detail.status,
-      detail.status === 'unknown' ? null : detail.status,
-      detail.headRef,
-      detail.baseRef,
-      detail.createdAt,
-      detail.mergedAt,
-      serializeComments(detail.comments),
-      serializeChecks(detail.checks),
-      mergeBlock,
-      mergeBlock,
-      input.ticketId,
-      input.repo,
-      input.url,
-    );
+  const run = store.db.transaction(() => {
+    const old = store.db
+      .prepare('SELECT status, merge_sha FROM prs WHERE ticket_id = ? AND repo = ? AND url = ?')
+      .get(input.ticketId, input.repo, input.url) as
+      | { status: string | null; merge_sha: string | null }
+      | undefined;
+    store.db
+      .prepare(
+        `UPDATE prs SET
+           status     = CASE WHEN ? IS NULL THEN status ELSE ? END,
+           head_ref   = COALESCE(?, head_ref),
+           base_ref   = COALESCE(?, base_ref),
+           created_at = COALESCE(?, created_at),
+           merged_at  = COALESCE(?, merged_at),
+           merge_sha  = COALESCE(?, merge_sha),
+           comments   = COALESCE(?, comments),
+           checks      = COALESCE(?, checks),
+           merge_block = CASE WHEN ? IS NULL THEN merge_block ELSE ? END
+         WHERE ticket_id = ? AND repo = ? AND url = ?`,
+      )
+      .run(
+        // 'unknown' is not a status to store — it is the absence of an answer.
+        detail.status === 'unknown' ? null : detail.status,
+        detail.status === 'unknown' ? null : detail.status,
+        detail.headRef,
+        detail.baseRef,
+        detail.createdAt,
+        detail.mergedAt,
+        detail.mergeSha,
+        serializeComments(detail.comments),
+        serializeChecks(detail.checks),
+        mergeBlock,
+        mergeBlock,
+        input.ticketId,
+        input.repo,
+        input.url,
+      );
+
+    // The stored status is the probe's status, or the old one when the probe
+    // said 'unknown' (the UPDATE kept it). The hook fires on the FIRST probe that
+    // both lands the row on 'merged' and states the sha — never on a re-probe of
+    // an already-recorded merge.
+    const newStatus = detail.status === 'unknown' ? old?.status ?? null : detail.status;
+    if (
+      old !== undefined &&
+      (old.status !== 'merged' || old.merge_sha === null) &&
+      newStatus === 'merged' &&
+      detail.mergeSha !== null
+    ) {
+      recordTicketMerged(store, {
+        ticketId: input.ticketId,
+        repo: input.repo,
+        mergeSha: detail.mergeSha,
+        changedPaths: detail.changedPaths,
+      });
+    }
+  });
+  run();
 }
 
 export interface DismissPrInput {

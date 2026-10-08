@@ -549,7 +549,7 @@ describe('fetchPrDetail', () => {
       'view',
       'https://github.com/o/r/pull/9',
       '--json',
-      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup',
+      'state,isDraft,headRefName,baseRefName,createdAt,mergedAt,comments,mergeable,mergeStateStatus,statusCheckRollup,mergeCommit,files',
     ]);
     expect(calls[0]!.cwd).toBe('/wt/a');
     expect(detail).toEqual({
@@ -561,6 +561,8 @@ describe('fetchPrDetail', () => {
       comments: [{ author: 'ada', at: '2026-07-24T10:00:00Z', body: 'lgtm' }],
       checks: null,
       mergeBlock: 'unknown',
+      mergeSha: null,
+      changedPaths: null,
     });
   });
 
@@ -610,6 +612,8 @@ describe('fetchPrDetail', () => {
       comments: null,
       checks: null,
       mergeBlock: 'unknown',
+      mergeSha: null,
+      changedPaths: null,
     });
   });
 
@@ -654,6 +658,53 @@ describe('fetchPrDetail', () => {
     // worse lie than reporting nothing.
     const gh: GhRunner = async () => ({ stdout: viewJson({ state: 'OPEN', isDraft: false }), exitCode: 0 });
     expect((await fetchPrDetail(gh, '9', '/wt')).checks).toBeNull();
+  });
+
+  it('reads the merge commit sha and the changed paths from the same call', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({
+        state: 'MERGED',
+        isDraft: false,
+        mergeCommit: { oid: 'abc123def456' },
+        files: [{ path: 'src/store/prs.ts' }, { path: 'src/cli/main.ts' }],
+      }),
+      exitCode: 0,
+    });
+    const detail = await fetchPrDetail(gh, '9', '/wt');
+    expect(detail.mergeSha).toBe('abc123def456');
+    expect(detail.changedPaths).toEqual(['src/store/prs.ts', 'src/cli/main.ts']);
+  });
+
+  it('treats an empty mergeCommit object and a missing files list as null', async () => {
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ state: 'OPEN', mergeCommit: {}, files: null }),
+      exitCode: 0,
+    });
+    const detail = await fetchPrDetail(gh, '9', '/wt');
+    expect(detail.mergeSha).toBeNull();
+    expect(detail.changedPaths).toBeNull();
+  });
+
+  // gh caps `--json files` at 100 entries with no paging, so a 100-entry list is
+  // INCOMPLETE — a partial list must never read as the whole diff. changedPaths
+  // goes null, which makes bulletin relevance fall back to repo-only matching.
+  it('nulls changedPaths when gh returns the 100-file cap', async () => {
+    const files = Array.from({ length: 100 }, (_, i) => ({ path: `src/f${i}.ts` }));
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ state: 'MERGED', files }),
+      exitCode: 0,
+    });
+    expect((await fetchPrDetail(gh, '9', '/wt')).changedPaths).toBeNull();
+  });
+
+  it('keeps a 99-file list (just under the cap)', async () => {
+    const files = Array.from({ length: 99 }, (_, i) => ({ path: `src/f${i}.ts` }));
+    const gh: GhRunner = async () => ({
+      stdout: viewJson({ state: 'MERGED', files }),
+      exitCode: 0,
+    });
+    const detail = await fetchPrDetail(gh, '9', '/wt');
+    expect(detail.changedPaths).toHaveLength(99);
   });
 });
 
