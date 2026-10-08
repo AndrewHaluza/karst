@@ -581,7 +581,7 @@ export function listOpenBlockersFor(
 }
 
 /** Build the display label for a blocker: 'key / ref', 'ref', or 'proposal #N'. */
-function buildBlockerLabel(
+export function buildBlockerLabel(
   targetTicketId: number | null,
   targetKey: string,
   targetRef: string | null,

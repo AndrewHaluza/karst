@@ -20,7 +20,7 @@ import {
   type ModelCatalog,
 } from '../../agent/modelCatalog.js';
 import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
-import { list as listRelationViews, listRelations, listPendingWritebacks } from '../../store/ticketRelations.js';
+import { buildBlockerLabel, list as listRelationViews, listRelations, listPendingWritebacks } from '../../store/ticketRelations.js';
 
 /**
  * Serializable state for the ticket form (§ ticket form). One surface serves
@@ -450,12 +450,13 @@ export function buildTicketFormState(
             name: a.originalName,
             byteSize: a.byteSize,
             src: attachmentPath(storageDir, ticketId, a.storedName),
-        })),
+          })),
     relations: listRelationViews(store, ticketId).map((r) => {
-      let label = r.targetRef ?? `proposal #${r.targetProposalId}`;
+      let key = '';
       if (r.targetTicketId !== null) {
-        try { const target = getTicket(store, r.targetTicketId); const key = target.key ?? `#${target.id}`; label = r.targetRef && r.targetRef !== key ? `${key} / ${r.targetRef}` : key; } catch { label = r.targetRef ?? `#${r.targetTicketId}`; }
+        try { key = getTicket(store, r.targetTicketId).key ?? ''; } catch { key = ''; }
       }
+      const label = buildBlockerLabel(r.targetTicketId, key, r.targetRef, r.targetProposalId);
       const stored = listRelations(store, r.derived && r.targetTicketId !== null ? r.targetTicketId : ticketId).find((x) => x.id === r.id);
       return { id: r.id, kind: r.kind, ticketId: r.targetTicketId, label, writebackError: stored?.writebackError ?? null };
     }),
