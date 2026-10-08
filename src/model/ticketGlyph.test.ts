@@ -14,6 +14,7 @@ function ticket(over: Partial<TicketWithStages>): TicketWithStages {
     description: null,
     brief: null,
     sourceRef: null,
+    sourceRefInternal: null,
     sourceFetchedAt: null,
     approach: null,
     agent: null,

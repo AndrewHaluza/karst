@@ -94,11 +94,12 @@ describe('renderWorkflowCommand', () => {
   it('emits the absolute CLI path once, not inlined into every step', () => {
     // The whole point of the prefix-once refactor: the CLI invocation must not be
     // inlined into the loader, every phase marker, and the guide. Those steps
-    // reference the `KARST` alias defined once at the top. The one exception is
-    // the done-marker instruction, which is deliberately a fully-expanded,
-    // directly-executable command (a documented alias is not in scope for the
-    // fresh shell a marker is run in) — so the path appears exactly twice: the
-    // alias definition and the done-marker.
+    // reference the `KARST` alias defined once at the top. The two exceptions are
+    // the done-marker instruction and the impl-only `karst notes post` ask, which
+    // are deliberately fully-expanded, directly-executable commands (a documented
+    // alias is not in scope for the fresh shell a marker is run in) — so the path
+    // appears exactly three times: the alias definition, the done-marker, and the
+    // notes-post completion command.
     const phaseCommand = (name: string): string =>
       `node "/ext/dist/cli/main.js" phase ${name} --db "/x.db" --manifest "/k.yml" --ticket`;
     const body = renderWorkflowCommand({
@@ -116,9 +117,9 @@ describe('renderWorkflowCommand', () => {
     expect(body).toContain('$KARST guide');
     // the done-marker is directly executable
     expect(body).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket $ARGUMENTS');
-    // the path appears only in the alias definition and the done-marker
+    // the path appears only in the alias definition, the done-marker, and the notes-post ask
     const occurrences = body.split('node "/ext/dist/cli/main.js"').length - 1;
-    expect(occurrences).toBe(2);
+    expect(occurrences).toBe(3);
     expect(body).toContain('KARST = node "/ext/dist/cli/main.js"');
   });
 
@@ -238,6 +239,26 @@ describe('renderDoneMarkerInstruction', () => {
     );
     expect(s.toLowerCase()).not.toContain('uat');
     expect(s.toLowerCase()).not.toContain('implementation');
+  });
+
+  it('asks the IMPLEMENTER for one optional bulletin note, with a runnable command', () => {
+    const s = renderDoneMarkerInstruction(
+      'node "/ext/cli.js" stage impl pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(s).toContain('notes post');
+    expect(s).toContain(
+      'node "/ext/cli.js" notes post --db "/x.db" --ticket PROJ-9 --title <short title> --body <learnings>',
+    );
+    expect(s.toLowerCase()).toContain('optional');
+  });
+
+  it('does NOT ask a fix session for a bulletin note', () => {
+    const s = renderDoneMarkerInstruction(
+      'node "/ext/cli.js" stage fix pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(s).not.toContain('notes post');
   });
 
   it('embeds the shared done-marker wording verbatim (a directly-executable command)', () => {

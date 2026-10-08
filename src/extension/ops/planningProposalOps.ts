@@ -127,7 +127,12 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       const p = await pending(id);
       if (!p) return;
       await guarded('discard', id, () => {
-        discardProposal(deps.store, id);
+        const pruned = discardProposal(deps.store, id);
+        if (pruned.length > 0) {
+          const list = pruned.map((n) => `#${n}`).join(', ');
+          const verb = pruned.length === 1 ? 'no longer waits' : 'no longer wait';
+          deps.notify.warn(`Planning draft #${id} was discarded; ${list} ${verb} on it.`);
+        }
         refresh(p.sessionId);
       });
     },

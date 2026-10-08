@@ -88,6 +88,9 @@ interface RawDependency {
 /** Shapes we read out of the ClickUp payloads (everything else is ignored). */
 interface RawTask {
   id?: string;
+  /** The human-facing custom id (e.g. "ABC-123"); present only when the task has
+   *  one. The canonical ref when `custom_task_ids` is in play. */
+  custom_id?: string | null;
   name?: string;
   text_content?: string;
   description?: string;
@@ -295,6 +298,22 @@ function parseRelations(task: RawTask): BriefRelation[] {
   return out;
 }
 
+/**
+ * ClickUp's canonical task ref for the current configuration: the custom id
+ * (`ABC-123`) when a `teamId` is configured AND the task carries one, else the
+ * internal id. The ref form must match how `taskQuery` addresses tasks — custom
+ * ids are only resolvable via `custom_task_ids=true&team_id=`, so without a
+ * `teamId` a custom id would be unaddressable. Every ref karst persists must be
+ * in this form — `source_ref` from fetch/create/search binds, and dependency
+ * refs — so an edge resolves no matter which bind path produced either endpoint.
+ */
+function canonicalRef(task: RawTask, fallback: string, teamId: string | undefined): string {
+  const useCustom = (teamId ?? '').trim() !== '';
+  const custom =
+    useCustom && typeof task.custom_id === 'string' ? task.custom_id.trim() : '';
+  return custom !== '' ? custom : fallback;
+}
+
 function taskQuery(teamId: string | undefined, includeSubtasks = false): string {
   const query = new URLSearchParams();
   if (teamId) {
@@ -351,6 +370,11 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
 
   async function enrichRelations(relations: BriefRelation[]): Promise<BriefRelation[]> {
     const pending = new Map<string, Promise<unknown | undefined>>();
+    // With `custom_task_ids` in play, `sourceRef` is a custom id while the
+    // dependency payload names related tasks by their INTERNAL id. The metadata
+    // response carries the related task's `custom_id`, so rewrite the ref to it
+    // — otherwise a dangling ref never matches the imported ticket's source_ref.
+    const normalizeIds = (deps.teamId ?? '').trim() !== '';
 
     function metadata(ref: string): Promise<unknown | undefined> {
       const existing = pending.get(ref);
@@ -368,21 +392,36 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
       return request;
     }
 
-    return Promise.all(
-      relations.map(async (relation) => {
-        if (relation.title && relation.status) return relation;
+    const enriched = await Promise.all(
+      relations.map(async (relation): Promise<BriefRelation | null> => {
+        // Normalizing the ref needs the metadata even when title/status are
+        // already known (e.g. a subtask child), so only take the fast path when
+        // custom ids are NOT in play.
+        if (!normalizeIds && relation.title && relation.status) return relation;
         const task = await metadata(relation.ref);
-        if (!isObject(task)) return relation;
+        if (!isObject(task)) {
+          // The ref is ClickUp's INTERNAL id; without the metadata we cannot
+          // rewrite it to the custom id `source_ref` holds. KEEP the relation
+          // anyway: the ticket stores its internal id as an alias, so the
+          // internal ref still resolves, and dropping it would make the ingest
+          // delete a dependency the provider still reports (a transient
+          // metadata failure must never silently unblock a ticket).
+          return relation;
+        }
+        const customId =
+          normalizeIds && typeof task.custom_id === 'string' ? task.custom_id.trim() : '';
         const title = relation.title ?? (typeof task.name === 'string' ? task.name.trim() : undefined);
         const rawStatus = isObject(task.status) ? task.status.status : undefined;
         const status = relation.status ?? (typeof rawStatus === 'string' ? rawStatus.trim() : undefined);
         return {
           ...relation,
+          ...(customId ? { ref: customId } : {}),
           ...(title ? { title } : {}),
           ...(status ? { status } : {}),
         };
       }),
     );
+    return enriched.filter((r): r is BriefRelation => r !== null);
   }
 
   async function putJson(url: string, body: unknown): Promise<void> {
@@ -430,6 +469,36 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
     }
   }
 
+  /**
+   * POST a dependency. Distinct from `postJson`: a 4xx whose body says the
+   * dependency already exists is SUCCESS (the edge is present, which is the
+   * goal), so the body is read before deciding. Any other non-ok status throws.
+   */
+  async function postDependency(url: string, body: unknown): Promise<void> {
+    const token = await deps.token();
+    let res: Response;
+    try {
+      res = await deps.fetchFn(url, {
+        method: 'POST',
+        headers: { Authorization: token, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    } catch (e) {
+      throw new ClickupError(`request failed: ${(e as Error).message}`);
+    }
+    if (res.ok) return;
+    let text = '';
+    try {
+      text = await res.text();
+    } catch {
+      // An unreadable body cannot prove the edge exists; fall through to throw.
+    }
+    if (res.status >= 400 && res.status < 500 && /already\s+(exists|added|been)/i.test(text)) {
+      return;
+    }
+    throw new ClickupError(`POST ${url} returned ${res.status}`);
+  }
+
   return {
     /**
      * Set a task's status. ClickUp takes the status NAME (`{status: "in review"}`),
@@ -474,7 +543,27 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
         throw new ClickupError('created task returned no id');
       }
       const url = typeof raw.url === 'string' && raw.url.trim() ? raw.url.trim() : undefined;
-      return { ref: raw.id, ...(url ? { url } : {}) };
+      // The canonical id for this configuration (custom when `teamId` is set,
+      // else internal): a create-bound `source_ref` must match the refs a brief
+      // reports, and every later API call addresses it the same way.
+      const ref = canonicalRef(raw, raw.id, deps.teamId);
+      // Keep the internal id too when the canonical ref is a custom id, so a
+      // dependency ref (which ClickUp reports by internal id) still resolves.
+      const internalRef = raw.id !== ref ? raw.id : undefined;
+      return { ref, ...(internalRef ? { internalRef } : {}), ...(url ? { url } : {}) };
+    },
+
+    /**
+     * Record `ref` blocked by `dependsOnRef`: `POST /task/{ref}/dependency`
+     * with `{depends_on}`. Reuses `taskQuery`'s custom-id handling (ClickUp
+     * needs `custom_task_ids=true&team_id=` when refs are custom ids). An
+     * already-existing edge is success (see `postDependency`).
+     */
+    async addDependency(ref: string, dependsOnRef: string): Promise<void> {
+      await postDependency(
+        `${API_BASE}/task/${encodeURIComponent(ref)}/dependency${taskQuery(deps.teamId)}`,
+        { depends_on: dependsOnRef },
+      );
     },
 
     async listStatuses(): Promise<string[]> {
@@ -553,7 +642,10 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
           const priority = t.priority?.priority?.trim();
           out.push({
             result: {
-              ref: typeof t.id === 'string' ? t.id : '',
+              // Canonical id for this configuration — a picked search result is
+              // fetched (and later bound) as `source_ref`, which must match the
+              // refs a brief reports and be addressable by `taskQuery`.
+              ref: canonicalRef(t, typeof t.id === 'string' ? t.id : '', deps.teamId),
               title,
               ...(status ? { status } : {}),
               ...(priority ? { priority } : {}),
@@ -600,6 +692,8 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
       const relations = await enrichRelations(parseRelations(task));
       const timestamps = parseTimestamps(task);
       const links = extractLinks(description);
+      const internal = typeof task.id === 'string' ? task.id.trim() : '';
+      const sourceRef = internal !== '' ? canonicalRef(task, internal, deps.teamId) : '';
 
       return {
         title: task.name ?? '',
@@ -610,6 +704,10 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
         ...(status ? { status } : {}),
         ...(priority ? { priority } : {}),
         ...(url ? { url } : {}),
+        ...(sourceRef !== '' ? { sourceRef } : {}),
+        // The internal id is the alias a dependency ref resolves through when
+        // `sourceRef` is a custom id.
+        ...(internal !== '' && internal !== sourceRef ? { internalRef: internal } : {}),
         ...(milestone ? { milestone } : {}),
         ...(people.length ? { people } : {}),
         ...(relations.length ? { relations } : {}),

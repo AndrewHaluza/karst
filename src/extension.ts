@@ -23,8 +23,8 @@ import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
-import { isAgyRecipient, makeMessageDeliverySweep } from './extension/ops/messageDeliveryOps.js';
-import { makeTerminalDelivery } from './workflow/messageDelivery.js';
+import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
+import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
@@ -1969,20 +1969,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
-  // Mailbox delivery (Wave 3): pointer nudges to live recipients, plus parent wakes.
-  const messageDelivery = makeMessageDeliverySweep({
+  // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
+  const mailbox = makeMailDeliveryWiring({
     store: localStore,
     projectId: () => currentProject()?.id,
-    delivery: makeTerminalDelivery({
-      isLive: (id) => sessions.isLive(id),
-      graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
-      agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
-      nudge: (id, line) => sessions.nudge(id, line),
-      sessionCliEnv: (id) => sessions.sessionCliEnv(id),
-      literal: () => cliLiteral(context, dbPath),
-    }),
     isLive: (id) => sessions.isLive(id),
-    // openSession on a graph-approach ticket starts a graph run — never wake one.
+    // A graph-approach ticket must never be surprise-woken by the sweep.
     isGraphTicket: (id) =>
       graphTicketSurface(localStore.db, id) !== 'none' ||
       Boolean(
@@ -1991,19 +1983,25 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         )?.graph,
       ),
     integrating: (id) => isIntegrating(id),
-    // `recovery: true`: the sweep never scopes or transitions a ticket.
     wake: async (id) => {
       await vscode.commands.executeCommand('karst.openSession', id, { reveal: false, recovery: true });
     },
     now: () => Date.now(),
     debug: (message) => logger.debug(message),
     warn: (message) => logger.warn(message),
+    graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
+    agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
+    nudge: (id, line) => sessions.nudge(id, line),
+    sessionCliEnv: (id) => sessions.sessionCliEnv(id),
+    sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
+    literal: () => cliLiteral(context, dbPath),
+    isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
   });
-  const deliveryTimer = setInterval(() => messageDelivery.sweep(), MESSAGE_DELIVERY_INTERVAL_MS);
+  const deliveryTimer = setInterval(() => mailbox.sweep.sweep(), MESSAGE_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({
     dispose: () => {
       clearInterval(deliveryTimer);
-      messageDelivery.dispose();
+      mailbox.sweep.dispose();
     },
   });
   const ticketForm = new TicketFormManager(
@@ -3674,6 +3672,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       recorder: hookChannelRecorder,
       debug: (message) => logger.debug(message),
       tracker: turnTracker,
+      // The mail reply channel: a turn end with unread mail gets a fixed pointer.
+      hookReply: mailbox.hookReply, refreshUnread: mailbox.refreshUnread, onReplyDelivered: mailbox.onReplyDelivered,
       ticketApi: {
         // Same getter pattern as the ticket form: the project binds at
         // activation, read it at call time.

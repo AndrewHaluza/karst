@@ -120,6 +120,13 @@ export interface PlanningProposalRow {
   title: string;
   status: 'pending' | 'accepted';
   ticketId: number | null;
+  /** Host proposal ids this draft waits on (`#N`), in file order. */
+  dependsOn: number[];
+  /**
+   * Host proposal ids pruned from `dependsOn` because their target was discarded.
+   * A pending draft's card renders these as a warning; absent/empty when none.
+   */
+  droppedDepends?: number[];
 }
 
 export interface PlanningRow {
@@ -383,6 +390,8 @@ function planningRows(
         title: p.payload.title,
         status: p.status === 'accepted' ? 'accepted' : 'pending',
         ticketId: p.ticketId,
+        dependsOn: p.payload.dependsOn ?? [],
+        ...(p.droppedDepends.length > 0 ? { droppedDepends: p.droppedDepends } : {}),
       })),
     }));
 }

@@ -24,6 +24,7 @@ describe('command registry', () => {
       'draft',
       'message',
       'inbox',
+      'notes',
       'fix-brief',
       'conflict-brief',
       'schema',

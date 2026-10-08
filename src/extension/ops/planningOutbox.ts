@@ -6,6 +6,7 @@ import {
   getProposal,
   insertProposal,
   updateProposalPayload,
+  validateProposalDependsOn,
   type PlanningProposal,
 } from '../../store/planningProposals.js';
 import { MAX_PROPOSAL_BYTES, validateProposal, type Proposal } from '../../planning/proposal.js';
@@ -158,6 +159,20 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     }
     const { id: requestedId, ...payload } = read.value;
     const uuid = proposal.replace(/\.json$/, '');
+
+    // Dependencies name host proposal ids of THIS session: an unknown id, a
+    // discarded one, a foreign session's, or an edge that would close a cycle
+    // is refused before anything is written.
+    const depReason = validateProposalDependsOn(
+      deps.store,
+      sessionId,
+      requestedId,
+      read.value.dependsOn ?? [],
+    );
+    if (depReason) {
+      reject(sessionId, claimed, proposal, depReason);
+      return;
+    }
 
     // In-place revision: only a pending proposal of THIS session may be
     // replaced. A miss (unknown id, another session, or already resolved) is

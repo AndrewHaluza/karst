@@ -55,6 +55,8 @@ const strArray: JsonSchema = { type: 'array', items: str };
  * therefore may not contain a comma: `["a,b"]` would round-trip as two values.
  */
 const csvArray: JsonSchema = { type: 'array', items: { type: 'string', pattern: '^[^,]*$' } };
+/** Host proposal ids a draft waits on; `draft propose` takes them in its JSON. */
+const proposalIdArray: JsonSchema = { type: 'array', items: { type: 'integer', minimum: 1 } };
 
 function obj(
   properties: Readonly<Record<string, JsonSchema>>,
@@ -270,6 +272,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         summary: str,
         repos: csvArray,
         id: { type: 'integer', minimum: 1 },
+        dependsOn: proposalIdArray,
       },
       ['title', 'description', 'summary', 'repos'],
     ),
@@ -300,6 +303,35 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     globals: { db: true, manifest: true, ticket: true },
     toArgv: (input) => {
       const argv = ['inbox'];
+      pushFlag(argv, '--all', input.all);
+      pushFlag(argv, '--json', input.json);
+      return argv;
+    },
+  },
+  {
+    name: 'notes',
+    summary: 'Read the project bulletin, or post one learning for other tasks.',
+    input: obj({
+      action: { type: 'string', enum: ['list', 'post'] },
+      title: str,
+      body: str,
+      all: bool,
+      json: bool,
+    }),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => {
+      const argv = ['notes'];
+      if (input.action === 'post') {
+        argv.push(
+          'post',
+          '--title',
+          requireString(input, 'title'),
+          '--body',
+          requireString(input, 'body'),
+        );
+        return argv;
+      }
       pushFlag(argv, '--all', input.all);
       pushFlag(argv, '--json', input.json);
       return argv;

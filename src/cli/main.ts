@@ -21,6 +21,7 @@ import { runServersCommand } from './serversCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
+import { runNotesCommand } from './notesCommand.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { runTestCommand, parseTestArgs } from './test/main.js';
 import { runReset } from './test/reset.js';
@@ -472,6 +473,23 @@ export function runCli(
     }
   }
 
+  // `karst notes` / `karst notes post` — the project bulletin. Its OWN parse path
+  // (notesCommand.ts), like `message`: the caller is `--ticket`, cross-checked
+  // against the session env's `KARST_TICKET` (read HERE and injected). The CLI
+  // always writes source='agent'; only the merge hook writes source='host'.
+  if (subcommand === 'notes') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+      return runNotesCommand(store, found, effectiveRest, { sessionTicketKey: env.KARST_TICKET });
+    } finally {
+      store.close();
+    }
+  }
+
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
     const parsed = parseFixBriefArgs(effectiveRest);
@@ -517,7 +535,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup' or 'mcp')`,
   );
 }
 

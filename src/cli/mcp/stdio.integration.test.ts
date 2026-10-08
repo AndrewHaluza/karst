@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,7 +26,15 @@ import { mcpToolNames } from './tools.js';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, '..', '..', '..');
 const CLI_ENTRY = join(REPO_ROOT, 'src', 'cli', 'main.ts');
-const TSX_CLI = join(REPO_ROOT, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+/**
+ * `tsx` resolved through Node's normal module lookup, NOT a hard per-worktree
+ * path: a karst worktree shares the repository root's `node_modules`, so a
+ * worktree that has no `node_modules/tsx` of its own still resolves it one
+ * directory up. The hardcoded `<REPO_ROOT>/node_modules/tsx/dist/cli.mjs` made
+ * the child die with a bare "Connection closed" whenever this worktree had not
+ * installed its own copy.
+ */
+const TSX_CLI = createRequire(import.meta.url).resolve('tsx/cli');
 
 /** Env for the child: the ambient environment WITHOUT karst refs (isolation), plus the outbox. */
 function childEnv(outbox: string): Record<string, string> {
@@ -35,6 +44,36 @@ function childEnv(outbox: string): Record<string, string> {
   }
   env.KARST_OUTBOX = outbox;
   return env;
+}
+
+/** One client spawn. On failure the child's piped stderr is folded into the error. */
+async function spawnClient(dbPath: string, outbox: string): Promise<{
+  client: Client;
+  transport: StdioClientTransport;
+}> {
+  const transport = new StdioClientTransport({
+    command: process.execPath,
+    args: [TSX_CLI, CLI_ENTRY, 'mcp', 'serve', '--db', dbPath, '--ticket', 'K-1'],
+    env: childEnv(outbox),
+    stderr: 'pipe',
+  });
+  // `stderr: 'pipe'` must be DRAINED or the child can block on a full pipe; it
+  // is also the only place a startup crash (a bad module, a missing file)
+  // shows up, so keep it for the error message.
+  let stderr = '';
+  transport.stderr?.on('data', (chunk: Buffer) => {
+    stderr += chunk.toString();
+  });
+  const client = new Client({ name: 'karst-test-client', version: '1.0.0' }, { capabilities: {} });
+  try {
+    await client.connect(transport);
+  } catch (err) {
+    await client.close().catch(() => {});
+    await transport.close().catch(() => {});
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(`karst mcp serve did not start: ${reason}${stderr ? `\n--- child stderr ---\n${stderr}` : ''}`);
+  }
+  return { client, transport };
 }
 
 describe('karst mcp serve over stdio', () => {
@@ -58,15 +97,21 @@ describe('karst mcp serve over stdio', () => {
     createTicket(extension, { key: 'K-1', title: 'mcp demo' });
     transition(extension, 1, 'scope', { kind: 'passed' }); // scope -> impl (running)
 
-    transport = new StdioClientTransport({
-      command: process.execPath,
-      args: [TSX_CLI, CLI_ENTRY, 'mcp', 'serve', '--db', dbPath, '--ticket', 'K-1'],
-      env: childEnv(outbox),
-      stderr: 'pipe',
-    });
-    client = new Client({ name: 'karst-test-client', version: '1.0.0' }, { capabilities: {} });
-    await client.connect(transport);
-  });
+    // Spawning a `tsx` child is the one step here that can fail transiently
+    // under the full parallel suite (a slow loader, a reaped process group).
+    // Retry a couple of times; the real reason is preserved if it never starts.
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      try {
+        ({ client, transport } = await spawnClient(dbPath, outbox));
+        return;
+      } catch (err) {
+        lastError = err;
+        if (attempt < 3) await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    throw lastError;
+  }, 120_000);
 
   afterAll(async () => {
     await client?.close();

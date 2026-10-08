@@ -27,6 +27,12 @@ export interface Ticket {
   description: string | null;
   brief: string | null;
   sourceRef: string | null;
+  /**
+   * The provider's INTERNAL task id when `sourceRef` is a custom id (v71), so a
+   * dependency ref — reported by internal id — resolves to this ticket. `null`
+   * when `sourceRef` is already the internal form or the ticket is unbound.
+   */
+  sourceRefInternal: string | null;
   sourceFetchedAt: string | null;
   approach: string | null;
   /** Chosen single-subagent id (§ single-subagent selection); nullable. */
@@ -124,6 +130,7 @@ interface TicketRow {
   description: string | null;
   brief: string | null;
   source_ref: string | null;
+  source_ref_internal: string | null;
   source_fetched_at: string | null;
   approach: string | null;
   agent: string | null;
@@ -196,6 +203,7 @@ function rowToTicket(r: TicketRow): Ticket {
     description: r.description,
     brief: r.brief,
     sourceRef: r.source_ref,
+    sourceRefInternal: r.source_ref_internal,
     sourceFetchedAt: r.source_fetched_at,
     approach: r.approach,
     agent: r.agent,
@@ -534,6 +542,12 @@ export interface TicketFieldsPatch {
    */
   source?: string;
   sourceRef?: string;
+  /**
+   * The provider's internal task id (v71), set alongside a custom-id
+   * `sourceRef` so a dependency ref reported by internal id resolves. Empty
+   * string clears it back to NULL.
+   */
+  sourceRefInternal?: string;
   sourceFetchedAt?: string;
   approach?: string;
   agent?: string;
@@ -576,6 +590,9 @@ export function updateTicketFields(
   if (patch.brief !== undefined) columns.brief = patch.brief;
   if (patch.source !== undefined) columns.source = patch.source;
   if (patch.sourceRef !== undefined) columns.source_ref = patch.sourceRef;
+  if (patch.sourceRefInternal !== undefined) {
+    columns.source_ref_internal = patch.sourceRefInternal === '' ? null : patch.sourceRefInternal;
+  }
   if (patch.sourceFetchedAt !== undefined) columns.source_fetched_at = patch.sourceFetchedAt;
   if (patch.approach !== undefined) columns.approach = patch.approach;
   if (patch.agent !== undefined) columns.agent = patch.agent;
@@ -851,6 +868,10 @@ const TICKET_CHILD_TABLES = [
   'ticket_attachments',
   'test_logs',
   'test_hooks',
+  // Relations authored ON the ticket die with it. A relation whose TARGET is the
+  // deleted ticket is NOT deleted — its `target_ticket_id` is SET NULL and its
+  // `target_ref` remains, so a deleted blocker degrades to a bare ref.
+  'ticket_relations',
 ] as const;
 
 /**
@@ -929,6 +950,19 @@ export function deleteTicket(
     store.db
       .prepare('DELETE FROM ticket_messages WHERE to_ticket_id = ? OR from_ticket_id = ?')
       .run(ticketId, ticketId);
+    // A relation whose TARGET is this ticket degrades to its `target_ref` via
+    // `ON DELETE SET NULL`. A row with neither a ref nor a proposal has nothing
+    // to degrade to, and the SET NULL would violate the at-least-one-target
+    // CHECK — so drop those rows first. Rows with a ref survive as bare refs.
+    store.db
+      .prepare(
+        'DELETE FROM ticket_relations WHERE target_ticket_id = ? AND target_ref IS NULL AND target_proposal_id IS NULL',
+      )
+      .run(ticketId);
+    // Inverse provider rows this ticket's brief authored live on OTHER tickets
+    // (`origin_ticket_id`); delete them explicitly rather than relying on the
+    // FK cascade, matching the invariant above.
+    store.db.prepare('DELETE FROM ticket_relations WHERE origin_ticket_id = ?').run(ticketId);
     for (const table of TICKET_CHILD_TABLES) {
       store.db.prepare(`DELETE FROM ${table} WHERE ticket_id = ?`).run(ticketId);
     }

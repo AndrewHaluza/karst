@@ -99,6 +99,8 @@ describe('planningProposalOps', () => {
     expect(ticketCount()).toBe(0);
     expect(refreshed).toContain(sessionId);
     expect(changes).toBeGreaterThan(0);
+    // No dependents → no prune warning.
+    expect(warns).toEqual([]);
   });
 
   it('Review opens a prefilled form; nothing is created until it saves, and the save carries the summary as brief', async () => {
@@ -126,6 +128,21 @@ describe('planningProposalOps', () => {
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     expect(warns.join(' ')).toMatch(/revised while you were editing/);
     expect(errors).toHaveLength(0);
+  });
+
+  it('warns when a discard prunes a pending dependent draft', async () => {
+    const dependent = insertProposal(store, sessionId, {
+      title: 'Dependent', description: 'd', summary: 's', repos: ['api'], dependsOn: [proposalId],
+    });
+    const second = insertProposal(store, sessionId, {
+      title: 'Second', description: 'd', summary: 's', repos: ['api'], dependsOn: [proposalId],
+    });
+    choice = 'discard';
+    await ops().announce(getProposal(store, proposalId)!);
+    expect(getProposal(store, proposalId)!.status).toBe('discarded');
+    expect(getProposal(store, dependent)!.payload.dependsOn ?? []).toEqual([]);
+    expect(getProposal(store, second)!.payload.dependsOn ?? []).toEqual([]);
+    expect(warns.join(' ')).toContain(`#${dependent}, #${second} no longer wait on it`);
   });
 
   it('a resolved or foreign proposal is refused with a message', async () => {

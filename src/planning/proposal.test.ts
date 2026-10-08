@@ -16,6 +16,16 @@ describe('validateProposal', () => {
     expect('id' in (validateProposal(ok) as { value: object }).value).toBe(false);
   });
 
+  it('accepts the four id/dependsOn combinations and dedupes dependsOn', () => {
+    expect(validateProposal({ ...ok })).toEqual({ ok: true, value: ok });
+    expect(validateProposal({ ...ok, id: 7 })).toEqual({ ok: true, value: { ...ok, id: 7 } });
+    expect(validateProposal({ ...ok, dependsOn: [3, 1] })).toEqual({ ok: true, value: { ...ok, dependsOn: [3, 1] } });
+    expect(validateProposal({ ...ok, id: 7, dependsOn: [3, 3, 1] })).toEqual({
+      ok: true,
+      value: { ...ok, id: 7, dependsOn: [3, 1] },
+    });
+  });
+
   it.each([
     ['a non-object', 'x'],
     ['null', null],
@@ -27,6 +37,13 @@ describe('validateProposal', () => {
     ['a negative id', { ...ok, id: -1 }],
     ['a fractional id', { ...ok, id: 1.5 }],
     ['a null id', { ...ok, id: null }],
+    ['a non-array dependsOn', { ...ok, dependsOn: 7 }],
+    ['a string dependsOn entry', { ...ok, dependsOn: ['1'] }],
+    ['a zero dependsOn entry', { ...ok, dependsOn: [0] }],
+    ['a negative dependsOn entry', { ...ok, dependsOn: [-1] }],
+    ['a fractional dependsOn entry', { ...ok, dependsOn: [1.5] }],
+    ['too many dependsOn entries', { ...ok, dependsOn: Array.from({ length: 33 }, (_, i) => i + 1) }],
+    ['a self-referencing dependsOn', { ...ok, id: 7, dependsOn: [7] }],
     ['a non-string title', { ...ok, title: 3 }],
     ['an empty title', { ...ok, title: '  ' }],
     ['a multi-line title', { ...ok, title: 'a\nb' }],

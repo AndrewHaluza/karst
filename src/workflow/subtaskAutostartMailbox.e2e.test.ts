@@ -205,6 +205,7 @@ describe('sub-task autostart + mailbox (e2e)', () => {
         isLive: () => false,
         isGraphTicket: () => false,
         integrating: () => integrating,
+        refreshUnread: noop,
         wake: (id) => {
           woken.push(id);
         },

@@ -3,6 +3,8 @@ import type { Store } from '../store/db.js';
 import {
   dispatchHook,
   parseHookPayload,
+  type HookDispatchResult,
+  type HookPayload,
   type NotifyTicket,
   type SessionProviderFor,
   type ShouldApplyHookState,
@@ -61,6 +63,42 @@ function requestPath(raw: string | undefined): string {
   }
 }
 
+/**
+ * The hook-protocol reply the endpoint returns on a recipient's turn end. For
+ * claude/codex's Stop hook the bridge prints this JSON verbatim to stdout; for
+ * opencode's plugin the `session.idle` handler reads `.reason` and pushes it
+ * through the SDK. The reason is a fixed host-written pointer — never an
+ * agent-authored body.
+ */
+export interface HookReply {
+  decision: 'block';
+  reason: string;
+}
+
+export interface HookReplyInput {
+  ticketId: number;
+  /** The normalized event name (`Stop`, `session.idle`, …). */
+  event: string;
+  /** The URL-authenticated launch generation, when the request carried one. */
+  launchId?: string;
+  /**
+   * Claude's Stop re-entry flag. A `Stop` with this set is the agent
+   * CONTINUING from a prior block, not a fresh turn end, so the reply must not
+   * fire — and must not spend the batch's one-block budget on a reply the
+   * bridge discards. Forwarded by the shared bridge.
+   */
+  stopHookActive?: boolean;
+}
+
+/**
+ * Build the mail reply for a hook that has ALREADY passed the worktree and
+ * generation barrier. Returns `null` when there is nothing to push, the event
+ * is not a turn end, this session is not the current generation, or the unread
+ * count has not changed since the last block. Must be cheap — it runs on the
+ * hook's hot path.
+ */
+export type HookReplyFor = (input: HookReplyInput) => HookReply | null;
+
 export interface HookEndpoint {
   port: number;
   url: string;
@@ -92,6 +130,35 @@ export interface HookEndpointOptions {
    * and never persists.
    */
   tracker?: TurnTracker;
+  /**
+   * The mail reply channel (MAILBOX-DELIVERY-PER-CORE-PUSH): when supplied, a
+   * hook that was ADMITTED (known worktree + current generation) and asks for a
+   * pointer is answered with the hook-protocol JSON body instead of the 204.
+   * The callback reads the host's in-memory unread cache and the recipient's
+   * session env; the endpoint never touches the DB for it. A callback that
+   * throws is treated as "no reply" and the hook still gets its fast 204.
+   */
+  hookReply?: HookReplyFor;
+  /**
+   * Top up the in-memory unread cache for ONE ticket from the store when that
+   * ticket's turn ends (before `hookReply` reads it). `message send` is a
+   * separate CLI process, so without this a turn that lands inside the 2 s
+   * sweep window would reply from a stale count. One indexed lookup, and only
+   * for a turn-end event. Best-effort: a defect is a "no reply".
+   */
+  refreshUnread?: (ticketId: number) => void;
+  /**
+   * Confirm that a hook-block reply was actually DELIVERED to the agent. Called
+   * only when the bridge POSTs its `MailReplyAck` after writing the block to
+   * stdout — a response that merely flushed is NOT enough, because a hung host
+   * can flush into a socket the bridge already gave up on. Only a confirmed
+   * batch may suppress the sweep's typed fallback; the reply channel fails open
+   * (a deadline, a non-2xx, an unparseable body), and a batch whose reply never
+   * reached the agent must keep that fallback. The `Stop` (bridge) route is the
+   * only confirmed route; the opencode plugin re-pushes via the SDK, and a
+   * rejected `promptAsync` is invisible here, so that route relies on the sweep.
+   */
+  onReplyDelivered?: (ticketId: number) => void;
 }
 
 /**
@@ -119,6 +186,10 @@ export function startHookEndpoint(
   return new Promise((resolve, reject) => {
     const requestTimeoutMs =
       options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    // The ticket each launch's last block reply was built for. The bridge's
+    // `MailReplyAck` carries only the launch generation (its URL), so this maps
+    // it back to the ticket that was answered — no DB lookup on the ACK path.
+    const pendingReplyByLaunch = new Map<string, number>();
     // Counting is observational and must never affect the hook contract: a
     // recorder defect may not turn a fast 2xx into a stalled agent.
     const observe = (
@@ -129,6 +200,33 @@ export function startHookEndpoint(
         options.recorder?.record(outcome, event);
       } catch {
         // Diagnostics are best-effort.
+      }
+    };
+    // The reply is only eligible on an ADMITTED hook: an unknown worktree or a
+    // stale generation yields no ticket, and therefore no pointer. The callback
+    // owns the event/route/unread guard; a defect degrades to "no reply".
+    const replyFor = (
+      payload: HookPayload | null,
+      result: HookDispatchResult,
+      launchId: string | undefined,
+    ): HookReply | null => {
+      if (
+        payload === null ||
+        !result.admitted ||
+        result.ticketId === undefined ||
+        options.hookReply === undefined
+      ) {
+        return null;
+      }
+      try {
+        return options.hookReply({
+          ticketId: result.ticketId,
+          event: payload.hook_event_name ?? '',
+          ...(launchId === undefined ? {} : { launchId }),
+          ...(payload.stop_hook_active === true ? { stopHookActive: true } : {}),
+        });
+      } catch {
+        return null;
       }
     };
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
@@ -184,7 +282,7 @@ export function startHookEndpoint(
         req.removeListener('error', onAborted);
       }
 
-      function finish(status: number, destroy = false): void {
+      function finish(status: number, destroy = false, body?: string): void {
         if (settled) return;
         settled = true;
         cleanup();
@@ -198,8 +296,13 @@ export function startHookEndpoint(
           res.destroy();
           return;
         }
-        if (!res.headersSent) res.writeHead(status);
-        res.end();
+        if (!res.headersSent) {
+          res.writeHead(
+            status,
+            body === undefined ? undefined : { 'content-type': 'application/json' },
+          );
+        }
+        res.end(body);
       }
 
       function onAborted(): void {
@@ -263,6 +366,25 @@ export function startHookEndpoint(
           payload = null; // not JSON — swallow, never stall the agent
         }
 
+        // The bridge's positive delivery confirmation, posted ONLY after it
+        // wrote the block to stdout. It is not a lifecycle event: map its URL
+        // launch generation back to the ticket that was answered and confirm —
+        // never dispatch, never record on the hook channel.
+        if (payload?.hook_event_name === 'MailReplyAck') {
+          const ticketId =
+            launchId === undefined ? undefined : pendingReplyByLaunch.get(launchId);
+          if (ticketId !== undefined) {
+            try {
+              options.onReplyDelivered?.(ticketId);
+            } catch {
+              // Confirmation is best-effort; never break the hook path.
+            }
+          }
+          finish(204);
+          return;
+        }
+
+        let result: HookDispatchResult = { admitted: false };
         if (payload) {
           const dispatchPayload =
             launchId === undefined
@@ -272,7 +394,7 @@ export function startHookEndpoint(
           // Dispatch failures are real bugs (bad SQL, store error), not a
           // malformed body — surface them instead of silently swallowing.
           try {
-            dispatchHook(
+            result = dispatchHook(
               store,
               dispatchPayload,
               notify,
@@ -290,6 +412,40 @@ export function startHookEndpoint(
           observe('malformed-body');
         }
 
+        // Criterion 3: the unread cache is refreshed for the admitted ticket
+        // before the reply is built. `message send` is a separate CLI process,
+        // so this top-up is what makes a send visible on the very next turn
+        // end instead of waiting for the next sweep. Only a turn-end event can
+        // carry a reply, so only those are refreshed. Best-effort.
+        if (
+          options.hookReply !== undefined &&
+          options.refreshUnread !== undefined &&
+          result.admitted &&
+          result.ticketId !== undefined &&
+          (payload?.hook_event_name === 'Stop' || payload?.hook_event_name === 'session.idle')
+        ) {
+          try {
+            options.refreshUnread(result.ticketId);
+          } catch {
+            // Diagnostics are best-effort; a defect is a "no reply".
+          }
+        }
+
+        // The mail reply rides the SAME admitted hook (known worktree + current
+        // generation), so a stale bridge from a retired core never gets one.
+        // Best-effort: a callback defect is a "no reply", never a hook failure.
+        const reply = replyFor(payload, result, launchId);
+        if (reply !== null) {
+          // Remember which ticket this launch's block was for, so the bridge's
+          // ACK can confirm delivery without a DB lookup. The bridge prints this
+          // body and then POSTs the ACK; only the ACK means the agent received
+          // it — a flushed response is not enough when the host stalled.
+          if (launchId !== undefined && result.ticketId !== undefined) {
+            pendingReplyByLaunch.set(launchId, result.ticketId);
+          }
+          finish(200, false, JSON.stringify(reply));
+          return;
+        }
         finish(204); // fast empty 2xx
       }
 

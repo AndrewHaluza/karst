@@ -1,6 +1,8 @@
 import type { Store } from './db.js';
 import { getTicket, updateTicketFields } from './tickets.js';
 import { linkPlanningTicket } from './planningSessions.js';
+import { addRelation } from './ticketRelations.js';
+import { postMessage } from './ticketMessages.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
@@ -16,6 +18,12 @@ export interface ProposalPayload {
   description: string;
   summary: string;
   repos: string[];
+  /**
+   * Host proposal ids this draft waits on. Stored in the dedicated
+   * `planning_proposals.depends_on` JSON column, NOT in `payload_json`; reads
+   * merge it back onto the payload so callers see one object. Absent when empty.
+   */
+  dependsOn?: number[];
 }
 
 export type ProposalStatus = 'pending' | 'accepted' | 'discarded';
@@ -26,6 +34,12 @@ export interface PlanningProposal {
   payload: ProposalPayload;
   status: ProposalStatus;
   ticketId: number | null;
+  /**
+   * Host proposal ids pruned from `payload.dependsOn` because their target was
+   * discarded. Host-owned (never agent input): the sidebar warns on the draft
+   * card so a broken ordering edge is not lost silently. Cleared on revise.
+   */
+  droppedDepends: number[];
   /** The outbox file uuid that created or last revised this proposal. Host-owned
    *  correlation data, persisted here so the index is never read back. */
   sourceUuid: string;
@@ -39,6 +53,8 @@ interface ProposalRow {
   id: number;
   session_id: number;
   payload_json: string;
+  depends_on: string;
+  depends_dropped: string;
   status: ProposalStatus;
   ticket_id: number | null;
   source_uuid: string;
@@ -50,15 +66,39 @@ interface ProposalRow {
 }
 
 const COLUMNS =
-  'p.id, p.session_id, p.payload_json, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
+  'p.id, p.session_id, p.payload_json, p.depends_on, p.depends_dropped, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
+
+/** A JSON column holding a positive-integer id array, decoded defensively —
+ *  a corrupt or non-array value reads as none. */
+function parseIdArray(raw: string | null): number[] {
+  if (!raw) return [];
+  try {
+    const v = JSON.parse(raw) as unknown;
+    return Array.isArray(v) && v.every((n): n is number => typeof n === 'number' && Number.isInteger(n) && n > 0)
+      ? v
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Split the public payload into the stored body and its `depends_on` column. */
+function splitPayload(payload: ProposalPayload): { body: string; dependsOn: string } {
+  const { dependsOn = [], ...body } = payload;
+  return { body: JSON.stringify(body), dependsOn: JSON.stringify(dependsOn) };
+}
 
 function toProposal(r: ProposalRow): PlanningProposal {
+  const payload = JSON.parse(r.payload_json) as ProposalPayload;
+  const dependsOn = parseIdArray(r.depends_on);
+  if (dependsOn.length > 0) payload.dependsOn = dependsOn;
   return {
     id: r.id,
     sessionId: r.session_id,
-    payload: JSON.parse(r.payload_json) as ProposalPayload,
+    payload,
     status: r.status,
     ticketId: r.ticket_id,
+    droppedDepends: parseIdArray(r.depends_dropped),
     sourceUuid: r.source_uuid,
     createdAt: r.created_at,
     // The v66 column is nullable on a migrated DB (SQLite forbids a function
@@ -80,11 +120,12 @@ export function insertProposal(
   // migrated v65 DB the v66 column is nullable (SQLite forbids a function
   // default in ALTER TABLE ADD COLUMN), so a bare INSERT would write NULL and
   // the proposal would vanish from the session index.
+  const { body, dependsOn } = splitPayload(payload);
   const { lastInsertRowid } = store.db
     .prepare(
-      "INSERT INTO planning_proposals (session_id, payload_json, source_uuid, updated_at) VALUES (?, ?, ?, datetime('now'))",
+      "INSERT INTO planning_proposals (session_id, payload_json, depends_on, source_uuid, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
     )
-    .run(sessionId, JSON.stringify(payload), sourceUuid);
+    .run(sessionId, body, dependsOn, sourceUuid);
   return Number(lastInsertRowid);
 }
 
@@ -163,37 +204,141 @@ export function updateProposalPayload(
   sourceUuid?: string,
 ): void {
   requirePending(store, id);
+  const { body, dependsOn } = splitPayload(payload);
   if (sourceUuid === undefined) {
     store.db
-      .prepare("UPDATE planning_proposals SET payload_json = ?, updated_at = datetime('now') WHERE id = ?")
-      .run(JSON.stringify(payload), id);
+      .prepare(
+        "UPDATE planning_proposals SET payload_json = ?, depends_on = ?, depends_dropped = '[]', updated_at = datetime('now') WHERE id = ?",
+      )
+      .run(body, dependsOn, id);
     return;
   }
   store.db
     .prepare(
-      "UPDATE planning_proposals SET payload_json = ?, source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
+      "UPDATE planning_proposals SET payload_json = ?, depends_on = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
     )
-    .run(JSON.stringify(payload), sourceUuid, id);
+    .run(body, dependsOn, sourceUuid, id);
 }
 
-export function discardProposal(store: Store, id: number): void {
-  requirePending(store, id);
-  store.db
-    .prepare(
-      "UPDATE planning_proposals SET status = 'discarded', updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
-    )
-    .run(id);
+/**
+ * Mark a pending proposal discarded. Its dependents are cleaned up in the SAME
+ * transaction: rows that targeted it as a proposal are deleted (and each ticket
+ * that held one gets an inbox warning — it is no longer blocked), and every
+ * dependent — pending OR accepted — has the id pruned from its `depends_on` so
+ * no card keeps advertising a discarded draft. A still-pending dependent also
+ * records the id in `depends_dropped`, which the sidebar renders as a warning
+ * on its card (an accepted one is already linked to its ticket, so no warning).
+ * Returns the ids of the pending dependents whose `depends_on` was pruned, so
+ * the caller can surface the reason.
+ */
+export function discardProposal(store: Store, id: number): number[] {
+  return store.db.transaction((): number[] => {
+    const p = requirePending(store, id);
+    const dependents = store.db
+      .prepare('SELECT DISTINCT ticket_id FROM ticket_relations WHERE target_proposal_id = ?')
+      .all(id) as { ticket_id: number }[];
+    store.db.prepare('DELETE FROM ticket_relations WHERE target_proposal_id = ?').run(id);
+    for (const { ticket_id } of dependents) {
+      postMessage(store, {
+        projectId: getTicket(store, ticket_id)?.projectId ?? null,
+        fromTicketId: null,
+        toTicketId: ticket_id,
+        kind: 'event',
+        body: `blocker draft #${id} was discarded; this ticket is no longer blocked by it`,
+      });
+    }
+    const pruned: number[] = [];
+    for (const other of listSessionProposals(store, p.sessionId)) {
+      const deps = other.payload.dependsOn ?? [];
+      if (!deps.includes(id)) continue;
+      const remaining = JSON.stringify(deps.filter((d) => d !== id));
+      if (other.status === 'pending') {
+        const dropped = new Set([...other.droppedDepends, id]);
+        store.db
+          .prepare(
+            "UPDATE planning_proposals SET depends_on = ?, depends_dropped = ?, updated_at = datetime('now') WHERE id = ?",
+          )
+          .run(remaining, JSON.stringify([...dropped]), other.id);
+        pruned.push(other.id);
+      } else {
+        store.db
+          .prepare(
+            "UPDATE planning_proposals SET depends_on = ?, updated_at = datetime('now') WHERE id = ?",
+          )
+          .run(remaining, other.id);
+      }
+    }
+    store.db
+      .prepare(
+        "UPDATE planning_proposals SET status = 'discarded', updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
+      )
+      .run(id);
+    return pruned;
+  })();
 }
 
-/** Exact content equality (repos order-sensitive), independent of JSON key order. */
+/** Exact content equality (repos and dependsOn order-sensitive), independent of JSON key order. */
 export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): boolean {
+  const ad = a.dependsOn ?? [];
+  const bd = b.dependsOn ?? [];
   return (
     a.title === b.title &&
     a.description === b.description &&
     a.summary === b.summary &&
     a.repos.length === b.repos.length &&
-    a.repos.every((r, i) => r === b.repos[i])
+    a.repos.every((r, i) => r === b.repos[i]) &&
+    ad.length === bd.length &&
+    ad.every((n, i) => n === bd[i])
   );
+}
+
+/**
+ * Why `dependsOn` cannot be ingested for a proposal of `sessionId`, or undefined
+ * when it is valid. Every id must name a NON-discarded proposal of the SAME
+ * session, and substituting the incoming edges must leave the session's
+ * `depends_on` graph acyclic. `incomingId` is the proposal being created or
+ * revised (undefined for a create — a fresh draft has no id yet).
+ */
+export function validateProposalDependsOn(
+  store: Store,
+  sessionId: number,
+  incomingId: number | undefined,
+  dependsOn: readonly number[],
+): string | undefined {
+  if (dependsOn.length === 0) return undefined;
+  const proposals = listSessionProposals(store, sessionId);
+  const byId = new Map(proposals.map((p) => [p.id, p]));
+  for (const depId of dependsOn) {
+    const dep = byId.get(depId);
+    if (!dep) return `dependsOn #${depId} is not a proposal of this session`;
+    if (dep.status === 'discarded') return `dependsOn #${depId} was already discarded`;
+  }
+  const edges = new Map<number, number[]>();
+  for (const p of proposals) {
+    edges.set(p.id, incomingId === p.id ? [...dependsOn] : (p.payload.dependsOn ?? []));
+  }
+  // A create has no row yet; sentinel 0 is never a real id (AUTOINCREMENT ≥ 1).
+  if (incomingId === undefined) edges.set(0, [...dependsOn]);
+  return graphHasCycle(edges) ? 'dependsOn would create a cycle' : undefined;
+}
+
+function graphHasCycle(edges: Map<number, number[]>): boolean {
+  // 0 = unseen, 1 = on the current DFS stack, 2 = settled.
+  const state = new Map<number, 0 | 1 | 2>();
+  const visit = (n: number): boolean => {
+    state.set(n, 1);
+    for (const dep of edges.get(n) ?? []) {
+      const s = state.get(dep);
+      if (s === 1) return true;
+      if (s === undefined && visit(dep)) return true;
+    }
+    state.set(n, 2);
+    return false;
+  };
+  for (const n of edges.keys()) {
+    if (state.get(n) === undefined && visit(n)) return true;
+  }
+  return false;
 }
 
 /**
@@ -202,6 +347,13 @@ export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): b
  * accepted, in one transaction. The proposal's summary becomes the ticket's
  * brief — the form carries only title/description/repos, so this is the one
  * place that preserves it — unless the ticket already has a brief.
+ *
+ * The proposal's `dependsOn` becomes `blocked-by` rows on the new ticket
+ * (source `agent`): a target accepted already resolves to its ticket, a pending
+ * one stays a proposal link. Rows on OTHER tickets that targeted this proposal
+ * are converted, in the same transaction, to target this new ticket — so the
+ * accept order does not matter. Finally eligible rows are promoted to a
+ * pending provider write-back (#63).
  */
 export function markProposalAccepted(store: Store, id: number, ticketId: number): void {
   store.db.transaction((): void => {
@@ -216,10 +368,59 @@ export function markProposalAccepted(store: Store, id: number, ticketId: number)
       ...(seedBrief ? { brief: p.payload.summary } : {}),
     });
     linkPlanningTicket(store, p.sessionId, ticketId);
+    applyProposalDependencies(store, p, ticketId);
     store.db
       .prepare(
         "UPDATE planning_proposals SET status = 'accepted', ticket_id = ?, updated_at = datetime('now'), resolved_at = datetime('now') WHERE id = ?",
       )
       .run(ticketId, id);
   })();
+}
+
+/** Materialize this proposal's `dependsOn` as blocked-by rows and resolve the
+ *  pending dependents that targeted it. Called inside the accept transaction. */
+function applyProposalDependencies(store: Store, p: PlanningProposal, ticketId: number): void {
+  for (const depId of p.payload.dependsOn ?? []) {
+    const dep = getProposal(store, depId);
+    // Ingest guaranteed same-session, non-discarded; stay defensive anyway.
+    if (!dep || dep.sessionId !== p.sessionId || dep.status === 'discarded') continue;
+    if (dep.status === 'accepted' && dep.ticketId !== null) {
+      addRelation(store, { ticketId, kind: 'blocked-by', targetTicketId: dep.ticketId, source: 'agent' });
+    } else {
+      addRelation(store, { ticketId, kind: 'blocked-by', targetProposalId: depId, source: 'agent' });
+    }
+  }
+  // Pending dependents pointed at this proposal; now they point at its ticket.
+  store.db
+    .prepare(
+      `UPDATE ticket_relations
+          SET target_ticket_id = ?, target_proposal_id = NULL,
+              target_ref = COALESCE(target_ref, (SELECT source_ref FROM tickets WHERE id = ?))
+        WHERE target_proposal_id = ?`,
+    )
+    .run(ticketId, ticketId, p.id);
+  promoteWritebacks(store, ticketId);
+}
+
+/**
+ * Promote agent/user blocked-by rows newly eligible for a provider write-back
+ * to `pending`. Mirrors `resolveDanglingRefsInTransaction`'s sweep: both
+ * endpoints must carry a `source_ref` and the row's state must still be NULL
+ * (an already-done/failed row is left for its own retry path).
+ */
+function promoteWritebacks(store: Store, ticketId: number): void {
+  store.db
+    .prepare(
+      `UPDATE ticket_relations SET writeback_state = 'pending'
+        WHERE kind = 'blocked-by' AND source IN ('agent','user')
+          AND writeback_state IS NULL AND target_ticket_id IS NOT NULL
+          AND (ticket_id = ? OR target_ticket_id = ?)
+          AND EXISTS (SELECT 1 FROM tickets t
+                        WHERE t.id = ticket_relations.ticket_id
+                          AND t.source_ref IS NOT NULL AND trim(t.source_ref) <> '')
+          AND EXISTS (SELECT 1 FROM tickets t
+                        WHERE t.id = ticket_relations.target_ticket_id
+                          AND t.source_ref IS NOT NULL AND trim(t.source_ref) <> '')`,
+    )
+    .run(ticketId, ticketId);
 }

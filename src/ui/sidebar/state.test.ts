@@ -562,7 +562,20 @@ describe('buildSidebarState — planning sessions', () => {
     const a = insertProposal(store, s.id, { title: 'First', ...body });
     discardProposal(store, insertProposal(store, s.id, { title: 'Gone', ...body }));
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
-    expect(state.planning[0]!.proposals).toEqual([{ id: a, title: 'First', status: 'pending', ticketId: null }]);
+    expect(state.planning[0]!.proposals).toEqual([{ id: a, title: 'First', status: 'pending', ticketId: null, dependsOn: [] }]);
+  });
+
+  it('carries a discarded dependency as droppedDepends for the card warning', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    const body = { description: 'd', summary: 's', repos: [] };
+    const target = insertProposal(store, s.id, { title: 'Target', ...body });
+    const dependent = insertProposal(store, s.id, { title: 'Dependent', ...body, dependsOn: [target] });
+    discardProposal(store, target);
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(state.planning[0]!.proposals).toEqual([
+      { id: dependent, title: 'Dependent', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [target] },
+    ]);
   });
 
   it('keeps accepted proposals under their session with their ticket id, after the pending ones', () => {
@@ -575,8 +588,8 @@ describe('buildSidebarState — planning sessions', () => {
     const open = insertProposal(store, s.id, { title: 'Open one', ...body });
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(state.planning[0]!.proposals).toEqual([
-      { id: open, title: 'Open one', status: 'pending', ticketId: null },
-      { id: done, title: 'Done one', status: 'accepted', ticketId },
+      { id: open, title: 'Open one', status: 'pending', ticketId: null, dependsOn: [] },
+      { id: done, title: 'Done one', status: 'accepted', ticketId, dependsOn: [] },
     ]);
   });
 
@@ -589,7 +602,7 @@ describe('buildSidebarState — planning sessions', () => {
     markProposalAccepted(store, done, ticketId);
     setPlanningSessionStatus(store, s.id, 'archived');
     const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
-    expect(archived[0]!.proposals).toEqual([{ id: done, title: 'Filed', status: 'accepted', ticketId }]);
+    expect(archived[0]!.proposals).toEqual([{ id: done, title: 'Filed', status: 'accepted', ticketId, dependsOn: [] }]);
   });
 
   it('filters planning sessions by the search query and hides them outside the All view', () => {

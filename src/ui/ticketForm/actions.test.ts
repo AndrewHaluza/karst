@@ -14,10 +14,12 @@ import {
 } from '../../store/tickets.js';
 import {
   buildTicketFormActions,
+  onSourceRefBound,
   type TicketFormActionsDeps,
   type StartTicketResult,
   type StartTicketOptions,
 } from './actions.js';
+import { addRelation, isBlocked, listBlockers } from '../../store/ticketRelations.js';
 import type { TicketFormActionsCtx } from './panel.js';
 import { routeTicketFormAction } from './messages.js';
 import type { TicketFormHostMessage } from './messages.js';
@@ -253,6 +255,124 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).priority).toBeNull();
   });
 
+  it('fetchSource binds the brief’s canonical sourceRef over the raw input ref', async () => {
+    const t = createTicket(store, { key: 'P-5', title: 't' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({ ...BRIEF, sourceRef: 'DEF-456', internalRef: '9001' })),
+    });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    const bound = getTicket(store, t.id);
+    expect(bound.sourceRef).toBe('DEF-456');
+    // The internal id is kept as the alias a dependency ref resolves through.
+    expect(bound.sourceRefInternal).toBe('9001');
+  });
+
+  it('fetchSource un-resolves edges resolved through a ref the ticket abandons', async () => {
+    // C waits on the provider task CU-T, imported as T.
+    const c = createTicket(store, { key: 'RF-C', title: 'C' });
+    updateTicketFields(store, c.id, { sourceRef: 'CU-C' });
+    const t = createTicket(store, { key: 'RF-T', title: 'T' });
+    updateTicketFields(store, t.id, { sourceRef: 'CU-T' });
+    addRelation(store, { ticketId: c.id, kind: 'blocked-by', targetRef: 'CU-T', source: 'provider' });
+    expect(listBlockers(store, c.id)[0]!.targetTicketId).toBe(t.id);
+
+    // T is re-fetched against a DIFFERENT task: it no longer represents CU-T.
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({ ...BRIEF, sourceRef: 'CU-T2' })),
+    });
+    await buildTicketFormActions(deps)(mkCtx(t.id)).fetchSource('CU-T2');
+
+    const after = listBlockers(store, c.id)[0]!;
+    expect(after.targetTicketId).toBeNull();
+    expect(after.targetRef).toBe('CU-T');
+    // The dangling ref still blocks — marking T done must not unblock C.
+    expect(isBlocked(store, c.id)).toBe(true);
+  });
+
+  it('fetchSource ingests the brief relations into ticket_relations', async () => {
+    const t = createTicket(store, { key: 'P-4', title: 't' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({
+        ...BRIEF,
+        relations: [
+          { kind: 'blocked-by', ref: 'CU-BLOCKER' },
+          { kind: 'parent', ref: 'CU-PARENT' },
+        ] satisfies NonNullable<ContextBrief['relations']>,
+      })),
+    });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.fetchSource('CU-9');
+    expect(listBlockers(store, t.id).map((r) => r.targetRef)).toEqual(['CU-BLOCKER']);
+  });
+
+  it('fetchSource of the second ticket does not error when it confirms the first ticket’s edge', async () => {
+    // A fetched first: its blocker B is not imported yet (a dangling ref).
+    const a = createTicket(store, { key: 'X-A', title: 'A' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({
+        ...BRIEF,
+        relations: [{ kind: 'blocked-by', ref: 'CU-B' }] satisfies NonNullable<
+          ContextBrief['relations']
+        >,
+      })),
+    });
+    await buildTicketFormActions(deps)(mkCtx(a.id)).fetchSource('CU-A');
+
+    // B fetched next; its brief reports it blocks A. The same edge must adopt
+    // A's dangling row, not collide with the unique index.
+    const b = createTicket(store, { key: 'X-B', title: 'B' });
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({
+        ...BRIEF,
+        relations: [{ kind: 'blocks', ref: 'CU-A' }] satisfies NonNullable<
+          ContextBrief['relations']
+        >,
+      })),
+    });
+    const ctxB = mkCtx(b.id);
+    await buildTicketFormActions(deps)(ctxB).fetchSource('CU-B');
+
+    expect(ctxB.posted.find((m) => m.type === 'error')).toBeUndefined();
+    expect(ctxB.posted.find((m) => m.type === 'brief')).toBeTruthy();
+    const blockers = listBlockers(store, a.id);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]!.targetTicketId).toBe(b.id);
+  });
+
+  it('fetchSource rebinds to the canonical ref so a cross-form dangling edge resolves', async () => {
+    // A is bound to its custom id; B to a legacy internal id.
+    const a = createTicket(store, { key: 'XF-A', title: 'A' });
+    updateTicketFields(store, a.id, { sourceRef: 'ABC-123' });
+    const b = createTicket(store, { key: 'XF-B', title: 'B' });
+    updateTicketFields(store, b.id, { sourceRef: '9002' });
+    // A's brief named B by its custom id → a dangling row that never matches.
+    addRelation(store, {
+      ticketId: a.id,
+      kind: 'blocked-by',
+      targetRef: 'DEF-456',
+      source: 'provider',
+    });
+    expect(listBlockers(store, a.id)[0]!.targetTicketId).toBeNull();
+
+    // B is fetched; its brief carries the canonical ref and the reciprocal edge.
+    deps.provider = fakeProvider({
+      fetchTicket: vi.fn(async () => ({
+        ...BRIEF,
+        sourceRef: 'DEF-456',
+        relations: [{ kind: 'blocks', ref: 'ABC-123' }] satisfies NonNullable<
+          ContextBrief['relations']
+        >,
+      })),
+    });
+    await buildTicketFormActions(deps)(mkCtx(b.id)).fetchSource('9002');
+
+    expect(getTicket(store, b.id).sourceRef).toBe('DEF-456');
+    const blockers = listBlockers(store, a.id);
+    expect(blockers).toHaveLength(1);
+    expect(blockers[0]!.targetTicketId).toBe(b.id);
+  });
+
   /** Persist a brief with the given attachments and return the stored text. */
   async function briefWithAttachments(
     attachments: ContextBrief['attachments'],
@@ -356,6 +476,119 @@ describe('buildTicketFormActions', () => {
     await actions.fetchSource('CU-9');
     const err = posted.find((m) => m.type === 'error') as { message: string } | undefined;
     expect(err?.message).toMatch(/boom/);
+  });
+
+  describe('onSourceRefBound', () => {
+    it('re-resolves a dangling ref and writes back the agent edge', async () => {
+      const a = createTicket(store, { key: 'REL-A', title: 'A' }).id;
+      updateTicketFields(store, a, { sourceRef: 'CU-A' });
+      const b = createTicket(store, { key: 'REL-B', title: 'B' }).id;
+      // B has no ref yet, so A's edge is a dangling ref.
+      const rel = addRelation(store, {
+        ticketId: a,
+        kind: 'blocked-by',
+        targetRef: 'CU-B',
+        source: 'agent',
+      });
+      expect(rel.targetTicketId).toBeNull();
+
+      const addDependency = vi.fn(async () => {});
+      deps.provider = fakeProvider({
+        fetchTicket: vi.fn(async () => BRIEF),
+        addDependency,
+      });
+
+      updateTicketFields(store, b, { sourceRef: 'CU-B' });
+      await onSourceRefBound(deps, b);
+
+      expect(addDependency).toHaveBeenCalledWith('CU-A', 'CU-B');
+      const stored = listBlockers(store, a)[0]!;
+      expect(stored.targetTicketId).toBe(b);
+      expect(stored.writebackState).toBe('done');
+    });
+
+    it('is a no-op when the ticket has no source ref', async () => {
+      const b = createTicket(store, { key: 'REL-C', title: 'C' }).id;
+      const addDependency = vi.fn(async () => {});
+      const fetchTicket = vi.fn(async () => BRIEF);
+      deps.provider = fakeProvider({ fetchTicket, addDependency });
+
+      await onSourceRefBound(deps, b);
+
+      expect(addDependency).not.toHaveBeenCalled();
+      expect(fetchTicket).not.toHaveBeenCalled();
+    });
+
+    it('skips the POST when the fetched brief already carries the edge', async () => {
+      const a = createTicket(store, { key: 'REL-D', title: 'D' }).id;
+      updateTicketFields(store, a, { sourceRef: 'CU-D' });
+      const b = createTicket(store, { key: 'REL-E', title: 'E' }).id;
+      updateTicketFields(store, b, { sourceRef: 'CU-E' });
+      addRelation(store, {
+        ticketId: a,
+        kind: 'blocked-by',
+        targetTicketId: b,
+        source: 'user',
+      });
+
+      const addDependency = vi.fn(async () => {});
+      deps.provider = fakeProvider({
+        fetchTicket: vi.fn(async () => ({
+          ...BRIEF,
+          relations: [{ kind: 'blocked-by', ref: 'CU-E' }] satisfies NonNullable<
+            ContextBrief['relations']
+          >,
+        })),
+        addDependency,
+      });
+
+      await onSourceRefBound(deps, a);
+
+      expect(addDependency).not.toHaveBeenCalled();
+      expect(listBlockers(store, a)[0]!.writebackState).toBe('done');
+    });
+
+    it('records a failure and retries it on the next bind', async () => {
+      const a = createTicket(store, { key: 'REL-F', title: 'F' }).id;
+      updateTicketFields(store, a, { sourceRef: 'CU-F' });
+      const b = createTicket(store, { key: 'REL-G', title: 'G' }).id;
+      updateTicketFields(store, b, { sourceRef: 'CU-G' });
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'agent' });
+
+      const addDependency = vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error('POST /dependency returned 500'))
+        .mockResolvedValueOnce(undefined);
+      deps.provider = fakeProvider({ fetchTicket: vi.fn(async () => BRIEF), addDependency });
+
+      await onSourceRefBound(deps, a);
+      const failed = listBlockers(store, a)[0]!;
+      expect(failed.writebackState).toBe('failed');
+      expect(failed.writebackError).toContain('500');
+
+      // A later bind retries the failed row and it succeeds.
+      await onSourceRefBound(deps, a);
+      expect(listBlockers(store, a)[0]!.writebackState).toBe('done');
+      expect(addDependency).toHaveBeenCalledTimes(2);
+    });
+
+    it('treats an already-exists error as done', async () => {
+      const a = createTicket(store, { key: 'REL-H', title: 'H' }).id;
+      updateTicketFields(store, a, { sourceRef: 'CU-H' });
+      const b = createTicket(store, { key: 'REL-I', title: 'I' }).id;
+      updateTicketFields(store, b, { sourceRef: 'CU-I' });
+      addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'agent' });
+
+      deps.provider = fakeProvider({
+        fetchTicket: vi.fn(async () => BRIEF),
+        addDependency: vi.fn(async () => {
+          throw new Error('dependency already exists');
+        }),
+      });
+
+      await onSourceRefBound(deps, a);
+      expect(listBlockers(store, a)[0]!.writebackState).toBe('done');
+    });
   });
 
   it('searchTickets posts the provider results, echoing the request', async () => {
