@@ -57,10 +57,10 @@ describe('sidebar planning tree', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: withPlans([
-        fixturePlanningRow(1, { live: true, status: 'filed', proposals: [{ id: 11, title: 'p', status: 'pending', ticketId: null }] }),
+        fixturePlanningRow(1, { live: true, status: 'filed', proposals: [{ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] }] }),
         fixturePlanningRow(2, { live: true, status: 'filed' }),
         fixturePlanningRow(3, { status: 'filed' }),
-        fixturePlanningRow(4, { proposals: [{ id: 41, title: 'a', status: 'accepted', ticketId: 9 }] }),
+        fixturePlanningRow(4, { proposals: [{ id: 41, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] }] }),
         fixturePlanningRow(5),
       ]) });
       const dot = (id: number) => session(h, id).querySelector('.pt-dot')!.className;
@@ -78,8 +78,8 @@ describe('sidebar planning tree', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: withPlans([
-        fixturePlanningRow(1, { proposals: [{ id: 11, title: 'p', status: 'pending', ticketId: null }] }),
-        fixturePlanningRow(2, { proposals: [{ id: 21, title: 'a', status: 'accepted', ticketId: 9 }] }),
+        fixturePlanningRow(1, { proposals: [{ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] }] }),
+        fixturePlanningRow(2, { proposals: [{ id: 21, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] }] }),
         fixturePlanningRow(3),
       ]) });
       expect(session(h, 1).getAttribute('aria-expanded')).toBe('true');
@@ -267,6 +267,38 @@ describe('sidebar planning drafts', () => {
       expect(link.textContent).toBe('#3');
       h.click('[data-node="d503"] [data-open="3"]');
       expect(h.posted).toContainEqual(expect.objectContaining({ type: 'open-ticket', ticketId: 3 }));
+    } finally { h.close(); }
+  });
+
+  it("shows a draft's 'depends on #N' for each dependency and nothing when it has none", () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: stateOf('all-sections') });
+      expect(draft(h, 503).querySelector('.pt-deps')!.textContent).toBe('depends on #501');
+      expect(draft(h, 501).querySelector('.pt-deps')).toBeNull();
+    } finally { h.close(); }
+  });
+
+  it('warns on a pending draft card whose dependency was discarded, and never on an accepted one', () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: withPlans([
+        fixturePlanningRow(1, { proposals: [
+          { id: 11, title: 'Orphan', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [9] },
+          { id: 12, title: 'Settled', status: 'accepted', ticketId: 4, dependsOn: [], droppedDepends: [9] },
+        ] }),
+      ]) });
+      const warn = draft(h, 11).querySelector('.pt-deps--warn')!;
+      expect(warn.textContent).toBe('#9 was discarded');
+      expect(warn.getAttribute('title')).toBe('#9 was discarded');
+      // An accepted card never warns — its block is already the ticket relation.
+      expect(draft(h, 12).querySelector('.pt-deps--warn')).toBeNull();
+      h.receive({ type: 'state', state: withPlans([
+        fixturePlanningRow(1, { proposals: [
+          { id: 11, title: 'Orphan', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [9, 10] },
+        ] }),
+      ]) });
+      expect(draft(h, 11).querySelector('.pt-deps--warn')!.textContent).toBe('#9, #10 were discarded');
     } finally { h.close(); }
   });
 

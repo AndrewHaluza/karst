@@ -1240,6 +1240,8 @@ CREATE TABLE IF NOT EXISTS planning_proposals (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id   INTEGER NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
   payload_json TEXT NOT NULL,
+  depends_on   TEXT NOT NULL DEFAULT '[]',
+  depends_dropped TEXT NOT NULL DEFAULT '[]',
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),
   ticket_id    INTEGER REFERENCES tickets(id) ON DELETE SET NULL,
   source_uuid  TEXT NOT NULL DEFAULT '',

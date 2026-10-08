@@ -8,6 +8,7 @@ export const MAX_PROPOSAL_BYTES = 65536;
 export const MAX_PROPOSAL_TITLE = 200;
 export const MAX_PROPOSAL_BODY = 32 * 1024;
 export const MAX_PROPOSAL_REPOS = 32;
+export const MAX_PROPOSAL_DEPENDS_ON = 32;
 export const PROPOSAL_REPO_NAME = /^[A-Za-z0-9._-]{1,64}$/;
 
 export interface Proposal {
@@ -22,12 +23,21 @@ export interface Proposal {
    * part of the stored payload — the id is the host's, not the agent's.
    */
   id?: number;
+  /**
+   * Optional host proposal ids this draft waits on — the same `#N` ids
+   * `draft propose` prints and `draft list` shows. They name drafts of THIS
+   * session (the host rejects a foreign id), are resolved to ticket links when
+   * the target is accepted, and are pruned if it is discarded. `deduped` here;
+   * the host additionally rejects unknown/cross-session ids and cycles.
+   */
+  dependsOn?: number[];
 }
 
 export type ProposalResult = { ok: true; value: Proposal } | { ok: false; reason: string };
 
-const KEYS = ['description', 'repos', 'summary', 'title'];
-const KEYS_WITH_ID = [...KEYS, 'id'].sort() as string[];
+const REQUIRED_KEYS = ['description', 'repos', 'summary', 'title'];
+const OPTIONAL_KEYS = ['id', 'dependsOn'];
+const ALLOWED_KEYS = [...REQUIRED_KEYS, ...OPTIONAL_KEYS];
 // C0 (minus \t \n), DEL, C1, and bidi embedding/override/isolate/mark controls.
 const BODY_CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
 const ALL_CONTROLS = /[\u0000-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
@@ -43,9 +53,13 @@ function body(raw: Record<string, unknown>, key: 'description' | 'summary'): str
 export function validateProposal(raw: unknown): ProposalResult {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return fail('proposal must be a JSON object');
   const rec = raw as Record<string, unknown>;
-  const keys = Object.keys(rec).sort().join(',');
-  if (keys !== KEYS.join(',') && keys !== KEYS_WITH_ID.join(',')) {
-    return fail(`proposal keys must be exactly ${KEYS.join(', ')} (plus an optional id)`);
+  for (const k of Object.keys(rec)) {
+    if (!ALLOWED_KEYS.includes(k)) {
+      return fail(`unknown key "${k}"; allowed keys are ${ALLOWED_KEYS.join(', ')}`);
+    }
+  }
+  for (const k of REQUIRED_KEYS) {
+    if (!(k in rec)) return fail(`missing required key "${k}"`);
   }
 
   let id: number | undefined;
@@ -55,6 +69,23 @@ export function validateProposal(raw: unknown): ProposalResult {
       return fail('id must be a positive integer');
     }
     id = v;
+  }
+
+  let dependsOn: number[] | undefined;
+  if ('dependsOn' in rec) {
+    const v = rec.dependsOn;
+    if (!Array.isArray(v)) return fail('dependsOn must be an array of positive integers');
+    if (!v.every((d): d is number => typeof d === 'number' && Number.isInteger(d) && d > 0)) {
+      return fail('every dependsOn entry must be a positive integer');
+    }
+    dependsOn = [...new Set(v)];
+    if (dependsOn.length > MAX_PROPOSAL_DEPENDS_ON) {
+      return fail(`dependsOn must have at most ${MAX_PROPOSAL_DEPENDS_ON} entries`);
+    }
+  }
+
+  if (id !== undefined && dependsOn?.includes(id)) {
+    return fail('dependsOn may not contain the proposal\'s own id');
   }
 
   const t = rec.title;
@@ -74,5 +105,6 @@ export function validateProposal(raw: unknown): ProposalResult {
   }
   const value: Proposal = { title, description, summary, repos: [...repos] };
   if (id !== undefined) value.id = id;
+  if (dependsOn !== undefined) value.dependsOn = dependsOn;
   return { ok: true, value };
 }

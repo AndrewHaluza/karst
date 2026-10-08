@@ -2573,5 +2573,30 @@ function migrateLocked(db: Database): void {
     db.exec(BULLETIN_DDL);
   }
 
+  if (current < 73) {
+    // v73: `planning_proposals.depends_on` — a JSON array of the host proposal
+    // ids a draft waits on (#64). Stored before accept so the accept transaction
+    // resolves each id to a ticket or a still-pending proposal. A constant
+    // `'[]'` default is allowed in ADD COLUMN and is honest for every pre-v73
+    // row: none carried a structured dependency. The guard reads the CURRENT
+    // columns, so a fresh DB (schema.sql already carries it) is a no-op.
+    const proposalCols73 = tableColumns(db, 'planning_proposals');
+    if (proposalCols73.size > 0 && !proposalCols73.has('depends_on')) {
+      db.exec("ALTER TABLE planning_proposals ADD COLUMN depends_on TEXT NOT NULL DEFAULT '[]'");
+    }
+  }
+
+  if (current < 74) {
+    // v74: `planning_proposals.depends_dropped` — the ids pruned from a pending
+    // draft's `depends_on` because their target was discarded, so the sidebar can
+    // warn on the card instead of silently losing the edge (#64). A constant
+    // `'[]'` default is honest for every pre-v74 row (none tracked it). The guard
+    // reads the CURRENT columns, so a fresh DB is a no-op.
+    const proposalCols74 = tableColumns(db, 'planning_proposals');
+    if (proposalCols74.size > 0 && !proposalCols74.has('depends_dropped')) {
+      db.exec("ALTER TABLE planning_proposals ADD COLUMN depends_dropped TEXT NOT NULL DEFAULT '[]'");
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }
