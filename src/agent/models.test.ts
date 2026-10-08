@@ -29,6 +29,7 @@ describe('KNOWN_MODELS', () => {
       'claude-sonnet-5-5',
       'claude-fable-5-1',
       'claude-fable-5',
+      'claude-haiku-5-5',
       'claude-haiku-4-5',
       'gpt-5.6-terra',
       'gpt-5.6-luna',
@@ -78,6 +79,7 @@ describe('KNOWN_MODELS', () => {
       'claude-sonnet-5-5',
       'claude-fable-5-1',
       'claude-fable-5',
+      'claude-haiku-5-5',
       'claude-haiku-4-5',
     ]);
     expect(modelsForProvider('antigravity').map((m) => m.id)).toContain(
