@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   mailPointer,
+  notesPointer,
   makeRoutedDelivery,
   makeTerminalDelivery,
   type MessageDelivery,
@@ -130,5 +131,43 @@ describe('makeRoutedDelivery — sender × recipient matrix', () => {
     });
     delivery.deliver(9, mailPointer(1));
     expect(nudge).toHaveBeenCalledWith(9, expect.stringContaining('"$KARST_CLI"'));
+  });
+});
+
+describe('makeRoutedDelivery — notes pointers', () => {
+  function routed(route: 'hook-block' | 'typed', over: { isLive?: boolean; isBusy?: boolean } = {}) {
+    const typed = typedSpy();
+    const delivery = makeRoutedDelivery({
+      routeFor: () => route,
+      isLive: () => over.isLive ?? true,
+      graphOwned: () => false,
+      isBusy: () => over.isBusy ?? true,
+      typed,
+    });
+    return { delivery, typed };
+  }
+
+  it('a typed-route recipient gets the notes pointer typed', () => {
+    const { delivery, typed } = routed('typed');
+    expect(delivery.deliver(9, notesPointer(2))).toBe('delivered');
+    expect(typed.deliver).toHaveBeenCalledWith(9, notesPointer(2));
+  });
+
+  it('an idle push-route recipient gets the notes pointer typed, never armed', () => {
+    const { delivery, typed } = routed('hook-block', { isBusy: false });
+    expect(delivery.deliver(9, notesPointer(2))).toBe('delivered');
+    expect(typed.deliver).toHaveBeenCalledWith(9, notesPointer(2));
+  });
+
+  it('a busy push-route recipient defers the notes pointer (never armed)', () => {
+    const { delivery, typed } = routed('hook-block', { isBusy: true });
+    expect(delivery.deliver(9, notesPointer(2))).toBe('deferred');
+    expect(typed.deliver).not.toHaveBeenCalled();
+  });
+
+  it('a notes pointer for a recipient that is not live defers', () => {
+    const { delivery, typed } = routed('hook-block', { isLive: false, isBusy: false });
+    expect(delivery.deliver(9, notesPointer(1))).toBe('deferred');
+    expect(typed.deliver).not.toHaveBeenCalled();
   });
 });

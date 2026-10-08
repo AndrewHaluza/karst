@@ -4,9 +4,10 @@ import { openStore, type Store } from '../store/db.js';
 import { createTicket, updateTicketFields } from '../store/tickets.js';
 import { listInbox, markRead, postMessage } from '../store/ticketMessages.js';
 import { insertAttachment } from '../store/attachments.js';
-import { setStage } from '../store/stages.js';
+import { postAgentNote } from '../store/bulletinNotes.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
+import { setStage } from '../store/stages.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
@@ -1206,6 +1207,94 @@ describe('renderTicketContext', () => {
       expect(md.match(/q/g)!.length).toBe(10_000);
       expect(md).not.toContain('truncated --');
       expect(seen).toEqual([]);
+    });
+  });
+
+  describe('project notes index', () => {
+    /** A ticket with a worktree in `repo`, so its note scope matches that repo. */
+    function ticketIn(key: string, repo: string): number {
+      const t = createTicket(store, { key, title: key });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, ?, ?, 'feat/x', 'main', 'inherited')",
+        )
+        .run(t.id, repo, `/wt/${key}`);
+      return t.id;
+    }
+    function postNote(fromTicketId: number, title: string, body = 'body'): void {
+      postAgentNote(store, { projectId: null, fromTicketId, title, body });
+    }
+
+    it('lists matching note titles and never a body', () => {
+      const reader = ticketIn('PROJ-R1', 'frontend');
+      const poster = ticketIn('PROJ-P1', 'frontend');
+      postNote(poster, 'Auth tokens rotate', 'DISTINCTIVE-SECRET-BODY-XYZ');
+      const ctx = buildTicketContext(store, undefined, reader);
+      expect(ctx.notes).toEqual({ unread: 1, titles: ['Auth tokens rotate'] });
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Project notes');
+      expect(md).toContain('1 unread project note');
+      expect(md).toContain('karst notes');
+      expect(md).toContain('- Auth tokens rotate');
+      expect(md).not.toContain('DISTINCTIVE-SECRET-BODY-XYZ');
+    });
+
+    it('sanitizes control characters and newlines from a stored title', () => {
+      const reader = ticketIn('PROJ-R2', 'frontend');
+      const poster = ticketIn('PROJ-P2', 'frontend');
+      // postAgentNote refuses such titles, so a row that carries one is written directly.
+      store.db
+        .prepare(
+          `INSERT INTO bulletin_notes (project_id, source, from_ticket_id, merge_sha, title, body, repos, paths)
+           VALUES (NULL, 'agent', ?, NULL, ?, 'b', '["frontend"]', NULL)`,
+        )
+        .run(poster, 'Evil\n## Injected\u0007 title');
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader));
+      expect(md).toContain('- Evil## Injected title');
+      expect(md).not.toContain('\u0007');
+      expect(md).not.toContain('\n## Injected');
+    });
+
+    it('caps the listed titles at 10 and reports the remainder', () => {
+      const reader = ticketIn('PROJ-R3', 'frontend');
+      const poster = ticketIn('PROJ-P3', 'frontend');
+      for (let i = 1; i <= 12; i++) postNote(poster, `Note ${i}`);
+      const ctx = buildTicketContext(store, undefined, reader);
+      expect(ctx.notes.unread).toBe(12);
+      expect(ctx.notes.titles).toHaveLength(10);
+      const md = renderTicketContext(ctx);
+      const titleLines = md.split('\n').filter((l) => l.startsWith('- Note '));
+      expect(titleLines).toHaveLength(10);
+      expect(md).toContain('- … and 2 more');
+    });
+
+    it('renders nothing when no unread note matches this ticket', () => {
+      const reader = ticketIn('PROJ-R4', 'frontend');
+      const elsewhere = ticketIn('PROJ-P4', 'backend');
+      postNote(elsewhere, 'Backend only');
+      const ctx = buildTicketContext(store, undefined, reader);
+      expect(ctx.notes).toEqual({ unread: 0, titles: [] });
+      expect(renderTicketContext(ctx)).not.toContain('## Project notes');
+    });
+
+    it.each([
+      ['scope', true],
+      ['impl', true],
+      ['uat', false],
+      ['review', false],
+      ['fix', false],
+      ['ship', false],
+      ['done', false],
+    ] as const)('adds the read-first reminder at %s only: %s', (stage, expected) => {
+      const reader = ticketIn(`PROJ-S-${stage}`, 'frontend');
+      const poster = ticketIn(`PROJ-SP-${stage}`, 'frontend');
+      postNote(poster, 'Relevant learning');
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stage, reader);
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader));
+      expect(md).toContain('- Relevant learning');
+      const reminder = 'Read these before you start: unread notes may change your plan.';
+      if (expected) expect(md).toContain(reminder);
+      else expect(md).not.toContain(reminder);
     });
   });
 

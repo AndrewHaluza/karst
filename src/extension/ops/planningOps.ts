@@ -2,8 +2,9 @@ import { mkdirSync } from 'node:fs';
 import type { Store } from '../../store/db.js';
 import type { AgentProvider } from '../../manifest/types.js';
 import { resolveAdapter } from '../../agent/registry.js';
-import { KARST_CLI_ENV, KARST_INSTRUCTIONS_ENV } from '../../agent/cliEnv.js';
+import { KARST_CLI_ENV, KARST_INSTRUCTIONS_ENV, KARST_PROJECT_ENV } from '../../agent/cliEnv.js';
 import { writeSessionInstructions } from '../../agent/instructions.js';
+import { repoNoteIndex } from '../../store/bulletinNotes.js';
 import { measureSeed } from '../../agent/seed.js';
 import {
   createPlanningSession,
@@ -21,7 +22,9 @@ import {
   planningInstructions,
   planningKickoff,
   planningOutboxDir,
+  planningRepoNames,
   type PlanningManifest,
+  type PlanningNotes,
 } from '../../planning/preamble.js';
 import type { SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
@@ -106,6 +109,8 @@ export interface PlanningOpsDeps {
   host: TerminalHost;
   /** The karst CLI entry. Only it reaches a planning launch — never the DB or manifest path. */
   cliEntry: () => string | undefined;
+  /** The store path `notes --repos` reads; named literally in the instructions (no KARST_DB here). */
+  dbPath?: string;
   notify: Notify;
   /**
    * Asked before EVERY launch on a core that cannot block edits (its
@@ -156,6 +161,14 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     return ok;
   }
 
+  /** The stack's notes index, or undefined when no db path or project is known. */
+  function notesFor(manifest: PlanningManifest): PlanningNotes | undefined {
+    const projectId = deps.projectId();
+    if (deps.dbPath === undefined || projectId === undefined) return undefined;
+    const index = repoNoteIndex(deps.store, projectId, planningRepoNames(manifest));
+    return { ...index, dbPath: deps.dbPath };
+  }
+
   /** Start the agent terminal. False (after a warning) when it could not. */
   async function launch(session: PlanningSession): Promise<boolean> {
     const manifest = deps.manifest();
@@ -167,6 +180,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     try {
       if (!(await acknowledged(session))) return false;
       const cliEntry = deps.cliEntry();
+      const projectIdNow = deps.projectId();
       const cwd = deps.scratchDir(session.id);
       const outbox = planningOutboxDir(cwd);
       mkdirSync(outbox, { recursive: true });
@@ -176,7 +190,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       // addressable by the agent as KARST_INSTRUCTIONS.
       const instructions = writeSessionInstructions(
         cwd,
-        planningInstructions({ sessionId: session.id, title: session.title, manifest }),
+        planningInstructions({ sessionId: session.id, title: session.title, manifest, notes: notesFor(manifest) }),
       );
       const kickoff = planningKickoff();
       const adapter = resolveAdapter(session.core as AgentProvider);
@@ -215,6 +229,8 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
           [KARST_INSTRUCTIONS_ENV]: instructions.path,
           [PLANNING_OUTBOX_ENV]: outbox,
           [KARST_PLANNING_SESSION_ENV]: String(session.id),
+          // `notes --repos` reads the project the host launched this session for.
+          ...(projectIdNow !== undefined ? { [KARST_PROJECT_ENV]: String(projectIdNow) } : {}),
         },
       });
       track(session.id, terminal);

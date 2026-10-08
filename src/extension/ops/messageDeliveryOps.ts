@@ -10,9 +10,12 @@ import {
 } from '../../store/messageDelivery.js';
 import {
   mailPointer,
+  notesPointer,
   type MessageDelivery,
+  type MessagePointer,
   type MessageRoute,
 } from '../../workflow/messageDelivery.js';
+import { unreadNotesByTicket } from '../../store/bulletinNotes.js';
 import { parentWakeDecision, type WakeDecision } from '../../workflow/parentWake.js';
 
 /**
@@ -51,10 +54,12 @@ export function messageRouteFor(
  * 1. Pointer: a recipient with unread rows newer than the last one this
  *    window delivered for gets ONE pointer line via `delivery` — at most one
  *    per `POINTER_INTERVAL_MS`; rows arriving inside the window coalesce into
- *    the next pointer's count. The watermark is in memory (ids are
- *    AUTOINCREMENT, never reused): after a reload a recipient with a backlog
- *    gets exactly one pointer on first sight. A `deferred` delivery is retried
- *    next tick; a recipient with nothing unread is forgotten.
+ *    the next pointer's count. Mail and project notes are tracked separately
+ *    (watermark and rate limit per kind), so one never suppresses the other.
+ *    The watermark is in memory (ids are AUTOINCREMENT, never reused): after a
+ *    reload a recipient with a backlog gets exactly one pointer on first sight.
+ *    A `deferred` delivery is retried next tick; a recipient with nothing
+ *    unread is forgotten.
  * 2. Wake: an event row written after activation is decided by
  *    `parentWakeDecision`. Terminal skips and wakes are claimed once across
  *    windows (`claimWake`); a transient `retry` stays unclaimed until it ages
@@ -91,6 +96,8 @@ export interface MessageDeliveryDeps {
   store: Store;
   projectId: () => number | undefined;
   delivery: MessageDelivery;
+  /** Unread project notes per recipient; defaults to the store read. */
+  notesUnread?: (projectId: number) => readonly PointerRow[];
   isLive: (ticketId: number) => boolean;
   isGraphTicket: (ticketId: number) => boolean;
   integrating: (ticketId: number) => boolean;
@@ -135,9 +142,23 @@ function sqliteUtcMs(text: string): number {
   return Date.parse(`${text.replace(' ', 'T')}Z`);
 }
 
+/** One recipient's unread batch for a pointer kind. */
+export interface PointerRow {
+  toTicketId: number;
+  unread: number;
+  maxId: number;
+}
+
 export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeliverySweep {
-  const watermark = new Map<number, number>();
-  const lastPointerAt = new Map<number, number>();
+  // Per-kind state: a mail delivery never suppresses a notes pointer, nor the reverse.
+  const watermark: Record<MessagePointer['kind'], Map<number, number>> = {
+    mail: new Map(),
+    notes: new Map(),
+  };
+  const lastPointerAt: Record<MessagePointer['kind'], Map<number, number>> = {
+    mail: new Map(),
+    notes: new Map(),
+  };
   const lastWakeAt = new Map<number, number>();
   const opening = new Set<number>();
   const retryLogged = new Map<number, string>();
@@ -147,9 +168,51 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
   let running = false;
   let disposed = false;
 
-  function prune(present: ReadonlySet<number>): void {
-    for (const id of [...watermark.keys()]) if (!present.has(id)) watermark.delete(id);
-    for (const id of [...lastPointerAt.keys()]) if (!present.has(id)) lastPointerAt.delete(id);
+  function prune(kind: MessagePointer['kind'], present: ReadonlySet<number>): void {
+    for (const id of [...watermark[kind].keys()]) if (!present.has(id)) watermark[kind].delete(id);
+    for (const id of [...lastPointerAt[kind].keys()]) if (!present.has(id)) lastPointerAt[kind].delete(id);
+  }
+
+  function deliverRows(kind: MessagePointer['kind'], rows: readonly PointerRow[], out: number[]): void {
+    const tag = kind === 'notes' ? 'notes ' : '';
+    for (const r of rows) {
+      if (disposed) return;
+      const seen = watermark[kind].get(r.toTicketId);
+      if (seen !== undefined && r.maxId <= seen) continue;
+      // The turn-end reply may have pushed THIS batch already (the arm does not
+      // set a watermark, because a hook that never arrives must still fall back
+      // to typing). Skip it — and record the watermark so we do not re-check
+      // every tick — instead of typing a duplicate into a mid-turn terminal.
+      // The reply only ever carries mail, so notes never consult it.
+      if (kind === 'mail' && deps.alreadyPushed?.(r.toTicketId, r.maxId)) {
+        watermark[kind].set(r.toTicketId, r.maxId);
+        deps.debug(`[driver] delivery #${r.toTicketId}: already pushed by the reply — skipping`);
+        continue;
+      }
+      const last = lastPointerAt[kind].get(r.toTicketId);
+      if (last !== undefined && deps.now() - last < POINTER_INTERVAL_MS) {
+        deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}rate-limited — coalescing`);
+        continue;
+      }
+      const pointer = kind === 'notes' ? notesPointer(r.unread) : mailPointer(r.unread);
+      const outcome = deps.delivery.deliver(r.toTicketId, pointer);
+      if (outcome === 'deferred') {
+        deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}deferred (${r.unread} unread)`);
+        continue;
+      }
+      if (outcome === 'armed') {
+        // A push route is armed but NOTHING is delivered yet — the turn-end
+        // reply will push it. The watermark stays put, so if that hook never
+        // arrives the next sweep re-evaluates and types the pointer once the
+        // recipient is idle, instead of silently stranding the batch.
+        deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}armed (${r.unread} unread)`);
+        continue;
+      }
+      watermark[kind].set(r.toTicketId, r.maxId);
+      lastPointerAt[kind].set(r.toTicketId, deps.now());
+      deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}pointer delivered (${r.unread} unread)`);
+      out.push(r.toTicketId);
+    }
   }
 
   function deliverPointers(projectId: number, out: number[]): void {
@@ -158,43 +221,11 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
     // a Stop that lands during this sweep sees the current counts.
     deps.refreshUnread(rows);
     // A truncated read cannot prove a recipient has nothing unread.
-    if (rows.length < DELIVERY_READ_LIMIT) prune(new Set(rows.map((r) => r.toTicketId)));
-    for (const r of rows) {
-      if (disposed) return;
-      const seen = watermark.get(r.toTicketId);
-      if (seen !== undefined && r.maxId <= seen) continue;
-      // The turn-end reply may have pushed THIS batch already (the arm does not
-      // set a watermark, because a hook that never arrives must still fall back
-      // to typing). Skip it — and record the watermark so we do not re-check
-      // every tick — instead of typing a duplicate into a mid-turn terminal.
-      if (deps.alreadyPushed?.(r.toTicketId, r.maxId)) {
-        watermark.set(r.toTicketId, r.maxId);
-        deps.debug(`[driver] delivery #${r.toTicketId}: already pushed by the reply — skipping`);
-        continue;
-      }
-      const last = lastPointerAt.get(r.toTicketId);
-      if (last !== undefined && deps.now() - last < POINTER_INTERVAL_MS) {
-        deps.debug(`[driver] delivery #${r.toTicketId}: rate-limited — coalescing`);
-        continue;
-      }
-      const outcome = deps.delivery.deliver(r.toTicketId, mailPointer(r.unread));
-      if (outcome === 'deferred') {
-        deps.debug(`[driver] delivery #${r.toTicketId}: deferred (${r.unread} unread)`);
-        continue;
-      }
-      if (outcome === 'armed') {
-        // A push route is armed but NOTHING is delivered yet — the turn-end
-        // reply will push it. The watermark stays put, so if that hook never
-        // arrives the next sweep re-evaluates and types the pointer once the
-        // recipient is idle, instead of silently stranding the batch.
-        deps.debug(`[driver] delivery #${r.toTicketId}: armed (${r.unread} unread)`);
-        continue;
-      }
-      watermark.set(r.toTicketId, r.maxId);
-      lastPointerAt.set(r.toTicketId, deps.now());
-      deps.debug(`[driver] delivery #${r.toTicketId}: pointer delivered (${r.unread} unread)`);
-      out.push(r.toTicketId);
-    }
+    if (rows.length < DELIVERY_READ_LIMIT) prune('mail', new Set(rows.map((r) => r.toTicketId)));
+    deliverRows('mail', rows, out);
+    const notes = deps.notesUnread?.(projectId) ?? unreadNotesByTicket(deps.store, projectId);
+    prune('notes', new Set(notes.map((n) => n.toTicketId)));
+    deliverRows('notes', notes, out);
   }
 
   function decide(ev: WakeEventRow): WakeDecision {

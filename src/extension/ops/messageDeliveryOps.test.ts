@@ -8,7 +8,7 @@ import { createTicket, setAgentState, setStageCurrent } from '../../store/ticket
 import { markRead, postMessage } from '../../store/ticketMessages.js';
 import { DELIVERY_READ_LIMIT } from '../../store/messageDelivery.js';
 import { setStage } from '../../store/stages.js';
-import type { MessageDelivery } from '../../workflow/messageDelivery.js';
+import { mailPointer, notesPointer, type MessageDelivery } from '../../workflow/messageDelivery.js';
 import {
   EVENT_MAX_AGE_MS,
   POINTER_INTERVAL_MS,
@@ -734,3 +734,100 @@ describe('isAgyRecipient', () => {
   });
 });
 
+
+describe('message delivery sweep — notes pointers', () => {
+  type NotesRow = { toTicketId: number; unread: number; maxId: number };
+
+  function notesDeps(rows: () => NotesRow[], over: Partial<MessageDeliveryDeps> = {}) {
+    return deps({ notesUnread: () => rows(), ...over });
+  }
+
+  it('delivers a notes pointer through the same delivery seam, with the notes kind', () => {
+    const d = notesDeps(() => [{ toTicketId: parentId, unread: 2, maxId: 5 }]);
+    expect(makeMessageDeliverySweep(d).sweep().delivered).toEqual([parentId]);
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, notesPointer(2));
+  });
+
+  it('nothing unread in notes produces no delivery', () => {
+    const d = notesDeps(() => []);
+    makeMessageDeliverySweep(d).sweep();
+    expect(d.delivery.deliver).not.toHaveBeenCalled();
+  });
+
+  it('coalesces notes arriving inside the 30s window into one pointer', () => {
+    let rows: NotesRow[] = [{ toTicketId: parentId, unread: 1, maxId: 1 }];
+    const d = notesDeps(() => rows);
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.sweep();
+    rows = [{ toTicketId: parentId, unread: 2, maxId: 2 }];
+    clock += 10_000;
+    sweep.sweep();
+    rows = [{ toTicketId: parentId, unread: 3, maxId: 3 }];
+    clock += 10_000;
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(1);
+    clock += 10_000;
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(2);
+    expect(d.delivery.deliver).toHaveBeenLastCalledWith(parentId, notesPointer(3));
+  });
+
+  it('a mail delivery does not suppress a notes pointer for the same recipient', () => {
+    send(parentId);
+    const d = notesDeps(() => [{ toTicketId: parentId, unread: 1, maxId: 9 }]);
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, mailPointer(1));
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, notesPointer(1));
+  });
+
+  it('a notes delivery does not suppress a mail pointer for the same recipient', () => {
+    const d = notesDeps(() => [{ toTicketId: parentId, unread: 1, maxId: 9 }]);
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.sweep();
+    send(parentId);
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenLastCalledWith(parentId, mailPointer(1));
+  });
+
+  it('keeps a separate notes watermark: the same notes batch is not pointed twice', () => {
+    const d = notesDeps(() => [{ toTicketId: parentId, unread: 1, maxId: 9 }]);
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.sweep();
+    clock += POINTER_INTERVAL_MS;
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(1);
+  });
+
+  it('a deferred notes pointer retries on the next sweep', () => {
+    let result: 'delivered' | 'deferred' = 'deferred';
+    const d = notesDeps(() => [{ toTicketId: childId, unread: 1, maxId: 4 }], {
+      delivery: { deliver: vi.fn(() => result) },
+    });
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.sweep();
+    result = 'delivered';
+    expect(sweep.sweep().delivered).toEqual([childId]);
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(2);
+  });
+
+  it('the mail reply already-pushed record never suppresses a notes pointer', () => {
+    const alreadyPushed = vi.fn(() => true);
+    const d = notesDeps(() => [{ toTicketId: parentId, unread: 1, maxId: 9 }], { alreadyPushed });
+    makeMessageDeliverySweep(d).sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledWith(parentId, notesPointer(1));
+  });
+
+  it('forgets the notes watermark once notes are read, so new notes point at once', () => {
+    let rows: NotesRow[] = [{ toTicketId: parentId, unread: 1, maxId: 9 }];
+    const d = notesDeps(() => rows);
+    const sweep = makeMessageDeliverySweep(d);
+    sweep.sweep();
+    rows = [];
+    sweep.sweep();
+    rows = [{ toTicketId: parentId, unread: 1, maxId: 3 }];
+    clock += 1_000;
+    sweep.sweep();
+    expect(d.delivery.deliver).toHaveBeenCalledTimes(2);
+  });
+});

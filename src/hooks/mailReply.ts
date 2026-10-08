@@ -1,5 +1,5 @@
 import type { ExportedCliEnv, CliTokens } from '../agent/cliEnv.js';
-import { messagePointer } from '../workflow/messageDelivery.js';
+import { mailPointer, messagePointer } from '../workflow/messageDelivery.js';
 import type { HookReply, HookReplyFor } from './endpoint.js';
 
 /**
@@ -86,7 +86,7 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
     const watermark = deps.unreadWatermark(ticketId);
     const prev = deps.blockedAt.get(ticketId);
     if (prev !== undefined && prev.launchId === launchId && prev.watermark === watermark) return null;
-    const line = messagePointer(unread, ticketId, deps.sessionCliEnv(ticketId), deps.literal());
+    const line = messagePointer(mailPointer(unread), ticketId, deps.sessionCliEnv(ticketId), deps.literal());
     if (line === null) return null;
     deps.blockedAt.set(ticketId, { launchId, watermark });
     deps.debug?.(`[driver] delivery reply #${ticketId}: block (${unread} unread)`);

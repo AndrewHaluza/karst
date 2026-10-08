@@ -317,11 +317,19 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
       body: str,
       all: bool,
       json: bool,
+      repos: str,
     }),
     globals: { db: true, manifest: true, ticket: true },
     writes: true,
     toArgv: (input) => {
       const argv = ['notes'];
+      // `repos` is the planner's read-only mode: no ticket, no post, no marks.
+      if (input.repos !== undefined) {
+        if (input.action === 'post') throw new Error('notes: repos cannot be combined with action post');
+        argv.push('--repos', requireString(input, 'repos'));
+        pushFlag(argv, '--json', input.json);
+        return argv;
+      }
       if (input.action === 'post') {
         argv.push(
           'post',
