@@ -11,6 +11,7 @@
  * vscode-free and driver-agnostic (takes a `Store`), so both paths are testable.
  */
 
+import { formatId, formatTicketRef } from '../model/entityId.js';
 import { isQueuedSubtask } from '../model/subtask.js';
 import type { AttachmentKind } from '../attachments/kinds.js';
 import { attachmentPath } from '../attachments/paths.js';
@@ -179,6 +180,7 @@ export interface TicketContextStageRun {
 
 /** The completed ticket this one continues work from, or null for an ordinary ticket. */
 export interface TicketContextParent {
+  id: number;
   key: string | null;
   title: string | null;
   brief: string | null;
@@ -197,6 +199,7 @@ export interface TicketContextParent {
  * work, which a parent that is still open by definition does not have.
  */
 export interface TicketContextSubtaskParent {
+  id: number;
   key: string | null;
   title: string | null;
   /** The parent's authored ask (its `description` column). */
@@ -406,6 +409,7 @@ export function buildTicketContext(
       return null; // parent was hard-deleted; degrade rather than fail context building
     }
     return {
+      id: p.id,
       key: p.key,
       title: p.title,
       brief: p.brief,
@@ -430,6 +434,7 @@ export function buildTicketContext(
       return null; // parent hard-deleted; degrade rather than fail context building
     }
     return {
+      id: p.id,
       key: p.key,
       title: p.title,
       prompt: p.description,
@@ -587,10 +592,9 @@ export function buildTicketContext(
 export type ContextSections = 'all' | 'narrative' | 'facts';
 
 function ticketHeading(ctx: TicketContext): string {
-  const key = ctx.key?.trim();
+  const ref = formatTicketRef(ctx.id, ctx.key);
   const title = ctx.title?.trim();
-  if (key && title) return `${key} — ${title}`;
-  return key || title || 'Untitled ticket';
+  return title ? `${ref} — ${title}` : ref;
 }
 
 /**
@@ -631,6 +635,17 @@ export function renderTicketContext(
   const authored = sections === 'all' || sections === 'narrative';
   const operational = sections === 'all' || sections === 'facts';
   const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx)}`] : [];
+  // The facts-only render has no heading, so the instruction layer states the
+  // session's own id once; the other renders carry it in the heading.
+  if (!authored && operational) {
+    const key = ctx.key?.trim();
+    const self = `You are working on ${formatId('ticket', ctx.id)}${key ? ` (${key})` : ''}.`;
+    parts.push(
+      ctx.subtaskParent
+        ? `${self} This is a sub-task of ${formatId('ticket', ctx.subtaskParent.id)}.`
+        : self,
+    );
+  }
   // A ticket's key can be empty (never blank the pointer's command target on
   // that account) — `id` is always present and `karst context <id>` resolves
   // a bare numeric id (§ resolveTicketByKey), so it is a genuinely runnable
@@ -825,10 +840,9 @@ export function renderTicketContext(
   }
 
   if (authored && ctx.parent) {
-    const heading =
-      ctx.parent.key && ctx.parent.title
-        ? `${ctx.parent.key}: ${ctx.parent.title}`
-        : ctx.parent.key || ctx.parent.title || 'parent ticket';
+    const parentRef = formatTicketRef(ctx.parent.id, ctx.parent.key);
+    const parentTitle = ctx.parent.title?.trim();
+    const heading = parentTitle ? `${parentRef}: ${parentTitle}` : parentRef;
     const lines: string[] = [];
     const parentBrief = ctx.parent.brief?.trim();
     if (parentBrief) lines.push(parentBrief);
@@ -846,10 +860,9 @@ export function renderTicketContext(
   // deliberately not rendered (that is the follow-up section's job).
   if (authored && ctx.subtaskParent) {
     const p = ctx.subtaskParent;
-    const base =
-      p.key && p.title
-        ? `${p.key}: ${p.title}`
-        : p.key || p.title || 'the parent ticket';
+    const parentRef = formatTicketRef(p.id, p.key);
+    const parentTitle = p.title?.trim();
+    const base = parentTitle ? `${parentRef}: ${parentTitle}` : parentRef;
     // The child's own blocking status, legible without a parent round-trip
     // (NDL-96) — the same tag the parent's Sub-tasks section prints per child.
     const heading = p.blocksParent ? `${base} [blocking]` : base;
@@ -878,13 +891,13 @@ export function renderTicketContext(
   // reason as the parent section above.
   if (authored && ctx.subtasks.length > 0) {
     const rows = ctx.subtasks.map((s) => {
-      const key = s.key?.trim() || `#${s.id}`;
+      const ref = formatTicketRef(s.id, s.key);
       const title = s.title?.trim();
       const named = title ? `: ${title}` : '';
       const flag = s.blocksParent ? ' [blocking]' : '';
       const queued = s.queued ? ', queued' : '';
       const paused = s.pausedAt ? `, paused since ${s.pausedAt}` : '';
-      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
+      return `- ${ref}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
     });
 
     const total = ctx.subtasks.length;
