@@ -304,6 +304,20 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
           mcp?: { karst?: { command?: string[] } };
         };
         expect(config.mcp?.karst?.command).toEqual(['node', '/cli/main.js', 'mcp', 'serve', '--db', '/db']);
+      } else if (provider === 'opencode') {
+        const config = JSON.parse(launch.env.OPENCODE_CONFIG_CONTENT!) as {
+          mcp?: { karst?: { type?: string; command?: string[]; enabled?: boolean } };
+        };
+        expect(config.mcp?.karst).toEqual({
+          type: 'local',
+          command: ['node', '/cli/main.js', 'mcp', 'serve', '--db', '/db'],
+          enabled: true,
+        });
+      } else if (provider === 'codex') {
+        const pairs = launch.args.flatMap((a, i) => (launch.args[i - 1] === '--config' ? [a] : []));
+        expect(pairs).toContain('mcp_servers.karst.command="node"');
+        expect(pairs).toContain('mcp_servers.karst.args=["/cli/main.js","mcp","serve","--db","/db"]');
+        expect(launch.args).not.toContain('mcp_servers={}');
       } else {
         throw new Error(`provider ${provider} declares mcp support with no assertion`);
       }
