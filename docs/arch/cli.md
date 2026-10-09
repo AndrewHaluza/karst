@@ -120,3 +120,14 @@ A SETUP session (launched from Getting Started's "Set up with agent" action, `ex
 When a blocker enters `done` (`store/blockerOutcome.ts`, emitted inside `setStage`'s savepoint like sub-task events), each live dependent gets ONE trusted `kind='event'` mailbox row (rendered `karst event:`). It carries the blocker's key and title, its brief, the merged paths per repo, the PR links and the blocker's bulletin notes. The row is capped at the 4096-char mailbox limit and ends with a `karst context <blocker-key>` pointer for the full text.
 
 The same outcome appears as the read-only `blockers` field and `## Blockers` section of `karst context`. It also rides the narrative seed of a ticket launched after its blockers have landed. Message send stays parent-to-child only.
+
+## `karst doctor` — on-demand health checks (`src/doctor/`, `src/cli/doctorCommand.ts`)
+
+`karst doctor [--fix] [--area tools|manifest|state|wiring] [--json]`; palette: **Karst: Run Doctor**. On demand ONLY — never on activation or on failure; `reconcile.ts` stays the crash-recovery path.
+
+- **Checks are pure** (`toolsChecks`, `manifestChecks`, `stateChecks`, `stuckCheck`, `wiringChecks`): injected probes in, `{id, area, status, detail, fix?}` out. Real probes live in `doctor/probes.ts` (CLI process only — it uses `spawnSync`, which is fine out of the extension host; the palette command runs the CLI via async `execFile`).
+- **A fix is data.** `tier:'auto'` carries an `action`; `consented` carries an exact `command`; `report` carries a `nextStep`. Only `applyFixes.ts` acts, and only on `auto`, so a consented fix cannot be applied by construction.
+- **No flags = no writes** (the CLI opens the store read-only unless `--fix`). `--fix` applies auto fixes, then re-collects so the report and exit code (1 if any check fails) reflect the post-fix state. Every applied fix is returned as `{what, why, evidence, ok}`.
+- **Destructive fixes re-verify at apply time**: a kill needs the pid's start time ≤ `servers.started_at` + 5 s (pid-reuse guard; the registry stores no command line); a prune needs `git status` clean AND no unpushed commits (no upstream = unknown = skipped), runs `git worktree remove` without `--force`, and only for a `done` ticket.
+- **Stuck tickets are report-only** and exclude ship/awaiting-merge, conflicted merge checks, and open blocking subtasks.
+- **Known gaps (follow-ups):** the stuck threshold (120 min) and WAL limit (64 MB) are constants in `doctorCommand.ts`, not manifest fields; stale-outbox and unrecorded-worktree scans need host-owned directories the CLI cannot enumerate, so they report nothing from the CLI; launcher (#53) and the manifest/setup proposal commands (#55) are not wired — wiring skips the launcher check and manifest fixes are exact commands.

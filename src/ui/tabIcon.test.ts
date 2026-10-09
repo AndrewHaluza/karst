@@ -31,6 +31,7 @@ describe('webview panel host discovery', () => {
     expect(CREATORS).toEqual([
       'ui/dashboard/host.ts',
       'ui/diffs/host.ts',
+      'ui/doctor/host.ts',
       'ui/gettingStarted/host.ts',
       'ui/settings/host.ts',
       'ui/shared/simplePanelHost.ts',

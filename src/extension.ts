@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, readdirSync, watch as fsWatch } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
@@ -6654,6 +6655,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       provider.refresh();
     }),
+    registerDoctorCommand({ brandIcon, cli: () => cliSessionInput(cliLiteral(context, dbPath)) }),
     vscode.commands.registerCommand('karst.refresh', () => provider.refresh()),
     vscode.commands.registerCommand('karst.showAttention', async () => {
       const items = currentAttention();
