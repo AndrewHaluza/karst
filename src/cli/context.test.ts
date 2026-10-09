@@ -427,4 +427,20 @@ describe('runContextCommand — stage ending', () => {
     expect(md).toContain('advances automatically when all blocking sub-tasks are done');
     expect(md).not.toContain('stage impl pass');
   });
+
+  it('lists sub-task PRs in --md and --json', () => {
+    seed('impl');
+    const parentId = Number(store.db.prepare("SELECT id FROM tickets WHERE key = 'PROJ-9'").pluck().get());
+    const child = createTicket(store, { key: 'PROJ-9-s1', title: 'Child', subtaskParentId: parentId });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(child.id);
+    store.db
+      .prepare("INSERT INTO prs (ticket_id, repo, number, url, status, base_ref) VALUES (?, 'frontend', 21, 'https://x/21', 'open', 'feat/p')")
+      .run(child.id);
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
+    expect(md).toContain('PROJ-9-s1: Child (stage: ship) — frontend#21 → feat/p · open');
+    const json = JSON.parse(runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' }, '/db'));
+    expect(json.subtasks[0].prs).toEqual([
+      { repo: 'frontend', number: 21, url: 'https://x/21', status: 'open', baseRef: 'feat/p' },
+    ]);
+  });
 });
