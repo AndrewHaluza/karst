@@ -27,6 +27,7 @@ import {
   listServersByTicket,
   listPrsByTicket,
 } from '../store/dashboard.js';
+import { subtaskPrSuffix } from './subtaskPrSuffix.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
 import { listGateRuns } from '../store/gateRuns.js';
@@ -777,7 +778,8 @@ export function renderTicketContext(
       const flag = s.blocksParent ? ' [blocking]' : '';
       const queued = s.queued ? ', queued' : '';
       const paused = s.pausedAt ? `, paused since ${s.pausedAt}` : '';
-      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
+      const prs = bounded ? '' : subtaskPrSuffix(s.stageCurrent, s.prs);
+      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}${prs}`;
     });
 
     const total = ctx.subtasks.length;

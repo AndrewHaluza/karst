@@ -1566,3 +1566,38 @@ describe('renderTicketContext', () => {
     });
   });
 });
+
+describe('sub-task PRs', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function seedParent() {
+    const parent = createTicket(store, { key: 'PROJ-5', title: 'Root' });
+    const a = createTicket(store, { key: 'PROJ-5-s1', title: 'A', subtaskParentId: parent.id });
+    const b = createTicket(store, { key: 'PROJ-5-s2', title: 'B', subtaskParentId: parent.id });
+    setStageCurrent(store, a.id, 'ship');
+    setStageCurrent(store, b.id, 'ship');
+    const ins = store.db.prepare(
+      'INSERT INTO prs (ticket_id, repo, number, url, status, base_ref) VALUES (?, ?, ?, ?, ?, ?)',
+    );
+    ins.run(a.id, 'frontend', 12, 'https://x/12', 'open', 'feat/root');
+    ins.run(a.id, 'backend', 13, 'https://x/13', 'open', 'feat/root');
+    return buildTicketContext(store, undefined, parent.id);
+  }
+
+  it('suffixes rows when unbounded', () => {
+    const md = renderTicketContext(seedParent(), undefined, { bounded: false });
+    expect(md).toContain(
+      'PROJ-5-s1: A (stage: ship) — frontend#12 → feat/root · open, backend#13 → feat/root · open',
+    );
+    expect(md).toContain('PROJ-5-s2: B (stage: ship) — no PR yet');
+  });
+
+  it('leaves seed (bounded) rows unchanged', () => {
+    const md = renderTicketContext(seedParent());
+    expect(md).toContain('- PROJ-5-s1: A (stage: ship)\n');
+    expect(md).not.toContain('no PR yet');
+    expect(md).not.toContain('#12');
+  });
+});
