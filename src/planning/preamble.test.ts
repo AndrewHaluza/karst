@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { repo } from '../manifest/fixtures.js';
-import { planningInstructions, planningKickoff, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
+import { historySection, PLANNING_HISTORY_MAX_CHARS, planningInstructions, planningKickoff, planningAddDirs, planningOutboxDir, PLANNING_OUTBOX_ENV } from './preamble.js';
 
 const manifest = {
   baselineBranch: 'main',
@@ -90,5 +90,71 @@ describe('planningInstructions — project notes index', () => {
     const text = planningInstructions({ ...base, notes: { count: 0, titles: [], dbPath: '/store/karst.db' } });
     expect(text).not.toContain('Project notes');
     expect(text).not.toContain('notes --repos');
+  });
+});
+
+describe('planningInstructions history snapshot', () => {
+  const history = [
+    {
+      repo: 'api',
+      base: 'develop',
+      commits: ['abc1234 feat: one', 'def5678 fix: two'],
+      archKeys: [{ file: 'prompt-metrics.md', keys: ['RESIDENT', 'GUIDEGATE'] }],
+    },
+    { repo: 'web', base: 'main', commits: ['111aaaa chore: web'], archKeys: [] },
+  ];
+  const text = planningInstructions({ sessionId: 1, title: 't', manifest, history });
+
+  it('renders each repo\'s recent commits on its base after the stack', () => {
+    expect(text).toContain('Recent history of api (base develop):');
+    expect(text).toContain('  abc1234 feat: one');
+    expect(text).toContain('Recent history of web (base main):');
+    expect(text.indexOf('Recent history of api')).toBeGreaterThan(text.indexOf('- web: /src/web'));
+  });
+
+  it('renders the @arch keys per docs/arch file, and omits the docs line without keys', () => {
+    expect(text).toContain('Design docs of api (docs/arch keyed blocks; grep -n "@arch:KEY" docs/arch/*.md):');
+    expect(text).toContain('- prompt-metrics.md: RESIDENT, GUIDEGATE');
+    expect(text).not.toContain('Design docs of web');
+  });
+
+  it('omits the section without history, or for a repo with neither commits nor keys', () => {
+    const none = planningInstructions({ sessionId: 1, title: 't', manifest });
+    expect(none).not.toContain('Recent history');
+    const empty = planningInstructions({
+      sessionId: 1, title: 't', manifest, history: [{ repo: 'api', base: 'develop', commits: [], archKeys: [] }],
+    });
+    expect(empty).not.toContain('Recent history');
+    expect(empty).not.toContain('Design docs');
+  });
+
+  it('caps commits at 12 and each repo block at 1500 chars, counting dropped keys', () => {
+    const commits = Array.from({ length: 20 }, (_, i) => `c${i} ${'x'.repeat(80)}`);
+    const keys = Array.from({ length: 200 }, (_, i) => `KEY-${i}`);
+    const block = historySection([{ repo: 'api', base: 'develop', commits, archKeys: [{ file: 'a.md', keys }] }]);
+    const body = block.join('\n');
+    expect(body.length).toBeLessThanOrEqual(PLANNING_HISTORY_MAX_CHARS + 1);
+    expect(body).toContain('c11 ');
+    expect(body).not.toContain('c12 ');
+    expect(body).toMatch(/… and \d+ more/);
+  });
+
+  it('keeps every key when the block fits', () => {
+    const body = historySection(history).join('\n');
+    expect(body).not.toContain('more');
+  });
+});
+
+describe('planningInstructions pre-proposal checklist', () => {
+  const text = planningInstructions({ sessionId: 1, title: 't', manifest });
+  it('asks to read arch blocks, landed work and drafts before the draft contract', () => {
+    const at = text.indexOf('Before you propose or revise a draft:');
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(text.indexOf('When the user agrees on the work'));
+    expect(text).toContain('grep -n "@arch:" <repo>/docs/arch/*.md');
+    expect(text).toContain('git -C <repo> log --oneline -30 <base> -- <paths>');
+    expect(text).toContain('<repo>/.karst/worktrees');
+    expect(text).toMatch(/already landed, say so instead of revising it/);
+    expect(text).toMatch(/Cite what you relied on/);
   });
 });

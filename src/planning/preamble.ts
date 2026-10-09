@@ -47,7 +47,72 @@ export interface PreambleInput {
   title: string;
   manifest: PlanningManifest;
   notes?: PlanningNotes;
+  /** Host-gathered history snapshot, one entry per repoPath; absent = no section. */
+  history?: PlanningRepoHistory[];
 }
+
+/** A repo's recent base commits and its docs/arch keys (keys only — never block bodies). */
+export interface PlanningRepoHistory {
+  repo: string;
+  base: string;
+  commits: string[];
+  archKeys: { file: string; keys: string[] }[];
+}
+
+export const PLANNING_HISTORY_MAX_COMMITS = 12;
+/** The per-repo bound on the rendered history block. */
+export const PLANNING_HISTORY_MAX_CHARS = 1500;
+/** Room kept for the `… and N more` line. */
+const OVERFLOW_RESERVE = 24;
+
+/** The arch-key lines of one repo, dropping keys past `budget` chars with an overflow count. */
+function archKeyLines(archKeys: PlanningRepoHistory['archKeys'], budget: number): string[] {
+  const lines: string[] = [];
+  let used = 0;
+  let dropped = 0;
+  for (const { file, keys } of archKeys) {
+    if (keys.length === 0) continue;
+    let kept: string[] = [];
+    for (const key of keys) {
+      const line = `- ${file}: ${[...kept, key].join(', ')}`;
+      if (dropped > 0 || used + line.length + 1 > budget - OVERFLOW_RESERVE) dropped += 1;
+      else kept = [...kept, key];
+    }
+    if (kept.length > 0) {
+      const line = `- ${file}: ${kept.join(', ')}`;
+      lines.push(line);
+      used += line.length + 1;
+    }
+  }
+  return dropped > 0 ? [...lines, `… and ${dropped} more`] : lines;
+}
+
+/** One repo's block: recent commits, then its docs/arch keys, within PLANNING_HISTORY_MAX_CHARS. */
+function repoHistoryBlock(h: PlanningRepoHistory): string[] {
+  const commits = h.commits.slice(0, PLANNING_HISTORY_MAX_COMMITS);
+  const head = commits.length > 0
+    ? [`Recent history of ${h.repo} (base ${h.base}):`, ...commits.map((c) => `  ${c}`)]
+    : [];
+  const docsHeader = `Design docs of ${h.repo} (docs/arch keyed blocks; grep -n "@arch:KEY" docs/arch/*.md):`;
+  const used = head.join('\n').length + docsHeader.length + 2;
+  const keys = archKeyLines(h.archKeys, PLANNING_HISTORY_MAX_CHARS - used);
+  return [...head, ...(keys.length > 0 ? [docsHeader, ...keys] : [])];
+}
+
+/** The history section: a leading blank line, then each non-empty repo block. */
+export function historySection(history: PlanningRepoHistory[] | undefined): string[] {
+  const blocks = (history ?? []).map(repoHistoryBlock).filter((b) => b.length > 0);
+  return blocks.length > 0 ? ['', ...blocks.flat()] : [];
+}
+
+/** The pre-proposal checklist: read the design rules and landed work first. */
+const PRE_PROPOSAL_CHECKLIST = [
+  'Before you propose or revise a draft:',
+  '1. Read the docs/arch blocks for the area you change (`grep -n "@arch:" <repo>/docs/arch/*.md`, then read the matching block).',
+  '2. Check landed and in-flight work on the paths you change: `git -C <repo> log --oneline -30 <base> -- <paths>` and the recent history above.',
+  '3. Run `draft list` and check open ticket worktrees (<repo>/.karst/worktrees) for the same files; if a draft already landed, say so instead of revising it.',
+  '4. Cite what you relied on (arch keys, commits) in the draft summary.',
+];
 
 function enabledRepos(manifest: PlanningManifest): [string, Manifest['repositories'][string]][] {
   return Object.entries(manifest.repositories).filter(([, def]) => def.enabled !== false);
@@ -78,7 +143,7 @@ function notesSection(notes: PlanningNotes | undefined, repoNames: string[]): st
 
 /** The standing instructions delivered through the core's own channel. */
 export function planningInstructions(input: PreambleInput): string {
-  const { title, manifest, notes } = input;
+  const { title, manifest, notes, history } = input;
   const cli = envRef(KARST_CLI_ENV);
   const enabled = enabledRepos(manifest);
   const repos = enabled.map(
@@ -92,6 +157,9 @@ export function planningInstructions(input: PreambleInput): string {
     '',
     'The stack (repository: path, base branch):',
     ...repos,
+    ...historySection(history),
+    '',
+    ...PRE_PROPOSAL_CHECKLIST,
     '',
     'When the user agrees on the work, propose it as one or more draft tickets. Each proposal is',
     'ONE shell command that pipes one JSON object to karst on stdin, e.g.:',
