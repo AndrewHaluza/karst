@@ -62,41 +62,63 @@ export interface PlanningRepoHistory {
 export const PLANNING_HISTORY_MAX_COMMITS = 12;
 /** The per-repo bound on the rendered history block. */
 export const PLANNING_HISTORY_MAX_CHARS = 1500;
-/** Room kept for the `… and N more` line. */
-const OVERFLOW_RESERVE = 24;
-
-/** The arch-key lines of one repo, dropping keys past `budget` chars with an overflow count. */
-function archKeyLines(archKeys: PlanningRepoHistory['archKeys'], budget: number): string[] {
-  const lines: string[] = [];
-  let used = 0;
-  let dropped = 0;
-  for (const { file, keys } of archKeys) {
-    if (keys.length === 0) continue;
-    let kept: string[] = [];
-    for (const key of keys) {
-      const line = `- ${file}: ${[...kept, key].join(', ')}`;
-      if (dropped > 0 || used + line.length + 1 > budget - OVERFLOW_RESERVE) dropped += 1;
-      else kept = [...kept, key];
-    }
-    if (kept.length > 0) {
-      const line = `- ${file}: ${kept.join(', ')}`;
-      lines.push(line);
-      used += line.length + 1;
-    }
-  }
-  return dropped > 0 ? [...lines, `… and ${dropped} more`] : lines;
+/** A file's smallest arch line: the name and how many keys it holds. */
+function countLine(file: string, keys: string[]): string {
+  return `- ${file} (${keys.length} keys)`;
 }
 
-/** One repo's block: recent commits, then its docs/arch keys, within PLANNING_HISTORY_MAX_CHARS. */
+/** One file's arch line showing its first `n` keys, then `+N` for the rest. */
+function keyLine(file: string, keys: string[], n: number): string {
+  if (n === 0) return countLine(file, keys);
+  return `- ${file}: ${keys.slice(0, n).join(', ')}${n < keys.length ? `, +${keys.length - n}` : ''}`;
+}
+
+/**
+ * The arch lines of one repo within `budget` chars. Every file starts as a count line, then the
+ * spare room is handed out one key at a time, round-robin, so no doc (e.g. prompt-metrics.md) is
+ * hidden and the total never exceeds the budget.
+ */
+function archKeyLines(files: PlanningRepoHistory['archKeys'], budget: number): string[] {
+  const shown = files.map(() => 0);
+  const render = (): string[] => files.map(({ file, keys }, i) => keyLine(file, keys, shown[i]!));
+  const total = (lines: string[]): number => lines.join('\n').length;
+  for (let grew = true; grew; ) {
+    grew = false;
+    files.forEach(({ keys }, i) => {
+      if (shown[i]! >= keys.length) return;
+      shown[i] = shown[i]! + 1;
+      if (total(render()) <= budget) grew = true;
+      else shown[i] = shown[i]! - 1;
+    });
+  }
+  return render();
+}
+
+/** The longest prefix of `lines` that fits `budget` chars once joined with newlines. */
+function fitLines(lines: string[], budget: number): string[] {
+  let used = 0;
+  const kept = lines.filter((line) => (used += line.length + 1) - 1 <= budget);
+  return lines.slice(0, kept.length);
+}
+
+/**
+ * One repo's block within PLANNING_HISTORY_MAX_CHARS. The doc list is reserved first (every file
+ * with at least its key count), the commits take what is left, and spare room goes to key names.
+ */
 function repoHistoryBlock(h: PlanningRepoHistory): string[] {
-  const commits = h.commits.slice(0, PLANNING_HISTORY_MAX_COMMITS);
-  const head = commits.length > 0
-    ? [`Recent history of ${h.repo} (base ${h.base}):`, ...commits.map((c) => `  ${c}`)]
-    : [];
+  const files = h.archKeys.filter(({ keys }) => keys.length > 0);
   const docsHeader = `Design docs of ${h.repo} (docs/arch keyed blocks; grep -n "@arch:KEY" docs/arch/*.md):`;
-  const used = head.join('\n').length + docsHeader.length + 2;
-  const keys = archKeyLines(h.archKeys, PLANNING_HISTORY_MAX_CHARS - used);
-  return [...head, ...(keys.length > 0 ? [docsHeader, ...keys] : [])];
+  const minDocs = files.length > 0
+    ? [docsHeader, ...files.map(({ file, keys }) => countLine(file, keys))].join('\n').length + 1
+    : 0;
+  const commitHeader = `Recent history of ${h.repo} (base ${h.base}):`;
+  const commitLines = h.commits.slice(0, PLANNING_HISTORY_MAX_COMMITS).map((c) => `  ${c}`);
+  const fitted = fitLines([commitHeader, ...commitLines], PLANNING_HISTORY_MAX_CHARS - minDocs);
+  const head = fitted.length > 1 ? fitted : [];
+  const headLen = head.length > 0 ? head.join('\n').length + 1 : 0;
+  if (files.length === 0) return head;
+  const keys = archKeyLines(files, PLANNING_HISTORY_MAX_CHARS - headLen - docsHeader.length - 1);
+  return [...head, docsHeader, ...keys];
 }
 
 /** The history section: a leading blank line, then each non-empty repo block. */

@@ -128,7 +128,7 @@ describe('planningInstructions history snapshot', () => {
     expect(empty).not.toContain('Design docs');
   });
 
-  it('caps commits at 12 and each repo block at 1500 chars, counting dropped keys', () => {
+  it('caps commits at 12 and each repo block at 1500 chars, counting trimmed keys', () => {
     const commits = Array.from({ length: 20 }, (_, i) => `c${i} ${'x'.repeat(80)}`);
     const keys = Array.from({ length: 200 }, (_, i) => `KEY-${i}`);
     const block = historySection([{ repo: 'api', base: 'develop', commits, archKeys: [{ file: 'a.md', keys }] }]);
@@ -136,7 +136,31 @@ describe('planningInstructions history snapshot', () => {
     expect(body.length).toBeLessThanOrEqual(PLANNING_HISTORY_MAX_CHARS + 1);
     expect(body).toContain('c11 ');
     expect(body).not.toContain('c12 ');
-    expect(body).toMatch(/… and \d+ more/);
+    expect(body).toMatch(/, \+\d+/);
+  });
+
+  it('keeps every doc file visible when keys overflow, trimming per file with a +N count', () => {
+    const commits = Array.from({ length: 12 }, (_, i) => `c${i} ${'x'.repeat(60)}`);
+    const archKeys = Array.from({ length: 15 }, (_, f) => ({
+      file: f === 7 ? 'prompt-metrics.md' : `doc-${f}.md`,
+      keys: f === 7 ? ['RESIDENT', 'GUIDEGATE', ...Array.from({ length: 8 }, (_, i) => `K${i}`)] : Array.from({ length: 12 }, (_, i) => `KEY-${f}-${i}`),
+    }));
+    const body = historySection([{ repo: 'api', base: 'develop', commits, archKeys }]).join('\n');
+    expect(body.length).toBeLessThanOrEqual(PLANNING_HISTORY_MAX_CHARS + 1);
+    for (const { file } of archKeys) expect(body).toContain(`- ${file}`);
+    expect(body).toMatch(/- prompt-metrics\.md: RESIDENT.*\+\d+/);
+  });
+
+  it('stays within 1500 chars and still lists every doc when long commits crowd the keys', () => {
+    const commits = Array.from({ length: 12 }, (_, i) => `c${i} ${'x'.repeat(84)}`);
+    const archKeys = Array.from({ length: 15 }, (_, f) => ({
+      file: `a-long-doc-name-${f}.md`,
+      keys: Array.from({ length: 10 }, (_, i) => `KEY-${i}`),
+    }));
+    const body = historySection([{ repo: 'api', base: 'develop', commits, archKeys }]).join('\n');
+    expect(body.length).toBeLessThanOrEqual(PLANNING_HISTORY_MAX_CHARS + 1);
+    for (const { file } of archKeys) expect(body).toContain(`- ${file}`);
+    expect(body).toContain('c0 ');
   });
 
   it('keeps every key when the block fits', () => {
