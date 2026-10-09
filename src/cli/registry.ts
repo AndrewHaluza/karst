@@ -309,6 +309,20 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     },
   },
   {
+    name: 'doctor',
+    summary: 'Check tools, manifest, karst state and agent wiring; --fix repairs karst-owned state only.',
+    input: obj({ fix: bool, json: bool, area: { type: 'string', enum: ['tools', 'manifest', 'state', 'wiring'] } }),
+    globals: { db: true, manifest: true },
+    writes: true,
+    toArgv: (input) => {
+      const argv = ['doctor'];
+      pushFlag(argv, '--fix', input.fix);
+      pushFlag(argv, '--json', input.json);
+      pushFlag(argv, '--area', input.area);
+      return argv;
+    },
+  },
+  {
     name: 'notes',
     summary: 'Read the project bulletin, or post one learning for other tasks.',
     input: obj({
