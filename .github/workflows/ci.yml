@@ -129,7 +129,8 @@ jobs:
       # here — a run below thresholds.break (85) exits 1 and fails the job.
       - name: Run Stryker
         id: stryker
-        run: npm run test:mutation
+        # Local config is silent (html+json only); CI wants the per-file table in the log.
+        run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json
 
       # The changed-file list powers the inline annotations, so compute it
       # before the report. `|| true` (and the `if: always()`) keep a diff
