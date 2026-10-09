@@ -4,7 +4,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, updateTicketFields } from '../../store/tickets.js';
 import { insertAttachment } from '../../store/attachments.js';
 import { setStage } from '../../store/stages.js';
-import { buildTicketFormState } from './state.js';
+import { applyPrefill, buildTicketFormState } from './state.js';
 import type { Manifest, RepositoryDef } from '../../manifest/types.js';
 import {
   fullPreset,
@@ -599,5 +599,67 @@ describe('buildTicketFormState — agent presets', () => {
     expect(state.selectedAgentPreset).toBe('deep');
     expect(state.defaultAgentProvider).toBe('claude');
     expect(state.defaultModel).toBe('claude-opus-5');
+  });
+});
+
+describe('buildTicketFormState — repoBases per-repo base branches', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  it('regular ticket: default is manifest baseline and source is manifest', () => {
+    const state = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    const feBase = state.repoBases.find((b) => b.repo === 'fe');
+    expect(feBase).toBeDefined();
+    expect(feBase!.default).toBe('develop');
+    expect(feBase!.defaultLabel).toBeUndefined();
+    expect(feBase!.source).toBe('manifest');
+    expect(feBase!.value).toBe('');
+  });
+
+  it('sub-task: default is parent branch, defaultLabel is parent branch: <branch> (default), manifest baseline in candidates', () => {
+    const parent = createTicket(store, { key: 'PAR-10', title: 'Parent' });
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, ?, ?, ?, ?, 'inherited')`,
+      )
+      .run(parent.id, '/repo', '/tmp/wt-par', 'karst/feat/par-10', 'develop');
+    const child = createTicket(store, { key: 'PAR-10-s1', title: 'Child', subtaskParentId: parent.id });
+
+    const state = buildTicketFormState(store, MANIFEST, () => [], () => [], child.id);
+    const feBase = state.repoBases.find((b) => b.repo === 'fe');
+    expect(feBase).toBeDefined();
+    expect(feBase!.default).toBe('karst/feat/par-10');
+    expect(feBase!.defaultLabel).toBe('parent branch: karst/feat/par-10 (default)');
+    expect(feBase!.source).toBe('parent');
+    expect(feBase!.candidates).toContain('develop');
+
+    // With an explicit override
+    updateTicketFields(store, child.id, { baseRefs: { fe: 'develop' } });
+    const stateOverridden = buildTicketFormState(store, MANIFEST, () => [], () => [], child.id);
+    const feOver = stateOverridden.repoBases.find((b) => b.repo === 'fe');
+    expect(feOver!.source).toBe('override');
+    expect(feOver!.value).toBe('develop');
+  });
+});
+
+describe('applyPrefill — approved-draft base picks', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+
+  const prefill = { title: 'T', description: 'D', summary: '', repos: [] as string[] };
+
+  it('keeps a chosen base as an override even when it equals the manifest default', () => {
+    const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    const state = applyPrefill(built, { ...prefill, baseRefs: { fe: 'develop' } });
+    const fe = state.repoBases.find((b) => b.repo === 'fe')!;
+    expect(fe.value).toBe('develop');
+    expect(fe.source).toBe('override');
+  });
+
+  it('leaves repos without a pick on their default', () => {
+    const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    const state = applyPrefill(built, prefill);
+    expect(state.repoBases).toEqual(built.repoBases);
   });
 });

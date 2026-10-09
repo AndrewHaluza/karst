@@ -3,7 +3,7 @@ import { getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
-import { buildTicketFormState, type TicketFormState } from './state.js';
+import { applyPrefill, buildTicketFormState, type TicketFormState } from './state.js';
 import {
   parseTicketFormMessage,
   routeTicketFormAction,
@@ -132,19 +132,15 @@ export interface TicketFormPrefill {
    */
   summary: string;
   repos: string[];
+  /**
+   * Sub-task parent ticket id when known at create time (e.g. from an approved
+   * proposal prefill), so create mode resolves effective subtask defaults.
+   */
+  subtaskParentId?: number | null;
+  /** Optional base branch overrides to prefill. */
+  baseRefs?: Record<string, string>;
   /** Called once, when the user's save first creates the ticket. */
   onCreated(ticketId: number): void;
-}
-
-function applyPrefill(state: TicketFormState, p: TicketFormPrefill): TicketFormState {
-  const want = new Set(p.repos);
-  return {
-    ...state,
-    title: p.title,
-    description: p.description,
-    brief: p.summary || null,
-    repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,
-  };
 }
 
 export class TicketFormManager {
@@ -296,6 +292,7 @@ export class TicketFormManager {
         pickerTouched,
         this.recentModels(),
         this.branchCandidates(),
+        prefill?.subtaskParentId,
       );
       // A prefilled create page shows the prefill only until it has a ticket;
       // from then on the stored ticket is the truth.

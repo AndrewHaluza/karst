@@ -269,4 +269,22 @@ describe('subtaskIntegration', () => {
     expect(calls.some((c) => c[0] === 'status')).toBe(false);
     expect(calls.some((c) => c[0] === 'merge')).toBe(false);
   });
+
+  it('skips non-stacked sub-tasks whose baseRef differs from parentBranch', async () => {
+    const parentId = createTicket(store, { key: 'P-13', title: 'Parent', projectId: 1 }).id;
+    const parentBranch = 'karst/P-13';
+    addWorktree(store, parentId, 'api', parentBranch, 'main');
+    setStageCurrent(store, parentId, 'impl');
+    const child = createSubtask(store, parentId, { title: 'Non-stacked Child' });
+    addWorktree(store, child.id, 'api', 'karst/P-13-child', 'develop');
+    setStageCurrent(store, child.id, 'done');
+
+    const { runner, calls } = runnerWith([]);
+
+    const outcome = await integrateLandedSubtasks(store, parentId, runner);
+
+    expect(outcome.parked).toBe(false);
+    expect(stageBlock(store, parentId, 'impl')).toBeNull();
+    expect(calls).toEqual([]);
+  });
 });

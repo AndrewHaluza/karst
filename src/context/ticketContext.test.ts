@@ -77,7 +77,7 @@ describe('buildTicketContext', () => {
     expect(ctx.brief).toBe('A short brief');
     expect(ctx.selectedRepos).toEqual(['frontend']);
     expect(ctx.worktrees).toEqual([
-      { repo: 'frontend', path: '/wt/frontend', branch: 'feat/x', baseRef: 'main', depsMode: 'inherited' },
+      { repo: 'frontend', path: '/wt/frontend', branch: 'feat/x', baseRef: 'main', source: 'manifest', depsMode: 'inherited' },
     ]);
     expect(ctx.servers).toEqual([
       { service: 'frontend', host: '127.0.0.1', port: 3001, status: 'running' },
@@ -192,6 +192,40 @@ describe('buildTicketContext', () => {
       expect(md).toContain('- frontend: `feat/root`');
       expect(md).toMatch(/lands into the parent's branch, not into main/);
       expect(md).not.toContain('https://x/pr/7');
+    });
+
+    it('states the real landing branch for a non-stacked sub-task and shows worktree source', () => {
+      const parent = createTicket(store, { key: 'PAR-1', title: 'Parent task' });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'backend', '/wt/parent', 'karst/feat/par-1', 'main', 'inherited')",
+        )
+        .run(parent.id);
+
+      const child = createTicket(store, {
+        key: 'PAR-1-s1',
+        title: 'Child task',
+        subtaskParentId: parent.id,
+      });
+      updateTicketFields(store, child.id, {
+        baseRefs: { backend: 'develop' },
+      });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'backend', '/wt/child', 'karst/feat/par-1-s1', 'develop', 'inherited')",
+        )
+        .run(child.id);
+
+      const ctx = buildTicketContext(store, undefined, child.id);
+      expect(ctx.worktrees[0]!.source).toBe('override');
+      expect(ctx.worktrees[0]!.baseRef).toBe('develop');
+
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Worktrees & branches');
+      expect(md).toContain('- backend: `karst/feat/par-1-s1` (from develop, override) — /wt/child');
+      expect(md).toContain('## Parent task');
+      expect(md).toContain('Your branch lands into `develop`, not into the parent\'s branch — open your PR against `develop`.');
+      expect(md).not.toContain("expect it to stack on the parent's work");
     });
 
     it('reports a non-blocking sub-task without the blocking tag (NDL-96)', () => {

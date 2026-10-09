@@ -36,6 +36,7 @@ import { runManifestCommand } from './manifestCommand.js';
 import { runSetupCommand, toChangeProposalInput } from './setupCommand.js';
 import { parseSetupVerifyArgs, runSetupVerifyCommand } from './setupVerify.js';
 import { runMcpCommand } from './mcp/command.js';
+import { runBaseCommand } from './baseCommand.js';
 import { installSqliteWarningFilter } from './suppressWarning.js';
 
 /**
@@ -577,7 +578,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 
@@ -628,6 +629,30 @@ export async function runCliAsync(
     const store = parseDoctorArgs(rest).fix ? openWritableStore(db) : openReadonlyStore(db);
     try {
       return runDoctorCommand(store, db, manifestPath, rest, env);
+    } finally {
+      store.close();
+    }
+  }
+  if (rest[0] === 'base') {
+    if (!db) throw new Error('missing --db <path>');
+    const structured = resolveStructuredInput(getCommandSpec('base')!, rest, {
+      readStdin: readStdinBounded,
+    });
+    const effectiveRest = structured ? structured.argv : rest;
+    let manifest: Manifest | undefined;
+    if (manifestPath) {
+      const loaded = loadManifestWithDiagnostics(manifestPath);
+      writeManifestDiagnostics(loaded.warnings);
+      if (verbose) writeManifestDiagnostics(loaded.notices);
+      manifest = loaded.manifest;
+    }
+    const store = openWritableStore(db);
+    try {
+      return await runBaseCommand(store, manifest, effectiveRest, {
+        ticket,
+        projectSlug: loadProjectSlug(manifestPath, verbose),
+        sessionTicketKey: env.KARST_TICKET,
+      });
     } finally {
       store.close();
     }

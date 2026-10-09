@@ -262,4 +262,31 @@ describe('ticket form — F3 split repo chips (group 4)', () => {
     const sub = v.posted.find((m) => (m as { type: string }).type === 'submit') as { baseRefs: Record<string, string> };
     expect(sub.baseRefs).toEqual({ api: 'epic/x' });
   });
+
+  it('sub-task: renders parent branch as default with (parent) source and custom defaultLabel in popover', () => {
+    const v = open(st({
+      repoBases: [
+        {
+          repo: 'api',
+          default: 'karst/feat/par-1',
+          defaultLabel: 'parent branch: karst/feat/par-1 (default)',
+          value: '',
+          source: 'parent',
+          candidates: ['karst/feat/par-1', 'main'],
+        },
+        repoBases[1],
+      ],
+    }));
+    const api = v.query<HTMLElement>('[data-repo="api"]')!;
+    expect(api.textContent!.replace(/\s/g, '')).toBe('api:karst/feat/par-1(parent)');
+    expect(api.querySelector('.repo-branch.is-overridden')).toBeNull();
+
+    v.click('[data-base-caret="api"]');
+    const pop = v.query<HTMLElement>('[data-base-pop="api"]')!;
+    const resetBtn = pop.querySelector<HTMLElement>('[data-base-pick=""]')!;
+    expect(resetBtn.textContent!.trim()).toBe('Reset to parent branch: karst/feat/par-1 (default)');
+
+    v.click('[data-base-pick="main"]');
+    expect(v.query('[data-repo="api"] .repo-branch.is-overridden')!.textContent).toContain('main (override)');
+  });
 });

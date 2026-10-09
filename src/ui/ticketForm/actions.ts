@@ -25,7 +25,7 @@ import {
 import { queueAutostart } from '../../store/autostart.js';
 import { postMessage } from '../../store/ticketMessages.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
-import { resolvePlannedBaseRef, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
+import { resolvePlannedBaseRef, subtaskParentBranch, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { scoreRepos } from '../../workflow/classify/gate.js';
 import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/suggest.js';
@@ -885,14 +885,21 @@ export function buildTicketFormActions(
       // Build a NEW record — never mutate the ticket's persisted overrides.
       const current = { ...(ticket.baseRefs ?? {}) };
       const trimmed = baseRef.trim();
-      // The manifest default is resolved WITHOUT this repo's own override, so
-      // an override equal to that default reads as "no override" rather than
+      // The effective default is resolved WITHOUT this repo's own override, so
+      // an override equal to that effective default (manifest default for regular
+      // tickets, parent branch for sub-tasks) reads as "no override" rather than
       // comparing against itself.
       const withoutThisRepo = { ...current };
       delete withoutThisRepo[repo];
-      const manifestDefault = resolvePlannedBaseRef({ baseRefs: withoutThisRepo }, deps.manifest, repo);
+      const parentBranch = subtaskParentBranch(deps.store, ticket, deps.manifest, repo);
+      const effectiveDefault = resolvePlannedBaseRef(
+        { ...ticket, baseRefs: withoutThisRepo },
+        deps.manifest,
+        repo,
+        parentBranch,
+      );
       const next =
-        trimmed === '' || trimmed === manifestDefault
+        trimmed === '' || trimmed === effectiveDefault
           ? withoutThisRepo
           : { ...withoutThisRepo, [repo]: trimmed };
       try {

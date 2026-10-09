@@ -279,6 +279,31 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     },
   },
   {
+    name: 'base',
+    summary: 'Set or reset the base branch for a repository on this ticket or a direct sub-task.',
+    input: obj(
+      {
+        action: { type: 'string', enum: ['set', 'reset'] },
+        repo: str,
+        baseRef: str,
+        rebase: bool,
+      },
+      ['action', 'repo'],
+    ),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => {
+      const action = requireString(input, 'action');
+      const argv = ['base', action, requireString(input, 'repo')];
+      if (action === 'set') {
+        argv.push(requireString(input, 'baseRef'));
+      }
+      if (input.rebase === true) argv.push('--rebase');
+      else if (input.rebase === false) argv.push('--no-rebase');
+      return argv;
+    },
+  },
+  {
     name: 'draft',
     summary: 'Planning-only: file a draft proposal (stdin JSON) or list drafts.',
     input: obj(
