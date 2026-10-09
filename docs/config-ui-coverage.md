@@ -87,6 +87,10 @@ picker there is built from declared repositories, so that entry can be inspected
 removed only by hand-editing the file, even though `karst.openManifest` now makes
 that reachable from Settings.
 
+END_DOC_BLOCK: [@cfg:CFG-02]
+
+## [@cfg:CFG-08] Gaps 2–6 (review, id, scope, agents, approaches)
+
 ### 2. `review:` block — fully covered, no remaining gap
 
 `maxFixAttempts`, `requireIndependentSignal`, `openChanges`, `gates[]`,
@@ -133,7 +137,7 @@ through the UI no longer deletes it. There is still no UI to *edit* phases
 (`name`/`command`/`description`) — that remains a gap, and was a decision (a UI can
 author a `command` that only breaks at install; see "Keep yml-only," below), not an
 oversight.
-END_DOC_BLOCK: [@cfg:CFG-02]
+END_DOC_BLOCK: [@cfg:CFG-08]
 
 ## [@cfg:CFG-03] How yml-only keys are set up today
 
@@ -214,7 +218,9 @@ whoever owns UAT Phase 2:
    speculative keys (`ReviewConfig`: "No `approval` key … do not add one
    speculatively"). — **Not taken** (see D1's rejection rationale, below).
 
-### Secrets DO get a UI — the pattern already ships
+END_DOC_BLOCK: [@cfg:CFG-04]
+
+## [@cfg:CFG-07] Secrets DO get a UI — the pattern already ships
 
 Nothing about secrets argues against a UI. karst already has the right one, for the
 ClickUp token, and it generalizes directly:
@@ -279,7 +285,7 @@ implementation — see below.)*
   accepts as proof. Excluded above only by omission; it is as user-facing as
   `review.findings.enabled` and probably belongs beside it. — **Shipped**: it is on
   the Quality tab beside `review.findings.enabled`, as suggested.
-END_DOC_BLOCK: [@cfg:CFG-04]
+END_DOC_BLOCK: [@cfg:CFG-07]
 
 ## [@cfg:CFG-05] Settled — no decision needed, just build it this way
 

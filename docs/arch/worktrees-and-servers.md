@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/worktrees-and-servers.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:ENTRIES'):
-  awk "/^## \[@arch:ENTRIES\]/,/END_DOC_BLOCK: \[@arch:ENTRIES\]/" <file_path>
+  awk "/^## \[@arch:ENTRIES\]/,/END_DOC_BLOCK: \[@arch:ENTRIES\]/" docs/arch/worktrees-and-servers.md
 -->
 # Worktrees, branch names, and the servers inside them
 

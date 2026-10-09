@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/stages-and-gates.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:STAGEMACH'):
-  awk "/^## \[@arch:STAGEMACH\]/,/END_DOC_BLOCK: \[@arch:STAGEMACH\]/" <file_path>
+  awk "/^## \[@arch:STAGEMACH\]/,/END_DOC_BLOCK: \[@arch:STAGEMACH\]/" docs/arch/stages-and-gates.md
 -->
 # Stages, gates, and the stage driver
 
