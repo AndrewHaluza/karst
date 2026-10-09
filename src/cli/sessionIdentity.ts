@@ -1,4 +1,5 @@
 import type { Ticket } from '../store/tickets.js';
+import { formatTicketRef } from '../model/entityId.js';
 
 /**
  * The attested session identity shared by the agent-write verbs (`message` and
@@ -8,9 +9,9 @@ import type { Ticket } from '../store/tickets.js';
  * unforgeable; the blast radius is what the verb itself can do.
  */
 
-/** A ticket's display label: its key, else `#<id>`. */
+/** A ticket's display label: `T<id> · <key>`, else `T<id>`. */
 export function ticketLabel(t: Pick<Ticket, 'id' | 'key'>): string {
-  return t.key ?? `#${t.id}`;
+  return formatTicketRef(t.id, t.key);
 }
 
 /** Refuse a `--ticket` that disagrees with the session env's own ticket. */

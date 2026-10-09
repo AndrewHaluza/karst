@@ -99,7 +99,7 @@ describe('resolveTicketByKey', () => {
 
     expect(() => resolveTicketByKey(store, 'AMB-1', undefined)).toThrow(/ambiguous/i);
     expect(() => resolveTicketByKey(store, 'AMB-1', undefined)).toThrow(
-      new RegExp(`#${first.id}.*#${second.id}`),
+      new RegExp(`T${first.id}.*T${second.id}`),
     );
   });
 
@@ -109,5 +109,33 @@ describe('resolveTicketByKey', () => {
     createTicket(store, { key: 'AMB-2', title: 'second', projectId: beta.id });
 
     expect(() => resolveTicketByKey(store, 'AMB-2', 'beta')).toThrow(/ambiguous/i);
+  });
+
+  it('resolves T<n>, t<n> and bare n to ticket n', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'x' });
+    expect(resolveTicketByKey(store, `T${t.id}`, undefined)?.id).toBe(t.id);
+    expect(resolveTicketByKey(store, `t${t.id}`, undefined)?.id).toBe(t.id);
+    expect(resolveTicketByKey(store, `${t.id}`, undefined)?.id).toBe(t.id);
+  });
+
+  it('scopes T<n> to the manifest project', () => {
+    const alpha = upsertProject(store, { slug: 'alpha' });
+    const beta = upsertProject(store, { slug: 'beta' });
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId: alpha.id });
+    expect(resolveTicketByKey(store, `T${a.id}`, 'beta')).toBeUndefined();
+  });
+
+  it('returns undefined for other kinds and zero ids', () => {
+    createTicket(store, { key: 'A-1', title: 'x' });
+    expect(resolveTicketByKey(store, 'D5', undefined)).toBeUndefined();
+    expect(resolveTicketByKey(store, 'T0', undefined)).toBeUndefined();
+  });
+
+  it('lists ambiguous candidates as T<id>', () => {
+    const a = createTicket(store, { key: 'DUP-1', title: 'a' });
+    const b = createTicket(store, { key: 'DUP-1', title: 'b' });
+    expect(() => resolveTicketByKey(store, 'DUP-1', undefined)).toThrow(
+      new RegExp(`T${a.id}, T${b.id}`),
+    );
   });
 });

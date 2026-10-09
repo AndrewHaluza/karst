@@ -91,7 +91,7 @@ describe('runSubtaskCommand', () => {
       ok: true,
       key: 'PROJ-1-s1',
       title: 'Carve this out',
-      parent: 'PROJ-1',
+      parent: `T${id} · PROJ-1`,
       blocking: true,
       repos: ['frontend'],
       stage: 'scope',

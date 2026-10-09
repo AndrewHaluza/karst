@@ -465,7 +465,7 @@ describe('runCli — subtask create (design NDL-70 §7)', () => {
       'K-1',
     ]);
     const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ ok: true, key: 'K-1-s1', parent: 'K-1', blocking: true });
+    expect(parsed).toMatchObject({ ok: true, key: 'K-1-s1', parent: 'T1 · K-1', blocking: true });
 
     const check = openStore(dbPath);
     const child = getTicket(check, parsed.id);
@@ -506,9 +506,9 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
         { KARST_TICKET: 'K-1-s1' },
       ),
     );
-    expect(sent).toMatchObject({ ok: true, to: 'K-1' });
+    expect(sent).toMatchObject({ ok: true, to: 'T1 · K-1' });
     const out = runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1' });
-    expect(out).toContain('from sub-task agent K-1-s1 (untrusted):');
+    expect(out).toContain('from sub-task agent T2 · K-1-s1 (untrusted):');
     expect(runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1' })).toMatch(/no unread/i);
   });
 

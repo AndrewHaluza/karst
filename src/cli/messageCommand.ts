@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { findTicketById, getTicketsByKey, type Ticket } from '../store/tickets.js';
+import { formatId, parseId } from '../model/entityId.js';
 import { checkMessaging } from '../model/ticketMessaging.js';
 import { quoteUntrusted, sanitizeInline } from '../model/messageText.js';
 import { assertSenderMatchesSession, ticketLabel } from './sessionIdentity.js';
@@ -100,13 +101,23 @@ function resolveRecipient(store: Store, sender: Ticket, to: string): Ticket {
   );
   // A key two live rows share is resolved toward OUR child; anything else falls
   // through to the rule, which refuses it with a reason.
-  const hit = matches.find((t) => t.subtaskParentId === sender.id) ?? matches[0];
+  const hit =
+    matches.find((t) => t.subtaskParentId === sender.id) ?? matches[0] ?? findById(store, to);
   // Unknown and other-project keys get the SAME generic answer, before the
   // rule runs: a sender learns nothing about tickets outside its project.
   if (!hit || hit.projectId !== sender.projectId) {
     throw new Error(`no ticket found for '${sanitizeInline(to)}'`);
   }
   return hit;
+}
+
+/** `--to T<n>` (or bare n): a ticket row id, after the key lookup misses. */
+function findById(store: Store, to: string): Ticket | undefined {
+  try {
+    return findTicketById(store, parseId(to, 'ticket').n);
+  } catch {
+    return undefined;
+  }
 }
 
 function runSend(store: Store, sender: Ticket, to: string, body: string): string {
@@ -132,7 +143,7 @@ function runSend(store: Store, sender: Ticket, to: string, body: string): string
 function frame(me: Ticket, m: TicketMessage, from: Ticket | undefined): string {
   if (m.fromTicketId === null) return 'karst event:';
   // Keys are stored text too: strip controls so a key cannot forge a header.
-  const key = sanitizeInline(from ? label(from) : `#${m.fromTicketId}`);
+  const key = sanitizeInline(from ? label(from) : formatId('ticket', m.fromTicketId));
   if (from && from.subtaskParentId === me.id) return `from sub-task agent ${key} (untrusted):`;
   if (me.subtaskParentId === m.fromTicketId) return `from parent agent ${key} (untrusted):`;
   return `from ticket agent ${key} (untrusted):`;
