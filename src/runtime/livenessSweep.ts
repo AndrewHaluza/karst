@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import { markServerStopped } from './supervisor.js';
 import { pidAlive } from './pidAlive.js';
 import { connect } from 'node:net';
+import { isContainerRunning } from './orphanContainers.js';
 
 /**
  * Retire `running` server rows whose process is actually gone.
@@ -58,6 +59,8 @@ export interface SweepLivenessOpts {
    * is left running. Defaults to the bounded tri-state probe below.
    */
   portOpen?: (host: string, port: number) => Promise<boolean | undefined>;
+  /** Injected for tests. Defaults to `docker ps`. `undefined` = docker did not answer. */
+  containerRunning?: (name: string) => Promise<boolean | undefined>;
   debug?: (message: string) => void;
 }
 
@@ -97,6 +100,7 @@ interface RunningServerRow {
   pid: number | null;
   host: string | null;
   port: number | null;
+  container: string | null;
 }
 
 export async function sweepServerLiveness(
@@ -105,8 +109,9 @@ export async function sweepServerLiveness(
 ): Promise<RetiredServer[]> {
   const isPidAlive = opts.isPidAlive ?? pidAlive;
   const portOpen = opts.portOpen ?? probeReachable;
+  const containerRunning = opts.containerRunning ?? ((name) => isContainerRunning(name));
 
-  let sql = "SELECT id, ticket_id AS ticketId, repo, pid, host, port FROM servers WHERE status = 'running' AND kind = 'service'";
+  let sql = "SELECT id, ticket_id AS ticketId, repo, pid, host, port, container FROM servers WHERE status = 'running' AND kind = 'service'";
   const params: number[] = [];
   if (opts.ticketId !== undefined) {
     sql += ' AND ticket_id = ?';
@@ -119,6 +124,15 @@ export async function sweepServerLiveness(
   for (const row of rows) {
     try {
       if (row.pid != null && isPidAlive(row.pid)) continue;
+      // pid=NULL + container: the container is the handle. A port check would
+      // be fooled by another ticket's process bound to the same port.
+      if (row.pid == null && row.container !== null) {
+        if ((await containerRunning(row.container)) !== false) continue;
+        opts.debug?.(`[runtime] retiring server ${row.id} (${row.repo}) — container ${row.container} is not running`);
+        markServerStopped(store, row.id);
+        retired.push({ id: row.id, ticketId: row.ticketId, service: row.repo, pid: null });
+        continue;
+      }
       if (row.host !== null && row.port !== null) {
         // Only a DEFINITIVE refusal is death. `true` and `undefined` (a probe
         // that timed out) both keep the row: a filtered port must not retire a

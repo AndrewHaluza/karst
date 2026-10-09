@@ -19,6 +19,7 @@ import { reconcileOnStart } from '../../recovery/reconcile.js';
 import { integrateAndReleaseParent } from '../../workflow/subtaskIntegration.js';
 import { isPortOpen } from '../../runtime/portConflict.js';
 import { removeContainer } from '../../runtime/dockerContainer.js';
+import { removeOrphanContainers } from '../../runtime/orphanContainers.js';
 
 export interface BootSweepDeps {
   store: Store;
@@ -109,6 +110,12 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
           `${s.ticketId === null ? '' : ` on ticket #${s.ticketId}`} — marked offline.`,
       );
     }
+    // Leaked karst-t<id>-* containers: no live row claims them, or their ticket
+    // is done/archived. Runs AFTER the retire above so those rows' containers
+    // are already gone. Baseline containers never match.
+    const orphans = await removeOrphanContainers(deps.store, { debug: (m) => deps.debug(m) });
+    for (const name of orphans.removed) deps.info(`karst: removed orphan container ${name}`);
+    for (const name of orphans.failed) deps.info(`karst: could not remove orphan container ${name}`);
     // Sub-task integration (NDL-75): a sub-task that landed while the window was
     // closed left its parent's `awaiting-subtask` block behind. Integrate the
     // child's work into the parent's branch first, then re-derive the gate — a

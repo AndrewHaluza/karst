@@ -191,6 +191,43 @@ describe('sweepServerLiveness', () => {
   });
 });
 
+describe('sweepServerLiveness: pid=NULL container rows', () => {
+  it('retires a pid-less container row whose container is gone, ignoring a port another ticket holds', async () => {
+    const store = openStore(':memory:');
+    const id = seedServer(store, { pid: null, container: 'karst-t99-db' });
+    const portOpen = vi.fn(async () => true);
+
+    const retired = await sweepServerLiveness(store, {
+      portOpen,
+      containerRunning: async () => false,
+    });
+
+    expect(retired.map((r) => r.id)).toEqual([id]);
+    expect(statusOf(store, id)).toBe('stopped');
+    expect(portOpen).not.toHaveBeenCalled();
+  });
+
+  it('keeps a pid-less container row whose container is running', async () => {
+    const store = openStore(':memory:');
+    const id = seedServer(store, { pid: null, container: 'karst-t99-db' });
+
+    const retired = await sweepServerLiveness(store, { containerRunning: async () => true });
+
+    expect(retired).toEqual([]);
+    expect(statusOf(store, id)).toBe('running');
+  });
+
+  it('leaves the row alone when docker did not answer', async () => {
+    const store = openStore(':memory:');
+    const id = seedServer(store, { pid: null, container: 'karst-t99-db' });
+
+    const retired = await sweepServerLiveness(store, { containerRunning: async () => undefined });
+
+    expect(retired).toEqual([]);
+    expect(statusOf(store, id)).toBe('running');
+  });
+});
+
 describe('describeRetired', () => {
   it('renders both the with-ticket and the baseline wording', () => {
     expect(describeRetired({ id: 3, ticketId: 7, service: 'api', pid: 4242 })).toBe(
