@@ -30,16 +30,20 @@ export function formatId(kind: EntityKind, n: number): string {
   return `${PREFIX[kind]}${n}`;
 }
 
+/** Separator between the id and the key in a ticket ref; `parseId` strips it and what follows. */
+export const REF_SEPARATOR = ' · ';
+
 /** `T583 · ABC-123`, or `T583` when the ticket has no (or a blank) provider key. */
 export function formatTicketRef(id: number, key: string | null | undefined): string {
   const k = key?.trim();
-  return k ? `${formatId('ticket', id)} · ${k}` : formatId('ticket', id);
+  return k ? `${formatId('ticket', id)}${REF_SEPARATOR}${k}` : formatId('ticket', id);
 }
 
 const CANONICAL = /^[1-9][0-9]*$/;
 
 export function parseId(text: string, expectedKind?: EntityKind): { kind: EntityKind; n: number } {
-  const raw = text.trim();
+  const sep = text.indexOf(REF_SEPARATOR);
+  const raw = (sep === -1 ? text : text.slice(0, sep)).trim();
   const want = expectedKind
     ? `expected a ${NOUN[expectedKind]} id (${PREFIX[expectedKind]}<n>)`
     : 'expected an id like T<n>, D<n> or P<n>';

@@ -20,6 +20,9 @@ describe('entityId', () => {
     expect(() => formatId('ticket', 1.5)).toThrow(/positive integer/);
   });
   it('parses prefixed ids, either case, with or without expectedKind', () => {
+    expect(parseId('T583 · ABC-123', 'ticket')).toEqual({ kind: 'ticket', n: 583 });
+    expect(parseId('583 · X', 'ticket')).toEqual({ kind: 'ticket', n: 583 });
+    expect(() => parseId('T5 x', 'ticket')).toThrow();
     expect(parseId('T583')).toEqual({ kind: 'ticket', n: 583 });
     expect(parseId('t583', 'ticket')).toEqual({ kind: 'ticket', n: 583 });
     expect(parseId('D88')).toEqual({ kind: 'draft', n: 88 });

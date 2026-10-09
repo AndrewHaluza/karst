@@ -100,6 +100,11 @@ describe('runMessageCommand', () => {
     expect(unreadCount(store, childId)).toBe(1);
   });
 
+  it('accepts the full T<n> · KEY label as --to', () => {
+    send(parentId, `T${childId} · K-1-s1`, 'go ahead');
+    expect(unreadCount(store, childId)).toBe(1);
+  });
+
   it('parent sends to a child by key', () => {
     send(parentId, 'K-1-s1', 'go ahead');
     expect(unreadCount(store, childId)).toBe(1);

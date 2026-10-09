@@ -118,6 +118,11 @@ describe('resolveTicketByKey', () => {
     expect(resolveTicketByKey(store, `${t.id}`, undefined)?.id).toBe(t.id);
   });
 
+  it('round-trips the full T<n> · KEY label', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'x' });
+    expect(resolveTicketByKey(store, `T${t.id} · A-1`, undefined)?.id).toBe(t.id);
+  });
+
   it('scopes T<n> to the manifest project', () => {
     const alpha = upsertProject(store, { slug: 'alpha' });
     const beta = upsertProject(store, { slug: 'beta' });
