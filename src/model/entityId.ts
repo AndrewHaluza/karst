@@ -72,3 +72,8 @@ function finish(kind: EntityKind, digits: string, fail: () => never): { kind: En
   if (!Number.isSafeInteger(n)) return fail();
   return { kind, n };
 }
+
+/** `T5` for a known ticket id; 'unknown ticket' for 0/invalid (a lookup that found no ticket). */
+export function ticketRefOrUnknown(id: number): string {
+  return Number.isSafeInteger(id) && id >= 1 ? formatId('ticket', id) : 'unknown ticket';
+}

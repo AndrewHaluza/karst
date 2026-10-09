@@ -13,9 +13,7 @@ import { join } from 'node:path';
 // driver deps; the logic lives in `src/approaches/graph/visitMailbox*.ts`).
 // Raised by 2 for the 'Karst: Run Doctor' binding (one import + one registration;
 // logic is in `src/ui/doctor/host.ts` and `ops/doctorOps.ts`).
-// Raised by 2 for the prefixed-id notifications: one entityId import + one
-// `graphRunTicketRef` one-liner (formatId rejects the 0 of an unknown graph run).
-const MAX_EXTENSION_LINES = 8431;
+const MAX_EXTENSION_LINES = 8429;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

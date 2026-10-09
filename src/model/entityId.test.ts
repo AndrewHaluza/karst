@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PREFIX, formatId, formatTicketRef, parseId } from './entityId.js';
+import { PREFIX, formatId, formatTicketRef, parseId, ticketRefOrUnknown } from './entityId.js';
 
 describe('entityId', () => {
   it('has the pinned prefix map', () => {
@@ -44,5 +44,12 @@ describe('entityId', () => {
   });
   it('rejects unsafe huge numbers', () => {
     expect(() => parseId('T99999999999999999999', 'ticket')).toThrow();
+  });
+});
+
+describe('ticketRefOrUnknown', () => {
+  it('formats a known ticket id and names an unknown one', () => {
+    expect(ticketRefOrUnknown(5)).toBe('T5');
+    expect(ticketRefOrUnknown(0)).toBe('unknown ticket');
   });
 });

@@ -10,7 +10,7 @@ const SKIP_DIR = new Set(['ui', 'node_modules']);
 //   nodeRunId / processRunId graph run row numbers, not ticket ids
 //   metrics.instructionsHash a content hash shown as `#abc…`
 const ALLOWED = /#\$\{(pr\.number|p\.number|outcome\.revisionNumber|result\.revisionNumber|nodeRunId|processRunId|metrics\.instructionsHash)\}/;
-const ENTITY = /#\$\{[^}]*(ticketId|sessionId|subtaskId|parentId|proposalId|\bid\b|requestedId|rootId|depId|blockerId|parentTicketId|graphRunTicketId|toTicketId|\bn\b)[^}]*\}/;
+const ENTITY = /#\$\{[^}]*(ticketId|sessionId|subtaskId|parentId|proposalId|\bid\b|requestedId|fromTicketId|draftId|planId|rootId|depId|blockerId|parentTicketId|graphRunTicketId|toTicketId|\bn\b)[^}]*\}/;
 
 function walk(dir: string, out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {

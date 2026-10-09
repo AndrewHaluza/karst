@@ -534,7 +534,7 @@ import { buildGettingStartedActions } from './ui/gettingStarted/actions.js';
 import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
 import { buildSetupStatus } from './init/status.js';
 import { buildGettingStartedState } from './ui/gettingStarted/state.js';
-import { formatId, formatTicketRef } from './model/entityId.js';
+import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.js';
 
 /**
  * Extension activation adapter — the host seam (§2.6). Everything below the UI
@@ -4285,7 +4285,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (graphCoordinatorStore
       ? storeGraphRunTicketId(graphCoordinatorStore.db, graphRunId)
       : undefined) ?? 0;
-  const graphRunTicketRef = (run: number): string => (graphRunTicketId(run) > 0 ? formatId('ticket', graphRunTicketId(run)) : 'unknown ticket'); // formatId rejects the 0 of an unknown run
   const graphRunApproachId = (graphRunId: number): string =>
     (graphCoordinatorStore
       ? storeGraphRunApproachId(graphCoordinatorStore.db, graphRunId)
@@ -4489,7 +4488,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (resolved.length === 0) {
       return {
         resolved: false,
-        reason: `no declared repository resolves to a worktree of ticket ${graphRunTicketRef(graphRunId)}`,
+        reason: `no declared repository resolves to a worktree of ticket ${ticketRefOrUnknown(graphRunTicketId(graphRunId))}`,
       };
     }
     return { resolved: true };
@@ -4628,7 +4627,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // The human gate: the plan compiled and is awaiting review.
             void vscode.window
               .showInformationMessage(
-                `Ticket ${graphRunTicketRef(graphRunId)}: the implementation graph plan is ready — review it, then start the run.`,
+                `Ticket ${ticketRefOrUnknown(graphRunTicketId(graphRunId))}: the implementation graph plan is ready — review it, then start the run.`,
                 'Start graph',
               )
               .then((choice) => {
@@ -4969,7 +4968,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (result.kind === 'failed') {
       logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, new Error(result.reason));
       void vscode.window.showErrorMessage(
-        `Ticket ${graphRunTicketRef(launch.graphRunId)}: the replan planner could not start — ${result.reason}`,
+        `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the replan planner could not start — ${result.reason}`,
       );
     }
   };
@@ -5025,7 +5024,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (result.kind === 'failed') {
       logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, new Error(result.reason));
       void vscode.window.showErrorMessage(
-        `Ticket ${graphRunTicketRef(launch.graphRunId)}: the bootstrap planner could not start — ${result.reason}`,
+        `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the bootstrap planner could not start — ${result.reason}`,
       );
     }
   };
