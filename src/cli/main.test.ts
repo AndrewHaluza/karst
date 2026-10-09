@@ -334,6 +334,44 @@ uat:
       writeSpy.mockRestore();
     }
   });
+
+  it('omits inert-key notices for stage marker by default and emits them under --verbose', () => {
+    const seed = openStore(dbPath);
+    createTicket(seed, { key: 'K-2', title: 'second' });
+    transition(seed, 1, 'scope', { kind: 'passed' });
+    transition(seed, 2, 'scope', { kind: 'passed' });
+    seed.close();
+
+    const manifestWithInertKeys = join(dir, 'inert-stage.yml');
+    writeFileSync(
+      manifestWithInertKeys,
+      `
+id: proj5
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+uat:
+  secrets:
+    - API_KEY
+`,
+    );
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1', '--manifest', manifestWithInertKeys]);
+      const defaultWritten = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(defaultWritten).not.toContain('not yet active');
+
+      writeSpy.mockClear();
+      runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-2', '--manifest', manifestWithInertKeys, '--verbose']);
+      const verboseWritten = writeSpy.mock.calls.map((c) => String(c[0])).join('');
+      expect(verboseWritten).toContain('not yet active');
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
 });
 
 describe('runCli — graph submit (Slice-2 T6)', () => {
@@ -539,15 +577,20 @@ describe('runCli — draft propose (planning sessions)', () => {
     rmSync(indexPath, { force: true });
   });
 
-  it('refuses --db / --manifest / --session and never opens a store', () => {
+  it('refuses --db / --manifest / --session / --verbose and never opens a store', () => {
     const db = join(dir, 'karst.db');
-    for (const extra of [['--db', db], ['--manifest', join(dir, 'k.yml')], ['--session', '1']]) {
+    for (const extra of [['--db', db], ['--manifest', join(dir, 'k.yml')], ['--session', '1'], ['--verbose']]) {
       expect(() =>
         runCli(['draft', 'propose', ...extra], { KARST_OUTBOX: dir }, { readStdin: () => proposal, timeoutMs: 0 }),
       ).toThrow(/draft propose/);
     }
+    const propFile = join(dir, 'proposal.json');
+    writeFileSync(propFile, proposal);
+    expect(() =>
+      runCli(['draft', 'propose', '--file', propFile, '--verbose'], { KARST_OUTBOX: dir }),
+    ).toThrow(/draft propose/);
     expect(existsSync(db)).toBe(false);
-    expect(readdirSync(dir)).toEqual([]);
+    expect(readdirSync(dir)).toEqual(['proposal.json']);
   });
 
   it('requires KARST_OUTBOX', () => {

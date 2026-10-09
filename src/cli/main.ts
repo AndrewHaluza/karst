@@ -242,7 +242,7 @@ export function runCli(
   // UAT tester caught). Any other non-structured flag is left in `rest` and
   // `runDraftCommand`'s own raw-argv check refuses it.
   if (subcommand === 'draft') {
-    if (db || manifestPath || ticket) {
+    if (db || manifestPath || ticket || verbose) {
       // Name the subcommand the caller actually used; the message must not
       // repeat the `karst:` prefix the wrapper adds.
       throw new Error(
@@ -650,7 +650,7 @@ export async function runCliAsync(
   }
   const store = openWritableStore(db);
   try {
-    const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
+    const found = resolveTicketByKey(store, ticket, manifest?.id);
     if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
     return await runServersCommand(store, manifest, found.id, effectiveRest, manifestPath);
   } finally {
