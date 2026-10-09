@@ -28,11 +28,18 @@ describe('parseGlobalFlags', () => {
     expect(g.rest).toEqual(['stage', 'impl', 'pass']);
   });
 
+  it('extracts --verbose', () => {
+    const g = parseGlobalFlags(['context', 'PROJ-9', '--verbose']);
+    expect(g.verbose).toBe(true);
+    expect(g.rest).toEqual(['context', 'PROJ-9']);
+  });
+
   it('leaves flags absent when not given', () => {
     const g = parseGlobalFlags(['context', 'PROJ-9']);
     expect(g.db).toBeUndefined();
     expect(g.manifest).toBeUndefined();
     expect(g.ticket).toBeUndefined();
+    expect(g.verbose).toBeUndefined();
     expect(g.rest).toEqual(['context', 'PROJ-9']);
   });
 });
@@ -265,7 +272,7 @@ repositories:
     }
   });
 
-  it('writes inert-key notices to stderr, keeping stdout clean JSON', () => {
+  it('omits inert-key notices by default, even when manifest debug is true', () => {
     const manifestWithInertKeys = join(dir, 'inert.yml');
     writeFileSync(
       manifestWithInertKeys,
@@ -289,8 +296,7 @@ uat:
     try {
       const out = runCli(['context', 'K-1', '--db', dbPath, '--manifest', manifestWithInertKeys, '--json']);
       const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
-      expect(written).toContain('uat.secrets');
-      expect(written).toContain('not yet active');
+      expect(written).not.toContain('not yet active');
       // stdout is consumed by an agent — it must stay parseable.
       expect(() => JSON.parse(out)).not.toThrow();
     } finally {
@@ -298,10 +304,10 @@ uat:
     }
   });
 
-  it('omits inert-key notices unless manifest debug is on', () => {
-    const quietManifest = join(dir, 'quiet.yml');
+  it('writes inert-key notices to stderr with --verbose, keeping stdout clean JSON', () => {
+    const manifestWithInertKeys = join(dir, 'inert-verbose.yml');
     writeFileSync(
-      quietManifest,
+      manifestWithInertKeys,
       `
 id: proj4
 host: localhost
@@ -313,13 +319,17 @@ repositories:
 uat:
   secrets:
     - API_KEY
+  origins:
+    - http://localhost:3000
 `,
     );
     const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
-      runCli(['context', 'K-1', '--db', dbPath, '--manifest', quietManifest, '--json']);
+      const out = runCli(['context', 'K-1', '--db', dbPath, '--manifest', manifestWithInertKeys, '--json', '--verbose']);
       const written = writeSpy.mock.calls.map((c) => String(c[0])).join('');
-      expect(written).not.toContain('not yet active');
+      expect(written).toContain('uat.secrets');
+      expect(written).toContain('not yet active');
+      expect(() => JSON.parse(out)).not.toThrow();
     } finally {
       writeSpy.mockRestore();
     }

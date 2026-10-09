@@ -53,14 +53,17 @@ function writeManifestDiagnostics(diagnostics: readonly string[]): void {
  * must still fire when the manifest is missing — it just resolves unscoped.
  * Legacy-manifest deprecation warnings are still surfaced to stderr on the way.
  */
-function loadProjectSlug(manifestPath: string | undefined): string | undefined {
+function loadProjectSlug(
+  manifestPath: string | undefined,
+  verbose: boolean = false,
+): string | undefined {
   if (!manifestPath) return undefined;
   try {
     const { manifest, warnings, notices } = loadManifestWithDiagnostics(manifestPath);
     writeManifestDiagnostics(warnings);
     // Notices are INFO facts (keys declared but not yet read) — they belong on
-    // the manifest's verbose/debug channel, not on every marker invocation.
-    if (manifest.debug === true) writeManifestDiagnostics(notices);
+    // the CLI's verbose channel (--verbose), not on every invocation.
+    if (verbose) writeManifestDiagnostics(notices);
     return manifest.id;
   } catch {
     return undefined;
@@ -137,16 +140,19 @@ interface GlobalFlags {
   manifest?: string;
   /** Ticket key for stage commands (the stage argv carries no ticket itself). */
   ticket?: string;
+  /** Emit verbose diagnostics (such as inert-key notices). */
+  verbose?: boolean;
   /** argv with the recognized global flags removed. */
   rest: string[];
 }
 
-/** Split out `--db`/`--manifest`/`--ticket <path>` flags, leaving the subcommand argv. */
+/** Split out `--db`/`--manifest`/`--ticket <path>` and `--verbose` flags, leaving the subcommand argv. */
 export function parseGlobalFlags(argv: string[]): GlobalFlags {
   const rest: string[] = [];
   let db: string | undefined;
   let manifest: string | undefined;
   let ticket: string | undefined;
+  let verbose: boolean | undefined;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--db') {
@@ -155,11 +161,13 @@ export function parseGlobalFlags(argv: string[]): GlobalFlags {
       manifest = argv[++i];
     } else if (a === '--ticket') {
       ticket = argv[++i];
+    } else if (a === '--verbose') {
+      verbose = true;
     } else {
       rest.push(a!);
     }
   }
-  return { db, manifest, ticket, rest };
+  return { db, manifest, ticket, verbose, rest };
 }
 
 /** The process I/O `runCli` reads; injected so tests need no real stdin. */
@@ -204,7 +212,7 @@ export function runCli(
   env: Readonly<Record<string, string | undefined>> = process.env,
   io: CliIo = { readStdin: readStdinBounded },
 ): string {
-  const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
+  const { db, manifest: manifestPath, ticket, verbose, rest } = parseGlobalFlags(argv);
   const subcommand = rest[0];
 
   // `karst manifest validate|propose --file <path>` — a SETUP session's own
@@ -260,7 +268,7 @@ export function runCli(
       try {
         const loaded = loadManifestWithDiagnostics(manifestPath);
         writeManifestDiagnostics(loaded.warnings);
-        if (loaded.manifest.debug === true) writeManifestDiagnostics(loaded.notices);
+        if (verbose) writeManifestDiagnostics(loaded.notices);
         manifest = loaded.manifest;
       } catch (e) {
         // A missing/invalid manifest is non-fatal — services just won't render.
@@ -282,7 +290,7 @@ export function runCli(
   if (subcommand === 'stats') {
     if (!db) throw new Error('missing --db <path>');
     const parsed = parseStatsArgs(effectiveRest);
-    const fallbackSlug = loadProjectSlug(manifestPath);
+    const fallbackSlug = loadProjectSlug(manifestPath, verbose);
     const store = openReadonlyStore(db);
     try {
       return runStatsCommand(store, parsed, fallbackSlug);
@@ -299,7 +307,7 @@ export function runCli(
       // `--manifest` is optional here but load-bearing once several projects
       // share the DB: without it, a key two projects both use resolves to
       // whichever row is older, and the marker advances the wrong board.
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runStageCommand(store, found.id, effectiveRest, undefined, found);
     } finally {
@@ -317,7 +325,7 @@ export function runCli(
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runPhaseCommand(store, found.id, effectiveRest);
     } finally {
@@ -381,7 +389,7 @@ export function runCli(
     }
     const store = openWritableStore(db);
     try {
-      return runTestCommand(store, ticket, loadProjectSlug(manifestPath), effectiveRest);
+      return runTestCommand(store, ticket, loadProjectSlug(manifestPath, verbose), effectiveRest);
     } finally {
       store.close();
     }
@@ -431,7 +439,7 @@ export function runCli(
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       // The manifest lets `--service` validate against real unit keys
       // (`repo` / `repo/service`); without one the scope passes through.
@@ -451,7 +459,7 @@ export function runCli(
       const sessionKey = ticket ?? env.KARST_TICKET;
       return runPauseCommand(store, effectiveRest, {
         sessionKey,
-        projectSlug: loadProjectSlug(manifestPath),
+        projectSlug: loadProjectSlug(manifestPath, verbose),
       });
     } finally {
       store.close();
@@ -468,7 +476,7 @@ export function runCli(
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runSubtaskCommand(store, found.id, effectiveRest);
     } finally {
@@ -486,7 +494,7 @@ export function runCli(
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runMessageCommand(store, found, effectiveRest, { sessionTicketKey: env.KARST_TICKET });
     } finally {
@@ -516,7 +524,7 @@ export function runCli(
     if (!ticket) throw new Error('missing --ticket <key>');
     const store = openWritableStore(db);
     try {
-      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
       return runNotesCommand(store, found, effectiveRest, { sessionTicketKey: env.KARST_TICKET });
     } finally {
@@ -583,7 +591,7 @@ export async function runCliAsync(
   argv: string[],
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<string> {
-  const { db, manifest: manifestPath, ticket, rest } = parseGlobalFlags(argv);
+  const { db, manifest: manifestPath, ticket, verbose, rest } = parseGlobalFlags(argv);
   // `mcp serve` is a long-running async verb (it never resolves); `mcp install`
   // is a quick one. It reads the same global flags plus the KARST_* env the CLI
   // agents use today (see cli/mcp/config.ts).
@@ -598,7 +606,7 @@ export async function runCliAsync(
     if (!manifestPath) throw new Error('missing --manifest <path>');
     const loaded = loadManifestWithDiagnostics(manifestPath);
     writeManifestDiagnostics(loaded.warnings);
-    if (loaded.manifest.debug === true) writeManifestDiagnostics(loaded.notices);
+    if (verbose) writeManifestDiagnostics(loaded.notices);
     const parsed = parseSetupVerifyArgs(rest);
     const store = openWritableStore(db);
     try {
@@ -637,12 +645,12 @@ export async function runCliAsync(
   if (manifestPath) {
     const loaded = loadManifestWithDiagnostics(manifestPath);
     writeManifestDiagnostics(loaded.warnings);
-    if (loaded.manifest.debug === true) writeManifestDiagnostics(loaded.notices);
+    if (verbose) writeManifestDiagnostics(loaded.notices);
     manifest = loaded.manifest;
   }
   const store = openWritableStore(db);
   try {
-    const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
+    const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
     if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
     return await runServersCommand(store, manifest, found.id, effectiveRest, manifestPath);
   } finally {

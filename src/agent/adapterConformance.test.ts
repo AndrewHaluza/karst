@@ -695,7 +695,7 @@ describe('the seam itself', () => {
  */
 describe('submit-delay parity with PARITY.md §6', () => {
   const doc = readFileSync(join(process.cwd(), 'docs/agent-cores/PARITY.md'), 'utf8');
-  const section = doc.split(/^## 6\./m)[1]?.split(/^## /m)[0] ?? '';
+  const section = doc.split(/^## (?:\[@core:PAR-06\]|6\.)/m)[1]?.split(/^## /m)[0] ?? '';
   const table = new Map<string, number>();
   for (const line of section.split('\n')) {
     const row = /^\|\s*([a-z0-9]+)\s*\|\s*(\d+)\s*\|/.exec(line.trim());
