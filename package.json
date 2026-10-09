@@ -38,6 +38,8 @@
     "pretest:integration": "npm run rebuild:node",
     "dev:extension": "npm run build && npm run rebuild:electron",
     "inventory:extension": "node scripts/extension-inventory.mjs",
+    "docs:lint": "node scripts/docsKeys.mjs lint",
+    "docs:index": "node scripts/docsKeys.mjs index",
     "pretest:mutation": "npm run rebuild:node",
     "test:mutation": "stryker run",
     "pretest:coverage": "npm run rebuild:node",
