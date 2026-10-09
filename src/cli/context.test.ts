@@ -141,7 +141,7 @@ describe('runContextCommand', () => {
   it('renders markdown when asked', () => {
     seed();
     const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' });
-    expect(out).toContain('· PROJ-9 — Do research');
+    expect(out).toContain('# Ticket: T1 · PROJ-9 — Do research');
     expect(out).toContain('## Prompt\nAudit the app');
   });
 

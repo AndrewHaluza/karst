@@ -591,10 +591,16 @@ export function buildTicketContext(
  */
 export type ContextSections = 'all' | 'narrative' | 'facts';
 
-function ticketHeading(ctx: TicketContext): string {
-  const ref = formatTicketRef(ctx.id, ctx.key);
+function ticketHeading(ctx: TicketContext, withId: boolean): string {
   const title = ctx.title?.trim();
-  return title ? `${ref} — ${title}` : ref;
+  if (withId) {
+    const ref = formatTicketRef(ctx.id, ctx.key);
+    return title ? `${ref} — ${title}` : ref;
+  }
+  // Narrative render: the facts layer states the id, so the heading must not.
+  const key = ctx.key?.trim();
+  if (key && title) return `${key} — ${title}`;
+  return key || title || 'Untitled ticket';
 }
 
 /**
@@ -634,7 +640,7 @@ export function renderTicketContext(
   // kickoff, structured facts ride the instruction layer. `all` renders both.
   const authored = sections === 'all' || sections === 'narrative';
   const operational = sections === 'all' || sections === 'facts';
-  const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx)}`] : [];
+  const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx, sections === 'all')}`] : [];
   // The facts-only render has no heading, so the instruction layer states the
   // session's own id once; the other renders carry it in the heading.
   if (!authored && operational) {

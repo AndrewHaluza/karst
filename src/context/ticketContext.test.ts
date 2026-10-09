@@ -865,7 +865,7 @@ describe('renderTicketContext', () => {
     const md = renderTicketContext(
       buildTicketContext(store, manifest({ frontend: svc() }), t.id),
     );
-    expect(md).toContain('· PROJ-9 — Do research');
+    expect(md).toContain(`# Ticket: T${t.id} · PROJ-9 — Do research`);
     expect(md).toContain('## Prompt\nAudit the app');
     expect(md).toContain('## Context brief\nA short brief');
     expect(md).toContain('## Worktrees & branches');
@@ -1444,9 +1444,21 @@ describe('renderTicketContext', () => {
       const all = renderTicketContext(ctx);
       expect(all).toContain(`# Ticket: T${t.id} · ABC-123 — Do it`);
       expect(all).not.toContain('You are working on');
-      expect(renderTicketContext(ctx, undefined, { sections: 'narrative' })).not.toContain('You are working on');
+      const narrative = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+      expect(narrative).not.toContain('You are working on');
+      expect(narrative).toContain('# Ticket: ABC-123 — Do it');
+      expect(narrative).not.toContain(`T${t.id}`);
       const facts = renderTicketContext(ctx, undefined, { sections: 'facts' });
       expect(facts.split('\n')[0]).toBe(`You are working on T${t.id} (ABC-123).`);
+    });
+
+    it('narrative + facts state the id exactly once', () => {
+      const t = createTicket(store, { key: 'ABC-9', title: 'Once' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const both =
+        renderTicketContext(ctx, undefined, { sections: 'narrative' }) +
+        renderTicketContext(ctx, undefined, { sections: 'facts' });
+      expect(both.split(`T${t.id}`).length - 1).toBe(1);
     });
 
     it('heading without key or title is just the id', () => {
