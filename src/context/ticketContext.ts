@@ -1,3 +1,5 @@
+// Before changing what a seed or context render contains, read
+// docs/arch/prompt-metrics.md @arch:RESIDENT and @arch:GUIDEGATE.
 /**
  * The ticket-context aggregator (§ context loader): one pure function that
  * gathers everything a session needs about a ticket — the authored prompt, the

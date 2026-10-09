@@ -17,9 +17,9 @@ export interface PlanningHistoryDeps {
 }
 
 /** The real async runner (never spawnSync: this runs in the extension host). */
-export function execGit(args: string[]): Promise<string> {
+export function execGit(args: string[], run: typeof execFile = execFile): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { timeout: GIT_TIMEOUT_MS, maxBuffer: 256 * 1024 }, (err, stdout) =>
+    run('git', args, { timeout: GIT_TIMEOUT_MS, maxBuffer: 256 * 1024 }, (err, stdout) =>
       err ? reject(err) : resolve(stdout),
     );
   });

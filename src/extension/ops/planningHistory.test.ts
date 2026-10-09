@@ -1,9 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import type { execFile } from 'node:child_process';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { repo } from '../../manifest/fixtures.js';
-import { gatherPlanningHistory } from './planningHistory.js';
+import { execGit, gatherPlanningHistory } from './planningHistory.js';
 
 function withArch(files: Record<string, string>): string {
   const root = mkdtempSync(join(tmpdir(), 'karst-ph-'));
@@ -16,7 +17,7 @@ describe('gatherPlanningHistory', () => {
   it('reads base commits with a trailing -- and the @arch heading keys, sorted by file', async () => {
     const root = withArch({
       'prompt-metrics.md': '## [@arch:RESIDENT] R\nbody [@arch:NOPE]\n## [@arch:GUIDEGATE] G\nEND_DOC_BLOCK: [@arch:GUIDEGATE]\n',
-      'a.md': '## [@arch:A-1] x\n',
+      'a.md': '## [@arch:A-1] x\nsee ## [@arch:INLINE] y\n',
       'notes.txt': '## [@arch:SKIP] x\n',
     });
     const calls: string[][] = [];
@@ -59,5 +60,22 @@ describe('gatherPlanningHistory', () => {
     expect(h).toEqual({ repo: 'a', base: 'main', commits: [], archKeys: [] });
     expect(debugs.some((m) => m.startsWith('[planning]') && m.includes('git log') && m.includes('bad base'))).toBe(true);
     expect(debugs.some((m) => m.includes('docs/arch'))).toBe(true);
+  });
+});
+
+describe('execGit', () => {
+  const fake = (err: Error | null) => {
+    const fn = vi.fn((...a: unknown[]) => (a.at(-1) as (e: Error | null, o: string) => void)(err, 'out\n'));
+    return fn as unknown as typeof execFile & typeof fn;
+  };
+
+  it('runs git asynchronously with a timeout and a bounded buffer, resolving stdout', async () => {
+    const run = fake(null);
+    await expect(execGit(['log'], run)).resolves.toBe('out\n');
+    expect(run).toHaveBeenCalledWith('git', ['log'], { timeout: 5_000, maxBuffer: 256 * 1024 }, expect.any(Function));
+  });
+
+  it('rejects with the git error', async () => {
+    await expect(execGit(['log'], fake(new Error('boom')))).rejects.toThrow('boom');
   });
 });

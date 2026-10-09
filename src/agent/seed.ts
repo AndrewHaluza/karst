@@ -1,3 +1,5 @@
+// Before changing what a seed or context render contains, read
+// docs/arch/prompt-metrics.md @arch:RESIDENT and @arch:GUIDEGATE.
 /**
  * Compose the initial prompt seeded into a fresh interactive session. Since the
  * instructions layer landed (§ agent/instructions.ts), a ticket launch is split
