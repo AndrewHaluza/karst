@@ -44,6 +44,7 @@ export interface TicketContextWorktree {
   path: string;
   branch: string | null;
   baseRef: string | null;
+  source?: 'override' | 'parent' | 'manifest';
   depsMode: string;
 }
 
@@ -523,13 +524,26 @@ export function buildTicketContext(
     paused: t.pausedAt !== null,
     pausedAt: t.pausedAt,
     selectedRepos: t.selectedRepos,
-    worktrees: listWorktreesByTicket(store, ticketId).map((w) => ({
-      repo: w.repo,
-      path: w.path,
-      branch: w.branch,
-      baseRef: w.baseRef,
-      depsMode: w.depsMode,
-    })),
+    worktrees: listWorktreesByTicket(store, ticketId).map((w) => {
+      let source: 'override' | 'parent' | 'manifest' | undefined;
+      if (w.baseRef) {
+        if (t.baseRefs?.[w.repo] && t.baseRefs[w.repo] === w.baseRef) {
+          source = 'override';
+        } else if (subtaskParent?.branches.some((b) => b.repo === w.repo && b.branch === w.baseRef)) {
+          source = 'parent';
+        } else {
+          source = 'manifest';
+        }
+      }
+      return {
+        repo: w.repo,
+        path: w.path,
+        branch: w.branch,
+        baseRef: w.baseRef,
+        source,
+        depsMode: w.depsMode,
+      };
+    }),
     servers: listServersByTicket(store, ticketId).map((s) => ({
       service: s.service,
       host: s.host,
@@ -798,7 +812,8 @@ export function renderTicketContext(
   if (operational && ctx.worktrees.length > 0) {
     const rows = ctx.worktrees.map((w) => {
       const branch = w.branch ?? '(no branch)';
-      const base = w.baseRef ? ` (from ${w.baseRef})` : '';
+      const sourceTag = w.source ? `, ${w.source}` : '';
+      const base = w.baseRef ? ` (from ${w.baseRef}${sourceTag})` : '';
       return `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
     });
     parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
@@ -841,8 +856,8 @@ export function renderTicketContext(
   }
 
   // A sub-task's parent (design NDL-70 §7). Rendered in every section mode: a
-  // session must know its branch lands into the parent's branch — not main —
-  // whether it reads the seed or re-pulls `karst context`. The parent's PRs are
+  // session must know where its branch lands (into the parent's branch or its
+  // chosen base) whether it reads the seed or re-pulls `karst context`. The parent's PRs are
   // deliberately not rendered (that is the follow-up section's job).
   if (authored && ctx.subtaskParent) {
     const p = ctx.subtaskParent;
@@ -866,10 +881,23 @@ export function renderTicketContext(
     const parentBrief = p.brief?.trim();
     if (parentBrief) lines.push(parentBrief);
     for (const b of p.branches) lines.push(`- ${b.repo}: \`${b.branch}\``);
-    lines.push(
-      "Your branch lands into the parent's branch, not into main — open your PR against " +
-        "the parent's branch, and expect it to stack on the parent's work.",
+
+    // Landing instruction: check if this sub-task is non-stacked.
+    const parentBranches = new Map(p.branches.map((b) => [b.repo, b.branch]));
+    const nonStacked = ctx.worktrees.filter(
+      (w) => w.baseRef && parentBranches.has(w.repo) && w.baseRef !== parentBranches.get(w.repo),
     );
+    if (nonStacked.length > 0) {
+      const targets = nonStacked.map((w) => `\`${w.baseRef}\``).join(', ');
+      lines.push(
+        `Your branch lands into ${targets}, not into the parent's branch — open your PR against ${targets}.`,
+      );
+    } else {
+      lines.push(
+        "Your branch lands into the parent's branch, not into main — open your PR against " +
+          "the parent's branch, and expect it to stack on the parent's work.",
+      );
+    }
     parts.push(`## Parent task\n${lines.join('\n')}`);
   }
 

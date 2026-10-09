@@ -1958,7 +1958,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const subtaskAutostart = makeSubtaskAutostart({
     store: localStore,
     projectId: () => currentProject()?.id,
-    caps: () => autostartCapsFrom(currentManifest()),
+    caps: () => autostartCapsFrom(currentManifest()), manifest: () => currentManifest(),
     ownsParent: (parentId) => sessions.isLive(parentId),
     startTicket: (id, opts) => startTicket(id, opts),
     notify,

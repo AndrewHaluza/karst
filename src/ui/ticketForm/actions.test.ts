@@ -1792,6 +1792,38 @@ describe('buildTicketFormActions', () => {
     expect(getTicket(store, t.id).baseRefs).toEqual({});
   });
 
+  it('sub-task: picking manifest default develop persists as override when differing from parent branch', () => {
+    deps.manifest = buildManifest(
+      { fe: svc({ signals: ['ui'], repoPath: '/repo/fe' }), be: svc({ signals: ['api'], repoPath: '/repo/be' }) },
+      { portRange: [4000, 4100] },
+    );
+    const parent = createTicket(store, { key: 'PAR-1', title: 'parent' });
+    store.db
+      .prepare(
+        `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+         VALUES (?, ?, ?, ?, ?, 'inherited')`,
+      )
+      .run(parent.id, '/repo/fe', '/tmp/parent-fe', 'karst/feat/par-1', 'develop');
+    const child = createTicket(store, { key: 'PAR-1-s1', title: 'child', subtaskParentId: parent.id });
+
+    const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => {}, mode: 'edit', ticketId: child.id, bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    // Picking manifest default 'develop' differs from parent branch 'karst/feat/par-1'.
+    // It must persist as an override, not be dropped.
+    actions.setBaseRef('fe', 'develop');
+    expect(getTicket(store, child.id).baseRefs).toEqual({ fe: 'develop' });
+
+    // Picking the effective default (parent branch) or empty string clears the override.
+    actions.setBaseRef('fe', 'karst/feat/par-1');
+    expect(getTicket(store, child.id).baseRefs).toEqual({});
+
+    actions.setBaseRef('fe', 'develop');
+    expect(getTicket(store, child.id).baseRefs).toEqual({ fe: 'develop' });
+    actions.setBaseRef('fe', '');
+    expect(getTicket(store, child.id).baseRefs).toEqual({});
+  });
+
   it('refuses two different bases for entries sharing a repoPath', () => {
     const t = createTicket(store, { key: 'P-BR-3', title: 't' });
     const posted: TicketFormHostMessage[] = [];

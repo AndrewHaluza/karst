@@ -1043,7 +1043,9 @@
     const def = row ? row.default : '';
     const shown = value || def;
     const changed = value !== '' && value !== def;
-    const branch = shown ? `<span class="repo-branch${changed ? ' is-overridden' : ''}">:${esc(shown)}</span>` : '';
+    const source = value !== '' ? 'override' : (row ? row.source : '');
+    const sourceSuffix = source ? ` (${esc(source)})` : '';
+    const branch = shown ? `<span class="repo-branch${changed ? ' is-overridden' : ''}">:${esc(shown)}${sourceSuffix}</span>` : '';
     const chip = `<button type="button" class="k-chip repochip" data-repo="${esc(repo)}" aria-pressed="true"${attrs}>`
       + `<span>${esc(repo)}</span>${branch}</button>`;
     if (!row) return chip;
@@ -1056,10 +1058,11 @@
   function renderBasePop(repo, row) {
     const opts = (row.candidates || []).map((c) =>
       `<button type="button" class="k-btn k-btn--row repo-opt" data-base-opt data-base-pick="${esc(c)}">${esc(c)}</button>`).join('');
+    const resetLabel = row.defaultLabel ? `Reset to ${esc(row.defaultLabel)}` : `Reset to default (${esc(row.default)})`;
     return `<div class="repo-pop" role="dialog" aria-label="Base branch for ${esc(repo)}" data-base-pop="${esc(repo)}">`
       + `<input class="k-input" type="text" data-base-filter aria-label="Filter branches for ${esc(repo)}" placeholder="Filter or type a branch">`
       + (opts ? `<div class="repo-pop-head">Suggested</div>${opts}` : '')
-      + `<button type="button" class="k-btn k-btn--row repo-opt repo-opt--reset" data-base-pick="">Reset to default (${esc(row.default)})</button>`
+      + `<button type="button" class="k-btn k-btn--row repo-opt repo-opt--reset" data-base-pick="">${resetLabel}</button>`
       + `</div>`;
   }
 

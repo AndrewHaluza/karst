@@ -107,6 +107,26 @@ export function subtaskParentBranch(
   return nonBlank(row?.branch ?? undefined);
 }
 
+/**
+ * True when the sub-task's resolved base in ANY repo is its parent's branch — it
+ * stacks on the parent and lands through it. Compares the RESOLVED base to the
+ * parent branch, so an override that happens to equal the parent branch is still
+ * stacked, while any other base (override or manifest) is not.
+ */
+export function isStackedSubtask(
+  store: Store,
+  ticket: PlannedBaseTicket,
+  manifest: Manifest,
+): boolean {
+  return Object.keys(manifest.repositories).some((repoName) => {
+    const parentBranch = subtaskParentBranch(store, ticket, manifest, repoName);
+    return (
+      parentBranch !== null &&
+      resolvePlannedBase(ticket, manifest, repoName, parentBranch).baseRef === parentBranch
+    );
+  });
+}
+
 /** A sub-task asked for a cut before its parent had a worktree to stack on. */
 export class SubtaskParentNotStartedError extends Error {
   constructor(

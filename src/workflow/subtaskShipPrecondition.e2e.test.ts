@@ -163,6 +163,24 @@ describe('sub-task ship precondition (real git)', () => {
     expect(stageBlock(store, s.childId, 'ship')).toBeNull();
   });
 
+  it('skips the fork-point push for a non-stacked sub-task (base is not the parent branch)', async () => {
+    const s = seed('SS-NS', { parentLocalCommit: true });
+    const before = remoteHead(s.parentBranch);
+    store.db.prepare('UPDATE worktrees SET base_ref = ? WHERE ticket_id = ?').run('develop', s.childId);
+
+    const outcome = await ensureSubtaskForkPointOnParentBranch(
+      store,
+      s.childId,
+      s.repoPath,
+      s.childWt,
+      defaultGitRunner,
+    );
+
+    expect(outcome.diverged).toBe(false);
+    expect(remoteHead(s.parentBranch)).toBe(before);
+    expect(stageBlock(store, s.childId, 'ship')).toBeNull();
+  });
+
   it('does not park when a sibling landed on top of the fork point', async () => {
     const s = seed('SS-ANC', { withLandedSibling: true });
     writeFileSync(join(s.parentWt, 'sibling.txt'), 'sibling work\n');
