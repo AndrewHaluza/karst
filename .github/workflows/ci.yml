@@ -58,9 +58,7 @@ jobs:
         run: npm run lint:react
 
       - name: Docs keyed-block lint and index
-        run: |
-          npm run -s docs:lint
-          node scripts/docsKeys.mjs index --check
+        run: npm run -s docs:check
 
       - name: Build
         run: npm run build
