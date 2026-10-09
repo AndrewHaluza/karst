@@ -19,6 +19,13 @@ vi.mock('../../runtime/dockerContainer.js', () => ({
 import { removeContainer } from '../../runtime/dockerContainer.js';
 const removeContainerMock = vi.mocked(removeContainer);
 
+// Orphan-container sweep lists via `docker ps`; stub it for the same reason.
+vi.mock('../../runtime/orphanContainers.js', () => ({
+  removeOrphanContainers: vi.fn(async () => ({ removed: [], failed: [] })),
+}));
+import { removeOrphanContainers } from '../../runtime/orphanContainers.js';
+const removeOrphanMock = vi.mocked(removeOrphanContainers);
+
 function seedServer(
   store: Store,
   ticketId: number,
@@ -76,6 +83,24 @@ describe('runBootSweeps boot reconcile', () => {
       logError: () => {},
     };
     removeContainerMock.mockClear();
+    removeOrphanMock.mockClear();
+  });
+
+  it('sweeps orphan ticket containers and reports removed and failed ones', async () => {
+    const debug: string[] = [];
+    deps = { ...deps, debug: (m) => debug.push(m) };
+    removeOrphanMock.mockImplementationOnce(async (_store, opts) => {
+      opts?.debug?.('probe');
+      return { removed: ['karst-t9-db'], failed: ['karst-t8-db'] };
+    });
+
+    await runBootSweeps(deps);
+
+    expect(removeOrphanMock).toHaveBeenCalledTimes(1);
+    expect(removeOrphanMock.mock.calls[0]![0]).toBe(store);
+    expect(debug).toContain('probe');
+    expect(info).toContain('karst: removed orphan container karst-t9-db');
+    expect(info).toContain('karst: could not remove orphan container karst-t8-db');
   });
 
   it('retires a running row whose pid is gone and whose port is closed, and reports it', async () => {

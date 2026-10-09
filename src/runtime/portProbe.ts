@@ -5,6 +5,8 @@ import {
   decideReclaim,
   snapshotProcessFacts,
 } from './portConflict.js';
+import { orphanContainersByPort } from './orphanContainers.js';
+import { removeContainerAsync } from './dockerContainer.js';
 import { systemAsyncProcessFacts, type ProcessFactsSource } from './serverIdentity.js';
 
 /**
@@ -118,6 +120,10 @@ export interface PortsToAvoidOptions extends PortProbeOptions {
   listenerPids?: (host: string, port: number) => Promise<number[]>;
   /** OS probes; injected so tests never depend on this machine's processes. */
   facts?: ProcessFactsSource;
+  /** Orphan karst-t* containers by host port; injected for tests. */
+  orphansByPort?: () => Promise<Map<number, string>>;
+  /** Removes an orphan container by name; injected for tests. */
+  removeOrphan?: (name: string) => Promise<void>;
 }
 
 /**
@@ -157,8 +163,29 @@ export async function portsToAvoid(
   const facts = options.facts ?? systemAsyncProcessFacts;
   const avoid = new Set<number>();
 
+  // A leaked karst-t<id>-* container (no live row, or its ticket is done) is
+  // karst's own debris: remove it so the port frees up. Only karst-named ticket
+  // containers are reclaimed — never baseline, never a stranger.
+  let orphans = new Map<number, string>();
+  try {
+    orphans = await (options.orphansByPort ?? (() => orphanContainersByPort(store, { debug: options.debug })))();
+  } catch {
+    // docker unavailable — fall through to process attribution.
+  }
+  const removeOrphan = options.removeOrphan ?? ((name) => removeContainerAsync(name, { debug: options.debug }));
+
   for (const port of busy) {
     let reclaimable = false;
+    const orphan = orphans.get(port);
+    if (orphan !== undefined) {
+      options.debug?.(`[runtime] port probe: reclaiming port ${port} from orphan container ${orphan}`);
+      try {
+        await removeOrphan(orphan);
+        continue;
+      } catch {
+        // Could not remove it — treat as unreclaimable below.
+      }
+    }
     try {
       const pids = await discover(host, port);
       for (const pid of pids) {

@@ -118,6 +118,34 @@ describe('portsToAvoid', () => {
     expect(avoid.size).toBe(0);
   });
 
+  it('removes an orphan karst-t container holding a port instead of avoiding it', async () => {
+    const removed: string[] = [];
+    const avoid = await portsToAvoid(store, '127.0.0.1', [[4000, 4001]], [REPO], {
+      isPortOpen: async (_h, p) => p === 4000,
+      listenerPids: async () => [999],
+      facts: factsFor('/somewhere/else'),
+      orphansByPort: async () => new Map([[4000, 'karst-t99-db']]),
+      removeOrphan: async (name) => {
+        removed.push(name);
+      },
+    });
+    expect(removed).toEqual(['karst-t99-db']);
+    expect(avoid.size).toBe(0);
+  });
+
+  it('still avoids the port when the orphan container cannot be removed', async () => {
+    const avoid = await portsToAvoid(store, '127.0.0.1', [[4000, 4001]], [REPO], {
+      isPortOpen: async (_h, p) => p === 4000,
+      listenerPids: async () => [999],
+      facts: factsFor('/somewhere/else'),
+      orphansByPort: async () => new Map([[4000, 'karst-t99-db']]),
+      removeOrphan: async () => {
+        throw new Error('nope');
+      },
+    });
+    expect([...avoid]).toEqual([4000]);
+  });
+
   it('keeps a port allocatable when ANY of its listeners is reclaimable', async () => {
     const avoid = await portsToAvoid(store, '127.0.0.1', [[4000, 4000]], [REPO], {
       isPortOpen: async () => true,
