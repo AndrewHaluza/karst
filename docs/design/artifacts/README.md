@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/design/artifacts/README.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'design:ARTV-01'):
+  awk "/^## \[@design:ARTV-01\]/,/END_DOC_BLOCK: \[@design:ARTV-01\]/" docs/design/artifacts/README.md
+-->
+
 # Artifacts on the dashboard — design variants
 
 Ticket: 869eetukv — `[FEAT] Add on the dashboard optional component to show artifacts for user`
@@ -24,7 +33,7 @@ navigation, `Esc` back behavior, and keyboard-focusable rows.
 
 ---
 
-## 1. What this ticket adds to the finalized spec
+## [@design:ARTV-01] What this ticket adds to the finalized spec
 
 The finalized spec defines the *semantic artifact model* (Plan, UAT report,
 Review, PR summary) but says nothing about **who produced an artifact**. This
@@ -37,8 +46,9 @@ So the shelf is **two-dimensional**: the finalized spec's *semantic* axis
 (what the artifact is) plus this ticket's *origin* axis (who produced it).
 All three variants keep the semantic axis intact and add the origin axis in
 different visual weights.
+END_DOC_BLOCK: [@design:ARTV-01]
 
-## 2. Origin taxonomy
+## [@design:ARTV-02] Origin taxonomy
 
 One closed vocabulary, one chip shape, on every artifact surface (shelf card,
 index row, detail's Produced-by row):
@@ -77,8 +87,9 @@ brand mark (`media/karst.svg`).
 
 The origin is **resolved at write time and stored**, never re-derived at read
 time from the extension (same rule as attachment `kind` and gate `skipped`).
+END_DOC_BLOCK: [@design:ARTV-02]
 
-## 3. The variants
+## [@design:ARTV-03] The variants
 
 ### Variant A — Origin badges
 
@@ -122,8 +133,9 @@ requirement. Column header `Origin | Artifact | State`.
   the **index layout applied to the dashboard** when tickets accumulate many
   artifacts (the finalized spec's §10 defers search/filters until that point —
   this is the density answer, not a filter answer).
+END_DOC_BLOCK: [@design:ARTV-03]
 
-## 4. Comparison
+## [@design:ARTV-04] Comparison
 
 | Criterion | A · Badges | B · Shelves | C · Ledger |
 |---|---|---|---|
@@ -134,8 +146,9 @@ requirement. Column header `Origin | Artifact | State`.
 | Origin as a scanning axis | per-card | group-level | column-level |
 | Risk | chip overlooked | filter-rule tension | preview story lost |
 | Fits "many artifacts" tickets | no | yes | yes |
+END_DOC_BLOCK: [@design:ARTV-04]
 
-## 5. Recommendation
+## [@design:ARTV-05] Recommendation
 
 **Ship Variant A as the default** — it is the approved layout plus exactly the
 origin dimension this ticket requires, so the follow-up implementation ticket
@@ -145,8 +158,9 @@ index row a leading origin column costs nothing and satisfies "explicit
 origin" at the index surface without touching the shelf). Variant B remains a
 recorded alternative if product review wants origin to be the shelf's primary
 axis.
+END_DOC_BLOCK: [@design:ARTV-05]
 
-## 6. Shared model (all variants)
+## [@design:ARTV-06] Shared model (all variants)
 
 From the finalized spec, unchanged and load-bearing:
 
@@ -163,8 +177,9 @@ From the finalized spec, unchanged and load-bearing:
 - Loading: shelf absent (or local skeleton) until artifact metadata resolves;
   detail shows a local loading state; a failed load is "could not load", never
   a domain verdict.
+END_DOC_BLOCK: [@design:ARTV-06]
 
-## 7. Implementation notes for the follow-up ticket
+## [@design:ARTV-07] Implementation notes for the follow-up ticket
 
 Suggested event contract (naming per existing Karst conventions; see the
 spec's §22):
@@ -207,11 +222,13 @@ interface ArtifactOrigin {
   `review_findings` / `uat_findings` evidence rows (karst). The follow-up
   defines which of these become first-class semantic artifacts; this design
   only fixes how origin renders once they do.
+END_DOC_BLOCK: [@design:ARTV-07]
 
-## 8. Out of scope (per the finalized spec §21)
+## [@design:ARTV-08] Out of scope (per the finalized spec §21)
 
 Search, persistent unread state, tags/favorites, pinning, user-configured
 shelf order, separate artifact tabs, persistent side inspector, split-screen
 comparison, drag-and-drop organization, arbitrary file browser, complex stage
 filters, lifecycle-specific page redesign. None of the variants reintroduces
 them.
+END_DOC_BLOCK: [@design:ARTV-08]

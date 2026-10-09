@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/agent-cores/HOOK-CONTRACT.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'core:HOOK-01'):
+  awk "/^## \[@core:HOOK-01\]/,/END_DOC_BLOCK: \[@core:HOOK-01\]/" docs/agent-cores/HOOK-CONTRACT.md
+-->
+
 # The minimum hook contract every agent core must satisfy
 
 Karst's needs-you glyph, Now line, launch-intent confirmation and resume-by-id are all
@@ -6,7 +15,7 @@ a settings file, or a watch over the CLI's own state — and each mapping was wr
 against whatever the core in hand emitted, with no statement of what the dependent
 features actually require. This file is that statement (869ej1zpv R5).
 
-## What the features need
+## [@core:HOOK-01] What the features need
 
 | karst behavior | required signal | consequence if absent |
 |---|---|---|
@@ -23,8 +32,9 @@ Everything above is normalized into karst's own **closed** vocabulary before it 
 `dispatchHook`. A core's native event names never travel further than its adapter or its
 watch: `hookChannel.ts`'s `normalizeHookEventName` is the boundary, because a hook event
 name is agent-authored input.
+END_DOC_BLOCK: [@core:HOOK-01]
 
-## How each core satisfies it
+## [@core:HOOK-02] How each core satisfies it
 
 | | claude | codex | opencode | antigravity (agy) |
 |---|---|---|---|---|
@@ -96,8 +106,9 @@ own state — agy proves this is a first-class option, not a degraded one. What 
 acceptable is a fake: agy loads `hooks.json` but never runs the hook commands in the CLI
 conversation path, so installing a bridge script there would post nothing while looking
 installed.
+END_DOC_BLOCK: [@core:HOOK-02]
 
-## Mail delivery reply channel (MAILBOX-DELIVERY-PER-CORE-PUSH)
+## [@core:HOOK-03] Mail delivery reply channel (MAILBOX-DELIVERY-PER-CORE-PUSH)
 
 A mailbox pointer is no longer only a typed nudge. The delivery seam
 (`workflow/messageDelivery.ts`) resolves the RECIPIENT's current live core at
@@ -170,8 +181,9 @@ requested continuation without a prompt; ignoring the block"), and `reason` is
 the continuation prompt. codex therefore takes the `hook-block` route
 (`CODEX_STOP_BLOCK_SUPPORTED = true` in `extension.ts`). The route flag only
 selects the channel — the shared bridge implements the protocol for both cores.
+END_DOC_BLOCK: [@core:HOOK-03]
 
-## Rules for a new core
+## [@core:HOOK-04] Rules for a new core
 
 1. Answer every row of the first table — natively, by synthesis, or by a watch. State the
    answer on the adapter's `surfaces` (`agent/surfaces.ts`); `adapterConformance.test.ts`
@@ -188,3 +200,4 @@ selects the channel — the shared bridge implements the protocol for both cores
 5. Interactive usage is measured or it is absent — never invented. Record the answer in
    `PROVIDER_INTERACTIVE_USAGE`, since a zero from an unmeasured core would read as a
    measured free call.
+END_DOC_BLOCK: [@core:HOOK-04]

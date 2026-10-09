@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/guides/adding-agent-core.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'guide:ADD-01'):
+  awk "/^## \[@guide:ADD-01\]/,/END_DOC_BLOCK: \[@guide:ADD-01\]/" docs/guides/adding-agent-core.md
+-->
+
 # Adding an Agent Core to Karst
 
 This guide is the implementation contract for adding a coding-agent CLI such as
@@ -13,7 +22,7 @@ Use the existing Claude and Antigravity adapters as examples, but verify the new
 CLI directly. Do not infer one provider's behavior from another provider or from
 an old plan.
 
-## 1. Start with CLI research
+## [@guide:ADD-01] Start with CLI research
 
 Before editing production code, inspect the exact CLI version that Karst will
 launch. Prefer the installed binary and official documentation.
@@ -44,8 +53,9 @@ Run representative commands such as:
 
 Do not add model IDs merely because they look plausible. Model catalogs change
 and provider CLIs often use effort-qualified IDs.
+END_DOC_BLOCK: [@guide:ADD-01]
 
-## 2. Preserve the architecture boundary
+## [@guide:ADD-02] Preserve the architecture boundary
 
 The load-bearing contract is `src/agent/adapter.ts`.
 
@@ -70,8 +80,9 @@ Do not:
 - parse agent prose as a workflow verdict;
 - make `vscode` a runtime dependency of adapter logic;
 - use synchronous child processes in extension-host execution paths.
+END_DOC_BLOCK: [@guide:ADD-02]
 
-## 3. Implement with RED → GREEN tests
+## [@guide:ADD-03] Implement with RED → GREEN tests
 
 Create `src/agent/<provider>.test.ts` before the adapter implementation. Use an
 injected spawn seam; tests must never require authentication or invoke the real
@@ -91,8 +102,9 @@ Minimum adapter coverage:
 10. path traversal and reserved-name rejection.
 
 Watch each new test fail for the intended reason before implementing it.
+END_DOC_BLOCK: [@guide:ADD-03]
 
-## 4. Build the adapter
+## [@guide:ADD-04] Build the adapter
 
 Create `src/agent/<provider>.ts` implementing `AgentAdapter`.
 
@@ -142,8 +154,9 @@ Likewise, set `httpHooks: true` only when Karst can register hooks, receive the
 events it needs, and associate them with the correct ticket/window.
 
 Until the full channel exists, advertise the capability as `false`.
+END_DOC_BLOCK: [@guide:ADD-04]
 
-## 5. Translate neutral approaches
+## [@guide:ADD-05] Translate neutral approaches
 
 Installed approach packages are agent-agnostic:
 
@@ -183,8 +196,9 @@ Never widen the `stage` parser to accommodate a provider. The separation between
 Treat all names and relative paths as untrusted at the materialization boundary.
 Reject absolute paths, separators in agent names, `..` segments, and provider
 namespace collisions.
+END_DOC_BLOCK: [@guide:ADD-05]
 
-## 6. Register the provider
+## [@guide:ADD-06] Register the provider
 
 Update `src/manifest/types.ts`:
 
@@ -228,8 +242,9 @@ missing asset degrades to the label-only badge — never a blank hole.
 Verify with `src/model/agentIdentity.test.ts` (registry completeness, asset
 presence, injected-component output) and `src/ui/designSystem.test.ts` (every
 webview that calls the injected API carries both markers).
+END_DOC_BLOCK: [@guide:ADD-06]
 
-## 7. Add dependency detection
+## [@guide:ADD-07] Add dependency detection
 
 Add a confirmed entry to `AGENT_CLI_DEPENDENCIES` in `src/runtime/deps.ts`:
 
@@ -250,8 +265,9 @@ Test that:
 
 Do not guess an installation URL. Use the generic fallback until official
 guidance is confirmed.
+END_DOC_BLOCK: [@guide:ADD-07]
 
-## 8. Scope models by provider
+## [@guide:ADD-08] Scope models by provider
 
 Add exact IDs to `KNOWN_MODELS` in `src/agent/models.ts`, with the provider that
 accepts each ID. Update the mirrored list in
@@ -269,8 +285,9 @@ unknown IDs for deliberate preview/custom models.
 
 Update ticket-form state tests and model tests. Verify both directions of a
 provider switch.
+END_DOC_BLOCK: [@guide:ADD-08]
 
-## 9. Wire settings and the ticket form
+## [@guide:ADD-09] Wire settings and the ticket form
 
 The settings webview mirrors all legal provider values and receives
 `implementedProviders` to decide which are enabled.
@@ -287,8 +304,9 @@ Verify:
 
 Remember that source webview assets are copied into `dist/` by the build. Edit
 the source HTML, never the generated copy.
+END_DOC_BLOCK: [@guide:ADD-09]
 
-## 10. Provider integration checklist
+## [@guide:ADD-10] Provider integration checklist
 
 ### Research
 
@@ -334,8 +352,9 @@ the source HTML, never the generated copy.
 - [ ] Installed approaches are visible to the agent.
 - [ ] Done/phase markers update Karst state.
 - [ ] Missing CLI produces actionable setup guidance.
+END_DOC_BLOCK: [@guide:ADD-10]
 
-## 11. Codex implementation notes
+## [@guide:ADD-11] Codex implementation notes
 
 Codex is implemented as the reference for extending Karst beyond Claude and
 Antigravity. Its integration verified the installed CLI rather than copying
@@ -378,8 +397,9 @@ Four integration rules proved especially important:
   write access to that directory: it would let injected commands bypass the
   CLI's narrow parser and alter other projects. Tell the agent to request
   approval for the exact marker command outside the workspace sandbox instead.
+END_DOC_BLOCK: [@guide:ADD-11]
 
-## 12. Common failure modes
+## [@guide:ADD-12] Common failure modes
 
 - **Plausible but invalid models:** UI looks correct; launch fails immediately.
 - **Capability inflation:** CLI has a flag, but Karst cannot supply the required
@@ -403,8 +423,9 @@ Four integration rules proved especially important:
 
 When one of these appears, fix the abstraction or boundary test. Do not patch a
 provider special case into the extension host.
+END_DOC_BLOCK: [@guide:ADD-12]
 
-## 13. OpenCode implementation notes
+## [@guide:ADD-13] OpenCode implementation notes
 
 OpenCode is the second reference integration and differs sharply from Claude,
 Antigravity, and Codex.
@@ -416,8 +437,9 @@ Antigravity, and Codex.
 - Materialization uses `.opencode/` (opencode's primary discovery root); opencode ALSO reads `.agents/skills/` and `.claude/skills/`, so codex/claude materialization is incidentally discoverable, but opencode keeps its own tree clean.
 - Models are discovered live via `opencode models` (plain format, one `provider/model` ID per line). The bundled catalog is intentionally empty — CLI discovery is the primary source. Custom model IDs are always accepted by the resolution layer.
 - Token usage is adapter-parsed from `step_finish.part.tokens` (keys `input`/`output`/`total` don't match the shared extractor); the adapter owns `parseOpencodeJsonl` like Codex owns `parseCodexJsonl`. INTERACTIVE usage rides the same generated plugin: `session.idle` carries only a `sessionID` (verified against 1.18.18), so the bridge reads the CUMULATIVE session tally from `session.updated`'s `info.tokens` (`{ input, output, reasoning, cache: { read, write } }`) and posts a `UsageUpdate` keyed by the event's stable id, only when the tally advanced since the last observation (opencode re-emits `session.updated` on every session save).
+END_DOC_BLOCK: [@guide:ADD-13]
 
-## 14. Antigravity implementation notes
+## [@guide:ADD-14] Antigravity implementation notes
 
 Antigravity (agy 1.1.11, Go binary) was verified against the installed CLI
 rather than its docs.
@@ -462,3 +484,4 @@ rather than its docs.
   `UsageUpdate` events through the same `dispatchHook` seam as the lifecycle
   events. This was re-verified against agy 1.1.12; the earlier "no usage
   channel" note was written against 1.1.11.
+END_DOC_BLOCK: [@guide:ADD-14]

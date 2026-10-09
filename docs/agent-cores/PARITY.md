@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/agent-cores/PARITY.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'core:PAR-01'):
+  awk "/^## \[@core:PAR-01\]/,/END_DOC_BLOCK: \[@core:PAR-01\]/" docs/agent-cores/PARITY.md
+-->
+
 # Agent core parity — research (869ej1zpv)
 
 Every agent core (`claude`, `codex`, `opencode`, `antigravity`/agy) implements the same
@@ -9,7 +18,7 @@ cause, and the rules proposed to stop it.
 Source of truth read for this: `src/agent/{adapter,claude,codex,opencode,antigravity,
 registry,provider,consoleFormat,hookFailureLog,settings,interactiveUsage}.ts`.
 
-## 1. Two kinds of difference — only one is a gap
+## [@core:PAR-01] Two kinds of difference — only one is a gap
 
 - **Justified divergence**: the core's CLI genuinely lacks the surface. Examples:
   `sessionName` is claude-only (`--name`); `effort` is dropped on the opencode TUI
@@ -19,8 +28,9 @@ registry,provider,consoleFormat,hookFailureLog,settings,interactiveUsage}.ts`.
 - **Unjustified divergence (the gap)**: karst-owned behavior that is provider-neutral,
   or a CLI flag the core *does* support, present in one adapter and absent in another.
   Every row in §2 is of this kind.
+END_DOC_BLOCK: [@core:PAR-01]
 
-## 2. Measured gaps
+## [@core:PAR-02] Measured gaps
 
 ### G1 — `--model` is not passed on agy headless runs (highest impact)
 
@@ -102,8 +112,9 @@ weakest possible enforcement: a copied adapter that omits a test omits the requi
 adapter that adds a write path must remember to add a rule there, or ship's `git add -A`
 commits karst's scaffolding (the 869eck3gv failure). Nothing ties a `Materialized.
 ownedPaths` value to an exclude rule.
+END_DOC_BLOCK: [@core:PAR-02]
 
-## 3. Root cause
+## [@core:PAR-03] Root cause
 
 Three structural facts, in order of leverage:
 
@@ -115,8 +126,9 @@ Three structural facts, in order of leverage:
    effectively mandatory, and only because CLAUDE.md says so.
 3. **Fix reasoning lives in the adapter that was fixed.** The `--model` rationale is a
    comment in `claude.ts`. A future agent fixing agy never reads it.
+END_DOC_BLOCK: [@core:PAR-03]
 
-## 4. Proposed rules
+## [@core:PAR-04] Proposed rules
 
 R1. **Per-core capability declaration, checked in one table.** Extend `AgentCapabilities`
 (or add a sibling `AdapterSurfaces` record) with an explicit verdict per optional
@@ -152,8 +164,9 @@ in the adapter that happened to be fixed.
 R5. **State the minimum hook contract.** One module documents the events a core must
 produce for launch-intent confirm, needs-you and Now line to work, and how each core
 satisfies them (native, synthesized, or watched). §2 G4's table is the starting content.
+END_DOC_BLOCK: [@core:PAR-04]
 
-## 5. What shipped
+## [@core:PAR-05] What shipped
 
 Every gap in §2 is closed. §1–§4 above are kept as the record of what was measured and
 why; this section is the resolution.
@@ -177,8 +190,9 @@ Deliberately NOT done, and why: claude's headless run was not switched to
 parsing every claude call depends on (verdict, session id, usage) and is a behavior
 change to the default core, not a parity fix — it belongs in its own ticket with its own
 verification. The gap is declared on `surfaces.consoleStream` in the meantime.
+END_DOC_BLOCK: [@core:PAR-05]
 
-## 6. Typed-submit delay (MAILBOX-DELIVERY-RELIABLE-SUBMIT)
+## [@core:PAR-06] Typed-submit delay (MAILBOX-DELIVERY-RELIABLE-SUBMIT)
 
 A nudge is no longer one `sendText(line)`. A core's TUI reads a burst of bytes as a
 paste, so the newline VS Code appends does NOT submit — the pointer sits half typed
@@ -208,8 +222,9 @@ land mid-turn. An UNKNOWN status (the summary DB or the conversation's row is mi
 the read failed) does NOT gate — a summary the CLI has not written must never strand mail
 forever, and the read is isolated so a summary failure cannot drop the lifecycle tick.
 Every other core accepts a typed line at any time.
+END_DOC_BLOCK: [@core:PAR-06]
 
-## 7. Mail delivery route + submit delay (MAILBOX-DELIVERY-PER-CORE-PUSH)
+## [@core:PAR-07] Mail delivery route + submit delay (MAILBOX-DELIVERY-PER-CORE-PUSH)
 
 A mail pointer reaches the recipient through a per-core route, resolved from the
 recipient's CURRENT live session core at delivery time (never stored per ticket — a core
@@ -243,3 +258,4 @@ reads the host's in-memory unread cache, which the sweep rebuilds every tick and
 the endpoint tops up for one ticket at its turn end (so a `message send` in the
 sweep window is not missed). See `docs/agent-cores/HOOK-CONTRACT.md` § "Mail
 delivery reply channel".
+END_DOC_BLOCK: [@core:PAR-07]

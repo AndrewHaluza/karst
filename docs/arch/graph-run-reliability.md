@@ -146,14 +146,15 @@ Two consequences of the same investigation are fixed with it:
   the planner to infer a set it cannot see.
 END_DOC_BLOCK: [@arch:G8]
 
-### Already fixed on this branch
+## [@arch:G-FIXED] Already fixed on this branch
 
 Run 4's `draining` stall is the defect commit `2f7f741` addresses:
 `reconcilePlanningPlanner` judged only `kind='bootstrap'` planners in
 `planning`, so a replan planner working at `draining` had no crash-matrix
 branch, and `draining` is the one status nothing else leaves.
+END_DOC_BLOCK: [@arch:G-FIXED]
 
-### Fix order
+## [@arch:G-ORDER] Fix order
 
 1. **G1** — scope the sweep and the reconcile listing to the window's project,
    filter to non-terminal statuses, and refuse to compile when the manifest is
@@ -163,10 +164,11 @@ branch, and `draining` is the one status nothing else leaves.
 3. **G4** — give the graph sweep its own tick, independent of `gh`.
 4. **G5** — per-field sentinel rules in the planner prompt.
 5. **G6** — a graph section in the diagnostic report.
+END_DOC_BLOCK: [@arch:G-ORDER]
 
 ---
 
-# Second audit, 2026-09-06 — the remaining stuck-gaps
+## [@arch:H-INTRO] Second audit, 2026-09-06 — the remaining stuck-gaps
 
 G1/G3/G4/G5/G8 are fixed on this branch (project-scoped `activeGraphRunIds`
 and `reconcilableGraphRunIds`, `manifestResolvedFor` guards on BOTH accept
@@ -174,6 +176,7 @@ paths, the graph sweep's own tick, `rejectPlan`'s compile-repair budget with
 reconcile's re-prompt fallback). What follows is what a fresh read of the run
 loop still finds. Every item is the same shape: **a run status whose only
 declared exit is produced by an event that will never happen.**
+END_DOC_BLOCK: [@arch:H-INTRO]
 
 ## [@arch:H1] H1 — a rejected REPLAN document stranded the run in `draining`, forever (fixed)
 
@@ -286,7 +289,7 @@ to `replan`: a claim the plan cannot satisfy needs a new revision, never a
 retry of the same claim.
 END_DOC_BLOCK: [@arch:H4]
 
-### The invariant these four share
+## [@arch:H-INVARIANT] The invariant these four share
 
 A graph run's non-terminal statuses must each have at least one exit that some
 actor — a sweep, a reconcile branch, or a user action the panel actually
@@ -299,10 +302,11 @@ with no bound is a state no actor ever leaves either (H4).
 All four are fixed. Every terminal park is `blocked`, which is the one status
 the typed Resume reaches, and every reason a park writes maps to a recovery
 category (`recoveryCategoryFor` is total over the closed set).
+END_DOC_BLOCK: [@arch:H-INVARIANT]
 
 ---
 
-# Third audit, 2026-09-06 — ticket 363, and the two things the log never said
+## [@arch:T3-INTRO] Third audit, 2026-09-06 — ticket 363, and the two things the log never said
 
 Field evidence, registry `karst.db`, ticket 363 (`Comperhancive testing with
 playwright`), graph run 5. The run has been `blocked` since 2026-08-16 and has
@@ -319,6 +323,7 @@ planner runs exist for it.
 The run's terminal reason is
 `graph-plan-invalid: reserved-identifier: edges[0].from: "$entry" is a reserved
 sentinel`.
+END_DOC_BLOCK: [@arch:T3-INTRO]
 
 ## [@arch:T3-01] What actually happened
 

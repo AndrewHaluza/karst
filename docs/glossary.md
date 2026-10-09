@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/glossary.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'gloss:GL-01'):
+  awk "/^## \[@gloss:GL-01\]/,/END_DOC_BLOCK: \[@gloss:GL-01\]/" docs/glossary.md
+-->
+
 # Karst Glossary
 
 A living, alphabetical-per-section glossary of the terms Karst uses for its
@@ -12,7 +21,7 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 
 ---
 
-## Core entities
+## [@gloss:GL-01] Core entities
 
 - **Ticket** — the unit of work. A title (identity), a key, an optional type,
   an optional prompt, a resolved approach, an optional model override, and a
@@ -48,10 +57,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   inclusive `portRange` (default `[4000, 4100]`) for ticket-hot services.
   Baseline services use each port slot's `default` value. Port allocation and
   the `servers` table are keyed by repository *name*, not `repoPath`.
+END_DOC_BLOCK: [@gloss:GL-01]
 
 ---
 
-## Ticket lifecycle — the stage machine
+## [@gloss:GL-02] Ticket lifecycle — the stage machine
 
 - **Stage** — a node of the stage graph and a row in `stages`, keyed
   `(ticket_id, stage_key)` with a status, an attempt counter, a verdict, block
@@ -102,10 +112,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 - **Attempt** — the retry counter on a stage row. Bumped only on the failed
   branch (`review-fail → fix → review-pass` files two invocations under one
   attempt). `gate_runs.run_at` groups one invocation's rows.
+END_DOC_BLOCK: [@gloss:GL-02]
 
 ---
 
-## Blocks & holds
+## [@gloss:GL-03] Blocks & holds
 
 - **Block** — karst saying it could *not ask* the stage's question: an
   environmental stop, distinct from a `failed` verdict. Stored as
@@ -149,10 +160,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   (`model/ticketGlyph.ts`) folds all three, so the glyph, badge, sidebar facet,
   status bar and rail turn amber at once. A conflict is a wording difference,
   never a state one.
+END_DOC_BLOCK: [@gloss:GL-03]
 
 ---
 
-## Gates & evidence
+## [@gloss:GL-04] Gates & evidence
 
 - **Gate** — one deterministic question asked of the worktree: a *script* gate
   (`kind: script`, a package.json script name) or a *command* gate
@@ -196,10 +208,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   `review.findings.blockingSeverity`; `enabled: false` turns the lane off.
 - **maxFixAttempts** — the per-stage fix budget (`uat.maxFixAttempts` narrows
   UAT only; review has its own). See *Fix loop*.
+END_DOC_BLOCK: [@gloss:GL-04]
 
 ---
 
-## Agents & sessions
+## [@gloss:GL-05] Agents & sessions
 
 - **Agent provider** — the agent core: `claude · codex · antigravity ·
   opencode` (`IMPLEMENTED_PROVIDERS`). Resolved per ticket: `tickets.model`
@@ -243,10 +256,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   (claudeTranscriptWatch.ts); antigravity's is read from its conversation DB
   (agyUsageWatch.ts). Every implemented provider is now measured; a missing
   fact is never rendered as a zero.
+END_DOC_BLOCK: [@gloss:GL-05]
 
 ---
 
-## Hooks
+## [@gloss:GL-06] Hooks
 
 - **Hook endpoint** — the local HTTP endpoint (one per window, ephemeral port)
   that agent hooks post JSON to. A bridge script or generated plugin per
@@ -277,10 +291,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 - **UsageUpdate** — the provider-supplied usage event of a closed session,
   narrowed by `normalizeInteractiveUsage` before it touches the store. Not a
   liveness signal; it never re-kicks the stage driver.
+END_DOC_BLOCK: [@gloss:GL-06]
 
 ---
 
-## Approaches & materialization
+## [@gloss:GL-07] Approaches & materialization
 
 - **Approach** — a development methodology the ticket form offers (rpi, GSD,
   superpowers TDD, direct, …). Each has a label, description, an entrypoint and
@@ -313,10 +328,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   frontmatter (`permissionMode: bypassPermissions`, `allowed-tools`,
   `dangerously-*`) from every fetched body at install; karst's `--settings`
   stays the sole permission authority.
+END_DOC_BLOCK: [@gloss:GL-07]
 
 ---
 
-## Shipping, PRs & merge
+## [@gloss:GL-08] Shipping, PRs & merge
 
 - **Ship** — the stage that opens one PR per hot repo via `gh` and ends where
   the PRs exist — NOT where the work landed. A confirm stage: it never opens a
@@ -363,10 +379,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   PR CLOSED without merging, which can never satisfy "done means merged" and
   would otherwise park the ticket at ship forever. Dropped from the merge
   gate's read — never counted as merged — and reversible from the same PR row.
+END_DOC_BLOCK: [@gloss:GL-08]
 
 ---
 
-## Worktrees, servers & runtime
+## [@gloss:GL-09] Worktrees, servers & runtime
 
 - **Spin** — creating a ticket's live environment: cut worktrees per hot repo,
   allocate ports, overlay env + secrets, spawn hot services and health-gate
@@ -405,10 +422,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   worktree path basename; restore lands back on `row.branch`.
 - **Port allocation** — ticket-hot ports come from the manifest `portRange`;
   allocations are recorded (`port_allocations`) and re-derived on boot.
+END_DOC_BLOCK: [@gloss:GL-09]
 
 ---
 
-## Store & persistence
+## [@gloss:GL-10] Store & persistence
 
 - **SQLite store** — the source of truth: one database in VS Code *global*
   storage (shared by every window — see *Project*). The extension uses
@@ -434,10 +452,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   `npm run dev:extension` / `npm run test:unit` restore the right binary automatically.
   A `NODE_MODULE_VERSION` mismatch is fixed with `rebuild:electron` /
   `rebuild:node`.
+END_DOC_BLOCK: [@gloss:GL-10]
 
 ---
 
-## CLI
+## [@gloss:GL-11] CLI
 
 - **`karst` CLI** — the agent-facing command line (`dist/cli/main.js`),
   invoked by agents via plain `node`, so it uses `node:sqlite`, never the
@@ -462,10 +481,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   shell token interpolated into the command, so one charset
   (`approaches/phaseName.ts`) is enforced at install, at compose, and again on
   receipt; trailing argv is rejected, not ignored.
+END_DOC_BLOCK: [@gloss:GL-11]
 
 ---
 
-## Models & token usage
+## [@gloss:GL-12] Models & token usage
 
 - **Model** — a provider/model pair resolved per ticket: `tickets.model`
   (nullable) overrides the manifest `defaultModel`; the precedence rule lives
@@ -486,10 +506,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
 - **Interactive usage sample** — measured cumulative usage from a bridge's
   `UsageUpdate`, appended per provider session and attributed to the ticket's
   currently bound process.
+END_DOC_BLOCK: [@gloss:GL-12]
 
 ---
 
-## Manifest reference
+## [@gloss:GL-13] Manifest reference
 
 Top-level keys of `karst.yml` (each validated at load; unknown or malformed
 values are rejected naming the field):
@@ -520,10 +541,11 @@ values are rejected naming the field):
 - `ticketing` — provider (`manual` default, `clickup`), `teamId`, `listId`,
   `searchEnabled`. The API token is never stored in the manifest — it lives in
   the OS keychain (Settings → Ticketing).
+END_DOC_BLOCK: [@gloss:GL-13]
 
 ---
 
-## Conventions & templates
+## [@gloss:GL-14] Conventions & templates
 
 - **Conventions** — project-wide templates for the git artifacts KARST ITSELF
   creates: the worktree branch (`branchName`), the fallback commit
@@ -546,10 +568,11 @@ values are rejected naming the field):
   check reads WHICH variable, not how much of it survives a slice.
 - **ticketLabelTemplate / terminalNameTemplate** — sidebar row and terminal tab
   labels, rendered from the same placeholder grammar.
+END_DOC_BLOCK: [@gloss:GL-14]
 
 ---
 
-## UI surfaces
+## [@gloss:GL-15] UI surfaces
 
 - **Dashboard** — the ticket's main webview: stage rail, inside block, PR
   panel, servers, usage, Now line. Posts typed messages; the single
@@ -591,10 +614,11 @@ values are rejected naming the field):
   state (`aria-busy`), cannot be re-triggered, and reports a terminal outcome
   with a watchdog ("unknown" is not "failure"). `disabled` and `aria-busy` are
   different states; a label never changes while pending.
+END_DOC_BLOCK: [@gloss:GL-15]
 
 ---
 
-## Ticketing
+## [@gloss:GL-16] Ticketing
 
 - **Ticketing provider** — where tickets come from: `manual` (local-only,
   default) or `clickup`. The provider integration seam lives under
@@ -607,10 +631,11 @@ values are rejected naming the field):
   ticket and consumed by `{type}`. The form's analyzer suggests one, but the
   host persists it ONLY while the ticket has none — an explicit pick is never
   overwritten.
+END_DOC_BLOCK: [@gloss:GL-16]
 
 ---
 
-## Diagnostics & reporting
+## [@gloss:GL-17] Diagnostics & reporting
 
 - **Report an issue** — the user-facing diagnostics flow: collect → redact →
   review → finalize → GitHub prefill. Owns its whole pipeline; any local
@@ -628,10 +653,11 @@ values are rejected naming the field):
   OBSERVES, it never reaches back into the system it describes
   (`diagnostics/nonInterference.test.ts` walks the import graph and fails on
   process spawns, workflow modules and write SQL inside `src/diagnostics/`).
+END_DOC_BLOCK: [@gloss:GL-17]
 
 ---
 
-## Security & trust boundaries
+## [@gloss:GL-18] Security & trust boundaries
 
 - **Prompt injection** — the threat that the invoking agent reads ticket
   content it did not author. Defense: the CLI verbs narrow argv
@@ -646,10 +672,11 @@ values are rejected naming the field):
 - **CSP** — the webview Content-Security-Policy: no external stylesheet,
   script, `url()` or `fetch()`. Marker injection + nonces are how shared
   CSS/JS reach the webviews at all.
+END_DOC_BLOCK: [@gloss:GL-18]
 
 ---
 
-## Quick index
+## [@gloss:GL-19] Quick index
 
 Ticket flow: Ticket · Stage · Stage graph · Verdict · Marker · Confirm stage ·
 Gate stage · Fix loop · Block · BlockerKind · Resume · Needs you · Ship · Merge
@@ -673,3 +700,4 @@ ABI.
 Interfaces: Dashboard · Sidebar · Ticket form · Settings · Getting Started ·
 Webview · Design system · Now line · Rail · Inside block · `karst` CLI ·
 `context` · `stage` · `phase`.
+END_DOC_BLOCK: [@gloss:GL-19]

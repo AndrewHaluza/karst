@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/reviews/2026-08-13-dynamic-graph-code-review.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'review:CODE-01'):
+  awk "/^## \[@review:CODE-01\]/,/END_DOC_BLOCK: \[@review:CODE-01\]/" docs/reviews/2026-08-13-dynamic-graph-code-review.md
+-->
+
 # Code Review — Dynamic Graph Approach branch
 
 **Date:** 2026-08-13
@@ -5,7 +14,7 @@
 **HEAD:** `6b57ddc`
 **Base:** `main` (merge base `d151b93`)
 
-## Scope
+## [@review:CODE-01] Scope
 
 Local worktree review — no PR open for this branch. Covered:
 
@@ -18,13 +27,15 @@ Local worktree review — no PR open for this branch. Covered:
 761 files vs `main`). The earlier `2026-08-13-dynamic-graph-feature-review.md` pass used merge base
 `5b09050a`, which is no longer an ancestor of HEAD, so its scope could not be
 cleanly differenced.
+END_DOC_BLOCK: [@review:CODE-01]
 
-## Verdict
+## [@review:CODE-02] Verdict
 
 **Changes requested.** Two blocking issues, both carried over unfixed from the
 previous review.
+END_DOC_BLOCK: [@review:CODE-02]
 
-## Blocking
+## [@review:CODE-03] Blocking
 
 ### [P1] Superseded workspaces are double-counted; retries can be permanently budget-blocked
 
@@ -66,8 +77,9 @@ All three are tracked. `-shm` and `-wal` are transient; the `.db` carries
 `user_version` 34 while this branch declares schema version 41, so it is a stale
 fixture with no documented test role. Remove them and gitignore the root runtime
 database family unless they are deliberately converted into a named fixture.
+END_DOC_BLOCK: [@review:CODE-03]
 
-## Non-blocking
+## [@review:CODE-04] Non-blocking
 
 - **Stale aggregate-count claim.** `src/store/tokenUsage.ts:11` states aggregation
   is "FOUR aggregate queries"; the new `byProfile` rollup (`:305-329`) makes five.
@@ -87,13 +99,15 @@ database family unless they are deliberately converted into a named fixture.
   while its sibling `supervisedCliTransport.ts:1774` was converted to the bounded,
   redacted structured emitter in the same commit. Same leftover at
   `src/approaches/graph/integration/pipeline.ts:850`.
+END_DOC_BLOCK: [@review:CODE-04]
 
-## Corrections to the previous review
+## [@review:CODE-05] Corrections to the previous review
 
 The `git diff --check` "trailing whitespace" hits in the design docs are
 intentional Markdown hard line breaks (two trailing spaces), not defects.
+END_DOC_BLOCK: [@review:CODE-05]
 
-## Compliance and bug-scan results
+## [@review:CODE-06] Compliance and bug-scan results
 
 - **CLAUDE.md adherence:** no violations in the reviewed slice. Debug stays an
   injected callback throughout, `diagnostics.ts` never imports the logger (pinned
@@ -106,11 +120,13 @@ intentional Markdown hard line breaks (two trailing spaces), not defects.
   `sessions` map in `acpTransport.ts` matches the existing pattern in
   `supervisedCliTransport.ts` and is pre-existing, not introduced here.
 - **Comment guidance:** one contradiction, the `tokenUsage.ts` header noted above.
+END_DOC_BLOCK: [@review:CODE-06]
 
-## Residual risk
+## [@review:CODE-07] Residual risk
 
 The reviewed slice is disciplined and well covered. Risk concentrates in the
 unreviewed remainder of the branch — the concurrency and workspace-lifecycle
 surface is large, and P1 is a confirmed accounting defect in exactly that area,
 which suggests the retry/supersede paths deserve targeted attention beyond the
 happy-path tests that currently pass.
+END_DOC_BLOCK: [@review:CODE-07]

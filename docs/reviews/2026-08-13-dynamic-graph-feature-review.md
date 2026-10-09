@@ -1,10 +1,20 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/reviews/2026-08-13-dynamic-graph-feature-review.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'review:FEAT-01'):
+  awk "/^## \[@review:FEAT-01\]/,/END_DOC_BLOCK: \[@review:FEAT-01\]/" docs/reviews/2026-08-13-dynamic-graph-feature-review.md
+-->
+
 # Dynamic Graph Approach — Feature Review
 
-## Verdict
+## [@review:FEAT-01] Verdict
 
 **Changes requested.** The feature is broadly well-tested and builds cleanly, but one P1 runtime defect blocks approval. One repository-hygiene issue should also be resolved before shipping.
+END_DOC_BLOCK: [@review:FEAT-01]
 
-## Findings
+## [@review:FEAT-02] Findings
 
 ### [P1] Superseded workspaces are double-counted and retries can be permanently blocked
 
@@ -25,8 +35,9 @@ The current recreation test at `src/approaches/graph/workspace/provider.test.ts:
 These are generated SQLite runtime files totaling about 336 KiB. The database currently contains no tickets or usage records, but it carries schema version 34 while this branch declares schema version 41. The `-shm` file is transient shared-memory state and should never be source-controlled.
 
 Keeping these files creates noisy binary diffs, risks future accidental disclosure of ticket/session data, and leaves a stale database fixture with no documented test role. Remove them and ignore the root runtime database family unless they are intentionally converted into a named test fixture.
+END_DOC_BLOCK: [@review:FEAT-02]
 
-## Non-blocking quality notes
+## [@review:FEAT-03] Non-blocking quality notes
 
 `git diff --check` reports:
 
@@ -35,16 +46,19 @@ Keeping these files creates noisy binary diffs, risks future accidental disclosu
 - An extra blank line at EOF in `src/workflow/graphMarkerGuard.ts`.
 
 These are cleanup items, not functional defects.
+END_DOC_BLOCK: [@review:FEAT-03]
 
-## Verification
+## [@review:FEAT-04] Verification
 
 - `npm run typecheck` — passed.
 - `npm test` — passed: 377 files, 6,632 tests.
 - `npm run build` — passed.
 - `git diff --check` — failed on the whitespace-only issues listed above.
+END_DOC_BLOCK: [@review:FEAT-04]
 
-## Scope and residual risk
+## [@review:FEAT-05] Scope and residual risk
 
 The review covered the complete branch diff from merge base `5b09050a`: 278 files and approximately 53,941 additions. Review attention focused on graph compilation and execution, transactional coordination, workspace lifecycle, process attribution, capability-authenticated CLI paths, migrations, transports, packaging, and UI integration.
 
 Given the feature's size and concurrency surface, passing tests materially lower risk but do not compensate for the confirmed accounting defect. Merge should be blocked on P1; P2 should also be cleaned before shipping.
+END_DOC_BLOCK: [@review:FEAT-05]

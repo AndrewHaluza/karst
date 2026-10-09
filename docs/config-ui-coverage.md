@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/config-ui-coverage.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'cfg:CFG-01'):
+  awk "/^## \[@cfg:CFG-01\]/,/END_DOC_BLOCK: \[@cfg:CFG-01\]/" docs/config-ui-coverage.md
+-->
+
 # karst.yml → Settings UI coverage
 
 Inventory of every key the manifest schema accepts, mapped to the Settings tab that
@@ -11,7 +20,7 @@ yml-only key survives editing in the UI. One exception, below.
 
 Legend: **UI** = editable in Settings · **GAP** = yml-only.
 
-## Covered
+## [@cfg:CFG-01] Covered
 
 | Key | Tab |
 |---|---|
@@ -36,8 +45,9 @@ in the UI stating it REPLACES rather than extends (S3). Controls hydrate from th
 manifest's own defaults when a block is absent from the file — `webview.html`'s
 `UAT_DEFAULTS`/`REVIEW_DEFAULTS` mirror `validate/uat.ts` and `validate/review.ts`,
 so an absent `review:` renders as blocking-at-`high`, not "off" (S4).
+END_DOC_BLOCK: [@cfg:CFG-01]
 
-## Gaps
+## [@cfg:CFG-02] Gaps
 
 ### 1. `uat:` — most of the block remains INERT, now reported rather than silent
 
@@ -123,8 +133,9 @@ through the UI no longer deletes it. There is still no UI to *edit* phases
 (`name`/`command`/`description`) — that remains a gap, and was a decision (a UI can
 author a `command` that only breaks at install; see "Keep yml-only," below), not an
 oversight.
+END_DOC_BLOCK: [@cfg:CFG-02]
 
-## How yml-only keys are set up today
+## [@cfg:CFG-03] How yml-only keys are set up today
 
 - **`karst.openManifest` now exists** (`package.json` command, `src/extension.ts`)
   and opens this window's `karst.yml` in an editor; the Settings General tab
@@ -139,8 +150,9 @@ oversight.
 
 The discoverability prerequisite this report called for is now in place: a yml-only
 key is a key the UI names and can open, not one the UI never mentions.
+END_DOC_BLOCK: [@cfg:CFG-03]
 
-## Recommendation
+## [@cfg:CFG-04] Recommendation
 
 *This section is the pre-implementation recommendation, kept as history. Status
 notes below record what shipped; the recommendation text itself is unchanged.*
@@ -267,8 +279,9 @@ implementation — see below.)*
   accepts as proof. Excluded above only by omission; it is as user-facing as
   `review.findings.enabled` and probably belongs beside it. — **Shipped**: it is on
   the Quality tab beside `review.findings.enabled`, as suggested.
+END_DOC_BLOCK: [@cfg:CFG-04]
 
-## Settled — no decision needed, just build it this way
+## [@cfg:CFG-05] Settled — no decision needed, just build it this way
 
 These have a determined answer from existing code or an invariant already in
 `CLAUDE.md`. Recorded so nobody re-opens them mid-implementation.
@@ -314,8 +327,9 @@ provenance (manifest vs. `resolveProjectSlug` fallback). No `SECTION_FIELDS` ent
 **S7. Secret values never enter the settings draft.** Entry is the token pattern
 (bare message → host `showInputBox` → keychain → webview sees a boolean). This is a
 rule about routing, not a limit on the feature.
+END_DOC_BLOCK: [@cfg:CFG-05]
 
-## Decided
+## [@cfg:CFG-06] Decided
 
 *All three below shipped as decided.*
 
@@ -391,3 +405,4 @@ hand-editing has to be a real path.
 `webview.html`'s `SECTION_FIELDS` copy, or tab-scoped Save will not write them —
 `sections.test.ts` pins the one-section-per-field split, and `webview.test.ts` pins
 the mirror.
+END_DOC_BLOCK: [@cfg:CFG-06]

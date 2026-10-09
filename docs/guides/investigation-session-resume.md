@@ -1,16 +1,26 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/guides/investigation-session-resume.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'guide:RESUME-01'):
+  awk "/^## \[@guide:RESUME-01\]/,/END_DOC_BLOCK: \[@guide:RESUME-01\]/" docs/guides/investigation-session-resume.md
+-->
+
 # Investigation: Why does "resume session" spawn a new session with context?
 
 Date: 2026-08-14
 Ticket: MAKE-INVESTIGATION-ABOUT
 
-## Question
+## [@guide:RESUME-01] Question
 
 > Why instead on resume session we're spawning new with context? Observed with
 > opencode, but the rest might have same issue. I have done ticket, clicked from
 > sidebar to run session — spawned terminal with a new session and context
 > inserted, but it's possible to run just previous session by session key/name.
+END_DOC_BLOCK: [@guide:RESUME-01]
 
-## TL;DR
+## [@guide:RESUME-02] TL;DR
 
 Resume-by-id is a **two-step contract**: karst must (a) *capture* the interactive
 session id while a session runs, and (b) *pass that id* to the CLI on the next
@@ -38,8 +48,9 @@ for opencode. The sidebar button therefore reads "Start · re-seed from context"
 (`sessionAction.ts:63-75`) and `openSession` composes the full seed
 (`extension.ts:4974-5016`). Result: a brand-new opencode session with the whole
 ticket context re-inserted.
+END_DOC_BLOCK: [@guide:RESUME-02]
 
-## Evidence
+## [@guide:RESUME-03] Evidence
 
 ### The resume decision gate
 
@@ -126,8 +137,9 @@ The opencode session running this very investigation was launched with intent
 `implementation`). Its intent row is still `pending` and `tickets.session_id` /
 `session_provider` are `NULL` — proof that no `SessionStart` was ever dispatched
 for an opencode session, so no resume target exists to continue.
+END_DOC_BLOCK: [@guide:RESUME-03]
 
-## Why the "rest" do NOT have the same issue
+## [@guide:RESUME-04] Why the "rest" do NOT have the same issue
 
 Claude / Codex / Antigravity each capture `session_id` at `SessionStart` and each
 advertise `resume: true` with a working launch-time resume flag. A ticket whose
@@ -137,8 +149,9 @@ get a `--resume`-style continuation from the sidebar button. The one shared trap
 ticket parked at a gate/ship stage, or already `done`, *intentionally* opens a
 fresh session (verbs `resume`/`reopen` in `sessionAction.ts`). That is by design,
 not the capture gap described here.
+END_DOC_BLOCK: [@guide:RESUME-04]
 
-## What a fix would look like
+## [@guide:RESUME-05] What a fix would look like
 
 1. `renderHookBridge` (`src/agent/opencode.ts`): add a `session.created` branch
    that POSTs `SessionStart` with `session_id` from `input.info.id` and `cwd`
@@ -149,8 +162,9 @@ not the capture gap described here.
 3. Update the pinned expectations: `opencode.test.ts` "declares truthful
    conservative capabilities" (`resume: false` → `true`), and the 
    `session.created` bridge case would need its own plugin-fixture test.
+END_DOC_BLOCK: [@guide:RESUME-05]
 
-## Status
+## [@guide:RESUME-06] Status
 
 Implemented (follow-up ticket MAKE-INVESTIGATION-ABOUT-fu1): the bridge now
 captures `session.created` → POSTs `SessionStart` (persisting
@@ -159,3 +173,4 @@ the URL-carried generation), `capabilities.resume` is `true`, and
 `buildInteractiveCommand` threads `opts.resume` as `--session <id>`. opencode
 sessions now resume the same conversation from the sidebar button like the other
 cores.
+END_DOC_BLOCK: [@guide:RESUME-06]

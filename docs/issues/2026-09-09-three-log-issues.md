@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/issues/2026-09-09-three-log-issues.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'issue:LOG-01'):
+  awk "/^## \[@issue:LOG-01\]/,/END_DOC_BLOCK: \[@issue:LOG-01\]/" docs/issues/2026-09-09-three-log-issues.md
+-->
+
 # Three reported log/UI issues — investigation and upstream reports
 
 Ticket: `LOG-ISSUES` (karst ticket 450), filed 2026-09-07 14:11:53 UTC, investigated
@@ -25,7 +34,7 @@ Summary of verdicts:
 
 ---
 
-## Issue 1 — write to the readonly `SourceControl.label` throws
+## [@issue:LOG-01] Issue 1 — write to the readonly `SourceControl.label` throws
 
 **Verdict: real, and it is karst's bug, not the host's.** The reporter's framing
 ("QuickPick writes to a readonly `.label` on list items") does not match the code:
@@ -89,10 +98,11 @@ Drop the cast and the write. The source control's title is fixed at
 control, or move the ticket name into the resource **group** label, which is
 writable by contract. Also delete the `as any` — it is the only reason a
 readonly-API violation type-checked.
+END_DOC_BLOCK: [@issue:LOG-01]
 
 ---
 
-## Issue 2 — GitHub Pull Requests extension scans karst worktrees
+## [@issue:LOG-02] Issue 2 — GitHub Pull Requests extension scans karst worktrees
 
 **Verdict: not reproducible on this machine as of 2026-09-09; report is filed but
 needs fresh evidence before it can go upstream.**
@@ -136,10 +146,11 @@ missing remote is an ordinary, expected state, not an error worth an output line
 
 **Status: hold.** Do not file until the log lines can be captured verbatim; the
 report as it stands has a mechanism but no quotable error text.
+END_DOC_BLOCK: [@issue:LOG-02]
 
 ---
 
-## Issue 3 — the worktree slug repeats the ticket key inside the title
+## [@issue:LOG-03] Issue 3 — the worktree slug repeats the ticket key inside the title
 
 **Verdict: confirmed, root cause isolated, reproducible from data alone.**
 
@@ -226,3 +237,4 @@ Either way the slug must stay **rename-invariant and stable** — changing the r
 relocates existing worktrees, so any fix needs a migration or must apply to newly
 created worktrees only. That constraint is the reason this was documented rather
 than patched under a "no code changes" ticket.
+END_DOC_BLOCK: [@issue:LOG-03]

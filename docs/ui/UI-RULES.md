@@ -355,12 +355,13 @@ END_DOC_BLOCK: [@ui:UI-R10c]
 
 ---
 
-# C. Async interaction
+## [@ui:GROUP-C] C. Async interaction
 
 These rules specify user-observable interaction behavior.
 
 They do not prescribe request-ID format, one specific dispatcher, or one wire
 protocol.
+END_DOC_BLOCK: [@ui:GROUP-C]
 
 ## [@ui:UI-R11] Waiting host mutations/long-running actions expose pending state
 
@@ -1046,7 +1047,7 @@ END_DOC_BLOCK: [@ui:UI-R38]
 
 ---
 
-# Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
+## [@ui:APPX-V31] Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
 
 **Version:** 3.1 · **Scope:** the Settings webview only (`src/ui/settings/app/**`),
 where the NDL-126 architecture decision authorizes React. Vanilla views keep v3.0
@@ -1132,3 +1133,4 @@ never substitutes for VISUAL.
 **Check:** `npm run test:unit` (settings suite), `npm run test:visual`, and the
 e2e suite pass; the rendered-Settings tests run against the chain-mounted app
 (`renderWebviewReady('settings')`), never a test-only second mount.
+END_DOC_BLOCK: [@ui:APPX-V31]

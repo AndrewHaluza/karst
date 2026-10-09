@@ -1,10 +1,19 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/design/impl-phase-tracking.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'design:IMPL-01'):
+  awk "/^## \[@design:IMPL-01\]/,/END_DOC_BLOCK: \[@design:IMPL-01\]/" docs/design/impl-phase-tracking.md
+-->
+
 # Impl phase tracking — design
 
 Status: **proposal, not funded.** Deferred out of the stage-graph redesign
 (commits `27017dc`…`3e21e5c`). This doc is the record of what we looked at and
 what it would cost, so whoever picks it up does not re-derive it.
 
-## Context
+## [@design:IMPL-01] Context
 
 The stage-graph work shipped a per-stage activity strip: `src/model/inside/`
 derives, for every stage, either **observed operation rows** or a static blurb
@@ -26,8 +35,9 @@ stage, and the panel cannot say where inside those four phases the agent is.
 fires — `karst stage impl phase <name>` — mirroring the existing explicit
 impl-done marker. The agent *runs a command*; it does not self-report status in
 prose. That keeps the no-inference guarantee intact while lighting phases up.
+END_DOC_BLOCK: [@design:IMPL-01]
 
-## 1. The existing marker path — and the answer to the expensive question
+## [@design:IMPL-02] The existing marker path — and the answer to the expensive question
 
 **The CLI already writes to the DB.** This is the finding that decides whether
 this feature is cheap or expensive, and CLAUDE.md is out of date on it.
@@ -70,8 +80,9 @@ agent reads ticket content it did not author, so prompt injection reaches this
 CLI, and `stage ship pass` would force a passed verdict on a gate that never ran.
 **A phase verb must not widen that** — it must be a *separate* parse branch that
 can never produce a `Verdict`.
+END_DOC_BLOCK: [@design:IMPL-02]
 
-## 2. Where the phase names come from
+## [@design:IMPL-03] Where the phase names come from
 
 Three layers, all already in place:
 
@@ -90,8 +101,9 @@ That is the only content change. `renderWorkflowCommand` is pure (no fs) and is
 called from exactly two places: `src/extension.ts:671` (settings preview, no
 prefixes) and `src/agent/claude.ts:218` (materialize, with prefixes). The preview
 passes no `stageCommand` today and would pass no `phaseCommand` either.
+END_DOC_BLOCK: [@design:IMPL-03]
 
-## 3. Agent-agnosticism
+## [@design:IMPL-04] Agent-agnosticism
 
 Unaffected — worth being precise about, because it looks like a violation and is
 not. The phases live on the **neutral** `ApproachPackage.workflow`. The generated
@@ -109,8 +121,9 @@ degrading to today's behaviour, correctly.
 
 **DECIDED:** the phase-marker string is composed in `workflowCommand.ts` (neutral)
 and materialized by the adapter. No new adapter method.
+END_DOC_BLOCK: [@design:IMPL-04]
 
-## 4. Untrusted-source hardening
+## [@design:IMPL-05] Untrusted-source hardening
 
 `sanitizeFrontmatter` (`src/approaches/sanitize.ts`) strips dangerous permission
 frontmatter from every fetched body at install time, inside `assembleAndWrite`.
@@ -132,8 +145,9 @@ Two things follow:
    `composePhaseCommand` double-quotes the name as `composeStageCommand`
    double-quotes paths (`src/cli/stage.ts:47`), and the CLI re-validates on
    receipt — never trust argv, same rule as `parseStageArgs`.
+END_DOC_BLOCK: [@design:IMPL-05]
 
-## 5. Storage
+## [@design:IMPL-06] Storage
 
 **Proposal: a new table, `phase_marks`, following the `gate_runs` precedent.**
 
@@ -188,8 +202,9 @@ should say so rather than run a timer against a phase that may already be over.
 in this attempt bump a visible counter (`research ×2`)? It is honest and cheap,
 but it makes a normal iterative approach look like thrashing. Recommend shipping
 without it and adding it only if someone asks.
+END_DOC_BLOCK: [@design:IMPL-06]
 
-## 6. The no-inference boundary
+## [@design:IMPL-07] The no-inference boundary
 
 The part that must not be got wrong, stated flatly:
 
@@ -215,8 +230,9 @@ deliberate, and matching how `inside/` already words things: cf. the `driver`
 row's *"a session ending is not a verdict"* (`agent.ts:69`) and `types.ts:6-11`,
 *"`note` is not a status. It is karst stating a fact it cannot honestly dress as
 a pass or a fail."*
+END_DOC_BLOCK: [@design:IMPL-07]
 
-## 7. UI impact
+## [@design:IMPL-08] UI impact
 
 ### The row-count guarantee — this is the deliberate breaking change
 
@@ -271,8 +287,9 @@ not by array position*) for the bug not to repeat.
 **No change required.** `webview.html:475` renders `strip.ops` generically over
 `status`/`name`/`detail`/`duration`, so ordinary `StageOp` phase rows render for
 free. That is a real benefit of the shipped design and why this slice is small.
+END_DOC_BLOCK: [@design:IMPL-08]
 
-## 8. Risks
+## [@design:IMPL-09] Risks
 
 - **Silent non-adoption.** Approaches materialized before this ships never fire
   markers, so their impl stages look exactly as today. Correct behaviour, terrible
@@ -291,8 +308,9 @@ free. That is a real benefit of the shipped design and why this slice is small.
 - **Cross-project misresolution.** The phase CLI must pass `--manifest` and go
   through `resolveTicketByKey` exactly as `stage` does (`src/cli/main.ts:109`),
   or a key two projects share marks the wrong board. Reuse, do not fork.
+END_DOC_BLOCK: [@design:IMPL-09]
 
-## 9. Recommendation
+## [@design:IMPL-10] Recommendation
 
 **Worth doing, in a reduced form.** The CLI-write path exists
 (`openWritableStore`), the webview renders new rows for free, and the storage is
@@ -332,3 +350,4 @@ point-in-time, rendered as rows:
 
 Steps 1–4 are useful on their own: they record evidence even with no UI. If the
 work is stopped after step 4, nothing is broken and nothing is claimed.
+END_DOC_BLOCK: [@design:IMPL-10]

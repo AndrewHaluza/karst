@@ -1,14 +1,24 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/design/artifacts/reference/karst-ticket-artifacts-implementation-spec.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'design:ART-01'):
+  awk "/^## \[@design:ART-01\]/,/END_DOC_BLOCK: \[@design:ART-01\]/" docs/design/artifacts/reference/karst-ticket-artifacts-implementation-spec.md
+-->
+
 # Karst Ticket Artifacts — Product & UX Implementation Specification
 
-## Status
+## [@design:ART-01] Status
 
 **Design status:** Finalized for implementation  
 **Surface:** Karst ticket dashboard (VS Code webview)  
 **Reference prototype:** `karst-artifacts-finalized.html`
+END_DOC_BLOCK: [@design:ART-01]
 
 ---
 
-## 1. Summary
+## [@design:ART-02] Summary
 
 Karst tickets can produce durable outputs during Scope, Implement, UAT, Review, and Ship. These outputs need to remain discoverable after the producing run completes, without turning the ticket dashboard into a file browser or creating additional VS Code tabs/panes.
 
@@ -28,10 +38,11 @@ Ticket dashboard
 Artifacts stay inside the ticket’s existing webview. They do **not** open a second Karst webview, persistent drawer, split view, or dedicated VS Code editor group.
 
 Underlying files can still be opened in a normal VS Code editor when the user explicitly requests the raw representation.
+END_DOC_BLOCK: [@design:ART-02]
 
 ---
 
-## 2. Product Decision
+## [@design:ART-03] Product Decision
 
 ### One VS Code tab = one ticket
 
@@ -62,10 +73,11 @@ Artifact detail
 ```
 
 without affecting VS Code’s editor layout.
+END_DOC_BLOCK: [@design:ART-03]
 
 ---
 
-## 3. Why Artifacts Exist
+## [@design:ART-04] Why Artifacts Exist
 
 Artifacts represent **durable outputs worth returning to after a run finishes**.
 
@@ -102,10 +114,11 @@ Those remain part of the execution/run experience, primarily represented in **In
 > What durable output did this ticket produce?
 
 This distinction should remain strict.
+END_DOC_BLOCK: [@design:ART-04]
 
 ---
 
-## 4. Dashboard Behavior
+## [@design:ART-05] Dashboard Behavior
 
 ### 4.1 Zero artifacts
 
@@ -169,10 +182,11 @@ review-v2.md
 ```
 
 Raw representations belong inside artifact detail.
+END_DOC_BLOCK: [@design:ART-05]
 
 ---
 
-## 5. Shelf Preview Selection
+## [@design:ART-06] Shelf Preview Selection
 
 The shelf should not simply show:
 
@@ -211,10 +225,11 @@ Review
 ```
 
 This may be implemented with lifecycle-sensitive priority.
+END_DOC_BLOCK: [@design:ART-06]
 
 ---
 
-## 6. Artifact Count Semantics
+## [@design:ART-07] Artifact Count Semantics
 
 `Artifacts N` counts **top-level semantic artifacts**, not files, versions, or individual resources.
 
@@ -240,10 +255,11 @@ The count must never increase simply because:
 ### Version rule
 
 Regenerating the same logical artifact creates a new version of that artifact rather than a new top-level artifact.
+END_DOC_BLOCK: [@design:ART-07]
 
 ---
 
-## 7. Navigation Model
+## [@design:ART-08] Navigation Model
 
 There are exactly three in-webview surfaces:
 
@@ -324,10 +340,11 @@ Artifacts
 ```
 
 Back behavior must be deterministic.
+END_DOC_BLOCK: [@design:ART-08]
 
 ---
 
-## 8. Back and Escape Behavior
+## [@design:ART-09] Back and Escape Behavior
 
 ### Explicit Back
 
@@ -358,10 +375,11 @@ Artifact detail opened from index:
 - Ticket dashboard → no artifact-navigation action
 
 Do not create a separate modal close concept.
+END_DOC_BLOCK: [@design:ART-09]
 
 ---
 
-## 9. Scroll Preservation
+## [@design:ART-10] Scroll Preservation
 
 Each in-webview surface should preserve its own scroll state for the active ticket session.
 
@@ -382,10 +400,11 @@ Artifact detail scroll position
 should not reset unnecessarily during navigation.
 
 This is especially important because the dashboard may contain a large Inside block.
+END_DOC_BLOCK: [@design:ART-10]
 
 ---
 
-## 10. Artifacts Index
+## [@design:ART-11] Artifacts Index
 
 ### Grouping
 
@@ -428,10 +447,11 @@ Do not include permanent stage filters or search for normal artifact counts.
 Grouping is sufficient for the expected small/medium ticket artifact set.
 
 Search/filtering can be added later if real tickets routinely accumulate large artifact collections.
+END_DOC_BLOCK: [@design:ART-11]
 
 ---
 
-## 11. Artifact Detail Hierarchy
+## [@design:ART-12] Artifact Detail Hierarchy
 
 Artifact detail should be **semantic first, files last**.
 
@@ -499,10 +519,11 @@ Version      v2 · current
 Underlying files
 review.md                          Open in editor ↗
 ```
+END_DOC_BLOCK: [@design:ART-12]
 
 ---
 
-## 12. Raw File Behavior
+## [@design:ART-13] Raw File Behavior
 
 Raw representations are intentionally secondary.
 
@@ -525,10 +546,11 @@ This can invoke the extension host and open the underlying workspace/file URI in
 Opening the raw file is a deliberate escape from the semantic artifact UI into VS Code’s native file/editor model.
 
 Do not automatically open raw files when clicking a semantic artifact.
+END_DOC_BLOCK: [@design:ART-13]
 
 ---
 
-## 13. Freshness / Staleness
+## [@design:ART-14] Freshness / Staleness
 
 This is a required part of the artifact model.
 
@@ -580,10 +602,11 @@ Artifact could not be loaded/stored/rendered
 ```
 
 These must not share the same failure state.
+END_DOC_BLOCK: [@design:ART-14]
 
 ---
 
-## 14. Artifact Identity
+## [@design:ART-15] Artifact Identity
 
 Artifact identity must support versions and repo scope.
 
@@ -642,10 +665,11 @@ Artifact {
 ```
 
 Exact persistence/schema design is implementation-owned.
+END_DOC_BLOCK: [@design:ART-15]
 
 ---
 
-## 15. Multi-Repo Tickets
+## [@design:ART-16] Multi-Repo Tickets
 
 Repo context is conditional.
 
@@ -682,10 +706,11 @@ api
 ```
 
 A flat list with repeated repo badges is acceptable for small sets, but the UI should be able to introduce repo sub-grouping when repetition becomes visually noisy.
+END_DOC_BLOCK: [@design:ART-16]
 
 ---
 
-## 16. "New" / Unread State
+## [@design:ART-17] "New" / Unread State
 
 Persistent unread semantics are **not part of V1**.
 
@@ -708,10 +733,11 @@ It introduces unnecessary questions around:
 If newly created artifacts need emphasis, use transient visual treatment only.
 
 Freshness/staleness is a more important state than unread/new.
+END_DOC_BLOCK: [@design:ART-17]
 
 ---
 
-## 17. VS Code Webview Constraints
+## [@design:ART-18] VS Code Webview Constraints
 
 The ticket dashboard is a VS Code webview.
 
@@ -756,10 +782,11 @@ Recommended responsive changes:
 - 2 cards where necessary
 - 1-column cards on narrow editor groups
 - hide low-priority secondary ticket status before truncating core artifact content
+END_DOC_BLOCK: [@design:ART-18]
 
 ---
 
-## 18. Accessibility
+## [@design:ART-19] Accessibility
 
 Required baseline:
 
@@ -772,10 +799,11 @@ Required baseline:
 - text truncation must retain accessible labels/titles where necessary
 
 Avoid making a full row clickable only through pointer handlers without keyboard support.
+END_DOC_BLOCK: [@design:ART-19]
 
 ---
 
-## 19. Loading & Error States
+## [@design:ART-20] Loading & Error States
 
 ### Shelf loading
 
@@ -812,10 +840,11 @@ UAT failed
 ```
 
 because artifact availability and domain result are different concepts.
+END_DOC_BLOCK: [@design:ART-20]
 
 ---
 
-## 20. Lifecycle Behavior
+## [@design:ART-21] Lifecycle Behavior
 
 The same core component is used through the ticket lifecycle.
 
@@ -854,10 +883,11 @@ V1 should keep the layout structurally stable across lifecycle states.
 Only semantic preview priority needs to adapt.
 
 Do not implement a separate Done-ticket artifact layout yet.
+END_DOC_BLOCK: [@design:ART-21]
 
 ---
 
-## 21. Non-Goals for V1
+## [@design:ART-22] Non-Goals for V1
 
 Do not include the following in the first implementation unless required by existing backend behavior:
 
@@ -875,10 +905,11 @@ Do not include the following in the first implementation unless required by exis
 - lifecycle-specific page redesign
 
 These can be revisited after real artifact usage data exists.
+END_DOC_BLOCK: [@design:ART-22]
 
 ---
 
-## 22. Recommended Event Contract
+## [@design:ART-23] Recommended Event Contract
 
 The webview implementation will likely need extension-host messages similar to:
 
@@ -897,10 +928,11 @@ artifact.export(artifactId)
 ```
 
 This section is illustrative; actual transport naming can follow existing Karst conventions.
+END_DOC_BLOCK: [@design:ART-23]
 
 ---
 
-## 23. UI State Model
+## [@design:ART-24] UI State Model
 
 Minimal client state:
 
@@ -936,10 +968,11 @@ Detail(origin=ticket) → Ticket
 Detail(origin=index)  → Index
 Index → Ticket
 ```
+END_DOC_BLOCK: [@design:ART-24]
 
 ---
 
-## 24. Acceptance Criteria
+## [@design:ART-25] Acceptance Criteria
 
 ### Dashboard
 
@@ -997,10 +1030,11 @@ Index → Ticket
 - [ ] Shelf reflows cleanly for narrow editor groups.
 - [ ] Full artifact index and detail remain usable without an internal split pane.
 - [ ] UI does not assume full browser-window width.
+END_DOC_BLOCK: [@design:ART-25]
 
 ---
 
-## 25. Final Product Principle
+## [@design:ART-26] Final Product Principle
 
 The artifact experience should feel like **part of the ticket**, not a parallel application.
 
@@ -1022,3 +1056,4 @@ Ticket
 ```
 
 This should remain the governing model during implementation.
+END_DOC_BLOCK: [@design:ART-26]

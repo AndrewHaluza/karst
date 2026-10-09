@@ -68,7 +68,7 @@ END_DOC_BLOCK: [@ui:0]
 
 ---
 
-# 1. Delivery
+## [@ui:1-INTRO] Delivery (overview)
 
 Karst currently ships self-contained `webview.html` documents and uses
 host-side marker injection for shared UI assets.
@@ -77,6 +77,7 @@ This is a **repository architecture choice**, not a CSP requirement. VS Code
 supports extension-local webview resources under an appropriate CSP; Karst keeps
 marker injection because it fits the current build/runtime architecture and
 avoids introducing another frontend delivery mechanism.
+END_DOC_BLOCK: [@ui:1-INTRO]
 
 ## [@ui:1.1] Required markers
 
@@ -141,7 +142,7 @@ END_DOC_BLOCK: [@ui:1.3]
 
 ---
 
-# 2. Token model
+## [@ui:2-INTRO] Token model (overview)
 
 A token represents a **reusable visual decision**.
 
@@ -180,6 +181,7 @@ merely to satisfy a source-code rule.
 
 If a local dimension becomes a repeated component contract, promote it to a
 meaningful component token.
+END_DOC_BLOCK: [@ui:2-INTRO]
 
 ---
 
@@ -253,7 +255,8 @@ END_DOC_BLOCK: [@ui:2.2]
 
 ---
 
-# 3. Color
+## [@ui:3-INTRO] Color (overview)
+END_DOC_BLOCK: [@ui:3-INTRO]
 
 ## [@ui:3.1] Surface
 
@@ -414,7 +417,7 @@ END_DOC_BLOCK: [@ui:3.7]
 
 ---
 
-# 4. Spacing
+## [@ui:4] Spacing
 
 The current spacing scale is preserved:
 
@@ -446,10 +449,11 @@ composition-specific geometry may use a local value.
 `1px` hairlines use `--k-border-w`.
 
 Do not expand this scale merely to absorb every historical literal.
+END_DOC_BLOCK: [@ui:4]
 
 ---
 
-# 5. Radius
+## [@ui:5] Radius
 
 Current visual values are preserved.
 
@@ -464,10 +468,11 @@ Current visual values are preserved.
 | `--k-radius-circle` | `50%` | circles |
 
 A local non-shared shape may use local geometry.
+END_DOC_BLOCK: [@ui:5]
 
 ---
 
-# 6. Typography
+## [@ui:6] Typography
 
 The current visual sizing is preserved in this remediation.
 
@@ -508,10 +513,11 @@ differences.
 Do not switch the Karst UI to VS Code's **editor** font merely because webviews
 expose `--vscode-editor-font-family`; preserve the current approved Karst UI font
 behavior until a dedicated typography change verifies the visual result.
+END_DOC_BLOCK: [@ui:6]
 
 ---
 
-# 7. Elevation
+## [@ui:7] Elevation
 
 Keep only shared elevation levels that are actually used.
 
@@ -525,10 +531,11 @@ Unused theoretical elevation levels should not exist solely to complete a scale.
 
 Concrete values remain the current implementation values unless changed by a
 visual-design task.
+END_DOC_BLOCK: [@ui:7]
 
 ---
 
-# 8. Motion
+## [@ui:8] Motion
 
 Shared motion tokens remain:
 
@@ -546,10 +553,11 @@ Shared motion tokens remain:
 Reduced-motion mode removes non-essential animation without removing state.
 
 Meaning must survive when animation stops.
+END_DOC_BLOCK: [@ui:8]
 
 ---
 
-# 9. Shared sizing
+## [@ui:9] Shared sizing
 
 Current compact density is preserved:
 
@@ -567,10 +575,11 @@ A `22px` dense text control is not automatically invalid. Karst nevertheless
 requires standalone icon buttons to provide at least a `24×24px` target.
 
 Do not misrepresent `--k-hit-min` as an exceptionless WCAG rule.
+END_DOC_BLOCK: [@ui:9]
 
 ---
 
-# 10. Component-state vocabulary
+## [@ui:10] Component-state vocabulary
 
 The shared state vocabulary is:
 
@@ -590,10 +599,12 @@ Not every component supports every state.
 
 Each primitive declares applicable states. Unsupported states are `N/A`, not
 features that must be invented.
+END_DOC_BLOCK: [@ui:10]
 
 ---
 
-# 11. Primitives
+## [@ui:11-INTRO] Primitives (overview)
+END_DOC_BLOCK: [@ui:11-INTRO]
 
 ## [@ui:11.1] Button — `.k-btn`
 
@@ -1039,7 +1050,8 @@ END_DOC_BLOCK: [@ui:11.20]
 
 ---
 
-# 12. Accessibility baseline
+## [@ui:12-INTRO] Accessibility baseline (overview)
+END_DOC_BLOCK: [@ui:12-INTRO]
 
 ## [@ui:12.1] Native semantics
 
@@ -1118,7 +1130,7 @@ END_DOC_BLOCK: [@ui:12.7]
 
 ---
 
-# 13. Host / webview boundary
+## [@ui:13-INTRO] Host / webview boundary (overview)
 
 The host owns:
 
@@ -1150,6 +1162,7 @@ over:
 ```ts
 { className: 'red-pill', color: '#f14c4c', icon: 'x' }
 ```
+END_DOC_BLOCK: [@ui:13-INTRO]
 
 ## [@ui:13.1] Formatting boundary
 
@@ -1196,7 +1209,7 @@ END_DOC_BLOCK: [@ui:13.2]
 
 ---
 
-# 14. Out of scope
+## [@ui:14] Out of scope
 
 The design system does not define:
 
@@ -1212,3 +1225,4 @@ The design system does not define:
 The UI contract may require observable behavior such as immediate pending
 feedback or safe duplicate prevention, but the transport implementation belongs
 to application architecture.
+END_DOC_BLOCK: [@ui:14]

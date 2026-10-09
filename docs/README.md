@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/README.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'idx:IDX-01'):
+  awk "/^## \[@idx:IDX-01\]/,/END_DOC_BLOCK: \[@idx:IDX-01\]/" docs/README.md
+-->
+
 # Karst documentation
 
 Two kinds of document live here, and they are not interchangeable.
@@ -10,7 +19,9 @@ same pull request.
 in time. They are a historical record — read them for reasoning, never for
 current behaviour. Where a note and the code disagree, the code is right.
 
-## Binding reference
+**Format.** Binding reference files are keyed blocks (`## [@ns:ID] Title` … `END_DOC_BLOCK: [@ns:ID]`). List a file's keys with `grep -F "## [@" <file> | tail -n +2`; extract one with the `awk` recipe in the file's header comment. Do not read them whole.
+
+## [@idx:IDX-01] Binding reference
 
 | Directory | What it holds |
 |---|---|
@@ -20,8 +31,9 @@ current behaviour. Where a note and the code disagree, the code is right.
 | [`guides/`](guides/) | How-to: adding an agent core, resuming an investigation session. |
 | [`troubleshooting/`](troubleshooting/) | Symptom-first runbooks. |
 | [`glossary.md`](glossary.md) | Terms of art — ticket, stage, gate, verdict, worktree, approach. |
+END_DOC_BLOCK: [@idx:IDX-01]
 
-## Working notes
+## [@idx:IDX-02] Working notes
 
 | Directory | What it holds |
 |---|---|
@@ -35,3 +47,4 @@ current behaviour. Where a note and the code disagree, the code is right.
 Working notes may reference absolute paths from the machine they were written
 on, module names that have since been renamed, and schema versions that have
 since moved. That is expected of a dated record, and is not a defect to fix.
+END_DOC_BLOCK: [@idx:IDX-02]

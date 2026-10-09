@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/design/stages/README.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'design:STG-01'):
+  awk "/^## \[@design:STG-01\]/,/END_DOC_BLOCK: \[@design:STG-01\]/" docs/design/stages/README.md
+-->
+
 # Stage graph — design variants
 
 Three variants were built to answer one question: how should the dashboard show
@@ -26,7 +35,7 @@ The mockup renders standalone in a browser with no build step. It is a design
 record, not a live surface: it is not wired to the extension and will not track
 later changes to the shipped view.
 
-## Second round — 869ecpmwe
+## [@design:STG-01] Second round — 869ecpmwe
 
 Variant A had shipped and been lived with. The complaints against it were that
 `fix` read wrong, the collapsed fix toggle floated unattached, impl's approach
@@ -69,8 +78,9 @@ its name to the stage key. Two steps was the first attempt and it was wrong: at 
 `overflow:hidden` that showed up as the current segment's action button being
 clipped away with nothing to indicate it. The lane is `overflow-x:auto` now and
 the three steps clear every case down to **300px** in the mockup.
+END_DOC_BLOCK: [@design:STG-01]
 
-## Measuring the SHIPPED file — `harness.mjs`
+## [@design:STG-02] Measuring the SHIPPED file — `harness.mjs`
 
 The mockup's numbers are the design's, not the product's: the shipped CSS renames
 what the mockup called `.lane1`/`.act`/`.ph` to `.lane`/`.go`/`.pips`, and it
@@ -100,3 +110,4 @@ One defect this caught that no text test would have: scoping the base rule to
 classes (0,1,0) at any source order, so every travelled segment rendered neutral
 grey and the stage-hue wash — the whole point of the variant — was silently dead.
 The base rule now sets no colour at all; `webview.test.ts` pins that.
+END_DOC_BLOCK: [@design:STG-02]
