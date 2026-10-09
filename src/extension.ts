@@ -167,6 +167,7 @@ import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js';
+import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
@@ -774,6 +775,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notify,
     confirmUnsafeCore: async () => (await vscode.window.showWarningMessage(
       'agy cannot block edits; approve each action.', { modal: true }, 'Start')) === 'Start',
+    planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
     debug: (m) => logger.debug(m),
     onChange: () => provider.refresh(),
   });
