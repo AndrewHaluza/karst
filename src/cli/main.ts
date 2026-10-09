@@ -431,7 +431,10 @@ export function runCli(
     try {
       const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath));
       if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
-      return runEnvCommand(store, found.id, effectiveRest);
+      // The manifest lets `--service` validate against real unit keys
+      // (`repo` / `repo/service`); without one the scope passes through.
+      const envManifest = manifestPath ? loadManifestWithDiagnostics(manifestPath).manifest : undefined;
+      return runEnvCommand(store, found.id, effectiveRest, envManifest);
     } finally {
       store.close();
     }

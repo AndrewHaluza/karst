@@ -21,7 +21,7 @@ import { preflightSpin, SpinError } from './preflight.js';
 import { portsToAvoid } from './portProbe.js';
 import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
-import { isRunnable } from '../manifest/runnable.js';
+import { serviceUnits, unitByKey, unitsOfRepos } from '../manifest/runnable.js';
 import { startResolvedService } from './startService.js';
 // Re-exported: the token expansion moved to `serviceLaunch.ts` (baseline needs
 // it too), and this is where its tests and callers have always found it.
@@ -77,9 +77,8 @@ export class SpinCancelledError extends Error {
  */
 export function allocationRanges(manifest: Manifest, hot: readonly string[]): [number, number][] {
   const collected: [number, number][] = [manifest.portRange];
-  for (const name of hot) {
-    const repo = manifest.repositories[name];
-    if (repo && isRunnable(repo) && repo.service.portRange) collected.push(repo.service.portRange);
+  for (const unit of unitsOfRepos(manifest, hot)) {
+    if (unit.def.portRange) collected.push(unit.def.portRange);
   }
   return mergeRanges(collected);
 }
@@ -237,11 +236,11 @@ export async function spinTicket(
   // bug. killTree reaps the whole tree (launcher + Vite grandchild).
   await stopTicketServers(store, ticketId);
   // Then drop the rows whose repository the manifest no longer declares. A
-  // rename re-keys the registry (servers are keyed by repository NAME), so the
+  // rename re-keys the registry (servers are keyed by service unit key: the repo name, or repo/service), so the
   // pre-rename row is unreachable — no spin can start a manifest key that is
   // gone — yet it kept rendering as an offline server beside the new name. Runs
   // AFTER the stop above so a row is never deleted out from under a live pid.
-  pruneOrphanServers(store, ticketId, Object.keys(manifest.repositories));
+  pruneOrphanServers(store, ticketId, serviceUnits(manifest).map((u) => u.key));
   // Clean-slate the ticket's transient allocations so a retry (a prior spin that
   // died mid-way) re-resolves fresh instead of double-inserting ports — the
   // worktree it already created is adopted by createWorktree, baseline_refs is
@@ -297,9 +296,9 @@ export async function spinTicket(
 
     // 2. ensure every baseline dependency is up + record the ref edge.
     const baselineDeps = new Set<string>();
-    for (const name of hot) {
-      // Non-runnable repos have no resolver entry and therefore no dependencies.
-      for (const dep of resolved.services[name]?.baselineDeps ?? []) baselineDeps.add(dep);
+    for (const unit of unitsOfRepos(manifest, hot)) {
+      // Non-runnable repos have no units and therefore no dependencies.
+      for (const dep of resolved.services[unit.key]?.baselineDeps ?? []) baselineDeps.add(dep);
     }
     debug?.(
       `[runtime] ticket ${ticketId}: resolved ${hot.length} repo(s) into ` +
@@ -318,11 +317,13 @@ export async function spinTicket(
     const envOverrides = getEnvOverrides(store, ticketId);
     for (const name of resolved.startOrder) {
       bail();
-      const repo = manifest.repositories[name]!;
-      if (!isRunnable(repo)) continue;
+      // `name` is a unit key; the worktree is the REPOSITORY's (shared by every
+      // service of a monorepo) and the service's own `cwd` is applied inside
+      // `startResolvedService`.
+      const unit = unitByKey(manifest, name)!;
       const rec = await startResolvedService({
         store, manifest, ticketId, name, resolved,
-        cwd: worktreePath[name]!, envOverrides, signal,
+        cwd: worktreePath[unit.repo]!, envOverrides, signal,
         onReclaim: (pid) => reclaimedPids.push(pid), debug,
       });
       servers.push(rec);

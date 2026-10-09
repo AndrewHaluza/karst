@@ -10,6 +10,7 @@ import {
   repo,
   runnableRepo,
   slot,
+  svc,
 } from '../manifest/fixtures.js';
 
 /** Ticket id used for allocation in these unit tests. */
@@ -214,5 +215,118 @@ describe('resolve', () => {
     // effectivePort is untouched: the dependent still repoints at the hot
     // target's ALLOCATED port, which now lives in the target's own window.
     expect(r.services.frontend!.env.VITE_API_URL).toBe('http://localhost:5000');
+  });
+});
+
+describe('resolve — multi-service repositories', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  /**
+   * mono: `api` (ports 3000 + 9229, own window [5000, 5099]) and `web`
+   * (port 5173, depends on mono/api's http). client: shorthand service that
+   * depends on mono/api. solo: shorthand service a dependant can name as solo/solo.
+   */
+  function multi(): Manifest {
+    return buildManifest({
+      mono: repo({
+        repoPath: '../mono',
+        services: {
+          api: svc({
+            ports: [httpSlot(3000), slot('debug', 'DEBUG_PORT', 9229)],
+            portRange: [5000, 5099],
+          }),
+          web: svc({
+            ports: [httpSlot(5173)],
+            dependsOn: [
+              dependsOn('mono/api', 'http', [
+                { env: 'VITE_API_URL', template: 'http://{host}:{port}' },
+              ]),
+            ],
+          }),
+        },
+      }),
+      client: runnableRepo(
+        {
+          ports: [httpSlot(8080)],
+          dependsOn: [
+            dependsOn('mono/api', 'http', [
+              { env: 'API_URL', template: 'http://{host}:{port}' },
+            ]),
+            dependsOn('solo/solo', 'http', [
+              { env: 'SOLO_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '../client' },
+      ),
+      solo: runnableRepo({ ports: [httpSlot(7000)] }, { repoPath: '../solo' }),
+    });
+  }
+
+  function alloc() {
+    return makePortAllocator(store, [4000, 4999]);
+  }
+
+  it('allocates distinct ports to sibling services and honors a per-service window', () => {
+    const r = resolve(multi(), ['mono'], alloc(), TID);
+    const api = r.services['mono/api']!;
+    const web = r.services['mono/web']!;
+    expect(api.mode).toBe('hot');
+    expect(web.mode).toBe('hot');
+    expect(api.ports.http).toBeGreaterThanOrEqual(5000);
+    expect(api.ports.http).toBeLessThanOrEqual(5099);
+    expect(api.ports.debug).toBeGreaterThanOrEqual(5000);
+    expect(api.ports.debug).toBeLessThanOrEqual(5099);
+    expect(web.ports.http).toBeGreaterThanOrEqual(4000);
+    expect(web.ports.http).toBeLessThanOrEqual(4999);
+    const all = [api.ports.http, api.ports.debug, web.ports.http];
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('orders a sibling dependency before its dependant', () => {
+    const r = resolve(multi(), ['mono'], alloc(), TID);
+    expect(r.startOrder).toEqual(['mono/api', 'mono/web']);
+  });
+
+  it('binds the sibling target allocated port into the dependant env', () => {
+    const r = resolve(multi(), ['mono'], alloc(), TID);
+    expect(r.services['mono/web']!.env.VITE_API_URL).toBe(
+      `http://localhost:${r.services['mono/api']!.ports.http}`,
+    );
+  });
+
+  it('keys a baseline dependency by its unit key (repo/service)', () => {
+    const r = resolve(multi(), ['client'], alloc(), TID);
+    expect(r.services['client']!.baselineDeps).toEqual(['mono/api', 'solo']);
+    expect(r.services['mono/api']!.mode).toBe('baseline');
+    expect(r.startOrder).toEqual(['client']);
+  });
+
+  it('binds the baseline default port when the target service is not hot', () => {
+    const r = resolve(multi(), ['client'], alloc(), TID);
+    expect(r.services['client']!.env.API_URL).toBe('http://localhost:3000');
+    expect(r.services['client']!.env.SOLO_URL).toBe('http://localhost:7000');
+  });
+
+  it('orders a cross-repo dependency: the target service starts first', () => {
+    const r = resolve(multi(), ['client', 'mono'], alloc(), TID);
+    const apiIdx = r.startOrder.indexOf('mono/api');
+    const webIdx = r.startOrder.indexOf('mono/web');
+    const clientIdx = r.startOrder.indexOf('client');
+    expect(apiIdx).toBeLessThan(webIdx);
+    expect(apiIdx).toBeLessThan(clientIdx);
+    // solo is not hot here, so it is a baseline dependency keyed by its shorthand key.
+    expect(r.services['client']!.baselineDeps).toEqual(['solo']);
+    expect(r.services['client']!.env.API_URL).toBe(
+      `http://localhost:${r.services['mono/api']!.ports.http}`,
+    );
+  });
+
+  it('gives a non-hot sibling its default ports and no injected env', () => {
+    const r = resolve(multi(), ['client'], alloc(), TID);
+    expect(r.services['mono/web']!.ports.http).toBe(5173);
+    expect(r.services['mono/web']!.env).toEqual({});
   });
 });

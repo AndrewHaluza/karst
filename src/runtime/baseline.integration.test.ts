@@ -10,7 +10,7 @@ import { ensureBaseline, addBaselineRef } from './baseline.js';
 import { worktreeRegisteredAt } from './worktree.js';
 import type { ProcessFacts, ProcessFactsSource } from './serverIdentity.js';
 import type { Manifest } from '../manifest/types.js';
-import { httpSlot, manifest as buildManifest, runnableRepo } from '../manifest/fixtures.js';
+import { httpSlot, manifest as buildManifest, runnableRepo, svc } from '../manifest/fixtures.js';
 
 function git(cwd: string, ...args: string[]): string {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -250,6 +250,41 @@ describe('baseline pool', () => {
     started.push(second.id);
 
     expect(git(dir, 'rev-parse', 'HEAD').trim()).toBe(tip);
+  });
+
+  it('starts repo/service unit keys from ONE shared checkout, without refreshing under a running sibling', async () => {
+    const portA = portCounter++;
+    const portB = portCounter++;
+    const service = (port: number) =>
+      svc({
+        start: 'node server.mjs',
+        health: 'http://{host}:{port}/health',
+        ports: [httpSlot(port)],
+      });
+    const m = buildManifest(
+      { mono: { ...runnableRepo(service(portA), { repoPath: repo }), service: undefined, services: { a: service(portA), b: service(portB) } } },
+      { host: '127.0.0.1' },
+    );
+
+    const a = await ensureBaseline(store, m, 'mono/a');
+    started.push(a.id);
+    expect(a.service).toBe('mono/a');
+
+    // A new origin tip appears while `a` is serving from the shared checkout.
+    const dir = join(repo, '.karst', 'baseline', 'mono');
+    const before = git(dir, 'rev-parse', 'HEAD').trim();
+    git(repo, 'checkout', '-q', 'develop');
+    writeFileSync(join(repo, 'marker.txt'), 'develop-2\n');
+    git(repo, 'add', 'marker.txt');
+    git(repo, 'commit', '-q', '-m', 'develop-2');
+    git(repo, 'push', '-q', 'origin', 'develop');
+    git(repo, 'checkout', '-q', 'feature');
+
+    const b = await ensureBaseline(store, m, 'mono/b');
+    started.push(b.id);
+    expect(b.service).toBe('mono/b');
+    // `b` must not rewrite the checkout `a` is serving.
+    expect(git(dir, 'rev-parse', 'HEAD').trim()).toBe(before);
   });
 
   it('does NOT force-refresh while another window holds the start lock [cross-window]', async () => {

@@ -11,10 +11,10 @@ import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
-import { manifest, uat as uatConfig } from '../../manifest/fixtures.js';
+import { manifest, repo, svc, uat as uatConfig } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
-import { runUat, resolveTargetGates, type UatDeps } from './uat.js';
+import { runUat, resolveTargetGates, testerTargets, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 import type { ScriptProbe } from '../gates/probe.js';
 import type { ProcessOutcome } from '../gates/run.js';
@@ -1097,6 +1097,43 @@ describe('runUat', () => {
     expect(failing.summary).not.toContain('Checking file 0');
     expect(passing.exitCode).toBe(0);
     expect(passing.summary).toBeNull();
+  });
+});
+
+describe('testerTargets service context', () => {
+  const project: Manifest = manifest({
+    single: repo({ repoPath: '/single', service: svc({ start: 'npm run start' }) }),
+    mono: repo({
+      repoPath: '/mono',
+      services: {
+        web: svc({ start: 'npm run dev', cwd: 'apps/web' }),
+        api: svc({ start: 'go run .' }),
+      },
+    }),
+  });
+  const worktrees = [{ repo: '/mono', baseRef: 'develop', branch: 'karst/t-1' }];
+
+  it('keeps the single-service shape: one start command for a single-service repository', () => {
+    const [target] = testerTargets(
+      project,
+      [{ repo: '/single', path: '/wt/single', names: ['single'] }],
+      [{ repo: '/single', baseRef: 'develop', branch: null }],
+    );
+    expect(target).toMatchObject({ service: { start: 'npm run start' } });
+    expect(target?.services).toBeUndefined();
+  });
+
+  it('lists every service of a multi-service repository, keyed repo/service, with its cwd', () => {
+    const [target] = testerTargets(
+      project,
+      [{ repo: '/mono', path: '/wt/mono', names: ['mono'] }],
+      worktrees,
+    );
+    expect(target?.services).toEqual([
+      { key: 'mono/web', start: 'npm run dev', cwd: 'apps/web' },
+      { key: 'mono/api', start: 'go run .' },
+    ]);
+    expect(target?.service).toBeNull();
   });
 });
 

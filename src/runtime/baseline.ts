@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { resolveBaselineBranch } from '../manifest/baselineBranch.js';
-import { isRunnable } from '../manifest/runnable.js';
+import { unitByKey, unitsOf } from '../manifest/runnable.js';
 import { startHot, markServerStopped, type ServerRecord } from './supervisor.js';
 import { serverLogPath } from './serverLog.js';
 import { serviceLaunch } from './serviceLaunch.js';
@@ -311,9 +312,10 @@ export async function ensureBaseline(
   const existing = await findRunningBaseline(store, service, facts, debug);
   if (existing) return existing;
 
-  const repo = manifest.repositories[service];
-  if (!repo) throw new Error(`repository "${service}" not in manifest`);
-  const key = JSON.stringify([repo.repoPath, service]);
+  // `service` is a unit key (`repo` or `repo/service`), not a repository name.
+  const unit = unitByKey(manifest, service);
+  if (!unit) throw new Error(`service "${service}" is not a runnable service in the manifest`);
+  const key = JSON.stringify([unit.repoDef.repoPath, service]);
   const running = inFlight.get(key);
   if (running) {
     debug?.(`[runtime] baseline ${service}: sharing the in-flight start already underway in this window`);
@@ -343,16 +345,19 @@ async function startBaseline(
   debug?: DebugFn,
   wait: BaselineWait = {},
 ): Promise<ServerRecord> {
-  const repo = manifest.repositories[service];
-  if (!repo) throw new Error(`repository "${service}" not in manifest`);
-  // Reachable only via a dependsOn edge, and `validateGraph` rejects an edge to a
-  // non-runnable target — so this is a defensive throw, not a user-facing path.
-  // It exists because the alternative (the old code) fabricated
-  // `http://host:undefined/health` and health-gated against it.
-  if (!isRunnable(repo)) {
-    throw new Error(`repository "${service}" declares no service and cannot run as a baseline`);
+  // `service` is a unit key (`repo` or `repo/service`). Reachable only via a
+  // dependsOn edge, and `validateGraph` rejects an edge to a non-runnable target
+  // — so a miss is a defensive throw, not a user-facing path. The alternative
+  // (the old code) fabricated `http://host:undefined/health` and gated on it.
+  const unit = unitByKey(manifest, service);
+  if (!unit) {
+    throw new Error(`service "${service}" is not a runnable service in the manifest`);
   }
-  const svc = repo.service;
+  const repo = unit.repoDef;
+  const svc = unit.def;
+  // ONE baseline checkout per repository (sibling services share it), so the
+  // checkout and its start lock are named for the repo, not the unit.
+  const repoName = unit.repo;
 
   const httpSlot = svc.ports.find((p) => p.name === 'http') ?? svc.ports[0]!;
   const port = httpSlot.default;
@@ -372,7 +377,7 @@ async function startBaseline(
   const lockWaitMs = wait.lockWaitMs ?? START_LOCK_WAIT_MS;
   const sleep = wait.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const deadline = Date.now() + lockWaitMs;
-  let acquired = acquireBaselineStartLock(repo.repoPath, service);
+  let acquired = acquireBaselineStartLock(repo.repoPath, repoName);
   while (!acquired) {
     const other = await findRunningBaseline(store, service, facts, debug);
     if (other) {
@@ -388,7 +393,7 @@ async function startBaseline(
       throw new Error(`baseline "${service}" is already starting in another window`);
     }
     await sleep(Math.min(START_LOCK_POLL_MS, Math.max(1, deadline - Date.now())));
-    acquired = acquireBaselineStartLock(repo.repoPath, service);
+    acquired = acquireBaselineStartLock(repo.repoPath, repoName);
   }
   try {
     // Re-check after taking the lock: the other window may have finished its
@@ -398,14 +403,33 @@ async function startBaseline(
 
     const { dir: checkout, created, startRef } = await ensureBaselineCheckout(
       repo.repoPath,
-      service,
+      repoName,
       resolveBaselineBranch(manifest, repo),
       debug,
     );
     // Safe to rewrite: we hold the lock (no other window is starting) and the
     // re-check above proved no live baseline row exists for this checkout.
-    if (!created) await refreshBaselineCheckout(checkout, service, startRef, debug);
+    // Sibling services of one repository share this checkout. Refreshing it
+    // rewrites tracked files under a sibling that is already serving from it, so
+    // refresh only when no sibling baseline is running (the lock keeps the check
+    // and the rewrite atomic against other windows).
+    if (!created) {
+      let siblingRunning = false;
+      for (const sib of unitsOf(repoName, repo)) {
+        if (sib.key === service) continue;
+        if (await findRunningBaseline(store, sib.key, facts, debug)) {
+          siblingRunning = true;
+          break;
+        }
+      }
+      if (siblingRunning) {
+        debug?.(`[runtime] baseline ${service}: sibling service is serving the shared checkout — not refreshing`);
+      } else {
+        await refreshBaselineCheckout(checkout, repoName, startRef, debug);
+      }
+    }
 
+    const runDir = svc.cwd ? join(checkout, svc.cwd) : checkout;
     const env = { [httpSlot.env]: String(port) };
     // A baseline runs whatever kind of service the manifest declares — a command
     // or a container — through the same derivation spin uses, so the singleton can
@@ -417,17 +441,17 @@ async function startBaseline(
       env,
       host: manifest.host,
       port,
-      cwd: checkout,
+      cwd: runDir,
     });
 
-    debug?.(`[runtime] baseline ${service}: starting on ${manifest.host}:${port} from ${checkout}`);
+    debug?.(`[runtime] baseline ${service}: starting on ${manifest.host}:${port} from ${runDir}`);
     return await startHot(store, {
       ticketId: null, // baseline singleton
       service,
       command,
       args,
       container,
-      cwd: checkout,
+      cwd: runDir,
       env,
       host: manifest.host,
       port,
@@ -437,7 +461,7 @@ async function startBaseline(
       repoPath: repo.repoPath,
     });
   } finally {
-    releaseBaselineStartLock(repo.repoPath, service);
+    releaseBaselineStartLock(repo.repoPath, repoName);
   }
 }
 

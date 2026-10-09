@@ -17,6 +17,7 @@ import {
   repo as buildRepo,
   runnableRepo,
   slot,
+  svc as buildService,
 } from '../manifest/fixtures.js';
 
 /** A runnable repository — the default most of these cases want. */
@@ -908,6 +909,23 @@ describe('renderTicketContext', () => {
     expect(md).not.toContain('## Services');
     expect(md).toContain('- frontend: /repos/frontend (start: `npm run dev`)');
     expect(md).toContain('- docs: /repos/docs (no service — not runnable)');
+  });
+
+  it('lists each service of a multi-service repository with its cwd when set', () => {
+    const t = createTicket(store, { key: 'P-4', title: 'x' });
+    updateTicketFields(store, t.id, { selectedRepos: ['mono'] });
+    const mono = buildRepo({
+      repoPath: '/repos/mono',
+      services: {
+        web: buildService({ start: 'npm run dev', cwd: 'apps/web' }),
+        api: buildService({ start: 'go run .' }),
+      },
+    });
+    const md = renderTicketContext(buildTicketContext(store, manifest({ mono }), t.id));
+
+    expect(md).toContain('- mono/web: /repos/mono (start: `npm run dev`, cwd: apps/web)');
+    expect(md).toContain('- mono/api: /repos/mono (start: `go run .`)');
+    expect(md).not.toContain('- mono:');
   });
 
   it('omits empty sections and falls back to the heading for an empty ticket', () => {

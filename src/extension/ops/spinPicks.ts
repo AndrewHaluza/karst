@@ -10,7 +10,7 @@
  */
 
 import type { Manifest } from '../../manifest/types.js';
-import { serviceOf } from '../../manifest/runnable.js';
+import { isRunnable } from '../../manifest/runnable.js';
 
 export interface SpinPick {
   readonly label: string;
@@ -33,13 +33,11 @@ export function spinRepoPicks(
   remembered: string[] | undefined,
   options: SpinPickOptions,
 ): SpinPick[] {
-  return Object.keys(manifest.repositories)
-    .filter((name) => !options.servicesOnly || serviceOf(manifest, name) !== undefined)
-    .map((name) => ({
+  return Object.entries(manifest.repositories)
+    .filter(([, repo]) => !options.servicesOnly || isRunnable(repo))
+    .map(([name, repo]) => ({
       label: name,
-      description: serviceOf(manifest, name) !== undefined
-        ? undefined
-        : 'no service — worktree only',
+      description: isRunnable(repo) ? undefined : 'no service — worktree only',
       picked: remembered ? remembered.includes(name) : true,
     }));
 }

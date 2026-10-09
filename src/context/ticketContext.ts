@@ -35,8 +35,8 @@ import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
 import { latestStageRun, previousStageRun } from '../store/stageRuns.js';
 import { isMarkerStage } from '../agent/markerStage.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES } from '../agent/promptText.js';
-import type { Manifest } from '../manifest/types.js';
-import { isRunnable } from '../manifest/runnable.js';
+import type { Manifest, RepositoryDef } from '../manifest/types.js';
+import { unitsOf } from '../manifest/runnable.js';
 
 export interface TicketContextWorktree {
   repo: string;
@@ -258,6 +258,8 @@ export interface TicketContextRepo {
   repoPath?: string;
   start?: string;
   health?: string;
+  /** The folder the service starts from, relative to the repository, when set. */
+  cwd?: string;
   /** False when the repository declares no service. Stated, never inferred. */
   runnable: boolean;
   /** True when the selected name has no manifest entry. */
@@ -339,6 +341,28 @@ function relevantStageRow(t: TicketWithStages): TicketWithStages['stages'][numbe
 }
 
 /**
+ * The rows one selected repository contributes: one per runnable service (a
+ * multi-service repository names each `repo/service`), or a single row that
+ * states the repository has no service, or that it is missing from the manifest.
+ */
+function repoRows(name: string, def: RepositoryDef | undefined): TicketContextRepo[] {
+  if (!def) return [{ name, runnable: false, unknown: true }];
+  const units = unitsOf(name, def);
+  if (units.length === 0) {
+    return [{ name, repoPath: def.repoPath, runnable: false, unknown: false }];
+  }
+  return units.map((u) => ({
+    name: u.key,
+    repoPath: def.repoPath,
+    runnable: true,
+    unknown: false,
+    start: u.def.start,
+    ...(u.def.health !== undefined ? { health: u.def.health } : {}),
+    ...(u.def.cwd !== undefined ? { cwd: u.def.cwd } : {}),
+  }));
+}
+
+/**
  * Aggregate all ticket-implementation data by id. Pure over the injected store
  * and manifest — no fs, no vscode. `manifest` is optional (absent at some launch
  * paths) → every selected repo renders as unknown rather than vanishing.
@@ -361,19 +385,9 @@ export function buildTicketContext(
   const mergeChecks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
 
   const defs = manifest?.repositories ?? {};
-  const repos: TicketContextRepo[] = t.selectedRepos.map((name) => {
-    const def = defs[name];
-    if (!def) return { name, runnable: false, unknown: true };
-    const service = isRunnable(def) ? def.service : undefined;
-    return {
-      name,
-      repoPath: def.repoPath,
-      runnable: service !== undefined,
-      unknown: false,
-      ...(service ? { start: service.start } : {}),
-      ...(service?.health !== undefined ? { health: service.health } : {}),
-    };
-  });
+  const repos: TicketContextRepo[] = t.selectedRepos.flatMap((name) =>
+    repoRows(name, defs[name]),
+  );
 
   // A follow-up carries its parent's brief and shipped PRs so the new session
   // starts from what was already learned instead of re-researching it
@@ -761,8 +775,9 @@ export function renderTicketContext(
     const rows = ctx.repos.map((r) => {
       if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
       if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
+      const cwd = r.cwd !== undefined ? `, cwd: ${r.cwd}` : '';
       const health = r.health ? `, health: ${r.health}` : '';
-      return `- ${r.name}: ${r.repoPath} (start: \`${r.start}\`${health})`;
+      return `- ${r.name}: ${r.repoPath} (start: \`${r.start}\`${cwd}${health})`;
     });
     parts.push(`## Repositories in scope\n${rows.join('\n')}`);
   }

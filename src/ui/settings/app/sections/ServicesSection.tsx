@@ -4,84 +4,67 @@
  *
  * Ported one-to-one from the vanilla `renderServices()` family. The behaviours
  * that are easy to lose, and where each one lives (`serviceDraft.ts` holds the
- * pure rules):
+ * pure rules, `ServiceFields.tsx` the per-service editor):
  *
  * - **`repositories` is SPREAD, never rebuilt.** The host's `mergeSection`
  *   deletes a field the incoming manifest no longer carries, so a rebuilt map
- *   drops every repository this tab does not render — silently deleting
- *   configuration (D1/D3, the same rule as Git's `conventions` and Agents'
- *   `processes`).
+ *   drops every repository this tab does not render (D1/D3, the same rule as Git's
+ *   `conventions` and Agents' `processes`).
  * - **A DRAFT repository is a DISABLED one.** Add creates no `service` key and
  *   `enabled: false`; the system never uses a disabled repository, so an
- *   incomplete one is a valid manifest. The old default built an empty
- *   start/ports shape, which is what made a placeholder command the path of least
- *   resistance.
+ *   incomplete one is a valid manifest.
  * - **A rename is a RE-KEY**, repointing every `dependsOn.target` that named the
  *   old name — otherwise a dependency points at a repository that no longer
  *   exists.
+ * - **Two shapes, kept as written.** A repository is either the `service:`
+ *   shorthand (ONE service, edited exactly as before) or the `services:` map (each
+ *   entry its own block, with a name and a `cwd`). The shorthand offers an explicit
+ *   "Split into several services"; the map never collapses back on its own.
  * - **Runtime fields render only when there IS a service.** An empty "Start
  *   command" box is what used to invite a fake value.
  * - **An empty port list is NOT "nothing happens".** The host falls back to
- *   probing `package.json`, so the empty state says which fallback applies. The
- *   same applies to an empty override, which is indistinguishable from no
- *   override.
+ *   probing `package.json`, so the empty state says which fallback applies.
  * - **The folder picker is the REDUCER's job.** `repo-path-picked` applies the
- *   path AND marks the field touched, so this component never re-applies it — a
- *   component that re-applied it would mark a field the user never focused.
+ *   path AND marks the field touched, so this component never re-applies it.
  *
  * Faults: `parseRepoFieldError` maps a repository fault to `<name>.<field>`, and
  * a mapped fault stays SILENT until the user has touched that exact field — so a
  * freshly added repository shows no error before anyone has typed anything.
  *
- * **Gates and gate overrides are NOT here.** They live on the Quality tab and
- * were ported in phase 3 step 2 (`QualitySection.tsx`), which owns
- * `remove-gate` and `remove-override`. This tab owns the other five members.
- *
- * Async lifecycle: there is none here — every control is a draft edit, and the
- * host's Save/validate lifecycle belongs to the shell. No `useHostMutation` call
- * is needed and none is invented.
+ * **Gates and gate overrides are NOT here.** They live on the Quality tab.
  */
 import { useMemo, useState } from 'react';
-import type {
-  DependsOn,
-  PortSlot,
-  RepositoryDef,
-  ServiceDef,
-} from '../../../../manifest/types.js';
+import type { Manifest, RepositoryDef, ServiceDef } from '../../../../manifest/types.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
-import {
-  manifestFaultDetail,
-  parseRepoFieldError,
-  shouldShowBanner,
-} from '../diagnostics.js';
+import { manifestFaultDetail, parseRepoFieldError, shouldShowBanner } from '../diagnostics.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { Switch } from '../primitives/Switch.js';
 import { Chip } from '../primitives/Chip.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
+import { ServiceFields } from './ServiceFields.js';
 import {
-  addPort,
+  addService,
   addSignal,
   baselineFor,
-  dependencyTargets,
-  emptyPortsNotice,
+  dependencyTargetsFor,
+  isMultiService,
   isRunnable,
   newRepository,
   nextRepositoryName,
-  portDefault,
-  portsOf,
-  removePort,
+  nextServiceName,
+  portsOfTarget,
+  removeService,
   removeSignal,
   renameRepository,
+  renameServiceInDraft,
   repositoryNames,
   runtimeBadge,
-  writePort,
+  splitToServices,
   writeRepository,
   writeRepositoryField,
+  writeService,
 } from './serviceDraft.js';
-
-/** Stable identity for "no ports declared", so the empty branch is a value test. */
-const NO_PORTS: readonly PortSlot[] = [];
 
 export function ServicesSection() {
   const { state, edit, send, touch } = useSettingsApp();
@@ -101,9 +84,7 @@ export function ServicesSection() {
 
   const add = (): void => {
     const name = nextRepositoryName(draft);
-    edit((current) =>
-      writeRepository(current, name, { ...newRepository(), name } as RepositoryDef),
-    );
+    edit((current) => writeRepository(current, name, { ...newRepository(), name } as RepositoryDef));
     // The new card opens itself — the user just created it.
     setOpen((prev) => new Set(prev).add(name));
   };
@@ -158,9 +139,9 @@ export function ServicesSection() {
             key={name}
             name={name}
             repo={(draft.repositories ?? {})[name] as RepositoryDef}
+            draft={draft}
             isOpen={open.has(name)}
             projectBaseline={draft.baselineBranch}
-            others={dependencyTargets(draft, name)}
             onToggle={() => toggle(name)}
             onWrite={(patch) => edit((current) => writeRepositoryField(current, name, patch))}
             onReplace={(next) => edit((current) => writeRepository(current, name, next))}
@@ -170,10 +151,13 @@ export function ServicesSection() {
               // old value, exactly as the vanilla view does.
               if (renamed) edit(() => renamed);
             }}
+            onRenameService={(service, raw) => {
+              const renamed = renameServiceInDraft(draft, name, service, raw);
+              if (renamed) edit(() => renamed);
+            }}
             onRemove={() => edit((current) => writeRepository(current, name, null))}
-            onTouch={(key) => touch(`${name}.${key}`)}
+            onTouch={touch}
             onBrowsePath={() => send.browseRepoPath(name)}
-            targetPorts={(target) => portsOf(draft, target)}
             fieldError={fieldError}
           />
         ))}
@@ -186,49 +170,47 @@ export function ServicesSection() {
 function RepositoryCard({
   name,
   repo,
+  draft,
   isOpen,
   projectBaseline,
-  others,
   onToggle,
   onWrite,
   onReplace,
   onRename,
+  onRenameService,
   onRemove,
   onTouch,
   onBrowsePath,
-  targetPorts,
   fieldError,
 }: {
   readonly name: string;
   readonly repo: RepositoryDef;
+  readonly draft: Manifest;
   readonly isOpen: boolean;
   readonly projectBaseline: string | undefined;
-  readonly others: readonly string[];
   readonly onToggle: () => void;
   readonly onWrite: (patch: Partial<RepositoryDef>) => void;
   readonly onReplace: (next: RepositoryDef) => void;
   readonly onRename: (raw: string) => void;
+  readonly onRenameService: (service: string, raw: string) => void;
   readonly onRemove: () => void;
+  /** Takes the full `<repo>.<field>` (or `<repo>/<service>.<field>`) key. */
   readonly onTouch: (key: string) => void;
   readonly onBrowsePath: () => void;
-  readonly targetPorts: (target: string) => readonly string[];
   readonly fieldError: (key: string) => string | undefined;
 }) {
   const runnable = isRunnable(repo);
   const enabled = repo.enabled !== false;
-  // `NO_PORTS` keeps a stable identity when there are no ports, so the empty
-  // branch below is a value comparison rather than a truthiness test.
-  const ports: readonly PortSlot[] = repo.service?.ports ?? NO_PORTS;
+  const targetsFor = (ownerKey: string): readonly string[] => dependencyTargetsFor(draft, ownerKey);
+  const targetPorts = (target: string): readonly string[] => portsOfTarget(draft, target);
 
   return (
     <div className={`card ${isOpen ? 'open is-selected' : ''}`} data-card={name}>
       <div className="card-head roster-row repo-cols">
         {/*
-          The disclosure is a real `<button aria-expanded>`, not the whole row —
-          it used to be a bare div with `cursor:pointer`, no role and no keydown
-          handler, which made the accordion entirely unusable by keyboard (UI-R09).
-          The enable switch and Remove are SIBLINGS of the toggle, never
-          descendants, so no interactive control nests inside another.
+          The disclosure is a real `<button aria-expanded>`, not the whole row — the
+          accordion is keyboard-usable (UI-R09). The enable switch and Remove are
+          SIBLINGS of the toggle, never descendants.
         */}
         <button
           type="button"
@@ -291,7 +273,7 @@ function RepositoryCard({
             value: repo.repoPath,
             placeholder: `/Users/you/code/${name}`,
             onChange: (value) => {
-              onTouch('repoPath');
+              onTouch(`${name}.repoPath`);
               onWrite({ repoPath: value });
             },
           }}
@@ -330,196 +312,42 @@ function RepositoryCard({
               onWrite(
                 checked
                   ? ({ service: { start: '', ports: [], dependsOn: [] } } as unknown as Partial<RepositoryDef>)
-                  : { service: undefined },
+                  : { service: undefined, services: undefined },
               ),
           }}
         />
 
-        {runnable && repo.service ? (
+        {isMultiService(repo) ? (
+          <ServiceEntries
+            name={name}
+            repo={repo}
+            targetsFor={targetsFor}
+            targetPorts={targetPorts}
+            fieldError={fieldError}
+            onTouch={onTouch}
+            onReplace={onReplace}
+            onRenameService={onRenameService}
+          />
+        ) : runnable && repo.service ? (
           <>
-            <Field
-              label="Run a Docker image"
-              help="On, karst runs a container instead of a command in the worktree, publishes your allocated port onto it, and removes it when the ticket is torn down."
-              control={{
-                kind: 'checkbox',
-                name: `f-svc-docker-mode-${name}`,
-                checked: Boolean(repo.service.docker),
-                onChange: (checked) =>
-                  onWrite({
-                    service: {
-                      ...repo.service,
-                      docker: checked
-                        ? ({ image: '', containerPort: 0 } as unknown as ServiceDef['docker'])
-                        : undefined,
-                    } as ServiceDef,
-                  }),
-              }}
-            />
-            {repo.service.docker ? (
-              <Field
-                label="Image"
-                error={fieldError(`${name}.docker.image`)}
-                control={{
-                  kind: 'input',
-                  name: `f-svc-docker-image-${name}`,
-                  value: repo.service.docker.image ?? '',
-                  placeholder: 'postgres:16',
-                  onChange: (value) => {
-                    onTouch('docker.image');
-                    onWrite({
-                      service: {
-                        ...repo.service,
-                        docker: { ...(repo.service?.docker ?? { containerPort: 0 }), image: value },
-                      } as ServiceDef,
-                    });
-                  },
-                }}
-              />
-            ) : (
-              <Field
-                label="Start command"
-                error={fieldError(`${name}.start`)}
-                control={{
-                  kind: 'input',
-                  name: `f-svc-start-${name}`,
-                  value: repo.service.start ?? '',
-                  placeholder: 'npm run dev',
-                  onChange: (value) => {
-                    onTouch('start');
-                    onWrite({ service: { ...repo.service, start: value } as ServiceDef });
-                  },
-                }}
-              />
-            )}
-            <Field
-              label="Health check"
-              error={fieldError(`${name}.health`)}
-              control={{
-                kind: 'input',
-                name: `f-svc-health-${name}`,
-                value: repo.service.health ?? '',
-                placeholder: 'http://{host}:{port}/health',
-                onChange: (value) => {
-                  onTouch('health');
-                  onWrite({ service: { ...repo.service, health: value } as ServiceDef });
-                },
-              }}
-            />
-            <Field
-              label="Verify instance identity"
-              help="The service must echo KARST_INSTANCE_TOKEN back in the X-Karst-Instance header. Without it any 200 on the port counts as healthy — including another worktree's service."
-              control={{
-                kind: 'checkbox',
-                name: `f-svc-health-identity-${name}`,
-                checked: repo.service.healthIdentity === true,
-                onChange: (checked) =>
-                  onWrite({ service: { ...repo.service, healthIdentity: checked } as ServiceDef }),
-              }}
-            />
-
-            <h2>Ports</h2>
-            <PortRange
-              name={name}
-              range={repo.service.portRange}
+            <ServiceFields
+              scope={name}
+              keyPrefix={name}
+              def={repo.service}
+              others={targetsFor(name)}
+              targetPorts={targetPorts}
               fieldError={fieldError}
               onTouch={onTouch}
-              onChange={(range) =>
-                onWrite({ service: { ...repo.service, portRange: range } as ServiceDef })
-              }
+              onDef={(next) => onWrite({ service: next })}
             />
-            {/*
-              An EMPTY port list is not "nothing happens": the host falls back to
-              probing the repository's package.json scripts, so the empty state
-              says which fallback applies rather than showing a blank table.
-            */}
-            {ports.length === 0 ? (
-              <div className="k-empty">
-                <div className="k-empty-title">{emptyPortsNotice(repo)}</div>
-              </div>
-            ) : (
-              <table className="sub">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Env</th>
-                    <th>Default</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {ports.map((port, index) => (
-                    <tr key={`${name}-port-${index}-${port.name}`}>
-                      <td>
-                        <Field
-                          label={<span className="sr-only">{`Port ${index + 1} name`}</span>}
-                          control={{
-                            kind: 'input',
-                            name: `f-svc-port-${name}-${index}-name`,
-                            value: port.name,
-                            placeholder: 'http',
-                            onChange: (value) =>
-                              onReplace(writePort(repo, index, { name: value })),
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <Field
-                          label={<span className="sr-only">{`Port ${index + 1} environment variable`}</span>}
-                          control={{
-                            kind: 'input',
-                            name: `f-svc-port-${name}-${index}-env`,
-                            value: port.env,
-                            placeholder: 'PORT',
-                            onChange: (value) => onReplace(writePort(repo, index, { env: value })),
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <Field
-                          label={<span className="sr-only">{`Port ${index + 1} default value`}</span>}
-                          control={{
-                            kind: 'input',
-                            type: 'number',
-                            name: `f-svc-port-${name}-${index}-default`,
-                            value: String(port.default ?? ''),
-                            placeholder: '3000',
-                            onChange: (value) =>
-                              onReplace(
-                                writePort(repo, index, { default: portDefault(value) }),
-                              ),
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <DestructiveButton
-                          action="remove-port"
-                          size="sm"
-                          aria-label={`Remove port ${index + 1}`}
-                          title={`Remove port ${index + 1}`}
-                          onClick={() => onReplace(removePort(repo, index))}
-                        >
-                          &times;
-                        </DestructiveButton>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-            <Button variant="secondary" size="sm" onClick={() => onReplace(addPort(repo))}>
-              + Add port
+            {/* The explicit, one-way conversion to the named map (never automatic). */}
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => onReplace(splitToServices(repo, name))}
+            >
+              Split into several services
             </Button>
-
-            <h2>Depends on</h2>
-            <Dependencies
-              name={name}
-              deps={repo.service.dependsOn ?? []}
-              others={others}
-              targetPorts={targetPorts}
-              onWrite={(deps) =>
-                onWrite({ service: { ...repo.service, dependsOn: deps } as ServiceDef })
-              }
-            />
           </>
         ) : null}
 
@@ -546,240 +374,93 @@ function RepositoryCard({
   );
 }
 
-/** The per-service port allocation window; blank inherits the global range. */
-function PortRange({
+/**
+ * The `services:` map: one block per service, each with its own name and `cwd`
+ * (UI-R10b: removing a service is irreversible, so it takes the danger treatment).
+ * Names are validated by `renameServiceInDraft`, which refuses an illegal or
+ * duplicate name and leaves the draft alone.
+ */
+function ServiceEntries({
   name,
-  range,
+  repo,
+  targetsFor,
+  targetPorts,
   fieldError,
   onTouch,
-  onChange,
+  onReplace,
+  onRenameService,
 }: {
   readonly name: string;
-  readonly range: readonly [number, number] | undefined;
+  readonly repo: RepositoryDef;
+  readonly targetsFor: (ownerKey: string) => readonly string[];
+  readonly targetPorts: (target: string) => readonly string[];
   readonly fieldError: (key: string) => string | undefined;
   readonly onTouch: (key: string) => void;
-  readonly onChange: (next: [number, number] | undefined) => void;
+  readonly onReplace: (next: RepositoryDef) => void;
+  readonly onRenameService: (service: string, raw: string) => void;
 }) {
-  const min = range ? String(range[0]) : '';
-  const max = range ? String(range[1]) : '';
-  const error = fieldError(`${name}.portRange`);
   return (
     <>
-      <div className="form-grid">
-        <Field
-          label="Port range minimum (blank inherits global)"
-          error={error}
-          control={{
-            kind: 'input',
-            type: 'number',
-            name: `f-svc-port-min-${name}`,
-            value: min,
-            placeholder: 'min',
-            onChange: (value) => {
-              onTouch('portRange');
-              const lo = portDefault(value);
-              const hi = portDefault(max);
-              onChange(lo === undefined || hi === undefined ? undefined : [lo, hi]);
-            },
-          }}
-        />
-        <Field
-          label="Port range maximum"
-          error={error}
-          control={{
-            kind: 'input',
-            type: 'number',
-            name: `f-svc-port-max-${name}`,
-            value: max,
-            placeholder: 'max',
-            onChange: (value) => {
-              onTouch('portRange');
-              const hi = portDefault(value);
-              const lo = portDefault(min);
-              onChange(lo === undefined || hi === undefined ? undefined : [lo, hi]);
-            },
-          }}
-        />
-      </div>
-    </>
-  );
-}
-
-/**
- * The dependency list: each row names a target repository, a port on it, and the
- * binds that fill the target's environment.
- *
- * When nothing else is runnable there is nothing to depend on, and the Add
- * control says so rather than offering a list of empty options.
- */
-function Dependencies({
-  name,
-  deps,
-  others,
-  targetPorts,
-  onWrite,
-}: {
-  readonly name: string;
-  readonly deps: readonly DependsOn[];
-  readonly others: readonly string[];
-  readonly targetPorts: (target: string) => readonly string[];
-  readonly onWrite: (next: readonly DependsOn[]) => void;
-}) {
-  const add = (): void =>
-    onWrite([
-      ...deps.map((d) => ({ ...d, bind: [...d.bind] })),
-      { target: others[0] ?? '', port: targetPorts(others[0] ?? '')[0] ?? '', bind: [] },
-    ]);
-
-  if (others.length === 0) {
-    return (
-      <>
-        <div className="k-empty">
-          <div className="k-empty-title">No other runnable repositories to depend on.</div>
-        </div>
-        <Button variant="secondary" size="sm" disabled title="No other runnable repositories to depend on">
-          + Add dependency
-        </Button>
-      </>
-    );
-  }
-
-  return (
-    <>
-      {deps.map((dep, i) => {
-        const ports = targetPorts(dep.target);
+      {Object.entries(repo.services ?? {}).map(([svc, def]: [string, ServiceDef]) => {
+        const scope = `${name}-${svc}`;
+        // A map entry's fault namespace is `repo/service`, which no parsed fault
+        // names, so its errors stay unmapped rather than landing on the repo's fields.
+        const keyPrefix = `${name}/${svc}`;
         return (
-          <div key={`${name}-dep-${i}-${dep.target}`} className="card" data-dep-card={i}>
+          <div key={svc} className="card" data-service-card={svc}>
             <div className="card-body">
-              <div className="row">
-                <Field
-                  label={<span className="sr-only">{`Dependency ${i + 1} target repository`}</span>}
-                  control={{
-                    kind: 'select',
-                    name: `f-dep-${name}-${i}-target`,
-                    value: dep.target,
-                    options: others.map((n) => ({ value: n, label: n })),
-                    onChange: (target) =>
-                      onWrite(
-                        deps.map((d, j) =>
-                          j === i ? { ...d, target, port: targetPorts(target)[0] ?? '' } : { ...d, bind: [...d.bind] },
-                        ),
-                      ),
-                  }}
-                />
-                <Field
-                  label={<span className="sr-only">{`Dependency ${i + 1} port`}</span>}
-                  control={{
-                    kind: 'select',
-                    name: `f-dep-${name}-${i}-port`,
-                    value: dep.port,
-                    // A saved port the target no longer declares keeps its own
-                    // option, so the dependency stays visible instead of
-                    // silently reverting to the first port.
-                    options: [
-                      ...(dep.port !== '' && !ports.includes(dep.port)
-                        ? [{ value: dep.port, label: dep.port }]
-                        : []),
-                      ...ports.map((p) => ({ value: p, label: p })),
-                    ],
-                    onChange: (port) =>
-                      onWrite(deps.map((d, j) => (j === i ? { ...d, port } : { ...d, bind: [...d.bind] }))),
-                  }}
-                />
-                <DestructiveButton
-                  action="remove-dependency"
-                  size="sm"
-                  onClick={() =>
-                    onWrite(deps.filter((_, j) => j !== i).map((d) => ({ ...d, bind: [...d.bind] })))
-                  }
-                >
-                  Remove
-                </DestructiveButton>
-              </div>
-              {dep.bind.map((bind, bi) => (
-                <div key={`${name}-bind-${i}-${bi}-${bind.env}`} className="bind-row">
-                  <Field
-                    label={<span className="sr-only">{`Dependency ${i + 1} bind ${bi + 1} environment variable`}</span>}
-                    control={{
-                      kind: 'input',
-                      name: `f-bind-${name}-${i}-${bi}-env`,
-                      value: bind.env,
-                      placeholder: 'env',
-                      onChange: (value) =>
-                        onWrite(
-                          deps.map((d, j) =>
-                            j === i
-                              ? {
-                                  ...d,
-                                  bind: d.bind.map((b, k) =>
-                                    k === bi ? { ...b, env: value } : b,
-                                  ),
-                                }
-                              : { ...d, bind: [...d.bind] },
-                          ),
-                        ),
-                    }}
-                  />
-                  <Field
-                    label={<span className="sr-only">{`Dependency ${i + 1} bind ${bi + 1} template`}</span>}
-                    control={{
-                      kind: 'input',
-                      name: `f-bind-${name}-${i}-${bi}-template`,
-                      value: bind.template,
-                      placeholder: 'template, e.g. http://{host}:{port}',
-                      onChange: (value) =>
-                        onWrite(
-                          deps.map((d, j) =>
-                            j === i
-                              ? {
-                                  ...d,
-                                  bind: d.bind.map((b, k) =>
-                                    k === bi ? { ...b, template: value } : b,
-                                  ),
-                                }
-                              : { ...d, bind: [...d.bind] },
-                          ),
-                        ),
-                    }}
-                  />
-                  <DestructiveButton
-                    action="remove-binding"
-                    size="sm"
-                    aria-label={`Remove bind ${bi + 1}`}
-                    title={`Remove bind ${bi + 1}`}
-                    onClick={() =>
-                      onWrite(
-                        deps.map((d, j) =>
-                          j === i
-                            ? { ...d, bind: d.bind.filter((_, k) => k !== bi) }
-                            : { ...d, bind: [...d.bind] },
-                        ),
-                      )
-                    }
-                  >
-                    &times;
-                  </DestructiveButton>
-                </div>
-              ))}
-              <Button
-                variant="secondary"
+              <Field
+                label="Service name"
+                help="Unique within this repository. Letters, digits, dot, underscore and dash."
+                control={{
+                  kind: 'input',
+                  name: `f-svc-entry-name-${scope}`,
+                  value: svc,
+                  placeholder: 'web',
+                  onChange: (raw) => onRenameService(svc, raw),
+                }}
+              />
+              <Field
+                label="Working directory (blank runs from the repository root)"
+                help="Relative to the repository root, e.g. apps/web. No .. and no leading slash."
+                control={{
+                  kind: 'input',
+                  name: `f-svc-cwd-${scope}`,
+                  value: def.cwd ?? '',
+                  placeholder: 'apps/web',
+                  onChange: (value) =>
+                    onReplace(writeService(repo, svc, { cwd: value === '' ? undefined : value })),
+                }}
+              />
+              <ServiceFields
+                scope={scope}
+                keyPrefix={keyPrefix}
+                def={def}
+                others={targetsFor(keyPrefix)}
+                targetPorts={targetPorts}
+                fieldError={fieldError}
+                onTouch={onTouch}
+                onDef={(next) => onReplace(writeService(repo, svc, next))}
+              />
+              <DestructiveButton
+                action="remove-service"
                 size="sm"
-                onClick={() =>
-                  onWrite(
-                    deps.map((d, j) =>
-                      j === i ? { ...d, bind: [...d.bind, { env: '', template: '' }] } : { ...d, bind: [...d.bind] },
-                    ),
-                  )
-                }
+                aria-label={`Remove service ${svc}`}
+                title={`Remove service ${svc}`}
+                onClick={() => onReplace(removeService(repo, svc))}
               >
-                + Add bind
-              </Button>
+                Remove service
+              </DestructiveButton>
             </div>
           </div>
         );
       })}
-      <Button variant="secondary" size="sm" onClick={add}>
-        + Add dependency
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={() => onReplace(addService(repo, nextServiceName(repo)))}
+      >
+        + Add service
       </Button>
     </>
   );

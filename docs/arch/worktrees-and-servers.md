@@ -5,6 +5,7 @@ How a ticket's worktree is cut and named, and how the processes running inside i
 ## Contents
 
 - Repository ENTRIES may share a repoPath
+- Services of one repository share ONE worktree, each runs from its `cwd`
 - Git conventions have TWO renderers
 - Three renderers, ONE placeholder grammar
 - A branch name is rendered once, at worktree creation
@@ -20,6 +21,10 @@ How a ticket's worktree is cut and named, and how the processes running inside i
 ## Repository ENTRIES may share a `repoPath`
 
 Repository ENTRIES may share a `repoPath` — that's a monorepo with several runnable processes. The worktree slug is per-TICKET, not per-repository (`worktreeSlug`, key-or-id + title), so entries sharing a repoPath intentionally resolve to one worktree — that is the designed outcome, not a collision. `spin.ts` (`worktreeByRepo`), `preflight.ts` (both the repo-check loop and the target-check loop), and `scope.ts`'s `confirmScope` all dedup their worktree-creation loops by `repoPath` for exactly this reason — restore these dedups if you touch that code; do not reintroduce a reject-on-shared-repoPath check in `manifest/validate/graph.ts`. Port allocation and the `servers` table are keyed by repository NAME, not repoPath.
+
+## Services of one repository share ONE worktree, each runs from its `cwd`
+
+A repository's `services:` map (see `docs/arch/manifest-and-settings.md`) yields several units that all resolve to the same repo, so they share the ticket's single worktree. The unit's `cwd` is joined to the worktree root to get its spawn directory. The `cwd` rules (relative, no `..`, no absolute) are enforced at load, not here, so the spawn path can trust it. Ports are allocated per unit: each service's `portRange` (or the global one) bounds its own allocation, and siblings never receive the same port. Log files stay under `<cwd>/.karst/logs/`, so the root-level rule below still holds.
 
 ## Git conventions have TWO renderers, and the split is deliberate
 

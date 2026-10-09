@@ -5,6 +5,17 @@ import type { Store } from '../../store/db.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
 import { canonicalPath } from '../../runtime/pathScope.js';
+import { isRunnable, resolveTarget, unitsOf } from '../../manifest/runnable.js';
+
+/**
+ * The repository a `dependsOn.target` (`repo` or `repo/service`) belongs to.
+ * An unresolvable target falls back to its text before the first `/`, so a
+ * dangling relation still names the repository it was written against.
+ */
+function repositoryOfTarget(manifest: Manifest, target: string): string {
+  const resolved = resolveTarget(manifest.repositories, target);
+  return 'unit' in resolved ? resolved.unit.repo : target.split('/')[0]!;
+}
 
 export interface ReviewWorktree {
   /** Repository path persisted on the worktree row. */
@@ -358,8 +369,13 @@ export async function selectReviewTargets(
   while (expanded) {
     expanded = false;
     for (const [name, repository] of Object.entries(manifest.repositories)) {
-      if (affected.has(name) || repository.enabled === false || !repository.service) continue;
-      if (repository.service.dependsOn.some((relation) => affected.has(relation.target))) {
+      if (affected.has(name) || repository.enabled === false || !isRunnable(repository)) continue;
+      const dependsOnAffected = unitsOf(name, repository).some((unit) =>
+        unit.def.dependsOn.some((relation) =>
+          affected.has(repositoryOfTarget(manifest, relation.target)),
+        ),
+      );
+      if (dependsOnAffected) {
         options?.debug?.(
           `[gate] targets: expanded '${name}' — depends on a changed target`,
         );

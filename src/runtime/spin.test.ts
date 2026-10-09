@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { expandEnvTokens, allocationRanges, hotRepoPaths, mergeRanges } from './spin.js';
-import { manifest, repo, runnableRepo } from '../manifest/fixtures.js';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { expandEnvTokens, allocationRanges, hotRepoPaths, mergeRanges, spinTicket } from './spin.js';
+import { manifest, repo, runnableRepo, svc, httpSlot, dependsOn } from '../manifest/fixtures.js';
+import { openStore } from '../store/db.js';
+import { createWorktree } from './worktree.js';
+import { startResolvedService } from './startService.js';
 
 describe('expandEnvTokens', () => {
   const env = { PORT: '4001', HOST: '127.0.0.1' };
@@ -136,5 +139,78 @@ describe('mergeRanges', () => {
 
   it('is empty for no ranges', () => {
     expect(mergeRanges([])).toEqual([]);
+  });
+});
+
+describe('spinTicket — multi-service repositories', () => {
+  // A unit test: git, the port probe and the process spawner are all replaced,
+  // so only the spin's own sequencing (one worktree per repo, services of one
+  // repo sharing it, each started in its own cwd) is exercised.
+  vi.mock('./worktree.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./worktree.js')>();
+    return { ...actual, createWorktree: vi.fn(), removeWorktree: vi.fn() };
+  });
+  vi.mock('./preflight.js', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('./preflight.js')>();
+    return { ...actual, preflightSpin: vi.fn() };
+  });
+  vi.mock('./startService.js', () => ({ startResolvedService: vi.fn() }));
+
+  const WT = '/worktrees/t1/mono';
+
+  beforeEach(() => {
+    vi.mocked(createWorktree).mockReset();
+    vi.mocked(startResolvedService).mockReset();
+    vi.mocked(createWorktree).mockReturnValue({
+      ticketId: 1,
+      repoPath: '/repos/mono',
+      slug: 't1',
+      path: WT,
+      branch: 'karst/t1',
+      baseRef: 'develop',
+      depsMode: 'local',
+      adopted: false,
+    } as unknown as ReturnType<typeof createWorktree>);
+    vi.mocked(startResolvedService).mockImplementation(async (args) => ({
+      id: 1,
+      ticketId: args.ticketId,
+      service: args.name,
+      host: 'localhost',
+      port: args.resolved.services[args.name]!.ports.http!,
+      pid: 100,
+      status: 'running',
+      logPath: '/logs/x.log',
+      container: null,
+    }) as unknown as Awaited<ReturnType<typeof startResolvedService>>);
+  });
+
+  it('creates one worktree for two services of one repo and starts each in its own cwd', async () => {
+    const store = openStore(':memory:');
+    try {
+      store.db.prepare('INSERT INTO tickets (id, key, title) VALUES (1, ?, ?)').run('K-1', 'mono');
+      const m = manifest(
+        {
+          mono: repo({
+            repoPath: '/repos/mono',
+            services: {
+              api: svc({ cwd: 'apps/api', ports: [httpSlot(3000)] }),
+              web: svc({ cwd: 'apps/web', ports: [httpSlot(5173)], dependsOn: [
+                dependsOn('mono/api', 'http', [{ env: 'API_URL', template: 'http://{host}:{port}' }]),
+              ] }),
+            },
+          }),
+        },
+        { portRange: [4000, 4999] },
+      );
+
+      await spinTicket(store, m, 1, ['mono'], { probeBusyPorts: async () => new Set() });
+
+      expect(createWorktree).toHaveBeenCalledTimes(1);
+      const calls = vi.mocked(startResolvedService).mock.calls.map((c) => c[0]);
+      expect(calls.map((c) => c.name)).toEqual(['mono/api', 'mono/web']);
+      expect(calls.map((c) => c.cwd)).toEqual([WT, WT]);
+    } finally {
+      store.close();
+    }
   });
 });

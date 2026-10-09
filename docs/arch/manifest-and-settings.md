@@ -8,6 +8,7 @@ What the manifest models, and the rules that keep a Settings write from silently
 - Settings Save is TAB-SCOPED
 - A preset is a SPARSE capability → slot matrix; `activeAgentPreset` picks one
 - A REPOSITORY is the primary entity; a SERVICE is an optional relation
+- A repository may declare a named `services:` map
 - Legacy services: manifests migrate IN MEMORY
 - `uat.testerObservations.blockingSeverity` is a manifest knob only
 - Sub-task auto-start concurrency caps
@@ -38,6 +39,10 @@ A three-line process profile that replaces the entire prompt (strategy + contrac
 ## A REPOSITORY is the primary entity; a SERVICE is an optional relation on it
 
 `karst.yml` has `repositories:`; `start`/`health`/`ports`/`dependsOn` live under an optional `service:` block, so "port without a runnable process" is unrepresentable. `repoPath`/`hasMigrations`/`signals` stay repository-level — they describe the source tree and stay true whether or not anything runs. Gate on runnability ONLY via `manifest/runnable.ts` (`isRunnable` is a type guard, so `service` needs no `!`); scattering `?.` at call sites is how `svc.ports[0]!` used to throw. Non-runnable repos ARE scoped, DO get a worktree, and are absent from `ResolveResult.services`/`startOrder` — `ResolveResult.nonRunnable` names them so consumers state it rather than infer it from an absence.
+
+## A repository may declare a named `services:` map
+
+`service:` is shorthand for ONE service, and its unit key is the repository name. `services:` is a named map (`repositories.<repo>.services.<name>`), and each entry is a full service plus an optional `cwd` (relative to the repo root; no `..`, no absolute path). A repository declares one shape: `service:` together with `services:` is refused. Service names are letters, digits, `.`, `_`, `-`. The unit key is `repo` for the shorthand and `repo/service` for a map entry; `karst env --service`, `servers`, and the Settings rows all address units this way. A `dependsOn.target` is `repo/service`, or bare `repo` only when that repo has exactly one service; it is validated at load. Settings preserves whichever shape the user wrote. The loader and resolver own the rules; `docs/arch/worktrees-and-servers.md` covers the shared worktree and the per-service ports.
 
 ## Repository keys must be distinct CASE-INSENSITIVELY
 

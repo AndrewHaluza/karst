@@ -514,3 +514,129 @@ describe('ServicesSection — a mapped fault stays silent until its field is tou
     expect(document.body.textContent).not.toContain('service.start is required');
   });
 });
+/**
+ * Multi-service repositories (`services:` map). The shorthand keeps its single
+ * editor; a map repository shows one block per service with its own name and cwd,
+ * add/remove, a validated rename, and a one-way "Split" from the shorthand.
+ */
+const MULTI: Manifest = {
+  ...BASE,
+  repositories: {
+    ...BASE.repositories,
+    mono: {
+      name: 'mono',
+      repoPath: '../mono',
+      hasMigrations: false,
+      enabled: true,
+      services: {
+        web: { start: 'pnpm dev', ports: [{ name: 'http', env: 'PORT', default: 3000 }], dependsOn: [] },
+        api: { start: 'pnpm api', ports: [{ name: 'rpc', env: 'RPC', default: 4000 }], dependsOn: [] },
+      },
+    },
+  } as unknown as Manifest['repositories'],
+} as Manifest;
+
+function serviceCards(): string[] {
+  return Array.from(document.querySelectorAll('[data-service-card]')).map(
+    (n) => (n as HTMLElement).dataset.serviceCard ?? '',
+  );
+}
+
+function clickButton(name: string): void {
+  fireEvent.click(screen.getByRole('button', { name }));
+}
+
+describe('ServicesSection — a services map repository', () => {
+  it('shows one block per service, each with its own name and cwd field', () => {
+    mount(MULTI);
+    open('mono');
+    expect(serviceCards()).toEqual(['web', 'api']);
+    expect(document.querySelector('[name="f-svc-entry-name-mono-web"]')).not.toBeNull();
+    expect(document.querySelector('[name="f-svc-cwd-mono-web"]')).not.toBeNull();
+    expect(document.querySelector('[name="f-svc-start-mono-web"]')).not.toBeNull();
+  });
+
+  it('writes cwd onto its own service and keeps the services shape', () => {
+    mount(MULTI);
+    open('mono');
+    setField('f-svc-cwd-mono-web', 'apps/web');
+    const mono = repositories().mono as Record<string, unknown>;
+    expect((mono.services as Record<string, Record<string, unknown>>).web?.cwd).toBe('apps/web');
+    expect(mono.service).toBeUndefined();
+    expect(mono.services).toBeDefined();
+  });
+
+  it('adds a service without disturbing the others', () => {
+    mount(MULTI);
+    open('mono');
+    clickButton('+ Add service');
+    const services = (repositories().mono as { services: Record<string, unknown> }).services;
+    expect(Object.keys(services)).toEqual(['web', 'api', 'service-1']);
+  });
+
+  it('removes one service and keeps its siblings', () => {
+    mount(MULTI);
+    open('mono');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove service api' }));
+    const services = (repositories().mono as { services: Record<string, unknown> }).services;
+    expect(Object.keys(services)).toEqual(['web']);
+  });
+
+  it('refuses an illegal service name and leaves the draft alone (UI-R25)', () => {
+    mount(MULTI);
+    open('mono');
+    setField('f-svc-entry-name-mono-web', 'bad name');
+    const services = (repositories().mono as { services: Record<string, unknown> }).services;
+    expect(Object.keys(services)).toEqual(['web', 'api']);
+  });
+
+  it('refuses a service name already used in the same repository', () => {
+    mount(MULTI);
+    open('mono');
+    setField('f-svc-entry-name-mono-web', 'api');
+    const services = (repositories().mono as { services: Record<string, unknown> }).services;
+    expect(Object.keys(services)).toEqual(['web', 'api']);
+  });
+});
+
+describe('ServicesSection — split from the shorthand', () => {
+  it('converts a single service into a one-entry map named after the repository', () => {
+    mount();
+    open('api');
+    clickButton('Split into several services');
+    const api = repositories().api as Record<string, unknown>;
+    expect(api.service).toBeUndefined();
+    expect(Object.keys(api.services as Record<string, unknown>)).toEqual(['api']);
+  });
+
+  it('keeps the single editor and its ids for the shorthand (no cwd, no Split on a map)', () => {
+    mount();
+    open('api');
+    expect(document.querySelector('[name="f-svc-cwd-api"]')).toBeNull();
+    expect(document.querySelector('[name="f-svc-start-api"]')).not.toBeNull();
+  });
+});
+
+describe('ServicesSection — dependency targets', () => {
+  it('lists repo for single-service repos and repo/service for each map entry, not itself', () => {
+    mount({
+      ...MULTI,
+      repositories: {
+        ...MULTI.repositories,
+        web: {
+          name: 'web',
+          repoPath: '../web',
+          hasMigrations: false,
+          enabled: true,
+          service: { start: 'x', ports: [{ name: 'http', env: 'PORT', default: 1 }], dependsOn: [] },
+        },
+      } as unknown as Manifest['repositories'],
+    } as Manifest);
+    open('web');
+    clickButton('+ Add dependency');
+    const target = document.querySelector('[name="f-dep-web-0-target"]') as HTMLSelectElement;
+    const values = Array.from(target.options).map((o) => o.value);
+    expect(values).toEqual(expect.arrayContaining(['api', 'db', 'mono/web', 'mono/api']));
+    expect(values).not.toContain('web');
+  });
+});

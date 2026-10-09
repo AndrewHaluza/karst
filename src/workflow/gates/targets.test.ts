@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
+import { manifest, repo, runnableRepo, dependsOn, svc } from '../../manifest/fixtures.js';
 import {
   MAX_CONCURRENT_GATE_FETCHES,
   selectReviewTargets,
@@ -304,5 +304,52 @@ describe('selectReviewTargets', () => {
     expect(calls.every((a) => a.join(' ') !== 'fetch origin develop')).toBe(true);
 
     store.close();
+  });
+});
+
+describe('selectReviewTargets with multi-service repositories', () => {
+  // `mono` runs two services; only `ui` depends on `api`. `lib` is itself a
+  // monorepo, and `admin` depends on its `core` service (`lib/core`).
+  const monoProject = manifest({
+    api: runnableRepo({}, { repoPath: '/repos/api' }),
+    mono: repo({
+      repoPath: '/repos/mono',
+      services: {
+        ui: svc({ dependsOn: [dependsOn('api', 'http', [{ env: 'API', template: '{port}' }])] }),
+        admin: svc({ dependsOn: [dependsOn('lib/core', 'http', [{ env: 'CORE', template: '{port}' }])] }),
+      },
+    }),
+    lib: repo({ repoPath: '/repos/lib', services: { core: svc(), other: svc() } }),
+    docs: runnableRepo({}, { repoPath: '/repos/docs' }),
+  });
+  const monoWorktrees: ReviewWorktree[] = [
+    { repo: '/repos/api', path: '/wt/api', baseRef: 'develop' },
+    { repo: '/repos/mono', path: '/wt/mono', baseRef: 'develop' },
+    { repo: '/repos/lib', path: '/wt/lib', baseRef: 'develop' },
+    { repo: '/repos/docs', path: '/wt/docs', baseRef: 'develop' },
+  ];
+
+  it('selects a multi-service repository when any one of its services depends on a changed repository', async () => {
+    expect(
+      targetsOf(await selectReviewTargets(monoProject, monoWorktrees, changed('/wt/api'))).map(
+        (t) => t.names,
+      ),
+    ).toEqual([['api'], ['mono']]);
+  });
+
+  it('selects a dependent via a repo/service target by its repository part', async () => {
+    expect(
+      targetsOf(await selectReviewTargets(monoProject, monoWorktrees, changed('/wt/lib'))).map(
+        (t) => t.names,
+      ),
+    ).toEqual([['mono'], ['lib']]);
+  });
+
+  it('does not select a multi-service repository whose services depend on nothing changed', async () => {
+    expect(
+      targetsOf(await selectReviewTargets(monoProject, monoWorktrees, changed('/wt/docs'))).map(
+        (t) => t.names,
+      ),
+    ).toEqual([['docs']]);
   });
 });
