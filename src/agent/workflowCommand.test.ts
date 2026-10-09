@@ -187,7 +187,7 @@ describe('renderWorkflowCommand', () => {
         [
           '# Research, Plan, Implement',
           '',
-          'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
+          'This command receives a ticket key or T<n> id as its argument, available in `$ARGUMENTS`. ' +
             'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
             'what is being asked before proceeding.',
           '',
