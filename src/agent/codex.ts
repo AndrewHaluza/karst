@@ -49,6 +49,7 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { hookFailureLogPath } from './hookFailureLog.js';
 import { resolveNodeExecutable } from './nodeExecutable.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
+import { codexMcpConfigArgs, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer } from './instructions.js';
@@ -374,9 +375,7 @@ export class CodexAdapter implements AgentAdapter {
     entryOrchestrators: SUPPORTED,
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
-    mcpConfigInteractive: unsupported(
-      'codex takes MCP servers as TOML config keys, not a config file karst can hand it; run `karst mcp install` at user scope',
-    ),
+    mcpConfigInteractive: SUPPORTED,
   };
 
   /**
@@ -424,6 +423,9 @@ export class CodexAdapter implements AgentAdapter {
     } else {
       for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     }
+    // The karst server rides as per-launch `--config mcp_servers.karst.*` keys
+    // (the interactive counterpart of headless `mcp_servers={}` isolation).
+    if (opts.mcpConfigPath) args.push(...codexMcpConfigArgs(readMcpServersConfig(opts.mcpConfigPath)));
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     if (opts.hookChannel) {
       appendHookArgs(

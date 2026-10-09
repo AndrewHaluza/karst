@@ -116,6 +116,32 @@ export function codexMcpConfig(
   return `[mcp_servers.${name}]\ncommand = "node"\nargs = [${args}]\n`;
 }
 
+const TOML_BARE_KEY = /^[A-Za-z0-9_-]+$/;
+
+/** A TOML basic string; `JSON.stringify` escapes the same characters TOML requires. */
+const tomlString = (value: string): string => JSON.stringify(value);
+
+const tomlKey = (key: string): string => (TOML_BARE_KEY.test(key) ? key : tomlString(key));
+
+/**
+ * codex's launch-time form of the same servers: one `--config key=value` pair
+ * per TOML key (`mcp_servers.<name>.command|args|env.<VAR>`), so no file or
+ * `~/.codex/config.toml` edit is needed. Values are TOML literals, never more
+ * TOML, so a path with spaces or quotes cannot inject a key.
+ */
+export function codexMcpConfigArgs(servers: Record<string, McpServerEntry>): string[] {
+  const out: string[] = [];
+  for (const [name, entry] of Object.entries(servers)) {
+    const base = `mcp_servers.${tomlKey(name)}`;
+    out.push('--config', `${base}.command=${tomlString(entry.command)}`);
+    out.push('--config', `${base}.args=[${entry.args.map(tomlString).join(',')}]`);
+    for (const [key, value] of Object.entries(entry.env ?? {})) {
+      out.push('--config', `${base}.env.${tomlKey(key)}=${tomlString(value)}`);
+    }
+  }
+  return out;
+}
+
 /**
  * The config an agent consumes: an object for the JSON agents, a TOML string
  * for codex. `format` tells `mcp install` how to serialize it.
