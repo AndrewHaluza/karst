@@ -8,6 +8,7 @@ import { unitByKey, unitsOf } from '../manifest/runnable.js';
 import { startHot, markServerStopped, type ServerRecord } from './supervisor.js';
 import { serverLogPath } from './serverLog.js';
 import { serviceLaunch } from './serviceLaunch.js';
+import { buildSpawnEnv } from './env.js';
 import {
   attributeServer,
   systemAsyncProcessFacts,
@@ -430,7 +431,10 @@ async function startBaseline(
     }
 
     const runDir = svc.cwd ? join(checkout, svc.cwd) : checkout;
-    const env = { [httpSlot.env]: String(port) };
+    // Same layering a ticket spawn uses: the repository's root `.env` (gitignored,
+    // so absent from the checkout) under karst's own port var. Read from the
+    // origin repo, never copied into the checkout.
+    const env = buildSpawnEnv(join(repo.repoPath, '.env'), { [httpSlot.env]: String(port) });
     // A baseline runs whatever kind of service the manifest declares — a command
     // or a container — through the same derivation spin uses, so the singleton can
     // never end up started one way and reaped another.
