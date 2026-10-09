@@ -632,7 +632,12 @@ function renderNotesSection(ctx: TicketContext): string {
 export function renderTicketContext(
   ctx: TicketContext,
   debug?: (msg: string) => void,
-  opts?: { bounded?: boolean; sections?: ContextSections },
+  opts?: {
+    bounded?: boolean;
+    sections?: ContextSections;
+    /** Keep the T-id in the heading. Default: only for `all`; set it on a narrative render when no facts layer (which states the id) is delivered. */
+    headingId?: boolean;
+  },
 ): string {
   const bounded = opts?.bounded ?? true;
   const sections = opts?.sections ?? 'all';
@@ -640,7 +645,7 @@ export function renderTicketContext(
   // kickoff, structured facts ride the instruction layer. `all` renders both.
   const authored = sections === 'all' || sections === 'narrative';
   const operational = sections === 'all' || sections === 'facts';
-  const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx, sections === 'all')}`] : [];
+  const parts: string[] = authored ? [`# Ticket: ${ticketHeading(ctx, opts?.headingId ?? sections === 'all')}`] : [];
   // The facts-only render has no heading, so the instruction layer states the
   // session's own id once; the other renders carry it in the heading.
   if (!authored && operational) {

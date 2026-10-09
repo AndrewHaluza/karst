@@ -1458,7 +1458,16 @@ describe('renderTicketContext', () => {
       const both =
         renderTicketContext(ctx, undefined, { sections: 'narrative' }) +
         renderTicketContext(ctx, undefined, { sections: 'facts' });
-      expect(both.split(`T${t.id}`).length - 1).toBe(1);
+      expect(both.match(new RegExp(`\\bT${t.id}\\b`, 'g'))).toHaveLength(1);
+    });
+
+    it('narrative with headingId keeps the T-id heading and states it once without facts', () => {
+      const t = createTicket(store, { key: 'ABC-8', title: 'Solo' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx, undefined, { sections: 'narrative', headingId: true });
+      expect(md).toContain(`# Ticket: T${t.id} · ABC-8 — Solo`);
+      expect(md.match(new RegExp(`\\bT${t.id}\\b`, 'g'))).toHaveLength(1);
+      expect(renderTicketContext(ctx, undefined, { sections: 'narrative' })).not.toContain(`T${t.id}`);
     });
 
     it('heading without key or title is just the id', () => {

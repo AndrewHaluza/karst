@@ -6214,8 +6214,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ticketId,
         context.globalStorageUri.fsPath,
       );
-      const renderCtx = (sections: 'all' | 'narrative' | 'facts'): string =>
-        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections });
+      const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
+        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId });
       const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok));
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
@@ -6274,7 +6274,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // exists (operational facts move to the instruction layer); full
         // context otherwise (self-contained inline).
         seed = buildSessionSeed({
-          authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all'),
+          authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all', inlineInstructions),
           ...(factsContext ? { factsContext } : {}),
           approachPrompt: approachPrompt ?? delegation,
           ...(entryLaunchInvocation
