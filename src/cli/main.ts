@@ -18,6 +18,7 @@ import { readGuideAttribution, recordGuidePull } from './guideTelemetry.js';
 import { runCompactCommand } from './compact.js';
 import { runEnvCommand } from './envCommand.js';
 import { runServersCommand } from './serversCommand.js';
+import { DoctorExit, parseDoctorArgs, runDoctorCommand } from './doctorCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
@@ -551,7 +552,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor' or 'mcp')`,
   );
 }
 
@@ -591,6 +592,17 @@ export async function runCliAsync(
       return await runSetupVerifyCommand(store, loaded.manifest, parsed, (s, m, service) =>
         ensureBaseline(s, m, service),
       );
+    } finally {
+      store.close();
+    }
+  }
+  // `doctor` is read-only unless --fix, so only --fix opens a writable store.
+  // Its result carries an exit code, so it leaves through `DoctorExit`.
+  if (rest[0] === 'doctor') {
+    if (!db) throw new Error('missing --db <path>');
+    const store = parseDoctorArgs(rest).fix ? openWritableStore(db) : openReadonlyStore(db);
+    try {
+      return runDoctorCommand(store, db, manifestPath, rest, env);
     } finally {
       store.close();
     }
@@ -685,6 +697,10 @@ if (invokedDirectly) {
       // stdout — the shell test scripts the driver ships branch on that exit code.
       // The diff must stay off stderr (a parseable stdout is the CLI's contract),
       // so it is rendered here rather than through the generic `fail` path.
+      if (e instanceof DoctorExit) {
+        process.stdout.write(e.output + '\n', () => process.exit(e.code));
+        return;
+      }
       if (e instanceof AssertionMismatchError) {
         process.stdout.write(JSON.stringify({ ok: false, diff: e.diff }) + '\n');
         process.exit(1);

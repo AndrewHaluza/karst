@@ -11,7 +11,9 @@ import { join } from 'node:path';
 // larger than a thin binding belongs in src/extension/ops/. Raised by 2 for the
 // graph-ticket mailbox binding (one import + one `visitMailboxOf` line in the
 // driver deps; the logic lives in `src/approaches/graph/visitMailbox*.ts`).
-const MAX_EXTENSION_LINES = 8427;
+// Raised by 2 for the 'Karst: Run Doctor' binding (one import + one registration;
+// logic is in `src/ui/doctor/host.ts` and `ops/doctorOps.ts`).
+const MAX_EXTENSION_LINES = 8429;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

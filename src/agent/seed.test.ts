@@ -306,3 +306,12 @@ describe('seed split end-to-end (routing of a real ticket)', () => {
     expect(seed.instructions ?? '').not.toContain('## Attachments');
   });
 });
+
+describe('buildSessionSeed blockers section', () => {
+  it('carries a landed blocker outcome in the kickoff, never the instruction layer', () => {
+    const authored = `${AUTHORED}\n\n## Blockers\nThese blockers landed before you started.\n\nB-1 landed: Widget API\n\nFull outcome: karst context B-1`;
+    const seed = buildSessionSeed({ authoredContext: authored, factsContext: FACTS, invocation: '/karst:rpi PROJ-9' });
+    expect(seed.kickoff).toContain('B-1 landed: Widget API');
+    expect(seed.instructions ?? '').not.toContain('B-1 landed');
+  });
+});

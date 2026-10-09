@@ -88,6 +88,10 @@
     },
     "commands": [
       {
+        "command": "karst.runDoctor",
+        "title": "Karst: Run Doctor"
+      },
+      {
         "command": "karst.openDashboard",
         "title": "Karst: Open Dashboard"
       },
