@@ -30,6 +30,7 @@ const port = Number(process.env.PORT);
 const marker = readFileSync(new URL('./marker.txt', import.meta.url), 'utf8').trim();
 createServer((req, res) => {
   if (req.url === '/health') { res.writeHead(200); res.end('ok'); return; }
+  if (req.url === '/env') { res.writeHead(200); res.end(process.env.KARST_TEST_DOTENV ?? ''); return; }
   if (req.url === '/marker') { res.writeHead(200); res.end(marker); return; }
   res.writeHead(404); res.end();
 }).listen(port);
@@ -184,6 +185,17 @@ describe('baseline pool', () => {
     expect(git(dir, 'rev-parse', 'HEAD').trim()).toBe(
       git(repo, 'rev-parse', 'origin/develop').trim(),
     );
+  });
+
+  it("passes the repository's root .env to the baseline process, port var winning", async () => {
+    writeFileSync(join(repo, '.env'), 'KARST_TEST_DOTENV=from-dotenv\nPORT=1\n');
+    const port = portCounter++;
+    const rec = await ensureBaseline(store, manifest(repo, port), 'backend');
+    started.push(rec.id);
+
+    const body = await (await fetch(`http://127.0.0.1:${port}/env`)).text();
+    expect(body).toBe('from-dotenv');
+    expect(rec.port).toBe(port);
   });
 
   it('creates the baseline checkout detached at origin/develop', async () => {
