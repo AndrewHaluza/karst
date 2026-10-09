@@ -660,3 +660,74 @@ describe('runCli — notes --repos (planner read, real db)', () => {
     ).toThrow(/cannot be combined with post/);
   });
 });
+
+describe('runCli — pause and unpause', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-pause-')));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    const parent = createTicket(seed, { key: 'PARENT-1', title: 'Parent' });
+    createTicket(seed, { key: 'CHILD-1', title: 'Child', subtaskParentId: parent.id });
+    createTicket(seed, { key: 'OTHER-1', title: 'Other' });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('pauses and unpauses the session ticket itself', () => {
+    const pauseOut = runCli(['pause', 'PARENT-1', '--db', dbPath, '--ticket', 'PARENT-1']);
+    const pauseParsed = JSON.parse(pauseOut);
+    expect(pauseParsed).toEqual({ ok: true, ticketId: 1, paused: true });
+
+    let check = openStore(dbPath);
+    expect(getTicket(check, 1).pausedAt).not.toBeNull();
+    check.close();
+
+    const unpauseOut = runCli(['unpause', 'PARENT-1', '--db', dbPath, '--ticket', 'PARENT-1']);
+    const unpauseParsed = JSON.parse(unpauseOut);
+    expect(unpauseParsed).toEqual({ ok: true, ticketId: 1, paused: false });
+
+    check = openStore(dbPath);
+    expect(getTicket(check, 1).pausedAt).toBeNull();
+    check.close();
+  });
+
+  it('pauses and unpauses a direct sub-task', () => {
+    const pauseOut = runCli(['pause', 'CHILD-1', '--db', dbPath, '--ticket', 'PARENT-1']);
+    const pauseParsed = JSON.parse(pauseOut);
+    expect(pauseParsed).toEqual({ ok: true, ticketId: 2, paused: true });
+
+    let check = openStore(dbPath);
+    expect(getTicket(check, 2).pausedAt).not.toBeNull();
+    check.close();
+
+    const unpauseOut = runCli(['unpause', 'CHILD-1', '--db', dbPath, '--ticket', 'PARENT-1']);
+    const unpauseParsed = JSON.parse(unpauseOut);
+    expect(unpauseParsed).toEqual({ ok: true, ticketId: 2, paused: false });
+
+    check = openStore(dbPath);
+    expect(getTicket(check, 2).pausedAt).toBeNull();
+    check.close();
+  });
+
+  it('uses KARST_TICKET env when --ticket is omitted', () => {
+    const pauseOut = runCli(['pause', 'CHILD-1', '--db', dbPath], { KARST_TICKET: 'PARENT-1' });
+    const pauseParsed = JSON.parse(pauseOut);
+    expect(pauseParsed).toEqual({ ok: true, ticketId: 2, paused: true });
+  });
+
+  it('refuses to pause an unrelated ticket', () => {
+    expect(() =>
+      runCli(['pause', 'OTHER-1', '--db', dbPath, '--ticket', 'PARENT-1']),
+    ).toThrow(/refusing: session ticket 'PARENT-1' may only pause itself and its direct sub-tasks/);
+  });
+
+  it('refuses to unpause an unrelated ticket', () => {
+    expect(() =>
+      runCli(['unpause', 'OTHER-1', '--db', dbPath, '--ticket', 'PARENT-1']),
+    ).toThrow(/refusing: session ticket 'PARENT-1' may only unpause itself and its direct sub-tasks/);
+  });
+});

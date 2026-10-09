@@ -15,7 +15,7 @@ import { isQueuedSubtask } from '../model/subtask.js';
 import type { AttachmentKind } from '../attachments/kinds.js';
 import { attachmentPath } from '../attachments/paths.js';
 import type { Store } from '../store/db.js';
-import type { StageKey } from '../model/types.js';
+import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
 import { landedBlockerOutcomes, renderBlockerOutcome, type BlockerOutcome } from '../store/blockerOutcome.js';
@@ -220,6 +220,8 @@ export interface TicketContextSubtask {
   key: string | null;
   title: string | null;
   stageCurrent: string | null;
+  /** When this sub-task was paused, or null if active. */
+  pausedAt: string | null;
   /** True when this sub-task holds the parent before it leaves `impl`/`fix`. */
   blocksParent: boolean;
   /** The raw auto-start queue flag (`autostart_pending`, v64). */
@@ -444,6 +446,7 @@ export function buildTicketContext(
     key: s.key,
     title: s.title,
     stageCurrent: s.stageCurrent,
+    pausedAt: s.pausedAt,
     blocksParent: s.blocksParent,
     autostartPending: s.autostartPending,
     queued: isQueuedSubtask({ ...s, subtaskParentId: ticketId }),
@@ -452,6 +455,9 @@ export function buildTicketContext(
   const stageRow = relevantStageRow(t);
   const stageRun = stageRow ? latestStageRun(store, ticketId, stageRow.stageKey) : null;
   const priorRun = stageRun ? previousStageRun(store, stageRun) : null;
+  const blockedRow =
+    (stageRow?.blockedKind ? stageRow : undefined) ??
+    t.stages.find((s) => s.blockedKind !== null);
   const stage: TicketContextStage | null = stageRow
     ? {
         stageKey: stageRow.stageKey,
@@ -481,8 +487,8 @@ export function buildTicketContext(
                 stageRun.manifestHash !== priorRun.manifestHash,
             }
           : null,
-        blocked: stageRow.blockedKind
-          ? { kind: stageRow.blockedKind, reason: stageRow.blockedReason ?? '' }
+        blocked: blockedRow?.blockedKind
+          ? { kind: blockedRow.blockedKind, reason: blockedRow.blockedReason ?? '' }
           : null,
         gates: latestBatch(listGateRuns(store, ticketId), stageRow.stageKey).map((g) => ({
           name: g.gateName,
@@ -658,6 +664,9 @@ export function renderTicketContext(
   if (operational && ctx.stage) {
     const s = ctx.stage;
     const lines = [`- stage: ${s.stageKey} (${s.status})`];
+    if (ctx.paused && ctx.pausedAt) {
+      lines.push(`- paused since ${ctx.pausedAt} — gates do not run; resume: karst unpause ${key}`);
+    }
     if (s.verdict) lines.push(`- verdict: ${s.verdict}`);
     if (s.blocked) lines.push(`- blocked: ${s.blocked.kind} — ${s.blocked.reason}`);
     if (s.run) {
@@ -874,10 +883,29 @@ export function renderTicketContext(
       const named = title ? `: ${title}` : '';
       const flag = s.blocksParent ? ' [blocking]' : '';
       const queued = s.queued ? ', queued' : '';
-      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued})${flag}`;
+      const paused = s.pausedAt ? `, paused since ${s.pausedAt}` : '';
+      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
     });
+
+    const total = ctx.subtasks.length;
+    const pausedCount = ctx.subtasks.filter((s) => s.pausedAt !== null).length;
+    const unpaused = ctx.subtasks.filter((s) => s.pausedAt === null);
+    const stageOrder: readonly string[] = [...STAGE_KEYS].reverse();
+    const partsList: string[] = [];
+    for (const stage of stageOrder) {
+      const count = unpaused.filter((s) => s.stageCurrent === stage).length;
+      if (count > 0) partsList.push(`${count} ${stage}`);
+    }
+    const remaining = unpaused.filter((s) => !stageOrder.includes(s.stageCurrent ?? ''));
+    if (remaining.length > 0) partsList.push(`${remaining.length} ${remaining[0]?.stageCurrent ?? 'unknown'}`);
+    if (pausedCount > 0) partsList.push(`${pausedCount} paused`);
+
+    const heading = partsList.length > 0
+      ? `## Sub-tasks (${total}: ${partsList.join(', ')})`
+      : `## Sub-tasks (${total})`;
+
     parts.push(
-      `## Sub-tasks\nThis ticket's work is delegated to the following sub-tasks — do not redo them.\n${rows.join('\n')}`,
+      `${heading}\nThis ticket's work is delegated to the following sub-tasks — do not redo them.\n${rows.join('\n')}`,
     );
   }
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
-import { createTicket, setStageCurrent, updateTicketFields } from '../store/tickets.js';
+import { createTicket, pauseTicket, setStageCurrent, updateTicketFields } from '../store/tickets.js';
 import { addRelation } from '../store/ticketRelations.js';
 import { listInbox, markRead, postMessage } from '../store/ticketMessages.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -245,14 +245,42 @@ describe('buildTicketContext', () => {
 
       const ctx = buildTicketContext(store, undefined, parent.id);
       expect(ctx.subtasks).toEqual([
-        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true, autostartPending: false, queued: false },
-        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false, autostartPending: false, queued: false },
+        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true, pausedAt: null, autostartPending: false, queued: false },
+        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false, pausedAt: null, autostartPending: false, queued: false },
       ]);
 
       const md = renderTicketContext(ctx);
-      expect(md).toContain('## Sub-tasks');
+      expect(md).toContain('## Sub-tasks (2: 1 review, 1 impl)');
       expect(md).toContain('- PROJ-1-s1: Schema first (stage: review) [blocking]');
       expect(md).toContain('- PROJ-1-s2: Docs polish (stage: impl)');
+    });
+
+    it('renders paused sub-task with paused since and includes paused count in heading', () => {
+      const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
+      const child1 = createTicket(store, {
+        key: 'PROJ-1-s1',
+        title: 'Child 1',
+        subtaskParentId: parent.id,
+      });
+      const child2 = createTicket(store, {
+        key: 'PROJ-1-s2',
+        title: 'Child 2',
+        subtaskParentId: parent.id,
+      });
+      store.db.prepare("UPDATE tickets SET stage_current = 'scope' WHERE id = ?").run(child1.id);
+      store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(child2.id);
+
+      pauseTicket(store, child1.id);
+      store.db.prepare("UPDATE tickets SET paused_at = '2026-10-07 13:21' WHERE id = ?").run(child1.id);
+
+      const ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.subtasks[0]!.pausedAt).toBe('2026-10-07 13:21');
+      expect(ctx.subtasks[1]!.pausedAt).toBeNull();
+
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Sub-tasks (2: 1 impl, 1 paused)');
+      expect(md).toContain('- PROJ-1-s1: Child 1 (stage: scope, paused since 2026-10-07 13:21)');
+      expect(md).toContain('- PROJ-1-s2: Child 2 (stage: impl)');
     });
 
     it('marks a sub-task queued only while autostart is pending at scope', () => {
@@ -581,6 +609,38 @@ describe('ticket context — stage/gate/finding state (closes G15)', () => {
       reason: 'no agent core available',
     });
     expect(renderTicketContext(ctx)).toContain('- blocked: capability-missing — no agent core available');
+  });
+
+  it('renders paused since and resume hint under Current stage when ticket is paused', () => {
+    const t = createTicket(store, { key: 'PROJ-P', title: 'Paused ticket' });
+    pauseTicket(store, t.id);
+    store.db.prepare("UPDATE tickets SET paused_at = '2026-10-07 13:21' WHERE id = ?").run(t.id);
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.paused).toBe(true);
+    expect(ctx.pausedAt).toBe('2026-10-07 13:21');
+
+    const md = renderTicketContext(ctx);
+    expect(md).toContain('- paused since 2026-10-07 13:21 — gates do not run; resume: karst unpause PROJ-P');
+  });
+
+  it('surfaces block reason when block is recorded on another stage row', () => {
+    const t = createTicket(store, { key: 'PARENT-B', title: 'Parent' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    // Block recorded on ship stage row (e.g. from sub-task integration or ship park)
+    setStage(store, t.id, 'ship', {
+      blockedKind: 'awaiting-subtask',
+      blockedReason: 'sub-task integration failed: git fetch failed integrating S-1',
+    });
+
+    const ctx = buildTicketContext(store, undefined, t.id);
+    expect(ctx.stage?.blocked).toEqual({
+      kind: 'awaiting-subtask',
+      reason: 'sub-task integration failed: git fetch failed integrating S-1',
+    });
+
+    const md = renderTicketContext(ctx);
+    expect(md).toContain('- blocked: awaiting-subtask — sub-task integration failed: git fetch failed integrating S-1');
   });
 });
 

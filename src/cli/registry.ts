@@ -238,6 +238,22 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     },
   },
   {
+    name: 'pause',
+    summary: 'Pause execution for this ticket or one of its direct sub-tasks.',
+    input: obj({ key: str }, ['key']),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => ['pause', requireString(input, 'key')],
+  },
+  {
+    name: 'unpause',
+    summary: 'Resume execution for this ticket or one of its direct sub-tasks.',
+    input: obj({ key: str }, ['key']),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => ['unpause', requireString(input, 'key')],
+  },
+  {
     name: 'subtask',
     summary: 'Carve a new sub-task out of the session\'s own ticket.',
     input: obj(

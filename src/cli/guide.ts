@@ -109,6 +109,10 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     parent is past scope, the parent's session is open in a karst window, and
     the concurrency limit allows; pass \`--no-start\` to create it without
     queuing it, so a human starts it.
+  - \`pause <key>\` — pause task execution for your own ticket or one of your direct
+    sub-tasks (refused for other tickets): gates and auto-heal do not run while paused.
+  - \`unpause <key>\` — resume task execution for your own ticket or one of your direct
+    sub-tasks (refused for other tickets).
  - \`draft propose\` — ONLY inside a planning session (read-only
     investigation before any ticket exists). Reads ONE JSON object on stdin,
     \`{"title":…,"description":…,"summary":…,"repos":[…]}\`, and writes it as a
