@@ -1,8 +1,16 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/arch/cli.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:CLI-01'):
+  awk "/^## \[@arch:CLI-01\]/,/END_DOC_BLOCK: \[@arch:CLI-01\]/" docs/arch/cli.md
+-->
 # The `karst` CLI (`src/cli/`)
 
 The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts).
 
-## Contents
+## [@arch:CLI-01] Contents
 
 - The agent-facing CLI verbs are separate parse paths
 - The command registry, `karst schema`, and `--file`/`--stdin` structured input
@@ -15,56 +23,66 @@ The agent-facing surface. The invoking agent reads ticket content it did not aut
 - `notes` / `notes post`: the project bulletin
 - `draft propose`: a planning session proposes; the host and a human decide
 - `manifest` / `setup`: a setup session discovers, proposes, and verifies
+END_DOC_BLOCK: [@arch:CLI-01]
 
-## The agent-facing CLI verbs are separate parse paths, and that separation is the security property
+## [@arch:CLI-02] The agent-facing CLI verbs are separate parse paths, and that separation is the security property
 
 The invoking agent reads ticket content it did not author, so prompt injection reaches argv. `parseStageArgs` narrows to `MARKER_STAGES × {pass}` — widening it would put other handling inside the one function whose job is refusing a forged `stage ship pass`. So `phase` parses elsewhere (`cli/phase.ts`), produces no `Verdict`, and never imports the machine: the worst a fully-injected call does is append a row. Phase names are a shell token interpolated into that command, so one charset (`approaches/phaseName.ts`) is enforced at install, at compose, and again on receipt — argv is never trusted because install-time validation ran. `attempt` and `markedAt` are server-side; trailing argv is rejected, not ignored.
+END_DOC_BLOCK: [@arch:CLI-02]
 
-## The command registry, `karst schema`, and `--file`/`--stdin` structured input
+## [@arch:CLI-03] The command registry, `karst schema`, and `--file`/`--stdin` structured input
 
 Every verb has ONE entry in `cli/registry.ts`: a JSON Schema for its input, the globals it consumes, whether it writes, and — for verbs that take structured input — a `toArgv` encoder. The registry does NOT replace the per-verb parsers (parser separation is the security property above); it is a declarative layer in FRONT of them, and `main.ts` keeps its dispatch. `karst schema [command]` prints the schemas (`cli/schemaCommand.ts`); a bare `karst schema` prints them all.
 
 `--file <path>` and `--stdin` let a command take its whole input as one JSON object (`cli/commandInput.ts`), removing the shell-quoting pain of long flag lists. The object is validated against the command's schema (`cli/jsonSchema.ts`, a small no-dependency subset) BEFORE `toArgv` hands the argv to the existing parser, so a bad payload fails once with a clear `karst <cmd>: invalid input — $.field …` error and exit 1, and a handler never sees an off-shape object. When neither flag is present nothing here runs and named flags behave exactly as before. Verbs with no `toArgv` (the host-invoked `graph`/`node`, plus `test`/`guide`) refuse structured input.
+END_DOC_BLOCK: [@arch:CLI-03]
 
-## `karst mcp serve` / `karst mcp install`: the MCP server on top of the CLI
+## [@arch:CLI-04] `karst mcp serve` / `karst mcp install`: the MCP server on top of the CLI
 
 `karst mcp serve` (`cli/mcp/`) runs a stdio MCP server (the low-level `@modelcontextprotocol/sdk` `Server`, so the advertised `inputSchema` IS the registry's JSON Schema) inside the CLI bundle. One tool per registry command, EXCEPT `test` (it can set stages and merge PRs) — that is the only exclusion. A call is validated by the SAME `validateCommandInput` the `--file`/`--stdin` path uses, encoded back to argv by the registry's `toArgv` (or, for the closed `graph`/`node` parsers, a tiny explicit verb encoding), and dispatched to the SAME `runCli`/`runCliAsync` entrypoint — so every handler and every storage path is reused unchanged, and the per-call store opens (which the CLI already does) are what keep the server off a stale schema. Connection facts come from `--db`/`--manifest`/`--ticket` or the `KARST_*` env (flag first, `cli/mcp/config.ts`); `KARST_OUTBOX` is env-only.
 
 Registration never dirties git — no `.mcp.json` in a repo or worktree. A launch writes the config to the extension's global storage and passes `--mcp-config <file>` on claude (merges the `mcp` section into opencode's and opencode2's `OPENCODE_CONFIG_CONTENT`, and passes codex `--config mcp_servers.karst.*` pairs); antigravity declares `mcpConfigInteractive` unsupported and uses `karst mcp install` (prints, or `--write`s, user-scope config from `agent/mcpConfig.ts` — the same renderer). The guide and the session preamble say to prefer the tools when present and fall back to `node "$KARST_CLI"` otherwise.
 
 The server is long-lived, so it snapshots `process.env` when it starts and restores it after every tool call (`cli/mcp/server.ts`, `preservingProcessEnv`). `servers spin` scrubs every `KARST_*` key from the ambient env (`serversCommand.ts` → `scrubKarstSessionEnv`) so a spawned service cannot inherit the session's graph capability; correct for a short-lived CLI, but in the server process that wipe would otherwise persist and break `graph`/`node` and guide-pull attribution on every later call.
+END_DOC_BLOCK: [@arch:CLI-04]
 
-## The `karst` CLI uses Node's built-in `node:sqlite`, NOT better-sqlite3
+## [@arch:CLI-05] The `karst` CLI uses Node's built-in `node:sqlite`, NOT better-sqlite3
 
 — it is invoked by the agent via plain `node`, so the Electron-ABI addon would crash. Verbs: `context` (read), `stats` (read), `fix-brief` (read), `conflict-brief` (read), `stage` and `phase` (write), `servers` (list/spin/restart/stop — drives the runtime through `runCliAsync`, the ONE async verb, because `runCli` is synchronous by contract; the `servers` path must `process.exit(0)` from the stdout write callback, since `spinTicket`'s `detached` children pin the short-lived CLI's event loop), `env` (list/set/unset — per-ticket `tickets.env_overrides` read/written through `ticketEnvOverrides.ts`; `list` prints keys only unless `--values` is passed, and an env value never reaches an error or debug line), `message send` and `inbox` (write: the parent<->child mailbox, see the section below), `notes` and `notes post` (read the project bulletin / write one agent learning; see the section below), `subtask create` (write — carves a new sub-task out of the session's OWN `--ticket` ticket via the shared `createSubtask` writer, design NDL-70 §7; the parent is resolved through `--manifest` like `stage`/`env`), `test` (the agent test driver, including `test create-ticket --project <slug>` — scope created tickets to a project, `--manifest`'s id being the fallback, or the ticket never appears on a board), and `guide` (the agent manual — how Karst works, the flow, the verbs; static content, no DB). `fix-brief` and `conflict-brief` resolve their ticket through `--manifest` like the other read verbs. Aggregator/store helpers reached from here stay driver-agnostic (`store.db.prepare(sql).get/all/run`, positional `?` only — no named params, no `.pluck()`); `openReadonlyStore`/`openWritableStore` cast a `DatabaseSync` behind the `Store` type at that boundary, the writable one adding a hand-rolled `.transaction()` shim that issues `BEGIN IMMEDIATE` with a 5 s `busy_timeout`, so a marker fired while the extension holds the write lock waits the lock out instead of returning `SQLITE_BUSY` in ~0 ms. The `node:sqlite` `ExperimentalWarning` is filtered from stderr (`cli/suppressWarning.ts`, installed before the first store open; `node:sqlite` is loaded lazily through `cli/sqlite.ts` so the filter is already in place when Node emits it) — never a blanket `--no-warnings`, so every other warning still reaches stderr. **The guide is the ONE agent-facing manual, and `cli/guide.test.ts` pins it to the real CLI**: a new verb, a changed marker set, or a changed stage flow fails `npm run test:unit` until the guide mentions it — an agent must never have to read the extension's source to learn what Karst can do. The seed reaches this verb directly: every launch for a ticket with a runnable repository carries the resolved prefix inline (see agent-cores.md, "The servers rule ships inline, not behind the guide"), so registering a service never depends on the session having pulled the guide.
+END_DOC_BLOCK: [@arch:CLI-05]
 
-## A bare ticket key is resolved via `--manifest`
+## [@arch:CLI-06] A bare ticket key is resolved via `--manifest`
 
 The `karst` CLI takes a bare ticket key, so `--manifest` is what tells it which project's key that is (`cli/resolveTicket.ts`); both `context` and `stage` fall back to an unscoped lookup so an unadopted ticket still resolves. A key held by more than one row (a reused/re-created key, or an unadopted row plus a scoped one) resolves to the NON-ARCHIVED row — an archived namesake is the stale ticket, and picking it silently hid the live one (NDL-95). If two LIVE tickets still collide, the key is genuinely ambiguous and resolution refuses with an explicit `ambiguous ticket key` error naming the candidate ids rather than silently picking the older row; a single-match fallback still resolves an unadopted ticket. A purely numeric argument is tried as a `tickets.id` LAST — after both key lookups miss — because agent sessions are handed `KARST_TICKET_ID` (an id) while every verb takes a key; a ticket whose KEY is that number always wins, and the failure reads `no ticket found for key or id`.
+END_DOC_BLOCK: [@arch:CLI-06]
 
-## `stats` is a read the build proves is a read
+## [@arch:CLI-07] `stats` is a read the build proves is a read
 
 `karst stats [--project <slug>] [--since <iso>] [--json]` reports orchestration effectiveness from what the store already records: first-pass rate (`stage_runs.outcome`), rework loops (`recovery_rounds`), gate kills (`gate_runs`, where a NULL `exit_code` is "no such script" and never a pass), cycle time, agent-active time, token spend by call site (reported and `estimated` kept apart), escaped defects, finding density, the agent-vs-human review-finding split, merge friction, ship failures, graph efficiency and interruption rate. The queries live in `src/store/metrics/` (one family per file, positional `?` only), the render in `src/cli/stats.ts`.
 
 Two properties are enforced, not promised. **Read-only**: `cli/statsNonInterference.test.ts` walks the module graph reachable from `stats.ts` and `store/metrics/index.ts` and fails on write SQL, on `node:child_process`/socket modules, and on any workflow/runtime/agent import — which is why the project lookup is an inline SELECT rather than an import of `store/projects.ts` (that module owns an upsert). **Nothing is approximated**: four metrics the schema cannot answer (human intervention count, a ticket-level merge stamp, gate flake rate, waiting-on-human wall clock) are printed as unavailable with the missing column named, in `UNAVAILABLE_METRICS`.
+END_DOC_BLOCK: [@arch:CLI-07]
 
-## The CLI cannot migrate
+## [@arch:CLI-08] The CLI cannot migrate
 
 (it opens with `node:sqlite`, read-only for `context`). Both CLI stores assert `user_version >= SCHEMA_VERSION` up front (`cli/assertMigrated.ts`) and fail naming the file and both versions — otherwise a stale registry surfaces as a raw `no such column: repo` that tells the invoking agent nothing.
 
 `dist/cli/main.js` is a second, separately bundled esbuild entrypoint (`scripts/build-extension.mjs`, alongside `dist/extension.js`), and `scripts/verify-build.mjs` smoke-runs `guide` after every build to catch it going missing.
+END_DOC_BLOCK: [@arch:CLI-08]
 
-## Sub-task creation with `--no-start` to defer autostart
+## [@arch:CLI-09] Sub-task creation with `--no-start` to defer autostart
 
 `karst subtask create --title <text> [--description <desc>] [--blocking] [--repos a,b] [--no-start]` (`cli/subtaskCommand.ts`) writes a new sub-task row via the shared `createSubtask` writer (workflow, design NDL-70 §7). The parent is `--ticket`, resolved through `--manifest` like `stage`/`env`. By default (`start: true`), the child is queued for autostart (see `docs/arch/stages-and-gates.md`, "Sub-task autostart"). The `--no-start` flag sets `start: false` — the child is created at scope with `autostart_pending = 0` and waits for a manual Start by the user; there is no agent verb that starts it. Autostart respects the manifest `subtasks` caps; a `--no-start` child is never queued, but once started it holds a slot like any other while in `impl`/`fix`/`uat`/`review`. Every other §3 rule — parent exists/not archived/same project, parent not `ship`/`done`, depth cap, repo subset, inherited fields — is enforced in the shared writer, not re-implemented here.
+END_DOC_BLOCK: [@arch:CLI-09]
 
-## Agent-facing commands use env refs, not paths
+## [@arch:CLI-10] Agent-facing commands use env refs, not paths
 
 Agent-facing karst commands no longer embed machine paths; they use environment variables: `node "$KARST_CLI" --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket "$KARST_TICKET" servers list`. Flags stay explicit; the CLI's `parseGlobalFlags` does NOT read env (security: parse paths unchanged). Constants and helpers live in `src/agent/cliEnv.ts` (`envRef`, `quoteArg`, `karstCliEnv`, `karstCliRefs`, `sessionCliEnv`, `cliTokensFor`); composers in `src/cli/` use `quoteArg` so `$VAR` tokens pass through once-quoted. `KARST_TICKET` names the ticket key; `KARST_TICKET_ID` (numeric id, distinct) is used for terminal restore. Graph node completion uses `node "$KARST_GRAPH_CLI" node complete`. `karst context` output (renderStageEnding) uses refs when `KARST_CLI` and `KARST_DB` are set in its env, literal paths otherwise (foreign session); the ticket key in the stage marker stays literal (context can target another ticket). Hook bridge commands (agent/settings.ts, codex hooks) are kept literal on purpose — machine config run by hook processes that do not reliably inherit terminal env. Windows shells do not expand `$VAR`; karst targets macOS/Linux.
 
 The refs resolve ONLY inside a karst-launched terminal session or a karst headless run, whose env karst set. Text nudged into an existing session uses refs only if that session exported them (recorded at launch); an older or revived session falls back to literal paths. The generated `/karst:<id>` command files embed refs, so they work only when run from a karst-launched terminal.
+END_DOC_BLOCK: [@arch:CLI-10]
 
-## `message` / `inbox`: sender identity is attested, not unforgeable
+## [@arch:CLI-11] `message` / `inbox`: sender identity is attested, not unforgeable
 
 `karst message send --to parent|<child-key> --body <text>` and `karst inbox [--all] [--json]` are the parent<->child mailbox verbs (`cli/messageCommand.ts`). They are a separate parse path in `main.ts`, like `subtask`: they accept only their own flags, produce no `Verdict`, never import the machine, and write only `ticket_messages` rows (store: `store/ticketMessages.ts`; who may address whom: the pure `model/ticketMessaging.ts`, checked at SEND time — direct parent or direct child, same project, recipient not archived; siblings route via the parent, a detached child no longer reaches its old parent).
 
@@ -73,16 +91,18 @@ The refs resolve ONLY inside a karst-launched terminal session or a karst headle
 **Bodies and pointers.** Every row has a prose body (trimmed, ≤ 4096). `kind='message'` bodies are untrusted agent text, stored verbatim; host-written `kind='event'` bodies are host prose (`<key> landed (done)`, `<key> blocked at <stage>: <reason>`, `<key> autostart failed: …`) that may quote an untrusted reason. The delivery sweep never types a body: it nudges each RECIPIENT's live terminal with one fixed pointer line (unread count + the `inbox` command), at most once per 30 s per recipient, again when a newer row arrives; the agent reads the rows themselves only through `inbox` (see `docs/arch/stages-and-gates.md`, "Mailbox events").
 
 `inbox` prints unread rows oldest-first and marks read ONLY the unread rows it printed (a row landing after the listing stays unread); each body line is quoted with `> ` under a `from sub-task agent <key> (untrusted):` / `from parent agent <key> (untrusted):` header so a body cannot forge a header, while host-written rows (`from_ticket_id NULL`, `kind = 'event'`) are labelled `karst event:`. `karst context` carries only the unread COUNT (`inbox: { unread }`), never a body.
+END_DOC_BLOCK: [@arch:CLI-11]
 
-## `notes` / `notes post`: the project bulletin, a pull-only read and an agent-only write
+## [@arch:CLI-12] `notes` / `notes post`: the project bulletin, a pull-only read and an agent-only write
 
 `karst notes [--all] [--json]` and `karst notes post --title <t> --body <b>` (`cli/notesCommand.ts`) are the project bulletin verbs (v72). They are a separate parse path in `main.ts`, like `message`: they accept only their own flags, produce no `Verdict`, never import the machine, and can never move a ticket.
 
 `notes` lists the notes RELEVANT to the caller's ticket, oldest first, and marks the printed rows read (`--all` also lists already-read ones; `--json` emits the rows). Relevance is the pure `model/bulletinRelevance.ts`: the note and the reader must share a repo AND overlap by path prefix (a note whose paths were never stamped — it merged before the diff was known, or gh's file list came back capped — matches on repo alone). The reader's scope is its worktrees' repos plus the paths its own notes carry; its own notes are never offered back to it. Host facts (`source='host'`) print under a `karst fact:` header; agent prose is quoted line by line under a `from ticket <key> (untrusted):` header, exactly like a mailbox body (`quoteUntrusted`/`forbiddenBodyChar` from `model/messageText.ts`).
 
 `notes post` writes ONE agent learning. **The CLI always writes `source='agent'` and can never write `source='host'`** — only the merge hook in `store/prs.ts` writes host facts. The sender is `--ticket`, cross-checked against the session env's `KARST_TICKET` (both verbs REFUSE without it; a forged `--ticket` is refused when it disagrees), exactly like `message`. A title is one line ≤ 120 chars, a body ≤ 4096, and control characters are refused. Agent-supplied paths are ignored: the note's repos are stamped from the ticket's worktrees at post, and `recordTicketMerged` stamps its paths from the merged diff.
+END_DOC_BLOCK: [@arch:CLI-12]
 
-## `draft propose` / `draft list`: a planning session proposes; the host and a human decide
+## [@arch:CLI-13] `draft propose` / `draft list`: a planning session proposes; the host and a human decide
 
 `printf '%s' '<json>' | karst draft propose` and `karst draft list` (`cli/draftCommand.ts`) are how a planning session (`store/planningSessions.ts`, see `docs/arch/store-and-schema.md`) files and re-reads its outcome. The agent only PROPOSES. The host ingests the proposal (`extension/ops/planningOutbox.ts`) and a human confirms it with the full content visible before any ticket exists. That confirmation is the trust boundary; everything below limits damage.
 
@@ -102,8 +122,9 @@ The refs resolve ONLY inside a karst-launched terminal session or a karst headle
 - **No ticket without an explicit user action with the content visible** (`extension/ops/planningProposalOps.ts`). The notification names the session (`title (#id)`), the proposal title and the description/summary sizes, offering Review (first) and Discard. **Review** opens the ticket form prefilled with the draft's title/description/repos and the summary shown in the form's Context brief drawer; only the user's own Save/Submit creates the ticket and links it to the session, marking the proposal accepted (`markProposalAccepted`, one transaction) and seeding the summary as the ticket's `brief` when it has none. Dismissing the notification leaves it pending. There is no direct-create path.
 - **Pending survives a reload.** On activate every pending proposal of the project is announced again, and the sidebar Planning group lists each under its session with its `#<id>` and Approve (`plan-proposal-review`) / Discard (`plan-proposal-discard`) icon actions (numeric `proposalId` only).
 - **Threat model.** Only codex is truly sandboxed; claude, opencode and agy can run any shell command the user approves, so the outbox and the scan limit damage but do not isolate sessions. The human confirmation, with the whole agent-authored content in view, is the trust boundary.
+END_DOC_BLOCK: [@arch:CLI-13]
 
-## `manifest` / `setup`: an onboarding setup session discovers, proposes, and verifies
+## [@arch:CLI-14] `manifest` / `setup`: an onboarding setup session discovers, proposes, and verifies
 
 A SETUP session (launched from Getting Started's "Set up with agent" action, `extension/ops/setupOps.ts`) turns a workspace into a working `karst.yml`. It has NO file-edit permission: it changes the project only through proposals the extension applies after the user approves. Its commands (`cli/manifestCommand.ts`, `cli/setupCommand.ts`, `cli/setupVerify.ts`) share the planning posture — the agent writes files into its outbox, the host is the sole writer of durable state, and every value is bounded.
 
@@ -114,14 +135,16 @@ A SETUP session (launched from Getting Started's "Set up with agent" action, `ex
 - **Host scan and consent** (`extension/ops/setupProposalOps.ts`, wired by `extension/setupWiring.ts`). `setupWiring.ts` is the `vscode` binding and is excluded from the Stryker mutate set for the same reason as `manifestResolve.ts`/`secrets.ts`: a `vscode` import cannot load under vitest, so it has no killable tests. The pure logic it binds lives in `src/setup/**` and `ops/setup*.ts`, all mutation-tested. The host watches `<globalStorage>/setup-scratch/` and scans each outbox. A manifest proposal is re-validated from its YAML text (in memory, `manifest/load.ts`'s `parseManifestText`), diffed against the current file (`setup/manifestApply.ts`), and shown in a modal that LISTS EVERY START COMMAND it would run; only an explicit Apply writes it. `applyManifestProposal` restores protected fields (`id`, agent settings, presets, processes, ticketing, gates, conventions) from the current manifest, so accepting a discovered service can never reset the board or the model choices. A change proposal carries EITHER an exact command OR a patch (validation refuses both) and is applied only on consent. Invalid or declined proposals are removed and reported.
 - **Greenfield empty folder.** The agent proposes `git init` (plus a baseline branch and an initial commit) for the folder/subfolders the user names, one consented change each; it writes no application code, so those repos get no service and the report says to run setup again later. A change's target directory is resolved by `setup/changeTarget.ts`: a registered repository uses its `repoPath`, and a not-yet-registered one runs in the named folder UNDER the workspace root (created if absent) — never the root itself, so the applied change matches the folder the consent modal named.
 - **Monorepo interim.** Until one-service-per-app lands, the manifest allows one service per repository with no `cwd`. The agent declares one main service (the entry app, or the app the others depend on) and starts it from the right folder through its start command; the other apps are listed in the report as not run yet.
+END_DOC_BLOCK: [@arch:CLI-14]
 
-## Blocker results: delivered on landing
+## [@arch:CLI-15] Blocker results: delivered on landing
 
 When a blocker enters `done` (`store/blockerOutcome.ts`, emitted inside `setStage`'s savepoint like sub-task events), each live dependent gets ONE trusted `kind='event'` mailbox row (rendered `karst event:`). It carries the blocker's key and title, its brief, the merged paths per repo, the PR links and the blocker's bulletin notes. The row is capped at the 4096-char mailbox limit and ends with a `karst context <blocker-key>` pointer for the full text.
 
 The same outcome appears as the read-only `blockers` field and `## Blockers` section of `karst context`. It also rides the narrative seed of a ticket launched after its blockers have landed. Message send stays parent-to-child only.
+END_DOC_BLOCK: [@arch:CLI-15]
 
-## `karst doctor` — on-demand health checks (`src/doctor/`, `src/cli/doctorCommand.ts`)
+## [@arch:CLI-16] `karst doctor` — on-demand health checks (`src/doctor/`, `src/cli/doctorCommand.ts`)
 
 `karst doctor [--fix] [--area tools|manifest|state|wiring] [--json]`; palette: **Karst: Run Doctor**. On demand ONLY — never on activation or on failure; `reconcile.ts` stays the crash-recovery path.
 
@@ -131,3 +154,4 @@ The same outcome appears as the read-only `blockers` field and `## Blockers` sec
 - **Destructive fixes re-verify at apply time**: a kill needs the pid's start time ≤ `servers.started_at` + 5 s (pid-reuse guard; the registry stores no command line); a prune needs `git status` clean AND no unpushed commits (no upstream = unknown = skipped), runs `git worktree remove` without `--force`, and only for a `done` ticket.
 - **Stuck tickets are report-only** and exclude ship/awaiting-merge, conflicted merge checks, and open blocking subtasks.
 - **Known gaps (follow-ups):** the stuck threshold (120 min) and WAL limit (64 MB) are constants in `doctorCommand.ts`, not manifest fields; stale-outbox and unrecorded-worktree scans need host-owned directories the CLI cannot enumerate, so they report nothing from the CLI; launcher (#53) and the manifest/setup proposal commands (#55) are not wired — wiring skips the launcher check and manifest fixes are exact commands.
+END_DOC_BLOCK: [@arch:CLI-16]

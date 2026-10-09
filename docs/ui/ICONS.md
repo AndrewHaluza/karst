@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/ICONS.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:ICONS-01'):
+  awk "/^## \[@ui:ICONS-01\]/,/END_DOC_BLOCK: \[@ui:ICONS-01\]/" docs/ui/ICONS.md
+-->
+
 # Karst Icons — Tabler Icons standard
 
 **The single icon vocabulary for Karst's webview UI.** Karst uses Tabler Icons
@@ -13,7 +22,7 @@ design system: the decisions are centralized, and the pins in
 `src/model/tablerIcons.test.ts` keep every webview honest (the same
 discovery discipline as `ui/designSystem.test.ts`).
 
-## 1. Asset strategy — vendored path data, delivered by marker injection
+## [@ui:ICONS-01] Asset strategy — vendored path data, delivered by marker injection
 
 There is **no icon-font dependency and no external asset**. Every webview is a
 self-contained document under `default-src 'none'` (see
@@ -40,8 +49,9 @@ karstIcon('refresh', 12, 'reload-icon')  // extra class beside .k-icon
 
 Static markup (a button that exists before any script runs) inlines the same
 path data inside a `.k-icon` svg — see §4.
+END_DOC_BLOCK: [@ui:ICONS-01]
 
-## 2. The mapping — Karst concepts → Tabler glyphs
+## [@ui:ICONS-02] The mapping — Karst concepts → Tabler glyphs
 
 | Karst concept | Tabler glyph | Notes |
 |---|---|---|
@@ -82,8 +92,9 @@ family, `trash-x`-family as appropriate) — never a bespoke drawing. The
 initial-scope concept list from ticket 869eh4f40 is covered by the rows above
 (open terminal → `terminal-2`, kill/close → `player-stop`, show logs → the
 console surface's `terminal-2` identity, external/open → `external-link`).
+END_DOC_BLOCK: [@ui:ICONS-02]
 
-## 3. Delivery details
+## [@ui:ICONS-03] Delivery details
 
 - `karstIcon(name, size, cls)` renders the full `<svg>` with the canonical
   attributes: `viewBox="0 0 24 24"`, `aria-hidden="true"`, `focusable="false"`,
@@ -94,8 +105,9 @@ console surface's `terminal-2` identity, external/open → `external-link`).
   catches a misspelled name at test time (same contract as `applyTransforms`).
 - `KARST_TABLER_ICONS` (the catalog object) is also exposed in the runtime for
   any future consumer; today `karstIcon` is the only sanctioned accessor.
+END_DOC_BLOCK: [@ui:ICONS-03]
 
-## 4. Central sizing/stroke rules — one treatment, size is local
+## [@ui:ICONS-04] Central sizing/stroke rules — one treatment, size is local
 
 The canonical Tabler render is the treatment every glyph gets:
 
@@ -118,8 +130,9 @@ The one glyph that cannot inherit colour: the **`--chevron` data-URI**
 (settings + ticketForm dropdowns). A CSS background image cannot consume a
 custom property; the Tabler path is embedded with a fixed mid-gray, documented
 at its definition as the accepted exception.
+END_DOC_BLOCK: [@ui:ICONS-04]
 
-## 5. Product-specific exceptions — documented, not silently second-styled
+## [@ui:ICONS-05] Product-specific exceptions — documented, not silently second-styled
 
 These stay **outside** the catalog by design. They are identity marks, not
 interaction icons, and Tabler cannot express them (UI-R10c requires each agent
@@ -139,15 +152,17 @@ concept — belongs in `TABLER_ICONS` as upstream Tabler bytes, or it does not
 ship (the "no `<g id="i-` sprite" pin in `tablerIcons.test.ts` enforces this).
 VS Code's own `$(codicon)` literals in `package.json` command declarations are
 the platform's affordance system, not Karst's UI, and are out of scope.
+END_DOC_BLOCK: [@ui:ICONS-05]
 
-## 6. License / attribution
+## [@ui:ICONS-06] License / attribution
 
 Tabler Icons is MIT-licensed. The copyright notice and license text live in
 `THIRD_PARTY_NOTICES.md` (repo root — it ships in the VSIX); `tablerIcons.ts`
 carries the attribution header and `tablerIcons.test.ts` pins it, so the
 notice cannot be edited away.
+END_DOC_BLOCK: [@ui:ICONS-06]
 
-## 7. Adding an icon (checklist)
+## [@ui:ICONS-07] Adding an icon (checklist)
 
 1. Copy the upstream `<path>` markup from `icons/outline/<name>.svg`
    (raw.githubusercontent.com/tabler/tabler-icons/main/icons/outline/).
@@ -157,3 +172,4 @@ notice cannot be edited away.
 4. No test changes are required — the discovery test picks the new glyph up
    automatically. (Only add a pin if the glyph is load-bearing enough to
    deserve one, like `check`.)
+END_DOC_BLOCK: [@ui:ICONS-07]

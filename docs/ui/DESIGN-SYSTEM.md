@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/DESIGN-SYSTEM.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:11.12'):
+  awk "/^## \[@ui:11.12\]/,/END_DOC_BLOCK: \[@ui:11.12\]/" docs/ui/DESIGN-SYSTEM.md
+-->
 # Karst Design System
 
 **Version:** 3.0 — finalized UI contract
@@ -28,7 +36,7 @@ dispatching, persistence, retry policy, or domain behavior.
 
 ---
 
-## 0. Product character
+## [@ui:0] Product character
 
 Karst is a dense developer tool inside VS Code.
 
@@ -56,6 +64,7 @@ Consistency does not mean:
 The current prototype-approved density and visual tuning are the baseline.
 Changing token values for spacing, type, radius, or sizing is a separate visual
 design decision and must not happen as incidental cleanup.
+END_DOC_BLOCK: [@ui:0]
 
 ---
 
@@ -69,7 +78,7 @@ supports extension-local webview resources under an appropriate CSP; Karst keeps
 marker injection because it fits the current build/runtime architecture and
 avoids introducing another frontend delivery mechanism.
 
-## 1.1 Required markers
+## [@ui:1.1] Required markers
 
 Every webview carries:
 
@@ -85,8 +94,9 @@ construction, exactly like tokens and the action runtime.
 
 Webview discovery tests enumerate webview directories from disk. They must not
 use a handwritten list.
+END_DOC_BLOCK: [@ui:1.1]
 
-## 1.2 Target: one shared visual delivery path
+## [@ui:1.2] Target: one shared visual delivery path
 
 The status and stage palettes remain owned by:
 
@@ -107,8 +117,9 @@ Once the target delivery path is implemented and covered by discovery tests,
 `/*KARST_PALETTE*/` and redundant `injectPalette(...)` calls are removed.
 
 Palette ownership remains separate in TypeScript; only delivery is unified.
+END_DOC_BLOCK: [@ui:1.2]
 
-## 1.3 Ownership
+## [@ui:1.3] Ownership
 
 | Concern | Owner |
 |---|---|
@@ -126,6 +137,7 @@ Shared UI JavaScript may implement component behavior such as toast dismissal,
 focus management, or common busy-state presentation.
 
 The host action protocol is not part of the design system.
+END_DOC_BLOCK: [@ui:1.3]
 
 ---
 
@@ -171,7 +183,7 @@ meaningful component token.
 
 ---
 
-## 2.1 Semantic identity is not value identity
+## [@ui:2.1] Semantic identity is not value identity
 
 Two semantic tokens may intentionally have the same current value.
 
@@ -195,10 +207,11 @@ sunken surface
 may currently resolve to the same VS Code value without becoming the same token.
 
 The system forbids **duplicate meanings**, not duplicate underlying values.
+END_DOC_BLOCK: [@ui:2.1]
 
 ---
 
-## 2.2 Semantic layers
+## [@ui:2.2] Semantic layers
 
 Karst uses this model:
 
@@ -236,12 +249,13 @@ not:
 
 This preserves one controlled visual source without making "success feedback"
 mean "workflow passed".
+END_DOC_BLOCK: [@ui:2.2]
 
 ---
 
 # 3. Color
 
-## 3.1 Surface
+## [@ui:3.1] Surface
 
 | Token | Current value | Use |
 |---|---|---|
@@ -254,8 +268,9 @@ mean "workflow passed".
 | `--k-border-strong` | theme contrast border | high-emphasis boundary |
 
 `--k-bg` and `--k-surface-sunken` intentionally remain separate semantic names.
+END_DOC_BLOCK: [@ui:3.1]
 
-## 3.2 Text
+## [@ui:3.2] Text
 
 | Token | Use |
 |---|---|
@@ -264,8 +279,9 @@ mean "workflow passed".
 | `--k-text-faint` | tertiary/unavailable |
 | `--k-link` | navigation |
 | `--k-link-active` | navigation hover/active |
+END_DOC_BLOCK: [@ui:3.2]
 
-## 3.3 Actions
+## [@ui:3.3] Actions
 
 | Token | Use |
 |---|---|
@@ -278,10 +294,11 @@ mean "workflow passed".
 | `--k-focus` | shared focus indicator |
 
 Where VS Code exposes a paired control foreground/background role, use the pair.
+END_DOC_BLOCK: [@ui:3.3]
 
 ---
 
-## 3.4 Workflow status
+## [@ui:3.4] Workflow status
 
 Owned visually by `palette.ts`.
 
@@ -318,10 +335,11 @@ tokens — a surface that maps a severity to a colour of its own is a defect.
 
 Findings colour comes from these tokens on every surface. A surface that maps
 a severity to a colour of its own is a defect.
+END_DOC_BLOCK: [@ui:3.4]
 
 ---
 
-## 3.5 Feedback
+## [@ui:3.5] Feedback
 
 Feedback describes the UI's communication tone.
 
@@ -350,10 +368,11 @@ Filled semantic surfaces require an explicitly tested foreground pair.
 `--k-success-fg` / `--k-danger-fg` must not simply be the page background.
 Their concrete theme values are owned alongside the palette and are pinned by
 contrast tests.
+END_DOC_BLOCK: [@ui:3.5]
 
 ---
 
-## 3.6 Data series
+## [@ui:3.6] Data series
 
 Categorical visualization colors are independent semantic roles.
 
@@ -373,10 +392,11 @@ Never use:
 - `--k-info` as a chart series;
 - `--k-series-2` as a merged/status badge;
 - chart-series colors to communicate workflow meaning.
+END_DOC_BLOCK: [@ui:3.6]
 
 ---
 
-## 3.7 Stages
+## [@ui:3.7] Stages
 
 Stage identity is owned by `stagePalette.ts`.
 
@@ -390,6 +410,7 @@ Stage identity is not generic feedback.
 
 A stage must not become "success", "warning", or "info" merely because those
 colors are visually convenient.
+END_DOC_BLOCK: [@ui:3.7]
 
 ---
 
@@ -574,7 +595,7 @@ features that must be invented.
 
 # 11. Primitives
 
-## 11.1 Button — `.k-btn`
+## [@ui:11.1] Button — `.k-btn`
 
 A real `<button>` used for actions.
 
@@ -629,10 +650,11 @@ status/icon slot, preserve minimum width, or put the status adjacent where neede
 
 Changing the label during pending is not globally forbidden, but unnecessary
 accessible-name churn and layout shifts should be avoided.
+END_DOC_BLOCK: [@ui:11.1]
 
 ---
 
-## 11.2 Icon button — `.k-iconbtn`
+## [@ui:11.2] Icon button — `.k-iconbtn`
 
 A real button whose visible content is only a glyph/icon.
 
@@ -647,10 +669,11 @@ Requirements:
 A matching `title` may be added as supplemental pointer help.
 
 `title` is not the accessible name.
+END_DOC_BLOCK: [@ui:11.2]
 
 ---
 
-## 11.3 Link — `.k-link`
+## [@ui:11.3] Link — `.k-link`
 
 A real `<a href>` used for navigation or resource reveal.
 
@@ -672,10 +695,11 @@ than a visually separate action button.
 
 An action that merely looks link-like remains a `<button class="k-btn
 k-btn--text">`.
+END_DOC_BLOCK: [@ui:11.3]
 
 ---
 
-## 11.4 Input — `.k-input`
+## [@ui:11.4] Input — `.k-input`
 
 For text-like input and textarea controls.
 
@@ -694,10 +718,11 @@ Field errors use:
 - `aria-invalid="true"`;
 - an actionable message;
 - programmatic association with that message.
+END_DOC_BLOCK: [@ui:11.4]
 
 ---
 
-## 11.5 Select — `.k-select`
+## [@ui:11.5] Select — `.k-select`
 
 Native `<select>` is a separate primitive from text input.
 
@@ -707,10 +732,11 @@ When unavailable, use a real supported state such as `disabled`.
 
 When its options are asynchronously loading, expose that state at the owning
 field/surface instead of inventing a readonly-select contract.
+END_DOC_BLOCK: [@ui:11.5]
 
 ---
 
-## 11.6 Field — `.k-field`
+## [@ui:11.6] Field — `.k-field`
 
 Label + control + help/error.
 
@@ -719,10 +745,11 @@ Prefer native `<label for>`.
 Field-specific errors stay with the field.
 
 A global/page error region is for errors without a meaningful local owner.
+END_DOC_BLOCK: [@ui:11.6]
 
 ---
 
-## 11.7 Switch — `.k-switch`
+## [@ui:11.7] Switch — `.k-switch`
 
 Used for a persistent on/off setting.
 
@@ -733,10 +760,11 @@ keyboard contract.
 
 A temporary pressed/unpressed action is a button with `aria-pressed`, not a
 switch.
+END_DOC_BLOCK: [@ui:11.7]
 
 ---
 
-## 11.8 Badge — `.k-badge`
+## [@ui:11.8] Badge — `.k-badge`
 
 Non-interactive compact information.
 
@@ -753,10 +781,11 @@ An agent core/provider identity is **not** a badge. Use `.k-agent-core`
 
 An informational badge does not gain pressed/hover/disabled semantics simply
 because an interactive chip exists elsewhere.
+END_DOC_BLOCK: [@ui:11.8]
 
 ---
 
-## 11.9 Agent core identity — `.k-agent-core`
+## [@ui:11.9] Agent core identity — `.k-agent-core`
 
 Whenever an agent core is shown, its identity is:
 
@@ -811,10 +840,11 @@ another accessible selector that can render the shared `.k-agent-core` identity.
 
 The selector's interaction semantics remain those of a single choice; the
 identity requirement does not justify an incomplete custom listbox.
+END_DOC_BLOCK: [@ui:11.9]
 
 ---
 
-## 11.10 Toggle chip — `.k-chip`
+## [@ui:11.10] Toggle chip — `.k-chip`
 
 Interactive compact binary choice.
 
@@ -830,20 +860,22 @@ Applicable states:
 - disabled.
 
 Do not use `.k-chip` for purely informational content.
+END_DOC_BLOCK: [@ui:11.10]
 
 ---
 
-## 11.11 Single-select choice
+## [@ui:11.11] Single-select choice
 
 Prefer native radio controls.
 
 If a custom radio visual is required, implement the complete radio interaction
 model, including keyboard focus and arrow-key navigation—not only
 `role="radio"` and `aria-checked`.
+END_DOC_BLOCK: [@ui:11.11]
 
 ---
 
-## 11.12 Workflow status — `.k-status`
+## [@ui:11.12] Workflow status — `.k-status`
 
 A non-interactive, **icon-only** workflow-state marker.
 
@@ -878,10 +910,11 @@ Example:
 
 No visible `Passed`, `Done`, `Running`, or `Needs attention` text is appended by
 the status primitive itself.
+END_DOC_BLOCK: [@ui:11.12]
 
 ---
 
-## 11.13 Spinner — `.k-spinner`
+## [@ui:11.13] Spinner — `.k-spinner`
 
 The shared visual pending indicator.
 
@@ -891,10 +924,11 @@ The running `.k-status` variant may use this spinner inside an accessible
 icon-only status container.
 
 Reduced motion stops the animation but leaves a static pending indicator.
+END_DOC_BLOCK: [@ui:11.13]
 
 ---
 
-## 11.14 Modal — `.k-modal`
+## [@ui:11.14] Modal — `.k-modal`
 
 A modal dialog:
 
@@ -906,19 +940,21 @@ A modal dialog:
 
 Irreversible operations whose confirmation must not be bypassable remain
 confirmed host-side.
+END_DOC_BLOCK: [@ui:11.14]
 
 ---
 
-## 11.15 Modal drawer — `.k-drawer`
+## [@ui:11.15] Modal drawer — `.k-drawer`
 
 An overlay side surface that makes the underlying interface temporarily
 unavailable.
 
 It follows modal-dialog semantics.
+END_DOC_BLOCK: [@ui:11.15]
 
 ---
 
-## 11.16 Side panel / inspector — `.k-panel`
+## [@ui:11.16] Side panel / inspector — `.k-panel`
 
 A non-modal contextual side surface.
 
@@ -930,10 +966,11 @@ It does not:
 
 Use it for details/inspection flows where users should move between the panel
 and main content.
+END_DOC_BLOCK: [@ui:11.16]
 
 ---
 
-## 11.17 Toast — `.k-toast`
+## [@ui:11.17] Toast — `.k-toast`
 
 Transient result communication where no stronger inline home exists.
 
@@ -950,10 +987,11 @@ A persistent error toast includes a real dismiss button.
 
 An error that belongs to a field, modal, drawer, or workflow remains recorded
 there rather than existing only as a toast.
+END_DOC_BLOCK: [@ui:11.17]
 
 ---
 
-## 11.18 Tooltip / contextual help
+## [@ui:11.18] Tooltip / contextual help
 
 Native `title` is supplemental convenience only.
 
@@ -964,10 +1002,11 @@ associated help.
 
 A custom tooltip that conveys useful information must work for keyboard focus as
 well as pointer hover.
+END_DOC_BLOCK: [@ui:11.18]
 
 ---
 
-## 11.19 Empty state — `.k-empty`
+## [@ui:11.19] Empty state — `.k-empty`
 
 State:
 
@@ -975,10 +1014,11 @@ State:
 2. what causes it to appear or what the user can do next.
 
 Do not use a grid of zeros as a synonym for no data.
+END_DOC_BLOCK: [@ui:11.19]
 
 ---
 
-## 11.20 Gated-action pattern: native modal vs. inline reveal
+## [@ui:11.20] Gated-action pattern: native modal vs. inline reveal
 
 Two patterns exist in the codebase for gating an action behind a second step.
 Pick between them by what the gate is protecting, not by habit or by which
@@ -995,27 +1035,30 @@ user must not click through it by accident," gate it with the native modal. If
 the risk is "the user should see exactly what is about to run/change for this
 specific item before it happens," reveal that information inline next to the
 control that triggered it.
+END_DOC_BLOCK: [@ui:11.20]
 
 ---
 
 # 12. Accessibility baseline
 
-## 12.1 Native semantics
+## [@ui:12.1] Native semantics
 
 Prefer native HTML.
 
 Use ARIA to expose real component state, not to compensate for incorrect element
 semantics.
+END_DOC_BLOCK: [@ui:12.1]
 
-## 12.2 Focus
+## [@ui:12.2] Focus
 
 Every keyboard-focusable interactive element has a clearly visible focus
 indicator.
 
 Non-rectangular controls may use a shape-aware focus treatment rather than a
 rectangular outline when needed.
+END_DOC_BLOCK: [@ui:12.2]
 
-## 12.3 Contrast
+## [@ui:12.3] Contrast
 
 Normal text meets at least `4.5:1`.
 
@@ -1038,15 +1081,17 @@ Shared primitives and reusable local patterns must derive surfaces, text,
 borders, and state fills from semantic/theme tokens rather than hard-coded
 dark-theme literals. A component that looks correct only in the default dark
 theme is not conformant.
+END_DOC_BLOCK: [@ui:12.3]
 
-## 12.4 Names
+## [@ui:12.4] Names
 
 - icon-only controls have accessible names;
 - form controls have programmatic labels;
 - decorative SVGs are hidden where appropriate;
 - status glyphs either have full accessible text or are decorative beside it.
+END_DOC_BLOCK: [@ui:12.4]
 
-## 12.5 Color
+## [@ui:12.5] Color
 
 Color is never the only **visible** carrier of meaningful state.
 
@@ -1055,18 +1100,21 @@ neutral marker) is the non-color carrier. A visible status word is not required.
 
 An `aria-label` does not solve color-only information for a sighted user; it
 supplies the accessible name for the icon-only status marker.
+END_DOC_BLOCK: [@ui:12.5]
 
-## 12.6 Disabled controls
+## [@ui:12.6] Disabled controls
 
 Use native `disabled` when removing the control from ordinary keyboard
 interaction is appropriate.
 
 Use `aria-disabled` only where keeping the unavailable control discoverable is
 intentional and activation is correctly prevented.
+END_DOC_BLOCK: [@ui:12.6]
 
-## 12.7 Motion
+## [@ui:12.7] Motion
 
 Reduced motion removes non-essential animation without removing information.
+END_DOC_BLOCK: [@ui:12.7]
 
 ---
 
@@ -1103,7 +1151,7 @@ over:
 { className: 'red-pill', color: '#f14c4c', icon: 'x' }
 ```
 
-## 13.1 Formatting boundary
+## [@ui:13.1] Formatting boundary
 
 Canonical/domain formatting remains upstream when it carries meaning.
 
@@ -1122,10 +1170,11 @@ Examples:
 - visual truncation;
 - localized numeric separators;
 - compact display formatting.
+END_DOC_BLOCK: [@ui:13.1]
 
 ---
 
-## 13.2 Agent identity boundary
+## [@ui:13.2] Agent identity boundary
 
 Domain/application code may supply semantic agent metadata such as:
 
@@ -1143,6 +1192,7 @@ color, or CSS class.
 
 Model, effort, and variant remain semantic metadata and are rendered only where
 they add useful run/configuration context.
+END_DOC_BLOCK: [@ui:13.2]
 
 ---
 

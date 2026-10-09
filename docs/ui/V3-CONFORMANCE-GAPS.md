@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/V3-CONFORMANCE-GAPS.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:G1'):
+  awk "/^## \[@ui:G1\]/,/END_DOC_BLOCK: \[@ui:G1\]/" docs/ui/V3-CONFORMANCE-GAPS.md
+-->
 # v3.0 conformance gaps — the replacement backlog
 
 The v3.0 contract ([UI-RULES.md](./UI-RULES.md),
@@ -15,7 +23,7 @@ the ticket that adopted v3.0 (869egfk42) — that ticket replaced documents only
 
 ---
 
-## ☐ G1 — The workflow-status primitive is `.k-dot`, not `.k-status`
+## [@ui:G1] ☐ G1 — The workflow-status primitive is `.k-dot`, not `.k-status`
 
 **Rule:** UI-R28 / UI-R28b, DESIGN-SYSTEM §11.12.
 
@@ -33,8 +41,9 @@ in real domain wording, and retire `.k-dot`. The catalog
 Static test: state → glyph mapping; visual test: readable with color suppressed.
 
 ---
+END_DOC_BLOCK: [@ui:G1]
 
-## ☐ G2 — `--k-success` aliases `--k-passed` in CSS
+## [@ui:G2] ☐ G2 — `--k-success` aliases `--k-passed` in CSS
 
 **Rule:** DESIGN-SYSTEM §2.2 / §3.5, UI-R05.
 
@@ -51,8 +60,9 @@ no rendered color changes, which is the point. Guard: a token test asserting no
 `--k-*` feedback token's value textually references another public `--k-*` token.
 
 ---
+END_DOC_BLOCK: [@ui:G2]
 
-## ☐ G3 — `--k-success-fg` / `--k-danger-fg` are the page background
+## [@ui:G3] ☐ G3 — `--k-success-fg` / `--k-danger-fg` are the page background
 
 **Rule:** DESIGN-SYSTEM §3.5, UI-R29.
 
@@ -66,8 +76,9 @@ fails when it does.
 the pair's contrast ratio in a test across light, dark and high-contrast.
 
 ---
+END_DOC_BLOCK: [@ui:G3]
 
-## ☐ G4 — `/*KARST_PALETTE*/` is still a second delivery path
+## [@ui:G4] ☐ G4 — `/*KARST_PALETTE*/` is still a second delivery path
 
 **Rule:** UI-R03, DESIGN-SYSTEM §1.2.
 
@@ -83,8 +94,9 @@ the webview discovery tests. Blocked behind G2 in practice — the alias is what
 makes the ordering load-bearing.
 
 ---
+END_DOC_BLOCK: [@ui:G4]
 
-## ☐ G5 — Secondary/metadata text below AA on the dashboard, sidebar, usage and resources
+## [@ui:G5] ☐ G5 — Secondary/metadata text below AA on the dashboard, sidebar, usage and resources
 
 **Rule:** UI-R29, DESIGN-SYSTEM (`--k-text-dim` / `--k-text-faint` usage).
 
@@ -109,8 +121,9 @@ clears 4.5:1 (3:1 for large text), then shrink `CONTRAST_RATCHET`
 accordingly — the ratchet is shrink-only.
 
 ---
+END_DOC_BLOCK: [@ui:G5]
 
-## ☑ gettingStarted is unreadable in the high-contrast theme (closed)
+## [@ui:CLOSED-GS-HC] ☑ gettingStarted is unreadable in the high-contrast theme (closed)
 
 `src/ui/gettingStarted/webview.html`'s `body` rule set `color: var(--k-text)`
 but, unlike every other webview, never set a `background` — so the page fell
@@ -128,8 +141,9 @@ text) are removed from `tests/visual/a11y.visual.ts` now that the sweep
 passes without them.
 
 ---
+END_DOC_BLOCK: [@ui:CLOSED-GS-HC]
 
-## Not gaps
+## [@ui:NOT-GAPS] Not gaps
 
 - **`--k-passed` and `--k-success` rendering the same green** is intended
   (DESIGN-SYSTEM §3.5). Only the CSS alias is the defect (G2).
@@ -137,8 +151,9 @@ passes without them.
   timelines) is permitted by v3.0 and is not remediation work.
 
 ---
+END_DOC_BLOCK: [@ui:NOT-GAPS]
 
-## Known RUNTIME violations
+## [@ui:RUNTIME-VIOLATIONS] Known RUNTIME violations
 
 Discovered by the jsdom render harness cross-view sweep
 (`src/ui/runtimeConformance.render.integration.test.ts`).  Each is a ratchet — the count
@@ -149,3 +164,4 @@ may only shrink.
 | dashboard | UI-R10 | 1 | `k-agent-core` class used on `#agentCore` but no CSSOM rule — styled via `.agent-identity` rules instead; the class is a hook for future theming |
 
 All other views: **0** known unresolved `k-` class violations.
+END_DOC_BLOCK: [@ui:RUNTIME-VIOLATIONS]

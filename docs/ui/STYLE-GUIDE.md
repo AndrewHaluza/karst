@@ -1,3 +1,12 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/STYLE-GUIDE.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:SG-01'):
+  awk "/^## \[@ui:SG-01\]/,/END_DOC_BLOCK: \[@ui:SG-01\]/" docs/ui/STYLE-GUIDE.md
+-->
+
 # Karst UI Style Guide
 
 **Version:** 3.0 — finalized UI application guide
@@ -9,7 +18,7 @@ explains the product/design judgment behind those rules.
 
 ---
 
-# 1. Visual north star
+## [@ui:SG-01] Visual north star
 
 Karst should feel like a focused developer tool inside VS Code:
 
@@ -35,12 +44,13 @@ the permanent normative dependency.
 When a mechanical rule conflicts with a composition that is clear, accessible,
 consistent, and matches the approved visual direction, review the rule before
 flattening the design.
+END_DOC_BLOCK: [@ui:SG-01]
 
 ---
 
-# 2. Naming
+## [@ui:SG-02] Naming
 
-## CSS
+### CSS
 
 | Kind | Convention | Example |
 |---|---|---|
@@ -67,14 +77,15 @@ A local component must **not recreate an existing semantic primitive**.
 If something is semantically a normal Karst button, it uses `.k-btn`.
 Calling the replacement `.localAction` does not make a second button system
 acceptable.
+END_DOC_BLOCK: [@ui:SG-02]
 
 ---
 
-# 3. Reuse vs local design
+## [@ui:SG-03] Reuse vs local design
 
 Ask these questions in order.
 
-## 3.1 Does an existing primitive match the interaction?
+### 3.1 Does an existing primitive match the interaction?
 
 Use it.
 
@@ -87,7 +98,7 @@ Examples:
 - compact toggle → chip;
 - modal overlay → modal/drawer.
 
-## 3.2 Is the same semantic component missing a real variant?
+### 3.2 Is the same semantic component missing a real variant?
 
 Add a shared variant.
 
@@ -105,7 +116,7 @@ They do not encode taste:
 - slightly rounder;
 - dashboard version.
 
-## 3.3 Is this a product-specific composition?
+### 3.3 Is this a product-specific composition?
 
 Keep it local.
 
@@ -122,10 +133,11 @@ Examples:
 
 Promotion is based on a stable reusable semantic/API contract—not an arbitrary
 "used on two screens" count.
+END_DOC_BLOCK: [@ui:SG-03]
 
 ---
 
-# 4. Tokens
+## [@ui:SG-04] Tokens
 
 Use a token for a repeated visual decision.
 
@@ -154,10 +166,11 @@ width: calc(var(--k-space-8) * 23);
 
 If a local value becomes part of a shared component contract, promote it to a
 meaningful component token.
+END_DOC_BLOCK: [@ui:SG-04]
 
 ---
 
-# 5. Color semantics
+## [@ui:SG-05] Color semantics
 
 Always decide **what the color means** before deciding which token to use.
 
@@ -169,7 +182,7 @@ Keep separate:
 - categorical data series;
 - selection.
 
-## Don't
+### Don't
 
 ```css
 .merged {
@@ -179,7 +192,7 @@ Keep separate:
 
 A chart color does not mean merged.
 
-## Don't
+### Don't
 
 ```css
 .note {
@@ -189,7 +202,7 @@ A chart color does not mean merged.
 
 Information does not mean running.
 
-## Do
+### Do
 
 ```css
 .error {
@@ -206,10 +219,11 @@ or:
 ```
 
 Different semantic tokens may currently resolve to the same hue.
+END_DOC_BLOCK: [@ui:SG-05]
 
 ---
 
-# 6. Density and typography
+## [@ui:SG-06] Density and typography
 
 Preserve Karst's compact density.
 
@@ -224,26 +238,27 @@ A fractional size already present in the approved visual baseline is not a
 reason to create more fractional sizes.
 
 Retuning the type scale is a design task, not token hygiene.
+END_DOC_BLOCK: [@ui:SG-06]
 
 ---
 
-# 7. Buttons, links, and resource paths
+## [@ui:SG-07] Buttons, links, and resource paths
 
 Semantics come before appearance.
 
-## Action
+### Action
 
 ```html
 <button class="k-btn k-btn--text">Show details</button>
 ```
 
-## Navigation
+### Navigation
 
 ```html
 <a class="k-link" href="...">Open documentation</a>
 ```
 
-## File / resource reveal
+### File / resource reveal
 
 When a file path, commit hash, PR number, or other useful target identifier is
 already visible, make that value the link:
@@ -268,10 +283,11 @@ while keeping link semantics.
 Do not call navigation a button because it looks like one.
 
 Do not use an anchor for an action merely because you want link styling.
+END_DOC_BLOCK: [@ui:SG-07]
 
 ---
 
-# 8. Destructive actions
+## [@ui:SG-08] Destructive actions
 
 Always-danger actions include:
 
@@ -289,10 +305,11 @@ For example:
   security-sensitive confirmation remains host-side where required.
 
 Choose danger based on **destructive loss**, not keyword matching.
+END_DOC_BLOCK: [@ui:SG-08]
 
 ---
 
-# 9. Rows
+## [@ui:SG-09] Rows
 
 Rows are a core Karst composition and should remain row-like.
 
@@ -307,12 +324,12 @@ A row may contain:
 
 Do not automatically give the whole row button chrome.
 
-## 9.1 Whole-row interaction
+### 9.1 Whole-row interaction
 
 If the whole row is the single action and contains no independent interactive
 children, the row may use appropriate native clickable semantics.
 
-## 9.2 Row with child actions
+### 9.2 Row with child actions
 
 If the row contains independent controls such as:
 
@@ -336,10 +353,11 @@ control owns the action.
 
 For findings/log/detail rows, a visible filepath is itself the navigation link.
 Do not add a redundant **Open file** button beside the same path.
+END_DOC_BLOCK: [@ui:SG-09]
 
 ---
 
-# 10. Selection, success, and status
+## [@ui:SG-10] Selection, success, and status
 
 These are different meanings:
 
@@ -366,10 +384,11 @@ A workflow status means:
 > this process is in this state
 
 They may be visually related, but they are not aliases.
+END_DOC_BLOCK: [@ui:SG-10]
 
 ---
 
-# 11. Workflow status
+## [@ui:SG-11] Workflow status
 
 Workflow status is intentionally compact: **icon only**.
 
@@ -399,10 +418,11 @@ The visible summary is row content, not part of the status primitive.
 
 This satisfies the non-color rule through distinct glyphs/shapes rather than
 repeating a status label next to every icon.
+END_DOC_BLOCK: [@ui:SG-11]
 
 ---
 
-# 11.1 Agent core identity
+## [@ui:SG-11.1] Agent core identity
 
 Agent-core identity is always:
 
@@ -439,10 +459,11 @@ When the user is choosing an agent core, use a single-choice UI that can render
 the same icon + name identity for every option. Do not fall back to a text-only
 native select just because it is convenient. Native radio inputs with styled
 labels are preferred when they fit.
+END_DOC_BLOCK: [@ui:SG-11.1]
 
 ---
 
-# 12. Stages
+## [@ui:SG-12] Stages
 
 Karst stages are product identity:
 
@@ -456,12 +477,13 @@ Do not replace stage identity with generic success/info/warning badges.
 
 Screen-specific stage structures such as rails, nodes, implementation graphs,
 and timelines may remain local compositions.
+END_DOC_BLOCK: [@ui:SG-12]
 
 ---
 
-# 13. Badges, chips, and choices
+## [@ui:SG-13] Badges, chips, and choices
 
-## Informational badge
+### Informational badge
 
 ```html
 <span class="k-badge">Review</span>
@@ -472,7 +494,7 @@ No pressed state. No fake button role.
 Agent-core identity is not represented by a badge; use the shared
 icon + core-name pattern from §11.1.
 
-## Toggle chip
+### Toggle chip
 
 ```html
 <button class="k-chip" aria-pressed="true">Backend</button>
@@ -480,22 +502,23 @@ icon + core-name pattern from §11.1.
 
 It is an action/selection control.
 
-## Single choice
+### Single choice
 
 Prefer native radio controls with styled labels.
 
 If a custom radio group is necessary, implement the whole interaction, including
 arrow-key navigation and focus management.
+END_DOC_BLOCK: [@ui:SG-13]
 
 ---
 
-# 14. Copy tone
+## [@ui:SG-14] Copy tone
 
 Karst speaks like a competent colleague.
 
 Direct, specific, neutral.
 
-## Labels
+### Labels
 
 Prefer imperative verb + object:
 
@@ -508,7 +531,7 @@ Use sentence case.
 
 Use an ellipsis only where the action genuinely opens another decision.
 
-## Errors
+### Errors
 
 Use:
 
@@ -529,7 +552,7 @@ in transient UI.
 
 "Unknown" and "failed" are different claims.
 
-## Empty states
+### Empty states
 
 Say what is absent and what causes it to appear.
 
@@ -537,10 +560,11 @@ Say what is absent and what causes it to appear.
 > Usage appears after an agent session runs.
 
 No-data is not the same as measured zero.
+END_DOC_BLOCK: [@ui:SG-14]
 
 ---
 
-# 15. Tooltips and help
+## [@ui:SG-15] Tooltips and help
 
 Native `title` is supplemental convenience.
 
@@ -575,10 +599,11 @@ Keep tooltip copy short and behavioral:
 not:
 
 > Refresh button
+END_DOC_BLOCK: [@ui:SG-15]
 
 ---
 
-# 16. Forms and overlays
+## [@ui:SG-16] Forms and overlays
 
 Field errors belong to fields.
 
@@ -593,21 +618,22 @@ Do not close the surface immediately after `post()` and then display the error
 behind it.
 
 Use a global error region only when there is no meaningful local owner.
+END_DOC_BLOCK: [@ui:SG-16]
 
 ---
 
-# 17. Modal vs side panel
+## [@ui:SG-17] Modal vs side panel
 
 Visual similarity does not imply modal semantics.
 
-## Modal drawer
+### Modal drawer
 
 Use when the user must finish/dismiss the overlay before interacting with the
 underlying surface.
 
 It follows the modal focus contract.
 
-## Inspector / details panel
+### Inspector / details panel
 
 Use when users should move freely between the panel and main content.
 
@@ -616,10 +642,11 @@ It does not:
 - trap focus;
 - claim `aria-modal`;
 - make the underlying UI inert.
+END_DOC_BLOCK: [@ui:SG-17]
 
 ---
 
-# 18. Async feedback
+## [@ui:SG-18] Async feedback
 
 The user should know when an action that visibly takes time was received.
 
@@ -627,7 +654,7 @@ The design system owns how pending/result state looks.
 
 The application owns how the host and webview communicate that state.
 
-## Pending
+### Pending
 
 For an in-flight host mutation or long-running external operation whose result is
 not immediately visible:
@@ -636,13 +663,13 @@ not immediately visible:
 - prevent unsafe duplicate activation;
 - keep feedback scoped to the initiating control/surface.
 
-## Success
+### Success
 
 Prefer the actual changed domain state as confirmation.
 
 Use transient success feedback only when the changed state itself is not obvious.
 
-## Failure
+### Failure
 
 Put it where the user can act:
 
@@ -650,7 +677,7 @@ Put it where the user can act:
 2. workflow/state display;
 3. toast when no better local home exists.
 
-## Unknown
+### Unknown
 
 Timeout/lost acknowledgment does not prove failure.
 
@@ -659,17 +686,18 @@ It also does not prove the operation stopped.
 Do not simply re-enable a destructive mutation and invite a duplicate retry
 unless application architecture makes retry safe.
 
-## Optimistic feedback
+### Optimistic feedback
 
 Do not call something "Saved", "Copied", "Merged", or equivalent when the
 application can still determine that it failed.
 
 If optimistic state is deliberately used for reversible UI behavior, represent it
 as optimistic state with reconciliation—not false confirmed success.
+END_DOC_BLOCK: [@ui:SG-18]
 
 ---
 
-# 19. Stable interaction geometry
+## [@ui:SG-19] Stable interaction geometry
 
 Avoid needless movement when a control becomes busy or successful.
 
@@ -691,10 +719,11 @@ Solutions include:
 The goal is stable geometry.
 
 There is no blanket rule that text must never change.
+END_DOC_BLOCK: [@ui:SG-19]
 
 ---
 
-# 20. Disabled state
+## [@ui:SG-20] Disabled state
 
 Disabled means unavailable.
 
@@ -712,10 +741,11 @@ Do not double-dim components by blindly combining a faint semantic foreground an
 global opacity if the resulting treatment loses useful structure.
 
 Choose the disabled treatment at primitive level.
+END_DOC_BLOCK: [@ui:SG-20]
 
 ---
 
-# 21. Local composition is allowed
+## [@ui:SG-21] Local composition is allowed
 
 The design system should make correct product UI easier.
 
@@ -735,10 +765,11 @@ Legitimate local compositions include:
 Use shared semantic tokens and primitives where they genuinely fit.
 
 Do not distort a composition merely to increase primitive reuse.
+END_DOC_BLOCK: [@ui:SG-21]
 
 ---
 
-# 22. Host / presentation boundary
+## [@ui:SG-22] Host / presentation boundary
 
 The host supplies semantic facts.
 
@@ -771,7 +802,7 @@ Do not send:
 
 from domain code.
 
-## Formatting
+### Formatting
 
 Domain/canonical formatting remains upstream when it carries business meaning.
 
@@ -784,10 +815,11 @@ Ask:
 If yes, it is probably domain/canonical formatting.
 
 If no, it may be presentation formatting.
+END_DOC_BLOCK: [@ui:SG-22]
 
 ---
 
-# 23. Accessibility review
+## [@ui:SG-23] Accessibility review
 
 Prefer native HTML.
 
@@ -806,10 +838,11 @@ Verify in the real webview:
 - high contrast;
 - color-independent status;
 - reduced motion.
+END_DOC_BLOCK: [@ui:SG-23]
 
 ---
 
-# 24. Working on a webview
+## [@ui:SG-24] Working on a webview
 
 1. Read the file's ownership/header notes.
 2. Edit source, never generated `dist/`.
@@ -821,10 +854,11 @@ Verify in the real webview:
 7. Use static tests only for properties source inspection can prove.
 8. Use runtime tests for behavior.
 9. Use an F5/real-webview pass for rendered behavior.
+END_DOC_BLOCK: [@ui:SG-24]
 
 ---
 
-# 25. Review checklist
+## [@ui:SG-25] Review checklist
 
 - [ ] Approved compact visual character is preserved
 - [ ] No incidental spacing/type/radius retuning
@@ -856,3 +890,4 @@ Verify in the real webview:
 - [ ] Mirrored behavior constants remain pinned
 - [ ] Tests/typecheck pass
 - [ ] Real webview verification covers what tests cannot prove
+END_DOC_BLOCK: [@ui:SG-25]

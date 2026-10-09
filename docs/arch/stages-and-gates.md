@@ -1,8 +1,16 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" <file_path>
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:STAGEMACH'):
+  awk "/^## \[@arch:STAGEMACH\]/,/END_DOC_BLOCK: \[@arch:STAGEMACH\]/" <file_path>
+-->
 # Stages, gates, and the stage driver
 
 The stage machine, the evidence it writes, and the host seam that drives it. Related: `docs/arch/cli.md` (the marker the CLI fires), `docs/arch/github-and-merge.md` (the PR state the ship gate reads), `docs/arch/store-and-schema.md` (the tables named here).
 
-## Contents
+## [@arch:CONTENTS] Contents
 
 - Stage machine
 - impl→uat is an explicit marker
@@ -25,14 +33,16 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - A ship in which EVERY target is unchanged is a failure, not a pass
 - Findings are scoped to the run that produced them
 - Evidence is not the current state
+END_DOC_BLOCK: [@arch:CONTENTS]
 
-## Stage machine
+## [@arch:STAGEMACH] Stage machine
 
 Stage machine (`src/workflow/machine.ts` + `graph.ts`): verdict-keyed transitions.
 `Verdict = {kind:'passed'} | {kind:'failed';reason?} | null`. null NEVER transitions;
 missing edge THROWS. Deterministic verdicts only (exit codes, never agent self-report).
+END_DOC_BLOCK: [@arch:STAGEMACH]
 
-## impl→uat is an explicit marker, never inferred from the Stop hook
+## [@arch:IMPLUAT] impl→uat is an explicit marker, never inferred from the Stop hook
 
 impl→uat is explicit marker (`markImplementDone`), never inferred from Stop hook.
 The marker is REFUSED while `tickets.agent_state = 'waiting'` — the agent asked
@@ -50,40 +60,48 @@ under. At gate stages (`uat`, `review`, `ship`, `scope`, `done`) where
 instruction (`renderGateOnlyInstruction`), which tells the agent there is no
 marker to fire at that stage. This section is a re-read path — the seed's inline
 marker remains the primary carrier.
+END_DOC_BLOCK: [@arch:IMPLUAT]
 
-## DONE MEANS MERGED — an ENTRY CONDITION on `done`, never a stage of its own
+## [@arch:DONE] DONE MEANS MERGED — an ENTRY CONDITION on `done`, never a stage of its own
 
 The graph is `ship ─pass→ done`; a landing is not work karst performs. **`ship` is where the ticket waits**: it passes its own work, then holds, `status: 'passed'` with a `blocked_kind = 'awaiting-merge'` block naming the unmerged PRs, until every PR reads merged. `workflow/mergeGate.ts` is the whole decision and it is a READ over state karst already keeps current (`prs.status` via `prSync`, `merge_checks` via `mergeSync`) plus at most one `transition` — it never runs git, never calls gh, and never merges anything. **Any PR status that is not literally `merged` — including `unknown` — is UNMERGED**: a lookup that failed must never read as a landing. Two entry points, and the split is load-bearing: `resolveShipLanding` runs from ship's own tail and is entitled to trust `nothing-to-merge`, while `settleShipGate` additionally requires the `awaiting-merge` block to already be present — a ticket freshly parked at `ship` pending its FIRST confirm click has no PR yet and so also reads `nothing-to-merge`, and without that guard the sweep would walk it straight to `done`. `settleShipGate` is otherwise idempotent and a no-op unless the ticket is AT `ship`, because the landing is observed from three unrelated places: ship itself (nothing to merge), the per-repo Merge click (`mergePr.ts` → `completedTicket`), and the background PR sweep noticing a merge a teammate did on GitHub — the ONLY path that can see that one, which is why `settleShipGates` rides the sweep in `extension.ts` rather than being a dashboard concern. **`nothing-to-merge` is a genuine pass**, not an empty case: a ticket whose work produced no diff opens no PR (ship's `hasChangesFrom` path — probed BEFORE the commit step for a CLEAN worktree, so a repo the ticket never touched never enters the commit machinery at all, and after the commit for a dirty one, since the commit is what changes the answer; an unreachable remote falls back to the LOCAL base ref rather than reading as "assume changes", and a push whose remote ref already equals local HEAD is a `note`, not a re-push that spends the whole push budget) and has delivered everything it had; it is unreachable from a ship that FAILED to open a PR it needed, because that throws and parks at `ship`. The provider status push fires from whichever path actually reached `done`, once (`pushDoneStatus`, window-scoped so no dashboard need be open); the manifest keys keep their `advanceOnShip`/`shipStatus` names for compatibility.
+END_DOC_BLOCK: [@arch:DONE]
 
-## A ticket waiting to land is BLOCKED, not pending, and that is how a conflict reads `Needs you`
+## [@arch:BLOCKED] A ticket waiting to land is BLOCKED, not pending, and that is how a conflict reads `Needs you`
 
 The wait is expressed with the block columns `stages` already has (`blocked_kind`/`blocked_reason`/`blocked_at`, `store/stageBlocks.ts`) rather than a second column set or a second stage. `awaiting-merge` is the one `BlockerKind` member that does not mean "karst could not ask": the question WAS asked (ship opened its PRs) and answered "not yet". `needsUser` (`model/ticketGlyph.ts`) reads it directly alongside the pending-confirm rule, so the ticket goes amber everywhere at once. The one yield: while an agent session is RUNNING (`agent_state='running'`), the needs-you reading pauses and the ticket reads in-progress — the block stays stored, so the reading returns the moment the session ends. No other needs-you source was added and none should be; a conflict is a *wording* difference, not a state one. `mergeGateState` separates `conflicted` from `awaiting` only so the UI can say "resolve this" instead of "click Merge"; the ship strip fails the row for the repo that cannot land. A conflict must NEVER be a `failed` verdict: `ship` has no `failed` edge, so it would park the ticket with no way out, and a retry cannot resolve a conflict — only a human rebase can. Both the gate and the strip read the CURRENT PR per repo (`listCurrentPrsByTicket`, `CURRENT_PR_ORDER`); a repo re-shipped after a merge holds both rows, and the stale merged one would answer for a branch still open. **The `awaiting-merge` block is the one block Resume may NOT clear** (`workflow/stageResume.ts`): every other `BlockerKind` means "karst could not ask the question, retry it", but this one means the question was asked and answered "not yet" — clearing it STRANDS the ticket, because `settleShipGate` needs exactly that block to tell "waiting to land" from "parked pending the first confirm click". The dashboard matches the refusal rather than offering a dead control: `renderBlocked` renders NO banner for that kind at all. Ship's own tail keeps the pre-gate split: the landed path's `transition` is UNGUARDED (that is ship's verdict), while the not-landed block write is swallowed — the PRs are already open and the irreversible part succeeded, so bookkeeping over stored state must never turn a successful ship into a failed one. The parked row is stamped `endedAt` like any other passed stage; a passed row with a null `ended_at` reads as still running. Retiring a stage → move every ticket sitting in it somewhere valid in a migration (v25 walks `stage_current = 'merge'` back to `ship` with a placeholder block the next sweep re-checks for real); dead stage rows from a past migration are left in place, because a past migration is a record, not something to rewrite.
+END_DOC_BLOCK: [@arch:BLOCKED]
 
-## Gate results and reported phases are append-only evidence
+## [@arch:RESULTS] Gate results and reported phases are append-only evidence
 
 Gate results (`gate_runs`) and reported phases (`phase_marks`) are **append-only evidence** — `stages` is keyed `(ticket_id, stage_key)` and a retry overwrites it, so these are the only place a prior attempt survives. Both are written inside a transaction that commits with the stage outcome, whether that outcome is a verdict (`transition`'s `premutate`) or a block (`parkGateStage`, `store/stageBlocks.ts`) — `gate_runs` has two writers and both read `attempt` BEFORE any bump, so a run is filed under the attempt that ran. Surrogate `id` PK, deliberately: the natural key is not unique (a fail→fix→pass cycle files two invocations under one attempt), and `run_at` is what groups one invocation.
+END_DOC_BLOCK: [@arch:RESULTS]
 
-## Evidence is written WHEN IT HAPPENS, not when the run ends
+## [@arch:EVIDENCE-WHEN] Evidence is written WHEN IT HAPPENS, not when the run ends
 
 A gate run used to collect every `gate_runs` row in memory and commit the lot inside `finish()`, so an extension-host restart mid-run discarded all of it and left the stage reading `running` from a timestamp belonging to a run that no longer existed. `stage_runs` (v25) exists only to resolve that ambiguity: `workflow/gates/evidence.ts`'s `openGateRun` opens a row BEFORE the first gate starts, and `uat.ts`/`review.ts` append to it the instant each piece of evidence is produced — **one `gate_runs` row per GATE as that gate finishes, appended from `runGateList`'s `onGateComplete`, never batched to the end of a target; and findings per TARGET as each lane call returns (`findingsLane.ts`'s `persistFindings`), before any aggregation rule reads them**. A host that dies mid-target-list or mid-lane keeps every gate that finished and every target that answered. `openStageRun` marks any still-`running` row of the same ticket+stage `stale` the moment it is SUPERSEDED — the driver single-flights per ticket, so a second open run can only mean the first one's host died — and the activation sweep (`reconcileStageRuns`, global like the server sweep) marks stale whatever a dead pid left behind; a row with NO pid, or one alive in another window, is left strictly alone. None of this loosens the VERDICT: it is still all-or-nothing, committed only by `commitGateOutcome`'s single transaction, and a throw there still leaves the ticket exactly where it was — only the EVIDENCE stopped being lost.
+END_DOC_BLOCK: [@arch:EVIDENCE-WHEN]
 
-## Gate output is a LIVE stream and a post-run artifact, and the artifact stays the record
+## [@arch:GATE-OUTPUT] Gate output is a LIVE stream and a post-run artifact, and the artifact stays the record
 
 A running gate is observable WHILE it runs: `runProcess`'s `onOutput` hands each decoded stdout/stderr chunk to `runGateList`'s `onGateOutput` (tagged with the gate's name), `uat.ts`/`review.ts` forward it, and `driveTicket.ts` tags it with the STAGE before the host's `GateConsole` (`workflow/gates/gateConsole.ts`) sanitizes it — the same `sanitizeAgentOutput` the agent lanes use, so untrusted CLI prose can never move the cursor, clear the screen or retitle the console — and posts it to an OPEN panel as `stage-output`. This mirrors the agent lanes (`AgentConsole`, the Tester and findings-lane consoles) with ONE deliberate difference: **`GateConsole` persists nothing.** The stage artifact, written by the existing recording path, remains the durable record, and the post-run console keeps reading exactly it through `stage-log` — the live stream only mirrors bytes that are still arriving. A stage console opened mid-run is therefore REFUSED by `stage-log` (no artifact is recorded yet) and the webview replaces that refusal with a live terminal the moment the first `stage-output` chunk lands; a chunk that races the answer is buffered, never written above the tail it belongs under.
 
 **The console entries are offered WHILE the work runs, and a process's is independent of its stage's.** `ui/dashboard/state.ts`'s `consoleFor` flags a gate stage whose artifact exists OR whose stage is `running` — gating on the artifact alone hid the stage console for exactly the window the live stream exists to cover. The gate-lane AI processes (Tester, Review) carry their OWN `console` flag (`model/inside/gates.ts`, set as soon as a `process_runs` row exists, open or finished), and the webview renders that button from the process flag alone: a running Tester streams through `AgentConsole` before the stage has any artifact, so tying its button to the stage's availability made the live output unreachable for the whole run. Both refusals recover the same way — `agent-log`'s error sets the blurb, and the first `agent-output` chunk swaps it for a live terminal, exactly as `stage-output` does. The uat/review REPORTS carry the same entry: `ArtifactSummary.agentConsole` names the process whose console the report can open (`tester`/`review`, null when none ran), host-derived like every other availability (UI-R31).
+END_DOC_BLOCK: [@arch:GATE-OUTPUT]
 
-## A gate may be switched off for ONE ticket, and that is a filter over resolution's OUTPUT, never a change to resolution
+## [@arch:GATE-SWITCH] A gate may be switched off for ONE ticket, and that is a filter over resolution's OUTPUT, never a change to resolution
 
 `tickets.disabled_gates` (v24, JSON `{uat:[],review:[]}`, NULL = nothing disabled) is read at run time by `stages/uat.ts` and `stages/review.ts` and applied by `workflow/gates/disable.ts`'s `partitionDisabled` — `workflow/gates/resolve.ts` never sees it, so "what did the config declare or the repo offer" keeps exactly one answer. A disabled gate is still RECORDED: one `gate_runs` row with `skipped = 1` and no exit code, which is a different fact from `exit_code IS NULL` ("the repo defines no such script, NOT a pass") — `model/inside/gates.ts` renders the two as `skip` and `note`. Skipped rows never enter `entries`, so no aggregator can mistake one for a question that was asked. A stage whose every gate the user disabled is BYPASSED, never passed: `aggregateUat`/`aggregateReview` return the distinct `{ kind: 'bypassed' }` verdict (`model/types.ts`), the machine takes the forward (`passed`) edge so the pipeline continues, but the stage row records `status = 'bypassed'` — not a gate pass, because nothing was proven. The webview renders it with its own `⊘` glyph and `.seg.bypassed` rail class (`ui/dashboard/webview.html`), distinct from passed's green `✓`; the sidebar peek says "<stage> bypassed" and the Inside gates row reads `skip` with "all N gates disabled — stage bypassed". The store writer is per-stage (`setDisabledGates(store, id, stage, names)`) for the same reason Settings Save is per-tab. The dashboard's toggle list is the RESOLVED names, computed async host-side (`ui/dashboard/gateOptions.ts`) — the raw manifest list would offer a toggle for a gate that never runs, and omit one that does.
+END_DOC_BLOCK: [@arch:GATE-SWITCH]
 
-## Auto-discovery is npm-shaped; gating is not, and the blocker must say so
+## [@arch:DISCOVERY] Auto-discovery is npm-shaped; gating is not, and the blocker must say so
 
 `resolveGates` (`workflow/gates/resolve.ts`) returns declared gates **before it reads the probe at all** — so a repository whose gates are every one of them `kind: command` never touches `package.json`, and neither an absent nor a malformed one can block it. Only the ZERO-CONFIG path is Node-shaped: `probeScripts` reads `package.json` scripts, and a discovered gate is invoked as `npm run <script>`. That split is deliberate and is not a gap to close by teaching the probe other ecosystems — a `kind: command` gate is argv-based, spawned without a shell, and already expresses `pytest`, `cargo test`, `go test ./...` and `./gradlew test` exactly. **The defect was never the capability; it was that the `nothing-to-run` reason named only the npm path**, so a Python or Rust project read "karst is Node-only" and wrote a `package.json` whose scripts shimmed out to its real toolchain — the precise thing the command kind exists to make unnecessary. The reason therefore names the escape hatch, and distinguishes "no package.json at all" (the ordinary non-Node case) from "package.json defines none of the probed scripts" (a Node repo that is simply missing them); the Settings empty state and `karst.example.yml` carry the same sentence, because the moment the user needs it is the moment they are looking at an empty gate list. Guards: `gates/resolve.test.ts` "points a repo with no package.json at command gates", `ui/settings/webview.test.ts` "names command gates in the empty state".
 
 A gate `command` carrying a path separator is resolved against the gate's `cwd` before the platform shim sees it (`runtime/commandCwd.ts`), so `.venv/bin/pytest` and `./gradlew` mean the worktree — a bare name stays a PATH lookup, because that is what `pytest` or `go` is asking for. On POSIX this only makes explicit what `execvp` already does after the child chdirs; on Windows it is load-bearing, since `resolveOnPath`'s existence check would otherwise run against the extension host's directory and fall through to an ENOENT.
+END_DOC_BLOCK: [@arch:DISCOVERY]
 
-## UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
+## [@arch:UAT-OBS] UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
 
 The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evidence: `aggregateUat` never sees them — the pure gate aggregate stays free of AI output, and that does not change — so by default an observation can never pass, fail, transition, or spend a recovery round. Two things, and only two, can make the Tester decide UAT:
 
@@ -91,8 +109,9 @@ The AI UAT Tester (`workflow/uat/tester.ts`) records OBSERVATIONS. They are evid
 2. `uat.testerObservations.blockingSeverity` — **the ONE knob that makes an observation itself a verdict.** Its default is `'none'`, and an absent `uat:` block, an absent `testerObservations:` block, and an absent `blockingSeverity:` all read as `'none'`: **every existing manifest keeps today's advisory behavior byte-identically.** Set to a severity, `runUatTester` counts the recorded observations at or above it (over the FINAL capped list, so a truncated observation never counts) and reports `blocking`; `stages/uat.ts` — never `aggregateUat` — turns a nonzero count into `{ kind: 'failed', reason: 'uat tester observations: 1 high' }` with a recovery round attributed to `sourceProcessId: 'tester'` (`triggerKind: 'blocking-tester-observations'`), exactly mirroring the verifier's failure path. The check runs AFTER the verifier, so the deterministic boundary keeps precedence.
 
 The reason prefixes (`TESTER_VERIFIER_FAILURE_PREFIX`, `TESTER_OBSERVATIONS_FAILURE_PREFIX`) live once in `uat/testerVerifier.ts` and are how the stage attributes a failed verdict — never a second copy of the string. Guards: `uat/tester.test.ts` "reports blocking observations when the threshold is set" / "never counts an observation the cap truncated away", `stages/uat.test.ts` "fails uat when a blocking Tester observation was recorded" / "passes uat when observations are advisory (threshold none)".
+END_DOC_BLOCK: [@arch:UAT-OBS]
 
-## Review findings decide review: R6 fails, R6b blocks on an unreadable answer
+## [@arch:REVIEW] Review findings decide review: R6 fails, R6b blocks on an unreadable answer
 
 `aggregateReview` (`workflow/review/aggregate.ts`) numbers its rules; the findings lane owns two of them, and they are ordered after the deterministic gates (R5 — "a red gate always wins the wording", because a failing gate is cheaper to act on than a model's prose).
 
@@ -104,16 +123,19 @@ R6b is the aggregate's half of the defence; the parser's half is `findings.ts`'s
 **Both gate lanes review a worktree SNAPSHOT, so uncommitted work is always in scope.** Impl finishing without commits is correct — ship owns committing — and review runs BEFORE ship, so on the normal path the ticket's work is uncommitted when the reviewer is asked about it. Both the UAT Tester (`workflow/uat/tester.ts`) and the Review findings lane (`workflow/review/findingsLane.ts`) therefore call `createReviewSnapshot` (`workflow/reviewSnapshot.ts`) UNCONDITIONALLY whenever a git runner is available: it builds a disposable `refs/karst/snapshot/...` commit carrying committed AND uncommitted (and untracked) content as one tree, never touching the branch, HEAD or index. The findings lane does this regardless of `review.openChanges` — that flag's surviving meaning is whether the stage opens the diff view (`stages/review.ts`), never the diff range. A snapshot failure degrades safely: `createReviewSnapshot` returns `null` and the lane falls back to the branch-based range with a debug line. Guards: `uat/tester.test.ts` "the prompt carries the snapshot range when a snapshot succeeds"; `review/findingsLane.test.ts` "creates a snapshot whenever a git runner is available, even with openChanges absent" / "the prompt built with a snapshotRef agrees with the scope block and omits the committed-only sentence".
 
 **UAT parks on the identical situation (UAT-19).** `workflow/stages/uat.ts`'s Tester lane (`workflow/uat/tester.ts`) shares R6b's parser and used to diverge from it: every target answering `unreadable` closed the Tester's process run `failed`/`unreadable-output`, but the STAGE only warned and let the (already-green) gates decide — passing the ticket on an answer nobody could read, discarding whatever the Tester actually observed. UAT-19 aligned the two lanes: an all-unreadable Tester answer now parks the UAT stage `blocked`/`capability-missing`, exactly like R6b, for the same reason — the core answered and the shape was wrong, which is the core misbehaving, not a fact about the ticket's code, so no `maxFixAttempts` attempt is consumed and no recovery round opens. Before it parks, `runUatTester` gives the target ONE reformat nudge (a second, distinct re-ask from the silence nudge): it quotes the target's own prose back, bounded through `collapseDiagnostic` before it re-enters the prompt, and asks only for that same finding reshaped as the JSON array — no new testing, no new observation — so a genuine, already-found defect (the case that motivated UAT-19: ticket 451's dangling-reference finding) is recovered instead of parked away over a formatting slip. Only a still-unreadable answer after that retry parks. `execution-failed` (the call itself could not be made — environmental, nothing observed) stays advisory in BOTH lanes and must not be collapsed into the same branch as an unreadable answer again — the two are not the same event. The raw unreadable answer is never discarded: `runUatTester` bounds and sanitizes it once (`collapseDiagnostic`) and returns it as `preview`, which the stage writes into its artifact log — never into a verdict reason, a debug line, or `uat_findings` (that table holds only parsed observations). This is a real, unmeasured-rate decision (the reformat-nudge rate, `docs/arch/prompt-metrics.md`'s rollback trigger, starts at zero rows); the fallback if the park fires too often is reverting to advisory, not tuning the nudge's wording first.
+END_DOC_BLOCK: [@arch:REVIEW]
 
-## Nothing that runs in the extension host may block its event loop
+## [@arch:EVENTLOOP] Nothing that runs in the extension host may block its event loop
 
 The hook endpoint, every webview, and the whole UI share it. Gates shell out to arbitrary repo scripts (`npm run test:unit` — minutes), and the session-close sweep fires them from an ordinary terminal close, so a sync spawn froze every other session's hook channel. All gate commands go through `workflow/gates/run.ts` (`runCommand`, async `spawn`); `spawnSync` is banned on this path. Guard: `gates/run.integration.test.ts` "leaves the event loop free while the child runs".
+END_DOC_BLOCK: [@arch:EVENTLOOP]
 
-## The stage driver's host seam is `workflow/driveTicket.ts`, and `extension.ts` holds nothing but the vscode bindings
+## [@arch:DRIVER-SEAM] The stage driver's host seam is `workflow/driveTicket.ts`, and `extension.ts` holds nothing but the vscode bindings
 
 `driveTicket` owns the `StageRunResult` branching, the fix-resume decision (`fixResumeDecision` — per-gate budget, `uat.maxFixAttempts` narrows UAT only) and ONE `AbortController` per run; the extension supplies logging, refreshes and `resumeFixSession`. Both `result.kind` switches end in a `const unreachable: never` that THROWS: the two-`if`-and-fallthrough it replaces read an unknown variant as `advanced`, and because the driver's loop is an unbroken await chain, that starves the timers a test timeout needs — it hangs rather than fails, so exhaustiveness here is not stylistic. `DriverController.signalFor` is what makes Stop reach a gate already running (`shouldContinue` is only polled between stages); a fresh controller per `begin` because a signal cannot be un-aborted. A runner's `blocked` is passed to the driver VERBATIM — never re-wrapped as `advanced` at the ticket's unchanged stage, which re-parks the same gate forever.
+END_DOC_BLOCK: [@arch:DRIVER-SEAM]
 
-## Pause: a ticket that starts nothing on its own
+## [@arch:PAUSE] Pause: a ticket that starts nothing on its own
 
 `tickets.paused_at` (v52; `null` = active) is the ONE flag that says "karst starts no new work on this ticket". Written only by `pauseTicket`/`unpauseTicket` (`store/tickets.ts`), same single-writer discipline as `setStage`.
 
@@ -133,8 +155,9 @@ Every automatic entry point checks it, each at the one read it schedules from �
 | Stranded-ship recovery at activation | The activation loop, before `runShipSaga` |
 
 Surfaces: `ticketGlyph`/`stageBadge` read it first (gray, "Paused" — a paused ticket is never amber "needs you", because nothing is waiting on the user). The dashboard's ⋯ menu carries Pause/Resume plus a header pill, `karst.pauseTicket`/`karst.unpauseTicket` carry the same seam for the palette, `karst test pause|unpause` drives it in tests, and `karst context` reports `paused`/`pausedAt` so an agent can see it too.
+END_DOC_BLOCK: [@arch:PAUSE]
 
-## Sub-task autostart: queuing, claiming, and orphan requeue
+## [@arch:AUTOSTART] Sub-task autostart: queuing, claiming, and orphan requeue
 
 Sub-task auto-start (plan §A, v64) is a tri-state on `tickets.autostart_pending` (`src/store/autostart.ts`): **0 none**, **1 queued** (at scope), **2 starting** (claimed by one sweep, `autostart_claimed_at` stamped). A sub-task holds a concurrency slot (`HOLDS_SLOT_SQL`) when it is not archived AND either its `stage_current` is one of `SLOT_STAGES` (`impl`/`fix`/`uat`/`review`) or it is mid-start (`autostart_pending = 2`); `ship`/`done` and archiving free the slot (archiving also zeroes `autostart_pending`). Two caps from the manifest `subtasks` block (defaults 2 per parent / 4 per project, `0` = unlimited): `perParent` counts a parent's direct children in slots, `total` counts every sub-task in the project in a slot, nested included. `autostartCapsFrom(currentManifest())` is read on every sweep, so a Settings save applies on the next tick.
 
@@ -145,8 +168,9 @@ Sub-task auto-start (plan §A, v64) is a tri-state on `tickets.autostart_pending
 - **Orphan (2 → 1)**: a claim still at scope whose `autostart_claimed_at` is NULL or older than `STALE_CLAIM_MS` (10 min) belongs to a window that died mid-start; `requeueStaleClaims` re-queues it at the top of each sweep.
 
 **Orchestration** (`src/extension/ops/subtaskAutostartOps.ts`, `makeSubtaskAutostart`): its own 2 s `setInterval` in `extension.ts` (`SUBTASK_AUTOSTART_INTERVAL_MS`), plus one boot sweep at activation — never the external-change observer. Per sweep, in the window's bound project: requeue orphans, then `pickSubtasksToStart` (`src/workflow/subtaskAutostart.ts`, read-only) selects queued, non-archived children at scope whose non-archived parent is itself in a `SLOT_STAGES` stage (before that the parent's branch may not exist), ordered blocking-first then by id, skipping parents this window does not own (`ownsParent` = `sessions.isLive`) — so a parent with no live session anywhere leaves its children queued. Each pick is claimed, then started through the host's `startTicket` with `pullBase: false` (the child's base is its parent's branch) and `quiet: true` (this op owns the one warning). A lost claim is a silent debug line. A failed start (result `ok: false` or a throw) releases the claim, raises one `notify.warn`, and posts a host `kind='event'` row to the parent whose body is `<key> autostart failed: <reason ≤ 300 chars> (stayed at scope — start it manually | is at <stage> without a session — open its session)`; a failed post is only debug-logged.
+END_DOC_BLOCK: [@arch:AUTOSTART]
 
-## Mailbox events: parent–child messaging and wake decisions
+## [@arch:MAILBOX] Mailbox events: parent–child messaging and wake decisions
 
 The mailbox (`ticket_messages`, v64; store `src/store/ticketMessages.ts`) carries two row kinds: **messages** (`kind='message'`, agent-posted via `karst message send`, `from_ticket_id` = the sender) and **events** (`kind='event'`, host-written, `from_ticket_id = NULL`). The recipient (`to_ticket_id`) of a message is the sender's direct parent OR a direct child (`model/ticketMessaging.ts`); every event goes to the child's parent. Both kinds carry a prose `body` (trimmed, ≤ `MAX_MESSAGE_BODY` 4096), `created_at`, and `read_at` (NULL = unread; set by `karst inbox` via `markRead`). `woke_at` is the wake CLAIM timestamp — set once by `claimWake` when a sweep takes the row's terminal wake decision (`wake` OR `skip`); NULL = undecided.
 
@@ -160,26 +184,31 @@ The mailbox (`ticket_messages`, v64; store `src/store/ticketMessages.ts`) carrie
 **`parentWakeDecision`** returns `wake | skip | retry`. `skip` (terminal): body classifies `other`, parent missing or archived, parent at `ship`/`done`, or a graph ticket (graph surface or a graph approach — `openSession` would start a graph run). `retry` (transient): parent not at `impl` (only `impl` wakes — a `fix` session needs the fix launcher's assignment), parent live here (or its open is in progress), `agent_state` `running`/`waiting` (live elsewhere), integration in flight; a `blocked` event waits only while an `awaiting-subtask` park carries an integration reason (`isIntegrationParkReason`); a `landed` event waits while ANY `awaiting-subtask` park exists or while blocking children are still open (`openGatingSubtasks(..., 'leave-impl')`). Otherwise `wake`. The sweep then turns any non-skip older than `EVENT_MAX_AGE_MS` (30 min, from `created_at`) into a skip, and a `wake` within `WAKE_COOLDOWN_MS` (60 s) of this window's last wake of that parent into a retry. `wake` and `skip` are claimed with `claimWake` (`UPDATE … WHERE woke_at IS NULL`), so across windows exactly one sweep acts per row; `retry` stays unclaimed. A wake runs `karst.openSession` with `{ reveal: false, recovery: true }`; a failure is a `warn`.
 
 **Repair.** v64 is unreleased and early v64 DBs have `ticket_messages` without `woke_at`/AUTOINCREMENT. `migrate` calls `repairTicketMessages` (`store/ticketMessagesRepair.ts`) both at the end of the v64 step and, for a DB already stamped 64, when `ticketMessagesNeedsRepair` says so: it renames the old table, recreates it from `TICKET_MESSAGES_DDL`, copies every row with its id (`woke_at` kept if present, else NULL), drops the old table and ensures both indexes. Idempotent; a no-op when the table is absent or already current.
+END_DOC_BLOCK: [@arch:MAILBOX]
 
-## Single-writer stage mutation
+## [@arch:SINGLE-WRITER] Single-writer stage mutation
 
 All stage mutation via `setStage`; agent_state via `setAgentState` (single-writer).
+END_DOC_BLOCK: [@arch:SINGLE-WRITER]
 
-## Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
+## [@arch:SHIP-SECRET] Ship refuses to publish an untracked secret-shaped file, and a tracked file is the escape hatch
 
 Ship stages the entire worktree — `prepareCommitInQuarantine` runs `git add -A`, because a stage marker means the agent believes it is done, not that it committed. So a file an agent left behind becomes a commit, a push to `origin`, and a public PR with no human in the loop. Before the commit step, ship scans the `git status --porcelain -uall` output it already reads and refuses the repo when an **untracked** entry matches a deny list of secret-shaped paths — `.env`, `*.pem`/`*.key`/`id_rsa`, `credentials.json`/`.netrc`/`.npmrc`, anything under `.ssh`/`.aws`/`.gnupg`/`.docker`/`.kube`. Only untracked entries are scanned, because a file the repository already tracks is by definition already published; that is also the escape hatch, so a project needing a deliberate `.pem` fixture commits it once by hand and ship never looks at it again. The rules are path-shaped, never content-shaped: reading file bodies would cost a read per ship and produce false positives on the repository's own source. The refusal is per-repo — the other worktrees on the ticket still ship, and the aggregate verdict names the one that did not.
+END_DOC_BLOCK: [@arch:SHIP-SECRET]
 
-## A ship in which EVERY target is unchanged is a failure, not a pass
+## [@arch:SHIP-UNCHANGED] A ship in which EVERY target is unchanged is a failure, not a pass
 
 A multi-repo ticket legitimately leaves most of its repos untouched, so each repo's own "no changes from `<base>` — nothing to commit" note is correct and stays. What is not correct is passing when **every** target is unchanged: that ship produced no commit, no push and no PR at all, which is the shape a ticket takes when its work landed somewhere other than its branches — an implementation run that committed into the main checkout, or a stale worktree mapping. Left passing, it walked a ticket through UAT, review and ship to `done` fully green with nothing shipped. Ship now throws after its repo loop when the no-change count equals the worktree count, so the ticket parks at `ship` with the reason on the stage row. A repo skipped because it already carries a live PR is not counted (it shipped earlier), a repo with no persisted base is not counted (there is nothing to compare against), and a real per-repo failure is raised first, because it is more actionable than the symptom it causes.
+END_DOC_BLOCK: [@arch:SHIP-UNCHANGED]
 
-## Findings are scoped to the run that produced them
+## [@arch:FINDINGS-SCOPE] Findings are scoped to the run that produced them
 
 Findings are append-only and have no resolve path; a clean re-review records no batch at all (`workflow/gates/evidence.ts` returns early on zero findings). Therefore any greatest-`runAt` reduction over a whole ticket re-renders a fixed round's findings forever. Every RENDERED surface keys to the process run instead, through `scopeReviewFindings` / `scopeUatFindings` in `src/model/findingScope.ts`. A round in flight (`endedAt === null`) with nothing recorded renders nothing — not the round it replaced.
 
 `uat_findings.process_run_id` is `NOT NULL`, so UAT has no fallback; `review_findings.process_run_id` is nullable and never backfilled, so review falls back to the newest batch of unattributed rows only. Two deliberate non-consumers: the ship stage's findings row, which scopes by the review stage's `attempt` under its own ruling in `ui/dashboard/state.ts`, and the fix-brief readers (`extension.ts`, `context/ticketContext.ts`, `cli/fixBriefCommand.ts`), which want the batch being fixed.
+END_DOC_BLOCK: [@arch:FINDINGS-SCOPE]
 
-## Evidence is not the current state
+## [@arch:EVIDENCE-STATE] Evidence is not the current state
 
 Every evidence table — `gate_runs`, `process_runs`, `review_findings`,
 `uat_findings` — records that work FINISHED. None of them can say a stage is on
@@ -222,3 +251,4 @@ Rendering nothing during that window is therefore not a UI compromise to be
 tightened later — it is the correct answer for as long as the window lasts:
 absence over a predecessor's verdict, for however long "nothing recorded yet"
 remains true.
+END_DOC_BLOCK: [@arch:EVIDENCE-STATE]

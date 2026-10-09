@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" <file_path>
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:EDGES'):
+  awk "/^## \[@arch:EDGES\]/,/END_DOC_BLOCK: \[@arch:EDGES\]/" <file_path>
+-->
 # `model` / `store` / `workflow` layering
 
 `model` is presentation-shaping (view-model derivation), `store` is persistence
@@ -8,7 +16,7 @@ This is layer erosion (naming implies an invariant the code doesn't enforce),
 not a live bug — a Tarjan SCC over the whole `src/` graph finds zero cycles,
 so nothing here can deadlock a module's own load.
 
-## What the edges actually are
+## [@arch:EDGES] What the edges actually are
 
 - **`model` → `store`, ~52 edges.** All but one file use `import type` only —
   erased at compile time, zero runtime coupling (e.g. `store/tickets.js`'s
@@ -28,8 +36,9 @@ so nothing here can deadlock a module's own load.
   `lastFailedGate`, and the `STAGE_GRAPH`/`MAIN_LINE`/`GATE_STAGES`
   constants — pure lookups over already-loaded stage rows. No DB access, no
   side effects.
+END_DOC_BLOCK: [@arch:EDGES]
 
-## The actual rule (documented here since the naming doesn't say it)
+## [@arch:RULE] The actual rule (documented here since the naming doesn't say it)
 
 `model` is not import-free; it is **side-effect-free**. It may import types
 from anywhere, and it may import pure functions/constants from `store` or
@@ -51,3 +60,4 @@ nothing currently depends on `model` being callable without a database.
 
 There is no enforcing test for this (unlike `diagnostics/nonInterference.test.ts`
 for the reporting boundary); the invariant is style, not a build gate.
+END_DOC_BLOCK: [@arch:RULE]

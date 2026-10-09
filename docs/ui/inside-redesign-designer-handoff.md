@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/inside-redesign-designer-handoff.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:SEC-01'):
+  awk "/^## \[@ui:SEC-01\]/,/END_DOC_BLOCK: \[@ui:SEC-01\]/" docs/ui/inside-redesign-designer-handoff.md
+-->
 # Inside Redesign — Designer Handoff
 
 **Audience:** Karst product and UI design team
@@ -7,7 +15,7 @@
 **Normative implementation plan:** [`docs/superpowers/plans/2026-08-08-inside-redesign.md`](../superpowers/plans/2026-08-08-inside-redesign.md)
 **UI constraints:** [`UI-RULES.md`](UI-RULES.md), [`DESIGN-SYSTEM.md`](DESIGN-SYSTEM.md), [`STYLE-GUIDE.md`](STYLE-GUIDE.md)
 
-## 1. What the design team is designing
+## [@ui:SEC-01] 1. What the design team is designing
 
 Inside is the ticket's execution ledger. Its job is to make the current state, the evidence behind that state, and the next human action legible without asking the user to inspect logs.
 
@@ -24,8 +32,9 @@ Inside is not a generic analytics dashboard and not a chat transcript. It is a c
 **A quiet execution ledger where status is read first, evidence unfolds in place, and every claim has a visible source.**
 
 The distinctive element should be the causal process rail: a narrow, stable status/timeline spine that makes “what caused this recovery?” obvious without turning the screen into a diagram.
+END_DOC_BLOCK: [@ui:SEC-01]
 
-## 2. Non-negotiable product truths
+## [@ui:SEC-02] 2. Non-negotiable product truths
 
 These are design constraints, not implementation details.
 
@@ -39,8 +48,9 @@ These are design constraints, not implementation details.
 - Process identity is the identity captured when the process ran, not current Settings.
 - The webview receives order, status, aggregation, copy, and action targets from the host. It does not derive them.
 - Every interactive target is a semantic button, link, or disclosure.
+END_DOC_BLOCK: [@ui:SEC-02]
 
-## 3. Existing Karst visual language to preserve
+## [@ui:SEC-03] 3. Existing Karst visual language to preserve
 
 Do not introduce a new visual framework, palette, or component library. The design team should work inside the current Karst system:
 
@@ -53,8 +63,9 @@ Do not introduce a new visual framework, palette, or component library. The desi
 - Focus rings, reduced motion, and keyboard semantics as part of the visual design rather than post-hoc accessibility.
 
 Use the existing Settings Agents card and Quality cards as the structural starting point for configuration. Use the current Dashboard Inside block and stage rail as the migration surface, not as a second parallel product.
+END_DOC_BLOCK: [@ui:SEC-03]
 
-## 4. Proposed Inside page anatomy
+## [@ui:SEC-04] 4. Proposed Inside page anatomy
 
 ```text
 ┌────────────────────────────────────────────────────────────┐
@@ -78,8 +89,9 @@ Use the existing Settings Agents card and Quality cards as the structural starti
 ```
 
 The top-level process count remains constant as repository count grows. Repository details, findings, and gate rows are bounded and disclosed inside the process row.
+END_DOC_BLOCK: [@ui:SEC-04]
 
-## 5. Reusable process-row template
+## [@ui:SEC-05] 5. Reusable process-row template
 
 Every process uses one generic outer template. Specialized evidence renderers live inside it.
 
@@ -129,8 +141,9 @@ Rules:
 - If identity was never recorded, omit the cluster rather than filling in current defaults.
 - If tokens are unsupported, omit token UI or use a factual note such as `Token usage not available for this provider`.
 - Keep token metadata secondary to process status.
+END_DOC_BLOCK: [@ui:SEC-05]
 
-## 6. Stage templates
+## [@ui:SEC-06] 6. Stage templates
 
 ### Scope
 
@@ -285,8 +298,9 @@ Delivery receipt                         passed
 If required facts are absent, omit them. Do not show `0 tokens` for an unsupported or unrecorded provider.
 
 Done is a receipt for an already-accepted terminal state; it is not an action-oriented execution stage.
+END_DOC_BLOCK: [@ui:SEC-06]
 
-## 7. Settings template: process assignment configuration
+## [@ui:SEC-07] 7. Settings template: process assignment configuration
 
 This is the currently missing UI called out in the gap analysis. Add it to the existing Settings → Agents section using the current Agents card/list visual grammar.
 
@@ -347,8 +361,9 @@ The model picker must use the host-supplied catalog. There must be no model lite
 ### Defaults and historical identity
 
 The settings view may show defaults for future execution, but it must never imply that a historical process used that default. Inside rows use recorded execution snapshots; Settings uses current configuration.
+END_DOC_BLOCK: [@ui:SEC-07]
 
-## 8. Live operation template
+## [@ui:SEC-08] 8. Live operation template
 
 While an operation is running, the stage header may show one current process:
 
@@ -360,8 +375,9 @@ Inside · Review                    ● Running · Review Agent · Codex · sol
 When the process completes, the host sends a completed process view and the normal snapshot becomes authoritative. When work is cancelled or superseded, the host clears the live header without inventing a pass or fail.
 
 The live header must not become a second process row or a second business-rule implementation in the webview.
+END_DOC_BLOCK: [@ui:SEC-08]
 
-## 9. Action and disclosure templates
+## [@ui:SEC-09] 9. Action and disclosure templates
 
 Actions are host-owned capabilities represented visually by familiar controls:
 
@@ -386,8 +402,9 @@ Unknown    [Open log]                “Result unknown — try again”
 ```
 
 Use the shared Karst async-action runtime and existing button primitives.
+END_DOC_BLOCK: [@ui:SEC-09]
 
-## 10. Responsive templates
+## [@ui:SEC-10] 10. Responsive templates
 
 The Inside component must remain readable at 300, 360, 430, and normal widths.
 
@@ -415,8 +432,9 @@ Top-level process count is constant for 2, 5, 10, 15, and 20 repositories. Use b
 - gate evidence: eight visible before continuation.
 
 Continuation controls must say exactly what they reveal, for example `Show 8 more repositories`.
+END_DOC_BLOCK: [@ui:SEC-10]
 
-## 11. Copy templates
+## [@ui:SEC-11] 11. Copy templates
 
 Use sentence case and direct verbs.
 
@@ -447,8 +465,9 @@ Use sentence case and direct verbs.
 - `Recovery exhausted after 2 rounds. Resolve the remaining failure manually.`
 
 Do not use “AI says,” “probably,” or vague “Something went wrong” copy. Do not use a success color for an informational/no-change state.
+END_DOC_BLOCK: [@ui:SEC-11]
 
-## 12. Design deliverables requested from the team
+## [@ui:SEC-12] 12. Design deliverables requested from the team
 
 Please return the following artifacts for implementation:
 
@@ -462,8 +481,9 @@ Please return the following artifacts for implementation:
 8. Copy deck for empty, absent, unsupported, waiting, failed, recovered, and exhausted states.
 9. A token/primitive inventory identifying any genuinely new design-system requirement.
 10. Fixtures or annotated examples for 2, 5, 10, 15, and 20 repositories.
+END_DOC_BLOCK: [@ui:SEC-12]
 
-## 13. Acceptance checklist for design review
+## [@ui:SEC-13] 13. Acceptance checklist for design review
 
 ### Product truth
 
@@ -504,8 +524,9 @@ Please return the following artifacts for implementation:
 - [ ] No webview business-rule derivation is needed to reproduce the design.
 - [ ] Each action can be represented by the typed `InsideActionKind`/opaque action contract.
 - [ ] Each renderer can consume one `ProcessEvidenceView` union member without parsing prose.
+END_DOC_BLOCK: [@ui:SEC-13]
 
-## 14. Open design decisions
+## [@ui:SEC-14] 14. Open design decisions
 
 The following should be resolved before final visual approval:
 
@@ -518,8 +539,9 @@ The following should be resolved before final visual approval:
 7. Should adopted/pre-existing Ship artifacts receive a dedicated provenance badge or factual inline label?
 
 Design decisions must preserve the product truths in Section 2 even when visual options differ.
+END_DOC_BLOCK: [@ui:SEC-14]
 
-## 15. Implementation mapping
+## [@ui:SEC-15] 15. Implementation mapping
 
 | Design surface | Planned implementation tasks |
 | --- | --- |
@@ -535,3 +557,4 @@ Design decisions must preserve the product truths in Section 2 even when visual 
 | Responsive/accessibility fixtures | 16 |
 
 The designer handoff is complete when the team can hand implementation a screen/state matrix and token-backed component specs without asking the webview to infer business state.
+END_DOC_BLOCK: [@ui:SEC-15]

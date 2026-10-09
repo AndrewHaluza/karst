@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" <file_path>
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:METRICS'):
+  awk "/^## \[@arch:METRICS\]/,/END_DOC_BLOCK: \[@arch:METRICS\]/" <file_path>
+-->
 # Prompt-effectiveness telemetry
 
 Karst tunes prompts by intuition and has never measured whether one works. This
@@ -10,7 +18,7 @@ signal. Related: `docs/arch/agent-cores.md` (the seams instrumented here),
 `docs/arch/store-and-schema.md` (the v57 column + new-column checklist),
 `docs/arch/cli.md` (the `guide` verb's argv-only content path).
 
-## Contents
+## [@arch:CONTENTS] Contents
 
 - Nothing in 06–12 tunes prompt wording before this baseline
 - The metric set and where each number is read
@@ -18,8 +26,9 @@ signal. Related: `docs/arch/agent-cores.md` (the seams instrumented here),
 - The guide-pull rate gates ticket 12
 - Committed baseline — whole Cursor store (443 tickets, 12 projects)
 - `karst stats --prompts` is a read over `queryPromptMetrics`
+END_DOC_BLOCK: [@arch:CONTENTS]
 
-## Nothing in 06–12 tunes prompt wording before this baseline
+## [@arch:PRE-BASELINE] Nothing in 06–12 tunes prompt wording before this baseline
 
 The accumulated defensive wording in the tree (five stacked negations in
 `workflow/agentScope.ts`'s orientation block, for example) is scar tissue from
@@ -28,8 +37,9 @@ repeats exactly the mistake that produced the current state.** So: no ticket in
 06–12 tunes prompt text until the table below exists in the code, and no ticket
 re-tunes a metric it has not re-read from `queryPromptMetrics` since the last
 change. This is a review gate, not a suggestion.
+END_DOC_BLOCK: [@arch:PRE-BASELINE]
 
-## The metric set and where each number is read
+## [@arch:METRICS] The metric set and where each number is read
 
 Recorded by the seams instrumented in ticket 05. "Source" is the stored evidence;
 the value is DERIVED, never self-reported — an agent's claim about its own output
@@ -55,8 +65,9 @@ launch, and `measureSeed` scans BOTH the kickoff and the instruction body for it
 A `resume`/`switch` seed regenerates the instruction body WITHOUT the pointer, so
 it correctly contributes no denominator — that asymmetry is the whole
 measurement, so it is measured, never assumed.
+END_DOC_BLOCK: [@arch:METRICS]
 
-## Storage: one `prompt_telemetry` blob, one late-fact setter, no new writer
+## [@arch:STORAGE] Storage: one `prompt_telemetry` blob, one late-fact setter, no new writer
 
 Every new fact rides the existing `openProcessRun` append-only evidence path
 (schema v57, `docs/arch/store-and-schema.md`). `process_runs.prompt_telemetry` is a
@@ -77,8 +88,9 @@ logger; the seams that already own a `Store` (`tester.ts`, the CLI `guide` verb)
 write through the existing path. The `karst guide` command stays argv-only for its
 CONTENT — attribution is a best-effort side effect at the `cli/main.ts` boundary
 that can never block or corrupt the text the agent came to read.
+END_DOC_BLOCK: [@arch:STORAGE]
 
-## The guide-pull rate gates ticket 12
+## [@arch:GUIDEPULL] The guide-pull rate gates ticket 12
 
 Karst already ships exactly one progressively-disclosed document: `karst guide`,
 deliberately designed that way (it "costs ~40 tokens and saves the agent from
@@ -95,8 +107,9 @@ It is broken down **per core** (`claude` / `codex` / `opencode` / `antigravity`)
 discovery and instruction-following differ, and a pattern that works on one may
 not on the others. Grouped by `process_runs.provider`, the immutable identity
 snapshot captured at launch.
+END_DOC_BLOCK: [@arch:GUIDEPULL]
 
-## Committed baseline — whole Cursor store (443 tickets, 12 projects)
+## [@arch:BASELINE] Committed baseline — whole Cursor store (443 tickets, 12 projects)
 
 Read 2026-09-07 against the shared Cursor registry
 (`globalStorage/karst.karst/karst.db`) at schema v56, via read-only `node:sqlite`.
@@ -149,8 +162,9 @@ measured** — that is the honest baseline, and it is exactly why this ticket ex
 The pre-instrumentation numbers (marker compliance, tokens-per-pass, ticket-text
 distribution) are real and committed above; the post-instrumentation ones become
 real the first session after this ships.
+END_DOC_BLOCK: [@arch:BASELINE]
 
-## UAT-19's park rollback trigger
+## [@arch:UAT19] UAT-19's park rollback trigger
 
 UAT-19 turned the UAT stage's response to an all-unreadable Tester answer from a
 PASS into a PARK — a stop, across every core, on a single observed run (ticket 451)
@@ -176,8 +190,9 @@ tuning against). Do not ship a partial "P" fix — a probabilistic reformat-then
 half-measure — in place of one of those two: either the park stands because the
 rate shows it is catching genuine formatting failures rarely enough to be worth the
 stop, or it is reverted because the rate shows it is not.
+END_DOC_BLOCK: [@arch:UAT19]
 
-## The guide-pull gate, restated for ticket 12
+## [@arch:GUIDEGATE] The guide-pull gate, restated for ticket 12
 
 Ticket 12 is explicitly BLOCKED until the per-core guide-pull rate is KNOWN. It is
 not "high" or "low" yet — it is **pending**, because it was never measured and the
@@ -185,16 +200,18 @@ storage to measure it lands in this ticket. So ticket 12 stays blocked until at
 least one post-ship session per core produces a nonzero seeded-vs-pulled
 denominator. Do not scale progressive disclosure of approach bodies until the one
 progressively-disclosed document karst already ships is proven to be pulled.
+END_DOC_BLOCK: [@arch:GUIDEGATE]
 
-## `karst stats --prompts` is a read over `queryPromptMetrics`
+## [@arch:STATS] `karst stats --prompts` is a read over `queryPromptMetrics`
 
 The surface lands in ticket 433 (which owns the `karst stats` CLI); this ticket
 provides the data layer so 433 only wires argv and formats. Both the baseline and
 `--prompts` call `queryPromptMetrics(store, projectId)` — one read path, so the
 committed table and the live view can never drift apart. A metric with no rows
 renders as "pending", never as 0, from `queryPromptMetrics`' NULL discipline.
+END_DOC_BLOCK: [@arch:STATS]
 
-## Resident/deferred decision rule (ticket 12)
+## [@arch:RESIDENT] Resident/deferred decision rule (ticket 12)
 
 Content in an approach body or agent prompt is either **resident** (L0, always
 present) or **deferred** (L1/L2, pulled on demand). The rule is binary and
@@ -245,3 +262,4 @@ generalizes that rule to approach bodies: approach content is NOT authoritative
 needs it. The approach body is truncated at `SEED_BUDGETS.approachMethod` (8000
 chars) with `approachTruncationPointer()` pointing to the materialized package
 on disk — not to `karst context`, which cannot render approach bodies.
+END_DOC_BLOCK: [@arch:RESIDENT]

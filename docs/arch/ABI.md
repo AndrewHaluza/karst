@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/arch/ABI.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:ABI-01'):
+  awk "/^## \[@arch:ABI-01\]/,/END_DOC_BLOCK: \[@arch:ABI-01\]/" docs/arch/ABI.md
+-->
 # Native ABI split (better-sqlite3)
 
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.
@@ -7,7 +15,7 @@ better-sqlite3 ships an ABI-140 prebuild (`bin/darwin-arm64-140/`); `rebuild:ele
 F5 auto-copies via `dev:extension`; `npm run test:unit` auto-recompiles via `pretest:unit`.
 On VS Code upgrade that changes ABI: update the `darwin-arm64-<N>` folder name + `rebuild:electron` copy path.
 
-## The addon is shared across checkouts; the installers build private copies
+## [@arch:ABI-01] The addon is shared across checkouts; the installers build private copies
 
 better-sqlite3's addon in `node_modules/better-sqlite3/build/Release` is a single
 shared file that any `npm run test:unit` (main checkout or ANY worktree — a
@@ -28,11 +36,14 @@ there is no retry loop and no in-place zip patch, because the packaged addon was
 never the shared one to begin with. `package-remote.sh` builds a foreign
 (linux-x64) addon that this machine cannot ABI-probe, so it pins the artifact by
 prebuild-install's ABI-bearing cache tag and a vsix-vs-fetched shasum instead.
+END_DOC_BLOCK: [@arch:ABI-01]
 
-## rebuild-better-sqlite3.mjs delivers VERIFIED addons only
+## [@arch:ABI-02] rebuild-better-sqlite3.mjs delivers VERIFIED addons only
 
 It probes the actual file after every path (vendored copy, prebuild-install download — which can exit 0 with the destination untouched — or source build), removing a stale addon before any download so a leftover wrong-ABI binary never reads as a delivery, and fast-paths when the addon already matches so `npm run test:unit`'s pretest stops churning the shared file. The fast path is backed by a `build/.abi-cache` (JSON: target ABI + runtime version + SHA-256 of the addon) written only after a fully-verified build: node mode skips the `node -e` probe spawn entirely when the addon on disk is byte-identical to the one last verified — the hash, not an mtime, so a fresh `cp -R` materialize or an external addon flip (another target's `rebuild:electron`) invalidates it and falls back to the probe, which stays the source of truth.
+END_DOC_BLOCK: [@arch:ABI-02]
 
-## Worktree isolation
+## [@arch:ABI-03] Worktree isolation
 
 When its `better-sqlite3` resolves OUTSIDE the current checkout (a worktree without its own node_modules walking up to the main checkout's), it first `cp -R`s the package into the worktree's own `node_modules/better-sqlite3`, then rebuilds THAT copy — so a worktree agent's `npm run test:unit` never flips the main checkout's addon out from under the installer, and the main checkout never materializes (its resolution is local). prebuild-install is still resolved from the original install (the copy doesn't carry it), but downloads into the copy.
+END_DOC_BLOCK: [@arch:ABI-03]

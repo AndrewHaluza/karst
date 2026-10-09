@@ -1,8 +1,16 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" <file_path>
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:PROFILE'):
+  awk "/^## \[@arch:PROFILE\]/,/END_DOC_BLOCK: \[@arch:PROFILE\]/" <file_path>
+-->
 # The manifest (`karst.yml`) and the Settings panel
 
 What the manifest models, and the rules that keep a Settings write from silently reverting another tab. Related: `docs/arch/worktrees-and-servers.md` (the conventions block), `docs/arch/agent-cores.md` (the profile body an assignment resolves to).
 
-## Contents
+## [@arch:CONTENTS] Contents
 
 - A Settings process-assignment profile IS the process's prompt
 - Settings Save is TAB-SCOPED
@@ -13,12 +21,14 @@ What the manifest models, and the rules that keep a Settings write from silently
 - `uat.testerObservations.blockingSeverity` is a manifest knob only
 - Sub-task auto-start concurrency caps
 - New Manifest field checklist
+END_DOC_BLOCK: [@arch:CONTENTS]
 
-## A Settings process-assignment profile IS the process's prompt
+## [@arch:PROFILE] A Settings process-assignment profile IS the process's prompt
 
 `processes.<key>.agent` names a profile from the agent POOL (a file agent or an approach artifact), and the profile's BODY — its custom prompt — is resolved at the execution boundary (`processFor` in `extension.ts`, through `soloAgentBody`, the SAME resolver the single-subagent launch path uses) and overlaid as the assignment's `instructions`. For `uatTester` and `review` this replaces the built-in role/strategy block; for `ticket-analysis` the body drives the description-improve sub-pass (the classify sub-pass is always the built-in analyzer). The profile body is the ONLY prompt source: the inline `processes.<key>.instructions` override (and its Settings textarea) is RETIRED, because two ways to say the same thing let a line in the yml silently outrank the profile the row was showing. No profile / an unreadable one → the built-in prompt. The retired key still LOADS (`inertKeys.ts` reports it as retired and names the replacement) and is simply dropped — never an error. `PROMPT_BEARING_ROLES` lives in `manifest/validate/processAssignments.ts` beside the role vocabulary; `webview.test.ts` pins the mirror. Wiring status: the profile body reaches the prompt-BEARING roles — `ticket-analysis` (description-improve pass), `uatTester`, `review`. The interactive Fix roles (`uatFix`/`reviewFix`) and `prDescription` consume only the profile's provider/model/name snapshot. The ticket's own `single-subagent` approach+agent drives the SESSION, never the headless analysis.
+END_DOC_BLOCK: [@arch:PROFILE]
 
-## The prompt-contract floor: what a profile override cannot displace
+## [@arch:FLOOR] The prompt-contract floor: what a profile override cannot displace
 
 A profile replaces the **strategy** block (the persona, behavior instructions, and role lines). It never replaces the **contract** block — the invariants that protect correctness beyond the prompt's own call site. Each prompt-bearing surface defines its own floor:
 
@@ -27,45 +37,56 @@ A profile replaces the **strategy** block (the persona, behavior instructions, a
 - **UAT Tester** (`workflow/uat/tester.ts`): the floor is the output rules (`OUTPUT_RULES_HEADING`/`OUTPUT_RULES_BASE`/`OUTPUT_RULES_UAT`), the scope block (`buildScopeBlock`), the criteria block (`buildCriteriaBlock`), and the "OBSERVATIONS, not verdicts" constraint. These are appended after the strategy lines, so `instructions` only ever replaces the strategy — displacement is a test failure, not a construction-order accident.
 
 A three-line process profile that replaces the entire prompt (strategy + contract) would degrade correctness invisibly. The floor mechanism ensures the contract always ships, regardless of what the profile body contains.
+END_DOC_BLOCK: [@arch:FLOOR]
 
-## Settings Save is TAB-SCOPED, and the tab's fields are the whole write
+## [@arch:SAVE] Settings Save is TAB-SCOPED, and the tab's fields are the whole write
 
 `ui/settings/sections.ts` owns the split (`SECTION_FIELDS`, one section per manifest key; `mergeSection` overlays just that section) and `actions.ts`'s `save` merges the posted draft onto the manifest **as it is on disk right now**, then validates the MERGED result — so validity is judged on exactly what would reach the file. An unknown `section` on the message is DROPPED, never downgraded to a whole-manifest save — widening the write is the thing being prevented. `id`/`uat` belong to no section and always survive from the base. The webview mirrors `SECTION_FIELDS`/`SECTION_LABELS` (it cannot import TS) and `webview.test.ts` runs its `overlaySections` against the host's `mergeSection`; it also validates the per-tab CANDIDATE rather than the raw draft, so an unfinished edit parked on another tab cannot block this one. Leaving a dirty tab opens the page-local confirm (`requestSection`). A ManifestError arrives as `message`, i.e. prefixed `Invalid karst.yml…`; strip it once via `manifestFaultDetail` before any pattern match.
+END_DOC_BLOCK: [@arch:SAVE]
 
-## A preset is a SPARSE capability → slot matrix; `activeAgentPreset` picks one
+## [@arch:PRESET] A preset is a SPARSE capability → slot matrix; `activeAgentPreset` picks one
 
 `agentPresets:` maps a name to `{ label?, slots: { <capability>: { provider, model, effort? } } }`, and `activeAgentPreset:` names the preset applied to every ticket that names none of its own. The eleven capabilities (`PRESET_CAPABILITIES`, `manifest/types.ts`) are the seven `processes:` keys plus `implementation` plus the three graph profile ids `graphExpert`/`graphWorker`/`graphFast` (an approach whose graph declares another profile id is untouched). SPARSE is the whole contract: an absent capability is Inherit and falls through to the `processes:<key>` row, then `agentProvider`/`defaultModel`/`defaultEffort` — never to a guessed value — and a slot applies ATOMICALLY, so its provider/model/effort travel together and a model never crosses to another core. The launch ladder and the resolver are `docs/arch/agent-cores.md`; the three keys are claimed by the **Presets** tab (checklist below). Validation (`validate/agentPresets.ts`) refuses, naming the field: an unknown capability (the message lists all eleven), a preset declaring BOTH a legacy flat `{provider, model, effort?}` block and the `slots:`/`label:` form, more than 50 presets, a file carrying BOTH `activeAgentPreset:` and its deprecated `defaultAgentPreset:` alias (one active preset, two spellings — karst will not guess which is authoritative), and a dangling `activeAgentPreset`, `defaultAgentPreset` or `processes.<key>.preset`. Back-compat is read, not migrated: a legacy flat preset normalizes at load to the same slot on EVERY capability (so an old file keeps applying globally), `processes.<key>.preset` still READS for one release — `load.ts` warns and names the replacement (the `<capability>` slot + `activeAgentPreset`) — but `writeManifest` drops it and no Settings row offers it any more, and a dangling TICKET preset is store data: it degrades to "no preset" at resolution and the ticket form shows it as unknown. A preset changes provider/model/effort only — never the profile (`agent:`) a row points at — and a manifest with no presets resolves byte-identically to the legacy defaults. Worked Cheap/Free/Smart matrices are commented into `karst.example.yml`.
+END_DOC_BLOCK: [@arch:PRESET]
 
-## A REPOSITORY is the primary entity; a SERVICE is an optional relation on it
+## [@arch:REPO] A REPOSITORY is the primary entity; a SERVICE is an optional relation on it
 
 `karst.yml` has `repositories:`; `start`/`health`/`ports`/`dependsOn` live under an optional `service:` block, so "port without a runnable process" is unrepresentable. `repoPath`/`hasMigrations`/`signals` stay repository-level — they describe the source tree and stay true whether or not anything runs. Gate on runnability ONLY via `manifest/runnable.ts` (`isRunnable` is a type guard, so `service` needs no `!`); scattering `?.` at call sites is how `svc.ports[0]!` used to throw. Non-runnable repos ARE scoped, DO get a worktree, and are absent from `ResolveResult.services`/`startOrder` — `ResolveResult.nonRunnable` names them so consumers state it rather than infer it from an absence.
+END_DOC_BLOCK: [@arch:REPO]
 
-## A repository may declare a named `services:` map
+## [@arch:SERVICES] A repository may declare a named `services:` map
 
 `service:` is shorthand for ONE service, and its unit key is the repository name. `services:` is a named map (`repositories.<repo>.services.<name>`), and each entry is a full service plus an optional `cwd` (relative to the repo root; no `..`, no absolute path). A repository declares one shape: `service:` together with `services:` is refused. Service names are letters, digits, `.`, `_`, `-`. The unit key is `repo` for the shorthand and `repo/service` for a map entry; `karst env --service`, `servers`, and the Settings rows all address units this way. A `dependsOn.target` is `repo/service`, or bare `repo` only when that repo has exactly one service; it is validated at load. Settings preserves whichever shape the user wrote. The loader and resolver own the rules; `docs/arch/worktrees-and-servers.md` covers the shared worktree and the per-service ports.
+END_DOC_BLOCK: [@arch:SERVICES]
 
-## Repository keys must be distinct CASE-INSENSITIVELY
+## [@arch:KEYCASE] Repository keys must be distinct CASE-INSENSITIVELY
 
 A graph document claims repositories by canonical (case-folded) id, so `BE:` and `be:` in one manifest would be one ambiguous target downstream. `assertDistinctRepoIds` (inside `validateManifest`) refuses the pair, naming the fix: rename one key and every reference to it. This is a load-time refusal — a pre-existing manifest carrying two case-variant keys stops loading entirely (the extension is disabled for that project) rather than failing only its graph runs, which is deliberate: the ambiguity is not confinable to graphs.
+END_DOC_BLOCK: [@arch:KEYCASE]
 
-## Legacy `services:` manifests migrate IN MEMORY
+## [@arch:LEGACY] Legacy `services:` manifests migrate IN MEMORY
 
 Legacy `services:` manifests migrate IN MEMORY (`manifest/migrate.ts`) + warn; `writeManifest`/`writeRepoSignals` upgrade the file on the next explicit save. Loading never writes (js-yaml drops comments). A file with BOTH keys is refused, never guessed. `ManifestError.withPath` attaches the file — validators only know field names, and a user may have several manifests.
+END_DOC_BLOCK: [@arch:LEGACY]
 
-## `uat.testerObservations.blockingSeverity` is a manifest knob only
+## [@arch:BLOCKSEV] `uat.testerObservations.blockingSeverity` is a manifest knob only
 
 `UatConfig.testerObservations?.blockingSeverity` (`Severity | 'none'`, validated in `manifest/validate/uat.ts` against the same closed vocabulary as `review.findings.blockingSeverity`) is the ONE knob a project can set to opt a Tester observation's severity into blocking UAT's verdict. It is a manifest knob only — no Settings field. It is LIVE: `stages/uat.ts` threads it into `runUatTester` and turns a nonzero blocking count into a failed UAT verdict with a Tester-attributed recovery round (see `docs/arch/stages-and-gates.md`, "UAT Tester observations are advisory BY DEFAULT"). An absent `uat:` key, an absent `testerObservations:` key, and an absent `blockingSeverity:` all read as `'none'`, so every existing manifest and every manifest that omits the block keeps today's advisory-only Tester behavior byte-identically. Every read coalesces to `'none'`: the loader leaves the block undefined when absent but materializes `{ blockingSeverity: 'none' }` when it is present-but-empty.
+END_DOC_BLOCK: [@arch:BLOCKSEV]
 
-## `diffsInSourceControl` reroutes the changes UI, never the diff itself
+## [@arch:DIFFS] `diffsInSourceControl` reroutes the changes UI, never the diff itself
 
 `diffsInSourceControl` (boolean, absent → off) decides only WHERE a ticket's changed-file list is listed: the "Ticket changes" webview panel (`TicketChangesManager`) or the `karst.diffs` section in the native Source Control view. The diff a click opens is the SAME code path either way — `openTicketDiff` → `vscode.diff` — so the flag can never produce a diff the other mode would not. The SCM path is vscode-free logic (`ui/diffs/treeController.ts` over the pure `ui/diffs/treeModel.ts`, adapted from `ui/diffs/scmModel.ts`); `extension/diffsHost.ts` binds `vscode.window.createTreeView` through the `DiffTreeProvider`/`makeDiffTreeHost` seam. The section leads with a ticket-selector row — a QuickPick of the project's active (non-`done`) tickets, scoped to `currentProject().id` and refusing to query when none is bound — and one tree of group / repository / commit / file nodes is rendered per shown ticket, rebuilt on show and on `karst.refreshDiffsTree`. Row actions reuse the diff targets: `karst.openTicketScmDiff` (Open Changes) and Open File on every file row, Unstage on staged rows, and Discard on unstaged/untracked rows. At most one tree is alive; showing a different ticket replaces its nodes, so stale rows from another ticket are unrepresentable.
+END_DOC_BLOCK: [@arch:DIFFS]
 
-## Sub-task auto-start concurrency caps
+## [@arch:CONCURRENCY] Sub-task auto-start concurrency caps
 
 `subtasks:` (`SubtaskLimits` in manifest `types.ts`) holds two caps, `maxConcurrentPerParent` and `maxConcurrentTotal`. `validateSubtasks` (manifest `schema.ts`) fills each independently from `DEFAULT_SUBTASK_LIMITS` (`2` / `4`) when the block or the key is absent OR `null` (a bare `key:`), and throws `ManifestError` unless the value is a whole number `>= 0`; `0` means unlimited. So a validated manifest always carries the block, and `emptyManifest()` carries the defaults too. **Live:** `autostartCapsFrom(currentManifest())` is read on every autostart sweep, so a Settings save applies on the next tick without a reload. Per-parent counts a parent's direct children holding a slot; total counts every sub-task in the project holding a slot, nested included — see `docs/arch/stages-and-gates.md`, "Sub-task autostart". **Write:** `manifest/write.ts` writes `subtasks` when the manifest carries it and omits it (overriding a stale raw value) when it is undefined. **Settings → General** ("Sub-tasks") exposes both as editable number inputs (`min 0`, `step 1`, placeholders `2`/`4`, help "Blank = 2"/"Blank = 4"): a blank clears that cap (it reloads as its default), a negative or fractional entry clears it AND shows the inline error "Enter a whole number, 0 or more (0 = unlimited).", and the block is dropped from the draft once both caps are blank. No preset or per-ticket override; `karst subtask create --no-start` only skips queuing.
+END_DOC_BLOCK: [@arch:CONCURRENCY]
 
-## New `Manifest` field checklist
+## [@arch:FIELDCHK] New `Manifest` field checklist
 
 `service.healthIdentity` (opt-in, default off) is the one service field that changes what READY means — the service must echo `KARST_INSTANCE_TOKEN` back in `X-Karst-Instance` or it never becomes healthy; see `docs/arch/worktrees-and-servers.md`. The Settings toggle deletes the key rather than writing `false`, so an untouched service keeps a clean yml.
 
 New `Manifest` field checklist: add to `types.ts` + `validateManifest` (schema.ts, default it) + **`writeManifest` overlay (write.ts)** or Save silently drops it. Guard: writeManifest.test.ts "round-trips every modeled section". Repository/service fields also go in `manifest/fixtures.ts` — the shared test builders every suite uses, so a shape change is one file, not 26. `agentPresets`/`defaultAgentPreset` follow the checklist: typed in `types.ts`, validated in `validate/agentPresets.ts` (plus reference integrity against `processes.<key>.preset`), and overlaid in `write.ts`. All three preset keys are CLAIMED by the **Presets** tab (`SECTION_FIELDS.presets = ['agentPresets','activeAgentPreset','defaultAgentPreset']`): a tab-scoped Save writes the draft's map and an emptied map is dropped (absent = cleared, the rule every claimed field follows), and `defaultAgentPreset` is claimed only so `actions.ts` can rename it to `activeAgentPreset` on a Presets Save — General claims neither and its `agentProvider`/`defaultModel`/`defaultEffort` are the legacy fallback layer, not presets. The tab is CRUD + one matrix: a list (add / edit / duplicate / delete), an active-preset selector, and one row per capability with `Inherit (default) | Override`. A delete or rename is REFUSED while the draft OR the file still names the preset (`agentPresetReferences`, mirroring `assertAgentPresetReferences`): `activeAgentPreset` is written by this tab, but `processes.<key>.preset` is the Agents tab's field and a Presets Save does not write it — unlinking it here could never reach the file, so the refusal NAMES the referrer instead of silently resolving it, the way a dangling profile names itself in its row. The editor mirrors `validate/agentPresets.ts` (`validateAgentPresetsDraft`, pinned case-by-case against the host validator) so an edit the form accepts cannot be refused at Save, and normalizes a legacy flat `{provider, model, effort?}` preset into the per-capability slot form on the way in. An `Override` row mounts the shared `mountAgentPicker`; an `Inherit` row shows the host-computed identity verbatim — `state.presetInheritance` / `buildPresetInheritanceViews`, **UI-R31**: the host resolves the fact, the webview only renders it. The capability vocabulary is mirrored (`PRESET_CAPABILITIES` → `PRESET_CAPABILITY_GROUPS`, **UI-R34**) and rendered from `state.presetGroups`, never invented in the page. Process rows carry NO preset dropdown — capabilities are pinned on this tab — so the rows' preset lists are gone; an unsaved preset edit reaches every other surface with the `state` push that follows this tab's Save.
+END_DOC_BLOCK: [@arch:FIELDCHK]

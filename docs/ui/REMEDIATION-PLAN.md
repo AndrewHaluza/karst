@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/REMEDIATION-PLAN.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:PHASE-0'):
+  awk "/^## \[@ui:PHASE-0\]/,/END_DOC_BLOCK: \[@ui:PHASE-0\]/" docs/ui/REMEDIATION-PLAN.md
+-->
 # UI Remediation Plan — 869eckg0u
 
 Bringing the existing UI into conformance with [UI-RULES.md](./UI-RULES.md).
@@ -22,7 +30,7 @@ contract (UI-R35).
 
 ---
 
-## Phase 0 — Contract (☑ done)
+## [@ui:PHASE-0] Phase 0 — Contract (☑ done)
 
 | # | Deliverable | Rules |
 |---|---|---|
@@ -30,8 +38,9 @@ contract (UI-R35).
 | ☑ 0.2 | `docs/ui/DESIGN-SYSTEM.md` — tokens, primitives, state matrix, async contract, a11y baseline | — |
 | ☑ 0.3 | `docs/ui/STYLE-GUIDE.md` — naming, reuse, copy tone, do/don't | — |
 | ☑ 0.4 | Binding section in `CLAUDE.md` **and** `AGENTS.md` | UI-R01 |
+END_DOC_BLOCK: [@ui:PHASE-0]
 
-## Phase 1 — Infrastructure (☑ done)
+## [@ui:PHASE-1] Phase 1 — Infrastructure (☑ done)
 
 | # | Deliverable | Rules | Tests |
 |---|---|---|---|
@@ -43,8 +52,9 @@ contract (UI-R35).
 Baseline before: 243 files / 3357 tests. After Phase 1: **247 / 3440**, all green.
 
 ---
+END_DOC_BLOCK: [@ui:PHASE-1]
 
-## Phase 2 — Host async contract (☑ done)
+## [@ui:PHASE-2] Phase 2 — Host async contract (☑ done)
 
 The blocker for R13 on every screen. Do this **before** any screen remediation:
 a screen cannot report a terminal outcome that the host has no way to send.
@@ -60,8 +70,9 @@ a screen cannot report a terminal outcome that the host has no way to send.
 **Verification:** unit tests per seam — one result per parsed request, a rejected promise reports `ok:false`, a `void` return acks, an unparsed message posts nothing.
 
 ---
+END_DOC_BLOCK: [@ui:PHASE-2]
 
-## Phase 3 — Screen remediation (☑ 7 of 7 complete)
+## [@ui:PHASE-3] Phase 3 — Screen remediation (☑ 7 of 7 complete)
 
 One task per webview, each independently verifiable. Ordered by
 (risk × traffic), lowest first, so the pattern is proven on small surfaces
@@ -92,8 +103,9 @@ Every screen task is the same shape:
 | ☑ 3.7 | `settings` | 3127 | ~44 | **No danger variant at all** — Delete/Remove/Uninstall look like Cancel; `.card-head` accordion is a `<div>`, unreachable by keyboard; approach drawer closes before the ack (R14b); `save-agent-file` has no `saved` ack; double-click Save sends two saves; `--chevron` data URI bakes a non-themeable `%238a8a8a`; provider listbox has no arrow-key navigation |
 
 ---
+END_DOC_BLOCK: [@ui:PHASE-3]
 
-## Status
+## [@ui:STATUS] Status
 
 All seven screens are remediated and the contract is enforced by a
 discovery-based conformance suite (`src/ui/conformance.test.ts`).
@@ -127,8 +139,9 @@ dialog. A true three-way distinction needs `mergePr` to report over a channel th
 webview can read, which is a behaviour change beyond this ticket's scope (R37).
 
 ---
+END_DOC_BLOCK: [@ui:STATUS]
 
-## Phase 4 — Verification (☐)
+## [@ui:PHASE-4] Phase 4 — Verification (☐)
 
 | # | Task | Rules |
 |---|---|---|
@@ -138,11 +151,13 @@ webview can read, which is a behaviour change beyond this ticket's scope (R37).
 | ☐ 4.4 | `npm test` + `npm run typecheck` green; mirrored-constant pinning tests untouched | R34, R37 |
 
 ---
+END_DOC_BLOCK: [@ui:PHASE-4]
 
-## Out of scope
+## [@ui:OUT-OF-SCOPE] Out of scope
 
 - Any change to what an action **does**, which message it posts, what the host
   executes, or what is persisted (R37). This is presentation and
   interaction-feedback only.
 - Re-theming: values resolve to the user's VS Code theme and must keep doing so.
 - The status ramp and stage ramp — consumed, never redefined (R06).
+END_DOC_BLOCK: [@ui:OUT-OF-SCOPE]

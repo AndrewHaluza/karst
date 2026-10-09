@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/ui/UI-RULES.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:UI-R01'):
+  awk "/^## \[@ui:UI-R01\]/,/END_DOC_BLOCK: \[@ui:UI-R01\]/" docs/ui/UI-RULES.md
+-->
 # Karst UI Rules
 
 **Version:** 3.0 — finalized normative rules
@@ -57,7 +65,7 @@ A source grep is not accepted as proof of visual behavior that it cannot observe
 
 # A. Architecture
 
-## UI-R01 — No unapproved UI framework/runtime dependency
+## [@ui:UI-R01] No unapproved UI framework/runtime dependency
 
 Karst remains framework-free unless an explicit architecture decision approves a
 new frontend runtime or component dependency.
@@ -69,10 +77,11 @@ another frontend runtime dependency.
 
 **Check:** UI-only changes do not introduce an unapproved runtime dependency in
 `package.json`.
+END_DOC_BLOCK: [@ui:UI-R01]
 
 ---
 
-## UI-R02 — Use the shared webview delivery path
+## [@ui:UI-R02] Use the shared webview delivery path
 
 Shared design-system assets reach webviews through Karst's existing shared
 injection/rendering path.
@@ -86,10 +95,11 @@ all extension-local resources.
 
 **Check:** new shared CSS/behavior is delivered through the shared webview
 injection path unless an architecture change is explicitly in scope.
+END_DOC_BLOCK: [@ui:UI-R02]
 
 ---
 
-## UI-R03 — Every webview receives the complete shared visual system
+## [@ui:UI-R03] Every webview receives the complete shared visual system
 
 Every discovered webview contains:
 
@@ -109,10 +119,11 @@ removes the separate palette marker/calls.
 **Check:** discovery tests enumerate webviews from disk, not a handwritten list,
 assert the required design-system markers/host path, and prevent any webview from
 consuming unresolved status/stage tokens during the migration.
+END_DOC_BLOCK: [@ui:UI-R03]
 
 ---
 
-## UI-R04 — Reusable visual decisions use tokens
+## [@ui:UI-R04] Reusable visual decisions use tokens
 
 Shared/repeated values for:
 
@@ -138,10 +149,11 @@ Do not hide arbitrary dimensions behind meaningless token arithmetic.
 token; local geometry is permitted when it belongs to that composition.
 
 A raw-literal budget is not the conformance criterion.
+END_DOC_BLOCK: [@ui:UI-R04]
 
 ---
 
-## UI-R05 — One semantic role has one definition
+## [@ui:UI-R05] One semantic role has one definition
 
 Do not create competing definitions for the same semantic visual role.
 
@@ -158,10 +170,11 @@ They remain separate tokens because their meanings differ.
 
 **Check:** no second token/source is introduced solely to give an existing
 semantic role another screen-specific value.
+END_DOC_BLOCK: [@ui:UI-R05]
 
 ---
 
-## UI-R06 — Status, feedback, stage, and data-series semantics do not cross
+## [@ui:UI-R06] Status, feedback, stage, and data-series semantics do not cross
 
 Workflow status, generic feedback, stage identity, and categorical series are
 separate semantic namespaces.
@@ -175,12 +188,13 @@ Status/stage palette ownership remains centralized.
 - no webview redeclares status/stage tokens;
 - no chart series references workflow/feedback semantic tokens;
 - no status/feedback component uses `--k-series-*`.
+END_DOC_BLOCK: [@ui:UI-R06]
 
 ---
 
 # B. Semantics and primitives
 
-## UI-R07 — Existing semantic controls use shared primitives
+## [@ui:UI-R07] Existing semantic controls use shared primitives
 
 If an interaction is already represented by a shared primitive, use that
 primitive.
@@ -194,10 +208,11 @@ appearance.
 
 **Check:** changed shared control semantics resolve through the shared primitive;
 visual review confirms local composition has not unnecessarily forked it.
+END_DOC_BLOCK: [@ui:UI-R07]
 
 ---
 
-## UI-R08 — Shared primitives are consistent; local product composition is allowed
+## [@ui:UI-R08] Shared primitives are consistent; local product composition is allowed
 
 The same primitive/variant comes from the shared implementation on every screen.
 
@@ -208,10 +223,11 @@ product-specific compositions to be promoted into primitives.
 
 **Check:** shared primitive/variant declarations are not copied and forked
 screen-locally.
+END_DOC_BLOCK: [@ui:UI-R08]
 
 ---
 
-## UI-R09 — Native element semantics match the interaction
+## [@ui:UI-R09] Native element semantics match the interaction
 
 Use:
 
@@ -232,10 +248,11 @@ interaction and the complete required keyboard/ARIA behavior is implemented.
 
 **Check:** interactive hooks map to a native interactive element or an explicitly
 tested custom widget.
+END_DOC_BLOCK: [@ui:UI-R09]
 
 ---
 
-## UI-R09b — Interaction state stays on its owner
+## [@ui:UI-R09b] Interaction state stays on its owner
 
 Busy, disabled, pressed, selected, and transient action-result state belongs to
 the interactive element/surface that owns the interaction.
@@ -247,10 +264,11 @@ state to a non-interactive container merely because it contains the control.
 
 **Check:** state selectors/attributes target the actual owner; visual review
 confirms row/container state does not falsely imply interaction.
+END_DOC_BLOCK: [@ui:UI-R09b]
 
 ---
 
-## UI-R09c — A visible resource identifier is the navigation affordance
+## [@ui:UI-R09c] A visible resource identifier is the navigation affordance
 
 When a row already displays a file path, PR number, commit hash, URL, or other
 resource identifier and the intended action is to reveal/open that resource, the
@@ -266,10 +284,11 @@ meaningful target identifier is displayed.
 
 **Check:** finding/detail rows with visible resource targets use the target value
 as the link and do not duplicate it with an equivalent adjacent open button.
+END_DOC_BLOCK: [@ui:UI-R09c]
 
 ---
 
-## UI-R10 — Shared visual classes resolve
+## [@ui:UI-R10] Shared visual classes resolve
 
 Every used `k-*` primitive/variant and visual `is-*` state has a defined shared
 or local contract.
@@ -279,10 +298,11 @@ Behavior-only hooks use `data-*` where a CSS class has no visual role.
 **Verification:** STATIC
 
 **Check:** markup tests detect undefined shared primitive/variant classes.
+END_DOC_BLOCK: [@ui:UI-R10]
 
 ---
 
-## UI-R10b — Irreversible destructive actions use danger treatment
+## [@ui:UI-R10b] Irreversible destructive actions use danger treatment
 
 Actions that permanently destroy/remove user data or installed configuration use
 the shared danger variant.
@@ -302,10 +322,11 @@ required confirmation remains host-side.
 
 **Check:** destructive action definitions are mapped to danger treatment using an
 explicit action taxonomy, not a broad keyword regex.
+END_DOC_BLOCK: [@ui:UI-R10b]
 
 ---
 
-## UI-R10c — Agent core identity is icon + canonical name
+## [@ui:UI-R10c] Agent core identity is icon + canonical name
 
 Whenever an agent core is visible, render it through the shared provider identity
 mapping as:
@@ -330,6 +351,7 @@ radio/choice pattern or another complete accessible selector.
 **Check:** agent-core render sites use the shared identity mapping; tests pin the
 known core identifier → canonical icon/name mapping; visual review confirms model
 / effort / variant are subordinate metadata rather than replacement identity.
+END_DOC_BLOCK: [@ui:UI-R10c]
 
 ---
 
@@ -340,7 +362,7 @@ These rules specify user-observable interaction behavior.
 They do not prescribe request-ID format, one specific dispatcher, or one wire
 protocol.
 
-## UI-R11 — Waiting host mutations/long-running actions expose pending state
+## [@ui:UI-R11] Waiting host mutations/long-running actions expose pending state
 
 A control must expose pending state when all are true:
 
@@ -357,10 +379,11 @@ not require an artificial spinner.
 
 **Check:** qualifying operations have a runtime test proving pending begins
 before settlement.
+END_DOC_BLOCK: [@ui:UI-R11]
 
 ---
 
-## UI-R12 — Unsafe duplicate activation is prevented
+## [@ui:UI-R12] Unsafe duplicate activation is prevented
 
 While a qualifying operation is in flight, a second activation must not create
 duplicate unsafe work.
@@ -376,10 +399,11 @@ The mechanism may be:
 
 **Check:** double-activation tests for mutations/long-running work assert one
 effective operation.
+END_DOC_BLOCK: [@ui:UI-R12]
 
 ---
 
-## UI-R13 — Known terminal results leave pending and become visible
+## [@ui:UI-R13] Known terminal results leave pending and become visible
 
 When the application knows a terminal result, the UI leaves pending and exposes
 that outcome.
@@ -394,10 +418,11 @@ Prefer the strongest existing home:
 
 **Check:** success and failure settlement tests clear busy state and expose the
 result through the intended UI path.
+END_DOC_BLOCK: [@ui:UI-R13]
 
 ---
 
-## UI-R14 — Unknown is not failure, and uncertainty is not automatic retry safety
+## [@ui:UI-R14] Unknown is not failure, and uncertainty is not automatic retry safety
 
 A timeout/lost acknowledgment that cannot establish the operation result is
 reported as unknown/uncertain.
@@ -414,10 +439,11 @@ timeout if the original operation may still be running.
 - pending presentation ends or changes to an uncertainty state;
 - no false failure claim;
 - unsafe duplicate retry is not enabled without reconciliation/idempotency.
+END_DOC_BLOCK: [@ui:UI-R14]
 
 ---
 
-## UI-R14b — Recoverable form/surface errors preserve recovery context
+## [@ui:UI-R14b] Recoverable form/surface errors preserve recovery context
 
 A form, drawer, or modal that owns a mutation capable of local validation failure
 must not destroy its own recovery UI before the result is known.
@@ -432,10 +458,11 @@ On failure:
 
 **Check:** failure tests prove the surface remains/reopens with preserved values
 and local error association.
+END_DOC_BLOCK: [@ui:UI-R14b]
 
 ---
 
-## UI-R15 — Terminal success is not shown before success is known
+## [@ui:UI-R15] Terminal success is not shown before success is known
 
 Do not show terminal claims such as:
 
@@ -455,10 +482,11 @@ state model; it must not masquerade as confirmed completion.
 
 **Check:** failure tests never pass through a confirmed-success presentation
 first.
+END_DOC_BLOCK: [@ui:UI-R15]
 
 ---
 
-## UI-R16 — Finite controlled protocol discriminants are closed
+## [@ui:UI-R16] Finite controlled protocol discriminants are closed
 
 When Karst controls both sides of a finite UI/host discriminant, represent it as
 a closed set rather than unrestricted `string`.
@@ -472,10 +500,11 @@ consumer to every supported member.
 
 No "where practical" exemption applies to finite protocols owned by this
 repository.
+END_DOC_BLOCK: [@ui:UI-R16]
 
 ---
 
-## UI-R17 — Disabled and loading remain distinct
+## [@ui:UI-R17] Disabled and loading remain distinct
 
 Disabled means unavailable.
 
@@ -496,10 +525,11 @@ Required explanation for an unavailable action must not depend only on native
 - busy and unavailable state are distinguishable in DOM/state;
 - activation is prevented correctly;
 - required explanation remains available without pointer-hover-only behavior.
+END_DOC_BLOCK: [@ui:UI-R17]
 
 ---
 
-## UI-R18 — Pending/result feedback preserves usable geometry and naming
+## [@ui:UI-R18] Pending/result feedback preserves usable geometry and naming
 
 Pending/result UI must not create a layout change that moves the activation
 target or neighboring primary controls enough to disrupt continued interaction.
@@ -514,12 +544,13 @@ categorically forbidden.
 **Check:** runtime asserts appropriate accessible state; real-webview review
 confirms the control/adjacent layout does not jump materially through
 idle→pending→settled.
+END_DOC_BLOCK: [@ui:UI-R18]
 
 ---
 
 # D. Help and accessible naming
 
-## UI-R19 — Required information does not depend on `title`
+## [@ui:UI-R19] Required information does not depend on `title`
 
 Native `title` may supplement an interface.
 
@@ -534,10 +565,11 @@ It is not the sole mechanism for:
 
 **Check:** required meaning remains available when native tooltip presentation is
 ignored.
+END_DOC_BLOCK: [@ui:UI-R19]
 
 ---
 
-## UI-R20 — Supplemental tooltip copy is concise and useful
+## [@ui:UI-R20] Supplemental tooltip copy is concise and useful
 
 Where a title/custom tooltip exists, it describes behavior rather than widget
 type and does not redundantly repeat an obvious visible label.
@@ -548,10 +580,11 @@ The existing 80-character bound remains a copy guard for transient tooltip text.
 
 **Check:** `title` values are ≤80 characters and review confirms they add useful
 behavioral context.
+END_DOC_BLOCK: [@ui:UI-R20]
 
 ---
 
-## UI-R21 — Supplemental tooltip text agrees with the accessible name
+## [@ui:UI-R21] Supplemental tooltip text agrees with the accessible name
 
 When an icon-only control has both an accessible name and supplemental tooltip
 text, the two must describe the same action and scope.
@@ -568,10 +601,11 @@ icon-only control has an accessible name at all is UI-R24.
 **Check:** controls carrying both `aria-label` and `title` are compared for
 semantic agreement; simple one-action icon controls should normally use the same
 string.
+END_DOC_BLOCK: [@ui:UI-R21]
 
 ---
 
-## UI-R22 — Custom tooltip/help behavior supports keyboard users
+## [@ui:UI-R22] Custom tooltip/help behavior supports keyboard users
 
 A custom tooltip/help surface containing useful information must be accessible
 from keyboard focus as well as pointer hover.
@@ -582,12 +616,13 @@ It must not create a keyboard trap.
 
 **Check:** keyboard interaction test/review exercises focus, appearance, and
 dismissal.
+END_DOC_BLOCK: [@ui:UI-R22]
 
 ---
 
 # E. Accessibility
 
-## UI-R23 — Keyboard focus is visibly identifiable
+## [@ui:UI-R23] Keyboard focus is visibly identifiable
 
 Every keyboard-focusable interactive element has a clearly visible focus
 indicator.
@@ -603,10 +638,11 @@ Do not remove focus presentation without replacement.
 - shared primitives include a focus-state contract;
 - keyboard through every changed surface in light, dark, and high-contrast mode;
 - focus remains visually identifiable.
+END_DOC_BLOCK: [@ui:UI-R23]
 
 ---
 
-## UI-R24 — Icon-only controls have accessible names
+## [@ui:UI-R24] Icon-only controls have accessible names
 
 An icon/glyph alone is not the control's accessible name.
 
@@ -617,10 +653,11 @@ Decorative icons are hidden from assistive technology when text or an
 
 **Check:** icon-only control tests assert accessible names and decorative icon
 treatment where applicable.
+END_DOC_BLOCK: [@ui:UI-R24]
 
 ---
 
-## UI-R25 — Form controls have labels and local error association
+## [@ui:UI-R25] Form controls have labels and local error association
 
 Each form control has a programmatic label.
 
@@ -633,10 +670,11 @@ invalid state.
 
 **Check:** markup tests verify label association; error-state tests verify
 `aria-invalid` and description association.
+END_DOC_BLOCK: [@ui:UI-R25]
 
 ---
 
-## UI-R26 — ARIA reflects actual state
+## [@ui:UI-R26] ARIA reflects actual state
 
 ARIA state is updated with the real component state.
 
@@ -657,10 +695,11 @@ A custom radio group implements expected keyboard navigation, not only
 **Verification:** RUNTIME
 
 **Check:** interaction tests verify each changed ARIA state tracks actual state.
+END_DOC_BLOCK: [@ui:UI-R26]
 
 ---
 
-## UI-R27 — Important asynchronous changes have an announcement path
+## [@ui:UI-R27] Important asynchronous changes have an announcement path
 
 A change that would otherwise be missed by assistive-technology users has an
 appropriate status/live-region announcement path.
@@ -673,10 +712,11 @@ unless a more local semantic element already provides the announcement.
 **Verification:** STATIC + RUNTIME
 
 **Check:** qualifying completion/error flows update an announcement path.
+END_DOC_BLOCK: [@ui:UI-R27]
 
 ---
 
-## UI-R28 — Color is not the only visible carrier of meaning
+## [@ui:UI-R28] Color is not the only visible carrier of meaning
 
 Meaningful state remains identifiable without distinguishing its hue.
 
@@ -691,10 +731,11 @@ An `aria-label` alone does not satisfy this rule for sighted users.
 
 **Check:** review the changed state while suppressing color distinction; its
 meaning remains visually identifiable from glyph/shape/text.
+END_DOC_BLOCK: [@ui:UI-R28]
 
 ---
 
-## UI-R28b — Workflow status markers are icon-only and use the shared mapping
+## [@ui:UI-R28b] Workflow status markers are icon-only and use the shared mapping
 
 The `.k-status` primitive renders no visible status word.
 
@@ -717,10 +758,11 @@ of the status primitive.
 
 **Check:** status renderers use the shared state→icon/color mapping, contain an
 accessible name, and do not append a visible status word inside the primitive.
+END_DOC_BLOCK: [@ui:UI-R28b]
 
 ---
 
-## UI-R29 — Contrast meets WCAG AA
+## [@ui:UI-R29] Contrast meets WCAG AA
 
 Normal text requires at least `4.5:1`.
 
@@ -755,10 +797,11 @@ literals that bypass the semantic token layer.
   the same pinning test;
 - changed surfaces are checked in VS Code light, dark, and high-contrast theme
   classes.
+END_DOC_BLOCK: [@ui:UI-R29]
 
 ---
 
-## UI-R30 — Reduced motion preserves state information
+## [@ui:UI-R30] Reduced motion preserves state information
 
 Reduced-motion mode removes/reduces non-essential animation.
 
@@ -768,12 +811,13 @@ All state remains understandable without movement.
 
 **Check:** shared motion has a reduced-motion rule and the changed screen is
 reviewed with reduced motion enabled.
+END_DOC_BLOCK: [@ui:UI-R30]
 
 ---
 
 # F. Host / webview boundaries
 
-## UI-R31 — Host supplies semantic facts; webview owns visual presentation
+## [@ui:UI-R31] Host supplies semantic facts; webview owns visual presentation
 
 The host owns:
 
@@ -822,10 +866,11 @@ Purely visual formatting may remain in the presentation layer.
 **Check:** host/domain view models do not prescribe CSS classes/colors for
 ordinary presentation; webview formatters do not duplicate business/domain
 classification logic.
+END_DOC_BLOCK: [@ui:UI-R31]
 
 ---
 
-## UI-R32 — Untrusted prose is escaped and bounded for its destination
+## [@ui:UI-R32] Untrusted prose is escaped and bounded for its destination
 
 External strings from:
 
@@ -846,10 +891,11 @@ Dedicated detail/log surfaces may intentionally expose longer content.
 
 **Check:** interpolation helpers are used; tests cover transient-output
 truncation/collapse.
+END_DOC_BLOCK: [@ui:UI-R32]
 
 ---
 
-## UI-R33 — Protected irreversible confirmation stays host-side
+## [@ui:UI-R33] Protected irreversible confirmation stays host-side
 
 Where confirmation must not be bypassable by a crafted webview message, the host
 performs the confirmation using the approved VS Code mechanism.
@@ -860,10 +906,11 @@ The webview posts intent.
 
 **Check:** protected irreversible handlers retain host-side confirmation and
 tests prevent direct webview intent from skipping it.
+END_DOC_BLOCK: [@ui:UI-R33]
 
 ---
 
-## UI-R34 — Mirrored behavior constants remain pinned
+## [@ui:UI-R34] Mirrored behavior constants remain pinned
 
 Existing TS↔webview mirrored behavior blocks are not modified as incidental UI
 cleanup.
@@ -884,12 +931,13 @@ A required change is treated as a behavior change with dedicated tests/review.
 
 **Check:** existing pinning tests remain green unless explicitly changed in
 scope.
+END_DOC_BLOCK: [@ui:UI-R34]
 
 ---
 
 # G. Verification and change control
 
-## UI-R35 — Rule-driven remediation is traceable
+## [@ui:UI-R35] Rule-driven remediation is traceable
 
 A change made specifically to satisfy/correct a UI rule cites the rule ID in the
 commit/PR, or in a nearby comment when the reason would otherwise be unclear.
@@ -897,10 +945,11 @@ commit/PR, or in a nearby comment when the reason would otherwise be unclear.
 Do not add rule IDs as ceremony to unrelated changes.
 
 **Verification:** REVIEW
+END_DOC_BLOCK: [@ui:UI-R35]
 
 ---
 
-## UI-R36 — Use a test that can prove the property
+## [@ui:UI-R36] Use a test that can prove the property
 
 ### Static tests are appropriate for
 
@@ -938,10 +987,11 @@ Do not add rule IDs as ceremony to unrelated changes.
 A literal/regex budget is not a substitute for rendered verification.
 
 **Verification:** STATIC + RUNTIME + VISUAL
+END_DOC_BLOCK: [@ui:UI-R36]
 
 ---
 
-## UI-R37 — Domain behavior is preserved unless explicitly in scope
+## [@ui:UI-R37] Domain behavior is preserved unless explicitly in scope
 
 A design-system/presentation task must not silently change:
 
@@ -972,10 +1022,11 @@ by UI remediation have dedicated coverage.
 This rule also carries the presentation-contract statement: no rule in this
 document licenses changing what an action does, which message it posts, what the
 host executes, or what is persisted.
+END_DOC_BLOCK: [@ui:UI-R37]
 
 ---
 
-## UI-R38 — A scrolling surface keeps its controls pinned
+## [@ui:UI-R38] A scrolling surface keeps its controls pinned
 
 A list that scrolls keeps the controls that act on it — header toolbar, search
 box, filter chips — pinned above it.
@@ -991,6 +1042,7 @@ rule, so the search box and facet chips disappeared below the fold.
 (`html,body{height:100%}`); pinned blocks are `flex:0 0 auto`; the list is
 `flex:1` with `min-height:0`; visual review confirms the controls stay visible
 while the list scrolls.
+END_DOC_BLOCK: [@ui:UI-R38]
 
 ---
 
@@ -1003,7 +1055,7 @@ components) on top of the existing v3.0 checks; it **removes nothing**. Where §
 and this annex differ, the annex adds to §5 — except R34 per R-X1 (retired *per
 constant* only once R-X1's check covers it; the pinning tests stay until then).
 
-## 9.1 Rules that become type-enforced (the STATIC check becomes `tsc`)
+### 9.1 Rules that become type-enforced (the STATIC check becomes `tsc`)
 
 | Rule | v3.0 check | React-view replacement |
 |---|---|---|
@@ -1016,7 +1068,7 @@ constant* only once R-X1's check covers it; the pinning tests stay until then).
 | R10b danger treatment | review | `DestructiveAction` is a closed literal union in `messages.ts` (pinned). A `<Button>` overload requires `variant="danger"` whenever `action` is in that union. |
 | R34 mirrored constants | pinning tests | Retired **per constant** only once R-X1's check covers it. Until then the pinning tests stay. |
 
-## 9.2 Rules whose owner moves into one hook/component
+### 9.2 Rules whose owner moves into one hook/component
 
 - **R11–R15, R17, R18 (async lifecycle)** → single `useHostMutation(kind)` hook.
   It owns the pending → success/failure/unknown lifecycle, the per-mutation id,
@@ -1039,13 +1091,13 @@ constant* only once R-X1's check covers it; the pinning tests stay until then).
   allowed to emit DS primitive classes (`k-btn`, `k-field`, `k-status`, …).
   Static test greps `.tsx` outside that directory for those class names.
 
-## 9.3 Rules unchanged in substance (same check, new target)
+### 9.3 Rules unchanged in substance (same check, new target)
 
 R02, R03, R04/R05/R06 (CSS stays in the shared DS plus the view `<style>`),
 R09/R09c/R10 (runtime sweep), R20 (review), R22/R23/R29/R30/R38 (VISUAL/Playwright),
 R31, R33 (host-side confirm), R35–R37.
 
-## 9.4 New React-view rules
+### 9.4 New React-view rules
 
 - **R-X1 Import, never mirror.** A behavior constant used by the webview
   (`SECTION_FIELDS`, `CONVENTION_PRESETS`, `deriveKey`/`TITLE_KEY_MAX`, …) is
@@ -1068,7 +1120,7 @@ R31, R33 (host-side confirm), R35–R37.
   `useReducer`/context. Any further runtime dependency needs a new decision
   (extends R01).
 
-## 9.5 Verification-mode change (R36)
+### 9.5 Verification-mode change (R36)
 
 COMPONENT (see the verification modes above) is accepted as proof for rules
 enforced inside a primitive (9.1/9.2), because every usage goes through that

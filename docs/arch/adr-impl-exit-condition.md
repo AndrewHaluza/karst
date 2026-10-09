@@ -1,10 +1,18 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" docs/arch/adr-impl-exit-condition.md
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:ADR-01'):
+  awk "/^## \[@arch:ADR-01\]/,/END_DOC_BLOCK: \[@arch:ADR-01\]/" docs/arch/adr-impl-exit-condition.md
+-->
 # ADR: Deterministic exit condition for impl stage
 
 **Status:** CLOSED — no change to the invariant.  
 **Date:** 2026-09-08  
 **Ticket:** PROMPT-14-IMPL-EXIT-CONDITION
 
-## Context
+## [@arch:ADR-01] Context
 
 Karst has two kinds of stage, and only one can be inconsistent:
 
@@ -19,8 +27,9 @@ Every stage-following consistency problem lives at the impl/fix boundary. The in
 > — `docs/arch/stages-and-gates.md`
 
 This invariant exists because a session ends for many reasons that are not completion: crash, user interrupt, context limit, unanswered question. Infer "done" from "stopped" and every one of those advances the ticket.
+END_DOC_BLOCK: [@arch:ADR-01]
 
-## Measurement
+## [@arch:ADR-02] Measurement
 
 Ticket 05 (PROMPT-05-EFFECTIVENESS-TELEMETRY) established a marker compliance baseline against the shared Cursor registry (schema v56, 443 tickets, 12 projects):
 
@@ -32,12 +41,14 @@ Ticket 05 (PROMPT-05-EFFECTIVENESS-TELEMETRY) established a marker compliance ba
 | Sessions still running | 9 (excluded from denominator) |
 
 **Compliance is high.** 95.2% of impl/fix sessions fire the done marker. The remaining 4.8% (16 sessions) ended `interrupted` — likely crashes or user interrupts — which is exactly the population the invariant is designed to protect against.
+END_DOC_BLOCK: [@arch:ADR-02]
 
-## Ticket 15 dependency
+## [@arch:ADR-03] Ticket 15 dependency
 
 The prompt references ticket 15 ("makes a forgotten marker distinguishable from a pending question using hook data karst already receives and discards"). **Ticket 15 does not exist in the codebase** — the series jumps from 14 to 17. This ADR cannot be gated on a ticket that was never created. The measurement from ticket 05 is sufficient.
+END_DOC_BLOCK: [@arch:ADR-03]
 
-## Options evaluated
+## [@arch:ADR-04] Options evaluated
 
 ### 1. Do nothing beyond ticket 15 — RECOMMENDED
 
@@ -73,8 +84,9 @@ This is the strongest option mechanically but:
 - Amending a binding invariant requires the problem to be measured, not theorized
 
 **Decision: Reject.** Not justified at 95.2% compliance.
+END_DOC_BLOCK: [@arch:ADR-04]
 
-## Decision
+## [@arch:ADR-05] Decision
 
 **CLOSE this ticket.** The marker compliance baseline of 0.952 is high. The 4.8% gap is the population the invariant protects against (crashes, interrupts), not evidence of leakage. No change to the `impl→uat is an explicit marker, never inferred from the Stop hook` invariant.
 
@@ -82,10 +94,12 @@ Re-evaluate if:
 - Compliance drops below 0.90 (measured quarterly via `karst stats --prompts`)
 - Ticket 15 is created and its signal shows a non-trivial "forgotten marker" population
 - The speculative-gates option (4) can be gated on session-close evidence without requiring agent cooperation
+END_DOC_BLOCK: [@arch:ADR-05]
 
-## References
+## [@arch:ADR-06] References
 
 - `docs/arch/stages-and-gates.md` — the invariant
 - `docs/arch/prompt-metrics.md` — the baseline (marker compliance: 0.952)
 - `src/store/promptTelemetryQuery.ts` — `queryMarkerCompliance()` implementation
 - Ticket 05 (PROMPT-05-EFFECTIVENESS-TELEMETRY) — baseline source
+END_DOC_BLOCK: [@arch:ADR-06]

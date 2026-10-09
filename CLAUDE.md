@@ -30,7 +30,7 @@ Every `test:*` script has a `pretest:*` that rebuilds better-sqlite3 for the Nod
 ## Native ABI split (better-sqlite3)
 Native addon; ABI must match the runtime: **Electron** for F5, **Node** for tests.
 VS Code 1.126 runs **Electron 39 = ABI 140** (NOT the 42.x in its package.json — that's a build dep).
-`rebuild:electron` copies the ABI-140 prebuild (F5 runs it via `dev:extension`); `rebuild:node` recompiles for Node. Full detail → `docs/arch/ABI.md`.
+`rebuild:electron` copies the ABI-140 prebuild (F5 runs it via `dev:extension`); `rebuild:node` recompiles for Node. Full detail → `docs/arch/ABI.md` (`arch:ABI-01` shared addon vs private builds, `arch:ABI-02` verified-only rebuild script, `arch:ABI-03` worktree isolation).
 
 ## Architecture (invariants — do not break)
 - Host-agnostic: logic takes injected interfaces (PanelHost, TerminalHost, GhRunner,
@@ -42,20 +42,23 @@ VS Code 1.126 runs **Electron 39 = ABI 140** (NOT the 42.x in its package.json �
 
 **The invariants live in the reference documents below. Read the one that covers what you are touching BEFORE you change it; each is binding, not background.**
 
-- **Stages, gates, the driver** (stage graph, impl/fix markers, done-means-merged, gate evidence, `driveTicket`) → `docs/arch/stages-and-gates.md`
-- **Agent cores** (adapter seam, headless spawner, model catalog tiers, token metering, retry/fallback) → `docs/arch/agent-cores.md`. **Adding a new model to that catalog** → `.claude/skills/model-catalog-updates/SKILL.md`
-- **The `karst` CLI** (separate parse paths, `node:sqlite` never better-sqlite3, `--manifest`) → `docs/arch/cli.md`
-- **Worktrees, branches, servers** (monorepo `repoPath`, placeholder grammar, base branch resolver, server reaping) → `docs/arch/worktrees-and-servers.md`
-- **Store and schema** (project scoping, per-window keys, new-column checklist) → `docs/arch/store-and-schema.md`
-- **GitHub and merge** (merge-tree parsing, PR facts, merge trust rule) → `docs/arch/github-and-merge.md`
-- **Manifest and Settings** (repository-primary, tab-scoped Save, profiles, new-field checklist) → `docs/arch/manifest-and-settings.md`
-- **Diagnostics** (reporting never reaches back, hook failures, snapshot prefill) → `docs/arch/diagnostics.md`
-- **Prompt-effectiveness metrics** (`prompt_telemetry` blob, guide-pull rate, baseline) → `docs/arch/prompt-metrics.md`
-- **UI invariants** (UI-rule rationale, title keys, Getting Started) → `docs/ui/UI-INVARIANTS.md`
-- **Native ABI** → `docs/arch/ABI.md`; **approach packages** (install, enable/uninstall, artifacts, frontmatter sanitization) → `docs/arch/approaches.md`
+`docs/arch/*.md` and `docs/ui/*.md` (except the generated `extension-inventory.md`) use a keyed block format: do not read them whole. List keys with `grep -F "## [@" <file> | tail -n +2` (the first hit is the file's own header comment), then extract one block with `awk "/^## \[@arch:KEY\]/,/END_DOC_BLOCK: \[@arch:KEY\]/" <file>` (`ui:` namespace for `docs/ui`; UI rule keys are `ui:UI-R35` etc.). Keep that format when editing these docs: every `##` is `## [@ns:ID] Title` and ends with `END_DOC_BLOCK: [@ns:ID]`.
+
+- **Stages, gates, the driver** (stage graph, impl/fix markers, done-means-merged, gate evidence, `driveTicket`) → `docs/arch/stages-and-gates.md` (`arch:STAGEMACH`, `IMPLUAT`, `DONE`, `EVIDENCE-WHEN`, `DRIVER-SEAM`)
+- **Agent cores** (adapter seam, headless spawner, model catalog tiers, token metering, retry/fallback) → `docs/arch/agent-cores.md` (`arch:AC-02` shaping, `AC-08` seam, `AC-11` bounded runs, `AC-13` retry/fallback, `AC-14` token metering). **Adding a new model to that catalog** → `.claude/skills/model-catalog-updates/SKILL.md`
+- **The `karst` CLI** (separate parse paths, `node:sqlite` never better-sqlite3, `--manifest`) → `docs/arch/cli.md` (`arch:CLI-02` parse paths, `CLI-05` node:sqlite, `CLI-06` --manifest)
+- **Worktrees, branches, servers** (monorepo `repoPath`, placeholder grammar, base branch resolver, server reaping) → `docs/arch/worktrees-and-servers.md` (`arch:ENTRIES`, `PLACEHOLDER`, `BASE-PULL`, `BASE-PER`, `ORPHANS`)
+- **Store and schema** (project scoping, per-window keys, new-column checklist) → `docs/arch/store-and-schema.md` (`arch:PROJECTS`, `GLOBAL`, `SCHEMA-CHECK`)
+- **GitHub and merge** (merge-tree parsing, PR facts, merge trust rule) → `docs/arch/github-and-merge.md` (`arch:GH-02` merge-tree, `GH-03` PR facts, `GH-04` trust rule)
+- **Manifest and Settings** (repository-primary, tab-scoped Save, profiles, new-field checklist) → `docs/arch/manifest-and-settings.md` (`arch:REPO`, `SAVE`, `PROFILE`, `FIELDCHK`)
+- **Diagnostics** (reporting never reaches back, hook failures, snapshot prefill) → `docs/arch/diagnostics.md` (`arch:DIAG-02`, `DIAG-03`, `DIAG-04`)
+- **Prompt-effectiveness metrics** (`prompt_telemetry` blob, guide-pull rate, baseline) → `docs/arch/prompt-metrics.md` (`arch:STORAGE`, `GUIDEPULL`, `BASELINE`)
+- **UI invariants** (UI-rule rationale, title keys, Getting Started) → `docs/ui/UI-INVARIANTS.md` (`ui:TITLE-KEY`, `GETTING-STARTED`)
+- **Graph-run reliability audits** → `docs/arch/graph-run-reliability.md`; **model/store/workflow layering** → `docs/arch/model-store-workflow-layering.md`; **impl exit-condition ADR** → `docs/arch/adr-impl-exit-condition.md`
+- **Native ABI** → `docs/arch/ABI.md`; **approach packages** (install, enable/uninstall, artifacts, frontmatter sanitization) → `docs/arch/approaches.md` (`arch:APP-01`..`APP-07`)
 
 ## UI/UX (binding — read `docs/ui/UI-RULES.md` before touching any webview)
-Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0); read `docs/ui/UI-INVARIANTS.md` with it. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). Tokens, style, catalog, known gaps and visual coverage are the sibling files in `docs/ui/`.
+Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0); read `docs/ui/UI-INVARIANTS.md` with it. Cite the rule id in the commit when a change exists to satisfy one (UI-R35). Siblings in `docs/ui/`: tokens/primitives `DESIGN-SYSTEM.md`, style `STYLE-GUIDE.md` (`ui:SG-01`..`SG-25`), icons `ICONS.md` (`ui:ICONS-01`..`ICONS-07`), catalog `KARST-UI-CATALOG.html`, known gaps `V3-CONFORMANCE-GAPS.md` (+ `REMEDIATION-PLAN.md`), visual coverage `VISUAL-COVERAGE.md`. Rule block keys are `ui:UI-R01`..`ui:UI-R38` (list them with the grep above); invariants are keyed in `UI-INVARIANTS.md` (e.g. `ui:TOKENS`, `ui:PENDING-STATE`, `ui:REACT-VIEWS`).
 **Settings webview (NDL-126)** is the ONE React surface (`src/ui/settings/app/**`), governed by the UI-RULES v3.1 "React views" annex; vanilla views keep v3.0. Mounted once into `#root` (tests use `renderWebviewReady('settings')`, never a second mount); `app/main.tsx` owns the single `acquireVsCodeApi()`.
 
 ## TS/ESM quirks
@@ -74,10 +77,10 @@ Every UI change is judged pass/fail against `docs/ui/UI-RULES.md` (v3.0); read `
 - Command logic belongs in `src/extension/ops/` with a `Notify` seam; `extension.ts` handlers are bindings only (enforced by `src/extension/ops/ratchet.test.ts`).
 
 ## Debug Logging Rules
-- **The gate is `src/logging/logger.ts`**: `logger.debug()` is a NO-OP unless `setDebugEnabled(true)` was called (manifest `debug: true`). Detail, retention, and the callback inventory → `docs/arch/debug-logging.md`.
+- **The gate is `src/logging/logger.ts`**: `logger.debug()` is a NO-OP unless `setDebugEnabled(true)` was called (manifest `debug: true`). Detail, retention, and the callback inventory → `docs/arch/debug-logging.md` (`arch:DBG-02` gate and retention; `arch:DBG-01` callbacks).
 - **Every new stage runner, gate, or agent adapter MUST include `logger.debug()` calls at**: entry point (what is being attempted), decision branch (which path was taken), exit point (what was the outcome).
 - **Module prefixes are load-bearing for filtering**: `[driver]` (stage driver), `[gate]` (gate run/runList + uat/review stages), `[agent:<name>]` (claude/codex/opencode/antigravity adapters), `[runtime]` (spin/supervisor/worktreeServers), `[merge]` (mergeGate), `[process]` (process-assignment seam — profile body overlaid as a process's instructions).
-- **Host-agnostic modules receive `debug` as an INJECTED callback**, never by importing the logger. `extension.ts` binds them all to `logger.debug`; the full list is in `docs/arch/debug-logging.md`.
+- **Host-agnostic modules receive `debug` as an INJECTED callback**, never by importing the logger. `extension.ts` binds them all to `logger.debug`; the full list is `arch:DBG-01` in `docs/arch/debug-logging.md`.
 - **Debug logs MUST NOT include** secrets, tokens, full prompts (redact to `<prompt:<n> chars>`), or repository contents. Bound untrusted agent stdout/stderr first (`headlessPreview`, 500 chars; gate output: length only).
 - **A new `catch {}` in workflow/runtime** MUST be preceded by a `debug` line when it is a decision point; blocks and parks name their `blocker`/`reason`.
 - New debug call sites are cheap to add but must stay behind the injected callback — never call a global logger from a vscode-free module.

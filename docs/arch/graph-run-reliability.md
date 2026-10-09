@@ -1,3 +1,11 @@
+<!-- AGENT INSTRUCTIONS:
+This file uses an agent-optimized block format. DO NOT read this file entirely.
+1. TABLE OF CONTENTS: Run this to list all available keys:
+  grep -F "## [@" <file_path>
+
+2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:G1'):
+  awk "/^## \[@arch:G1\]/,/END_DOC_BLOCK: \[@arch:G1\]/" <file_path>
+-->
 # Dynamic graph: why runs do not complete consistently
 
 Field evidence, registry `karst.db`, 2026-08-18. Seven graph runs of
@@ -16,7 +24,7 @@ Field evidence, registry `karst.db`, 2026-08-18. Seven graph runs of
 Completion rate 2/7. Every failure below is a gap in the run loop, not in the
 plan the agent wrote.
 
-## G1 — the compile judges a plan against whatever manifest the sweeping window holds
+## [@arch:G1] G1 — the compile judges a plan against whatever manifest the sweeping window holds
 
 `graphCompileContext` (`src/extension.ts`) builds its `repositories` map from
 `currentManifest()` of the window running the tick, intersected with
@@ -42,8 +50,9 @@ The same hole exists when the manifest simply is not loaded yet:
 compile rejects a valid plan rather than declining to judge it.
 
 **A plan must never be judged against an unresolved or foreign manifest.**
+END_DOC_BLOCK: [@arch:G1]
 
-## G2 — plan rejection is terminal on the first attempt
+## [@arch:G2] G2 — plan rejection is terminal on the first attempt
 
 `compileWithRepair` (`coordinator/repair.ts`) implements the intended contract:
 a rejected document returns to the SAME planner run with the compiler's
@@ -56,8 +65,9 @@ it: `compile_attempt` is `0` on all ten planner runs ever recorded.
 
 Consequence: the planner gets one shot at a document format it cannot fully
 observe, and a single diagnostic ends the run.
+END_DOC_BLOCK: [@arch:G2]
 
-## G3 — the diagnostics are written where nothing reads them
+## [@arch:G3] G3 — the diagnostics are written where nothing reads them
 
 `blockInvalidPlan` writes `diagnostics/planner-<id>.json` beside the snapshot.
 No code path ever reads that file back. The graph-aware Resume maps
@@ -66,8 +76,9 @@ No code path ever reads that file back. The graph-aware Resume maps
 ticket context and the replan reasons — never the compile diagnostics. A manual
 Resume therefore re-runs a planner that has not been told what was wrong, and
 the most likely outcome is the same invalid document.
+END_DOC_BLOCK: [@arch:G3]
 
-## G4 — the graph sweep rides the GitHub PR sync
+## [@arch:G4] G4 — the graph sweep rides the GitHub PR sync
 
 The periodic coordinator sweep lives inside `runPrSync`
 (`src/extension.ts:~4768`), after two awaited `gh`/`git` network phases, on a
@@ -78,16 +89,18 @@ hit a dead port then has no second path back, which is precisely the failure
 the sweep exists to cover ("a completion that committed to the database is
 always eventually scheduled"). The graph's liveness must not depend on GitHub
 being reachable.
+END_DOC_BLOCK: [@arch:G4]
 
-## G5 — the planner prompt's `$entry` wording invites the reserved-identifier rejection
+## [@arch:G5] G5 — the planner prompt's `$entry` wording invites the reserved-identifier rejection
 
 `skills/graph-planner/SKILL.md` line ~155 describes `$entry` as a legal value
 where a node is named, in the section covering edges. `entries[]` is a list of
 node ids where `$entry` is rejected as a reserved sentinel (`parse.ts:247`).
 Run 5 died on `entries[0]: "$entry"`. The prompt must state, per field, where
 the sentinel is legal and where it is not.
+END_DOC_BLOCK: [@arch:G5]
 
-## G6 — a stuck graph is invisible in a diagnostic report
+## [@arch:G6] G6 — a stuck graph is invisible in a diagnostic report
 
 The report generated for this ticket contains `cores`, `gateRuns`,
 `phaseMarks`, `stages`, `topology` — and nothing about graph runs, planner
@@ -95,16 +108,18 @@ runs, node runs or blocked reasons, while four graph runs sat blocked. The
 whole subsystem that owns the ticket's `impl` stage is absent from the one
 artifact a user sends when it is stuck. Reporting observes and never reaches
 back (`docs/arch/diagnostics.md`), so this is a read-only addition.
+END_DOC_BLOCK: [@arch:G6]
 
-## G7 — recovery from a dead process is manual
+## [@arch:G7] G7 — recovery from a dead process is manual
 
 Runs 1 and 3 both parked on a process that vanished (`launch-unknown`,
 `dead at reconcile`) and both require a human click — discard the unknown
 process, or Resume the reserved visit. Both are correct as safety defaults;
 neither is surfaced anywhere except the dashboard of the right project, so an
 unattended graph simply stops.
+END_DOC_BLOCK: [@arch:G7]
 
-## G8 — repository identifiers had two halves that disagreed (fixed)
+## [@arch:G8] G8 — repository identifiers had two halves that disagreed (fixed)
 
 A claim's `repo` was parsed against a lowercase-only safe-identifier grammar,
 while the compile context keyed its repository map by the VERBATIM manifest
@@ -129,15 +144,16 @@ Two consequences of the same investigation are fixed with it:
   (`plannerVocabulary`) listing the exact repository, profile, and command ids
   the run compiles against — a run with no commands says so, instead of leaving
   the planner to infer a set it cannot see.
+END_DOC_BLOCK: [@arch:G8]
 
-## Already fixed on this branch
+### Already fixed on this branch
 
 Run 4's `draining` stall is the defect commit `2f7f741` addresses:
 `reconcilePlanningPlanner` judged only `kind='bootstrap'` planners in
 `planning`, so a replan planner working at `draining` had no crash-matrix
 branch, and `draining` is the one status nothing else leaves.
 
-## Fix order
+### Fix order
 
 1. **G1** — scope the sweep and the reconcile listing to the window's project,
    filter to non-terminal statuses, and refuse to compile when the manifest is
@@ -159,7 +175,7 @@ reconcile's re-prompt fallback). What follows is what a fresh read of the run
 loop still finds. Every item is the same shape: **a run status whose only
 declared exit is produced by an event that will never happen.**
 
-## H1 — a rejected REPLAN document stranded the run in `draining`, forever (fixed)
+## [@arch:H1] H1 — a rejected REPLAN document stranded the run in `draining`, forever (fixed)
 
 `acceptSubmittedReplan` (`driver.ts:766`) has no counterpart to the bootstrap
 path's `rejectPlan`. Three of its four failure exits return
@@ -196,8 +212,9 @@ before — recovers a re-prompt that never fired for either kind. An exhausted
 repair parks the run at `blocked` through the new `draining → blocked` edge,
 where the typed Resume reaches it. `extension.ts`'s draining branch now acts
 on all three outcomes instead of `accepted` alone.
+END_DOC_BLOCK: [@arch:H1]
 
-## H2 — Stop drained a run that nothing would ever undrain (fixed)
+## [@arch:H2] H2 — Stop drained a run that nothing would ever undrain (fixed)
 
 `stopActiveGraph` (`entryPoints.ts:242`) CASes `running → draining`
 deliberately — "a stop is a deliberate halt, not a fault the Resume would
@@ -220,8 +237,9 @@ immediately. A run draining FOR a replan is refused at BOTH layers (the
 dispatch guard and the coordinator function) — that run is mid-replan and the
 coordinator owns its exit. Nothing here is automatic: a Stop is a deliberate
 halt, so its exit is a deliberate click.
+END_DOC_BLOCK: [@arch:H2]
 
-## H3 — a non-`closed` run permanently blocked its ticket from starting another (fixed)
+## [@arch:H3] H3 — a non-`closed` run permanently blocked its ticket from starting another (fixed)
 
 `extension.ts:5857` refuses a new graph launch when ANY graph run row exists
 for the ticket, in ANY status, and hands the user to the Inside panel — which
@@ -242,8 +260,9 @@ attempt is history and no longer blocks anything (the case that locked a ticket
 out after uat failed it back to impl); a terminal run holding the CURRENT
 attempt is named as exactly that, with the real remedy — fail the impl stage to
 open the next attempt — instead of a false claim that the coordinator owns it.
+END_DOC_BLOCK: [@arch:H3]
 
-## H4 — a deferral aged but never timed out (fixed)
+## [@arch:H4] H4 — a deferral aged but never timed out (fixed)
 
 `recordDeferral`/`agingPriority` (`sweep.ts:314`) raise a waiting node's
 priority the longer it waits, which is the right anti-starvation policy
@@ -265,8 +284,9 @@ expiry the run parks `blocked` with `graph-deferral-timeout: node <id> waited
 resource, and its wait ends when they do. `recoveryCategoryFor` maps the reason
 to `replan`: a claim the plan cannot satisfy needs a new revision, never a
 retry of the same claim.
+END_DOC_BLOCK: [@arch:H4]
 
-## The invariant these four share
+### The invariant these four share
 
 A graph run's non-terminal statuses must each have at least one exit that some
 actor — a sweep, a reconcile branch, or a user action the panel actually
@@ -300,7 +320,7 @@ The run's terminal reason is
 `graph-plan-invalid: reserved-identifier: edges[0].from: "$entry" is a reserved
 sentinel`.
 
-## What actually happened
+## [@arch:T3-01] What actually happened
 
 **The planner kept writing `$entry` as an edge source.** G5 of the first audit
 fixed the `entries[]` half of this in `skills/graph-planner/SKILL.md`, and the
@@ -328,8 +348,9 @@ that finished and a run that ignored it, and there was no record anywhere that
 it had happened. That is the shape of the user report behind this ticket:
 "tried to stop and replan", repeatedly, each attempt producing a document
 nothing would ever consume.
+END_DOC_BLOCK: [@arch:T3-01]
 
-## What this branch changes
+## [@arch:T3-02] What this branch changes
 
 Neither of the two gaps above is fixed here — both need a decision (does a
 re-prompt re-snapshot? does a submission into a non-`planning` run mark the
@@ -355,8 +376,9 @@ first. What is fixed:
 Every one of those was a decision the run loop made and told nobody about, and
 between them they cover the whole path from "the user clicked Start" to "the
 node parked".
+END_DOC_BLOCK: [@arch:T3-02]
 
-## Still open
+## [@arch:T3-03] Still open
 
 - **F1** — a compile re-prompt replays a frozen prompt snapshot, so a prompt
   defect cannot be corrected within a planner run. Either the repair
@@ -366,3 +388,4 @@ node parked".
 - **F2** — a bootstrap submission into a non-`planning` run is dropped and its
   planner row is left `submitted` forever. It should move `submitted → stale`
   with a reason, which is the treatment a late replan submission already gets.
+END_DOC_BLOCK: [@arch:T3-03]
