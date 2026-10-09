@@ -116,13 +116,15 @@ END_DOC_BLOCK: [@arch:CLI-12]
 - **The summary becomes the ticket's `brief`** once the human accepts; the seed carries the brief to the implementing agent.
 - `draft propose` has no ordering flag of its own. Draft ordering is stated in each description, or set structurally through the proposal's `dependsOn` (see "Structured ordering" in `docs/arch/store-and-schema.md`). Tickets have a `blocked-by` relation (`ticket_relations`, `store/ticketRelations.ts`) that gates launch.
 
-### Host scan and human confirmation
+END_DOC_BLOCK: [@arch:CLI-13]
+
+## [@arch:CLI-17] `draft propose`: host scan and human confirmation
 
 - **propose → outbox → host scan → human confirm.** `extension.ts` triggers `planningOutbox.scan()` from an `fs.watch` on `planning-scratch/` (recursive where supported; any event rescans, debounced), a 3 s poll that scans only while this window holds a live planning terminal, on activate, and after terminal adoption. Each valid file becomes a PENDING `planning_proposals` row (or, with an `id`, revises one in place), and the host rewrites that session's `proposals.json` index — also after every accept and discard, so the agent sees the current status.
 - **No ticket without an explicit user action with the content visible** (`extension/ops/planningProposalOps.ts`). The notification names the session (`title (#id)`), the proposal title and the description/summary sizes, offering Review (first) and Discard. **Review** opens the ticket form prefilled with the draft's title/description/repos and the summary shown in the form's Context brief drawer; only the user's own Save/Submit creates the ticket and links it to the session, marking the proposal accepted (`markProposalAccepted`, one transaction) and seeding the summary as the ticket's `brief` when it has none. Dismissing the notification leaves it pending. There is no direct-create path.
 - **Pending survives a reload.** On activate every pending proposal of the project is announced again, and the sidebar Planning group lists each under its session with its `#<id>` and Approve (`plan-proposal-review`) / Discard (`plan-proposal-discard`) icon actions (numeric `proposalId` only).
 - **Threat model.** Only codex is truly sandboxed; claude, opencode and agy can run any shell command the user approves, so the outbox and the scan limit damage but do not isolate sessions. The human confirmation, with the whole agent-authored content in view, is the trust boundary.
-END_DOC_BLOCK: [@arch:CLI-13]
+END_DOC_BLOCK: [@arch:CLI-17]
 
 ## [@arch:CLI-14] `manifest` / `setup`: an onboarding setup session discovers, proposes, and verifies
 
