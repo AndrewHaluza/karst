@@ -123,6 +123,18 @@ describe('resolveTicketByKey', () => {
     expect(resolveTicketByKey(store, `T${t.id} · A-1`, undefined)?.id).toBe(t.id);
   });
 
+  it('rejects a wrong-kind id naming the expected T<n>, but not an unknown ticket', () => {
+    createTicket(store, { key: 'A-1', title: 'x' });
+    expect(() => resolveTicketByKey(store, 'D5', undefined)).toThrow(/expected a ticket id \(T<n>\)/);
+    expect(() => resolveTicketByKey(store, 'P3', undefined)).toThrow(/expected a ticket id \(T<n>\)/);
+    expect(resolveTicketByKey(store, 'T999', undefined)).toBeUndefined();
+  });
+
+  it('lets a key spelled like a wrong-kind id win', () => {
+    const t = createTicket(store, { key: 'D5', title: 'x' });
+    expect(resolveTicketByKey(store, 'D5', undefined)?.id).toBe(t.id);
+  });
+
   it('scopes T<n> to the manifest project', () => {
     const alpha = upsertProject(store, { slug: 'alpha' });
     const beta = upsertProject(store, { slug: 'beta' });
@@ -132,7 +144,6 @@ describe('resolveTicketByKey', () => {
 
   it('returns undefined for other kinds and zero ids', () => {
     createTicket(store, { key: 'A-1', title: 'x' });
-    expect(resolveTicketByKey(store, 'D5', undefined)).toBeUndefined();
     expect(resolveTicketByKey(store, 'T0', undefined)).toBeUndefined();
   });
 

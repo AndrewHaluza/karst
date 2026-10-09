@@ -59,6 +59,12 @@ describe('runCli — stage marker', () => {
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  it('rejects a wrong-kind --ticket id naming the expected T<n>', () => {
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'D5'])).toThrow(
+      /expected a ticket id \(T<n>\)/,
+    );
+  });
+
   it('advances impl->uat by ticket key and prints the next stage', () => {
     const out = runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1']);
     expect(out.trim()).toBe('uat');

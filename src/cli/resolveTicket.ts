@@ -41,12 +41,8 @@ export function resolveTicketByKey(
   // after both key lookups miss, so a ticket whose key IS that number always
   // wins. Only the canonical decimal spelling `KARST_TICKET_ID` can carry is
   // accepted, so `01` never aliases row 1.
-  let id: number;
-  try {
-    id = parseId(key, 'ticket').n;
-  } catch {
-    return undefined; // not an id form (wrong kind, junk) — let the caller report "no ticket found"
-  }
+  const id = ticketIdFromText(key);
+  if (id === undefined) return undefined;
   // No unscoped fallback here: row ids are dense and global, so a bare number
   // hits SOME project's ticket almost always. Resolving it would advance the
   // wrong board and leak another project's context — the very thing
@@ -54,6 +50,26 @@ export function resolveTicketByKey(
   // sparse and project-prefixed); ids may not.
   if (projectId !== undefined) return findTicketById(store, id, { projectId });
   return findTicketById(store, id);
+}
+
+/**
+ * The ticket row id a CLI argument spells (`T5`, `5`, `T5 · KEY`), or undefined
+ * for junk. A well-formed id of ANOTHER kind (`D5`, `P3`) throws parseId's
+ * wrong-kind error, which names the expected `T<n>`.
+ */
+export function ticketIdFromText(text: string): number | undefined {
+  try {
+    return parseId(text, 'ticket').n;
+  } catch (err) {
+    let otherKind = false;
+    try {
+      otherKind = parseId(text).kind !== 'ticket';
+    } catch {
+      // not an id form at all — the caller reports "no ticket found"
+    }
+    if (otherKind) throw err;
+    return undefined;
+  }
 }
 
 /**

@@ -1,8 +1,9 @@
 import type { Store } from '../store/db.js';
 import { findTicketById, getTicketsByKey, type Ticket } from '../store/tickets.js';
-import { formatId, parseId } from '../model/entityId.js';
+import { formatId } from '../model/entityId.js';
 import { checkMessaging } from '../model/ticketMessaging.js';
 import { quoteUntrusted, sanitizeInline } from '../model/messageText.js';
+import { ticketIdFromText } from './resolveTicket.js';
 import { assertSenderMatchesSession, ticketLabel } from './sessionIdentity.js';
 import {
   listInbox,
@@ -113,11 +114,8 @@ function resolveRecipient(store: Store, sender: Ticket, to: string): Ticket {
 
 /** `--to T<n>` (or bare n): a ticket row id, after the key lookup misses. */
 function findById(store: Store, to: string): Ticket | undefined {
-  try {
-    return findTicketById(store, parseId(to, 'ticket').n);
-  } catch {
-    return undefined;
-  }
+  const id = ticketIdFromText(to);
+  return id === undefined ? undefined : findTicketById(store, id);
 }
 
 function runSend(store: Store, sender: Ticket, to: string, body: string): string {

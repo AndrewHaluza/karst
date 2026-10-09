@@ -248,7 +248,7 @@ export function renderResolveConflictCommand(input: {
 }): string {
   const { contextCommand, conflictBriefCommand, guideCommand } = input;
   const grammarParagraph =
-    'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` and `<repo>`. ' +
+    'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` (a ticket key or `T<n>` id) and `<repo>`. ' +
     `Run \`${conflictBriefCommand} <key> <repo>\` FIRST — resolving the named conflict is the ` +
     'whole job and it must not drift into other work.';
   return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);

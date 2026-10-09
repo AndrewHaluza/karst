@@ -403,6 +403,7 @@ describe('renderResumeCommand / renderFixCommand / renderResolveConflictCommand'
     const body = renderResolveConflictCommand({ contextCommand, conflictBriefCommand });
     expect(body).toContain(conflictBriefCommand);
     expect(body).toContain('<key> <repo>');
+    expect(body).toContain('a ticket key or `T<n>` id');
   });
 
   it('(d) renderResumeCommand contains neither brief command', () => {
