@@ -9,6 +9,7 @@ import { postAgentNote } from '../store/bulletinNotes.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
 import { setStage } from '../store/stages.js';
+import { setMergeCheck } from '../store/mergeChecks.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
@@ -148,6 +149,36 @@ describe('buildTicketContext', () => {
   });
 
   describe('sub-tasks (design NDL-70 §7)', () => {
+    it("lists each sub-task's cached PRs with base and merge check", () => {
+      const parent = createTicket(store, { key: 'PROJ-2', title: 'Root' });
+      const child = createTicket(store, { key: 'PROJ-2-s1', title: 'Piece', subtaskParentId: parent.id });
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status, base_ref) VALUES (?, 'frontend', 12, 'https://x/pr/12', 'open', 'feat/root')")
+        .run(child.id);
+      const ctx = buildTicketContext(store, undefined, parent.id);
+      expect(ctx.subtasks[0]!.prs).toEqual([
+        { repo: 'frontend', number: 12, url: 'https://x/pr/12', status: 'open', baseRef: 'feat/root' },
+      ]);
+    });
+
+    it('attaches the sub-task merge check to its PR', () => {
+      const parent = createTicket(store, { key: 'PROJ-2', title: 'Root' });
+      const child = createTicket(store, { key: 'PROJ-2-s1', title: 'Piece', subtaskParentId: parent.id });
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, 'frontend', 12, 'https://x/pr/12', 'open')")
+        .run(child.id);
+      setMergeCheck(store, { ticketId: child.id, repo: 'frontend', state: 'clean', files: [], reason: null, headSha: null, baseSha: null, baseRef: null, checkedAt: '2026-01-01T00:00:00.000Z' });
+      const pr = buildTicketContext(store, undefined, parent.id).subtasks[0]!.prs[0]!;
+      expect(pr.mergeCheck).toEqual({ state: 'clean', files: [], reason: null });
+      expect(pr).not.toHaveProperty('baseRef');
+    });
+
+    it('gives a sub-task with no PR rows an empty prs list', () => {
+      const parent = createTicket(store, { key: 'PROJ-3', title: 'Root' });
+      createTicket(store, { key: 'PROJ-3-s1', title: 'Piece', subtaskParentId: parent.id });
+      expect(buildTicketContext(store, undefined, parent.id).subtasks[0]!.prs).toEqual([]);
+    });
+
     it("gives a sub-task its parent's ask, brief and branch — and not its PRs", () => {
       const parent = createTicket(store, { key: 'PROJ-1', title: 'Root work' });
       updateTicketFields(store, parent.id, {
@@ -279,8 +310,8 @@ describe('buildTicketContext', () => {
 
       const ctx = buildTicketContext(store, undefined, parent.id);
       expect(ctx.subtasks).toEqual([
-        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true, pausedAt: null, autostartPending: false, queued: false },
-        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false, pausedAt: null, autostartPending: false, queued: false },
+        { id: blocker.id, key: 'PROJ-1-s1', title: 'Schema first', stageCurrent: 'review', blocksParent: true, pausedAt: null, autostartPending: false, queued: false, prs: [] },
+        { id: extra.id, key: 'PROJ-1-s2', title: 'Docs polish', stageCurrent: 'impl', blocksParent: false, pausedAt: null, autostartPending: false, queued: false, prs: [] },
       ]);
 
       const md = renderTicketContext(ctx);

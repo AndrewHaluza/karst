@@ -60,6 +60,8 @@ export interface TicketContextPr {
   number: number | null;
   url: string | null;
   status: string | null;
+  /** Target branch the PR merges into; omitted when unknown (keeps old JSON). */
+  baseRef?: string;
   /**
    * Whether this repo's branch still merges into its base, as of the last ship.
    * Optional and omitted entirely when never checked — a ticket shipped before
@@ -229,6 +231,8 @@ export interface TicketContextSubtask {
   autostartPending: boolean;
   /** Waiting to be auto-started: `autostartPending` while still at `scope`. */
   queued: boolean;
+  /** Cached PR rows for this sub-task (display cache; gh stays source of truth). */
+  prs: TicketContextPr[];
 }
 
 /** This ticket's mailbox, as a pointer: a count, never the bodies (untrusted). */
@@ -368,6 +372,26 @@ function repoRows(name: string, def: RepositoryDef | undefined): TicketContextRe
   }));
 }
 
+/** A ticket's cached PR rows with their last merge check, as the context shows them. */
+function contextPrs(store: Store, ticketId: number): TicketContextPr[] {
+  const checks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
+  return listPrsByTicket(store, ticketId).map((p) => {
+    const check = checks.get(p.repo);
+    return {
+      repo: p.repo,
+      number: p.number,
+      url: p.url,
+      status: p.status,
+      ...(p.baseRef ? { baseRef: p.baseRef } : {}),
+      // Spread rather than `mergeCheck: undefined`, so a never-checked PR
+      // serializes to the exact JSON the CLI emitted before this existed.
+      ...(check
+        ? { mergeCheck: { state: check.state, files: check.files, reason: check.reason } }
+        : {}),
+    };
+  });
+}
+
 /**
  * Aggregate all ticket-implementation data by id. Pure over the injected store
  * and manifest — no fs, no vscode. `manifest` is optional (absent at some launch
@@ -388,7 +412,6 @@ export function buildTicketContext(
   storageDir?: string,
 ): TicketContext {
   const t = getTicket(store, ticketId);
-  const mergeChecks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
 
   const defs = manifest?.repositories ?? {};
   const repos: TicketContextRepo[] = t.selectedRepos.flatMap((name) =>
@@ -451,6 +474,7 @@ export function buildTicketContext(
     blocksParent: s.blocksParent,
     autostartPending: s.autostartPending,
     queued: isQueuedSubtask({ ...s, subtaskParentId: ticketId }),
+    prs: contextPrs(store, s.id),
   }));
 
   const stageRow = relevantStageRow(t);
@@ -550,20 +574,7 @@ export function buildTicketContext(
       port: s.port,
       status: s.status,
     })),
-    prs: listPrsByTicket(store, ticketId).map((p) => {
-      const check = mergeChecks.get(p.repo);
-      return {
-        repo: p.repo,
-        number: p.number,
-        url: p.url,
-        status: p.status,
-        // Spread rather than `mergeCheck: undefined`, so a never-checked PR
-        // serializes to the exact JSON the CLI emitted before this existed.
-        ...(check
-          ? { mergeCheck: { state: check.state, files: check.files, reason: check.reason } }
-          : {}),
-      };
-    }),
+    prs: contextPrs(store, ticketId),
     attachments:
       storageDir === undefined
         ? []
