@@ -89,6 +89,9 @@ export function runSetStage(store: Store, ticketId: number, parsed: ParsedSetSta
   setStage(store, ticketId, parsed.stage, {
     status: parsed.status,
     startedAt: nowIso(),
+    ...(parsed.status === 'running' || parsed.status === 'pending'
+      ? { endedAt: null, verdict: null }
+      : {}),
     ...(parsed.blockKind !== null
       ? {
           blockedKind: parsed.blockKind,

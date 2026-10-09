@@ -1433,4 +1433,71 @@ describe('renderTicketContext', () => {
       expect(renderTicketContext(ctx, undefined, { sections: 'facts' })).not.toContain('## Blockers');
     });
   });
+
+  describe('prompt and brief deduplication and section order', () => {
+    it('skips ## Context brief when trimmed brief equals trimmed prompt', () => {
+      const t = createTicket(store, { key: 'PROJ-1', title: 'Duplicate text' });
+      updateTicketFields(store, t.id, {
+        description: 'Implement the cool feature\n',
+        brief: '  Implement the cool feature  ',
+      });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Prompt\nImplement the cool feature');
+      expect(md).not.toContain('## Context brief');
+    });
+
+    it('emits ## Context brief when brief differs from prompt', () => {
+      const t = createTicket(store, { key: 'PROJ-1', title: 'Different text' });
+      updateTicketFields(store, t.id, {
+        description: 'Implement the cool feature',
+        brief: 'Enriched brief with details',
+      });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx);
+      expect(md).toContain('## Prompt\nImplement the cool feature');
+      expect(md).toContain('## Context brief\nEnriched brief with details');
+    });
+
+    it('orders live operational state before static ticket text', () => {
+      const t = createTicket(store, { key: 'PROJ-1', title: 'Order check' });
+      updateTicketFields(store, t.id, {
+        description: 'My prompt',
+        brief: 'My brief',
+        selectedRepos: ['frontend'],
+      });
+      store.db
+        .prepare(
+          "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', '/wt/frontend', 'feat/x', 'main', 'inherited')",
+        )
+        .run(t.id);
+      store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run('impl', t.id);
+      setStage(store, t.id, 'impl', { status: 'running' });
+
+      createTicket(store, {
+        key: 'PROJ-1-sub',
+        title: 'Child subtask',
+        subtaskParentId: t.id,
+      });
+
+      const ctx = buildTicketContext(store, manifest({ frontend: svc() }), t.id);
+      const md = renderTicketContext(ctx, undefined, { stageEnding: 'stage impl pass' });
+
+      const stageIdx = md.indexOf('## Current stage');
+      const endingIdx = md.indexOf('## How this stage ends');
+      const subtasksIdx = md.indexOf('## Sub-tasks');
+      const reposIdx = md.indexOf('## Repositories in scope');
+      const worktreesIdx = md.indexOf('## Worktrees & branches');
+      const promptIdx = md.indexOf('## Prompt');
+      const briefIdx = md.indexOf('## Context brief');
+
+      expect(stageIdx).toBeGreaterThan(-1);
+      expect(endingIdx).toBeGreaterThan(stageIdx);
+      expect(subtasksIdx).toBeGreaterThan(endingIdx);
+      expect(reposIdx).toBeGreaterThan(subtasksIdx);
+      expect(worktreesIdx).toBeGreaterThan(reposIdx);
+      expect(promptIdx).toBeGreaterThan(worktreesIdx);
+      expect(briefIdx).toBeGreaterThan(promptIdx);
+    });
+  });
 });
