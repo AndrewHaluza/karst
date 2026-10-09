@@ -64,8 +64,10 @@ test.describe('VISUAL rule coverage ratchet', () => {
     const rules = readFileSync(join(ROOT, 'docs', 'ui', 'UI-RULES.md'), 'utf8');
     const verificationLines = (rules.match(/\*\*Verification:\*\*.*/g) || []);
     const ruleIds: string[] = [];
-    for (const m of rules.matchAll(/^## (?:\[@ui:)?(UI-R\d+\w?)[\]\s]/gm)) {
-      ruleIds.push(m[1]!);
+    const ruleHeaders = (rules.match(/^## (?:\[@ui:)?(UI-R\d+\w?)(?:\]|\s)/gm) || []);
+    for (const header of ruleHeaders) {
+      const match = header.match(/UI-R\d+\w?/);
+      if (match) ruleIds.push(match[0]);
     }
 
     // Find which rules have VISUAL in their verification.

@@ -636,7 +636,7 @@ function renderNotesSection(ctx: TicketContext): string {
 export function renderTicketContext(
   ctx: TicketContext,
   debug?: (msg: string) => void,
-  opts?: { bounded?: boolean; sections?: ContextSections },
+  opts?: { bounded?: boolean; sections?: ContextSections; stageEnding?: string },
 ): string {
   const bounded = opts?.bounded ?? true;
   const sections = opts?.sections ?? 'all';
@@ -650,30 +650,6 @@ export function renderTicketContext(
   // a bare numeric id (§ resolveTicketByKey), so it is a genuinely runnable
   // fallback, unlike the placeholder string 'this ticket' would be.
   const key = ctx.key?.trim() || String(ctx.id);
-
-  const promptRaw = authored ? ctx.prompt?.trim() : undefined;
-  if (promptRaw) {
-    const prompt = bounded
-      ? (() => {
-          const { text, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
-          if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
-          return text;
-        })()
-      : promptRaw;
-    parts.push(`## Prompt\n${prompt}`);
-  }
-
-  const briefRaw = authored ? ctx.brief?.trim() : undefined;
-  if (briefRaw) {
-    const brief = bounded
-      ? (() => {
-          const { text, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
-          if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
-          return text;
-        })()
-      : briefRaw;
-    parts.push(`## Context brief\n${brief}`);
-  }
 
   if (operational && ctx.stage) {
     const s = ctx.stage;
@@ -775,24 +751,57 @@ export function renderTicketContext(
     parts.push(`## Current stage\n${lines.join('\n')}`);
   }
 
-  if (authored && ctx.attachments.length > 0) {
-    const rowsBlock = ctx.attachments
-      .map((a) => {
-        // Video is stated as unreadable rather than omitted. Omitting it would let
-        // an agent conclude nothing was attached; listing it bare would let one
-        // report on footage it never opened.
-        const note = a.kind === 'video' ? ' (not agent-readable)' : '';
-        return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
-      })
-      .join('\n');
-    const attachmentsText = bounded
-      ? (() => {
-          const { text, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
-          if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
-          return text;
-        })()
-      : rowsBlock;
-    parts.push(`## Attachments\n${attachmentsText}`);
+  if (operational && opts?.stageEnding) {
+    parts.push(`## How this stage ends\n${opts.stageEnding}`);
+  }
+
+  // The work this ticket delegated to sub-tasks (design NDL-70 §7), so the
+  // parent agent does not redo it. Rendered in every section mode for the same
+  // reason as the parent section above.
+  if (authored && ctx.subtasks.length > 0) {
+    const rows = ctx.subtasks.map((s) => {
+      const key = s.key?.trim() || `#${s.id}`;
+      const title = s.title?.trim();
+      const named = title ? `: ${title}` : '';
+      const flag = s.blocksParent ? ' [blocking]' : '';
+      const queued = s.queued ? ', queued' : '';
+      const paused = s.pausedAt ? `, paused since ${s.pausedAt}` : '';
+      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
+    });
+
+    const total = ctx.subtasks.length;
+    const pausedCount = ctx.subtasks.filter((s) => s.pausedAt !== null).length;
+    const unpaused = ctx.subtasks.filter((s) => s.pausedAt === null);
+    const stageOrder: readonly string[] = [...STAGE_KEYS].reverse();
+    const partsList: string[] = [];
+    for (const stage of stageOrder) {
+      const count = unpaused.filter((s) => s.stageCurrent === stage).length;
+      if (count > 0) partsList.push(`${count} ${stage}`);
+    }
+    const remaining = unpaused.filter((s) => !stageOrder.includes(s.stageCurrent ?? ''));
+    if (remaining.length > 0) partsList.push(`${remaining.length} ${remaining[0]?.stageCurrent ?? 'unknown'}`);
+    if (pausedCount > 0) partsList.push(`${pausedCount} paused`);
+
+    const heading = partsList.length > 0
+      ? `## Sub-tasks (${total}: ${partsList.join(', ')})`
+      : `## Sub-tasks (${total})`;
+
+    parts.push(
+      `${heading}\nThis ticket's work is delegated to the following sub-tasks — do not redo them.\n${rows.join('\n')}`,
+    );
+  }
+
+  if (operational && ctx.prs.length > 0) {
+    const rows = ctx.prs.map((p) => {
+      const num = p.number !== null ? `#${p.number}` : '(no number)';
+      const url = p.url ? ` — ${p.url}` : '';
+      const status = p.status ? ` [${p.status}]` : '';
+      // Suffixed on the existing line rather than given a section of its own: an
+      // agent already reads this list, and mergeability is a fact ABOUT the PR.
+      const merge = p.mergeCheck ? ` · merge: ${summarizeMergeCheck(p.mergeCheck)}` : '';
+      return `- ${p.repo} ${num}${status}${url}${merge}`;
+    });
+    parts.push(`## Pull requests\n${rows.join('\n')}`);
   }
 
   // One section, not two. The old render emitted a bare name list AND a richer
@@ -826,17 +835,68 @@ export function renderTicketContext(
     parts.push(`## Running servers\n${rows.join('\n')}`);
   }
 
-  if (operational && ctx.prs.length > 0) {
-    const rows = ctx.prs.map((p) => {
-      const num = p.number !== null ? `#${p.number}` : '(no number)';
-      const url = p.url ? ` — ${p.url}` : '';
-      const status = p.status ? ` [${p.status}]` : '';
-      // Suffixed on the existing line rather than given a section of its own: an
-      // agent already reads this list, and mergeability is a fact ABOUT the PR.
-      const merge = p.mergeCheck ? ` · merge: ${summarizeMergeCheck(p.mergeCheck)}` : '';
-      return `- ${p.repo} ${num}${status}${url}${merge}`;
-    });
-    parts.push(`## Pull requests\n${rows.join('\n')}`);
+  // The mailbox is a pointer only: bodies are untrusted agent prose and are
+  // framed by `karst inbox`, never inlined into a seed.
+  if (authored && ctx.inbox.unread > 0) {
+    const n = ctx.inbox.unread;
+    parts.push(
+      `## Inbox\n${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`,
+    );
+  }
+
+  if (authored && ctx.notes.unread > 0) {
+    parts.push(renderNotesSection(ctx));
+  }
+
+  // What the blockers that already landed delivered. Bounded per blocker (the
+  // mailbox cap) and quoted by the renderer; the rest is one `karst context` away.
+  if (authored && ctx.blockers.length > 0) {
+    const rows = ctx.blockers.map((b) => renderBlockerOutcome(b));
+    parts.push(`## Blockers\nThese blockers landed before you started.\n\n${rows.join('\n\n---\n\n')}`);
+  }
+
+  const promptRaw = authored ? ctx.prompt?.trim() : undefined;
+  if (promptRaw) {
+    const prompt = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
+          if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
+          return text;
+        })()
+      : promptRaw;
+    parts.push(`## Prompt\n${prompt}`);
+  }
+
+  const briefRaw = authored ? ctx.brief?.trim() : undefined;
+  if (briefRaw && briefRaw !== promptRaw) {
+    const brief = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
+          if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
+          return text;
+        })()
+      : briefRaw;
+    parts.push(`## Context brief\n${brief}`);
+  }
+
+  if (authored && ctx.attachments.length > 0) {
+    const rowsBlock = ctx.attachments
+      .map((a) => {
+        // Video is stated as unreadable rather than omitted. Omitting it would let
+        // an agent conclude nothing was attached; listing it bare would let one
+        // report on footage it never opened.
+        const note = a.kind === 'video' ? ' (not agent-readable)' : '';
+        return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
+      })
+      .join('\n');
+    const attachmentsText = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
+          if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
+          return text;
+        })()
+      : rowsBlock;
+    parts.push(`## Attachments\n${attachmentsText}`);
   }
 
   if (authored && ctx.parent) {
@@ -901,61 +961,7 @@ export function renderTicketContext(
     parts.push(`## Parent task\n${lines.join('\n')}`);
   }
 
-  // The work this ticket delegated to sub-tasks (design NDL-70 §7), so the
-  // parent agent does not redo it. Rendered in every section mode for the same
-  // reason as the parent section above.
-  if (authored && ctx.subtasks.length > 0) {
-    const rows = ctx.subtasks.map((s) => {
-      const key = s.key?.trim() || `#${s.id}`;
-      const title = s.title?.trim();
-      const named = title ? `: ${title}` : '';
-      const flag = s.blocksParent ? ' [blocking]' : '';
-      const queued = s.queued ? ', queued' : '';
-      const paused = s.pausedAt ? `, paused since ${s.pausedAt}` : '';
-      return `- ${key}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
-    });
-
-    const total = ctx.subtasks.length;
-    const pausedCount = ctx.subtasks.filter((s) => s.pausedAt !== null).length;
-    const unpaused = ctx.subtasks.filter((s) => s.pausedAt === null);
-    const stageOrder: readonly string[] = [...STAGE_KEYS].reverse();
-    const partsList: string[] = [];
-    for (const stage of stageOrder) {
-      const count = unpaused.filter((s) => s.stageCurrent === stage).length;
-      if (count > 0) partsList.push(`${count} ${stage}`);
-    }
-    const remaining = unpaused.filter((s) => !stageOrder.includes(s.stageCurrent ?? ''));
-    if (remaining.length > 0) partsList.push(`${remaining.length} ${remaining[0]?.stageCurrent ?? 'unknown'}`);
-    if (pausedCount > 0) partsList.push(`${pausedCount} paused`);
-
-    const heading = partsList.length > 0
-      ? `## Sub-tasks (${total}: ${partsList.join(', ')})`
-      : `## Sub-tasks (${total})`;
-
-    parts.push(
-      `${heading}\nThis ticket's work is delegated to the following sub-tasks — do not redo them.\n${rows.join('\n')}`,
-    );
-  }
-
-  // The mailbox is a pointer only: bodies are untrusted agent prose and are
-  // framed by `karst inbox`, never inlined into a seed.
-  if (authored && ctx.inbox.unread > 0) {
-    const n = ctx.inbox.unread;
-    parts.push(
-      `## Inbox\n${n} unread message${n === 1 ? '' : 's'} — run \`karst inbox\` to read them.`,
-    );
-  }
-
-  if (authored && ctx.notes.unread > 0) {
-    parts.push(renderNotesSection(ctx));
-  }
-
-  // What the blockers that already landed delivered. Bounded per blocker (the
-  // mailbox cap) and quoted by the renderer; the rest is one `karst context` away.
-  if (authored && ctx.blockers.length > 0) {
-    const rows = ctx.blockers.map((b) => renderBlockerOutcome(b));
-    parts.push(`## Blockers\nThese blockers landed before you started.\n\n${rows.join('\n\n---\n\n')}`);
-  }
-
   return parts.join('\n\n');
 }
+
+

@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/model-store-workflow-layering.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:EDGES'):
-  awk "/^## \[@arch:EDGES\]/,/END_DOC_BLOCK: \[@arch:EDGES\]/" <file_path>
+  awk "/^## \[@arch:EDGES\]/,/END_DOC_BLOCK: \[@arch:EDGES\]/" docs/arch/model-store-workflow-layering.md
 -->
 # `model` / `store` / `workflow` layering
 

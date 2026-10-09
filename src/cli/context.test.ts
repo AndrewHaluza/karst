@@ -365,12 +365,18 @@ describe('runContextCommand — stage ending', () => {
     store.db.prepare('UPDATE tickets SET stage_current = ? WHERE id = ?').run(stageCurrent, t.id);
   }
 
-  it('appends ## How this stage ends to --md output for an impl ticket', () => {
+  it('renders ## How this stage ends right after Current stage in --md output for an impl ticket', () => {
     seed('impl');
     const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
     expect(md).toContain('## How this stage ends');
     expect(md).toContain('stage impl pass');
     expect(md).toContain('PROJ-9');
+    const stageIdx = md.indexOf('## Current stage');
+    const endingIdx = md.indexOf('## How this stage ends');
+    const promptIdx = md.indexOf('## Prompt');
+    expect(stageIdx).toBeGreaterThan(-1);
+    expect(endingIdx).toBeGreaterThan(stageIdx);
+    expect(promptIdx).toBeGreaterThan(endingIdx);
   });
 
   it('appends ## How this stage ends with fix for a fix ticket', () => {

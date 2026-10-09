@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/prompt-metrics.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:METRICS'):
-  awk "/^## \[@arch:METRICS\]/,/END_DOC_BLOCK: \[@arch:METRICS\]/" <file_path>
+  awk "/^## \[@arch:METRICS\]/,/END_DOC_BLOCK: \[@arch:METRICS\]/" docs/arch/prompt-metrics.md
 -->
 # Prompt-effectiveness telemetry
 

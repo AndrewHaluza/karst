@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/graph-run-reliability.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:G1'):
-  awk "/^## \[@arch:G1\]/,/END_DOC_BLOCK: \[@arch:G1\]/" <file_path>
+  awk "/^## \[@arch:G1\]/,/END_DOC_BLOCK: \[@arch:G1\]/" docs/arch/graph-run-reliability.md
 -->
 # Dynamic graph: why runs do not complete consistently
 
