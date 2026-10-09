@@ -22,6 +22,8 @@ export default defineConfig({
     // Per-file jsdom render tests rely on `forks` (each file is its own
     // process); the unit config documents why `vmThreads` cannot replace it.
     pool: 'forks',
+    // Hide console output of passing tests; a failing test still prints its own.
+    silent: 'passed-only',
     testTimeout: 30_000,
     // Hooks default to 10s and do NOT inherit `testTimeout`. Many `beforeAll`
     // hooks here spawn a real child and wait for it to become ready — enough

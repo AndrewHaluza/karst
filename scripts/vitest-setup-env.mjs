@@ -8,3 +8,9 @@ const scrubbed = scrubKarstEnv(process.env);
 for (const key of Object.keys(process.env)) {
   if (!(key in scrubbed)) delete process.env[key];
 }
+
+// React 18+ logs "not configured to support act(...)" on every `act()` call in
+// a jsdom test unless this flag is set. The Settings COMPONENT tests call
+// `act` deliberately, so declare the environment once here instead of letting
+// ~240 identical stderr blocks bury real failures.
+globalThis.IS_REACT_ACT_ENVIRONMENT = true;

@@ -142,19 +142,21 @@ describe('mergeRanges', () => {
   });
 });
 
+// Hoisted by vitest regardless of position; kept top-level so it does not warn.
+vi.mock('./worktree.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./worktree.js')>();
+  return { ...actual, createWorktree: vi.fn(), removeWorktree: vi.fn() };
+});
+vi.mock('./preflight.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./preflight.js')>();
+  return { ...actual, preflightSpin: vi.fn() };
+});
+vi.mock('./startService.js', () => ({ startResolvedService: vi.fn() }));
+
 describe('spinTicket — multi-service repositories', () => {
   // A unit test: git, the port probe and the process spawner are all replaced,
   // so only the spin's own sequencing (one worktree per repo, services of one
   // repo sharing it, each started in its own cwd) is exercised.
-  vi.mock('./worktree.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('./worktree.js')>();
-    return { ...actual, createWorktree: vi.fn(), removeWorktree: vi.fn() };
-  });
-  vi.mock('./preflight.js', async (importOriginal) => {
-    const actual = await importOriginal<typeof import('./preflight.js')>();
-    return { ...actual, preflightSpin: vi.fn() };
-  });
-  vi.mock('./startService.js', () => ({ startResolvedService: vi.fn() }));
 
   const WT = '/worktrees/t1/mono';
 

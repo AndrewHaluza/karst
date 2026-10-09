@@ -154,9 +154,15 @@ describe('runCli — phase marker', () => {
     setStage(seed, b, 'impl', { attempt: 3 });
     seed.close();
     vi.mocked(transition).mockClear();
+    // The fixture manifest uses the legacy `services:` key, so every runCli call
+    // prints a deprecation warning to stderr. It is not under test here.
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
-  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   /** Every mark in the DB, across tickets. */
   function marksFor(ticketId: number) {

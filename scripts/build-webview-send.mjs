@@ -65,8 +65,9 @@ const BASE_OPTIONS = {
  * Bundle every webview TypeScript entry. Throws (never swallows) on a build
  * error. `prod` only affects entries that opt in via `minifyFromProd` — the
  * message-sender bundles have always shipped unminified and stay that way.
+ * `quiet` skips the per-bundle "built" line (the vitest global setup passes it).
  */
-export async function buildWebviewBundles({ prod = false } = {}) {
+export async function buildWebviewBundles({ prod = false, quiet = false } = {}) {
   for (const entry of WEBVIEW_BUNDLE_ENTRIES) {
     const { input, output, minifyFromProd, ...overrides } = entry;
     await build({
@@ -76,7 +77,7 @@ export async function buildWebviewBundles({ prod = false } = {}) {
       ...(minifyFromProd ? { minify: prod } : null),
       ...overrides,
     });
-    console.log(`built ${input} → ${output}`);
+    if (!quiet) console.log(`built ${input} → ${output}`);
   }
 }
 

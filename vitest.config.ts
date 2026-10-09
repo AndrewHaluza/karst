@@ -42,6 +42,8 @@ export default defineConfig({
     // but NOT under vmThreads (jsdom's transitive @exodus/bytes ships ESM in
     // CJS and vmThreads cannot interop it).
     pool: 'forks',
+    // Hide console output of passing tests; a failing test still prints its own.
+    silent: 'passed-only',
     testTimeout: 30_000,
     coverage: {
       provider: 'v8',

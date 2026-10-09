@@ -5,5 +5,5 @@
 import { buildWebviewBundles } from './build-webview-send.mjs';
 
 export default async function setup() {
-  await buildWebviewBundles();
+  await buildWebviewBundles({ quiet: true });
 }
