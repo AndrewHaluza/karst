@@ -24,10 +24,10 @@ describe('renderTicketLabel', () => {
     expect(renderTicketLabel(base, DEFAULT_TICKET_LABEL_TEMPLATE)).toBe('PROJ-142 — do things');
   });
 
-  it('default falls back to #id when key is unset and (untitled) when title is unset', () => {
-    expect(renderTicketLabel({ ...base, key: null })).toBe('#7 — do things');
+  it('default falls back to T<id> when key is unset and (untitled) when title is unset', () => {
+    expect(renderTicketLabel({ ...base, key: null })).toBe('T7 — do things');
     expect(renderTicketLabel({ ...base, title: null })).toBe('PROJ-142 — (untitled)');
-    expect(renderTicketLabel({ ...base, key: null, title: null })).toBe('#7 — (untitled)');
+    expect(renderTicketLabel({ ...base, key: null, title: null })).toBe('T7 — (untitled)');
   });
 
   it('blank/whitespace template is treated as the default', () => {
@@ -61,7 +61,7 @@ describe('renderTicketLabel', () => {
       selectedRepos: [],
       parentTicketId: null,
     };
-    expect(renderTicketLabel(fresh, '{status}')).toBe('#3 — (untitled)');
+    expect(renderTicketLabel(fresh, '{status}')).toBe('T3 — (untitled)');
   });
 
   it('empty repos join to an empty string', () => {

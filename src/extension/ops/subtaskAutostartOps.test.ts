@@ -214,10 +214,10 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
     await makeSubtaskAutostart(d).sweep();
     expect(lines(d)).toEqual([
       `[driver] autostart: picked ${a}, ${b}`,
-      `[driver] autostart #${a}: claimed — starting`,
-      `[driver] autostart #${a}: started`,
-      `[driver] autostart #${b}: claimed — starting`,
-      `[driver] autostart #${b}: started`,
+      `[driver] autostart T${a}: claimed — starting`,
+      `[driver] autostart T${a}: started`,
+      `[driver] autostart T${b}: claimed — starting`,
+      `[driver] autostart T${b}: started`,
       '[driver] autostart: started 2/2',
     ]);
   });
@@ -261,7 +261,7 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
     expect(d.startTicket).toHaveBeenCalledTimes(1);
     expect(d.startTicket).toHaveBeenCalledWith(b, { pullBase: false, quiet: true });
     expect(lines(d)).toContain(
-      `[driver] autostart #${a}: not claimed (blocked, raced, or capped) — skipping`,
+      `[driver] autostart T${a}: not claimed (blocked, raced, or capped) — skipping`,
     );
     expect(lines(d)).toContain('[driver] autostart: started 1/2');
   });
@@ -330,8 +330,8 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
     const d = deps({ startTicket: vi.fn(async () => ({ ok: false as const, message: 'x'.repeat(1000) })) });
     await makeSubtaskAutostart(d).sweep();
     const warning = String(vi.mocked(d.notify.warn).mock.calls[0]?.[0]);
-    expect(warning).toBe(`karst: sub-task P-1-s1 could not auto-start: ${'x'.repeat(300)}`);
-    expect(lines(d)).toContain(`[driver] autostart #${a}: failed — stayed at scope — start it manually`);
+    expect(warning).toBe(`karst: sub-task T${a} · P-1-s1 could not auto-start: ${'x'.repeat(300)}`);
+    expect(lines(d)).toContain(`[driver] autostart T${a}: failed — stayed at scope — start it manually`);
   });
 
   it('a child that vanished mid-start is warned about by id, with no event and no event-post error', async () => {
@@ -344,8 +344,8 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
       }),
     });
     expect(await makeSubtaskAutostart(d).sweep()).toEqual([]);
-    expect(d.notify.warn).toHaveBeenCalledWith(`karst: sub-task #${a} could not auto-start: gone`);
-    expect(lines(d)).toContain(`[driver] autostart #${a}: failed — stayed at scope — start it manually`);
+    expect(d.notify.warn).toHaveBeenCalledWith(`karst: sub-task T${a} could not auto-start: gone`);
+    expect(lines(d)).toContain(`[driver] autostart T${a}: failed — stayed at scope — start it manually`);
     expect(lines(d).some((m) => m.includes('failure event not posted'))).toBe(false);
     expect(lines(d).some((m) => m.includes('sweep failed'))).toBe(false);
     expect(listInbox(store, parentId, { unreadOnly: false })).toEqual([]);
@@ -361,7 +361,7 @@ describe('subtask autostart op — logging, claims, and edge paths', () => {
     });
     expect(await makeSubtaskAutostart(d).sweep()).toEqual([]);
     expect(d.notify.warn).toHaveBeenCalledTimes(1);
-    expect(lines(d).some((m) => m.startsWith(`[driver] autostart #${a}: failure event not posted — `))).toBe(true);
+    expect(lines(d).some((m) => m.startsWith(`[driver] autostart T${a}: failure event not posted — `))).toBe(true);
   });
 });
 

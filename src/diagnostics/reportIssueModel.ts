@@ -1,3 +1,4 @@
+import { formatTicketRef } from '../model/entityId.js';
 import type { Ticket } from '../store/tickets.js'
 import { buildIssuePrefill, coreLines, hookLines } from './issuePrefill.js'
 import type { FinalizedDiagnosticReport } from './types.js'
@@ -42,7 +43,7 @@ export function ticketCandidates(
   }
   return owned.map((ticket) => ({
     id: ticket.id,
-    label: `${ticket.key ?? `#${ticket.id}`} — ${ticket.title ?? '(untitled)'}`,
+    label: `${formatTicketRef(ticket.id, ticket.key)} — ${ticket.title ?? '(untitled)'}`,
     description: [
       `Stage: ${ticket.stageCurrent ?? 'not started'}`,
       ...(ticket.updatedAt ? [`Updated: ${ticket.updatedAt}`] : []),

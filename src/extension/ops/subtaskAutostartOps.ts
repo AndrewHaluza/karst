@@ -6,6 +6,7 @@ import { claimAutostart, releaseAutostart, requeueStaleClaims } from '../../stor
 import { postMessage } from '../../store/ticketMessages.js';
 import { pickSubtasksToStart, type AutostartCaps } from '../../workflow/subtaskAutostart.js';
 import type { Notify } from './notify.js';
+import { formatId, formatTicketRef } from '../../model/entityId.js';
 
 /**
  * Sub-task auto-start (plan §A). Picks queued sub-tasks under the caps,
@@ -67,15 +68,15 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
 
   async function startOne(id: number, caps: AutostartCaps): Promise<boolean> {
     if (!claimAutostart(deps.store, id, caps)) {
-      deps.debug(`[driver] autostart #${id}: not claimed (blocked, raced, or capped) — skipping`);
+      deps.debug(`[driver] autostart ${formatId('ticket', id)}: not claimed (blocked, raced, or capped) — skipping`);
       return false;
     }
-    deps.debug(`[driver] autostart #${id}: claimed — starting`);
+    deps.debug(`[driver] autostart ${formatId('ticket', id)}: claimed — starting`);
     let reason: string;
     try {
       const res = await deps.startTicket(id, { pullBase: false, quiet: true });
       if (res.ok) {
-        deps.debug(`[driver] autostart #${id}: started`);
+        deps.debug(`[driver] autostart ${formatId('ticket', id)}: started`);
         return true;
       }
       reason = res.message;
@@ -91,13 +92,13 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
     // the user starts it manually). After, setStage already cleared it.
     releaseAutostart(deps.store, id);
     const child = findTicketById(deps.store, id);
-    const key = child?.key ?? `#${id}`;
+    const key = formatTicketRef(id, child?.key);
     const where =
       child?.stageCurrent === 'scope' || !child
         ? 'stayed at scope — start it manually'
         : `is at ${child.stageCurrent} without a session — open its session`;
     const body = `${key} autostart failed: ${reason.slice(0, MAX_REASON)} (${where})`;
-    deps.debug(`[driver] autostart #${id}: failed — ${where}`);
+    deps.debug(`[driver] autostart ${formatId('ticket', id)}: failed — ${where}`);
     deps.notify.warn(`karst: sub-task ${key} could not auto-start: ${reason.slice(0, MAX_REASON)}`);
     if (child?.subtaskParentId == null) return;
     try {
@@ -109,7 +110,7 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
         body,
       });
     } catch (err) {
-      deps.debug(`[driver] autostart #${id}: failure event not posted — ${errorText(err)}`);
+      deps.debug(`[driver] autostart ${formatId('ticket', id)}: failure event not posted — ${errorText(err)}`);
     }
   }
 
@@ -129,7 +130,7 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
       const picked = pickSubtasksToStart(deps.store, projectId, {
         ...caps,
         ownsParent: deps.ownsParent,
-        onBlocked: (id) => deps.debug(`[driver] autostart #${id}: blocked by dependency — skipping`),
+        onBlocked: (id) => deps.debug(`[driver] autostart ${formatId('ticket', id)}: blocked by dependency — skipping`),
       });
       if (picked.length === 0) return [];
       deps.debug(`[driver] autostart: picked ${picked.join(', ')}`);

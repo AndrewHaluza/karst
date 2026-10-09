@@ -145,6 +145,6 @@ describe('buildConflictBrief', () => {
     seedWorktree(store, id, 'api', '/wt/api');
     conflict(store, id, 'api', []);
 
-    expect(buildConflictBrief(store, id, 'api')).toContain(`#${id}`);
+    expect(buildConflictBrief(store, id, 'api')).toContain(`T${id}`);
   });
 });

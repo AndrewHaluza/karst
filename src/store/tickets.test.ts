@@ -88,8 +88,8 @@ describe('ticketLabel', () => {
     expect(ticketLabel(base)).toBe('PROJ-142 — do things');
   });
 
-  it('falls back to "#id" when key is null', () => {
-    expect(ticketLabel({ ...base, key: null })).toBe('#7 — do things');
+  it('falls back to "T<id>" when key is null', () => {
+    expect(ticketLabel({ ...base, key: null })).toBe('T7 — do things');
   });
 
   it('falls back to "(untitled)" when title is null', () => {

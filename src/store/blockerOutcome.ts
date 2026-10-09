@@ -3,6 +3,7 @@ import type { StageKey } from '../model/types.js';
 import { MAX_MESSAGE_BODY, type PostMessageInput } from './ticketMessages.js';
 import { listPrsByTicket } from './dashboard.js';
 import { quoteUntrusted, sanitizeInline } from '../model/messageText.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * What a landed blocker hands its dependents: who it was, what it set out to do
@@ -59,7 +60,7 @@ export function blockerOutcome(store: Store, blockerId: number): BlockerOutcome 
     .map((n) => ({ repo: parseStrings(n.repos)?.[0] ?? 'unknown', paths: parseStrings(n.paths) }));
   return {
     id: blockerId,
-    key: t?.key ?? `#${blockerId}`,
+    key: t?.key ?? formatId('ticket', blockerId),
     title: t?.title ?? '',
     brief: t?.brief?.trim() ? t.brief : null,
     changes,

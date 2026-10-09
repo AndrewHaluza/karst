@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { resolveBaselineBranch, resolveBaselineBranchForPath } from '../manifest/baselineBranch.js';
 import { findTicketById, getTicket } from '../store/tickets.js';
+import { formatTicketRef } from '../model/entityId.js';
 
 /**
  * The ONE place a ticket's base branch is decided.
@@ -140,7 +141,7 @@ export function assertSubtaskParentReady(
   if (parentId == null) return;
   const parent = findTicketById(store, parentId);
   if (!parent || parent.archivedAt !== null || parent.stageCurrent === 'done') return;
-  const parentKey = parent.key ?? `#${parent.id}`;
+  const parentKey = formatTicketRef(parent.id, parent.key);
   const seen = new Set<string>();
   for (const name of repoNames) {
     const repository = manifest.repositories[name];
