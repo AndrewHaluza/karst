@@ -573,7 +573,7 @@ describe('runCli — draft propose (planning sessions)', () => {
       JSON.stringify([{ id: 1, uuid: 'u', title: 'A', status: 'pending', updatedAt: 't' }]),
     );
     const out = JSON.parse(runCli(['draft', 'list'], { KARST_OUTBOX: dir }, { readStdin: () => '' }));
-    expect(out).toEqual([{ id: 1, status: 'pending', title: 'A' }]);
+    expect(out).toEqual([{ id: 1, ref: 'D1', status: 'pending', title: 'A' }]);
     rmSync(indexPath, { force: true });
   });
 

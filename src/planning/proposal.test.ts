@@ -16,6 +16,20 @@ describe('validateProposal', () => {
     expect('id' in (validateProposal(ok) as { value: object }).value).toBe(false);
   });
 
+  it('normalises D<n> / numeric-string ids to numbers', () => {
+    expect(validateProposal({ ...ok, dependsOn: [1, 'D2', 'd3', '4', 'D2'] })).toEqual({
+      ok: true,
+      value: { ...ok, dependsOn: [1, 2, 3, 4] },
+    });
+    expect(validateProposal({ ...ok, id: 'D7' })).toEqual({ ok: true, value: { ...ok, id: 7 } });
+  });
+
+  it('names D<n> in the failure and still catches a prefixed self-reference', () => {
+    const r = validateProposal({ ...ok, dependsOn: ['T2'] });
+    expect(r.ok === false && r.reason).toContain('D<n>');
+    expect(validateProposal({ ...ok, id: 7, dependsOn: ['D7'] }).ok).toBe(false);
+  });
+
   it('accepts the four id/dependsOn combinations and dedupes dependsOn', () => {
     expect(validateProposal({ ...ok })).toEqual({ ok: true, value: ok });
     expect(validateProposal({ ...ok, id: 7 })).toEqual({ ok: true, value: { ...ok, id: 7 } });
@@ -32,13 +46,15 @@ describe('validateProposal', () => {
     ['an array', []],
     ['an extra key', { ...ok, extra: 1 }],
     ['a missing key', { title: 't', description: '', summary: '' }],
-    ['a string id', { ...ok, id: '7' }],
+    ['a non-id string id', { ...ok, id: 'seven' }],
     ['a zero id', { ...ok, id: 0 }],
     ['a negative id', { ...ok, id: -1 }],
     ['a fractional id', { ...ok, id: 1.5 }],
     ['a null id', { ...ok, id: null }],
     ['a non-array dependsOn', { ...ok, dependsOn: 7 }],
-    ['a string dependsOn entry', { ...ok, dependsOn: ['1'] }],
+    ['a ticket-prefixed dependsOn entry', { ...ok, dependsOn: ['T2'] }],
+    ['a boolean dependsOn entry', { ...ok, dependsOn: [true] }],
+    ['a non-draft prefixed id', { ...ok, id: 'P7' }],
     ['a zero dependsOn entry', { ...ok, dependsOn: [0] }],
     ['a negative dependsOn entry', { ...ok, dependsOn: [-1] }],
     ['a fractional dependsOn entry', { ...ok, dependsOn: [1.5] }],

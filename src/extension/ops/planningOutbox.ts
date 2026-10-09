@@ -11,6 +11,7 @@ import {
 } from '../../store/planningProposals.js';
 import { MAX_PROPOSAL_BYTES, validateProposal, type Proposal } from '../../planning/proposal.js';
 import { planningOutboxDir } from '../../planning/preamble.js';
+import { formatId } from '../../model/entityId.js';
 import { refreshProposalIndex } from './planningIndex.js';
 import type { Notify } from './notify.js';
 
@@ -67,7 +68,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       }
     } catch (e) {
       if (errCode(e) === 'ENOENT') return undefined;
-      deps.notify.warn(`Karst: planning session #${sessionId} outbox is not a plain directory; skipped.`);
+      deps.notify.warn(`Karst: plan ${formatId('plan', sessionId)} outbox is not a plain directory; skipped.`);
       debug(`session ${sessionId}: outbox rejected (${errCode(e) ?? String(e)})`);
       return undefined;
     }
@@ -134,7 +135,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   function reject(sessionId: number, claimed: string, proposal: string, reason: string): void {
     remove(claimed);
     debug(`session ${sessionId}: ${proposal} rejected (${reason})`);
-    deps.notify.warn(`Karst: planning session #${sessionId} proposal rejected — ${reason}.`);
+    deps.notify.warn(`Karst: plan ${formatId('plan', sessionId)} draft rejected — ${reason}.`);
   }
 
   /**
@@ -181,11 +182,11 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       const existing = getProposal(deps.store, requestedId);
       const reason =
         !existing
-          ? `no proposal #${requestedId}`
+          ? `no draft ${formatId('draft', requestedId)}`
           : existing.sessionId !== sessionId
-            ? `proposal #${requestedId} belongs to another session`
+            ? `draft ${formatId('draft', requestedId)} belongs to another session`
             : existing.status !== 'pending'
-              ? `proposal #${requestedId} is ${existing.status}`
+              ? `draft ${formatId('draft', requestedId)} is ${existing.status}`
               : undefined;
       if (reason) {
         reject(sessionId, claimed, proposal, reason);

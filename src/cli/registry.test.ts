@@ -76,6 +76,13 @@ describe('validateCommandInput', () => {
     expect(() => validateCommandInput('stage', { stage: 'ship' })).toThrow(/one of/);
   });
 
+  it('draft accepts integer or D<n> ids for id and dependsOn, rejects other prefixes', () => {
+    const base = { title: 't', description: 'd', summary: 's', repos: ['a'] };
+    expect(() => validateCommandInput('draft', { ...base, id: 'D4', dependsOn: ['D2', 3, 'd5', '6'] })).not.toThrow();
+    expect(() => validateCommandInput('draft', { ...base, dependsOn: ['X2'] })).toThrow(/dependsOn/);
+    expect(() => validateCommandInput('draft', { ...base, id: 'T4' })).toThrow(/id/);
+  });
+
   it('rejects a CSV array element containing a comma', () => {
     expect(() => validateCommandInput('subtask', { title: 'x', repos: ['a,b'] })).toThrow(
       /repos\[0\].*must match/,

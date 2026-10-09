@@ -151,6 +151,21 @@ describe('karst mcp serve over stdio', () => {
     expect(files.length).toBeGreaterThan(0);
   }, 30000);
 
+  it('accepts D<n> refs for id and dependsOn in a draft', async () => {
+    const result = await client.callTool({
+      name: 'draft',
+      arguments: {
+        title: 'Second piece',
+        description: 'Depends on the first.',
+        summary: 'Ordered.',
+        repos: ['extention'],
+        id: 'D9',
+        dependsOn: ['D2', 3],
+      },
+    });
+    expect(result.isError).toBeUndefined();
+  }, 30000);
+
   it('writes a stage marker while the extension holds the DB (WAL + busy_timeout)', async () => {
     const result = await client.callTool({ name: 'stage', arguments: { stage: 'impl' } });
     expect(result.isError).toBeUndefined();
