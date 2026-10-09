@@ -57,7 +57,11 @@ export function renderStageEnding(
   manifestPath: string | undefined,
   ticketKey: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
+  hasBlockingSubtasks: boolean = false,
 ): string | undefined {
+  if (hasBlockingSubtasks) {
+    return 'advances automatically when all blocking sub-tasks are done';
+  }
   const markerStage = markerStageFor(stageCurrent);
   if (markerStage === null) return renderGateOnlyInstruction();
   // A karst terminal session exports KARST_CLI/KARST_DB (+ KARST_MANIFEST), so the
@@ -143,10 +147,19 @@ export function runContextCommand(
   const storageDir = dbPath === undefined ? undefined : resolve(dirname(dbPath));
   const ctx = buildTicketContext(store, manifest, ticket.id, storageDir);
   const key = ctx.key?.trim() || String(ctx.id);
+  const hasBlockingSubtasks = ctx.subtasks.some((s) => s.blocksParent && s.stageCurrent !== 'done');
   const ending =
     dbPath === undefined
       ? undefined
-      : renderStageEnding(ctx.stageCurrent as StageKey | null, cliEntry, dbPath, manifestPath, key, env);
+      : renderStageEnding(
+          ctx.stageCurrent as StageKey | null,
+          cliEntry,
+          dbPath,
+          manifestPath,
+          key,
+          env,
+          hasBlockingSubtasks,
+        );
   if (parsed.format === 'md') {
     const base = renderTicketContext(ctx, undefined, { bounded: false });
     return ending ? `${base}\n\n## How this stage ends\n${ending}` : base;

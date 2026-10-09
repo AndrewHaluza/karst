@@ -20,6 +20,8 @@ describe('command registry', () => {
       'compact',
       'servers',
       'env',
+      'pause',
+      'unpause',
       'subtask',
       'draft',
       'message',

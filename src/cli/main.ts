@@ -20,6 +20,7 @@ import { runEnvCommand } from './envCommand.js';
 import { runServersCommand } from './serversCommand.js';
 import { DoctorExit, parseDoctorArgs, runDoctorCommand } from './doctorCommand.js';
 import { runSubtaskCommand } from './subtaskCommand.js';
+import { runPauseCommand } from './pauseCommand.js';
 import { runDraftCommand } from './draftCommand.js';
 import { runMessageCommand } from './messageCommand.js';
 import { runNotesCommand, runNotesReposCommand } from './notesCommand.js';
@@ -441,6 +442,22 @@ export function runCli(
     }
   }
 
+  // `karst pause <key>` / `karst unpause <key>` — pause/resume ticket execution.
+  // Allowed scope: the session's own ticket and its direct sub-tasks.
+  if (subcommand === 'pause' || subcommand === 'unpause') {
+    if (!db) throw new Error('missing --db <path>');
+    const store = openWritableStore(db);
+    try {
+      const sessionKey = ticket ?? env.KARST_TICKET;
+      return runPauseCommand(store, effectiveRest, {
+        sessionKey,
+        projectSlug: loadProjectSlug(manifestPath),
+      });
+    } finally {
+      store.close();
+    }
+  }
+
   // `karst subtask create` (design NDL-70 §7) — a WRITE verb that carves a new
   // sub-task out of the session's OWN ticket. The parent is resolved exactly
   // like `env`/`stage` above (via `--ticket` + `--manifest`); the new ask is
@@ -552,7 +569,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor' or 'mcp')`,
   );
 }
 

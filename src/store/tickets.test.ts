@@ -31,6 +31,7 @@ import {
   setSessionId,
   clearApproachFromTickets,
   listOpenSubtasks,
+  listSubtasks,
   TicketHasOpenSubtasksError,
   type Ticket,
 } from './tickets.js';
@@ -608,6 +609,20 @@ describe('ticket + stage persistence', () => {
     unpauseTicket(store, t.id);
     const resumed = getTicket(store, t.id);
     expect(resumed.pausedAt).toBeNull();
+  });
+
+  it('listSubtasks includes pausedAt when a sub-task is paused', () => {
+    const parent = createTicket(store, { key: 'PARENT-1', title: 'Parent' });
+    const child = createTicket(store, { key: 'CHILD-1', title: 'Child', subtaskParentId: parent.id });
+
+    const initial = listSubtasks(store, parent.id);
+    expect(initial).toHaveLength(1);
+    expect(initial[0]!.pausedAt).toBeNull();
+
+    pauseTicket(store, child.id);
+    const paused = listSubtasks(store, parent.id);
+    expect(paused).toHaveLength(1);
+    expect(paused[0]!.pausedAt).not.toBeNull();
   });
 
   it('deleteTicket hard-removes the ticket and its stage rows', () => {

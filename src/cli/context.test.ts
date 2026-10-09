@@ -407,4 +407,18 @@ describe('runContextCommand — stage ending', () => {
     const parsed = JSON.parse(json);
     expect(parsed).not.toHaveProperty('stageEnding');
   });
+
+  it('prints automatic advance instruction when ticket has open blocking sub-tasks', () => {
+    seed('impl');
+    createTicket(store, {
+      key: 'PROJ-9-s1',
+      title: 'Blocking child',
+      subtaskParentId: 1,
+      blocksParent: true,
+    });
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' }, '/db', CLI);
+    expect(md).toContain('## How this stage ends');
+    expect(md).toContain('advances automatically when all blocking sub-tasks are done');
+    expect(md).not.toContain('stage impl pass');
+  });
 });
