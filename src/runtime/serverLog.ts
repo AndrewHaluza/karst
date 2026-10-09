@@ -22,7 +22,8 @@ export function serverLogDir(cwd: string): string {
 
 /** The log file for one server, named for the manifest entry that started it. */
 export function serverLogPath(cwd: string, name: string): string {
-  return join(serverLogDir(cwd), `${name}.log`);
+  // A `repo/service` unit key holds a slash: flatten it so the log stays one file.
+  return join(serverLogDir(cwd), `${name.replaceAll('/', '__')}.log`);
 }
 
 /**

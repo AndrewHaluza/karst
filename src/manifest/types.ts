@@ -70,6 +70,12 @@ export interface ServiceDef {
   docker?: DockerDef;
   health?: string;
   /**
+   * Directory the process runs in, relative to the repository/worktree root
+   * (e.g. `apps/api`). Absent → the root. Lets several services of one
+   * monorepo share its single worktree yet start from their own folder.
+   */
+  cwd?: string;
+  /**
    * Require the health response to prove it is THIS start, by echoing karst's
    * per-start token (`KARST_INSTANCE_TOKEN` in the spawn env) back in the
    * `X-Karst-Instance` header. Default false, because it is a contract the
@@ -135,6 +141,14 @@ export interface RepositoryDef {
    * directly, so the narrowing is done in one place.
    */
   service?: ServiceDef;
+  /**
+   * The multi-service shape: a NAMED map of services sharing this repository's
+   * one worktree (a monorepo with apps/web + apps/api). Mutually exclusive with
+   * `service` — a file declaring both on one repository is refused. `service:`
+   * stays as the shorthand for ONE service named after the repository.
+   * Addressed everywhere as `repo/service`; see `manifest/runnable.ts`.
+   */
+  services?: Record<string, ServiceDef>;
   /**
    * Whether this repository is used by the system. `false` is the DRAFT state:
    * the settings UI lets an author save an incomplete repository as long as it

@@ -5,7 +5,7 @@ import { buildSpawnEnv, shadowedOverrideKeys } from './env.js';
 import { envOverridesForService, type TicketEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { startHot, type ServerRecord } from './supervisor.js';
 import { serverLogPath } from './serverLog.js';
-import { isRunnable } from '../manifest/runnable.js';
+import { unitByKey } from '../manifest/runnable.js';
 import { serviceLaunch } from './serviceLaunch.js';
 import type { ResolveResult } from '../resolver/resolve.js';
 
@@ -13,11 +13,11 @@ export interface StartResolvedServiceArgs {
   store: Store;
   manifest: Manifest;
   ticketId: number;
-  /** Manifest repository name — must be runnable. */
+  /** Service unit key (`repo`, or `repo/service`) — must be runnable. */
   name: string;
   /** The `resolve()` output the whole hot set was resolved with. */
   resolved: ResolveResult;
-  /** Absolute worktree path this service runs in. */
+  /** Absolute worktree path of the service's repository (its `cwd` is applied on top). */
   cwd: string;
   /** The ticket's env overrides, already read once for the run. */
   envOverrides: TicketEnvOverrides;
@@ -27,10 +27,19 @@ export interface StartResolvedServiceArgs {
 }
 
 export async function startResolvedService(args: StartResolvedServiceArgs): Promise<ServerRecord> {
-  const repo = args.manifest.repositories[args.name]!;
-  if (!isRunnable(repo)) throw new Error(`repository "${args.name}" declares no service`);
-  const service = repo.service;
-  const cwd = args.cwd;
+  const unit = unitByKey(args.manifest, args.name);
+  if (!unit) {
+    throw new Error(
+      args.manifest.repositories[args.name] !== undefined
+        ? `repository "${args.name}" declares no service`
+        : `service "${args.name}" is not runnable in the manifest`,
+    );
+  }
+  const repo = unit.repoDef;
+  const service = unit.def;
+  // `args.cwd` is the repository's worktree; the service runs in its own folder
+  // inside it (a monorepo's apps/api), or at the root when it declares none.
+  const cwd = service.cwd ? join(args.cwd, service.cwd) : args.cwd;
   const resolvedSvc = args.resolved.services[args.name]!;
 
   // The ticket's own env, layered between the repository's `.env` and
@@ -76,7 +85,7 @@ export async function startResolvedService(args: StartResolvedServiceArgs): Prom
     port: ownPort,
     healthUrl,
     requireIdentity: service.healthIdentity === true,
-    logPath: serverLogPath(cwd, args.name),
+    logPath: serverLogPath(args.cwd, args.name),
     repoPath: repo.repoPath,
     container,
     signal: args.signal,

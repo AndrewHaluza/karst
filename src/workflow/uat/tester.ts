@@ -122,6 +122,29 @@ export interface TesterTarget {
    * stand the service up; it is never AI output and never a credential.
    */
   service?: { start?: string } | null;
+  /**
+   * Host-known, READ-ONLY context for a repository with SEVERAL services: one
+   * entry per service (`repo/service`), each with its start command and the
+   * folder it runs from when the manifest sets one. Absent for single-service
+   * repositories, which use `service`.
+   */
+  services?: readonly TesterService[] | null;
+}
+
+export interface TesterService {
+  /** `repo/service` — the unit key the rest of karst names this service by. */
+  key: string;
+  start: string;
+  cwd?: string;
+}
+
+/** The "services start with" block for a multi-service repository. */
+function servicesClause(services: readonly TesterService[]): string {
+  const lines = services.map((s) => {
+    const cwd = s.cwd !== undefined ? ` (cwd: ${s.cwd})` : '';
+    return `\n- ${s.key}: \`${s.start}\`${cwd}`;
+  });
+  return `\nThe repository's services start with:${lines.join('')}\nYou may stand them up to observe behavior.`;
 }
 
 export interface RunUatTesterOpts {
@@ -400,9 +423,12 @@ export function buildTesterPrompt(
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
     : `against its base branch.`;
-  const serviceClause = target.service?.start
-    ? `\nThe repository's service starts with: \`${target.service.start}\`. You may stand it up to observe behavior.`
-    : '';
+  const serviceClause =
+    target.services && target.services.length > 0
+      ? servicesClause(target.services)
+      : target.service?.start
+        ? `\nThe repository's service starts with: \`${target.service.start}\`. You may stand it up to observe behavior.`
+        : '';
   // User instructions REPLACE the role/strategy block (the ticket's
   // precedence: user override → built-in default). The target context is
   // kept — repo, base branch and service are facts the agent needs whatever

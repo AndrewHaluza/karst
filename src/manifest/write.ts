@@ -3,7 +3,7 @@ import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
 import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './schema.js';
 import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
-import type { Manifest } from './types.js';
+import type { Manifest, ServiceDef } from './types.js';
 
 /**
  * Write repo-classifier signal words back into `.karst/karst.yml` for one
@@ -95,6 +95,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
   for (const [name, repo] of Object.entries(manifest.repositories)) {
     const rawRepo = isRecord(rawRepos[name]) ? rawRepos[name] : {};
     const rawService = isRecord(rawRepo.service) ? rawRepo.service : {};
+    const rawServices = isRecord(rawRepo.services) ? rawRepo.services : {};
     nextRepos[name] = {
       ...rawRepo,
       repoPath: repo.repoPath,
@@ -110,23 +111,17 @@ export function writeManifest(path: string, manifest: Manifest): void {
       // Undefined (not omitted) so the dumper DROPS a `service:` block the user
       // just turned off — leaving the raw one would silently keep the repo
       // runnable after they said it wasn't.
-      service: repo.service
-        ? {
-            ...rawService,
-            // A container service owns no start command, and vice versa: write
-            // the one this service has and DROP the other (undefined → omitted),
-            // or a repository switched from a command to an image would be
-            // written with both — the one shape validation rejects outright.
-            start: repo.service.docker ? undefined : repo.service.start,
-            docker: repo.service.docker,
-            health: repo.service.health,
-            healthIdentity: repo.service.healthIdentity,
-            ports: repo.service.ports,
-            // Written when set, dropped (undefined → omitted by the dumper)
-            // when cleared, so the service falls back to the global range.
-            portRange: repo.service.portRange,
-            dependsOn: repo.service.dependsOn,
-          }
+      service: repo.service ? overlayService(rawService, repo.service) : undefined,
+      // The multi-service shape: each entry overlays its own raw counterpart so
+      // unmodeled sub-keys survive per service. Undefined drops a map the user
+      // just emptied (or switched back to the `service:` shorthand).
+      services: repo.services
+        ? Object.fromEntries(
+            Object.entries(repo.services).map(([svcName, def]) => [
+              svcName,
+              overlayService(isRecord(rawServices[svcName]) ? rawServices[svcName] : {}, def),
+            ]),
+          )
         : undefined,
     };
   }
@@ -223,6 +218,28 @@ export function writeManifest(path: string, manifest: Manifest): void {
   // Re-validate before persisting — never write a file the loader would reject.
   validateManifest(next);
   writeFileSync(path, yamlDump(next));
+}
+
+/** One service overlaid onto its raw counterpart (shared by `service:` and each `services:` entry). */
+function overlayService(rawService: Record<string, unknown>, svc: ServiceDef): Record<string, unknown> {
+  return {
+    ...rawService,
+    // A container service owns no start command, and vice versa: write the one
+    // this service has and DROP the other (undefined → omitted), or a repository
+    // switched from a command to an image would be written with both — the one
+    // shape validation rejects outright.
+    start: svc.docker ? undefined : svc.start,
+    docker: svc.docker,
+    // Written when set, dropped when cleared → the service runs at the worktree root.
+    cwd: svc.cwd,
+    health: svc.health,
+    healthIdentity: svc.healthIdentity,
+    ports: svc.ports,
+    // Written when set, dropped (undefined → omitted by the dumper) when cleared,
+    // so the service falls back to the global range.
+    portRange: svc.portRange,
+    dependsOn: svc.dependsOn,
+  };
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {

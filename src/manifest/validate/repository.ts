@@ -35,6 +35,7 @@ const RUNTIME_FIELDS = [
   'dependsOn',
   'portRange',
   'docker',
+  'cwd',
 ] as const;
 
 /**
@@ -112,8 +113,8 @@ function validateBind(raw: unknown, where: string, strict: boolean): BindVar {
   };
 }
 
-function validateDependsOn(raw: unknown, repo: string, i: number, strict: boolean): DependsOn {
-  const where = `repository "${repo}" service.dependsOn[${i}]`;
+function validateDependsOn(raw: unknown, label: string, selfKey: string, i: number, strict: boolean): DependsOn {
+  const where = `${label}.dependsOn[${i}]`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
 
   const bindRaw = strictArray(raw.bind, `${where}.bind`, strict);
@@ -131,9 +132,9 @@ function validateDependsOn(raw: unknown, repo: string, i: number, strict: boolea
   }
 
   const target = strictString(raw.target, `${where}.target`, strict);
-  if (target !== '' && target === repo) {
+  if (target !== '' && target === selfKey) {
     throw new ManifestError(
-      `${where} targets its own repository "${repo}" — a service cannot depend on itself`,
+      `${where} targets its own service "${selfKey}" — a service cannot depend on itself`,
     );
   }
 
@@ -146,8 +147,15 @@ function validateDependsOn(raw: unknown, repo: string, i: number, strict: boolea
  * omitting `service:` is valid; a repository declaring one must say how to run
  * it and on which port, or it cannot be started or addressed.
  */
-function validateService(raw: unknown, repo: string, strict: boolean): ServiceDef {
-  const where = `repository "${repo}" service`;
+function validateService(
+  raw: unknown,
+  repo: string,
+  strict: boolean,
+  svcName?: string,
+): ServiceDef {
+  // `svcName` is set for a `services:` map entry; absent for the `service:` shorthand.
+  const where = svcName === undefined ? `repository "${repo}" service` : `repository "${repo}" services.${svcName}`;
+  const selfKey = svcName === undefined ? repo : `${repo}/${svcName}`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
 
   // A service is EITHER a command in the worktree or a container image, never
@@ -191,6 +199,7 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
   }
   const ports = portsRaw.map((p, i) => validatePortSlot(p, `${where}.ports[${i}]`, strict));
   const portRange = validatePortRange(raw.portRange, `${where}.portRange`, strict);
+  const cwd = validateCwd(raw.cwd, `${where}.cwd`);
 
   if (strict) {
     assertUnique(ports.map((p) => p.name), (i) => `${where}.ports[${i}]`, 'name');
@@ -205,12 +214,57 @@ function validateService(raw: unknown, repo: string, strict: boolean): ServiceDe
   return {
     start,
     ...(docker ? { docker } : {}),
+    ...(cwd ? { cwd } : {}),
     health,
     healthIdentity,
     ports,
     portRange,
-    dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, repo, i, strict)),
+    dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, where, selfKey, i, strict)),
   };
+}
+
+/**
+ * A service `cwd` is a path INSIDE the worktree: relative, never absolute and
+ * never climbing out with `..`. Blank/absent → the worktree root.
+ */
+function validateCwd(raw: unknown, where: string): string | undefined {
+  const cwd = optionalString(raw, where);
+  if (cwd === undefined) return undefined;
+  if (cwd.startsWith('/') || /^[A-Za-z]:[\\/]/.test(cwd) || cwd.split(/[\\/]/).includes('..')) {
+    throw new ManifestError(
+      `${where} must be a path relative to the repository root, without ".." (got "${cwd}")`,
+    );
+  }
+  return cwd;
+}
+
+/** A service name inside a `services:` map: one path-safe segment (it forms `repo/service`). */
+const SERVICE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+function validateServicesMap(
+  raw: unknown,
+  repo: string,
+  strict: boolean,
+): Record<string, ServiceDef> {
+  const where = `repository "${repo}" services`;
+  if (!isObject(raw)) throw new ManifestError(`${where} must be a map of service name → service`);
+  const names = Object.keys(raw);
+  if (strict && names.length === 0) {
+    throw new ManifestError(
+      `${where} must declare at least one service. If "${repo}" is not runnable, omit \`services:\`.`,
+    );
+  }
+  const out: Record<string, ServiceDef> = {};
+  for (const name of names) {
+    if (!SERVICE_NAME.test(name)) {
+      throw new ManifestError(
+        `${where} has invalid service name "${name}" — use letters, digits, ".", "_" or "-" ` +
+          `(it is addressed as "${repo}/${name}")`,
+      );
+    }
+    out[name] = validateService(raw[name], repo, strict, name);
+  }
+  return out;
 }
 
 /** An optional boolean field: absent → undefined; a non-boolean throws. */
@@ -250,7 +304,7 @@ function assertNoStrayRuntimeFields(raw: Record<string, unknown>, repo: string):
     if (raw[field] !== undefined) {
       throw new ManifestError(
         `repository "${repo}" has runtime field "${field}" at repository level; ` +
-          `move it under \`service:\`. (If "${repo}" is not runnable, delete it.)`,
+          `move it under \`service:\` (or a \`services:\` entry). (If "${repo}" is not runnable, delete it.)`,
       );
     }
   }
@@ -279,6 +333,15 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
     scope: optionalString(raw.scope, `${where}.scope`),
   };
 
+  if (raw.service !== undefined && raw.services !== undefined) {
+    throw new ManifestError(
+      `${where} declares both \`service:\` and \`services:\`. Karst will not guess which is ` +
+        `authoritative — keep \`service:\` for one service, or \`services:\` for several.`,
+    );
+  }
+  if (raw.services !== undefined) {
+    return { ...repo, services: validateServicesMap(raw.services, name, enabled) };
+  }
   return raw.service === undefined
     ? repo
     : { ...repo, service: validateService(raw.service, name, enabled) };

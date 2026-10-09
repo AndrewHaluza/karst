@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
+import { unitsOf } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
@@ -760,7 +761,7 @@ export async function runUat(
  * output. `repo` stays the repoPath exactly as the gates recorded it, so the
  * observation's attribution matches every other table's.
  */
-function testerTargets(
+export function testerTargets(
   manifest: Manifest | undefined,
   targets: readonly UatTarget[],
   worktrees: readonly { repo: string; baseRef: string | null; branch: string | null }[],
@@ -772,18 +773,32 @@ function testerTargets(
     worktreePath: t.path,
     baseRef: baseRefByRepo.get(t.repo) ?? null,
     branch: branchByRepo.get(t.repo) ?? null,
-    service:
-      manifest === undefined
-        ? undefined
-        : { start: serviceStartFor(manifest, t.names) },
+    ...(manifest === undefined ? { service: undefined } : serviceContextFor(manifest, t.names)),
   }));
 }
 
-/** The first manifest-declared service start among a target's repository names. */
-function serviceStartFor(manifest: Manifest, names: readonly string[]): string | undefined {
-  for (const name of names) {
-    const start = manifest.repositories[name]?.service?.start;
-    if (start !== undefined) return start;
+/**
+ * The manifest-declared service context of a target's repository names. One
+ * service keeps the single `service` shape; several (a multi-service repository)
+ * list every one as `repo/service` with its start command and cwd when set.
+ */
+function serviceContextFor(
+  manifest: Manifest,
+  names: readonly string[],
+): Pick<TesterTarget, 'service' | 'services'> {
+  const units = names.flatMap((name) => {
+    const repo = manifest.repositories[name];
+    return repo ? unitsOf(name, repo) : [];
+  });
+  if (units.length > 1) {
+    return {
+      service: null,
+      services: units.map((u) => ({
+        key: u.key,
+        start: u.def.start,
+        ...(u.def.cwd !== undefined ? { cwd: u.def.cwd } : {}),
+      })),
+    };
   }
-  return undefined;
+  return { service: { start: units[0]?.def.start } };
 }

@@ -1,6 +1,6 @@
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
-import { isRunnable } from '../manifest/runnable.js';
+import { unitByKey } from '../manifest/runnable.js';
 import { resolve } from '../resolver/resolve.js';
 import { makeRecordedPortAllocator } from '../resolver/recordedAllocator.js';
 import { startResolvedService } from './startService.js';
@@ -48,13 +48,17 @@ export async function startTicketService(
   opts: StartTicketServiceOpts = {},
 ): Promise<ServerRecord> {
   opts.debug?.(`[runtime] ticket ${ticketId}: row-start requested for ${repoName}`);
-  const repo = manifest.repositories[repoName];
-  if (repo === undefined) {
-    throw new StartServiceError(`"${repoName}" is no longer in the manifest — re-spin the ticket.`);
+  // `repoName` is a service unit key: the repository name, or `repo/service`.
+  const unit = unitByKey(manifest, repoName);
+  if (unit === undefined) {
+    const known = manifest.repositories[repoName.split('/')[0]!];
+    throw new StartServiceError(
+      known === undefined
+        ? `"${repoName}" is no longer in the manifest — re-spin the ticket.`
+        : `"${repoName}" declares no service — there is nothing to start.`,
+    );
   }
-  if (!isRunnable(repo)) {
-    throw new StartServiceError(`"${repoName}" declares no service — there is nothing to start.`);
-  }
+  const repo = unit.repoDef;
 
   const wtRows = store.db
     .prepare('SELECT repo, path FROM worktrees WHERE ticket_id = ?')
@@ -79,10 +83,16 @@ export async function startTicketService(
   const allocatedRepos = store.db
     .prepare('SELECT DISTINCT repo FROM port_allocations WHERE ticket_id = ?')
     .all(ticketId) as { repo: string }[];
-  const hot = allocatedRepos
-    .map((r) => r.repo)
-    .filter((name) => manifest.repositories[name] !== undefined);
-  if (!hot.includes(repoName)) hot.push(repoName);
+  // Allocation rows are keyed by unit key; `resolve` takes the REPOSITORY hot
+  // set, so map each back to its repository (deduped — sibling services share one).
+  const hot = [
+    ...new Set(
+      allocatedRepos
+        .map((r) => unitByKey(manifest, r.repo)?.repo)
+        .filter((name): name is string => name !== undefined),
+    ),
+  ];
+  if (!hot.includes(unit.repo)) hot.push(unit.repo);
 
   const runningRow = store.db
     .prepare("SELECT id FROM servers WHERE ticket_id = ? AND repo = ? AND status = 'running'")

@@ -2,6 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket } from '../store/tickets.js';
 import { parseEnvArgs, runEnvCommand } from './envCommand.js';
+import type { Manifest } from '../manifest/types.js';
+
+const manifest = {
+  repositories: {
+    api: { path: '/api', service: { start: 'npm start', ports: [3000] } },
+    web: {
+      path: '/web',
+      services: {
+        front: { start: 'npm run front', ports: [3001] },
+        back: { start: 'npm run back', ports: [3002] },
+      },
+    },
+    docs: { path: '/docs' },
+  },
+} as unknown as Manifest;
 
 describe('parseEnvArgs', () => {
   it('rejects a missing or unknown action', () => {
@@ -81,5 +96,54 @@ describe('runEnvCommand', () => {
     const out = JSON.parse(runEnvCommand(store, id, ['env', 'list']));
     expect(out.scopes.map((s: { scope: string }) => s.scope)).toEqual(['*', 'api']);
     expect(out.scopes[1].keys).toEqual(['TOKEN']);
+  });
+});
+
+describe('runEnvCommand --service with a manifest (unit keys)', () => {
+  let store: Store;
+  let id: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicket(store, { key: 'K-2', title: 'demo' }).id;
+  });
+
+  afterEach(() => store.close());
+
+  it('accepts the shorthand repository name as its own unit key', () => {
+    const out = JSON.parse(
+      runEnvCommand(store, id, ['env', 'set', '--service', 'api', 'T=1'], manifest),
+    );
+    expect(out.scope).toBe('api');
+  });
+
+  it('accepts a repo/service unit key of a multi-service repository', () => {
+    const out = JSON.parse(
+      runEnvCommand(store, id, ['env', 'set', '--service', 'web/front', 'T=1'], manifest),
+    );
+    expect(out.scope).toBe('web/front');
+  });
+
+  it('refuses a bare multi-service repository and names the repo/service choices', () => {
+    expect(() =>
+      runEnvCommand(store, id, ['env', 'set', '--service', 'web', 'T=1'], manifest),
+    ).toThrow(/web\/front, web\/back/);
+  });
+
+  it('refuses an unknown unit key and lists the valid ones', () => {
+    expect(() =>
+      runEnvCommand(store, id, ['env', 'set', '--service', 'web/nope', 'T=1'], manifest),
+    ).toThrow(/unknown service "web\/nope".*api, web\/front, web\/back/);
+  });
+
+  it('still accepts the all-services scope', () => {
+    const out = JSON.parse(runEnvCommand(store, id, ['env', 'set', 'T=1'], manifest));
+    expect(out.scope).toBe('*');
+  });
+
+  it('refuses unset on an unknown unit key too', () => {
+    expect(() =>
+      runEnvCommand(store, id, ['env', 'unset', '--service', 'docs', 'T'], manifest),
+    ).toThrow(/unknown service "docs"/);
   });
 });

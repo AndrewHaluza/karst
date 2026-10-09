@@ -1,4 +1,6 @@
 import type { Store } from '../store/db.js';
+import type { Manifest } from '../manifest/types.js';
+import { serviceUnits, SERVICE_SEP, unitsOf } from '../manifest/runnable.js';
 import {
   ALL_SERVICES,
   getEnvOverrides,
@@ -75,8 +77,40 @@ export function parseEnvArgs(rest: string[]): ParsedEnvArgs {
   return { action, scope, pairs, showValues };
 }
 
-export function runEnvCommand(store: Store, ticketId: number, rest: string[]): string {
-  const parsed = parseEnvArgs(rest);
+/**
+ * Resolve a `--service` scope to the unit key env overrides are stored under.
+ * `*` passes through. With a manifest, the scope must name a unit: `repo` for a
+ * single-service repository, `repo/service` for a multi-service one. A bare
+ * `repo` that declares several services is refused, naming the choices. The
+ * manifest is optional so a caller without one keeps the raw scope.
+ */
+export function resolveEnvScope(manifest: Manifest | undefined, scope: string): string {
+  if (scope === ALL_SERVICES || manifest === undefined) return scope;
+  const keys = serviceUnits(manifest).map((u) => u.key);
+  if (keys.includes(scope)) return scope;
+  const repo = manifest.repositories[scope];
+  if (repo !== undefined && unitsOf(scope, repo).length > 1) {
+    const choices = unitsOf(scope, repo).map((u) => `${scope}${SERVICE_SEP}${u.name}`);
+    throw new Error(
+      `karst env: '${scope}' has several services — name one of ${choices.join(', ')}`,
+    );
+  }
+  throw new Error(
+    `karst env: unknown service "${scope}" (valid: ${ALL_SERVICES}, ${keys.join(', ')})`,
+  );
+}
+
+export function runEnvCommand(
+  store: Store,
+  ticketId: number,
+  rest: string[],
+  manifest?: Manifest,
+): string {
+  const parsedArgs = parseEnvArgs(rest);
+  const parsed =
+    parsedArgs.action === 'list'
+      ? parsedArgs
+      : { ...parsedArgs, scope: resolveEnvScope(manifest, parsedArgs.scope) };
 
   if (parsed.action === 'list') {
     const all = getEnvOverrides(store, ticketId);

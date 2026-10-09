@@ -9,7 +9,7 @@
 
 import { ManifestError } from '../error.js';
 import type { Manifest, RepositoryDef } from '../types.js';
-import { isRunnable } from '../runnable.js';
+import { resolveTarget, unitsOf } from '../runnable.js';
 
 /**
  * Every `dependsOn` edge must reach a port that actually exists: the target must
@@ -19,34 +19,34 @@ import { isRunnable } from '../runnable.js';
  */
 function assertDependenciesResolve(repositories: Record<string, RepositoryDef>): void {
   for (const [name, repo] of Object.entries(repositories)) {
-    if (!isRunnable(repo)) continue; // no service, no edges
     if (repo.enabled === false) continue; // draft: not used by the system yet
 
-    for (const [i, dep] of repo.service.dependsOn.entries()) {
-      const where = `repository "${name}" service.dependsOn[${i}]`;
-      const target = repositories[dep.target];
-
-      if (!target) {
-        throw new ManifestError(`${where} targets unknown repository "${dep.target}"`);
-      }
-      if (!isRunnable(target)) {
-        throw new ManifestError(
-          `${where} targets "${dep.target}", which declares no service — ` +
-            `there is no port to bind to. Give "${dep.target}" a \`service:\` block ` +
-            `or drop the dependency.`,
-        );
-      }
-      if (target.enabled === false) {
-        throw new ManifestError(
-          `${where} targets "${dep.target}", which is disabled — enable it or drop the dependency.`,
-        );
-      }
-      if (!target.service.ports.some((p) => p.name === dep.port)) {
-        const slots = target.service.ports.map((p) => p.name).join(', ');
-        throw new ManifestError(
-          `${where} references port "${dep.port}" on "${dep.target}", ` +
-            `which has no such port slot (has: ${slots})`,
-        );
+    for (const unit of unitsOf(name, repo)) {
+      const label = unit.repo === unit.key
+        ? `repository "${name}" service`
+        : `repository "${name}" services.${unit.name}`;
+      for (const [i, dep] of unit.def.dependsOn.entries()) {
+        const where = `${label}.dependsOn[${i}]`;
+        const resolved = resolveTarget(repositories, dep.target);
+        if ('error' in resolved) throw new ManifestError(`${where} ${resolved.error}`);
+        const target = resolved.unit;
+        if (target.key === unit.key) {
+          throw new ManifestError(
+            `${where} targets its own service "${unit.key}" — a service cannot depend on itself`,
+          );
+        }
+        if (target.repoDef.enabled === false) {
+          throw new ManifestError(
+            `${where} targets "${dep.target}", which is disabled — enable it or drop the dependency.`,
+          );
+        }
+        if (!target.def.ports.some((p) => p.name === dep.port)) {
+          const slots = target.def.ports.map((p) => p.name).join(', ');
+          throw new ManifestError(
+            `${where} references port "${dep.port}" on "${dep.target}", ` +
+              `which has no such port slot (has: ${slots})`,
+          );
+        }
       }
     }
   }
@@ -55,9 +55,9 @@ function assertDependenciesResolve(repositories: Record<string, RepositoryDef>):
 /**
  * Run every whole-graph check. Throws on the first fault found.
  *
- * Two repository entries MAY share a `repoPath` — a monorepo with several
- * runnable processes is expressed as two `repositories:` entries pointing at
- * the same directory, each with its own `service:`. The worktree slug is
+ * Two repository entries MAY share a `repoPath` (legacy monorepo shape: two
+ * `repositories:` entries, one `service:` each); the preferred monorepo shape is
+ * ONE repository with a `services:` map. The worktree slug is
  * per-TICKET (not per-repository), so they intentionally resolve to one
  * worktree; `spin`/`preflight`/`scope` dedup their worktree-creation loops by
  * repoPath for exactly that reason (53314d6, "fix: rename-invariant worktree

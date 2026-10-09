@@ -108,8 +108,9 @@ export function buildDashboardState(
    */
   fixCapFor: (gate: GateStageKey) => number = () => FIX_ATTEMPT_CAP,
   /**
-   * The manifest's service names for this ticket's scope — host-known context
-   * for the quality stages' `services` process. Absent → no services named.
+   * The manifest's runnable unit keys (`repo`, or `repo/service`) for this
+   * ticket's scope — host-known context for the quality stages' `services`
+   * process and the env-override scopes. Absent → no services named.
    */
   serviceNames: (ticketId: number) => string[] = () => [],
   /**
@@ -303,6 +304,7 @@ export function buildDashboardState(
     baseBranchDefaultFor,
     baseBranchCandidatesFor,
     repoNameFor,
+    serviceKeys: serviceNames(ticketId),
   });
   const phases = approachPhases(ticket.approach);
 

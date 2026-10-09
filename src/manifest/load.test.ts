@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
-import { PRESET_CAPABILITIES } from './types.js';
+import { PRESET_CAPABILITIES, type Manifest } from './types.js';
 
 /** Write YAML to a temp file, return its path; caller cleans the dir. */
 function fixture(yaml: string): { path: string; cleanup: () => void } {
@@ -3013,5 +3013,221 @@ describe('subtasks caps', () => {
     } finally {
       cleanup();
     }
+  });
+});
+
+
+describe('multi-service repositories (service: shorthand vs services: map)', () => {
+  const HEAD = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+`;
+
+  function load(body: string): Manifest {
+    const { path, cleanup } = fixture(HEAD + body);
+    try {
+      return loadManifest(path);
+    } finally {
+      cleanup();
+    }
+  }
+
+  /** One service in flow style, so the fixture's indentation cannot drift. */
+  const svc = (start: string, port: number, extra = ''): string =>
+    `{ start: ${start}, ports: [{ name: http, env: PORT, default: ${port} }]${extra} }`;
+
+  /** A dependsOn edge in flow style. */
+  const edge = (target: string, port: string, env: string): string =>
+    `{ target: ${target}, port: ${port}, bind: [{ env: ${env}, template: "http://{host}:{port}" }] }`;
+
+  it('parses the service: shorthand as one unit with no services map', () => {
+    const m = load(`  api:
+    repoPath: ../api
+    service: ${svc('npm run dev', 3000)}
+`);
+    expect(m.repositories.api!.service!.start).toBe('npm run dev');
+    expect(m.repositories.api!.services).toBeUndefined();
+  });
+
+  it('parses a services: map with one entry per named service and its cwd', () => {
+    const m = load(`  monorepo:
+    repoPath: ../mono
+    services:
+      api: { cwd: apps/api, start: npm run api, ports: [{ name: http, env: PORT, default: 3000 }] }
+      web: ${svc('npm run web', 5173)}
+`);
+    expect(m.repositories.monorepo!.service).toBeUndefined();
+    const services = m.repositories.monorepo!.services!;
+    expect(Object.keys(services)).toEqual(['api', 'web']);
+    expect(services.api!.cwd).toBe('apps/api');
+    expect(services.api!.start).toBe('npm run api');
+    expect(services.web!.cwd).toBeUndefined();
+    expect(services.web!.ports[0]).toEqual({ name: 'http', env: 'PORT', default: 5173 });
+  });
+
+  it('rejects a repository that declares both service: and services:', () => {
+    expect(() =>
+      load(`  api:
+    repoPath: ../api
+    service: ${svc('npm run dev', 3000)}
+    services:
+      web: ${svc('npm run web', 5173)}
+`),
+    ).toThrow(/declares both `service:` and `services:`/);
+  });
+
+  it('rejects an invalid service name', () => {
+    expect(() =>
+      load(`  mono:
+    repoPath: ../mono
+    services:
+      "bad/name": ${svc('npm run dev', 3000)}
+`),
+    ).toThrow(/invalid service name "bad\/name"/);
+  });
+
+  it('rejects an empty services map on an enabled repository', () => {
+    expect(() =>
+      load(`  mono:
+    repoPath: ../mono
+    services: {}
+`),
+    ).toThrow(/must declare at least one service/);
+  });
+
+  it.each([
+    ['a parent-relative cwd', '../outside'],
+    ['an embedded parent-relative cwd', 'apps/../../outside'],
+    ['an absolute cwd', '/etc/app'],
+  ])('rejects %s', (_label, cwd) => {
+    expect(() =>
+      load(`  mono:
+    repoPath: ../mono
+    services:
+      api: { cwd: "${cwd}", start: npm run dev, ports: [{ name: http, env: PORT, default: 3000 }] }
+`),
+    ).toThrow(/must be a path relative to the repository root, without "\.\."/);
+  });
+
+  it('accepts repo/service, bare repo with one service, and the shorthand key as targets', () => {
+    const m = load(`  mono:
+    repoPath: ../mono
+    services:
+      db: ${svc('npm run db', 5432)}
+      api: ${svc('npm run api', 3000, `, dependsOn: [${edge('mono/db', 'http', 'DB_URL')}]`)}
+  solo:
+    repoPath: ../solo
+    services:
+      only: ${svc('npm run only', 7000)}
+  plain:
+    repoPath: ../plain
+    service: ${svc('npm run plain', 4000)}
+  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('solo', 'http', 'ONLY_URL')}, ${edge('plain/plain', 'http', 'PLAIN_URL')}]`)}
+`);
+    expect(m.repositories.mono!.services!.api!.dependsOn[0]!.target).toBe('mono/db');
+    expect(m.repositories.client!.service!.dependsOn.map((d) => d.target)).toEqual([
+      'solo',
+      'plain/plain',
+    ]);
+  });
+
+  it.each([
+    [
+      'an unknown repository',
+      `  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('ghost', 'http', 'X')}]`)}
+`,
+      /targets unknown repository "ghost"/,
+    ],
+    [
+      'an unknown service of a known repository',
+      `  mono:
+    repoPath: ../mono
+    services:
+      api: ${svc('npm run api', 3000)}
+  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('mono/nope', 'http', 'X')}]`)}
+`,
+      /targets unknown service "nope" on "mono" \(has: api\)/,
+    ],
+    [
+      'the bare repo of a multi-service repository',
+      `  mono:
+    repoPath: ../mono
+    services:
+      api: ${svc('npm run api', 3000)}
+      web: ${svc('npm run web', 5173)}
+  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('mono', 'http', 'X')}]`)}
+`,
+      /targets "mono", which has 2 services \(api, web\)/,
+    ],
+    [
+      'a repository that declares no service',
+      `  docs:
+    repoPath: ../docs
+  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('docs', 'http', 'X')}]`)}
+`,
+      /targets "docs", which declares no service/,
+    ],
+    [
+      'a service of a repository that declares no service',
+      `  docs:
+    repoPath: ../docs
+  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('docs/site', 'http', 'X')}]`)}
+`,
+      /targets "docs", which declares no service/,
+    ],
+    [
+      'a port slot the target service does not own',
+      `  solo:
+    repoPath: ../solo
+    service: ${svc('npm run solo', 7000)}
+  client:
+    repoPath: ../client
+    service: ${svc('npm run client', 8000, `, dependsOn: [${edge('solo', 'debug', 'X')}]`)}
+`,
+      /references port "debug" on "solo", which has no such port slot/,
+    ],
+    [
+      'a self-dependency on the shorthand service',
+      `  solo:
+    repoPath: ../solo
+    service: ${svc('npm run solo', 7000, `, dependsOn: [${edge('solo/solo', 'http', 'X')}]`)}
+`,
+      /targets its own service "solo" — a service cannot depend on itself/,
+    ],
+    [
+      'a self-dependency on one service of a services map',
+      `  mono:
+    repoPath: ../mono
+    services:
+      api: ${svc('npm run api', 3000, `, dependsOn: [${edge('mono/api', 'http', 'X')}]`)}
+`,
+      /targets its own service "mono\/api" — a service cannot depend on itself/,
+    ],
+  ])('rejects a dependsOn to %s', (_label, body, message) => {
+    expect(() => load(body)).toThrow(message);
+  });
+
+  it('accepts a dependency between sibling services of one repository', () => {
+    const m = load(`  mono:
+    repoPath: ../mono
+    services:
+      db: ${svc('npm run db', 5432)}
+      api: ${svc('npm run api', 3000, `, dependsOn: [${edge('mono/db', 'http', 'DB_URL')}]`)}
+`);
+    expect(m.repositories.mono!.services!.api!.dependsOn).toHaveLength(1);
   });
 });

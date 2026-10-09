@@ -5,7 +5,7 @@
  * processes belong to the user, so doctor only ever shows the exact command.
  */
 
-import { isRunnable } from '../manifest/runnable.js';
+import { resolveTarget, unitsOf } from '../manifest/runnable.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import type { DoctorCheck, DoctorFix, DoctorStatus } from './types.js';
 
@@ -125,15 +125,9 @@ function checkPorts(name: string, service: ServiceDef, p: ManifestProbes): Docto
   );
 }
 
-function resolvesDependency(
-  m: Manifest,
-  target: string,
-  port: string,
-): boolean {
-  if (!Object.hasOwn(m.repositories, target)) return false;
-  const repo = m.repositories[target];
-  if (repo === undefined || !isRunnable(repo)) return false;
-  return repo.service.ports.some((slot) => slot.name === port);
+function resolvesDependency(m: Manifest, target: string, port: string): boolean {
+  const resolved = resolveTarget(m.repositories, target);
+  return 'unit' in resolved && resolved.unit.def.ports.some((slot) => slot.name === port);
 }
 
 function checkDependsOn(name: string, service: ServiceDef, m: Manifest): DoctorCheck {
@@ -158,11 +152,12 @@ function checksForRepo(name: string, repo: RepositoryDef, m: Manifest, p: Manife
   const out: DoctorCheck[] = [checkRepoPath(name, repo, p)];
   const baseline = checkBaseline(name, repo, p);
   if (baseline) out.push(baseline);
-  if (!isRunnable(repo)) return out;
-  const start = checkStart(name, repo.service, p);
-  if (start) out.push(start);
-  out.push(checkPorts(name, repo.service, p));
-  out.push(checkDependsOn(name, repo.service, m));
+  for (const unit of unitsOf(name, repo)) {
+    const start = checkStart(unit.key, unit.def, p);
+    if (start) out.push(start);
+    out.push(checkPorts(unit.key, unit.def, p));
+    out.push(checkDependsOn(unit.key, unit.def, m));
+  }
   return out;
 }
 

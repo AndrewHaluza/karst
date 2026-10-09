@@ -276,6 +276,63 @@ repositories:
     hasMigrations: false
     signals: [tooling, script, ci, config, extension]
 
+  # MONOREPO with several runnable processes. Use `services:` as a NAMED MAP
+  # instead of `service:`. Each entry is a full service (start/health/ports/
+  # dependsOn/portRange/docker) plus an optional `cwd`: a path relative to the
+  # repo root, with no `..` and no leading `/`. All services of this repository
+  # share ONE worktree per ticket, and each runs from its own `cwd`. A
+  # repository declares `service:` OR `services:`, never both. Service names use
+  # letters, digits, `.`, `_` and `-`.
+  #
+  # Units are addressed `repo/service` (here `monorepo/web`, `monorepo/api`):
+  # `karst env --service monorepo/web`, `servers restart monorepo/api`. A
+  # dependsOn target is `repo/service`, or bare `repo` only when that repository
+  # has exactly one service. Ports are allocated per service, and siblings never
+  # share one.
+  #
+  # monorepo:
+  #   repoPath: /absolute/path/to/monorepo
+  #   hasMigrations: false
+  #   signals: [web, api, worker, ui, endpoint, queue]
+  #   services:
+  #     web:
+  #       cwd: apps/web
+  #       start: npm run dev
+  #       health: http://{host}:{port}/
+  #       ports:
+  #         - name: port
+  #           env: PORT
+  #           default: 3000
+  #       dependsOn:
+  #         - target: monorepo/api
+  #           port: port
+  #           bind:
+  #             - env: VITE_API_URL
+  #               template: http://{host}:{port}
+  #     api:
+  #       cwd: apps/api
+  #       start: node server.mjs
+  #       health: http://{host}:{port}/health
+  #       ports:
+  #         - name: port
+  #           env: PORT
+  #           default: 8000
+  #       portRange: [5000, 5100]   # this service only; siblings keep the global window
+  #     worker:
+  #       cwd: services/worker
+  #       start: node worker.mjs
+  #       health: http://{host}:{port}/health
+  #       ports:
+  #         - name: port
+  #           env: PORT
+  #           default: 9000
+  #       dependsOn:
+  #         - target: monorepo/api   # waits for api's health gate before starting
+  #           port: port
+  #           bind:
+  #             - env: API_URL
+  #               template: http://{host}:{port}
+
 # Development approaches offered on the ticket form. Each approach
 # includes a description, entrypoint, and optional source recipe. Extensible — add custom entries.
 approaches:

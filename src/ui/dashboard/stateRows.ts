@@ -29,6 +29,11 @@ export interface DashboardRowsInput {
   baseBranchCandidatesFor: (repoPath: string) => string[];
   /** The manifest repository NAME for a recorded repo value (tables key by path). */
   repoNameFor: (repo: string) => string | undefined;
+  /**
+   * The runnable unit keys in scope (`repo`, or `repo/service` for each service
+   * of a multi-service repository) — the scopes env overrides may be set for.
+   */
+  serviceKeys: readonly string[];
 }
 
 /** The dashboard's scope rows and the mergeability facts the rail and panels share. */
@@ -67,6 +72,7 @@ export function buildDashboardRows(store: Store, input: DashboardRowsInput): Das
     baseBranchDefaultFor,
     baseBranchCandidatesFor,
     repoNameFor,
+    serviceKeys,
   } = input;
 
   const worktrees: DashboardWorktreeView[] = listWorktreesByTicket(store, ticketId).map((w) => ({
@@ -120,7 +126,7 @@ export function buildDashboardRows(store: Store, input: DashboardRowsInput): Das
     // Start button there is a dead affordance dressed as an available action.
     hasRunnableRepos: selectedRepos.some((r) => isRepoRunnable(r)),
     envOverrides: {
-      services: selectedRepos.filter((r) => isRepoRunnable(r)),
+      services: [...serviceKeys],
       values: getEnvOverrides(store, ticketId),
     },
   };

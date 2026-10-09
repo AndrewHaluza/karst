@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { manifest, repo, runnableRepo, dependsOn, slot } from '../manifest/fixtures.js';
+import { manifest, repo, runnableRepo, dependsOn, slot, svc } from '../manifest/fixtures.js';
 import type { Manifest } from '../manifest/types.js';
 import { checkManifest, type ManifestProbes } from './manifestChecks.js';
 import type { DoctorCheck } from './types.js';
@@ -257,6 +257,23 @@ describe('checkManifest: manifest.depends-on', () => {
       'manifest.depends-on.web',
     );
     expect(c.status).toBe('ok');
+  });
+
+  it('checks each service of a multi-service repo and resolves repo/service targets', () => {
+    const mono = repo({
+      repoPath: '/r/mono',
+      services: {
+        api: svc({ ports: [slot('http', 'PORT', 3000)] }),
+        web: svc({
+          ports: [slot('http', 'PORT', 3001)],
+          dependsOn: [dependsOn('mono/api', 'http', [])],
+        }),
+      },
+    });
+    const checks = checkManifest(probes({ manifest: manifest({ mono }) }));
+    expect(byId(checks, 'manifest.depends-on.mono/api').status).toBe('ok');
+    expect(byId(checks, 'manifest.depends-on.mono/web').status).toBe('ok');
+    expect(byId(checks, 'manifest.ports.mono/web').status).toBe('ok');
   });
 
   it('fails with a consented fix when the target repository does not exist', () => {

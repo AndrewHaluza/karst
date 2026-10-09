@@ -11,7 +11,7 @@ import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { resolveModelForProvider } from '../../agent/models.js';
 import { resolvePresetDefaults, resolvePresetSlot } from '../../agent/agentPresets.js';
 import { resolvePlanningDefaults } from '../../agent/planningDefaults.js';
-import { isRunnable } from '../../manifest/runnable.js';
+import { unitsOf } from '../../manifest/runnable.js';
 import type { CapabilityIdentity, DashboardAgentContext } from './stateTypes.js';
 
 /**
@@ -33,15 +33,16 @@ const GRAPH_CAPABILITIES: ReadonlySet<PresetCapability> = new Set<PresetCapabili
  */
 
 /**
- * The runnable services in the ticket's scope, by repository NAME. Non-runnable
- * repositories are absent by construction (isRunnable is the only gate) — a
- * repo with no `service:` block has no process to name.
+ * The runnable process units in the ticket's scope, by unit key: `repo` for a
+ * single-service repository, `repo/service` for each service of a multi-service
+ * one. Non-runnable repositories are absent by construction (isRunnable is the
+ * only gate) — a repo with no service has no process to name.
  */
 export function serviceNamesFor(store: Store, manifest: Manifest, ticketId: number): string[] {
   const scoped = new Set(getTicket(store, ticketId)?.selectedRepos ?? []);
   return Object.entries(manifest.repositories)
-    .filter(([name, repo]) => scoped.has(name) && isRunnable(repo))
-    .map(([name]) => name);
+    .filter(([name]) => scoped.has(name))
+    .flatMap(([name, repo]) => unitsOf(name, repo).map((u) => u.key));
 }
 
 /**

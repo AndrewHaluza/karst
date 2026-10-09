@@ -835,3 +835,106 @@ describe('writeManifest — subtasks overlay', () => {
     }
   });
 });
+
+describe('writeManifest — service shorthand and services map', () => {
+  const SINGLE = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  api:
+    repoPath: ../api
+    service:
+      start: npm run dev
+      ports:
+        - { name: http, env: PORT, default: 3000 }
+      dependsOn: []
+`;
+
+  const MULTI = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  mono:
+    repoPath: ../mono
+    services:
+      api:
+        cwd: apps/api
+        customField: keep-api
+        start: npm run api
+        ports:
+          - { name: http, env: PORT, default: 3000 }
+        dependsOn: []
+      web:
+        start: npm run web
+        ports:
+          - { name: http, env: PORT, default: 5173 }
+        dependsOn:
+          - target: mono/api
+            port: http
+            bind:
+              - { env: VITE_API_URL, template: "http://{host}:{port}" }
+`;
+
+  it('round-trips a single service: manifest and keeps the service: key', () => {
+    const { path, cleanup } = fixture(SINGLE);
+    try {
+      const before = loadManifest(path);
+      writeManifest(path, before);
+      expect(loadManifest(path)).toEqual(before);
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as {
+        repositories: Record<string, Record<string, unknown>>;
+      };
+      expect(raw.repositories.api).toHaveProperty('service');
+      expect(raw.repositories.api).not.toHaveProperty('services');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('round-trips a services: manifest keeping the services: shape, cwd and unmodeled sub-keys', () => {
+    const { path, cleanup } = fixture(MULTI);
+    try {
+      const before = loadManifest(path);
+      writeManifest(path, before);
+      expect(loadManifest(path)).toEqual(before);
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as {
+        repositories: { mono: Record<string, any> };
+      };
+      expect(raw.repositories.mono).toHaveProperty('services');
+      expect(raw.repositories.mono).not.toHaveProperty('service');
+      expect(raw.repositories.mono.services.api.cwd).toBe('apps/api');
+      expect(raw.repositories.mono.services.api.customField).toBe('keep-api');
+      expect(raw.repositories.mono.services.web.dependsOn[0].target).toBe('mono/api');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops a services: map the user emptied of its shape on save and keeps a cwd edit', () => {
+    const { path, cleanup } = fixture(MULTI);
+    try {
+      const m = loadManifest(path);
+      const mono = m.repositories.mono!;
+      const edited: Manifest = {
+        ...m,
+        repositories: {
+          mono: {
+            ...mono,
+            services: {
+              ...mono.services!,
+              api: { ...mono.services!.api!, cwd: 'apps/server' },
+            },
+          },
+        },
+      };
+      writeManifest(path, edited);
+      const after = loadManifest(path);
+      expect(after.repositories.mono!.services!.api!.cwd).toBe('apps/server');
+      expect(Object.keys(after.repositories.mono!.services!)).toEqual(['api', 'web']);
+    } finally {
+      cleanup();
+    }
+  });
+});

@@ -87,11 +87,14 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
    their host, port and status. \`spin\`/\`restart\` take an optional
    \`--repos a,b\`; without it the ticket's own worktrees decide, and failing
    that every repository the manifest declares. \`list\`, \`spin\` and
-   \`restart\` need \`--manifest\`; \`stop\` does not.
- - \`env list|set|unset [--service <repo>] [--values]\` — this ticket's env
+   \`restart\` need \`--manifest\`; \`stop\` does not. A service is addressed by
+   its unit key: \`repo/service\` for a repository declaring a \`services:\` map
+   entry, or plain \`repo\` for the single \`service:\` shorthand.
+ - \`env list|set|unset [--service <unit>] [--values]\` — this ticket's env
    overrides, merged into the spawn env of its services only. They never touch
-   a repository's \`.env\` on disk. \`--service\` scopes an entry to one
-   repository; without it the entry applies to every service. \`list\` prints
+   a repository's \`.env\` on disk. \`--service\` takes a unit key (\`repo\` or
+   \`repo/service\`) and scopes the entry to that one service; without it the
+   entry applies to every service. \`list\` prints
     KEYS ONLY unless you pass \`--values\`. Changing an override does not
     restart anything — run \`servers restart\` to pick it up.
  - \`subtask create --title <title> [--description <desc>] [--blocking]

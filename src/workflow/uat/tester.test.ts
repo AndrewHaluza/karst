@@ -957,6 +957,23 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('JSON array');
   });
 
+  it('lists every service of a multi-service repository with its cwd when set', () => {
+    const prompt = buildTesterPrompt({
+      repo: '/mono',
+      worktreePath: '/wt/mono',
+      baseRef: 'develop',
+      service: null,
+      services: [
+        { key: 'mono/web', start: 'npm run dev', cwd: 'apps/web' },
+        { key: 'mono/api', start: 'go run .' },
+      ],
+    });
+    expect(prompt).toContain("The repository's services start with:");
+    expect(prompt).toContain('- mono/web: `npm run dev` (cwd: apps/web)');
+    expect(prompt).toContain('- mono/api: `go run .`');
+    expect(prompt).not.toContain('(cwd: undefined)');
+  });
+
   it('falls back to generic wording when no base ref or service is known', () => {
     const prompt = buildTesterPrompt({ repo: '/web', worktreePath: '/wt/web' });
     expect(prompt).not.toContain('undefined');
