@@ -536,6 +536,7 @@ import { buildGettingStartedActions } from './ui/gettingStarted/actions.js';
 import { makeGettingStartedPanelHost } from './ui/gettingStarted/host.js';
 import { buildSetupStatus } from './init/status.js';
 import { buildGettingStartedState } from './ui/gettingStarted/state.js';
+import { formatId, formatTicketRef, ticketRefOrUnknown } from './model/entityId.js';
 
 /**
  * Extension activation adapter — the host seam (§2.6). Everything below the UI
@@ -836,7 +837,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const brief = buildConflictBrief(localStore, id, repo);
       if (!brief) {
         void vscode.window.showInformationMessage(
-          `No merge conflict is recorded for "${repo}" on this ticket — nothing to resolve.`,
+          `No merge conflict is recorded for "${repo}" on ticket ${formatId('ticket', id)} — nothing to resolve.`,
         );
         return;
       }
@@ -1090,7 +1091,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushState(ticketId);
       const t = getTicket(localStore, ticketId);
       void vscode.window.showWarningMessage(
-        `Karst: couldn't resume the previous session for "${t.key ?? `#${ticketId}`}" ` +
+        `Karst: couldn't resume the previous session for "${formatTicketRef(ticketId, t.key)}" ` +
           `(it may have expired or the worktree was recreated). Retrying with a fresh session.`,
       );
       // A background `recoverSession` observes the same close and may dispose
@@ -1237,7 +1238,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ? 'the provider rejected that model'
         : 'the provider kept failing';
     const where = aiCallSiteLabel(event.callSite);
-    const ticket = event.ticketId === null ? '' : ` for ticket #${event.ticketId}`;
+    const ticket = event.ticketId === null ? '' : ` for ticket ${formatId('ticket', event.ticketId)}`;
     const message =
       `Karst: ${where}${ticket} could not run on ${from} — ${why}. ` +
       `Retrying with ${to}.`;
@@ -1371,7 +1372,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         : undefined;
     if (instructions !== undefined) {
       logger.debug(
-        `[process] ${role} for ticket #${ticketId} runs through Settings profile ` +
+        `[process] ${role} for ticket ${formatId('ticket', ticketId)} runs through Settings profile ` +
           `"${assignment.agent}" (profile body is the prompt)`,
       );
     }
@@ -2965,7 +2966,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const result = fireGraphImplMarkerFromHost(localStore, ticketId);
         if (result.ok) {
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the implementation marker fired (graph run ${graphRunId}) — advancing to uat.`,
+            `Ticket ${formatId('ticket', ticketId)}: the implementation marker fired (graph run ${graphRunId}) — advancing to uat.`,
           );
           // The ticket is the stage driver's again the moment the marker
           // lands. Nothing else kicks it here — the graph node fires no hook
@@ -2975,7 +2976,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           maybeDrive(ticketId, 'graph-impl-marker');
         } else {
           void vscode.window.showWarningMessage(
-            `Ticket #${ticketId}: could not fire the implementation marker (${result.reason}).`,
+            `Ticket ${formatId('ticket', ticketId)}: could not fire the implementation marker (${result.reason}).`,
           );
         }
         provider.refresh();
@@ -3010,7 +3011,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           );
           if (result.discarded) {
             void vscode.window.showInformationMessage(
-              `Ticket #${ticketId}: unknown process for node run #${nodeRunId} discarded` +
+              `Ticket ${formatId('ticket', ticketId)}: unknown process for node run #${nodeRunId} discarded` +
                 (result.graphBlockedWith
                   ? ' — the graph deadlocked on topology; resume or replan to continue.'
                   : ''),
@@ -3033,7 +3034,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // until then. The write itself stays behind the store's claim gate.
       graphEditOverride: (ticketId, nodeRunId) => {
         void vscode.window.showInformationMessage(
-          `Ticket #${ticketId}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
+          `Ticket ${formatId('ticket', ticketId)}: editing overrides for node run #${nodeRunId} — the per-node override editor (profile / provider / model / effort / prompt) opens here before claiming.`,
         );
       },
     },
@@ -3200,7 +3201,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const t = getTicket(localStore, ticketId);
       statusBar.render({
         ticketId,
-        key: t.key ?? `#${ticketId}`,
+        key: formatTicketRef(ticketId, t.key),
         stage: t.stageCurrent ?? 'none',
         state: t.agentState ?? 'none',
         glyph: ticketGlyph(t),
@@ -3527,7 +3528,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     const t = getTicket(localStore, ticketId);
-    const label = t.key ?? `#${ticketId}`;
+    const label = formatTicketRef(ticketId, t.key);
     const brief =
       fixBriefForTicket(localStore, ticketId, label) ??
       `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
@@ -4293,7 +4294,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (graphCoordinatorStore
       ? storeGraphRunTicketId(graphCoordinatorStore.db, graphRunId)
       : undefined) ?? 0;
-
   const graphRunApproachId = (graphRunId: number): string =>
     (graphCoordinatorStore
       ? storeGraphRunApproachId(graphCoordinatorStore.db, graphRunId)
@@ -4497,7 +4497,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (resolved.length === 0) {
       return {
         resolved: false,
-        reason: `no declared repository resolves to a worktree of ticket #${graphRunTicketId(graphRunId)}`,
+        reason: `no declared repository resolves to a worktree of ticket ${ticketRefOrUnknown(graphRunTicketId(graphRunId))}`,
       };
     }
     return { resolved: true };
@@ -4636,7 +4636,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // The human gate: the plan compiled and is awaiting review.
             void vscode.window
               .showInformationMessage(
-                `Ticket #${graphRunTicketId(graphRunId)}: the implementation graph plan is ready — review it, then start the run.`,
+                `Ticket ${ticketRefOrUnknown(graphRunTicketId(graphRunId))}: the implementation graph plan is ready — review it, then start the run.`,
                 'Start graph',
               )
               .then((choice) => {
@@ -4717,14 +4717,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       approachId: t.approach,
       projectSlug: currentProject()?.slug ?? 'unknown',
     }).catch((err) => {
-      logError(`karst: graph bootstrap for ticket #${ticketId} failed`, err);
+      logError(`karst: graph bootstrap for ticket ${formatId('ticket', ticketId)} failed`, err);
       return { kind: 'failed' as const, reason: 'planner session could not start' };
     });
     if (result.kind !== 'launched') {
       const reason = result.reason;
-      logger.warn(`karst: graph launch for ticket #${ticketId} failed: ${reason}`);
+      logger.warn(`karst: graph launch for ticket ${formatId('ticket', ticketId)} failed: ${reason}`);
       void vscode.window.showErrorMessage(
-        `Ticket #${ticketId}: the graph engineering run could not start — ${reason}`,
+        `Ticket ${formatId('ticket', ticketId)}: the graph engineering run could not start — ${reason}`,
       );
       return;
     }
@@ -4741,7 +4741,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     result.session.terminal?.show();
     provider.refresh();
     dashboard.pushState(ticketId);
-    logger.info(`karst: graph run ${result.graphRunId} launched for ticket #${ticketId}`);
+    logger.info(`karst: graph run ${result.graphRunId} launched for ticket ${formatId('ticket', ticketId)}`);
   };
 
   /** The human confirm gate: awaiting-confirmation → running, then a sweep
@@ -4840,7 +4840,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const wt = listWorktreesByTicket(localStore, ticketId)[0];
     if (!wt) {
       logger.warn(
-        `karst: graph run ${graphRunId} (ticket #${ticketId}): refusing to launch a planner — no worktree resolved yet; will retry`,
+        `karst: graph run ${graphRunId} (ticket ${formatId('ticket', ticketId)}): refusing to launch a planner — no worktree resolved yet; will retry`,
       );
       return undefined;
     }
@@ -4977,7 +4977,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (result.kind === 'failed') {
       logError(`karst: replan planner launch failed for run ${launch.graphRunId}`, new Error(result.reason));
       void vscode.window.showErrorMessage(
-        `Ticket #${graphRunTicketId(launch.graphRunId)}: the replan planner could not start — ${result.reason}`,
+        `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the replan planner could not start — ${result.reason}`,
       );
     }
   };
@@ -5033,7 +5033,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else if (result.kind === 'failed') {
       logError(`karst: bootstrap relaunch failed for run ${launch.graphRunId}`, new Error(result.reason));
       void vscode.window.showErrorMessage(
-        `Ticket #${graphRunTicketId(launch.graphRunId)}: the bootstrap planner could not start — ${result.reason}`,
+        `Ticket ${ticketRefOrUnknown(graphRunTicketId(launch.graphRunId))}: the bootstrap planner could not start — ${result.reason}`,
       );
     }
   };
@@ -5147,7 +5147,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       result.session.terminal?.show();
       provider.refresh();
       dashboard.pushState(ticketId);
-      logger.info(`karst: graph run ${graphRunId} planner relaunched for ticket #${ticketId}`);
+      logger.info(`karst: graph run ${graphRunId} planner relaunched for ticket ${formatId('ticket', ticketId)}`);
     } else if (result.kind === 'no-op') {
       logger.warn(`karst: graph planner relaunch for run ${graphRunId} was a no-op (run no longer planning)`);
     } else {
@@ -5338,10 +5338,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // outcome: draining it would strand it behind a false success.
       void vscode.window.showInformationMessage(
         result.outcome === 'live-process-unreachable'
-          ? `Ticket #${ticketId}: the implementation graph was NOT stopped — a node process is still running but is not attached to this window. Stop it from the window that launched it, or reload and try again.`
+          ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph was NOT stopped — a node process is still running but is not attached to this window. Stop it from the window that launched it, or reload and try again.`
           : result.drained || result.terminated > 0
-            ? `Ticket #${ticketId}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
-            : `Ticket #${ticketId}: no graph sessions were stopped.`,
+            ? `Ticket ${formatId('ticket', ticketId)}: implementation graph stopped — ${result.terminated} session${result.terminated === 1 ? '' : 's'} terminated${result.refused > 0 ? `, ${result.refused} refused` : ''}.`
+            : `Ticket ${formatId('ticket', ticketId)}: no graph sessions were stopped.`,
       );
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -5370,8 +5370,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!result.restarted) {
         void vscode.window.showWarningMessage(
           result.outcome === 'replan-in-flight' || result.outcome === 'replan-pending'
-            ? `Ticket #${ticketId}: the graph is mid-replan — it will resume on its own when the new plan lands.`
-            : `Ticket #${ticketId}: the graph run could not be restarted (${result.outcome}).`,
+            ? `Ticket ${formatId('ticket', ticketId)}: the graph is mid-replan — it will resume on its own when the new plan lands.`
+            : `Ticket ${formatId('ticket', ticketId)}: the graph run could not be restarted (${result.outcome}).`,
         );
         return;
       }
@@ -5941,7 +5941,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const activeGraph = activeGraphRunFor(localStore.db, ticketId);
       if (activeGraph && activeGraph.status === 'completed-awaiting-impl-marker') {
         void vscode.window.showInformationMessage(
-          `Ticket #${ticketId}: the implementation graph is complete — run \`karst stage impl pass\` to advance.`,
+          `Ticket ${formatId('ticket', ticketId)}: the implementation graph is complete — run \`karst stage impl pass\` to advance.`,
         );
         return;
       }
@@ -5964,7 +5964,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           session.terminal?.show();
         } else {
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId} is owned by an active graph run (${activeGraph.status}) — its session is not attached to this window; the coordinator re-attaches it on the next sweep.`,
+            `Ticket ${formatId('ticket', ticketId)} is owned by an active graph run (${activeGraph.status}) — its session is not attached to this window; the coordinator re-attaches it on the next sweep.`,
           );
         }
         return;
@@ -5984,7 +5984,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const draft = getTicket(localStore, ticketId);
         if (draft.selectedRepos.length === 0) {
           void vscode.window.showWarningMessage(
-            `Ticket #${ticketId} has no repositories selected — edit it to choose one, then start.`,
+            `Ticket ${formatId('ticket', ticketId)} has no repositories selected — edit it to choose one, then start.`,
           );
           return;
         }
@@ -6005,13 +6005,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         } catch (e) {
           logError('start ticket (scope on session open) failed', e);
           void vscode.window.showErrorMessage(
-            `Could not start ticket #${ticketId}: ${e instanceof Error ? e.message : String(e)}`,
+            `Could not start ticket ${formatId('ticket', ticketId)}: ${e instanceof Error ? e.message : String(e)}`,
           );
           return;
         }
         wt = listWorktreesByTicket(localStore, ticketId)[0];
         if (!wt) {
-          void vscode.window.showWarningMessage(`Ticket #${ticketId} could not be scoped — check its repositories.`);
+          void vscode.window.showWarningMessage(`Ticket ${formatId('ticket', ticketId)} could not be scoped — check its repositories.`);
           return;
         }
       }
@@ -6043,14 +6043,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             live.terminal?.show();
           } else {
             void vscode.window.showInformationMessage(
-              `Ticket #${ticketId} is owned by graph run ${decision.graphRunId} (${decision.status}) — the coordinator owns continuation; use the Inside panel.`,
+              `Ticket ${formatId('ticket', ticketId)} is owned by graph run ${decision.graphRunId} (${decision.status}) — the coordinator owns continuation; use the Inside panel.`,
             );
           }
           return;
         }
         if (decision.kind === 'attempt-consumed') {
           void vscode.window.showWarningMessage(
-            `Ticket #${ticketId}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
+            `Ticket ${formatId('ticket', ticketId)}: impl attempt ${decision.stageAttempt} already ran graph run ${decision.graphRunId} (${decision.status}), and an attempt hosts one run. Fail this impl stage to open the next attempt, then start the graph again.`,
           );
           return;
         }
@@ -6223,8 +6223,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ticketId,
         context.globalStorageUri.fsPath,
       );
-      const renderCtx = (sections: 'all' | 'narrative' | 'facts'): string =>
-        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections });
+      const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
+        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId });
       const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok));
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
@@ -6251,7 +6251,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A caller with one specific job for this session (the merge brief
         // behind "Resolve conflicts") wins over every composed seed below.
         seed = composeConflictSeed({
-          ticketKey: t.key ?? `#${ticketId}`,
+          ticketKey: formatTicketRef(ticketId, t.key),
           conflictBrief: options.seedPrompt,
           ...(materialized.entryInvocations?.['resolve-conflict']
             ? { invocation: materialized.entryInvocations['resolve-conflict'] }
@@ -6264,13 +6264,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Resume path: instructions are regenerated and re-attached; the
         // kickoff shrinks to the continue/fix brief under the invocation.
         const brief =
-          fixBrief ?? `Continue the in-progress work on ticket ${t.key ?? `#${ticketId}`}. Re-read live state if needed.`;
+          fixBrief ?? `Continue the in-progress work on ticket ${formatTicketRef(ticketId, t.key)}. Re-read live state if needed.`;
         const resumeOrFixInvocation =
           t.stageCurrent === 'fix' && materialized.entryInvocations?.['fix']
             ? materialized.entryInvocations['fix']
             : materialized.entryInvocations?.['resume'];
         seed = composeResumeSeedEntry({
-          ticketKey: t.key ?? `#${ticketId}`,
+          ticketKey: formatTicketRef(ticketId, t.key),
           resumeBrief: brief,
           ...(resumeOrFixInvocation ? { invocation: resumeOrFixInvocation } : {}),
           ...(markerInstruction ? { markerInstruction } : {}),
@@ -6283,7 +6283,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // exists (operational facts move to the instruction layer); full
         // context otherwise (self-contained inline).
         seed = buildSessionSeed({
-          authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all'),
+          authoredContext: renderCtx(entryLaunchInvocation ? 'narrative' : 'all', inlineInstructions),
           ...(factsContext ? { factsContext } : {}),
           approachPrompt: approachPrompt ?? delegation,
           ...(entryLaunchInvocation
@@ -6412,7 +6412,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const t = getTicket(localStore, ticketId);
         label = compactTicketLabel(t, ticketLabel(t, manifest.ticketLabelTemplate));
       } catch {
-        void vscode.window.showErrorMessage(`Ticket #${ticketId} not found.`);
+        void vscode.window.showErrorMessage(`Ticket ${formatId('ticket', ticketId)} not found.`);
         return;
       }
 
@@ -6515,7 +6515,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return;
       }
       const items = rows.map((r) => ({
-        label: `${r.key ?? `#${r.ticketId}`} · ${r.branch ?? 'no branch'}`,
+        label: `${formatTicketRef(r.ticketId, r.key)} · ${r.branch ?? 'no branch'}`,
         description: r.repo,
         detail: r.path,
       }));
@@ -7613,8 +7613,8 @@ function makeInsideActionHost(
         onGraphRecovered(ticketId, graphRunId);
         void vscode.window.showInformationMessage(
           mode === 'replan'
-            ? `Ticket #${ticketId}: the implementation graph is replanning (graph run ${graphRunId}).`
-            : `Ticket #${ticketId}: the implementation graph recovery started (graph run ${graphRunId}).`,
+            ? `Ticket ${formatId('ticket', ticketId)}: the implementation graph is replanning (graph run ${graphRunId}).`
+            : `Ticket ${formatId('ticket', ticketId)}: the implementation graph recovery started (graph run ${graphRunId}).`,
         );
       }
     } catch (err) {
@@ -7672,21 +7672,21 @@ function makeInsideActionHost(
         );
         if (recovery.kind === 'retried') {
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
+            `Ticket ${formatId('ticket', ticketId)}: the implementation graph was retried (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'confirmation-restored') {
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the accepted implementation graph is ready to start again.`,
+            `Ticket ${formatId('ticket', ticketId)}: the accepted implementation graph is ready to start again.`,
           );
         } else if (recovery.kind === 'replanned') {
           if (recovery.launch) graphReplanLaunch(recovery.launch);
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
+            `Ticket ${formatId('ticket', ticketId)}: the implementation graph was replanned (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'relaunched') {
           if (recovery.launch) graphBootstrapRelaunch(recovery.launch);
           void vscode.window.showInformationMessage(
-            `Ticket #${ticketId}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
+            `Ticket ${formatId('ticket', ticketId)}: the implementation graph's bootstrap planner was relaunched (graph run ${outcome.graphRunId}).`,
           );
         } else if (recovery.kind === 'refused') {
           void vscode.window.showInformationMessage(
@@ -7707,7 +7707,7 @@ function makeInsideActionHost(
       }
     },
     openFullEvidence: (ticketId, processRunId) => {
-      void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket #${ticketId}`);
+      void vscode.window.showInformationMessage(`Inside evidence: process run #${processRunId} on ticket ${formatId('ticket', ticketId)}`);
     },
     openBoundedEvidence: (_ticketId, title, rows) => {
       const statusLabel: Record<string, string> = {
@@ -7892,7 +7892,7 @@ function makeDashboardActions(
     showChanges,
     switchAgent,
     copyTicketKey: () => {
-      const key = getTicket(store, ticketId).key ?? `#${ticketId}`;
+      const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
       void vscode.env.clipboard.writeText(key);
     },
     ...worktreeActions,
@@ -7973,7 +7973,7 @@ function makeDashboardActions(
           const state = sendBackState(store, ticketId);
           if (!state.available) {
             void vscode.window.showInformationMessage(
-              'This ticket cannot be sent back to Implement right now.',
+              `Ticket ${formatId('ticket', ticketId)} cannot be sent back to Implement right now.`,
             );
             return;
           }
@@ -7992,12 +7992,12 @@ function makeDashboardActions(
           if (!choice) return; // dismissed: nothing ran, and nothing is claimed
           const result = sendBackToImplement(store, ticketId, { debug });
           void vscode.window.showInformationMessage(
-            `Ticket moved back to Implement${result.from === 'ship' ? ' — open pull requests kept' : ''}.`,
+            `Ticket ${formatId('ticket', ticketId)} moved back to Implement${result.from === 'ship' ? ' — open pull requests kept' : ''}.`,
           );
         } catch (e) {
           logError('send back to implement failed', e);
           void vscode.window.showErrorMessage(
-            `Could not send the ticket back: ${e instanceof Error ? e.message : String(e)}`,
+            `Could not send ticket ${formatId('ticket', ticketId)} back: ${e instanceof Error ? e.message : String(e)}`,
           );
         } finally {
           afterServerChange();
@@ -8186,7 +8186,7 @@ function makeDashboardActions(
       const brief = buildConflictBrief(store, ticketId, repo);
       if (!brief) {
         void vscode.window.showInformationMessage(
-          `No merge conflict is recorded for "${repo}" on this ticket — nothing to resolve.`,
+          `No merge conflict is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to resolve.`,
         );
         return;
       }
@@ -8211,7 +8211,7 @@ function makeDashboardActions(
           const pr = findTicketPr(store, ticketId, repo);
           if (!pr) {
             void vscode.window.showInformationMessage(
-              `No pull request is recorded for "${repo}" on this ticket — nothing to merge.`,
+              `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to merge.`,
             );
             return;
           }
@@ -8244,7 +8244,7 @@ function makeDashboardActions(
           if (result.ok) {
             void vscode.window.showInformationMessage(
               result.completedTicket
-                ? `Merged pull request${pr.number ? ` #${pr.number}` : ''} — ticket done.`
+                ? `Merged pull request${pr.number ? ` #${pr.number}` : ''} — ticket ${formatId('ticket', ticketId)} done.`
                 : `Merged pull request${pr.number ? ` #${pr.number}` : ''}.`,
             );
             // `done` is reached here, not at ship: this is where the work has
@@ -8257,7 +8257,7 @@ function makeDashboardActions(
           // The reason is gh's own words where there are any. `mergeTicketPr` has
           // already persisted the real, re-probed state, so the panel and this
           // message describe the same PR.
-          logError(`merge failed for ticket #${ticketId} (${repo})`, undefined);
+          logError(`merge failed for ticket ${formatId('ticket', ticketId)} (${repo})`, undefined);
           void vscode.window.showErrorMessage(`Merge failed: ${result.reason}`);
         } catch (e) {
           logError('merge failed', e);
@@ -8290,7 +8290,7 @@ function makeDashboardActions(
           const pr = findTicketPr(store, ticketId, repo);
           if (!pr) {
             void vscode.window.showInformationMessage(
-              `No pull request is recorded for "${repo}" on this ticket — nothing to dismiss.`,
+              `No pull request is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to dismiss.`,
             );
             return;
           }
@@ -8324,7 +8324,7 @@ function makeDashboardActions(
           }
           void vscode.window.showInformationMessage(
             result.completedTicket
-              ? `Dismissed pull request${num} — ticket done.`
+              ? `Dismissed pull request${num} — ticket ${formatId('ticket', ticketId)} done.`
               : `Dismissed pull request${num}.`,
           );
           // Same rule as the merge that finishes a ticket: `done` is where the

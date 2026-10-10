@@ -116,4 +116,16 @@ describe('validateJson', () => {
     expect(validateJson({ type: 'string' }, null)).toMatch(/got null/);
     expect(validateJson({ type: 'boolean' }, null)).toMatch(/got null/);
   });
+
+  it('anyOf accepts a value matching any alternative and reports none otherwise', () => {
+    const s: JsonSchema = { anyOf: [{ type: 'integer', minimum: 1 }, { type: 'string', pattern: '^D[0-9]+$' }] };
+    expect(validateJson(s, 3)).toBeNull();
+    expect(validateJson(s, 'D3')).toBeNull();
+    expect(validateJson(s, 'X3')).toMatch(/matches none of the alternatives/);
+    expect(validateJson(s, 0)).toMatch(/matches none/);
+  });
+
+  it('rejects a schema with neither type nor anyOf', () => {
+    expect(validateJson({}, 1)).toMatch(/neither type nor anyOf/);
+  });
 });

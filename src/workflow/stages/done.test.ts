@@ -138,14 +138,14 @@ describe('statusPushSkipNote', () => {
   it('describes a no-ref skip as a DEBUG note, never an error', () => {
     expect(statusPushSkipNote('started', 3, { advanced: false, reason: 'no-ref' })).toEqual({
       level: 'debug',
-      message: 'ticket #3 started without a status update: no provider ref',
+      message: 'ticket T3 started without a status update: no provider ref',
     });
   });
 
   it('words the completed event as completed', () => {
     expect(statusPushSkipNote('completed', 3, { advanced: false, reason: 'no-ref' })).toEqual({
       level: 'debug',
-      message: 'ticket #3 completed without a status update: no provider ref',
+      message: 'ticket T3 completed without a status update: no provider ref',
     });
   });
 });

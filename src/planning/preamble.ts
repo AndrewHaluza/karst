@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { Manifest } from '../manifest/types.js';
 import { KARST_CLI_ENV, envRef, quoteArg } from '../agent/cliEnv.js';
+import { formatId, PREFIX } from '../model/entityId.js';
 import { MCP_TOOLS_PREFERRED } from '../agent/promptText.js';
 
 /**
@@ -166,13 +167,15 @@ function notesSection(notes: PlanningNotes | undefined, repoNames: string[]): st
 /** The standing instructions delivered through the core's own channel. */
 export function planningInstructions(input: PreambleInput): string {
   const { title, manifest, notes, history } = input;
+  const draftN = `${PREFIX.draft}<n>`;
+  const draft3 = formatId('draft', 3);
   const cli = envRef(KARST_CLI_ENV);
   const enabled = enabledRepos(manifest);
   const repos = enabled.map(
     ([name, def]) => `- ${name}: ${def.repoPath} (base ${def.baselineBranch ?? manifest.baselineBranch})`,
   );
   return [
-    `You are in a karst PLANNING session: "${title}".`,
+    `You are in a karst PLANNING session ${formatId('plan', input.sessionId)}: "${title}".`,
     'Investigate, ask the user clarifying questions, and agree on the work.',
     'Do not edit repository files, create branches, or start implementation. Depending on the agent,',
     'edit tools are blocked or need your approval; the repositories are listed below — read them by absolute path.',
@@ -192,12 +195,13 @@ export function planningInstructions(input: PreambleInput): string {
     'The summary holds the decisions reached and the options rejected, with reasons;',
     'it becomes the ticket brief the implementing agent reads. Propose one draft per piece of work.',
     'When one draft waits on another, set "dependsOn" to the host ids already assigned to the',
-    'drafts it needs (the #N each propose prints and `draft list` shows) — do NOT describe the',
-    'ordering in prose. Propose the prerequisite first, read its #N, then list it in the dependent',
-    'draft\'s "dependsOn"; if you only learn an id later, revise the dependent with both "id" and',
-    '"dependsOn". The host rejects an unknown id, a draft of another session, or an ordering cycle.',
+    `drafts it needs (the ${draftN} each propose prints as "ref" and \`draft list\` shows) — do NOT describe the`,
+    `ordering in prose, e.g. "dependsOn":["${draft3}"] (plain integers work too). Propose the prerequisite`,
+    `first, read its ${draftN}, then list it in the dependent draft's "dependsOn"; if you only learn an id`,
+    'later, revise the dependent with both "id" and "dependsOn".',
+    'The host rejects an unknown id, a draft of another session, or an ordering cycle.',
     '',
-    'Each propose prints the draft\'s id, e.g. {"ok":true,"id":3}. Cite drafts to the user as #N.',
+    `Each propose prints the draft's id and ref, e.g. {"ok":true,"id":3,"ref":"${draft3}"}. Cite drafts to the user as ${draftN}.`,
     'To REVISE a draft you already filed (new findings, changed repos), add that integer as "id" to',
     'the JSON object and propose again: the host replaces the draft in place while it is still',
     `pending. \`node ${cli} draft list\` re-reads the ids and statuses of this session's drafts.`,

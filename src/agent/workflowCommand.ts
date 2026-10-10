@@ -1,5 +1,8 @@
 import type { WorkflowPhase } from '../manifest/types.js';
+import { PREFIX } from '../model/entityId.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO } from './promptText.js';
+
+const TICKET_ID = `${PREFIX.ticket}<n>`;
 
 /**
  * Name of the karst-authored plugin that hosts every generated orchestrator
@@ -197,7 +200,7 @@ export function renderStartTaskCommand(input: {
 }): string {
   const { contextCommand, guideCommand } = input;
   const grammarParagraph =
-    'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key; everything after it is the brief the user wrote, and the brief is the work.';
+    `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id; everything after it is the brief the user wrote, and the brief is the work.`;
   return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
 }
 
@@ -212,7 +215,7 @@ export function renderResumeCommand(input: {
 }): string {
   const { contextCommand, guideCommand } = input;
   const grammarParagraph =
-    'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key. ' +
+    `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. ` +
     'This session is resuming work already in progress — there is no brief.';
   return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
 }
@@ -229,7 +232,7 @@ export function renderFixCommand(input: {
 }): string {
   const { contextCommand, fixBriefCommand, guideCommand } = input;
   const grammarParagraph =
-    'The first whitespace-delimited token in `$ARGUMENTS` is the ticket key. ' +
+    `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. ` +
     `Run \`${fixBriefCommand} <key>\` FIRST and treat its output as the work — the brief ` +
     'names the gate that failed and what it reported.';
   return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
@@ -247,7 +250,7 @@ export function renderResolveConflictCommand(input: {
 }): string {
   const { contextCommand, conflictBriefCommand, guideCommand } = input;
   const grammarParagraph =
-    'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` and `<repo>`. ' +
+    'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` (a ticket key or `T<n>` id) and `<repo>`. ' +
     `Run \`${conflictBriefCommand} <key> <repo>\` FIRST — resolving the named conflict is the ` +
     'whole job and it must not drift into other work.';
   return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
@@ -334,11 +337,11 @@ export function renderWorkflowCommand(input: {
       ]
     : [];
   const loadInstruction = contextCommand
-    ? 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
+    ? `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. ` +
       `First, load the ticket's full context by running \`${expand(contextCommand)} $ARGUMENTS\` ` +
       'and read the result — re-run it any time you need to refresh live worktree, ' +
       'branch, service, or PR state.'
-    : 'This command receives a ticket key as its argument, available in `$ARGUMENTS`. ' +
+    : `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. ` +
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
   const guideClause = guideCommand

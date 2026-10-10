@@ -8,7 +8,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 -->
 # The `karst` CLI (`src/cli/`)
 
-The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts).
+The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts). Ids in output and argv: `docs/arch/ids.md` (`arch:IDS-01`) — id arguments go through `parseId`, which accepts `T<n>`/`D<n>`, and a bare number or `#N` only where the kind is known.
 
 ## [@arch:CLI-01] Contents
 

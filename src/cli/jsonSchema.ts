@@ -17,7 +17,10 @@
 export type JsonSchemaType = 'object' | 'array' | 'string' | 'integer' | 'number' | 'boolean';
 
 export interface JsonSchema {
-  type: JsonSchemaType;
+  /** Required unless `anyOf` is given. */
+  type?: JsonSchemaType;
+  /** Valid when at least one alternative validates (alternatives carry their own `type`). */
+  anyOf?: readonly JsonSchema[];
   description?: string;
   /** Object only: property schemas. */
   properties?: Readonly<Record<string, JsonSchema>>;
@@ -70,6 +73,16 @@ function typeMatches(want: JsonSchemaType, value: unknown): boolean {
  * human-readable string (path-prefixed) or `null` when valid.
  */
 export function validateJson(schema: JsonSchema, value: unknown, path = '$'): string | null {
+  if (schema.anyOf !== undefined) {
+    const errors: string[] = [];
+    for (const alt of schema.anyOf) {
+      const err = validateJson(alt, value, path);
+      if (err === null) return null;
+      errors.push(err);
+    }
+    return `${path}: matches none of the alternatives (${errors.join('; ')})`;
+  }
+  if (schema.type === undefined) return `${path}: schema has neither type nor anyOf`;
   if (!typeMatches(schema.type, value)) {
     return `${path}: expected ${schema.type}, got ${typeOf(value)}`;
   }

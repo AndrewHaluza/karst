@@ -1,4 +1,5 @@
 import type { Store } from '../store/db.js';
+import { formatTicketRef } from '../model/entityId.js';
 import { findTicketById } from '../store/tickets.js';
 import { createSubtask } from '../workflow/stages/subtask.js';
 
@@ -122,7 +123,7 @@ export function runSubtaskCommand(
     id: child.id,
     key: child.key,
     title: child.title,
-    parent: parent.key ?? `#${parentId}`,
+    parent: formatTicketRef(parentId, parent.key),
     blocking: child.blocksParent,
     repos: child.selectedRepos,
     stage: child.stageCurrent,

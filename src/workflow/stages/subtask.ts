@@ -10,6 +10,7 @@ import {
 } from '../../store/tickets.js';
 import { addRelation, type RelationSource } from '../../store/ticketRelations.js';
 import { getEnvOverrides, setServiceEnvOverrides } from '../../store/ticketEnvOverrides.js';
+import { formatId, formatTicketRef } from '../../model/entityId.js';
 
 /**
  * Nesting cap (design NDL-70 §3, D7). "Depth" is the number of `-s<n>` segments
@@ -45,7 +46,7 @@ export interface SubtaskFields {
 /** No ticket with `parentId` exists (readers must tolerate a missing row). */
 export class SubtaskParentMissingError extends Error {
   constructor(parentId: number) {
-    super(`cannot create a sub-task: ticket #${parentId} does not exist`);
+    super(`cannot create a sub-task: ticket ${formatId('ticket', parentId)} does not exist`);
     this.name = 'SubtaskParentMissingError';
   }
 }
@@ -53,7 +54,7 @@ export class SubtaskParentMissingError extends Error {
 /** A sub-task of an archived parent would resurrect abandoned work. */
 export class SubtaskParentArchivedError extends Error {
   constructor(parentId: number) {
-    super(`cannot create a sub-task: parent ticket #${parentId} is archived`);
+    super(`cannot create a sub-task: parent ticket ${formatId('ticket', parentId)} is archived`);
     this.name = 'SubtaskParentArchivedError';
   }
 }
@@ -65,7 +66,7 @@ export class SubtaskParentArchivedError extends Error {
  */
 export class SubtaskParentStageError extends Error {
   constructor(parentId: number, stageCurrent: string) {
-    super(`cannot create a sub-task: parent ticket #${parentId} is at '${stageCurrent}'`);
+    super(`cannot create a sub-task: parent ticket ${formatId('ticket', parentId)} is at '${stageCurrent}'`);
     this.name = 'SubtaskParentStageError';
   }
 }
@@ -74,7 +75,7 @@ export class SubtaskParentStageError extends Error {
 export class SubtaskProjectMismatchError extends Error {
   constructor(parentId: number, parentProjectId: number | null, scopeProjectId: number) {
     super(
-      `cannot create a sub-task: parent ticket #${parentId} is in project ${parentProjectId ?? 'none'}, not ${scopeProjectId}`,
+      `cannot create a sub-task: parent ticket ${formatId('ticket', parentId)} is in project ${parentProjectId ?? 'none'}, not ${scopeProjectId}`,
     );
     this.name = 'SubtaskProjectMismatchError';
   }
@@ -84,7 +85,7 @@ export class SubtaskProjectMismatchError extends Error {
 export class SubtaskDepthExceededError extends Error {
   constructor(parentId: number, depth: number) {
     super(
-      `cannot create a sub-task: ticket #${parentId} is already at depth ${depth - 1} (max ${MAX_SUBTASK_DEPTH})`,
+      `cannot create a sub-task: ticket ${formatId('ticket', parentId)} is already at depth ${depth - 1} (max ${MAX_SUBTASK_DEPTH})`,
     );
     this.name = 'SubtaskDepthExceededError';
   }
@@ -93,7 +94,7 @@ export class SubtaskDepthExceededError extends Error {
 /** A corrupt `subtask_parent_id` chain visited the same ticket twice. */
 export class SubtaskCycleError extends Error {
   constructor(ticketId: number) {
-    super(`cannot create a sub-task: sub-task parent chain from ticket #${ticketId} contains a cycle`);
+    super(`cannot create a sub-task: sub-task parent chain from ticket ${formatId('ticket', ticketId)} contains a cycle`);
     this.name = 'SubtaskCycleError';
   }
 }
@@ -164,30 +165,30 @@ export function createSubtask(
 ): TicketWithStages {
   const parent = findTicketById(store, parentId);
   if (!parent) {
-    debug?.(`[driver] sub-task under #${parentId}: parent not found — refusing`);
+    debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: parent not found — refusing`);
     throw new SubtaskParentMissingError(parentId);
   }
-  const parentKey = parent.key ?? `#${parent.id}`;
+  const parentKey = parent.key ?? formatId('ticket', parent.id);
   debug?.(
-    `[driver] sub-task under #${parentId}: parent stage is '${parent.stageCurrent ?? 'none'}'`,
+    `[driver] sub-task under ${formatId('ticket', parentId)}: parent stage is '${parent.stageCurrent ?? 'none'}'`,
   );
   if (parent.archivedAt !== null) {
-    debug?.(`[driver] sub-task under #${parentId}: parent archived — refusing`);
+    debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: parent archived — refusing`);
     throw new SubtaskParentArchivedError(parentId);
   }
   if (scope.projectId !== undefined && parent.projectId !== scope.projectId) {
-    debug?.(`[driver] sub-task under #${parentId}: project mismatch — refusing`);
+    debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: project mismatch — refusing`);
     throw new SubtaskProjectMismatchError(parentId, parent.projectId, scope.projectId);
   }
   if (parent.stageCurrent === 'ship' || parent.stageCurrent === 'done') {
-    debug?.(`[driver] sub-task under #${parentId}: parent in '${parent.stageCurrent}' — refusing`);
+    debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: parent in '${parent.stageCurrent}' — refusing`);
     throw new SubtaskParentStageError(parentId, parent.stageCurrent);
   }
 
   const depth = subtaskAncestorCount(store, parent.id) + 1;
   if (depth > MAX_SUBTASK_DEPTH) {
     debug?.(
-      `[driver] sub-task under #${parentId}: depth ${depth} exceeds ${MAX_SUBTASK_DEPTH} — refusing`,
+      `[driver] sub-task under ${formatId('ticket', parentId)}: depth ${depth} exceeds ${MAX_SUBTASK_DEPTH} — refusing`,
     );
     throw new SubtaskDepthExceededError(parentId, depth);
   }
@@ -197,13 +198,13 @@ export function createSubtask(
   const outside = repos.filter((repo) => !parentRepos.has(repo));
   if (outside.length > 0) {
     debug?.(
-      `[driver] sub-task under #${parentId}: repos not in parent (${outside.join(', ')}) — refusing`,
+      `[driver] sub-task under ${formatId('ticket', parentId)}: repos not in parent (${outside.join(', ')}) — refusing`,
     );
     throw new SubtaskRepoNotInParentError(parentKey, outside);
   }
 
   const key = nextSubtaskKey(store, parentKey, scope);
-  debug?.(`[driver] sub-task under #${parentId}: creating child '${key}'`);
+  debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: creating child '${key}'`);
   const child = createTicket(store, {
     key,
     title: fields.title,
@@ -251,6 +252,6 @@ export function createSubtask(
     });
   }
 
-  debug?.(`[driver] sub-task under #${parentId}: child #${child.id} ('${key}') created`);
+  debug?.(`[driver] sub-task under ${formatId('ticket', parentId)}: child ${formatId('ticket', child.id)} ('${key}') created`);
   return getTicket(store, child.id);
 }

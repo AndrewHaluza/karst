@@ -97,6 +97,17 @@ describe('runContextCommand', () => {
     expect(parsed.paused).toBe(false);
   });
 
+  it('carries a prefixed ref next to the numeric id, on the ticket and its relations', () => {
+    seed();
+    const child = createTicket(store, { key: 'PROJ-10', title: 'Child', parentTicketId: 1 });
+    const parent = JSON.parse(runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json' }));
+    expect(parent.id).toBe(1);
+    expect(parent.ref).toBe('T1');
+    const followUp = JSON.parse(runContextCommand(store, MANIFEST, { key: 'PROJ-10', format: 'json' }));
+    expect(followUp.ref).toBe(`T${child.id}`);
+    expect(followUp.parent).toMatchObject({ id: 1, ref: 'T1' });
+  });
+
   it('reports paused true in json context when ticket is paused', () => {
     seed();
     pauseTicket(store, 1);
@@ -141,7 +152,7 @@ describe('runContextCommand', () => {
   it('renders markdown when asked', () => {
     seed();
     const out = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md' });
-    expect(out).toContain('# Ticket: PROJ-9 — Do research');
+    expect(out).toContain('# Ticket: T1 · PROJ-9 — Do research');
     expect(out).toContain('## Prompt\nAudit the app');
   });
 

@@ -3,6 +3,7 @@ import { markServerStopped } from './supervisor.js';
 import { pidAlive } from './pidAlive.js';
 import { connect } from 'node:net';
 import { isContainerRunning } from './orphanContainers.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Retire `running` server rows whose process is actually gone.
@@ -158,5 +159,5 @@ export async function sweepServerLiveness(
 
 export function describeRetired(s: RetiredServer): string {
   return `karst: '${s.service}' is no longer running (pid ${s.pid ?? 'unknown'})` +
-    `${s.ticketId === null ? '' : ` on ticket #${s.ticketId}`} — marked offline.`;
+    `${s.ticketId === null ? '' : ` on ticket ${formatId('ticket', s.ticketId)}`} — marked offline.`;
 }

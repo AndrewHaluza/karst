@@ -1,4 +1,5 @@
 import type { Store } from './db.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Planning sessions (v65) — a read-only, stack-aware agent conversation that
@@ -98,7 +99,7 @@ export function getPlanningSession(store: Store, id: number): PlanningSession | 
 
 function requireSession(store: Store, id: number): PlanningSession {
   const s = getPlanningSession(store, id);
-  if (!s) throw new Error(`planning session ${id} not found`);
+  if (!s) throw new Error(`planning session ${formatId('plan', id)} not found`);
   return s;
 }
 

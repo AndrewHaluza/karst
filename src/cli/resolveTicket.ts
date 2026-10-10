@@ -1,6 +1,7 @@
 import type { Store } from '../store/db.js';
 import { findTicketById, getTicketsByKey, type Ticket } from '../store/tickets.js';
 import { getProjectBySlug } from '../store/projects.js';
+import { formatId, parseId } from '../model/entityId.js';
 
 /**
  * Resolve a ticket key the way every CLI subcommand must (§ projects /
@@ -40,8 +41,8 @@ export function resolveTicketByKey(
   // after both key lookups miss, so a ticket whose key IS that number always
   // wins. Only the canonical decimal spelling `KARST_TICKET_ID` can carry is
   // accepted, so `01` never aliases row 1.
-  if (!/^[1-9][0-9]*$/.test(key)) return undefined;
-  const id = Number(key);
+  const id = ticketIdFromText(key);
+  if (id === undefined) return undefined;
   // No unscoped fallback here: row ids are dense and global, so a bare number
   // hits SOME project's ticket almost always. Resolving it would advance the
   // wrong board and leak another project's context — the very thing
@@ -49,6 +50,26 @@ export function resolveTicketByKey(
   // sparse and project-prefixed); ids may not.
   if (projectId !== undefined) return findTicketById(store, id, { projectId });
   return findTicketById(store, id);
+}
+
+/**
+ * The ticket row id a CLI argument spells (`T5`, `5`, `T5 · KEY`), or undefined
+ * for junk. A well-formed id of ANOTHER kind (`D5`, `P3`) throws parseId's
+ * wrong-kind error, which names the expected `T<n>`.
+ */
+export function ticketIdFromText(text: string): number | undefined {
+  try {
+    return parseId(text, 'ticket').n;
+  } catch (err) {
+    let otherKind = false;
+    try {
+      otherKind = parseId(text).kind !== 'ticket';
+    } catch {
+      // not an id form at all — the caller reports "no ticket found"
+    }
+    if (otherKind) throw err;
+    return undefined;
+  }
 }
 
 /**
@@ -61,7 +82,7 @@ function selectNamesake(matches: Ticket[], key: string): Ticket | undefined {
   const live = matches.filter((t) => t.archivedAt === null);
   const candidates = live.length > 0 ? live : matches;
   if (candidates.length > 1) {
-    const ids = candidates.map((t) => `#${t.id}`).join(', ');
+    const ids = candidates.map((t) => formatId('ticket', t.id)).join(', ');
     const kind = live.length > 0 ? 'non-archived' : 'archived';
     throw new Error(
       `ambiguous ticket key '${key}': ${candidates.length} ${kind} tickets match (${ids}) — ` +

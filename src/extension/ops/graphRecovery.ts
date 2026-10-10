@@ -11,6 +11,7 @@ import { graphRunStatusReplanCount } from '../../store/graph/graphRuns.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import type { CompileContext } from '../../approaches/graph/compile.js';
 import type { RecoveryRefusalReason } from '../../approaches/graph/coordinator/recovery.js';
+import { formatId } from '../../model/entityId.js';
 
 /** The project's hard replan cap: `limits.maxReplans`, with the packaged
  *  default fallback. Raising config can lift it; it is never the revision
@@ -58,7 +59,7 @@ export function graphRecoveryRefusalNotice(
   mode: 'resume' | 'replan',
   reason: RecoveryRefusalReason,
 ): string {
-  const head = `Ticket #${ticketId}: the implementation graph cannot ${mode} itself (${reason}).`;
+  const head = `Ticket ${formatId('ticket', ticketId)}: the implementation graph cannot ${mode} itself (${reason}).`;
   switch (reason) {
     case 'config-then-resume':
       return (

@@ -35,12 +35,25 @@ export interface Proposal {
 
 export type ProposalResult = { ok: true; value: Proposal } | { ok: false; reason: string };
 
+import { parseId } from '../model/entityId.js';
+
 const REQUIRED_KEYS = ['description', 'repos', 'summary', 'title'];
 const OPTIONAL_KEYS = ['id', 'dependsOn'];
 const ALLOWED_KEYS = [...REQUIRED_KEYS, ...OPTIONAL_KEYS];
 // C0 (minus \t \n), DEL, C1, and bidi embedding/override/isolate/mark controls.
 const BODY_CONTROLS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
 const ALL_CONTROLS = /[\u0000-\u001F\u007F-\u009F‎‏‪-‮⁦-⁩]/g;
+
+/** A draft id as a number: `3`, `"3"`, `"D3"` or `"d3"`; anything else (incl. other prefixes) is undefined. */
+function asDraftNumber(v: unknown): number | undefined {
+  if (typeof v === 'number') return Number.isInteger(v) && v > 0 ? v : undefined;
+  if (typeof v !== 'string') return undefined;
+  try {
+    return parseId(v, 'draft').n;
+  } catch {
+    return undefined;
+  }
+}
 
 const fail = (reason: string): ProposalResult => ({ ok: false, reason });
 
@@ -64,21 +77,19 @@ export function validateProposal(raw: unknown): ProposalResult {
 
   let id: number | undefined;
   if ('id' in rec) {
-    const v = rec.id;
-    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) {
-      return fail('id must be a positive integer');
-    }
-    id = v;
+    id = asDraftNumber(rec.id);
+    if (id === undefined) return fail('id must be a positive integer or a D<n> id');
   }
 
   let dependsOn: number[] | undefined;
   if ('dependsOn' in rec) {
     const v = rec.dependsOn;
-    if (!Array.isArray(v)) return fail('dependsOn must be an array of positive integers');
-    if (!v.every((d): d is number => typeof d === 'number' && Number.isInteger(d) && d > 0)) {
-      return fail('every dependsOn entry must be a positive integer');
+    if (!Array.isArray(v)) return fail('dependsOn must be an array of positive integers or D<n> ids');
+    const nums = v.map(asDraftNumber);
+    if (!nums.every((d): d is number => d !== undefined)) {
+      return fail('every dependsOn entry must be a positive integer or a D<n> id');
     }
-    dependsOn = [...new Set(v)];
+    dependsOn = [...new Set(nums)];
     if (dependsOn.length > MAX_PROPOSAL_DEPENDS_ON) {
       return fail(`dependsOn must have at most ${MAX_PROPOSAL_DEPENDS_ON} entries`);
     }

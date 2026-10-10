@@ -60,7 +60,7 @@ describe('issue report UI model', () => {
     expect(ticketCandidates(tickets, 7)).toEqual([
       {
         id: 1,
-        label: 'K-1 — First',
+        label: 'T1 · K-1 — First',
         description: 'Stage: impl · Updated: 2026-07-28 15:36:00',
       },
     ])
