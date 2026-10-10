@@ -126,6 +126,16 @@ END_DOC_BLOCK: [@arch:CLI-13]
 - **Threat model.** Only codex is truly sandboxed; claude, opencode and agy can run any shell command the user approves, so the outbox and the scan limit damage but do not isolate sessions. The human confirmation, with the whole agent-authored content in view, is the trust boundary.
 END_DOC_BLOCK: [@arch:CLI-17]
 
+## [@arch:PLANNING-HISTORY] A planning session starts grounded in recent history and the arch keys
+
+The planning instructions (`planningInstructions`, `src/planning/preamble.ts`) carry a resident history snapshot and a pre-proposal checklist, because a planner that read only the current code proposed drafts that broke documented rules and duplicated landed work (planning session 17).
+
+- **Snapshot.** At launch the host (`gatherPlanningHistory`, `src/extension/ops/planningHistory.ts`, async `git`, never `spawnSync`) gathers, once per distinct enabled `repoPath`: `git -C <repoPath> log --oneline -12 <base> --` (the trailing `--` keeps a base named like a file a revision), each line cut to 90 chars; and the keys of `## [@arch:KEY]` headings per `docs/arch/*.md` — keys only, never block bodies. The preamble stays pure and renders it after the stack, at most 12 commits and 1500 chars per repo; keys past the bound collapse to `… and N more`.
+- **Failure never blocks a launch.** A git failure omits the commits, a missing `docs/arch` omits the keys, a rejected gatherer omits the section; each logs a `[planning]` debug line. The launch debug line reports `history <n>c`.
+- **Checklist.** Before the draft contract: read the matching `@arch` blocks, check landed and in-flight work on the changed paths (`git log -- <paths>`, `draft list`, `<repo>/.karst/worktrees`), say a landed draft landed instead of revising it, and cite what was relied on in the draft summary.
+- **Why resident** (`@arch:RESIDENT`): needed on most runs, short, and it prevents an error the planner cannot self-detect.
+END_DOC_BLOCK: [@arch:PLANNING-HISTORY]
+
 ## [@arch:CLI-14] `manifest` / `setup`: an onboarding setup session discovers, proposes, and verifies
 
 A SETUP session (launched from Getting Started's "Set up with agent" action, `extension/ops/setupOps.ts`) turns a workspace into a working `karst.yml`. It has NO file-edit permission: it changes the project only through proposals the extension applies after the user approves. Its commands (`cli/manifestCommand.ts`, `cli/setupCommand.ts`, `cli/setupVerify.ts`) share the planning posture — the agent writes files into its outbox, the host is the sole writer of durable state, and every value is bounded.

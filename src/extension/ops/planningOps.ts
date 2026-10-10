@@ -18,6 +18,7 @@ import {
 import {
   KARST_PLANNING_SESSION_ENV,
   PLANNING_OUTBOX_ENV,
+  historySection,
   planningAddDirs,
   planningInstructions,
   planningKickoff,
@@ -25,6 +26,7 @@ import {
   planningRepoNames,
   type PlanningManifest,
   type PlanningNotes,
+  type PlanningRepoHistory,
 } from '../../planning/preamble.js';
 import type { SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
@@ -119,6 +121,11 @@ export interface PlanningOpsDeps {
   confirmUnsafeCore?: (core: AgentProvider) => Promise<boolean>;
   /** Called when the session list or a terminal's liveness changes (the sidebar re-pushes). */
   onChange?: () => void;
+  /**
+   * Gathers each repo's recent base commits and docs/arch keys for the
+   * instructions. A rejection is logged and the launch continues without it.
+   */
+  planningHistory?: (manifest: PlanningManifest) => Promise<PlanningRepoHistory[]>;
   debug?: (message: string) => void;
 }
 
@@ -169,6 +176,17 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     return { ...index, dbPath: deps.dbPath };
   }
 
+  /** The history snapshot, or undefined when none is wired or gathering failed. */
+  async function historyFor(id: number, manifest: PlanningManifest): Promise<PlanningRepoHistory[] | undefined> {
+    if (!deps.planningHistory) return undefined;
+    try {
+      return await deps.planningHistory(manifest);
+    } catch (err) {
+      debug(`launch ${id}: history omitted: ${err instanceof Error ? err.message : String(err)}`);
+      return undefined;
+    }
+  }
+
   /** Start the agent terminal. False (after a warning) when it could not. */
   async function launch(session: PlanningSession): Promise<boolean> {
     const manifest = deps.manifest();
@@ -188,10 +206,12 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       // from the running karst version, and delivered through the core's own
       // channel; the kickoff is separate (empty today). The same file is
       // addressable by the agent as KARST_INSTRUCTIONS.
+      const history = await historyFor(session.id, manifest);
       const instructions = writeSessionInstructions(
         cwd,
-        planningInstructions({ sessionId: session.id, title: session.title, manifest, notes: notesFor(manifest) }),
+        planningInstructions({ sessionId: session.id, title: session.title, manifest, notes: notesFor(manifest), history }),
       );
+      const historyChars = historySection(history).join('\n').length;
       const kickoff = planningKickoff();
       const adapter = resolveAdapter(session.core as AgentProvider);
       const cmd = adapter.buildInteractiveCommand({
@@ -211,7 +231,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       debug(
         `launch ${session.id}: ${session.core} ${cmd.command} (cwd ${cwd}, ` +
           `instructions ${metrics.instructionsChars ?? 0}c #${metrics.instructionsHash ?? 'none'} ` +
-          `via ${cmd.instructionsChannel ?? 'n/a'})`,
+          `via ${cmd.instructionsChannel ?? 'n/a'}, history ${historyChars}c)`,
       );
       const terminal = deps.host.createTerminal({
         name: `${PLANNING_TERMINAL_PREFIX}${session.id} ${session.title}`,
