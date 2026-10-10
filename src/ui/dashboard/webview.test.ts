@@ -510,10 +510,15 @@ describe('dashboard webview.html', () => {
     // locally — view state only, no host round trip.
     // `artifact-findings-repo` (§ findings severity ramp) filters findings
     // cards client-side in the Artifacts panel — no host round trip.
+    // `baseline-view` / `baseline-reject-open` / `baseline-reject-cancel`
+    // (@arch:BASELINE-REVIEW) are the same carve-out: the Old|New|Difference
+    // tab and the reject form's open/close are view state. Only approve and reject (with a
+    // validated reason) reach the host.
     const emitted = [...HTML.matchAll(/data-act="([^"$]+)"/g)]
       .map((m) => m[1]!)
       .filter(
         (act) => act !== 'preview-ticket-data'
+          && !['baseline-view', 'baseline-reject-open', 'baseline-reject-cancel'].includes(act)
           && act !== 'toggle-base-form'
           && act !== 'toggle-rebase-switch'
           && act !== 'artifact-findings-repo'
@@ -2564,6 +2569,8 @@ interface PreviewHarness {
   fits(): number[];
   /** Type into the env editor's textarea for one scope (what Save then reads). */
   typeEnv(scope: string, text: string): void;
+  /** Fire the delegated `input` listener from a fake field at ONE selector. */
+  input(sel: string, dataset: Record<string, string>, value: string): void;
   /** Every `<script>` the webview appended to `document.head` (lazy xterm delivery). */
   appendedScripts(): Array<{ nonce: string; textContent: string }>;
 }
@@ -2850,6 +2857,10 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     fits: () => terminalInstances.map((t) => t.addon?.fitCalls ?? 0),
     typeEnv: (scope: string, text: string) => {
       envTextareas[scope] = text;
+    },
+    input: (sel, dataset, value) => {
+      const node = { dataset, value, closest: (s: string) => (s === sel ? node : null) };
+      for (const handler of docListeners.get('input') ?? []) handler({ target: node });
     },
   };
 }
@@ -5117,6 +5128,113 @@ function artifactFixtures(): ArtifactSummary[] {
 function stateWithArtifacts(): DashboardState {
   return { ...renderStateFor('uat'), artifacts: artifactFixtures() };
 }
+
+const BASELINE_ROWS: NonNullable<DashboardState['baselineReview']> = [
+  { index: 0, path: 'tests/visual/__baselines__/a/settings.png', label: 'a/settings.png', status: 'modified',
+    oldSrc: 'vscode-webview://x/old.png', newSrc: 'vscode-webview://x/new.png', decision: 'pending', reason: null },
+  { index: 1, path: 'tests/visual/__baselines__/b.png', label: 'b.png', status: 'added',
+    oldSrc: null, newSrc: 'vscode-webview://x/b.png', decision: 'approved', reason: null },
+  { index: 2, path: 'tests/visual/layout-known-failures.json', label: 'layout-known-failures.json', status: 'modified',
+    oldSrc: null, newSrc: null, decision: 'rejected', reason: 'ledger grew' },
+];
+
+/** A UAT ticket parked on a baseline review, as the panel overlays it. */
+function stateWithBaselines(): DashboardState {
+  const base = stateWithArtifacts();
+  const blocked = {
+    kind: 'baseline-review' as const,
+    reason: '2 visual baseline(s) changed — review in the UAT report',
+    at: '',
+    resumable: false,
+  };
+  return {
+    ...base,
+    currentStage: { ...(base.currentStage as object), stageKey: 'uat', blocked } as never,
+    baselineReview: BASELINE_ROWS,
+    artifacts: base.artifacts.map((a) =>
+      a.id === 'uat-report'
+        ? { ...a, baselines: BASELINE_ROWS.map(({ path, status, decision, reason }) => ({ path, status, decision, reason })) }
+        : a),
+  };
+}
+
+describe('baseline review (executed in a VM)', () => {
+  const open = (): PreviewHarness => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: stateWithBaselines() });
+    return h;
+  };
+
+  it('the blocked banner is "Review baselines" with one row per file: Old | New | Difference, state words, Approve/Reject — and no Resume', () => {
+    const banner = open().htmlOf('blocked');
+    expect(banner).toContain('Review baselines');
+    expect(banner).not.toContain('stage-resume');
+    expect(banner).toContain('2 of 3 changed baselines need your approval');
+    expect(banner).toContain('a/settings.png');
+    for (const word of ['Old', 'New', 'Difference']) expect(banner).toContain(`>${word}</button>`);
+    // The default view of a modified image is the difference: both images, stacked.
+    expect(banner).toMatch(/class="bldiff"><img src="vscode-webview:\/\/x\/old.png"[\s\S]*<img src="vscode-webview:\/\/x\/new.png"/);
+    // State is a visible WORD with a glyph, not colour alone (UI-R28).
+    expect(banner).toContain('○ Needs review');
+    expect(banner).toContain('✓ Approved');
+    expect(banner).toContain('✕ Rejected');
+    expect(banner).toContain('Rejected: ledger grew');
+    expect(banner).toContain('data-indices="0,2"');
+    expect(banner).toContain('No preview for this file type');
+  });
+
+  it('the UAT report only LISTS the baselines — no Approve/Reject, no images (@arch:SHELF)', () => {
+    const h = open();
+    h.click('[data-art-open]', { artOpen: 'uat-report' });
+    const detail = h.htmlOf('artView');
+    expect(detail).toContain('Visual baselines');
+    expect(detail).toContain('tests/visual/__baselines__/a/settings.png');
+    expect(detail).toContain('○ Needs review');
+    expect(detail).not.toContain('baseline-approve');
+    expect(detail).not.toContain('baseline-reject');
+    expect(detail).not.toContain('<img');
+  });
+
+  it('toggles the view locally with aria-pressed, an added file showing New by default', () => {
+    const h = open();
+    h.click('[data-act]', { act: 'baseline-view', index: '0', view: 'old' });
+    const banner = h.htmlOf('blocked');
+    expect(banner).toMatch(/data-view="old"[^>]*aria-pressed="true"/);
+    expect(banner).toMatch(/data-view="diff"[^>]*aria-pressed="false"/);
+    expect(banner).not.toContain('class="bldiff"');
+    expect(banner).toMatch(/data-index="1" data-view="new" aria-pressed="true"/);
+    expect(h.posted.filter((m) => (m as { type?: string }).type?.startsWith('baseline'))).toEqual([]);
+  });
+
+  it('Approve all posts the block id and indices only', () => {
+    const h = open();
+    h.click('[data-act]', { act: 'baseline-approve', blockId: 'baseline-review', indices: '0,2' });
+    expect(h.posted.find((m) => (m as { type?: string }).type === 'baseline-approve')).toMatchObject({
+      type: 'baseline-approve', blockId: 'baseline-review', indices: [0, 2],
+    });
+  });
+
+  it('Reject requires a reason: an empty one names the field and posts nothing', () => {
+    const h = open();
+    h.click('[data-act]', { act: 'baseline-reject-open', index: '0' });
+    expect(h.htmlOf('blocked')).toContain('id="blreason-0"');
+    h.click('[data-act]', { act: 'baseline-reject', blockId: 'baseline-review', index: '0' });
+    const banner = h.htmlOf('blocked');
+    expect(banner).toMatch(/aria-invalid="true"[^>]*aria-describedby="blreason-err-0"/);
+    expect(banner).toContain('A reason is required.');
+    expect(h.posted.some((m) => (m as { type?: string }).type === 'baseline-reject')).toBe(false);
+  });
+
+  it('Reject posts the typed reason with the entry index', () => {
+    const h = open();
+    h.click('[data-act]', { act: 'baseline-reject-open', index: '0' });
+    h.input('[data-bl-reason]', { blReason: '0' }, 'wrong colour');
+    h.click('[data-act]', { act: 'baseline-reject', blockId: 'baseline-review', index: '0' });
+    expect(h.posted.find((m) => (m as { type?: string }).type === 'baseline-reject')).toMatchObject({
+      type: 'baseline-reject', blockId: 'baseline-review', index: 0, reason: 'wrong colour',
+    });
+  });
+});
 
 describe('artifacts render round trip (executed in a VM)', () => {
   it('renders the shelf only when artifacts exist, with the semantic count and at most 3 previews', () => {

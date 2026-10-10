@@ -76,6 +76,7 @@ Based on files to be modified, load relevant project guidelines:
 - Check for component-specific README files
 - Check for coding style guides
 - Check for testing requirements documentation
+- If the files include a webview (`src/ui/**`): read `docs/ui/README.md` and UI-RULES group L (`ui:UI-R39`..`R48`) first
 
 ### 0.3 Analyze Implementation Scope
 

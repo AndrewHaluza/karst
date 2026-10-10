@@ -31,6 +31,12 @@ export interface DashboardPanel {
    * repaint. Absent → assume visible, which is exactly the pre-tick behavior.
    */
   isVisible?(): boolean;
+  /**
+   * Mint a webview-safe URI for a local file (real: `webview.asWebviewUri`).
+   * Per panel, because the URI embeds that webview's origin. Absent → the path
+   * itself (fakes); only the baseline-review images use it.
+   */
+  asWebviewUri?(absPath: string): string;
   /** Update the tab icon (real: `panel.iconPath = Uri.file(path)`). */
   setIcon(path: string): void;
 }

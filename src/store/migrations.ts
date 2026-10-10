@@ -6,6 +6,8 @@ import { SCHEMA_VERSION } from './schemaVersion.js';
 import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } from './ticketMessagesRepair.js';
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
+import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
+import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2596,6 +2598,19 @@ function migrateLocked(db: Database): void {
     if (proposalCols74.size > 0 && !proposalCols74.has('depends_dropped')) {
       db.exec("ALTER TABLE planning_proposals ADD COLUMN depends_dropped TEXT NOT NULL DEFAULT '[]'");
     }
+  }
+
+  if (current < 75) {
+    // v75: `baseline_decisions` — the user's append-only verdicts on baseline
+    // files a ticket changed (@arch:BASELINE-REVIEW). A whole new table (IF NOT
+    // EXISTS DDL), nothing backfilled: no decision existed before the table.
+    db.exec(BASELINE_DECISIONS_DDL);
+  }
+
+  if (current < 76) {
+    // v76: `uat_gate_passes` — fingerprints of working trees whose UAT gate list
+    // passed (@arch:BASELINE-REVIEW). A whole new table, nothing backfilled.
+    db.exec(UAT_GATE_PASSES_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

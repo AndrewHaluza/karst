@@ -160,6 +160,7 @@ describe('sub-task events from the stage writer', () => {
       'unmapped-repository': true,
       'approach-graph-failed': true,
       'subtask-integration-conflict': true,
+      'baseline-review': true,
       'awaiting-merge': false,
       'awaiting-impl-marker': false,
       'awaiting-subtask': false,

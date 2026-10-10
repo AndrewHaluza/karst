@@ -5,6 +5,7 @@ import type {
   Severity,
   UatAuthBootstrap,
   UatAuthor,
+  UatBaselineReviewConfig,
   UatConfig,
   UatGateDef,
   UatRepositoryOverride,
@@ -195,6 +196,30 @@ function validateTesterObservations(raw: unknown): UatTesterObservationsConfig |
   return { blockingSeverity };
 }
 
+/**
+ * `uat.baselineReview` (@arch:BASELINE-REVIEW): repo-relative globs handed to
+ * `git diff -- <pathspec>`, so an absolute or `..` entry is refused — it could
+ * never match inside the worktree. An empty list reads as "feature off".
+ */
+function validateBaselineReview(raw: unknown): UatBaselineReviewConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) throw new ManifestError('uat.baselineReview must be a mapping');
+  if (raw.paths === undefined) return undefined;
+  if (!Array.isArray(raw.paths)) {
+    throw new ManifestError('uat.baselineReview.paths must be a list of globs');
+  }
+  const paths = raw.paths.map((entry) => {
+    if (typeof entry !== 'string' || entry.trim().length === 0) {
+      throw new ManifestError('uat.baselineReview.paths entries must be non-empty strings');
+    }
+    if (entry.startsWith('/') || entry.split('/').includes('..')) {
+      throw new ManifestError(`uat.baselineReview.paths "${entry}" must be repo-relative`);
+    }
+    return entry;
+  });
+  return paths.length === 0 ? undefined : { paths };
+}
+
 function validateRepositories(raw: unknown): Record<string, UatRepositoryOverride> {
   if (raw === undefined) return {};
   if (!isObject(raw)) throw new ManifestError('uat.repositories must be a mapping');
@@ -270,6 +295,8 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   }
   const testerObservations = validateTesterObservations(raw.testerObservations);
   if (testerObservations !== undefined) config.testerObservations = testerObservations;
+  const baselineReview = validateBaselineReview(raw.baselineReview);
+  if (baselineReview !== undefined) config.baselineReview = baselineReview;
   const authBootstrap = validateAuthBootstrap(raw.authBootstrap);
   if (authBootstrap !== undefined) config.authBootstrap = authBootstrap;
   const author = validateAuthor(raw.author);

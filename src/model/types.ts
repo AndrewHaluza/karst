@@ -90,6 +90,12 @@ export type BlockerKind =
   // duplicate it. Entered on ship's own pass (workflow/mergeGate.ts), cleared
   // the moment every PR it opened reads merged.
   | 'awaiting-merge'
+  // Same shape as `awaiting-merge`: the question WAS asked — UAT's gates passed
+  // and a ticket-changed baseline image (@arch:BASELINE-REVIEW) now waits for
+  // the USER's Approve/Reject in the UAT report. Not "karst could not ask": a
+  // retry cannot decide for the user, so Resume is refused and only a recorded
+  // decision (approve-all → re-drive, reject → failed verdict) clears it.
+  | 'baseline-review'
   // A worktree whose `repo` matched no `repositories:` entry in karst.yml.
   // Also not "karst could not ask": the question was asked of the manifest and
   // answered "this repository is not mapped" — a retry cannot change that

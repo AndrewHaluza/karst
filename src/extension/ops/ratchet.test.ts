@@ -18,7 +18,11 @@ import { join } from 'node:path';
 // `ops/planningConstraintChecks.ts`.
 // Raised by 10 for the sub-task provider sync binding (`syncSubtask: makeSubtaskSync({...})`
 // in the lifecycle deps + 2 imports; logic is in `ops/subtaskSyncOps.ts`).
-const MAX_EXTENSION_LINES = 8441;
+// Raised by 10 for the baseline-review bindings (@arch:BASELINE-REVIEW): the
+// shared `vscodeNotify`, the `makeBaselineActions` spread, the panel-host worktree
+// roots and the rows loader; the logic is in `ops/baselineDecisionOps.ts` and
+// `ui/dashboard/baselineRows.ts`.
+const MAX_EXTENSION_LINES = 8451;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

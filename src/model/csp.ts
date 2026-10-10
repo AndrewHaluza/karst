@@ -6,10 +6,11 @@ import { randomBytes } from 'node:crypto';
  * true`, so an escaping regression would otherwise be directly exploitable.
  *
  * The policy is as tight as it is because a webview is otherwise entirely
- * self-contained: no `<link>`, no `url()`, no `@font-face`, no `fetch()`. One
- * exception exists — the ticket form renders prompt attachments off disk, so
- * it alone is handed a `mediaSource` (the panel's `webview.cspSource`) and gets
- * `img-src`/`media-src` for it. Every other webview passes no source and keeps
+ * self-contained: no `<link>`, no `url()`, no `@font-face`, no `fetch()`. Two
+ * exceptions exist — the ticket form renders prompt attachments off disk, and the
+ * dashboard's UAT report shows the changed baseline images (@arch:BASELINE-REVIEW),
+ * so those two alone are handed a `mediaSource` (the panel's `webview.cspSource`)
+ * and get `img-src`/`media-src` for it. Every other webview passes no source and keeps
  * `default-src 'none'` covering everything, because nothing they load comes from
  * anywhere. The grant is per-panel for that reason: a widened policy applied
  * globally would loosen five documents to buy nothing.

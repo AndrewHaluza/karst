@@ -109,6 +109,9 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
       resumable:
         row.blockedKind !== 'awaiting-merge' &&
         row.blockedKind !== 'awaiting-impl-marker' &&
+        // Only a recorded Approve/Reject decision clears it (@arch:BASELINE-REVIEW);
+        // its banner action is 'Review baselines', never Resume.
+        row.blockedKind !== 'baseline-review' &&
         row.blockedKind !== 'awaiting-subtask',
     },
   };

@@ -19,6 +19,8 @@ import { openGatingSubtasks } from './subtaskGate.js';
  * - the ticket has since left the named stage — a stale panel's message must
  *   not resume a stage the ticket is not at;
  * - the named stage carries no block at all — nothing to clear;
+ * - the block's kind is `baseline-review` — the user's Approve/Reject in the
+ *   UAT report is the only thing that clears it (@arch:BASELINE-REVIEW);
  * - the block's kind is `awaiting-merge` — every OTHER `BlockerKind` means
  *   "karst could not ask the question, retry it", which Resume is for. This
  *   one means the question WAS asked (ship opened its PRs) and answered "not
@@ -50,6 +52,9 @@ export function resumeBlockedStage(
   const block = stageBlock(store, panelTicketId, stageKey);
   if (!block) return { kind: 'refused' };
   if (block.kind === 'awaiting-merge') return { kind: 'refused' };
+  // Same reasoning: the question was asked and the answer is the user's. A
+  // generic Resume would re-run UAT straight back into the same park.
+  if (block.kind === 'baseline-review') return { kind: 'refused' };
   // Same reasoning as `awaiting-merge`: the question was asked (the graph
   // finished) and answered "not yet". Clearing it here would strand the
   // ticket the same way — `markGraphAwaitingImplMarker`'s own guard clears it

@@ -59,6 +59,13 @@ A ticket moves through stages, in order:
 A failed \`uat\` or \`review\` moves the ticket to \`fix\`, where you repair the
 work and the gates re-run.
 
+Visual baselines: when the manifest sets \`uat.baselineReview.paths\`, any file
+you change under those globs (re-recorded screenshots, a ratchet ledger) needs
+the USER's approval in the dashboard before UAT continues. Re-recording a
+baseline never makes a visual change pass. If the user rejects one, the reason
+is in your fix prompt — repair the UI, do not re-record. A ledger change that
+only removes entries needs no approval (\`npm run test:layout:docker:prune\`).
+
 ## The CLI
 
 Run the CLI with plain \`node\`, exactly as the commands below show. Stdout is

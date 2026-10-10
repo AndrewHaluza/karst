@@ -16,6 +16,7 @@ import type { AgentProcessId, DashboardActions, InsideActionResult } from './mes
 import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
+import { withBaselines, type BaselineRowsLoader } from './baselineRows.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
 
@@ -235,12 +236,19 @@ export class DashboardManager {
     private readonly onServerLogsDetach?: (ticketId: number) => void,
     /** Debug sink (`[dashboard]` lines); absent or disabled → no tracing work at all. */
     private readonly debug?: { debug(msg: string): void; isDebugEnabled(): boolean },
+    /**
+     * The UAT report's changed-baseline rows (@arch:BASELINE-REVIEW): async git,
+     * so they ride the supplemental loaders and are overlaid onto the snapshot's
+     * `uat-report` artifact. Absent → no rows, the pre-feature panel.
+     */
+    loadBaselines?: BaselineRowsLoader,
   ) {
     this.loaders = new SupplementalLoaders(
       loadStats,
       loadGateOptions,
       loadBranchCandidates,
       logError,
+      loadBaselines,
     );
     this.console = new DashboardConsole(
       store,
@@ -452,7 +460,7 @@ export class DashboardManager {
       };
     }
     const ticket = getTicket(this.store, ticketId);
-    const state = buildDashboardState(
+    const built = buildDashboardState(
       this.store,
       ticketId,
       this.pathContext?.(),
@@ -512,6 +520,7 @@ export class DashboardManager {
       // panel memory, passed through to the quality reducers. Absent → "all".
       this.selections.findingsRepoSelectionFor(ticketId),
     );
+    const state = withBaselines(built, this.loaders.baselinesFor(ticketId));
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,
     // so a mismatch means the requested key named no attempt this round —
@@ -556,6 +565,7 @@ export class DashboardManager {
       this.loaders.pushWorktreeStats(ticketId, panel, state.worktrees, this.supplementalHost);
       this.loaders.prefetchBranchCandidates(ticketId, panel, state.worktrees, this.supplementalHost);
       this.loaders.pushGateOptions(ticketId, panel, settlesActions, this.supplementalHost);
+      this.loaders.pushBaselines(ticketId, panel, settlesActions, this.supplementalHost);
     }
     this.scheduleLiveTick(ticketId, state);
   }
