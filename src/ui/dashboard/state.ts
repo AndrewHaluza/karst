@@ -208,6 +208,17 @@ export function buildDashboardState(
    * positional caller keeps its argument positions.
    */
   findingsRepoSelection?: Partial<Record<'uat' | 'review', string>>,
+  /**
+   * The thresholds the Inside rows and the review artifact count against —
+   * `review.findings.blockingSeverity` and `uat.testerObservations.blockingSeverity`.
+   * Display only (the verdicts are decided in `workflow/`); absent → the
+   * manifest defaults. Historical attempts read the CURRENT threshold.
+   * Appended LAST so existing positional callers keep their positions.
+   */
+  displayBlocking?: {
+    review?: Severity | 'none';
+    tester?: Severity | 'none';
+  },
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -656,6 +667,8 @@ export function buildDashboardState(
     mergeChecks,
     shipFindings,
     findingsBlockingSeverity,
+    reviewBlockingSeverity: displayBlocking?.review,
+    testerBlockingSeverity: displayBlocking?.tester,
     stepper,
     recordedTotal,
     roleTokens,
@@ -745,6 +758,7 @@ export function buildDashboardState(
       declaredPhases: phases,
       phaseMarks: marks,
       attach,
+      reviewBlockingSeverity: displayBlocking?.review,
     }),
     sendBack,
     rerunGate,

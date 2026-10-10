@@ -531,6 +531,44 @@ describe('uatProcesses', () => {
     expect(views.map((p) => p.id)).not.toContain('fix');
   });
 
+  describe('configured tester blockingSeverity', () => {
+    const testerView = (extra: Partial<QualityProcessesInput>) =>
+      uatProcesses(
+        qualityInput({
+          processRuns: [processRun({ id: 5, status: 'passed', resultKind: 'observed' })],
+          uatFindings: [
+            uatFinding('medium', { processRunId: 5 }),
+            uatFinding('low', { processRunId: 5 }),
+            uatFinding('info', { processRunId: 5 }),
+          ],
+          ...extra,
+        }),
+      ).find((p) => p.id === 'tester')!;
+
+    it('names blocking observations and fails their rows under a medium threshold', () => {
+      const tester = testerView({ testerBlockingSeverity: 'medium' });
+      expect(tester.detail).toBe('1 blocking · 3 observations');
+      expect(tester.aggregate).toBe('1 blocking');
+      expect(rowsOf(tester).map((r) => r.status)).toEqual(['fail', 'note', 'note']);
+    });
+
+    it('drops the total when every observation blocks', () => {
+      const tester = testerView({ testerBlockingSeverity: 'info' });
+      expect(tester.detail).toBe('3 blocking observations');
+    });
+
+    it("keeps the advisory wording under 'none'", () => {
+      const tester = testerView({ testerBlockingSeverity: 'none' });
+      expect(tester.detail).toBe('3 observations — advisory');
+      expect(tester.aggregate).toBeUndefined();
+      expect(rowsOf(tester).every((r) => r.status === 'note')).toBe(true);
+    });
+
+    it('reads advisory when the threshold is absent', () => {
+      expect(testerView({}).detail).toBe('3 observations — advisory');
+    });
+  });
+
   it('renders an unreadable Tester answer distinctly from zero observations', () => {
     const tester = processRun({ id: 5, status: 'passed', resultKind: 'unreadable-output' });
     const views = uatProcesses(
@@ -823,6 +861,43 @@ describe('reviewProcesses', () => {
     expect(review.detail).toContain('2 blocking findings');
     const evidence = review.evidence as { kind: 'findings'; rows: readonly EvidenceRow[]; blocking: number };
     expect(evidence.blocking).toBe(2);
+  });
+
+  describe('configured review blockingSeverity', () => {
+    const failedReview = (extra: Partial<QualityProcessesInput>) =>
+      reviewProcesses(
+        qualityInput({
+          cell: { ...reviewCell, status: 'failed' },
+          processRuns: [
+            processRun({ stageKey: 'review', processId: 'review', status: 'failed', resultKind: 'blocking' }),
+          ],
+          findings: [finding('medium', { runAt: NOW })],
+          ...extra,
+        }),
+      ).find((p) => p.id === 'review')!;
+
+    it('counts a medium finding as blocking under a medium threshold', () => {
+      const review = failedReview({ reviewBlockingSeverity: 'medium' });
+      expect(review.detail).toBe('1 blocking finding');
+      expect(review.aggregate).toBe('1 blocking');
+      expect(rowsOf(review)[0]!.status).toBe('fail');
+    });
+
+    it('keeps a medium finding a note under the default high threshold', () => {
+      const review = failedReview({});
+      expect(review.aggregate).toBeUndefined();
+      expect(rowsOf(review)[0]!.status).toBe('note');
+      expect(review.detail).toBe('0 blocking findings');
+    });
+
+    it("never counts anything under 'none'", () => {
+      const review = failedReview({
+        reviewBlockingSeverity: 'none',
+        findings: [finding('critical', { runAt: NOW })],
+      });
+      expect(review.aggregate).toBeUndefined();
+      expect(rowsOf(review)[0]!.status).toBe('note');
+    });
   });
 
   it('preserves info severity on finding rows', () => {

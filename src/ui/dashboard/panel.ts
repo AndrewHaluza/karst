@@ -519,6 +519,13 @@ export class DashboardManager {
       // The findings repo scope selection per stage (§ findings severity ramp):
       // panel memory, passed through to the quality reducers. Absent → "all".
       this.selections.findingsRepoSelectionFor(ticketId),
+      (() => {
+        const manifest = this.manifest?.();
+        return {
+          review: manifest?.review?.findings?.blockingSeverity,
+          tester: manifest?.uat?.testerObservations?.blockingSeverity,
+        };
+      })(),
     );
     const state = withBaselines(built, this.loaders.baselinesFor(ticketId));
     // A key the new snapshot no longer resolved to is dropped from panel
