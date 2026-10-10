@@ -23,6 +23,7 @@ import { getTicket } from '../store/tickets.js';
 import { ticketWorktreeNames } from './ticketBranch.js';
 import { serviceUnits, unitByKey, unitsOfRepos } from '../manifest/runnable.js';
 import { startResolvedService } from './startService.js';
+import { formatId } from '../model/entityId.js';
 // Re-exported: the token expansion moved to `serviceLaunch.ts` (baseline needs
 // it too), and this is where its tests and callers have always found it.
 export { expandEnvTokens } from './serviceLaunch.js';
@@ -63,7 +64,7 @@ export interface SpinOptions {
  */
 export class SpinCancelledError extends Error {
   constructor(ticketId: number) {
-    super(`spin cancelled for #${ticketId}`);
+    super(`spin cancelled for ${formatId('ticket', ticketId)}`);
     this.name = 'SpinCancelledError';
   }
 }

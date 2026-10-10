@@ -14,6 +14,7 @@ import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
 import type { SessionInstructions } from '../agent/instructions.js';
 import { submitDelayFor } from '../agent/registry.js';
 import { NudgeQueue } from './nudgeQueue.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -531,7 +532,7 @@ export class SessionManager {
     // session name: a session found later in the agent's resume picker must
     // read exactly like the terminal it ran in, or it can't be matched back to
     // its ticket. Adapters whose CLI has no naming flag ignore it.
-    const terminalName = naming?.name ?? `Karst: ${label?.key ?? `#${ticketId}`}`;
+    const terminalName = naming?.name ?? `Karst: ${label?.key ?? formatId('ticket', ticketId)}`;
     const hookChannel = this.hookChannelFor(ticketId);
     const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     const cmd = adapter.buildInteractiveCommand({

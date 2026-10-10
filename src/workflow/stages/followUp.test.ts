@@ -96,9 +96,9 @@ describe('createFollowUpTicket', () => {
     const lines: string[] = [];
     const child = createFollowUpTicket(store, parentId, {}, (m) => lines.push(m));
     expect(child.key).toBe('PROJ-1-fu1');
-    expect(lines[0]).toMatch(/\[driver\] follow-up for ticket #\d+: parent stage is 'done'/);
-    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] follow-up for ticket #\d+: creating child 'PROJ-1-fu1'/));
-    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] follow-up for ticket #\d+: child #\d+ \('PROJ-1-fu1'\) created/));
+    expect(lines[0]).toMatch(/\[driver\] follow-up for ticket T\d+: parent stage is 'done'/);
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] follow-up for ticket T\d+: creating child 'PROJ-1-fu1'/));
+    expect(lines).toContainEqual(expect.stringMatching(/\[driver\] follow-up for ticket T\d+: child T\d+ \('PROJ-1-fu1'\) created/));
   });
 
   it('emits a debug line naming the not-done refusal', () => {
@@ -106,7 +106,7 @@ describe('createFollowUpTicket', () => {
     const lines: string[] = [];
     expect(() => createFollowUpTicket(store, t.id, {}, (m) => lines.push(m))).toThrow(TicketNotDoneError);
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] follow-up for ticket #\d+: parent not done — refusing/),
+      expect.stringMatching(/\[driver\] follow-up for ticket T\d+: parent not done — refusing/),
     );
   });
 });

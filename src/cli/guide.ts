@@ -127,7 +127,7 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     prints and \`draft list\` shows), up to 32, of THIS session; the ordering
     becomes blocked-by links when those drafts become tickets. Do NOT describe
     ordering in prose. Add \`"constraints":[…]\` (max 20 strings of ≤200 chars:
-    \`@arch:KEY\`, a commit hash, \`#N\`, or free text) to cite the design rules
+    \`@arch:KEY\`, a commit hash, a \`D<n>\`/\`T<n>\` ref, or free text) to cite the design rules
     and prior work the draft builds on; the user sees them on review, they are
     appended to the ticket brief, and the host warns on unknown keys/commits. On success it prints \`{"ok":true,"file":…,"id":N}\` — the draft's #id;
     if the host has not answered within ~10s it prints \`{"ok":true,"file":…,"id":null}\` with

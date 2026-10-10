@@ -153,6 +153,10 @@ describe('planning outbox', () => {
     expect(getProposal(store, foreign)!.payload.title).toBe('Fix auth');
     expect(getProposal(store, accepted)!.payload.title).toBe('Fix auth');
     expect(getProposal(store, discarded)!.payload.title).toBe('Fix auth');
+    expect(warns.join()).toContain(`draft D${foreign} belongs to another session`);
+    expect(warns.join()).toContain(`draft D${accepted} is accepted`);
+    expect(warns.join()).toContain(`draft D${discarded} is discarded`);
+    expect(warns.join()).toContain(`plan P${sessionId} draft rejected — `);
     expect(warns.join()).toMatch(/another session/);
     expect(warns.join()).toMatch(/accepted/);
     expect(warns.join()).toMatch(/discarded/);

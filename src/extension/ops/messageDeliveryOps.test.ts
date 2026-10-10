@@ -472,15 +472,15 @@ describe('message delivery sweep — pointer logging and bounds', () => {
     const sweep = makeMessageDeliverySweep(d);
     send(parentId);
     sweep.sweep();
-    expect(debugLines(d)).toContain(`[driver] delivery #${parentId}: pointer delivered (1 unread)`);
+    expect(debugLines(d)).toContain(`[driver] delivery T${parentId}: pointer delivered (1 unread)`);
     send(parentId);
     clock += 1_000;
     sweep.sweep();
-    expect(debugLines(d)).toContain(`[driver] delivery #${parentId}: rate-limited — coalescing`);
+    expect(debugLines(d)).toContain(`[driver] delivery T${parentId}: rate-limited — coalescing`);
     clock += POINTER_INTERVAL_MS;
     result = 'deferred';
     sweep.sweep();
-    expect(debugLines(d)).toContain(`[driver] delivery #${parentId}: deferred (2 unread)`);
+    expect(debugLines(d)).toContain(`[driver] delivery T${parentId}: deferred (2 unread)`);
   });
 
   it('summarizes pointers and wakes only when something happened', () => {
@@ -597,7 +597,7 @@ describe('message delivery sweep — wake aging, cooldown, and failure paths', (
     clock += 1;
     sweep.sweep();
     expect(claimedCount()).toBe(1);
-    expect(debugLines(d).some((m) => m.endsWith(`-> #${parentId}: skip — aged out (parent at review)`))).toBe(true);
+    expect(debugLines(d).some((m) => m.endsWith(`-> T${parentId}: skip — aged out (parent at review)`))).toBe(true);
   });
 
   it('a terminal skip keeps its own reason even when the event is old', () => {
@@ -609,7 +609,7 @@ describe('message delivery sweep — wake aging, cooldown, and failure paths', (
     sweep.sweep();
     const lines = debugLines(d).filter((m) => m.includes('delivery wake event'));
     expect(lines).toHaveLength(1);
-    expect(lines[0]).toMatch(new RegExp(`-> #${parentId}: skip — parent at ship$`));
+    expect(lines[0]).toMatch(new RegExp(`-> T${parentId}: skip — parent at ship$`));
   });
 
   it('logs the wake decision with the event id, parent, and reason', () => {
@@ -618,7 +618,7 @@ describe('message delivery sweep — wake aging, cooldown, and failure paths', (
     block(childId);
     sweep.sweep();
     const row = store.db.prepare("SELECT id FROM ticket_messages WHERE kind = 'event' ORDER BY id LIMIT 1").get() as { id: number };
-    expect(debugLines(d)).toContain(`[driver] delivery wake event ${row.id} -> #${parentId}: wake — child blocked`);
+    expect(debugLines(d)).toContain(`[driver] delivery wake event ${row.id} -> T${parentId}: wake — child blocked`);
   });
 
   it('a second wake inside the cooldown retries with a cooldown reason, then wakes at exactly the cooldown', async () => {
@@ -661,7 +661,7 @@ describe('message delivery sweep — wake aging, cooldown, and failure paths', (
     const sweep = makeMessageDeliverySweep(d);
     block(childId);
     expect(sweep.sweep().woke).toEqual([parentId]);
-    expect(d.warn).toHaveBeenCalledWith(`karst: waking ticket #${parentId} failed: sync open failure`);
+    expect(d.warn).toHaveBeenCalledWith(`karst: waking ticket T${parentId} failed: sync open failure`);
     block(childId, 'fix');
     clock += WAKE_COOLDOWN_MS;
     expect(sweep.sweep().woke).toEqual([parentId]);
@@ -674,7 +674,7 @@ describe('message delivery sweep — wake aging, cooldown, and failure paths', (
     block(childId);
     sweep.sweep();
     await new Promise((r) => setTimeout(r, 0));
-    expect(d.warn).toHaveBeenCalledWith(`karst: waking ticket #${parentId} failed: open failed`);
+    expect(d.warn).toHaveBeenCalledWith(`karst: waking ticket T${parentId} failed: open failed`);
   });
 
   it('an event another window claimed mid-decision is logged and not woken', () => {

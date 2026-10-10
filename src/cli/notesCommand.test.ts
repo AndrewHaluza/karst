@@ -85,8 +85,8 @@ describe('runNotesCommand', () => {
     });
 
     const out = runNotesCommand(store, sender(meId), ['notes'], { sessionTicketKey: 'K-1' });
-    expect(out).toContain('karst fact: K-2');
-    expect(out).toContain('from ticket K-2 (untrusted)');
+    expect(out).toContain('karst fact: T2 · K-2');
+    expect(out).toContain('from ticket T2 · K-2 (untrusted)');
     expect(out).toContain('> line one');
     expect(out).toContain('> line two');
 
@@ -105,7 +105,7 @@ describe('runNotesCommand', () => {
       runNotesCommand(store, sender(meId), ['notes', '--json'], { sessionTicketKey: 'K-1' }),
     ) as { notes: Array<{ source: string; from: string; title: string }> };
     expect(parsed.notes).toHaveLength(1);
-    expect(parsed.notes[0]).toMatchObject({ source: 'host', from: 'K-2' });
+    expect(parsed.notes[0]).toMatchObject({ source: 'host', from: 'T2 · K-2' });
   });
 });
 
@@ -154,7 +154,7 @@ describe('notes --repos (planner read)', () => {
     const out = runNotesReposCommand(store, String(projectId), ['notes', '--repos', 'api']);
     expect(out).toContain('api tip');
     expect(out).not.toContain('billing tip');
-    expect(out).toContain('from ticket K-1 (untrusted)');
+    expect(out).toContain('from ticket T1 · K-1 (untrusted)');
     const reads = store.db.prepare('SELECT COUNT(*) AS n FROM bulletin_reads').get() as { n: number };
     expect(reads.n).toBe(0);
     // Repeatable: nothing was marked, so the same note prints again.
@@ -164,7 +164,7 @@ describe('notes --repos (planner read)', () => {
   it('prints a JSON envelope with from keys', () => {
     const parsed = JSON.parse(runNotesReposCommand(store, String(projectId), ['notes', '--repos', 'web', '--json']));
     expect(parsed.notes).toHaveLength(1);
-    expect(parsed.notes[0]).toMatchObject({ from: 'K-1', title: 'api tip' });
+    expect(parsed.notes[0]).toMatchObject({ from: 'T1 · K-1', title: 'api tip' });
   });
 
   it('says so when nothing matches', () => {

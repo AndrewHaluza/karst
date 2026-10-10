@@ -63,7 +63,7 @@ describe('fixBriefForTicket', () => {
     adoptPrFeedbackIntoRound(store, ticket.id, round.id);
 
     const brief = fixBriefForTicket(store, ticket.id);
-    expect(brief).toContain('Reviewers requested changes on the pull request for ticket PROJ-1');
+    expect(brief).toContain('Reviewers requested changes on the pull request for ticket T1 · PROJ-1');
     expect(brief).toContain('frontend src/app.ts:10');
     expect(brief).toContain('asked by alice (MEMBER)');
     expect(brief).toContain('please rename this');

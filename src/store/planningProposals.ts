@@ -3,6 +3,7 @@ import { getTicket, updateTicketFields } from './tickets.js';
 import { linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
@@ -205,8 +206,8 @@ export function countPending(store: Store, sessionId: number): number {
 
 function requirePending(store: Store, id: number): PlanningProposal {
   const p = getProposal(store, id);
-  if (!p) throw new Error(`planning proposal ${id} not found`);
-  if (p.status !== 'pending') throw new Error(`planning proposal ${id} is not pending (${p.status})`);
+  if (!p) throw new Error(`draft ${formatId('draft', id)} not found`);
+  if (p.status !== 'pending') throw new Error(`draft ${formatId('draft', id)} is not pending (${p.status})`);
   return p;
 }
 
@@ -270,7 +271,7 @@ export function discardProposal(store: Store, id: number): number[] {
         fromTicketId: null,
         toTicketId: ticket_id,
         kind: 'event',
-        body: `blocker draft #${id} was discarded; this ticket is no longer blocked by it`,
+        body: `blocker draft ${formatId('draft', id)} was discarded; this ticket is no longer blocked by it`,
       });
     }
     const pruned: number[] = [];
@@ -341,8 +342,8 @@ export function validateProposalDependsOn(
   const byId = new Map(proposals.map((p) => [p.id, p]));
   for (const depId of dependsOn) {
     const dep = byId.get(depId);
-    if (!dep) return `dependsOn #${depId} is not a proposal of this session`;
-    if (dep.status === 'discarded') return `dependsOn #${depId} was already discarded`;
+    if (!dep) return `dependsOn ${formatId('draft', depId)} is not a proposal of this session`;
+    if (dep.status === 'discarded') return `dependsOn ${formatId('draft', depId)} was already discarded`;
   }
   const edges = new Map<number, number[]>();
   for (const p of proposals) {
@@ -391,12 +392,14 @@ export function markProposalAccepted(store: Store, id: number, ticketId: number)
     const p = requirePending(store, id);
     const ticket = getTicket(store, ticketId);
     // Seed the summary as the brief only when the ticket has none AND the
-    // summary actually carries text — an empty summary leaves brief NULL rather
-    // than storing ''.
-    const seedBrief = (!ticket.brief || !ticket.brief.trim()) && p.payload.summary.trim();
+    // summary actually carries text; the origin line is always appended, so the
+    // ticket names the plan and draft it came from.
+    const existing = ticket.brief?.trim() ? ticket.brief : '';
+    const base = existing || p.payload.summary.trim();
+    const origin = `Planned in ${formatId('plan', p.sessionId)} as ${formatId('draft', id)}.`;
     updateTicketFields(store, ticketId, {
       source: 'planning',
-      ...(seedBrief ? { brief: p.payload.summary } : {}),
+      brief: base ? `${base}\n\n${origin}` : origin,
     });
     linkPlanningTicket(store, p.sessionId, ticketId);
     applyProposalDependencies(store, p, ticketId);

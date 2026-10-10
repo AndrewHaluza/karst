@@ -14,6 +14,7 @@ import { isTicketType, TICKET_TYPES, type TicketType } from './ticketTypes.js';
 import { slugifyTitleKey } from './titleKey.js';
 import { nowIso } from '../model/time.js';
 import { deleteGraphRunData, graphRunIdsForTicket } from './graph/graphRuns.js';
+import { formatId } from '../model/entityId.js';
 
 export interface Ticket {
   id: number;
@@ -650,7 +651,7 @@ export class TicketHasOpenSubtasksError extends Error {
   readonly subtaskKeys: string[];
   constructor(ticketId: number, subtaskKeys: string[]) {
     super(
-      `ticket #${ticketId} has open sub-tasks (${subtaskKeys.join(', ')}) — archive or delete them first`,
+      `ticket ${formatId('ticket', ticketId)} has open sub-tasks (${subtaskKeys.join(', ')}) — archive or delete them first`,
     );
     this.name = 'TicketHasOpenSubtasksError';
     this.subtaskKeys = subtaskKeys;
@@ -731,7 +732,7 @@ export function assertNoOpenSubtasks(store: Store, ticketId: number): void {
   if (open.length > 0) {
     throw new TicketHasOpenSubtasksError(
       ticketId,
-      open.map((t) => t.key ?? `#${t.id}`),
+      open.map((t) => t.key ?? formatId('ticket', t.id)),
     );
   }
 }

@@ -7,6 +7,7 @@ import { listPrFeedbackForRound } from '../store/prFeedback.js';
 import { renderFixBrief } from '../agent/fixBrief.js';
 import { resolveTicketByKey } from './resolveTicket.js';
 import { quoteArg } from '../agent/cliEnv.js';
+import { formatTicketRef } from '../model/entityId.js';
 
 /**
  * The `karst fix-brief <key>` CLI verb — human-readable summary of the failing
@@ -67,7 +68,7 @@ export function runFixBriefCommand(store: Store, parsed: ParsedFixBrief): string
   // (or a ship saga crash, which opens no round) passes nothing.
   const shipRound = activeRecoverySeries(store, t.id, 'ship');
   const brief = renderFixBrief(
-    t.key ?? `#${t.id}`,
+    formatTicketRef(t.id, t.key),
     t.stages,
     latestFindingBatch(store, t.id),
     listGateRuns(store, t.id),

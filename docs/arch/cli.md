@@ -8,7 +8,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 -->
 # The `karst` CLI (`src/cli/`)
 
-The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts).
+The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts). Ids in output and argv: `docs/arch/ids.md` (`arch:IDS-01`) — id arguments go through `parseId`, which accepts `T<n>`/`D<n>`, and a bare number or `#N` only where the kind is known.
 
 ## [@arch:CLI-01] Contents
 
@@ -138,7 +138,7 @@ END_DOC_BLOCK: [@arch:PLANNING-HISTORY]
 
 ## [@arch:DRAFT-CONSTRAINTS] A draft cites the design rules and prior work it builds on
 
-`draft propose` accepts an optional `constraints: string[]` (`planning/proposal.ts`): each entry is `@arch:KEY`, a commit hash, `#N` (PR/ticket/draft) or free text, max 20 entries (`MAX_PROPOSAL_CONSTRAINTS`) of ≤ 200 chars (`MAX_CONSTRAINT_LEN`), trimmed, deduped, order kept; empty or over-long entries reject the whole proposal. Absent reads as `[]`.
+`draft propose` accepts an optional `constraints: string[]` (`planning/proposal.ts`): each entry is `@arch:KEY`, a commit hash, a `D<n>`/`T<n>`/`#N` ref (draft/ticket/PR) or free text, max 20 entries (`MAX_PROPOSAL_CONSTRAINTS`) of ≤ 200 chars (`MAX_CONSTRAINT_LEN`), trimmed, deduped, order kept; empty or over-long entries reject the whole proposal. Absent reads as `[]`.
 
 - **No migration.** `constraints` and the host's check results both live inside `planning_proposals.payload_json`. Warnings sit under the reserved key `hostWarnings`: `validateProposal` REJECTS agent input containing it (an agent must not set or clear warnings), `toProposal` strips it from `payload` and exposes it as `PlanningProposal.warnings` (`[]` for old rows or a corrupt value), and `proposalPayloadEquals` ignores it, so a re-ingest with identical agent content stays a no-op. A revise recomputes and replaces the warnings.
 - **Checks are warnings, never rejections** (`extension/ops/planningConstraintChecks.ts`, run by `planningOutbox.ts` at ingest). Unknown `@arch:KEY` (not a `[@arch:KEY]` in any of the draft's repos' `docs/arch/*.md`); unknown commit (`git cat-file -e <hash>^{commit}` missing in every repo); prompt-sensitive code with no rule (`PROMPT_SENSITIVE_PATHS` mentioned in description/summary and no well-formed `@arch:KEY` entry; a malformed `@arch:` entry gets its own `malformed design key` warning and does not count as a citation). The git probe is async, so the commit warning lands on the stored row after ingest (dropped if the draft was revised or resolved meanwhile); a check that cannot run is skipped with a `[planning]` debug line.

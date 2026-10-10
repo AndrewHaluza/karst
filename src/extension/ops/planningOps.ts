@@ -31,6 +31,7 @@ import {
 import type { SessionTerminal, TerminalHost } from '../../ui/session.js';
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import type { Notify } from './notify.js';
+import { formatId } from '../../model/entityId.js';
 
 /**
  * Planning sessions: create, open, archive (vscode-free; `extension.ts` binds).
@@ -297,7 +298,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const session = getPlanningSession(deps.store, id);
       if (!session || session.status === 'archived') {
         debug(`open ${id} blocked: ${session ? 'archived' : 'unknown'}`);
-        deps.notify.warn('Karst: that planning session no longer exists.');
+        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
         return;
       }
       await launch(session);
@@ -315,7 +316,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const session = getPlanningSession(deps.store, id);
       if (!session) {
         debug(`unarchive ${id} blocked: unknown`);
-        deps.notify.warn('Karst: that planning session no longer exists.');
+        deps.notify.warn(`Karst: planning session ${formatId('plan', id)} no longer exists.`);
         return;
       }
       const status = listPlanningTickets(deps.store, id).length > 0 ? 'filed' : 'active';

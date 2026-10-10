@@ -1,6 +1,7 @@
 import type { ExportedCliEnv, CliTokens } from '../agent/cliEnv.js';
 import { mailPointer, messagePointer } from '../workflow/messageDelivery.js';
 import type { HookReply, HookReplyFor } from './endpoint.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * The host half of the mail reply channel: turns a hook's turn-end event into
@@ -89,7 +90,7 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
     const line = messagePointer(mailPointer(unread), ticketId, deps.sessionCliEnv(ticketId), deps.literal());
     if (line === null) return null;
     deps.blockedAt.set(ticketId, { launchId, watermark });
-    deps.debug?.(`[driver] delivery reply #${ticketId}: block (${unread} unread)`);
+    deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: block (${unread} unread)`);
     const reply: HookReply = { decision: 'block', reason: line };
     return reply;
   };

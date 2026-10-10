@@ -56,6 +56,7 @@ import { buildDashboardRows } from './stateRows.js';
 import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './stateInside.js';
 import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
 import { listOpenBlockers } from '../../store/ticketRelations.js';
+import { formatId } from '../../model/entityId.js';
 
 export type {
   DashboardAgentContext,
@@ -215,7 +216,7 @@ export function buildDashboardState(
   if (ticket.parentTicketId !== null) {
     try {
       const p = getTicket(store, ticket.parentTicketId);
-      parent = { key: p.key ?? `#${p.id}`, title: p.title };
+      parent = { key: p.key ?? formatId('ticket', p.id), title: p.title };
     } catch {
       parent = null;
     }
@@ -228,7 +229,7 @@ export function buildDashboardState(
   if (ticket.subtaskParentId !== null) {
     try {
       const p = getTicket(store, ticket.subtaskParentId);
-      subtaskParent = { key: p.key ?? `#${p.id}`, title: p.title };
+      subtaskParent = { key: p.key ?? formatId('ticket', p.id), title: p.title };
     } catch {
       subtaskParent = null;
     }
@@ -245,7 +246,7 @@ export function buildDashboardState(
     const badge = stageBadge(child);
     return {
       id: s.id,
-      key: s.key ?? `#${s.id}`,
+      key: s.key ?? formatId('ticket', s.id),
       title: s.title,
       stage: s.stageCurrent,
       glyph: badge.glyph,

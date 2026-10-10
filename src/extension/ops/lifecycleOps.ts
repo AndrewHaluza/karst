@@ -11,6 +11,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import { detachSubtask, DetachSubtaskError, type DetachSubtaskResult } from '../../workflow/detachSubtask.js';
 import { describeChangeBaseRef } from '../../workflow/changeBaseRef.js';
 import type { Manifest } from '../../manifest/types.js';
+import { formatTicketRef } from '../../model/entityId.js';
 
 export interface LifecycleOpsDeps {
   readonly store: Store;
@@ -186,5 +187,5 @@ export async function detachSubtaskOp(deps: LifecycleOpsDeps, subtaskId: number)
   deps.refresh();
   await deps.reloadManifest();
   const ticket = getTicket(deps.store, subtaskId);
-  await deps.notify.info(describeDetach(ticket.key ?? `#${subtaskId}`, result));
+  await deps.notify.info(describeDetach(formatTicketRef(subtaskId, ticket.key), result));
 }

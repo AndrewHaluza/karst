@@ -62,20 +62,18 @@ describe('planningProposalOps', () => {
     expect(Object.keys(ops()).sort()).toEqual(['announce', 'discard', 'review']);
   });
 
-  it('announce names the session, its #id, the title and the sizes', async () => {
+  it('announce names the plan, the draft, the title and the sizes', async () => {
     await ops().announce(getProposal(store, proposalId)!);
     expect(prompts[0]).toContain('Auth rework');
-    expect(prompts[0]).toContain(`#${sessionId}`);
-    expect(prompts[0]).toContain('Fix login');
-    expect(prompts[0]).toMatch(/40 chars/);
-    expect(prompts[0]).toMatch(/3 chars/);
-    expect(prompts[0]).toMatch(/proposes/);
+    expect(prompts[0]).toBe(
+      `Plan P${sessionId} "Auth rework" proposes D${proposalId}: "Fix login" (description 40 chars, summary 3 chars).`,
+    );
   });
 
   it('announce(updated) words it as a revision', async () => {
     await ops().announce(getProposal(store, proposalId)!, 'updated');
-    expect(prompts[0]).toMatch(/updated its draft/);
-    expect(prompts[0]).not.toMatch(/proposes a ticket/);
+    expect(prompts[0]).toMatch(new RegExp(`^Plan P${sessionId} "Auth rework" updated D${proposalId}: "Fix login" `));
+    expect(prompts[0]).not.toMatch(/proposes/);
   });
 
   it('dismissing the notification leaves it pending and creates nothing', async () => {
@@ -113,7 +111,7 @@ describe('planningProposalOps', () => {
     expect(getProposal(store, proposalId)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     expect(refreshed).toContain(sessionId);
-    expect(getTicket(store, t.id)!.brief).toBe('sum');
+    expect(getTicket(store, t.id)!.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${proposalId}.`);
   });
 
   it('a form-saved ticket is linked even if the draft was revised while the form was open, with a warning', async () => {
@@ -142,7 +140,7 @@ describe('planningProposalOps', () => {
     expect(getProposal(store, proposalId)!.status).toBe('discarded');
     expect(getProposal(store, dependent)!.payload.dependsOn ?? []).toEqual([]);
     expect(getProposal(store, second)!.payload.dependsOn ?? []).toEqual([]);
-    expect(warns.join(' ')).toContain(`#${dependent}, #${second} no longer wait on it`);
+    expect(warns.join(' ')).toContain(`D${dependent}, D${second} no longer wait on it`);
   });
 
   it('review passes constraints, doc names and host warnings to the form', async () => {
@@ -199,7 +197,7 @@ describe('planningProposalOps', () => {
 
   it('an unknown proposal reports the exact message and logs it', async () => {
     await ops().review(999);
-    expect(errors).toEqual(['Planning proposal #999 was not found.']);
+    expect(errors).toEqual(['Draft D999 was not found.']);
     expect(debugs).toContain('[planning] proposal 999: not found in this project');
   });
 
@@ -208,7 +206,7 @@ describe('planningProposalOps', () => {
     errors = [];
     debugs = [];
     await ops().review(proposalId);
-    expect(errors).toEqual([`Planning proposal #${proposalId} is already discarded.`]);
+    expect(errors).toEqual([`Draft D${proposalId} is already discarded.`]);
     expect(debugs).toContain(`[planning] proposal ${proposalId}: already discarded`);
   });
 
@@ -238,7 +236,7 @@ describe('planningProposalOps', () => {
   it('reports a failed discard with the operation name and reason', async () => {
     breakProposalWrites();
     await ops().discard(proposalId);
-    expect(errors).toEqual([`Couldn't discard planning proposal #${proposalId}: db down`]);
+    expect(errors).toEqual([`Couldn't discard draft D${proposalId}: db down`]);
     expect(debugs).toContain(`[planning] proposal ${proposalId}: discard failed: db down`);
   });
 
@@ -249,6 +247,6 @@ describe('planningProposalOps', () => {
     const t = createTicket(store, { key: 'K', title: 'Fix login', projectId });
     forms[0]!.onCreated(t.id);
     await flush();
-    expect(errors).toEqual([`Couldn't link planning proposal #${proposalId}: db down`]);
+    expect(errors).toEqual([`Couldn't link draft D${proposalId}: db down`]);
   });
 });

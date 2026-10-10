@@ -1,5 +1,6 @@
 import type { Store } from '../store/db.js';
 import { findTicketById, type Ticket } from '../store/tickets.js';
+import { formatId } from '../model/entityId.js';
 import { quoteUntrusted, sanitizeInline } from '../model/messageText.js';
 import { assertSenderMatchesSession, ticketLabel } from './sessionIdentity.js';
 import {
@@ -145,7 +146,7 @@ function fromKeys(store: Store, notes: readonly PrintedNote[]): Map<number, stri
   for (const n of notes) {
     if (!keys.has(n.fromTicketId)) {
       const from = findTicketById(store, n.fromTicketId);
-      keys.set(n.fromTicketId, from ? ticketLabel(from) : `#${n.fromTicketId}`);
+      keys.set(n.fromTicketId, from ? ticketLabel(from) : formatId('ticket', n.fromTicketId));
     }
   }
   return keys;

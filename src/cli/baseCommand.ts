@@ -64,8 +64,8 @@ export function parseBaseArgs(argv: string[]): ParsedBaseArgs {
   if (!repo || repo.trim() === '') {
     throw new Error(
       action === 'set'
-        ? 'missing <repo> (usage: karst base set <repo> <baseRef> [--rebase] [--ticket <key>])'
-        : 'missing <repo> (usage: karst base reset <repo> [--rebase] [--ticket <key>])',
+        ? 'missing <repo> (usage: karst base set <repo> <baseRef> [--rebase] [--ticket <key|T<n>>])'
+        : 'missing <repo> (usage: karst base reset <repo> [--rebase] [--ticket <key|T<n>>])',
     );
   }
 
@@ -73,7 +73,7 @@ export function parseBaseArgs(argv: string[]): ParsedBaseArgs {
   if (action === 'set') {
     baseRef = positional[1];
     if (!baseRef || baseRef.trim() === '') {
-      throw new Error('missing <baseRef> (usage: karst base set <repo> <baseRef> [--rebase] [--ticket <key>])');
+      throw new Error('missing <baseRef> (usage: karst base set <repo> <baseRef> [--rebase] [--ticket <key|T<n>>])');
     }
   }
 
@@ -108,7 +108,7 @@ export async function runBaseCommand(
   const parsed = parseBaseArgs(argv);
   const targetKey = parsed.ticket ?? opts.ticket ?? opts.sessionTicketKey;
   if (!targetKey) {
-    throw new Error('missing --ticket <key>');
+    throw new Error('missing --ticket <key|T<n>>');
   }
 
   const target = resolveTicketByKey(store, targetKey, opts.projectSlug);

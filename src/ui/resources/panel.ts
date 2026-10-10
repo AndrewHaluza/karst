@@ -17,6 +17,7 @@ import {
   type ResourcesWebviewMessage,
 } from './messages.js';
 import { readRequestId, reportAction } from '../../model/actionResult.js';
+import { formatId } from '../../model/entityId.js';
 
 /**
  * The resource-monitor panel — ONE per window, like the token-usage panel. It
@@ -139,7 +140,7 @@ export class ResourcesPanelManager {
           // a dependent whose key is unavailable.
           const identity =
             this.deps.ticketIdentity?.(dependents) ?? new Map<number, TicketIdentity>();
-          const labels = dependents.map((id) => identity.get(id)?.key ?? `#${id}`);
+          const labels = dependents.map((id) => identity.get(id)?.key ?? formatId('ticket', id));
           const message =
             labels.length === 0
               ? 'Stop this server process?'

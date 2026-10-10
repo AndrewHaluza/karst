@@ -115,6 +115,7 @@ describe('buildTicketContext', () => {
 
     const ctx = buildTicketContext(store, undefined, child.id);
     expect(ctx.parent).toEqual({
+      id: parent.id,
       key: 'PROJ-1',
       title: 'Root work',
       brief: 'Built the thing.',
@@ -122,7 +123,7 @@ describe('buildTicketContext', () => {
     });
 
     const md = renderTicketContext(ctx);
-    expect(md).toContain('## Continuing from PROJ-1: Root work');
+    expect(md).toContain(`## Continuing from T${parent.id} · PROJ-1: Root work`);
     expect(md).toContain('Built the thing.');
     expect(md).toContain('https://x/pr/7');
   });
@@ -205,6 +206,7 @@ describe('buildTicketContext', () => {
 
       const ctx = buildTicketContext(store, undefined, child.id);
       expect(ctx.subtaskParent).toEqual({
+        id: parent.id,
         key: 'PROJ-1',
         title: 'Root work',
         prompt: 'Build the whole thing',
@@ -217,7 +219,7 @@ describe('buildTicketContext', () => {
 
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Parent task');
-      expect(md).toContain('PROJ-1: Root work [blocking]');
+      expect(md).toContain(`T${parent.id} · PROJ-1: Root work [blocking]`);
       expect(md).toMatch(/blocks its parent/);
       expect(md).toContain('Build the whole thing');
       expect(md).toContain('- frontend: `feat/root`');
@@ -270,6 +272,7 @@ describe('buildTicketContext', () => {
 
       const ctx = buildTicketContext(store, undefined, child.id);
       expect(ctx.subtaskParent).toEqual({
+        id: parent.id,
         key: 'PROJ-1',
         title: 'Root work',
         prompt: null,
@@ -316,8 +319,8 @@ describe('buildTicketContext', () => {
 
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Sub-tasks (2: 1 review, 1 impl)');
-      expect(md).toContain('- PROJ-1-s1: Schema first (stage: review) [blocking]');
-      expect(md).toContain('- PROJ-1-s2: Docs polish (stage: impl)');
+      expect(md).toMatch(/- T\d+ · PROJ-1-s1: Schema first \(stage: review\) \[blocking\]/);
+      expect(md).toMatch(/- T\d+ · PROJ-1-s2: Docs polish \(stage: impl\)/);
     });
 
     it('renders paused sub-task with paused since and includes paused count in heading', () => {
@@ -344,8 +347,8 @@ describe('buildTicketContext', () => {
 
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Sub-tasks (2: 1 impl, 1 paused)');
-      expect(md).toContain('- PROJ-1-s1: Child 1 (stage: scope, paused since 2026-10-07 13:21)');
-      expect(md).toContain('- PROJ-1-s2: Child 2 (stage: impl)');
+      expect(md).toMatch(/- T\d+ · PROJ-1-s1: Child 1 \(stage: scope, paused since 2026-10-07 13:21\)/);
+      expect(md).toMatch(/- T\d+ · PROJ-1-s2: Child 2 \(stage: impl\)/);
     });
 
     it('marks a sub-task queued only while autostart is pending at scope', () => {
@@ -370,8 +373,8 @@ describe('buildTicketContext', () => {
         ['PROJ-1-s2', true, false],
       ]);
       const md = renderTicketContext(ctx);
-      expect(md).toContain('- PROJ-1-s1: Waiting (stage: scope, queued)');
-      expect(md).toContain('- PROJ-1-s2: Running (stage: impl)');
+      expect(md).toMatch(/- T\d+ · PROJ-1-s1: Waiting \(stage: scope, queued\)/);
+      expect(md).toMatch(/- T\d+ · PROJ-1-s2: Running \(stage: impl\)/);
     });
 
     it('omits the sub-tasks section when there are none, and ignores archived ones', () => {
@@ -927,7 +930,7 @@ describe('renderTicketContext', () => {
     const md = renderTicketContext(
       buildTicketContext(store, manifest({ frontend: svc() }), t.id),
     );
-    expect(md).toContain('# Ticket: PROJ-9 — Do research');
+    expect(md).toContain(`# Ticket: T${t.id} · PROJ-9 — Do research`);
     expect(md).toContain('## Prompt\nAudit the app');
     expect(md).toContain('## Context brief\nA short brief');
     expect(md).toContain('## Worktrees & branches');
@@ -1060,7 +1063,7 @@ describe('renderTicketContext', () => {
     const md = renderTicketContext(ctx);
     // A freshly created ticket seeds a `stages` row (§11) — a bare "where is
     // this ticket" line is not the kind of empty section this test is about.
-    expect(md).toBe('# Ticket: Untitled ticket\n\n## Current stage\n- stage: scope (pending)');
+    expect(md).toBe(`# Ticket: T${t.id}\n\n## Current stage\n- stage: scope (pending)`);
     expect(md).not.toContain('## Prompt');
     expect(md).not.toContain('## Worktrees');
   });
@@ -1499,6 +1502,67 @@ describe('renderTicketContext', () => {
     });
   });
 
+  describe('prefixed ids', () => {
+    it('heading and self line carry the T<n> id', () => {
+      const t = createTicket(store, { key: 'ABC-123', title: 'Do it' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const all = renderTicketContext(ctx);
+      expect(all).toContain(`# Ticket: T${t.id} · ABC-123 — Do it`);
+      expect(all).not.toContain('You are working on');
+      const narrative = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+      expect(narrative).not.toContain('You are working on');
+      expect(narrative).toContain('# Ticket: ABC-123 — Do it');
+      expect(narrative).not.toContain(`T${t.id}`);
+      const facts = renderTicketContext(ctx, undefined, { sections: 'facts' });
+      expect(facts.split('\n')[0]).toBe(`You are working on T${t.id} (ABC-123).`);
+    });
+
+    it('narrative + facts state the id exactly once', () => {
+      const t = createTicket(store, { key: 'ABC-9', title: 'Once' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const both =
+        renderTicketContext(ctx, undefined, { sections: 'narrative' }) +
+        renderTicketContext(ctx, undefined, { sections: 'facts' });
+      expect(both.match(new RegExp(`\\bT${t.id}\\b`, 'g'))).toHaveLength(1);
+    });
+
+    it('narrative with headingId keeps the T-id heading and states it once without facts', () => {
+      const t = createTicket(store, { key: 'ABC-8', title: 'Solo' });
+      const ctx = buildTicketContext(store, undefined, t.id);
+      const md = renderTicketContext(ctx, undefined, { sections: 'narrative', headingId: true });
+      expect(md).toContain(`# Ticket: T${t.id} · ABC-8 — Solo`);
+      expect(md.match(new RegExp(`\\bT${t.id}\\b`, 'g'))).toHaveLength(1);
+      expect(renderTicketContext(ctx, undefined, { sections: 'narrative' })).not.toContain(`T${t.id}`);
+    });
+
+    it('heading without key or title is just the id', () => {
+      const t = createTicket(store, { key: '', title: '' });
+      const md = renderTicketContext(buildTicketContext(store, undefined, t.id));
+      expect(md.startsWith(`# Ticket: T${t.id}\n`)).toBe(true);
+      const facts = renderTicketContext(buildTicketContext(store, undefined, t.id), undefined, { sections: 'facts' });
+      expect(facts.split('\n')[0]).toBe(`You are working on T${t.id}.`);
+    });
+
+    it('sub-task names its parent in the self line, Parent task and rows', () => {
+      const parent = createTicket(store, { key: 'PK-1', title: 'Parent' });
+      const child = createTicket(store, { key: '', title: 'Kid', subtaskParentId: parent.id });
+      const ctx = buildTicketContext(store, undefined, child.id);
+      const first = renderTicketContext(ctx, undefined, { sections: 'facts' }).split('\n')[0];
+      expect(first).toContain(`This is a sub-task of T${parent.id}.`);
+      expect(renderTicketContext(ctx)).toContain(`sub-task of T${parent.id} · PK-1: Parent`);
+      const rows = renderTicketContext(buildTicketContext(store, undefined, parent.id));
+      expect(rows).toContain(`- T${child.id}: Kid (stage:`);
+      expect(rows).not.toContain(`#${child.id}`);
+    });
+
+    it('follow-up names its parent with the prefixed ref', () => {
+      const parent = createTicket(store, { key: 'PK-2', title: 'Shipped' });
+      const child = createTicket(store, { key: 'PK-2-fu', title: 'fu', parentTicketId: parent.id });
+      const md = renderTicketContext(buildTicketContext(store, undefined, child.id));
+      expect(md).toContain(`## Continuing from T${parent.id} · PK-2: Shipped`);
+    });
+  });
+
   describe('prompt and brief deduplication and section order', () => {
     it('skips ## Context brief when trimmed brief equals trimmed prompt', () => {
       const t = createTicket(store, { key: 'PROJ-1', title: 'Duplicate text' });
@@ -1596,7 +1660,7 @@ describe('sub-task PRs', () => {
 
   it('leaves seed (bounded) rows unchanged', () => {
     const md = renderTicketContext(seedParent());
-    expect(md).toContain('- PROJ-5-s1: A (stage: ship)\n');
+    expect(md).toContain('- T2 · PROJ-5-s1: A (stage: ship)\n');
     expect(md).not.toContain('no PR yet');
     expect(md).not.toContain('#12');
   });

@@ -117,7 +117,7 @@ describe('runFixBriefCommand', () => {
     adoptPrFeedbackIntoRound(store, id, round.id);
 
     const out = runFixBriefCommand(store, { key: 'PROJ-1' });
-    expect(out).toContain('Reviewers requested changes on the pull request for ticket PROJ-1');
+    expect(out).toContain('Reviewers requested changes on the pull request for ticket T1 · PROJ-1');
     expect(out).toContain('frontend src/a.ts:10');
     expect(out).toContain('asked by alice (MEMBER)');
     expect(out).toContain('please rename this');

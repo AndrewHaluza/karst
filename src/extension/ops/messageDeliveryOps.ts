@@ -17,6 +17,7 @@ import {
 } from '../../workflow/messageDelivery.js';
 import { unreadNotesByTicket } from '../../store/bulletinNotes.js';
 import { parentWakeDecision, type WakeDecision } from '../../workflow/parentWake.js';
+import { formatId } from '../../model/entityId.js';
 
 /**
  * A recipient's push route from its CURRENT live-session core. Resolved at
@@ -186,18 +187,18 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
       // The reply only ever carries mail, so notes never consult it.
       if (kind === 'mail' && deps.alreadyPushed?.(r.toTicketId, r.maxId)) {
         watermark[kind].set(r.toTicketId, r.maxId);
-        deps.debug(`[driver] delivery #${r.toTicketId}: already pushed by the reply — skipping`);
+        deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: already pushed by the reply — skipping`);
         continue;
       }
       const last = lastPointerAt[kind].get(r.toTicketId);
       if (last !== undefined && deps.now() - last < POINTER_INTERVAL_MS) {
-        deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}rate-limited — coalescing`);
+        deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}rate-limited — coalescing`);
         continue;
       }
       const pointer = kind === 'notes' ? notesPointer(r.unread) : mailPointer(r.unread);
       const outcome = deps.delivery.deliver(r.toTicketId, pointer);
       if (outcome === 'deferred') {
-        deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}deferred (${r.unread} unread)`);
+        deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}deferred (${r.unread} unread)`);
         continue;
       }
       if (outcome === 'armed') {
@@ -205,12 +206,12 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
         // reply will push it. The watermark stays put, so if that hook never
         // arrives the next sweep re-evaluates and types the pointer once the
         // recipient is idle, instead of silently stranding the batch.
-        deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}armed (${r.unread} unread)`);
+        deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}armed (${r.unread} unread)`);
         continue;
       }
       watermark[kind].set(r.toTicketId, r.maxId);
       lastPointerAt[kind].set(r.toTicketId, deps.now());
-      deps.debug(`[driver] delivery #${r.toTicketId}: ${tag}pointer delivered (${r.unread} unread)`);
+      deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}pointer delivered (${r.unread} unread)`);
       out.push(r.toTicketId);
     }
   }
@@ -250,7 +251,7 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
     opening.add(parentId);
     lastWakeAt.set(parentId, deps.now());
     const failed = (err: unknown): void => {
-      deps.warn(`karst: waking ticket #${parentId} failed: ${errorText(err)}`);
+      deps.warn(`karst: waking ticket ${formatId('ticket', parentId)} failed: ${errorText(err)}`);
     };
     try {
       void Promise.resolve(deps.wake(parentId))
@@ -278,7 +279,7 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
         deps.debug(`[driver] delivery wake event ${ev.id}: claimed elsewhere`);
         continue;
       }
-      deps.debug(`[driver] delivery wake event ${ev.id} -> #${ev.toTicketId}: ${decision} — ${reason}`);
+      deps.debug(`[driver] delivery wake event ${ev.id} -> ${formatId('ticket', ev.toTicketId)}: ${decision} — ${reason}`);
       if (decision !== 'wake') continue;
       startWake(ev.toTicketId);
       out.push(ev.toTicketId);

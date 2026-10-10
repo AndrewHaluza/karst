@@ -2,8 +2,9 @@ import { dirname, resolve } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import type { StageKey } from '../model/types.js';
+import { formatId } from '../model/entityId.js';
 import { resolveTicketByKey } from './resolveTicket.js';
-import { buildTicketContext, renderTicketContext } from '../context/ticketContext.js';
+import { buildTicketContext, renderTicketContext, type TicketContext } from '../context/ticketContext.js';
 import { composeStageCommand } from './stage.js';
 import { markerStageFor } from '../agent/markerStage.js';
 import { renderDoneMarkerInstruction, renderGateOnlyInstruction } from '../agent/workflowCommand.js';
@@ -163,6 +164,22 @@ export function runContextCommand(
   if (parsed.format === 'md') {
     return renderTicketContext(ctx, undefined, { bounded: false, stageEnding: ending });
   }
-  const json = ending ? { ...ctx, stageEnding: ending } : ctx;
-  return JSON.stringify(json, null, 2);
+  const json = withRefs(ctx);
+  return JSON.stringify(ending ? { ...json, stageEnding: ending } : json, null, 2);
+}
+
+/** `{ ...x, ref: 'T<id>' }`; the numeric `id` stays for compatibility. */
+function withRef<T extends { id: number }>(x: T): T & { ref: string } {
+  return { ...x, ref: formatId('ticket', x.id) };
+}
+
+/** The context plus a prefixed `ref` on the ticket and every related ticket entry. */
+function withRefs(ctx: TicketContext) {
+  return {
+    ...withRef(ctx),
+    parent: ctx.parent && withRef(ctx.parent),
+    subtaskParent: ctx.subtaskParent && withRef(ctx.subtaskParent),
+    subtasks: ctx.subtasks.map(withRef),
+    blockers: ctx.blockers.map(withRef),
+  };
 }

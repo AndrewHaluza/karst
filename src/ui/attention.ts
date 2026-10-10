@@ -1,6 +1,7 @@
 import type { TicketWithStages } from '../store/tickets.js';
 import type { AgentState } from '../model/types.js';
 import { facetOf } from './sidebar/facets.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Why a ticket is in the attention set. `input` and `failed` are the two
@@ -53,7 +54,7 @@ export function attentionItems(tickets: readonly TicketWithStages[]): AttentionI
     rows.push({
       item: {
         ticketId: t.id,
-        key: t.key ?? `#${t.id}`,
+        key: t.key ?? formatId('ticket', t.id),
         title: t.title ?? '',
         stage,
         kind,
