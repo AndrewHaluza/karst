@@ -422,7 +422,16 @@ export interface TicketingConfig {
    * can search (`clickup`); `manual` has no board to list.
    */
   searchEnabled?: boolean;
+  /**
+   * Mirror sub-tasks onto the provider. `off` (default, key absent): relation
+   * rows only. `link`: the sub-task becomes a provider child task of its bound
+   * parent and a blocking sub-task blocks the parent there. `full`: `link`
+   * plus the sub-task's own stage pushes (`advanceOnStart`/`advanceOnShip`).
+   */
+  syncSubtasks?: SyncSubtasksMode;
 }
+
+export type SyncSubtasksMode = 'off' | 'link' | 'full';
 
 export type GateKind = 'script' | 'command';
 

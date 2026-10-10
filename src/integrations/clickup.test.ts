@@ -847,6 +847,22 @@ describe('clickupProvider.createTicket', () => {
     expect(JSON.parse(call!.body ?? '{}')).toEqual({ name: 't' });
   });
 
+  it('sends parent in the body, and the custom-id query only when teamId is set', async () => {
+    const { fn, calls } = fakeFetch({ '/list/42/task': { json: { id: 'cu-child' } } });
+    const plain = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });
+    await plain.createTicket!({ title: 't', parentRef: 'cu-parent' });
+    const first = calls.find((c) => c.url.includes('/list/42/task'))!;
+    expect(JSON.parse(first.body ?? '{}')).toEqual({ name: 't', parent: 'cu-parent' });
+    expect(first.url).not.toContain('custom_task_ids');
+
+    const custom = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42', teamId: '9' });
+    await custom.createTicket!({ title: 't', parentRef: 'PROJ-1' });
+    const last = calls[calls.length - 1]!;
+    expect(last.url).toContain('custom_task_ids=true');
+    expect(last.url).toContain('team_id=9');
+    expect(JSON.parse(last.body ?? '{}')).toMatchObject({ parent: 'PROJ-1' });
+  });
+
   it('returns a bare ref when the payload carries no url', async () => {
     const { fn } = fakeFetch({ '/list/42/task': { json: { id: 'cu-new-3', name: 't' } } });
     const provider = clickupProvider({ fetchFn: fn, token: async () => 'tok', listId: '42' });

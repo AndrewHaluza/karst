@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
-import { providerRef, type AdvanceResult } from './done.js';
+import { providerRef, subtaskPushSuppressed, type AdvanceResult } from './done.js';
 import { DEFAULT_START_STATUS } from './startDefaults.js';
 
 /**
@@ -32,7 +32,9 @@ export async function advanceTicketOnStart(
   debug?: (message: string) => void,
 ): Promise<AdvanceResult> {
   debug?.(`[ticketing] start ticket ${ticketId}: advanceOnStart ${ticketing?.advanceOnStart ? 'enabled' : 'disabled'}`);
-  if (!ticketing?.advanceOnStart) return { advanced: false, reason: 'disabled' };
+  if (!ticketing?.advanceOnStart || subtaskPushSuppressed(store, ticketId, ticketing)) {
+    return { advanced: false, reason: 'disabled' };
+  }
   const status = (ticketing.startStatus ?? '').trim() || DEFAULT_START_STATUS;
 
   const ref = providerRef(getTicket(store, ticketId));

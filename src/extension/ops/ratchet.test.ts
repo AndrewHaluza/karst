@@ -13,7 +13,9 @@ import { join } from 'node:path';
 // driver deps; the logic lives in `src/approaches/graph/visitMailbox*.ts`).
 // Raised by 2 for the 'Karst: Run Doctor' binding (one import + one registration;
 // logic is in `src/ui/doctor/host.ts` and `ops/doctorOps.ts`).
-const MAX_EXTENSION_LINES = 8429;
+// Raised by 10 for the sub-task provider sync binding (`syncSubtask: makeSubtaskSync({...})`
+// in the lifecycle deps + 2 imports; logic is in `ops/subtaskSyncOps.ts`).
+const MAX_EXTENSION_LINES = 8439;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

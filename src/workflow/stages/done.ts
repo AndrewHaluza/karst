@@ -28,6 +28,18 @@ export function providerRef(ticket: Ticket): string | null {
   return ref === '' ? null : ref;
 }
 
+/**
+ * `syncSubtasks: 'link'` only mirrors structure; a sub-task's own status pushes
+ * belong to `full`. Applies only to sub-tasks, so top-level tickets are untouched.
+ */
+export function subtaskPushSuppressed(
+  store: Store,
+  ticketId: number,
+  ticketing: TicketingConfig | undefined,
+): boolean {
+  return ticketing?.syncSubtasks === 'link' && getTicket(store, ticketId).subtaskParentId !== null;
+}
+
 /** Why the push did nothing, so the caller can log rather than guess. */
 export type AdvanceResult =
   | { advanced: true; status: string }
@@ -73,7 +85,9 @@ export async function advanceTicketOnShip(
   provider: TicketingProvider,
 ): Promise<AdvanceResult> {
   const status = ticketing?.advanceOnShip ? (ticketing.shipStatus ?? '').trim() : '';
-  if (!status) return { advanced: false, reason: 'disabled' };
+  if (!status || subtaskPushSuppressed(store, ticketId, ticketing)) {
+    return { advanced: false, reason: 'disabled' };
+  }
 
   const ref = providerRef(getTicket(store, ticketId));
   if (!ref) return { advanced: false, reason: 'no-ref' };

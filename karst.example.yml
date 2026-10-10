@@ -709,12 +709,17 @@ uat:
 # NOT stored here — set it in Settings → Ticketing (kept in the OS keychain).
 # `searchEnabled` (default true) turns that dropdown off; it is a Settings
 # toggle.
+# `syncSubtasks` (off | link | full, default off; clickup only) mirrors sub-tasks
+# onto the board: `link` creates the sub-task as a child task of its bound parent
+# (and a blocking sub-task blocks the parent there); `full` also pushes the
+# sub-task's own start/ship statuses. Relation rows are recorded in every mode.
 ticketing:
   provider: manual
   # provider: clickup
   # teamId: "9001"
   # listId: "42"
   # searchEnabled: true
+  # syncSubtasks: off
 
 # Review stage gates (optional). Absent yields the default pipeline: karst
 # probes package.json for lint/typecheck/build/format and runs whichever

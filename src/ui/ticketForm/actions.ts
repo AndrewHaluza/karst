@@ -199,6 +199,9 @@ export interface TicketFormActionsDeps {
   branchCandidatesCache?: Map<string, string[]>;
 }
 
+/** The slice of the form deps the relation write-back needs (also used by sub-task sync). */
+export type WritebackDeps = Pick<TicketFormActionsDeps, 'store' | 'provider'>;
+
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
@@ -216,7 +219,7 @@ function isAlreadyExistsError(message: string): boolean {
  * `failed` with the reason; the row is retried on the next bind.
  */
 async function writeBackRelation(
-  deps: TicketFormActionsDeps,
+  deps: WritebackDeps,
   relation: TicketRelation,
 ): Promise<void> {
   if (!deps.provider.addDependency) return;
@@ -263,7 +266,7 @@ async function writeBackRelation(
  * fire network work. A ticket with no ref is a no-op.
  */
 export async function onSourceRefBound(
-  deps: TicketFormActionsDeps,
+  deps: WritebackDeps,
   ticketId: number,
 ): Promise<void> {
   if (getTicketSourceRef(deps.store, ticketId) === null) return;
