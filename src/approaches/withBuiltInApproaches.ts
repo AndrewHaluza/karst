@@ -134,6 +134,7 @@ function overlayApproach(packaged: ApproachDef, project: ApproachDef): ApproachD
     source: project.source ?? packaged.source,
     recommended: project.recommended ?? packaged.recommended,
     workflow: project.workflow ?? packaged.workflow,
+    outputs: project.outputs ?? packaged.outputs,
     enabled: project.enabled ?? packaged.enabled,
     graph: mergeGraph(packaged.graph, project.graph),
   };
@@ -185,7 +186,7 @@ function deltaForEntry(entry: ApproachDef, packaged: ApproachDef): ApproachDef |
   // a labelless delta would fail manifest load.
   const delta: ApproachDef = { id: entry.id, label: entry.label ?? packaged.label };
 
-  for (const key of ['description', 'entrypoint', 'source', 'recommended', 'workflow'] as const) {
+  for (const key of ['description', 'entrypoint', 'source', 'recommended', 'workflow', 'outputs'] as const) {
     if (!deepEqual(entry[key], packaged[key])) {
       (delta as unknown as Record<string, unknown>)[key] = entry[key];
     }

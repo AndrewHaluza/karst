@@ -690,3 +690,35 @@ describe('uninstallApproach', () => {
     expect(() => uninstallApproach(base, '/etc/passwd')).toThrow(ManifestError);
   });
 });
+
+describe('outputs persistence', () => {
+  const outputs = [{ glob: 'docs/plans/**', kind: 'plan' as const }];
+
+  it('round-trips outputs through writeApproachArtifacts / readApproachPackage', () => {
+    const base = makeBaseDir();
+    writeApproachArtifacts(base, { id: 'with-outputs', label: 'L', prompts: [], outputs }, []);
+    expect(readApproachPackage(base, 'with-outputs')?.outputs).toEqual(outputs);
+  });
+
+  it('round-trips outputs through writeApproachPackage', () => {
+    const base = makeBaseDir();
+    writeApproachPackage(base, { id: 'flat-outputs', label: 'L', prompts: [], outputs }, []);
+    expect(readApproachPackage(base, 'flat-outputs')?.outputs).toEqual(outputs);
+  });
+
+  it('a package without outputs reads outputs === undefined', () => {
+    const base = makeBaseDir();
+    writeApproachArtifacts(base, { id: 'none', label: 'L', prompts: [] }, []);
+    expect(readApproachPackage(base, 'none')?.outputs).toBeUndefined();
+  });
+
+  it('rejects an invalid kind in approach.yml', () => {
+    const base = makeBaseDir();
+    writeApproachArtifacts(
+      base,
+      { id: 'bad', label: 'L', prompts: [], outputs: [{ glob: 'a/**', kind: 'nope' as never }] },
+      [],
+    );
+    expect(() => readApproachPackage(base, 'bad')).toThrow(/outputs\[0\]\.kind/);
+  });
+});

@@ -62,7 +62,7 @@ export function deepEq(a: unknown, b: unknown): boolean {
 const GRAPH_BLOCKS = ['planner', 'profiles', 'commands', 'limits'] as const;
 
 /** The entry fields a built-in delta may carry. */
-const DELTA_KEYS = ['description', 'entrypoint', 'source', 'recommended', 'workflow'] as const;
+const DELTA_KEYS = ['description', 'entrypoint', 'source', 'recommended', 'workflow', 'outputs'] as const;
 
 /**
  * Reduce the effective approaches list to the project-written delta against the

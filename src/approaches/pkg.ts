@@ -2,7 +2,8 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, rmSync
 import { join, isAbsolute, dirname } from 'node:path';
 import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
 import { ManifestError } from '../manifest/schema.js';
-import type { WorkflowPhase } from '../manifest/types.js';
+import type { OutputDef, WorkflowPhase } from '../manifest/types.js';
+import { validateOutputs } from './outputs.js';
 import { isSafePhaseName, phaseNameFault } from './phaseName.js';
 
 /**
@@ -37,6 +38,8 @@ export interface ApproachPackage {
   artifacts?: ApproachArtifact[];
   /** Ordered dev-workflow phases (§ ticket form), when the approach defines one. */
   workflow?: WorkflowPhase[];
+  /** Repo-relative globs the approach writes artifacts to. */
+  outputs?: OutputDef[];
 }
 
 /**
@@ -185,6 +188,7 @@ function validateApproachPackage(raw: unknown): ApproachPackage {
       : {}),
     ...(rec.artifacts !== undefined ? { artifacts: requireArtifacts(rec.artifacts) } : {}),
     ...(rec.workflow !== undefined ? { workflow: requireWorkflow(rec.workflow) } : {}),
+    ...(rec.outputs !== undefined ? { outputs: validateOutputs(rec.outputs, 'outputs') } : {}),
   };
 }
 
@@ -238,6 +242,7 @@ export function writeApproachPackage(
     prompts: [...pkg.prompts],
     ...(pkg.artifacts !== undefined ? { artifacts: pkg.artifacts.map((a) => ({ ...a })) } : {}),
     ...(pkg.workflow !== undefined ? { workflow: pkg.workflow.map((p) => ({ ...p })) } : {}),
+    ...(pkg.outputs !== undefined ? { outputs: pkg.outputs.map((o) => ({ ...o })) } : {}),
   };
   writeFileSync(join(dir, 'approach.yml'), yamlDump(meta));
 }
@@ -281,6 +286,7 @@ export function writeApproachArtifacts(
     prompts: [...pkg.prompts],
     artifacts: (pkg.artifacts ?? []).map((a) => ({ ...a })),
     ...(pkg.workflow !== undefined ? { workflow: pkg.workflow.map((p) => ({ ...p })) } : {}),
+    ...(pkg.outputs !== undefined ? { outputs: pkg.outputs.map((o) => ({ ...o })) } : {}),
   };
   writeFileSync(join(dir, 'approach.yml'), yamlDump(meta));
 }

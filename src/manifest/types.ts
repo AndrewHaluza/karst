@@ -322,6 +322,16 @@ export interface GraphApproachConfig {
   limits: GraphLimits;
 }
 
+/** Fixed vocabulary for what an approach output is; checked at load. */
+export const OUTPUT_KINDS = ['plan', 'research', 'spec', 'review', 'meta', 'script', 'other'] as const;
+export type OutputKind = (typeof OUTPUT_KINDS)[number];
+
+/** A repo-relative glob an approach writes artifacts to, with its kind. */
+export interface OutputDef {
+  glob: string;
+  kind: OutputKind;
+}
+
 /**
  * A development approach offered on the ticket form (§ ticket form). `id` is
  * the stable key persisted on a ticket; `recommended` marks the default pick
@@ -336,6 +346,8 @@ export interface ApproachDef {
   source?: ApproachSource; // absent = hand-authored/custom (no fetch)
   recommended?: boolean;
   workflow?: WorkflowPhase[];
+  /** Where this approach writes artifacts; absent = built-in defaults (`effectiveOutputs`). */
+  outputs?: OutputDef[];
   enabled?: boolean; // default true
   /** Nested graph-runtime configuration; present only on graph approaches. */
   graph?: GraphApproachConfig;
