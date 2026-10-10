@@ -75,7 +75,9 @@ describe.runIf(process.platform !== 'win32')('defaultGhRunnerAsync (POSIX fixtur
       responsive = true;
     }, 0);
 
-    const result = await defaultGhRunnerAsync(['status'], cwd, { timeoutMs: 1_000 });
+    // Generous limit: this case is about the exit mapping, and spawning the fake
+    // gh can exceed 1s when the whole integration suite runs in parallel.
+    const result = await defaultGhRunnerAsync(['status'], cwd, { timeoutMs: 15_000 });
 
     expect(responsive).toBe(true);
     expect(result).toEqual({ stdout: 'ok', stderr: 'note', exitCode: 0 });
