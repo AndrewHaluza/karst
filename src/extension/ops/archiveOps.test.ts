@@ -106,14 +106,24 @@ describe('archiveTicketOp', () => {
       path: '/r1/w1',
       branch: 'b1',
       baseRef: 'b1',
-    });
+    }, undefined);
     expect(archiveWorktree).toHaveBeenNthCalledWith(2, d.git, d.store, {}, {
       ticketId: 1,
       repoPath: '/r2',
       path: '/r2/w2',
       branch: 'b2',
       baseRef: 'base',
-    });
+    }, undefined);
+  });
+
+  it('passes beforeRemove to every archive', async () => {
+    const beforeRemove = vi.fn();
+    const d = { ...makeDeps(), beforeRemove };
+    vi.mocked(listWorktreesByTicket).mockReturnValue([
+      { repo: '/r1', path: '/r1/w1', branch: 'b1', baseRef: 'base' },
+    ] as never);
+    await archiveTicketOp(d, 1);
+    expect(vi.mocked(archiveWorktree).mock.calls[0]![4]).toBe(beforeRemove);
   });
 
   it('skips a worktree with no branch', async () => {
@@ -244,6 +254,13 @@ describe('archiveInactiveWorktreesOp', () => {
     );
     expect(archiveInactiveWorktrees).not.toHaveBeenCalled();
     expect(d.refresh).not.toHaveBeenCalled();
+  });
+
+  it('hands beforeRemove to the bulk archive', async () => {
+    const beforeRemove = vi.fn();
+    const d = makeArchiveInactiveDeps({ beforeRemove });
+    await archiveInactiveWorktreesOp(d);
+    expect(archiveInactiveWorktrees).toHaveBeenCalledWith(d.git, d.store, {}, { projectId: 7, beforeRemove });
   });
 
   it('archives with the bound project id and reports the summary', async () => {

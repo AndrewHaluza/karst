@@ -108,6 +108,23 @@ describe('archive/restore worktree', () => {
   // caller owns the output channel, so the result has to CARRY what was stopped
   // — a reap nothing reports is the invisibility this fix exists to end
   // (869ed2n50: two ~1 GB dev servers, three days, nothing on any surface).
+  it('runs beforeRemove while the worktree still exists, and not for a skipped archive', async () => {
+    const rec = spinWorktree();
+    const alloc = makePortAllocator(store, [4000, 4100]);
+    const seen: boolean[] = [];
+    const target = { ticketId: 1, repoPath: repo.path, path: rec.path, branch: rec.branch, baseRef: 'develop' };
+    await archiveWorktree(defaultGitRunner, store, alloc, target, async (t) => {
+      seen.push(existsSync(t.path));
+    });
+    expect(seen).toEqual([true]);
+    expect(existsSync(rec.path)).toBe(false);
+    // folder gone now: the second call skips before the hook
+    await archiveWorktree(defaultGitRunner, store, alloc, target, async () => {
+      seen.push(false);
+    });
+    expect(seen).toEqual([true]);
+  });
+
   it('carries the servers it had to stop out to the caller', async () => {
     const rec = spinWorktree();
     const alloc = makePortAllocator(store, [4000, 4100]);

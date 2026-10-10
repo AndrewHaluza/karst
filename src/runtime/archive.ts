@@ -91,6 +91,8 @@ export async function archiveWorktree(
   store: Store,
   allocator: PortAllocator,
   target: ArchiveTarget,
+  /** Runs once the worktree is confirmed live and BEFORE it is archived/removed (artifact final sweep). */
+  beforeRemove?: (target: ArchiveTarget) => Promise<void>,
 ): Promise<ArchiveResult> {
   const { ticketId, repoPath, path, branch, baseRef } = target;
 
@@ -105,6 +107,8 @@ export async function archiveWorktree(
       reapedServers: [],
     };
   }
+
+  await beforeRemove?.(target);
 
   const slug = slugOf(path);
   const ref = `refs/karst/archive/${slug}`;

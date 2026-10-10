@@ -354,6 +354,7 @@ import { settleShipGates } from './workflow/mergeGate.js';
 import { integrateAndReleaseParent, isIntegrating, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
 import { autoArchiveDoneTickets } from './store/doneArchive.js';
 import { sweepArtifactRetention } from './artifacts/retention.js';
+import { wireArtifactCapture } from './extension/artifactCaptureWiring.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
@@ -1212,6 +1213,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
+  const artifactCapture = wireArtifactCapture({
+    store: localStore,
+    globalStorageRoot: context.globalStorageUri.fsPath,
+    projectId: () => currentProject()?.id,
+    manifest: () => currentManifest(),
+    git: defaultGitRunner,
+    debug: (m) => logger.debug(m),
+    fsWatch,
+  });
+  context.subscriptions.push({ dispose: artifactCapture.dispose });
   const archiveDeps: ArchiveOpsDeps = {
     store: localStore,
     git: defaultGitRunner,
@@ -1220,6 +1231,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     appendLine: (m) => channel.appendLine(m),
     closeDoneTerminals: closeTicketDoneTerminals,
     manifest: currentManifest,
+    beforeRemove: artifactCapture.beforeRemove,
     refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); }, // an archived blocker unblocks children
   };
   /**
@@ -3322,6 +3334,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       get graphBytesRoot() { return graphBytesRootFor(); },
       artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
     },
+    artifacts: {
+      mirrorGraph: artifactCapture.service.mirrorGraph,
+      sweepWorktree: (wt) => artifactCapture.beforeRemove({ ...wt, branch: '' }),
+      purge: artifactCapture.service.purge,
+    },
     openEdit: (id) => ticketForm.openEdit(id),
     refresh: () => provider.refresh(),
     reloadManifest: async () => {
@@ -3644,6 +3661,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushStoreState(ticketId);
       return;
     }
+    if (payload.hook_event_name === 'SessionEnd') artifactCapture.onSessionEnd(ticketId);
     if (payload.hook_event_name === 'SessionStart') {
       recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
     }
@@ -5623,7 +5641,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           defaultGitRunner,
           localStore,
           archiveAllocator,
-          { projectId: project.id, onlyArchived: true },
+          { projectId: project.id, onlyArchived: true, beforeRemove: artifactCapture.beforeRemove },
         );
         worktreesSwept =
           archivedTrees.archived > 0 ||
@@ -6651,6 +6669,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         notify,
         log: { info: (m) => logger.info(m) },
         refresh: () => provider.refresh(),
+        beforeRemove: artifactCapture.beforeRemove,
       }),
     ),
     vscode.commands.registerCommand('karst.compactArchivedWorktrees', async () => {

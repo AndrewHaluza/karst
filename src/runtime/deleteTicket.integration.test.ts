@@ -163,6 +163,37 @@ describe('deleteTicketPermanently', () => {
     store.close();
   });
 
+  it('sweeps the ticket, then each worktree, before the tree is removed', async () => {
+    const store = openStore(':memory:');
+    const repo = makeRepo();
+    try {
+      const ticket = createTicket(store, { key: 'DELETE-SWEEP', title: 'sweep' });
+      const rec = createWorktree(store, {
+        ticketId: ticket.id,
+        repoPath: repo.path,
+        slug: 'DELETE-SWEEP',
+        baseRef: 'develop',
+      });
+      const events: string[] = [];
+      await deleteTicketPermanently(store, ticket.id, {
+        closePanel: () => {},
+        reap: async () => {},
+        allocator: allocatorFor(store),
+        sweepTicket: async () => {
+          events.push('ticket');
+        },
+        sweepWorktree: async (wt) => {
+          events.push(`worktree:${existsSync(wt.path)}:${wt.baseRef}`);
+        },
+      });
+      expect(events).toEqual(['ticket', 'worktree:true:develop']);
+      expect(existsSync(rec.path)).toBe(false);
+    } finally {
+      store.close();
+      repo.cleanup();
+    }
+  });
+
   // The leak this routing closes (869ed2n50): permanent delete used to remove
   // only the `servers`/`worktrees` rows, leaving the dev server detached — no
   // controlling tty, reparented to init, still holding its port and serving a

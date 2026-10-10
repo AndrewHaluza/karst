@@ -5,7 +5,7 @@ import type { Notify } from './notify.js';
 import { archiveTicket, unarchiveTicket } from '../../store/tickets.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { listArchives } from '../../store/worktreeArchives.js';
-import { archiveWorktree, restoreWorktree } from '../../runtime/archive.js';
+import { archiveWorktree, restoreWorktree, type ArchiveTarget } from '../../runtime/archive.js';
 import { archiveInactiveWorktrees } from '../../runtime/archiveBulk.js';
 import { makePortAllocator } from '../../resolver/allocator.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
@@ -20,6 +20,8 @@ export interface ArchiveOpsDeps {
   readonly closeDoneTerminals: (ticketId: number) => number;
   readonly manifest: () => Manifest | undefined;
   readonly refresh: () => void;
+  /** Artifact final sweep, awaited before each worktree is archived. */
+  readonly beforeRemove?: (target: ArchiveTarget) => Promise<void>;
 }
 
 export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): Promise<void> {
@@ -50,7 +52,7 @@ export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): P
           path: w.path,
           branch: w.branch,
           baseRef: w.baseRef ?? w.branch,
-        });
+        }, deps.beforeRemove);
         // Archiving removes the tree out from under anything running in it,
         // so whatever had to be stopped is named here. A kill that FAILED is
         // a live server serving a deleted tree — the exact orphan this
@@ -78,6 +80,7 @@ export interface ArchiveInactiveDeps {
   readonly notify: Notify;
   readonly log: { info(m: string): void };
   readonly refresh: () => void;
+  readonly beforeRemove?: (target: ArchiveTarget) => Promise<void>;
 }
 
 /**
@@ -98,7 +101,11 @@ export async function archiveInactiveWorktreesOp(deps: ArchiveInactiveDeps): Pro
     return;
   }
   const allocator = makePortAllocator(deps.store, manifest.portRange);
-  const summary = await archiveInactiveWorktrees(deps.git, deps.store, allocator, { projectId });
+  const scope = { projectId };
+  const summary = await archiveInactiveWorktrees(deps.git, deps.store, allocator, {
+    ...scope,
+    beforeRemove: deps.beforeRemove,
+  });
   // Say what the sweep had to stop to remove those trees. An unattended bulk
   // archive is the last place a killed — or unkillable — dev server may go
   // unsaid; aggregated into one message rather than one popup per row, since a
