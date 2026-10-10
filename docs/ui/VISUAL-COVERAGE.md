@@ -49,9 +49,28 @@ END_DOC_BLOCK: [@ui:RULE-COUNTS]
 | UI-R30 | Reduced motion preserves state information | STATIC+VISUAL | **covered** | Playwright `reducedMotion: 'reduce'` on dedicated project |
 | UI-R36 | Use a test that can prove the property | STATIC+RUNTIME+VISUAL | **covered** | This sweep IS the remedy for R36 on the VISUAL axis |
 | UI-R38 | A scrolling surface keeps its controls pinned | STATIC+VISUAL | **covered** | Scrolls container, asserts pinned bounding boxes unchanged |
+| UI-R19 / UI-R36 | Settings layout geometry holds on every route (overlap, clipping, overflow, containment, column alignment) | VISUAL | **covered** | Geometry assertions, no baselines: `ui:LAYOUT-SANITY` (`npm run test:layout`) |
 
 **Still manual after this ticket: UI-R22 only.**
 END_DOC_BLOCK: [@ui:COVERAGE-TABLE]
+
+## [@ui:LAYOUT-SANITY] Layout-sanity gate (Settings)
+
+`npm run test:layout` (UAT gate `layout` runs `test:layout:docker`) opens EVERY Settings route with the `realistic` corpus (`tests/visual/realisticSettings.ts`: 2 repos, 3 presets, pinned roles, local + approach profiles, a 40+ line profile body, a 60+ char model id, a 40+ char preset name) and measures geometry. jsdom has no layout engine (`docs/ui/UI-INVARIANTS.md`: no layout, no paint), the screenshot sweep baselines whatever renders, and the property sweeps judge rules, not geometry. There are no baselines here, so a buggy page cannot be re-recorded into "correct".
+
+- **Routes**: one per `SETTINGS_SECTIONS` member (reached by clicking the nav entry; there is no section deep link) plus the 7 Agents hashes (`#agents/roles`, `/roles/<role>`, `/roles?compare=<preset>`, `/profiles`, `/profiles/<long local>`, `/profiles/<approach>`, `/profiles/builtin:<role>`). `settingsRoutes.test.ts` fails when a section is missing.
+- **Widths**: 1280, 800, 600 at height 900. `dark` project only: geometry is theme-independent. The file skips unless `KARST_LAYOUT_GATE=1`, so the regular sweep does not run it. `test:layout` deletes `tests/visual/.tmp` first: `serve.mjs` reuses existing fixture pages, and a stale page would hide a fix or a regression.
+- **Checks** (1px tolerance, pure functions in `layoutChecks.ts`, each with a positive and a negative unit fixture):
+  - `page-overflow`: `scrollWidth > clientWidth + 1`.
+  - `sibling-overlap`: in-flow siblings (static/relative/sticky) intersecting by more than 1px on both axes.
+  - `containment`: an in-flow element extends more than 1px outside a parent whose overflow is visible. Scroll containers and absolute/fixed children are exempt.
+  - `clipped-text`: overflow hidden/clip with scroll size over client size. Allowed only with `text-overflow: ellipsis` AND the full text in `aria-label`, `aria-describedby` or `aria-expanded` (UI-R19: `title` alone does not count). The sr-only 1x1 pattern is not text.
+  - `column-alignment`: in `table`/`grid` roles, each body row's i-th cell left edge equals the header's within 1px. Rows with `colspan` are skipped.
+  - `degenerate-control`: a button, `a[href]`, input, select, textarea, `[role=tab]` or `[role=button]` under 16px in either axis, or outside the viewport horizontally. Native checkbox/radio boxes (13px) are exempt.
+- **Output**: failures go to `tests/visual/.layout-report.json` (gitignored) and print grouped as route, width, check, selector, numbers BEFORE the test fails, so a fix agent reads the list in the gate output.
+- **Ratchet ledger** `tests/visual/layout-known-failures.json` is the only exemption (no per-element opt-out attribute). Keys are `route|width|check|selector`. A failure not in the ledger fails the gate; a ledger entry that no longer reproduces ALSO fails the gate (delete it). The ledger can only shrink. It was seeded once from the failures `develop` had (`LAYOUT_SEED_LEDGER=1`, inside the pinned Docker image); never reseed to make a branch green.
+- **Cannot catch**: a wrong control in a sane-looking place, wrong copy, wrong colours, or a layout bug that only appears in a state the corpus does not render (add the state to the corpus).
+END_DOC_BLOCK: [@ui:LAYOUT-SANITY]
 
 ## [@ui:LIMITATIONS] Named limitations
 

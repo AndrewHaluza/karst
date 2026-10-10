@@ -21,7 +21,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CHAINS, type ViewId } from './chains.js';
 import { THEMES, type ThemeId, THEME_IDS } from './themes.js';
-import { getCorpus, dashboardCorpora, ALL_VIEWS } from './corpora.js';
+import { getCorpus, dashboardCorpora, ALL_VIEWS, SETTINGS_SCENARIOS } from './corpora.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, '.tmp');
@@ -198,6 +198,12 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
         const corpus = getCorpus(view);
         const html = buildFixture(view, theme, corpus.messages);
         writeFileSync(join(themeDir, `${view}.html`), html, 'utf8');
+        if (view === 'settings') {
+          for (const [scenario, scenarioCorpus] of Object.entries(SETTINGS_SCENARIOS)) {
+            const scenarioHtml = buildFixture(view, theme, scenarioCorpus.messages);
+            writeFileSync(join(themeDir, `settings-${scenario}.html`), scenarioHtml, 'utf8');
+          }
+        }
       }
     }
   }
