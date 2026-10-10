@@ -19,6 +19,6 @@ export function isSecretPath(relPath: string): boolean {
 
 /** Reject a tree path that could escape or confuse the tree (`..`, absolute, empty segments). */
 export function isSafeTreePath(path: string): boolean {
-  if (path === '' || path.startsWith('/') || path.includes('\\') || path.includes('\0')) return false;
+  if (path === '' || path.startsWith('/') || path.includes('\\') || /[\0\r\n\t]/.test(path)) return false;
   return path.split('/').every((s) => s !== '' && s !== '.' && s !== '..' && s !== '.git');
 }

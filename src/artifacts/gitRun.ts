@@ -38,6 +38,9 @@ export function runGit(
         resolve(stdout);
       },
     );
+    // git may exit before reading all of stdin (EPIPE); the exit code carries
+    // the failure, so an unhandled stream error must not reach the host.
+    child.stdin?.on('error', () => {});
     child.stdin?.end(opts.input);
   });
 }

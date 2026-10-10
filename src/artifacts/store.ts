@@ -1,4 +1,5 @@
-import { appendFileSync, readdirSync, mkdirSync, mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { appendFile, mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -61,7 +62,7 @@ export interface ArtifactStore {
   history(ticketId: number, path: string): Promise<RevisionInfo[]>;
   show(ticketId: number, sha: string, path: string): Promise<Buffer>;
   diff(ticketId: number, a: string, b: string, path: string): Promise<string>;
-  listSkips(ticketId: number): SkipRecord[];
+  listSkips(ticketId: number): Promise<SkipRecord[]>;
   purgeArtifacts(ticketId: number): Promise<void>;
   /** Purge every ticket store whose newest revision is older than `maxAgeDays`; returns purged ticket ids. */
   purgeStale(maxAgeDays: number): Promise<number[]>;
@@ -88,16 +89,16 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
   const gitDirOf = (ticketId: number): string => join(dirOf(ticketId), 'repo.git');
   const skipsFile = (ticketId: number): string => join(dirOf(ticketId), 'skips.jsonl');
 
-  const recordSkip = (ticketId: number, path: string, reason: string): void => {
-    mkdirSync(dirOf(ticketId), { recursive: true });
+  const recordSkip = async (ticketId: number, path: string, reason: string): Promise<void> => {
+    await mkdir(dirOf(ticketId), { recursive: true });
     const rec: SkipRecord = { ticketId, path, reason, at: now().toISOString() };
-    appendFileSync(skipsFile(ticketId), `${JSON.stringify(rec)}\n`);
+    await appendFile(skipsFile(ticketId), `${JSON.stringify(rec)}\n`);
   };
 
   async function ensureRepo(ticketId: number): Promise<string> {
     const gitDir = gitDirOf(ticketId);
     if (!existsSync(join(gitDir, 'HEAD'))) {
-      mkdirSync(gitDir, { recursive: true });
+      await mkdir(gitDir, { recursive: true });
       await runGit(gitDir, ['init', '--bare', '-q', '--initial-branch=main']);
     }
     return gitDir;
@@ -154,18 +155,18 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
     const { ticketId } = input;
     const treePath = `${input.repo}/${input.relPath}`;
     if (!isSafeTreePath(treePath) || !isSafeTreePath(input.repo)) {
-      recordSkip(ticketId, treePath, 'unsafe-path');
+      await recordSkip(ticketId, treePath, 'unsafe-path');
       return null;
     }
     if (isSecretPath(input.relPath)) {
-      recordSkip(ticketId, treePath, 'secret-pattern');
+      await recordSkip(ticketId, treePath, 'secret-pattern');
       return null;
     }
     let bytes: Buffer | null = null;
     if (!input.deleted) {
       const snap = readSnapshot(input.sourcePath);
       if ('skip' in snap) {
-        recordSkip(ticketId, treePath, snap.skip);
+        await recordSkip(ticketId, treePath, snap.skip);
         return null;
       }
       bytes = snap.bytes;
@@ -248,9 +249,9 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
       return runGitText(gitDir, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', a, b, '--', path]);
     },
 
-    listSkips(ticketId) {
+    async listSkips(ticketId) {
       try {
-        return readFileSync(skipsFile(ticketId), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l) as SkipRecord);
+        return (await readFile(skipsFile(ticketId), 'utf8')).split('\n').filter(Boolean).map((l) => JSON.parse(l) as SkipRecord);
       } catch {
         return [];
       }
@@ -258,7 +259,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
 
     purgeArtifacts: (ticketId) =>
       queue.run(String(ticketId), async () => {
-        rmSync(dirOf(ticketId), { recursive: true, force: true });
+        await rm(dirOf(ticketId), { recursive: true, force: true });
       }),
 
     async purgeStale(maxAgeDays) {
@@ -266,7 +267,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
       const purged: number[] = [];
       let names: string[] = [];
       try {
-        names = readdirSync(join(opts.artifactsRoot, `p${opts.projectId}`));
+        names = await readdir(join(opts.artifactsRoot, `p${opts.projectId}`));
       } catch {
         return purged;
       }
@@ -278,7 +279,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
           if (!gitDir || !(await headSha(gitDir))) return false;
           const secs = Number((await runGitText(gitDir, ['log', '-1', '--format=%ct', BRANCH])).trim());
           if (!Number.isFinite(secs) || secs * 1000 >= cutoff) return false;
-          rmSync(dirOf(ticketId), { recursive: true, force: true });
+          await rm(dirOf(ticketId), { recursive: true, force: true });
           return true;
         });
         if (stale) purged.push(ticketId);

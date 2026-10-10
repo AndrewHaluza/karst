@@ -73,10 +73,11 @@ describe('artifact store', () => {
       expect(await store.commitRevision(rev(n))).toBeNull();
     }
     expect(await store.commitRevision(rev('../x.md', { sourcePath: join(src, 'real.md') }))).toBeNull();
-    const reasons = store.listSkips(1).map((s) => `${s.path}|${s.reason.split(':')[0]}`);
+    expect(await store.commitRevision(rev('a\nb.md', { sourcePath: join(src, 'real.md') }))).toBeNull();
+    const reasons = (await store.listSkips(1)).map((s) => `${s.path}|${s.reason.split(':')[0]}`);
     expect(reasons).toEqual([
       'app/.env|secret-pattern', 'app/big.md|oversize', 'app/link.md|not-regular',
-      'app/hard.md|hardlinked', 'app/pipe.md|not-regular', 'app/../x.md|unsafe-path',
+      'app/hard.md|hardlinked', 'app/pipe.md|not-regular', 'app/../x.md|unsafe-path', 'app/a\nb.md|unsafe-path',
     ]);
     expect(await store.listArtifacts(1)).toEqual([]);
   });
