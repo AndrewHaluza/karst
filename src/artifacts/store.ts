@@ -81,6 +81,17 @@ const SHA = /^[0-9a-f]{40,64}$/;
 
 interface TreeEntry { mode: string; sha: string }
 
+/** True when a file at `path` would need a stored file to also be a directory, or the reverse. */
+function treePathConflicts(files: ReadonlyMap<string, TreeEntry>, path: string): boolean {
+  const parts = path.split('/');
+  for (let i = 1; i < parts.length; i++) {
+    if (files.has(parts.slice(0, i).join('/'))) return true;
+  }
+  const asDir = `${path}/`;
+  for (const existing of files.keys()) if (existing.startsWith(asDir)) return true;
+  return false;
+}
+
 export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_ARTIFACT_BYTES;
   const now = opts.now ?? (() => new Date());
@@ -144,7 +155,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
     const scratch = mkdtempSync(join(tmpdir(), 'karst-art-'));
     try {
       const res = snapshotFile({ path: sourcePath, maxBytes, mediaType: 'text/plain' }, scratch);
-      if (!res.ok) return { skip: `${res.code}: ${res.reason}` };
+      if (!res.ok) return { skip: res.code };  // the reason text names the absolute source path
       return { bytes: readFileSync(join(scratch, res.sha256)) };
     } finally {
       rmSync(scratch, { recursive: true, force: true });
@@ -181,6 +192,10 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
     } else {
       const blob = (await runGitText(gitDir, ['hash-object', '-w', '--no-filters', '--stdin'], { input: bytes })).trim();
       if (current?.sha === blob) return null;
+      if (treePathConflicts(files, treePath)) {
+        await recordSkip(ticketId, treePath, 'path-conflict');
+        return null;
+      }
       files.set(treePath, { mode: '100644', sha: blob });
     }
     const tree = await writeTree(gitDir, files);

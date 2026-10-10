@@ -82,6 +82,21 @@ describe('artifact store', () => {
     expect(await store.listArtifacts(1)).toEqual([]);
   });
 
+  it('refuses a file/directory clash at the same tree path and keeps the tree valid', async () => {
+    put('a', 'file');
+    put('b', 'nested');
+    expect(await store.commitRevision(rev('a'))).not.toBeNull();
+    expect(await store.commitRevision(rev('a/b', { sourcePath: join(src, 'b') }))).toBeNull();
+    mkdirSync(join(src, 'd'));
+    writeFileSync(join(src, 'd', 'x'), 'x');
+    expect(await store.commitRevision(rev('d/x', { sourcePath: join(src, 'd', 'x') }))).not.toBeNull();
+    expect(await store.commitRevision(rev('d', { sourcePath: join(src, 'a') }))).toBeNull();
+    expect((await store.listArtifacts(1)).map((a) => a.path)).toEqual(['app/a', 'app/d/x']);
+    const skips = await store.listSkips(1);
+    expect(skips.map((s) => s.reason)).toEqual(['path-conflict', 'path-conflict']);
+    expect(JSON.stringify(skips)).not.toContain(src);
+  });
+
   it('serializes concurrent commits into a linear history', async () => {
     const shas = await Promise.all(
       Array.from({ length: 8 }, (_, i) => {
