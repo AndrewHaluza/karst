@@ -151,6 +151,9 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-ease-out': 'cubic-bezier(0,0,.2,1)',
 
   // ── Sizing ─────────────────────────────────────────────────────────────────
+  // Page content cap on wide windows (UI-R48).
+  '--k-content-max': '1200px',
+  '--k-content-max-wide': '1600px',
   '--k-border-w': '1px',
   '--k-control-h-sm': '22px',
   '--k-control-h-md': '26px',

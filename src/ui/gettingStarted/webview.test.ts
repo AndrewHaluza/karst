@@ -139,3 +139,13 @@ describe('gettingStarted webview.html', () => {
     expect(script).not.toMatch(/innerHTML\s*\+=/);
   });
 });
+
+const bodyRules = [...HTML.matchAll(/(?<![\w#.\-])body\s*\{([^}]*)\}/g)].map((m) => m[1] ?? '');
+const bodyHas = (...res: RegExp[]) => bodyRules.some((r) => res.every((re) => re.test(r)));
+
+describe('content width cap (UI-R48)', () => {
+  it('keeps 58ch and centers without a token', () => {
+    expect(bodyHas(/max-width\s*:\s*58ch/, /margin-inline\s*:\s*auto/)).toBe(true);
+    expect(HTML).not.toContain('--k-content-max');
+  });
+});

@@ -611,6 +611,15 @@
   grid-template-columns: minmax(150px, 1.1fr) 1.4fr 1.4fr 140px;
 }
 
+/* Narrower page cap (UI-R48): let chip + note wrap instead of overlapping. */
+#section-agents .agents-compare-row .agents-cell {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--k-space-1) var(--k-space-2);
+  min-width: 0;
+}
+
 #section-agents .agents-head {
   border-top: 0;
   font-weight: 600;

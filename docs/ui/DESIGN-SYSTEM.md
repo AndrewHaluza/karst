@@ -564,6 +564,8 @@ Current compact density is preserved:
 | Token | Value | Use |
 |---|---|---|
 | `--k-border-w` | `1px` | hairline |
+| `--k-content-max` | `1200px` | page content cap on wide windows |
+| `--k-content-max-wide` | `1600px` | page content cap for table views |
 | `--k-control-h-sm` | `22px` | dense text control |
 | `--k-control-h-md` | `26px` | default control |
 | `--k-control-h-lg` | `30px` | prominent control |
@@ -1072,10 +1074,11 @@ grep `src/ui/**/*.css` before use. A token is added only when missing, under
   `font-variant-numeric: tabular-nums` (UI-R41).
 - **Master/detail** — side-by-side at ≥700; at ≤699 the detail stacks over the
   list with a Back control, and selection lives in the hash route (UI-R43, UI-R47).
-- **Content-width cap** — settings content is capped by one width token (UI-R48).
-  No settings content cap exists in current CSS, so the first change that needs it
-  adds `--k-content-max` to the token block per UI-R04, valued from the linked
-  prototype's content measure; it is never a px literal on a page.
+- **Content-width cap** — page content is capped by two tokens (UI-R48):
+  `--k-content-max` (1200px) for settings and ticketForm, `--k-content-max-wide`
+  (1600px) for usage and resources. The rule `max-width: var(<token>);
+  margin-inline: auto` goes on `body` (no view has a wrapper around header + main;
+  fixed overlays size to the viewport). It is never a px literal on a page.
 - **Breakpoints** — ≥1000 / 700–999 / ≤699 in `src/ui/layout/layoutBreakpoints.ts`.
   They bind new and changed pages only; existing settings CSS (1024/768/800/700px)
   migrates over time via `BREAKPOINT_PINNED_FILES`.
