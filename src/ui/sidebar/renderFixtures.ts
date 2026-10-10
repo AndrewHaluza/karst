@@ -1,4 +1,4 @@
-import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow, PlanningProposalRow } from './state.js';
+import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow, PlanningProposalRow, DepStatus } from './state.js';
 import type { SidebarWorktree } from './state.js';
 import type { TicketPeek } from './peek.js';
 import type { FacetKey } from './facets.js';
@@ -22,10 +22,11 @@ export type SidebarScenario =
   | 'multi-facet'
   | 'filtered'
   | 'subtasks'
+  | 'planning-deps'
   | 'hostile';
 
 export const SIDEBAR_SCENARIOS: readonly SidebarScenario[] = [
-  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'hostile',
+  'empty', 'all-sections', 'done-facet', 'archived-facet', 'multi-facet', 'filtered', 'subtasks', 'planning-deps', 'hostile',
 ];
 
 export interface SidebarRenderFixture {
@@ -101,6 +102,7 @@ export function fixtureDraft(
     idLabel: `D${d.id}`,
     ticketIdLabel: d.ticketId === null ? null : `T${d.ticketId}`,
     dependsOnLabels: d.dependsOn.map((n) => `D${n}`),
+    dependsOnStatus: [],
     ...(d.droppedDepends ? { droppedLabels: d.droppedDepends.map((n) => `D${n}`) } : {}),
     ...d,
   };
@@ -269,6 +271,30 @@ function hostileState(): SidebarState {
   };
 }
 
+/** One session whose last draft depends on a pending draft, a live ticket and a done ticket. */
+function planningDepsState(): SidebarState {
+  const dep = (id: number, kind: DepStatus['kind'], ticketId: number | null, stage: string | null, glyph: DepStatus['glyph']): DepStatus => ({
+    id, label: `D${id}`, kind, ticketId, ticketLabel: ticketId === null ? null : `T${ticketId}`, stage, glyph,
+  });
+  const dependsOnStatus = [
+    dep(94, 'draft', null, null, 'gray'),
+    dep(92, 'ticket', 605, 'impl', 'blue'),
+    dep(91, 'done', 604, null, 'green'),
+  ];
+  return {
+    ...emptyState(),
+    sections: { current: [fixtureRow(0, { glyph: 'blue' })], awaitingReview: [], recentlyDone: [], olderDone: [] },
+    planning: [fixturePlanningRow(17, {
+      title: 'Sidebar drafts',
+      proposals: [
+        fixtureDraft({ id: 94, title: 'Pending prerequisite', status: 'pending', ticketId: null, dependsOn: [] }),
+        fixtureDraft({ id: 95, title: 'Needs three things', status: 'pending', ticketId: null, dependsOn: [94, 92, 91], dependsOnStatus }),
+        fixtureDraft({ id: 96, title: 'Accepted with deps', status: 'accepted', ticketId: 606, dependsOn: [92, 91], dependsOnStatus: dependsOnStatus.slice(1) }),
+      ],
+    })],
+  };
+}
+
 const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   empty: emptyState,
   'all-sections': allSectionsState,
@@ -277,6 +303,7 @@ const BUILDERS: Readonly<Record<SidebarScenario, () => SidebarState>> = {
   'multi-facet': multiFacetState,
   filtered: filteredState,
   subtasks: subtasksState,
+  'planning-deps': planningDepsState,
   hostile: hostileState,
 };
 

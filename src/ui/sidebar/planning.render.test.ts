@@ -270,13 +270,79 @@ describe('sidebar planning drafts', () => {
     } finally { h.close(); }
   });
 
-  it("shows a draft's 'depends on #N' for each dependency and nothing when it has none", () => {
-    const h = renderWebview('sidebar', { nonce: NONCE });
-    try {
-      h.receive({ type: 'state', state: stateOf('all-sections') });
-      expect(draft(h, 503).querySelector('.pt-deps')!.textContent).toBe('depends on D501');
-      expect(draft(h, 501).querySelector('.pt-deps')).toBeNull();
-    } finally { h.close(); }
+  describe('dependency status chips', () => {
+    const chips = (h: RenderHandle, id: number) => Array.from(draft(h, id).querySelectorAll<HTMLButtonElement>('.pt-deps-row .pt-dep'));
+    const withDeps = (h: RenderHandle) => h.receive({ type: 'state', state: stateOf('planning-deps') });
+
+    it('renders nothing for a draft with no deps', () => {
+      const h = renderWebview('sidebar', { nonce: NONCE });
+      try {
+        withDeps(h);
+        expect(draft(h, 94).querySelector('.pt-deps-row')).toBeNull();
+      } finally { h.close(); }
+    });
+
+    it('starts with the word needs, then one chip per dependency in order, as buttons', () => {
+      const h = renderWebview('sidebar', { nonce: NONCE });
+      try {
+        withDeps(h);
+        const row = draft(h, 95).querySelector('.pt-deps-row')!;
+        expect(row.firstElementChild!.textContent).toBe('needs');
+        expect(chips(h, 95).map((c) => c.tagName)).toEqual(['BUTTON', 'BUTTON', 'BUTTON']);
+        expect(chips(h, 95).map((c) => c.textContent!.trim())).toEqual(['D94', 'D92→T605 · impl', 'D91→T604']);
+      } finally { h.close(); }
+    });
+
+    it('gives each chip an accessible name and a status marker carrying the glyph class', () => {
+      const h = renderWebview('sidebar', { nonce: NONCE });
+      try {
+        withDeps(h);
+        expect(chips(h, 95).map((c) => c.getAttribute('aria-label'))).toEqual([
+          'D94, draft pending', 'D92, ticket T605 in impl', 'D91, ticket T604 done',
+        ]);
+        expect(chips(h, 95).map((c) => c.querySelector('[class*="g-"]')!.className)).toEqual([
+          expect.stringContaining('g-gray'), expect.stringContaining('g-blue'), expect.stringContaining('g-green'),
+        ]);
+      } finally { h.close(); }
+    });
+
+    it('ticket and done chips open the ticket dashboard; they are shown on accepted cards too', () => {
+      const h = renderWebview('sidebar', { nonce: NONCE });
+      try {
+        withDeps(h);
+        const [, ticket, done] = chips(h, 95);
+        expect(ticket!.dataset.act).toBe('open-dashboard');
+        expect(ticket!.dataset.id).toBe('605');
+        expect(done!.dataset.id).toBe('604');
+        expect(chips(h, 96)).toHaveLength(2);
+        h.click('[data-node="d96"] .pt-dep[data-id="605"]');
+        expect(h.posted).toContainEqual(expect.objectContaining({ type: 'open-dashboard', ticketId: 605 }));
+      } finally { h.close(); }
+    });
+
+    it('a draft chip focuses the target draft card, expanding its collapsed session first', () => {
+      const h = renderWebview('sidebar', { nonce: NONCE });
+      try {
+        withDeps(h);
+        h.click('.pt-twistie[data-plan-toggle="17"]');
+        expect(draft(h, 95)).toBeNull();
+        h.click('.pt-twistie[data-plan-toggle="17"]');
+        h.click('[data-node="d95"] .pt-dep[data-dep-draft="94"]');
+        expect(h.document.activeElement).toBe(draft(h, 94));
+        expect((h.posted as { type: string }[]).filter((m) => m.type === 'open-dashboard')).toEqual([]);
+      } finally { h.close(); }
+    });
+
+    it('wraps instead of truncating or scrolling sideways', () => {
+      const h = renderWebview('sidebar', { nonce: NONCE });
+      try {
+        withDeps(h);
+        const css = h.document.querySelector('style')!.textContent!;
+        expect(css).toMatch(/\.pt-deps-row\{[^}]*flex-wrap:wrap/);
+        expect(css).toMatch(/\.pt-dep\{[^}]*overflow-wrap:anywhere/);
+        expect(css).not.toMatch(/\.pt-dep\{[^}]*text-overflow/);
+      } finally { h.close(); }
+    });
   });
 
   it('warns on a pending draft card whose dependency was discarded, and never on an accepted one', () => {
