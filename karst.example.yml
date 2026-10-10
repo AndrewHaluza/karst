@@ -507,9 +507,9 @@ agents:
 # rule, failure playbook) sits beside this file: karst.uat-review-setup.md
 #
 # ABSENT (the default) yields the probe pipeline: karst looks for
-# known package.json scripts. Only four keys under `uat:` are read today —
-# `maxFixAttempts`, `gates` (plus per-repository `gates`), `testerVerifier`
-# and `testerObservations`.
+# known package.json scripts. Only five keys under `uat:` are read today —
+# `maxFixAttempts`, `gates` (plus per-repository `gates`), `testerVerifier`,
+# `testerObservations` and `baselineReview`.
 #
 # NOT A NODE PROJECT? Auto-discovery is the ONLY npm-shaped part of gating, and
 # it is skipped entirely the moment you declare `gates:` below — a declared list
@@ -557,6 +557,10 @@ uat:
   # round ("uat tester observations: 1 high"). Same vocabulary as
   # `review.findings.blockingSeverity`: critical | high | medium | low | info | none.
   testerObservations: { blockingSeverity: none }
+  # WIRED, opt-in, manifest-only. Repo-relative globs of files (visual baselines,
+  # a ratchet ledger) whose change by a ticket counts only after YOU approve it in
+  # the dashboard: UAT parks "Needs you" until then. Absent = off.
+  # baselineReview: { paths: ['tests/visual/__baselines__/**'] }
   repositories:
     frontend:
       # WIRED, and it REPLACES the global list for this repository — it is not

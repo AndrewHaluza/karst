@@ -37,7 +37,9 @@ import { capForGate } from '../fixAttempts.js';
 import { getTicket } from '../../store/tickets.js';
 import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
 import { unapprovedBaselines } from '../gates/baselineReview.js';
-import { detectTicketBaselines } from '../gates/baselineReviewTicket.js';
+import { detectTicketBaselines, fingerprintTicket } from '../gates/baselineReviewTicket.js';
+import { hasUatGatePass, recordUatGatePass } from '../../store/uatGatePasses.js';
+import { stageAttempt } from '../../store/stages.js';
 import {
   aggregateUat,
   reviewIdentitiesFrom,
@@ -142,6 +144,8 @@ export interface UatDeps {
   warn?: WarnFn;
   /** Seam over the baseline-review change detection (@arch:BASELINE-REVIEW). */
   detectBaselines?: typeof detectTicketBaselines;
+  /** Seam over the working-tree fingerprint the gate-skip is keyed on. */
+  fingerprint?: typeof fingerprintTicket;
 }
 
 /** What a gate invocation IS, as a dedup key: the command, not the label on it. */
@@ -409,7 +413,26 @@ export async function runUat(
     return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
-  for (const target of targets) {
+  // Re-entry after the user approved a baseline: when the working tree is
+  // byte-identical to the one whose gate list already PASSED in this attempt,
+  // the (slow, docker) gate list is not run again — straight to the baseline
+  // check and the Tester. Opt-in with the baseline knob; any code change alters
+  // the fingerprint and runs everything.
+  const baselineReviewOn = (opts.manifest?.uat?.baselineReview?.paths.length ?? 0) > 0;
+  const uatAttempt = stageAttempt(store, opts.ticketId, 'uat');
+  let fingerprint: string | null = null;
+  if (baselineReviewOn && opts.manifest) {
+    fingerprint = await (deps.fingerprint ?? fingerprintTicket)(
+      store, opts.manifest, opts.ticketId, targets, { git },
+    );
+  }
+  const skipGates = fingerprint !== null && hasUatGatePass(store, opts.ticketId, uatAttempt, fingerprint);
+  opts.debug?.(
+    `[gate] uat ticket ${opts.ticketId}: gate fingerprint ${fingerprint === null ? 'n/a' : fingerprint.slice(0, 12)} → ` +
+      (skipGates ? 'unchanged since the gates passed, skipping the gate list' : 'running the gate list'),
+  );
+
+  for (const target of skipGates ? [] : targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path, opts.debug);
     const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
@@ -575,7 +598,9 @@ export async function runUat(
     }
   }
 
-  const outcome = aggregateUat(
+  const outcome: ReturnType<typeof aggregateUat> = skipGates
+    ? { kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] }
+    : aggregateUat(
     entries,
     reviewIdentities,
     skippedNames,
@@ -600,6 +625,12 @@ export async function runUat(
   // never runs, because it only ever runs after the required gates PASS.
   if (outcome.verdict.kind === 'failed') {
     return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  }
+
+  // The gate list passed for THIS working tree: remember it so a re-entry after
+  // a baseline approval does not run it again.
+  if (fingerprint !== null && !skipGates) {
+    recordUatGatePass(store, { ticketId: opts.ticketId, attempt: uatAttempt, fingerprint, runAt });
   }
 
   // ---- Baseline review (@arch:BASELINE-REVIEW) ----

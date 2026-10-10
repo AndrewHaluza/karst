@@ -1741,6 +1741,38 @@
     font-size:var(--k-text-xs);cursor:pointer}
   .art-scope .sev-scope-chip.active{color:var(--k-text);border-color:var(--k-running);
     background:var(--k-surface)}
+  /* Baseline review rows (UI-R07: shared k-btn/k-input/k-field primitives; this is layout only). */
+  .blhead{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap;margin-bottom:var(--k-space-3)}
+  .blhead .bl-all{margin-left:auto}
+  .blrow{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);
+    background:var(--k-surface);padding:var(--k-space-4);margin-bottom:var(--k-space-3)}
+  .blrow-top{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap}
+  .blrow .bl-label{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text);
+    flex:1;min-width:0;word-break:break-all}
+  .blrow .bl-status{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .blstate{font-size:var(--k-text-xs);font-weight:var(--k-weight-semibold)}
+  .blstate.approved{color:var(--k-pass)}
+  .blstate.rejected{color:var(--k-danger)}
+  .blstate.pending{color:var(--k-text-dim)}
+  .blseg{display:inline-flex;margin:var(--k-space-3) 0}
+  .blseg button{min-height:var(--k-hit-min);padding:0 var(--k-space-3);background:transparent;
+    border:var(--k-border-w) solid var(--k-border);color:var(--k-text-dim);cursor:pointer;
+    font-size:var(--k-text-xs)}
+  .blseg button + button{margin-left:calc(-1 * var(--k-border-w))}
+  .blseg button:first-child{border-radius:var(--k-radius-sm) 0 0 var(--k-radius-sm)}
+  .blseg button:last-child{border-radius:0 var(--k-radius-sm) var(--k-radius-sm) 0}
+  .blseg button[aria-pressed="true"]{color:var(--k-text);background:var(--k-surface-hover);
+    border-color:var(--k-running);position:relative}
+  .blseg button:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  .blstage{margin-bottom:var(--k-space-3);overflow:auto;background:var(--k-bg)}
+  .blstage img{display:block;max-width:100%;height:auto}
+  .blstage .bldiff{position:relative;display:inline-block;isolation:isolate}
+  .blstage .bldiff img + img{position:absolute;inset:0;mix-blend-mode:difference}
+  .blnote{font-size:var(--k-text-sm);color:var(--k-text-dim);padding:var(--k-space-4)}
+  .blline{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap;padding:var(--k-space-2) 0}
+  .blactions{display:flex;gap:var(--k-space-3);flex-wrap:wrap}
+  .blreject{margin-top:var(--k-space-3)}
+  .blreject textarea{width:100%;box-sizing:border-box}
   .artgate{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-sm);
     padding:var(--k-space-2) 0;border-bottom:var(--k-border-w) solid var(--k-border)}
   .artgate .ag-name{font-family:var(--k-font-mono);flex:1;color:var(--k-text)}
@@ -2246,6 +2278,13 @@
   let artView = null;
   let artViewId = null;  // the artifact id currently rendered, for filter reset
   let artFindingRepo = null;  // artifacts-local findings repo filter
+  // Baseline review rows (@arch:BASELINE-REVIEW) — view-only state, keyed by the
+  // host's entry INDEX: the chosen Old/New/Difference tab, the one row whose
+  // reject form is open, and the reason drafts (kept across the 1s repaints).
+  let baselineViews = {};
+  let baselineRejectOpen = null;
+  let baselineReasons = {};
+  let baselineReasonInvalid = null;
   // Per-surface scroll positions (spec §9): the dashboard is tall, so a
   // navigation round trip must not lose where the user was reading. Saved on
   // leaving a surface, restored on returning; detail keeps one entry per
@@ -3396,11 +3435,20 @@
     // (a real fault with a recovery action) renders the banner. The flag is
     // the host's verdict (`blockedDetail`, model/stepper.ts), never a
     // reason-string match here.
-    const show = blocked && blocked.resumable !== false;
+    // `baseline-review` is likewise non-resumable (only the user's decision clears
+    // it) but IS the user's to act on, so it keeps the banner with its own action.
+    const review = blocked && blocked.kind === 'baseline-review';
+    const show = blocked && (blocked.resumable !== false || review);
     box.classList.toggle('hidden', !show);
     if (!show) { box.innerHTML = ''; return; }
     // A resumable block is a real fault — the banner carries the reason and
     // the Resume action that can clear it.
+    if (review) {
+      box.innerHTML = `<div class="ftitle">Review baselines</div>`
+        + `<div class="freason">${esc(blocked.reason)}</div>`
+        + baselineReviewHtml(state.baselineReview || []);
+      return;
+    }
     const title = `${STAGE_TITLE[cell.stageKey] || cell.stageKey} is blocked`;
     box.innerHTML = `<div class="ftitle">${esc(title)}</div>`
       + `<div class="freason">${esc(blocked.reason)}</div>`
@@ -4511,6 +4559,95 @@
     return `<section class="artsection" aria-label="Findings"><div class="artheading">Findings</div>${scope}${items}</section>`;
   }
 
+  const BASELINE_STATE_WORD = { pending: '○ Needs review', approved: '✓ Approved', rejected: '✕ Rejected' };
+  const BASELINE_STATUS_WORD = { added: 'new file', modified: 'modified', deleted: 'deleted' };
+  const BASELINE_VIEW_WORD = { old: 'Old', new: 'New', diff: 'Difference' };
+
+  // One side of a row's stage: an image, or the sentence that says why there is none.
+  function baselineImgHtml(src, alt, missing) {
+    return src ? `<img src="${esc(src)}" alt="${esc(alt)}">` : `<div class="blnote">${esc(missing)}</div>`;
+  }
+
+  function baselineStageHtml(r, view) {
+    if (view === 'old') return baselineImgHtml(r.oldSrc, 'Old ' + r.label, 'New file — there is no old image.');
+    if (view === 'new') return baselineImgHtml(r.newSrc, 'New ' + r.label, 'Deleted — there is no new image.');
+    // Difference: the two images stacked, `mix-blend-mode: difference` on the top one,
+    // so a pixel that did not change renders black. No image-diff dependency.
+    if (!r.oldSrc || !r.newSrc) {
+      return `<div class="blnote">${esc(r.oldSrc ? 'Deleted' : 'New file')} — nothing to compare.</div>`;
+    }
+    return `<div class="bldiff"><img src="${esc(r.oldSrc)}" alt="Old ${esc(r.label)}">`
+      + `<img src="${esc(r.newSrc)}" alt="Difference for ${esc(r.label)}"></div>`
+      + `<div class="blnote">Unchanged pixels are black.</div>`;
+  }
+
+  function baselineRejectFormHtml(r) {
+    const invalid = baselineReasonInvalid === r.index;
+    return `<div class="blreject k-field">`
+      + `<label for="blreason-${r.index}">Why is this wrong? The fix agent reads this.</label>`
+      + `<textarea class="k-input" id="blreason-${r.index}" rows="3" data-bl-reason="${r.index}" required`
+      + `${invalid ? ` aria-invalid="true" aria-describedby="blreason-err-${r.index}"` : ''}>${esc(baselineReasons[r.index] || '')}</textarea>`
+      + (invalid ? `<div class="k-field-error" id="blreason-err-${r.index}" role="alert">A reason is required.</div>` : '')
+      + `<div class="blactions"><button type="button" class="k-btn k-btn--danger k-btn--sm" data-act="baseline-reject"`
+      + ` data-block-id="baseline-review" data-index="${r.index}">Send rejection</button>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="baseline-reject-cancel">Cancel</button></div></div>`;
+  }
+
+  function baselineRowHtml(r) {
+    const hasImage = !!(r.oldSrc || r.newSrc);
+    const view = baselineViews[r.index] || (r.status === 'added' ? 'new' : 'diff');
+    const seg = hasImage
+      ? `<div class="blseg" role="group" aria-label="Compare ${esc(r.label)}">`
+        + ['old', 'new', 'diff'].map((v) =>
+          `<button type="button" data-act="baseline-view" data-index="${r.index}" data-view="${v}"`
+          + ` aria-pressed="${view === v ? 'true' : 'false'}">${BASELINE_VIEW_WORD[v]}</button>`).join('')
+        + `</div><div class="blstage">${baselineStageHtml(r, view)}</div>`
+      : `<div class="blnote">No preview for this file type — open it from Source Control.</div>`;
+    const rejectOpen = baselineRejectOpen === r.index && r.decision !== 'rejected';
+    return `<section class="blrow" aria-label="Baseline ${esc(r.label)}">`
+      + `<div class="blrow-top"><span class="bl-label">${esc(r.label)}</span>`
+      + `<span class="bl-status">${esc(BASELINE_STATUS_WORD[r.status] || r.status)}</span>`
+      + `<span class="blstate ${esc(r.decision)}">${esc(BASELINE_STATE_WORD[r.decision] || r.decision)}</span></div>`
+      + (r.decision === 'rejected' && r.reason ? `<div class="blnote">Rejected: ${esc(r.reason)}</div>` : '')
+      + seg
+      + `<div class="blactions">`
+      + (r.decision === 'approved' ? '' : `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="baseline-approve"`
+        + ` data-block-id="baseline-review" data-indices="${r.index}">Approve</button>`)
+      + (rejectOpen ? '' : `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="baseline-reject-open"`
+        + ` data-index="${r.index}">Reject…</button>`)
+      + `</div>`
+      + (rejectOpen ? baselineRejectFormHtml(r) : '')
+      + `</section>`;
+  }
+
+  // The blocked banner's review surface (@arch:BASELINE-REVIEW). Rows are
+  // HOST-DERIVED (UI-R31): decision state, image URIs and entry indices all come
+  // from the snapshot, and every decision message names only the block id and
+  // those indices. Approving lives HERE, never in the artifact (@arch:SHELF).
+  function baselineReviewHtml(rows) {
+    const open = rows.filter((r) => r.decision !== 'approved');
+    const head = `<div class="blhead"><span>${open.length} of ${rows.length} changed baseline${rows.length === 1 ? '' : 's'} need${open.length === 1 ? 's' : ''} your approval</span>`
+      + (open.length > 0
+        ? `<button type="button" class="k-btn k-btn--primary k-btn--sm bl-all" data-act="baseline-approve"`
+          + ` data-block-id="baseline-review" data-indices="${open.map((r) => r.index).join(',')}">Approve all</button>`
+        : '')
+      + `</div>`;
+    return head + rows.map(baselineRowHtml).join('');
+  }
+
+  // The UAT report only LISTS the baselines and what was decided — read-only.
+  function artifactBaselinesHtml(a) {
+    if (!a.baselines || !a.baselines.length) return '';
+    const items = a.baselines.map((r) =>
+      `<li class="blline"><span class="bl-label">${esc(r.path)}</span>`
+      + `<span class="bl-status">${esc(BASELINE_STATUS_WORD[r.status] || r.status)}</span>`
+      + `<span class="blstate ${esc(r.decision)}">${esc(BASELINE_STATE_WORD[r.decision] || r.decision)}</span>`
+      + (r.decision === 'rejected' && r.reason ? `<span class="bl-status">${esc(r.reason)}</span>` : '')
+      + `</li>`).join('');
+    return `<section class="artsection" aria-label="Visual baselines"><div class="artheading">Visual baselines</div>`
+      + `<ul class="artfiles">${items}</ul></section>`;
+  }
+
   function artifactGatesHtml(a) {
     if (!a.gates || !a.gates.length) return '';
     // The console (xterm) entry: a gate stage's artifact log is previewed in
@@ -4667,6 +4804,7 @@
         : '')
       + artifactMetricsHtml(a)
       + artifactTasksHtml(a)
+      + artifactBaselinesHtml(a)
       + artifactFindingsHtml(a)
       + artifactGatesHtml(a)
       + artifactPrsHtml(a)
@@ -5476,6 +5614,8 @@
     'resolve-conflicts': (btn, requestId) => karstSend.resolveConflicts(btn.dataset.repo, requestId),
     'stage-resume': (btn, requestId) => karstSend.stageResume(lastState.ticketId, btn.dataset.stagekey, requestId),
     'inside-action': (btn, requestId) => karstSend.insideAction(btn.dataset.actionId, requestId),
+    'baseline-approve': (btn, requestId) => karstSend.baselineApprove(btn.dataset.blockId, btn.dataset.indices.split(',').map(Number), requestId),
+    'baseline-reject': (btn, requestId) => karstSend.baselineReject(btn.dataset.blockId, Number(btn.dataset.index), (baselineReasons[btn.dataset.index] || '').trim(), requestId),
     'artifact-open-resource': (btn, requestId) => karstSend.artifactOpenResource(btn.dataset.artifactId, Number(btn.dataset.index), requestId),
   };
 
@@ -5681,6 +5821,34 @@
       karstSend.selectFindingsRepo(stage, btn.dataset.repo || null);
       return;
     }
+    if (act === 'baseline-view') {
+      baselineViews = { ...baselineViews, [btn.dataset.index]: btn.dataset.view };
+      renderBlocked(lastState);
+      return;
+    }
+    if (act === 'baseline-reject-open') {
+      baselineRejectOpen = Number(btn.dataset.index);
+      baselineReasonInvalid = null;
+      renderBlocked(lastState);
+      const ta = document.getElementById('blreason-' + btn.dataset.index);
+      if (ta) ta.focus();
+      return;
+    }
+    if (act === 'baseline-reject-cancel') {
+      baselineRejectOpen = null;
+      baselineReasonInvalid = null;
+      renderBlocked(lastState);
+      return;
+    }
+    // A rejection needs the user's reason (the fix agent reads it): refuse an empty one
+    // locally and name the field, before any pending state or host message.
+    if (act === 'baseline-reject' && !(baselineReasons[btn.dataset.index] || '').trim()) {
+      baselineReasonInvalid = Number(btn.dataset.index);
+      renderBlocked(lastState);
+      const ta = document.getElementById('blreason-' + btn.dataset.index);
+      if (ta) ta.focus();
+      return;
+    }
     if (act === 'artifact-findings-repo') {
       artFindingRepo = btn.dataset.repo || null;
       renderArtView();
@@ -5772,6 +5940,11 @@
   // as the ticket-form picker's own `draft.baseRefs` (Task 8), just local-only
   // here since nothing is persisted until "Change base" is pressed.
   document.addEventListener('input', (e) => {
+    const reason = e.target.closest('[data-bl-reason]');
+    if (reason) {
+      baselineReasons[reason.dataset.blReason] = reason.value;
+      return;
+    }
     const input = e.target.closest('[data-base-input]');
     if (!input) return;
     baseFormDraft[input.dataset.baseInput] = input.value;

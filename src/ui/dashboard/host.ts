@@ -9,6 +9,7 @@ import type { Logger } from '../../logging/logger.js';
 import type { BrandIconPaths } from '../brandIcon.js';
 import { brandIconUri } from '../panelIcon.js';
 import { RUNTIME_ASSETS_ROOT } from '../../runtimeAssetsRoot.js';
+import { baselineReviewRoot } from './baselineRows.js';
 
 /**
  * Activation-layer adapter: real webview panels wrapped in the host-agnostic
@@ -68,13 +69,20 @@ export function makeDashboardPanelHost(
         // A bound open rides on the user clicking the TERMINAL: the panel must
         // appear beside it without taking the caret out of the shell.
         { viewColumn: vscode.ViewColumn.Active, preserveFocus: preserveFocus === true },
-        { enableScripts: true, retainContextWhenHidden: true },
+        {
+          enableScripts: true,
+          retainContextWhenHidden: true,
+          // The only local content this panel needs is the UAT report's baseline
+          // images, which the host COPIES into one fixed directory
+          // (@arch:BASELINE-REVIEW) — so no worktree path is ever a root.
+          localResourceRoots: [vscode.Uri.file(baselineReviewRoot(context.globalStorageUri.fsPath))],
+        },
       );
       // The brand mark until the first state push repaints it with the ticket's
       // status glyph — a dashboard tab is never unmarked, not even for a frame.
       panel.iconPath = brandIconUri(brandIcon);
       // Nonce per panel, not per host (the html above is built once and reused).
-      panel.webview.html = injectCsp(html, newNonce());
+      panel.webview.html = injectCsp(html, newNonce(), panel.webview.cspSource);
       traceSize('html', () => panel.webview.html);
       panel.webview.onDidReceiveMessage(
         (message: { type?: unknown } | null) => {
@@ -88,6 +96,7 @@ export function makeDashboardPanelHost(
       );
       return {
         reveal: (keepFocus) => panel.reveal(undefined, keepFocus),
+        asWebviewUri: (absPath) => panel.webview.asWebviewUri(vscode.Uri.file(absPath)).toString(),
         postMessage: (message) => {
           traceSize(`post ${messageLabel(message)}`, () => JSON.stringify(message) ?? '');
           void panel.webview.postMessage(message);

@@ -21,6 +21,7 @@ const ENTRY: BaselineEntry = {
   status: 'modified',
   newSha256: 'sha-1',
   mergeBase: 'abc',
+  autoApproved: false,
 };
 
 function deps(over: Partial<UatDeps> = {}): UatDeps {
@@ -42,6 +43,7 @@ function deps(over: Partial<UatDeps> = {}): UatDeps {
       return { kind: 'ran', results };
     },
     detectBaselines: async () => [ENTRY],
+    fingerprint: async () => null,
     ...over,
   };
 }
@@ -143,5 +145,59 @@ describe('runUat — baseline review (@arch:BASELINE-REVIEW)', () => {
       }),
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+  });
+
+  describe('gate fingerprint', () => {
+    const countingGates = () => {
+      let ran = 0;
+      const runGates: UatDeps['runGates'] = async (gates, _cwd, opts) => {
+        ran += 1;
+        const results = gates.map((g, i) => {
+          opts?.onGateComplete?.(g.name, 0, now(), now(), i);
+          return { name: g.name, exitCode: 0, output: 'ok', startedAt: now(), endedAt: now() };
+        });
+        return { kind: 'ran' as const, results };
+      };
+      return { runGates, ran: () => ran };
+    };
+
+    it('records the pass, then skips the gate list on re-entry with an unchanged tree', async () => {
+      const gates = countingGates();
+      const d = deps({ runGates: gates.runGates, fingerprint: async () => 'fp-1' });
+      expect(await run(d)).toMatchObject({ kind: 'blocked', blocker: 'baseline-review' });
+      expect(gates.ran()).toBe(1);
+      // The user approved; the stage re-enters with the same tree.
+      recordBaselineDecisions(
+        store, id,
+        [{ repo: ENTRY.repo, path: ENTRY.path, sha256: 'sha-1', decision: 'approved', reason: null }],
+        now(),
+      );
+      expect(await run(d)).toEqual({ kind: 'advanced', next: 'review' });
+      expect(gates.ran()).toBe(1); // not run again
+    });
+
+    it('runs the full gate list again when the tree changed', async () => {
+      const gates = countingGates();
+      let fp = 'fp-1';
+      const d = deps({ runGates: gates.runGates, fingerprint: async () => fp });
+      await run(d);
+      fp = 'fp-2';
+      await run(d);
+      expect(gates.ran()).toBe(2);
+    });
+
+    it('runs the gate list when the fingerprint cannot be computed', async () => {
+      const gates = countingGates();
+      const d = deps({ runGates: gates.runGates, fingerprint: async () => null });
+      await run(d);
+      await run(d);
+      expect(gates.ran()).toBe(2);
+    });
+
+    it('never fingerprints without the manifest knob', async () => {
+      let called = false;
+      await run(deps({ fingerprint: async () => ((called = true), 'fp') }), manifest({}));
+      expect(called).toBe(false);
+    });
   });
 });

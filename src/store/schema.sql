@@ -1332,3 +1332,16 @@ CREATE TABLE IF NOT EXISTS baseline_decisions (
 );
 CREATE INDEX IF NOT EXISTS idx_baseline_decisions_ticket
   ON baseline_decisions(ticket_id, repo, path, id);
+
+-- v76: fingerprints of working trees whose UAT gate list passed, per attempt
+-- (@arch:BASELINE-REVIEW). Lets a re-entry after a baseline approval skip the
+-- gate list when the code has not changed. Append-only.
+CREATE TABLE IF NOT EXISTS uat_gate_passes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL,
+  fingerprint TEXT NOT NULL,
+  run_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uat_gate_passes_ticket
+  ON uat_gate_passes(ticket_id, attempt, fingerprint);

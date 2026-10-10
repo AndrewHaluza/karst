@@ -7,6 +7,7 @@ import { repairTicketMessages, ticketMessagesNeedsRepair, TICKET_MESSAGES_DDL } 
 import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
 import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
+import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2604,6 +2605,12 @@ function migrateLocked(db: Database): void {
     // files a ticket changed (@arch:BASELINE-REVIEW). A whole new table (IF NOT
     // EXISTS DDL), nothing backfilled: no decision existed before the table.
     db.exec(BASELINE_DECISIONS_DDL);
+  }
+
+  if (current < 76) {
+    // v76: `uat_gate_passes` — fingerprints of working trees whose UAT gate list
+    // passed (@arch:BASELINE-REVIEW). A whole new table, nothing backfilled.
+    db.exec(UAT_GATE_PASSES_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

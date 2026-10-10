@@ -30,6 +30,8 @@ export interface BaselineEntry {
   newSha256: string;
   /** The merge-base commit the old content is read from (`git show <sha>:<path>`). */
   mergeBase: string;
+  /** A ratchet-ledger change that only removes entries — counts as approved without the user. */
+  autoApproved: boolean;
 }
 
 export interface BaselineRepoInput {
@@ -73,6 +75,57 @@ function parseNameStatus(stdout: string): Array<{ letter: string; path: string }
   return out;
 }
 
+/** The merge-base of the ticket's base and HEAD — the same point `git diff` compares against. */
+export async function resolveMergeBase(
+  git: GitRunner,
+  cwd: string,
+  baseRef: string,
+): Promise<string> {
+  const spec = await resolveBaseSpec(git, cwd, baseRef);
+  const mb = await git(['merge-base', spec, 'HEAD'], cwd);
+  const mergeBase = mb.stdout.trim();
+  if (mb.exitCode !== 0 || mergeBase === '') {
+    throw new Error(
+      `baseline review: no merge-base between ${spec} and HEAD in ${cwd}: ${mb.stderr.trim()}`,
+    );
+  }
+  return mergeBase;
+}
+
+function parseJsonArray(text: string): unknown[] | null {
+  try {
+    const value: unknown = JSON.parse(text);
+    return Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A ratchet-ledger change that can only TIGHTEN needs no review: a deleted
+ * `.json` file, or a `.json` array whose entries are all already in the base's.
+ * Everything else — images included — is the user's to approve.
+ */
+async function isLedgerShrink(
+  deps: BaselineDetectDeps,
+  input: BaselineRepoInput,
+  mergeBase: string,
+  path: string,
+  status: BaselineStatus,
+  newContent: Buffer | null,
+): Promise<boolean> {
+  if (!path.toLowerCase().endsWith('.json')) return false;
+  if (status === 'deleted') return true;
+  if (status !== 'modified' || newContent === null) return false;
+  const old = await deps.git(['show', `${mergeBase}:${path}`], input.cwd);
+  if (old.exitCode !== 0) return false;
+  const before = parseJsonArray(old.stdout);
+  const after = parseJsonArray(newContent.toString('utf8'));
+  if (before === null || after === null) return false;
+  const kept = new Set(before.map((item) => JSON.stringify(item)));
+  return after.every((item) => kept.has(JSON.stringify(item)));
+}
+
 async function detectInRepo(
   deps: BaselineDetectDeps,
   input: BaselineRepoInput,
@@ -80,39 +133,58 @@ async function detectInRepo(
 ): Promise<BaselineEntry[]> {
   const { git } = deps;
   const read = deps.readFile ?? ((abs: string) => readFile(abs));
-  const spec = await resolveBaseSpec(git, input.cwd, input.baseRef);
-  const mb = await git(['merge-base', spec, 'HEAD'], input.cwd);
-  const mergeBase = mb.stdout.trim();
-  if (mb.exitCode !== 0 || mergeBase === '') {
-    throw new Error(
-      `baseline review: no merge-base between ${spec} and HEAD in ${input.cwd}: ${mb.stderr.trim()}`,
-    );
-  }
+  const mergeBase = await resolveMergeBase(git, input.cwd, input.baseRef);
+  const specs = toPathspecs(globs);
+  // The WORKING TREE, not HEAD: at UAT nothing is committed yet (ship makes the
+  // commit), so a baseline the agent re-recorded is an uncommitted change.
   const diff = await git(
-    ['diff', '--no-renames', '--name-status', '-z', mergeBase, 'HEAD', '--', ...toPathspecs(globs)],
+    ['diff', '--no-renames', '--name-status', '-z', mergeBase, '--', ...specs],
     input.cwd,
   );
   if (diff.exitCode !== 0) {
     throw new Error(`baseline review: git diff failed in ${input.cwd}: ${diff.stderr.trim()}`);
   }
+  // Untracked files are invisible to `git diff`; `--exclude-standard` keeps
+  // gitignored artifacts (reports, shards) out.
+  const untracked = await git(
+    ['ls-files', '--others', '--exclude-standard', '-z', '--', ...specs],
+    input.cwd,
+  );
+  if (untracked.exitCode !== 0) {
+    throw new Error(`baseline review: git ls-files failed in ${input.cwd}: ${untracked.stderr.trim()}`);
+  }
+  const changes = [
+    ...parseNameStatus(diff.stdout).flatMap(({ letter, path }) => {
+      const status = STATUS_BY_LETTER[letter];
+      return status === undefined ? [] : [{ path, status }];
+    }),
+    ...untracked.stdout
+      .split('\0')
+      .filter((path) => path !== '')
+      .map((path) => ({ path, status: 'added' as const })),
+  ];
   const entries: BaselineEntry[] = [];
-  for (const { letter, path } of parseNameStatus(diff.stdout)) {
-    const status = STATUS_BY_LETTER[letter];
-    if (status === undefined) continue;
-    const newSha256 =
-      status === 'deleted'
-        ? DELETED_SHA
-        : createHash('sha256').update(await read(join(input.cwd, path))).digest('hex');
-    entries.push({ repo: input.repo, cwd: input.cwd, path, status, newSha256, mergeBase });
+  for (const { path, status } of changes) {
+    const content = status === 'deleted' ? null : await read(join(input.cwd, path));
+    entries.push({
+      repo: input.repo,
+      cwd: input.cwd,
+      path,
+      status,
+      newSha256: content === null ? DELETED_SHA : createHash('sha256').update(content).digest('hex'),
+      mergeBase,
+      autoApproved: await isLedgerShrink(deps, input, mergeBase, path, status, content),
+    });
   }
   return entries;
 }
 
 /**
- * Every file the ticket changed under `globs`, per repo, in a stable order.
- * Empty `globs` is the feature being off: nothing is read or spawned.
- * THROWS when a repo's merge-base or diff cannot be answered — the caller parks
- * (the question could not be asked); it never reads that as "nothing changed".
+ * Every file the ticket changed under `globs` in its working tree, per repo, in
+ * a stable order. Empty `globs` is the feature being off: nothing is read or
+ * spawned. THROWS when a repo's merge-base or diff cannot be answered — the
+ * caller parks (the question could not be asked); it never reads that as
+ * "nothing changed".
  */
 export async function detectBaselineChanges(
   deps: BaselineDetectDeps,
@@ -139,6 +211,7 @@ export function baselineState(
   entry: BaselineEntry,
   latest: ReadonlyMap<string, BaselineDecision>,
 ): BaselineDecisionState {
+  if (entry.autoApproved) return { kind: 'approved' };
   const decision = latest.get(baselineKey(entry.repo, entry.path));
   if (!decision || decision.sha256 !== entry.newSha256) return { kind: 'pending' };
   return decision.decision === 'approved'
@@ -146,7 +219,7 @@ export function baselineState(
     : { kind: 'rejected', reason: decision.reason ?? '' };
 }
 
-/** Entries the user has not approved (pending or rejected) — what blocks UAT. */
+/** Entries still needing the user (pending or rejected) — what blocks UAT. */
 export function unapprovedBaselines(
   entries: readonly BaselineEntry[],
   latest: ReadonlyMap<string, BaselineDecision>,

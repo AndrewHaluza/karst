@@ -139,6 +139,22 @@ export interface ArtifactResource {
 }
 
 /**
+ * One baseline file the ticket changed, as the UAT report LISTS it
+ * (@arch:BASELINE-REVIEW). READ-ONLY (@arch:SHELF: the shelf derives, it never
+ * writes): deciding happens in the blocked banner, not here, and no image
+ * is materialized in this layer. Host-overlaid from detection +
+ * `baseline_decisions`.
+ */
+export interface ArtifactBaseline {
+  /** Repo-relative path. */
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  decision: 'pending' | 'approved' | 'rejected';
+  /** The rejection reason when `decision === 'rejected'`; else null. */
+  reason: string | null;
+}
+
+/**
  * One task of the plan artifact — a node of the canonical graph with its
  * CURRENT progress. The status is derived from the node's LATEST run: what
  * was done (completed), what is in progress (running/launching/…), what is
@@ -195,6 +211,12 @@ export interface ArtifactSummary {
    */
   tasks: ArtifactPlanTask[];
   resources: ArtifactResource[];
+  /**
+   * Changed baseline files and the user's decision on each — only the UAT
+   * report, only while `uat.baselineReview` is on and something changed.
+   * Overlaid by the host (detection is async git); absent = none.
+   */
+  baselines?: ArtifactBaseline[];
   /** The stage verdict's reason when the artifact's stage failed; else null. */
   detail: string | null;
   /**

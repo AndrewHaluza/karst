@@ -71,7 +71,8 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
 
   // The policy is only this tight because nothing loads externally. The ticket form
   // is the narrow exception: its attachment renderer emits img/video elements,
-  // and its panel alone receives the media-source CSP grant. If another webview
+  // and its panel alone receives the media-source CSP grant (the dashboard gets the
+  // same grant for img only, for the UAT report's baseline images). If another webview
   // gains a <link>/<img>/<video>/url()/fetch(), default-src 'none' silently
   // breaks it — better to fail here, at the assumption, than to debug a blank
   // panel.
@@ -81,6 +82,10 @@ describe.each(WEBVIEWS)('%s webview CSP', (name) => {
     if (name === 'ticketForm') {
       expect(html).toMatch(/<img\b/);
       expect(html).toMatch(/<video\b/);
+    } else if (name === 'dashboard') {
+      // The UAT report's baseline review shows images (@arch:BASELINE-REVIEW).
+      expect(html).toMatch(/<img\b/);
+      expect(html).not.toMatch(/<video\b/);
     } else {
       expect(html).not.toMatch(/<img\b/);
       expect(html).not.toMatch(/<video\b/);
@@ -118,6 +123,20 @@ describe('media source', () => {
     const html = injectCsp(read('ticketForm'), newNonce());
     expect(html).not.toContain('img-src');
     expect(html).not.toContain('media-src');
+  });
+
+  it('grants the dashboard the media source for the baseline images, and its host wires it with a single fixed root', () => {
+    const html = injectCsp(read('dashboard'), newNonce(), SOURCE);
+    expect(html).toContain(`img-src ${SOURCE};`);
+    expect(html).toContain("default-src 'none';");
+    // host.ts needs `vscode`, so it is checked at the source: the CSP gets the
+    // webview's own source, and the ONLY local resource root is the storage
+    // directory the baseline images are copied into (@arch:BASELINE-REVIEW).
+    const host = readFileSync(join(HERE, 'dashboard', 'host.ts'), 'utf8');
+    expect(host).toContain('injectCsp(html, newNonce(), panel.webview.cspSource)');
+    expect(host).toContain(
+      'localResourceRoots: [vscode.Uri.file(baselineReviewRoot(context.globalStorageUri.fsPath))]',
+    );
   });
 
   it('grants img-src and media-src to exactly the given source', () => {

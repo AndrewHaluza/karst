@@ -13,10 +13,13 @@ import {
 
 const sha = (text: string): string => createHash('sha256').update(text).digest('hex');
 
-function fakeGit(opts: { remote?: boolean; diff?: string; mergeBaseExit?: number }): {
-  git: GitRunner;
-  calls: string[][];
-} {
+function fakeGit(opts: {
+  remote?: boolean;
+  diff?: string;
+  untracked?: string;
+  mergeBaseExit?: number;
+  base?: Record<string, string>;
+}): { git: GitRunner; calls: string[][] } {
   const calls: string[][] = [];
   const git: GitRunner = async (args) => {
     calls.push(args);
@@ -27,33 +30,48 @@ function fakeGit(opts: { remote?: boolean; diff?: string; mergeBaseExit?: number
       const exitCode = opts.mergeBaseExit ?? 0;
       return { stdout: exitCode === 0 ? 'abc123\n' : '', stderr: 'no common ancestor', exitCode };
     }
+    if (args[0] === 'show') {
+      const text = opts.base?.[args[1]!.split(':')[1]!];
+      return text === undefined
+        ? { stdout: '', stderr: 'missing', exitCode: 128 }
+        : { stdout: text, stderr: '', exitCode: 0 };
+    }
+    if (args[0] === 'ls-files') return { stdout: opts.untracked ?? '', stderr: '', exitCode: 0 };
     return { stdout: opts.diff ?? '', stderr: '', exitCode: 0 };
   };
   return { git, calls };
 }
 
 const REPO = { repo: '/r', cwd: '/wt', baseRef: 'develop' };
-const files: Record<string, string> = { '/wt/a.png': 'new-a', '/wt/b.png': 'new-b' };
+const files: Record<string, string> = {
+  '/wt/a.png': 'new-a', '/wt/b.png': 'new-b', '/wt/u.png': 'new-u',
+  '/wt/ledger.json': '["x"]', '/wt/grow.json': '["x","y"]',
+};
 const readFile = async (abs: string): Promise<Buffer> => Buffer.from(files[abs] ?? '');
 
-describe('detectBaselineChanges', () => {
+describe('detectBaselineChanges (working tree)', () => {
   it('is off — and spawns nothing — with no globs', async () => {
     const { git, calls } = fakeGit({});
     expect(await detectBaselineChanges({ git, readFile }, [REPO], [])).toEqual([]);
     expect(calls).toEqual([]);
   });
 
-  it('classifies added, modified and deleted against the merge-base', async () => {
-    const { git, calls } = fakeGit({ diff: 'A\0b.png\0M\0a.png\0D\0gone.png\0' });
+  it('classifies modified, added, untracked and deleted against the merge-base, hashing the working-tree file', async () => {
+    const { git, calls } = fakeGit({ diff: 'A\0b.png\0M\0a.png\0D\0gone.png\0', untracked: 'u.png\0' });
     const entries = await detectBaselineChanges({ git, readFile }, [REPO], ['tests/**']);
+    const base = { repo: '/r', cwd: '/wt', mergeBase: 'abc123', autoApproved: false };
     expect(entries).toEqual([
-      { repo: '/r', cwd: '/wt', path: 'a.png', status: 'modified', newSha256: sha('new-a'), mergeBase: 'abc123' },
-      { repo: '/r', cwd: '/wt', path: 'b.png', status: 'added', newSha256: sha('new-b'), mergeBase: 'abc123' },
-      { repo: '/r', cwd: '/wt', path: 'gone.png', status: 'deleted', newSha256: DELETED_SHA, mergeBase: 'abc123' },
+      { ...base, path: 'a.png', status: 'modified', newSha256: sha('new-a') },
+      { ...base, path: 'b.png', status: 'added', newSha256: sha('new-b') },
+      { ...base, path: 'gone.png', status: 'deleted', newSha256: DELETED_SHA },
+      { ...base, path: 'u.png', status: 'added', newSha256: sha('new-u') },
     ]);
     expect(calls.find((c) => c[0] === 'merge-base')).toEqual(['merge-base', 'origin/develop', 'HEAD']);
     expect(calls.find((c) => c[0] === 'diff')).toEqual([
-      'diff', '--no-renames', '--name-status', '-z', 'abc123', 'HEAD', '--', ':(glob)tests/**',
+      'diff', '--no-renames', '--name-status', '-z', 'abc123', '--', ':(glob)tests/**',
+    ]);
+    expect(calls.find((c) => c[0] === 'ls-files')).toEqual([
+      'ls-files', '--others', '--exclude-standard', '-z', '--', ':(glob)tests/**',
     ]);
   });
 
@@ -71,11 +89,37 @@ describe('detectBaselineChanges', () => {
   it('prefixes every glob as a :(glob) pathspec', () => {
     expect(toPathspecs(['a/**', 'b.json'])).toEqual([':(glob)a/**', ':(glob)b.json']);
   });
+
+  describe('ledger shrink is auto-approved', () => {
+    const run = async (diff: string, base: Record<string, string>) =>
+      detectBaselineChanges({ git: fakeGit({ diff, base }).git, readFile }, [REPO], ['*.json']);
+
+    it('a json array that only drops entries', async () => {
+      const [e] = await run('M\0ledger.json\0', { 'ledger.json': '["x","y"]' });
+      expect(e!.autoApproved).toBe(true);
+    });
+    it('a deleted json file', async () => {
+      const [e] = await run('D\0ledger.json\0', {});
+      expect(e!.autoApproved).toBe(true);
+    });
+    it('NOT a json array that gains an entry', async () => {
+      const [e] = await run('M\0grow.json\0', { 'grow.json': '["x"]' });
+      expect(e!.autoApproved).toBe(false);
+    });
+    it('NOT an image deletion', async () => {
+      const [e] = await run('D\0a.png\0', {});
+      expect(e!.autoApproved).toBe(false);
+    });
+    it('NOT an unreadable base', async () => {
+      const [e] = await run('M\0ledger.json\0', {});
+      expect(e!.autoApproved).toBe(false);
+    });
+  });
 });
 
 describe('baseline approval', () => {
   const entry = (newSha256: string): BaselineEntry => ({
-    repo: '/r', cwd: '/wt', path: 'a.png', status: 'modified', newSha256, mergeBase: 'abc',
+    repo: '/r', cwd: '/wt', path: 'a.png', status: 'modified', newSha256, mergeBase: 'abc', autoApproved: false,
   });
   const latest = (d: Partial<BaselineDecision>): Map<string, BaselineDecision> =>
     new Map([['/r\0a.png', { sha256: 's1', decision: 'approved', reason: null, decidedAt: 't', ...d }]]);
@@ -96,6 +140,10 @@ describe('baseline approval', () => {
     expect(baselineState(entry('s1'), latest({ decision: 'rejected', reason: 'blurry' }))).toEqual({
       kind: 'rejected', reason: 'blurry',
     });
+  });
+
+  it('counts an auto-approved ledger shrink as approved with no decision', () => {
+    expect(baselineState({ ...entry('s1'), autoApproved: true }, new Map())).toEqual({ kind: 'approved' });
   });
 
   it('keeps rejected entries blocking, approved ones not', () => {

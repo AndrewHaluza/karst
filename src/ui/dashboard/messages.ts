@@ -174,6 +174,15 @@ export type WebviewMessage =
    */
   | { type: 'artifact-open-resource'; artifactId: string; index: number }
   /**
+   * Approve changed baseline entries of the UAT report (@arch:BASELINE-REVIEW).
+   * Carries the block id (`baseline-review`) and ENTRY INDICES — never a path or a hash: the
+   * host re-derives the changed entries and resolves every index against them,
+   * so a stale or crafted message approves nothing it cannot see as changed.
+   */
+  | { type: 'baseline-approve'; blockId: string; indices: number[] }
+  /** Reject ONE changed baseline entry with the user's required reason. */
+  | { type: 'baseline-reject'; blockId: string; index: number; reason: string }
+  /**
    * Ask the host to push one gate stage's console log (the uat/review artifact
    * file) for the terminal "detailed mode" view. Carries the STAGE only — a
    * closed vocabulary: no path, no ticket id (the panel closure owns the
@@ -484,6 +493,10 @@ export interface DashboardActions {
    * cannot name an arbitrary file to open.
    */
   openArtifactResource: (artifactId: string, index: number) => void | Promise<void>;
+  /** Approve changed baselines by entry index; the host re-derives and validates (see the message). */
+  baselineApprove: (blockId: string, indices: number[]) => void | Promise<void>;
+  /** Reject one changed baseline with a reason; the host re-derives and validates. */
+  baselineReject: (blockId: string, index: number, reason: string) => void | Promise<void>;
   /**
    * Change a spun ticket's base branch for one repository. Resolves to the
    * terminal outcome (UI-R13): `ok: false` means the change was REFUSED
@@ -718,6 +731,20 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;
       return { type: 'artifact-open-resource', artifactId, index: m.index as number };
     }
+    case 'baseline-approve': {
+      if (m.blockId !== BASELINE_BLOCK_ID) return null;
+      const indices = m.indices;
+      if (!Array.isArray(indices) || indices.length === 0 || indices.length > MAX_BASELINE_INDICES) return null;
+      if (!indices.every((i) => Number.isInteger(i) && (i as number) >= 0)) return null;
+      return { type: 'baseline-approve', blockId: BASELINE_BLOCK_ID, indices: indices as number[] };
+    }
+    case 'baseline-reject': {
+      if (m.blockId !== BASELINE_BLOCK_ID) return null;
+      if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;
+      // Bounded at the boundary; the host trims and treats blank as missing.
+      if (typeof m.reason !== 'string' || m.reason.length > MAX_BASELINE_REASON_CHARS) return null;
+      return { type: 'baseline-reject', blockId: BASELINE_BLOCK_ID, index: m.index as number, reason: m.reason };
+    }
     // The stage is narrowed to GATE_STAGES here, at the trust boundary; a
     // non-gate stage (or a malformed payload) drops the whole message.
     case 'stage-log-request':
@@ -821,6 +848,11 @@ export const MAX_ACTION_ID_CHARS = 96;
 
 /** Longest artifact id accepted from a webview. Ids are kind ids (`uat-report`). */
 export const MAX_ARTIFACT_ID_CHARS = 64;
+/** More changed baselines than this in one approve is not a real report. */
+const MAX_BASELINE_INDICES = 500;
+/** The one block the baseline decisions answer: the `BlockerKind` itself. */
+const BASELINE_BLOCK_ID = 'baseline-review';
+const MAX_BASELINE_REASON_CHARS = 2000;
 
 /** Longest model id accepted from a webview. Real model ids are short CLI values; 128 is a bounded ceiling. */
 const MAX_MODEL_ID_CHARS = 128;
@@ -941,6 +973,10 @@ export function routeAction(
       return actions.insideAction(msg.actionId);
     case 'artifact-open-resource':
       return actions.openArtifactResource(msg.artifactId, msg.index);
+    case 'baseline-approve':
+      return actions.baselineApprove(msg.blockId, msg.indices);
+    case 'baseline-reject':
+      return actions.baselineReject(msg.blockId, msg.index, msg.reason);
     case 'stage-log-request':
       return actions.requestStageLog(msg.stage);
     case 'agent-log-request':
