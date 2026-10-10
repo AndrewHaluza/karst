@@ -127,7 +127,7 @@ describe('repoPathsOf', () => {
 describe('check anchoring', () => {
   it('treats only whole-string keys and hashes as such', async () => {
     const repo = repoWithDocs('## [@arch:A] t\n');
-    expect(archWarnings(['see @arch:B', '@arch:B tail'], [repo], vi.fn())).toEqual([]);
+    expect(archWarnings(['see @arch:B', '@arch:B tail'], [repo], vi.fn())).toEqual(['malformed design key @arch:B tail']);
     const exists = vi.fn(async () => false);
     expect(await commitWarnings(['abc1234 and more', 'xabc1234', 'abc123', 'a'.repeat(41)], ['r'], exists, vi.fn())).toEqual([]);
     expect(await commitWarnings(['a'.repeat(40), 'a'.repeat(7)], ['r'], exists, vi.fn())).toHaveLength(2);
@@ -149,6 +149,16 @@ describe('check anchoring', () => {
     expect(c(['x@arch:K'])).toHaveLength(1);
     expect(c(['arch:K'])).toHaveLength(1);
     expect(c(['@arch:K'])).toHaveLength(0);
+  });
+  it('a malformed @arch entry does not count as a citation', () => {
+    const c = (constraints: string[]) => sensitivePathWarning({ description: 'src/agent/seed.ts', summary: '', constraints });
+    expect(c(['@arch:x'])).toHaveLength(1);
+    expect(c(['@arch:'])).toHaveLength(1);
+    expect(c(['@arch:A b'])).toHaveLength(1);
+  });
+  it('archWarnings flags a malformed @arch entry, even with no repos', () => {
+    expect(archWarnings(['@arch:x', '@arch:'], [], vi.fn())).toEqual(['malformed design key @arch:x', 'malformed design key @arch:']);
+    expect(archWarnings(['@arch:x'], [repoWithDocs('## [@arch:A] t\n')], vi.fn())).toEqual(['malformed design key @arch:x']);
   });
   it('checks every sensitive path', () => {
     for (const path of ['src/agent/seed.ts', 'src/agent/entrySeed.ts', 'src/agent/instructions.ts', 'src/context/ticketContext.ts', 'src/planning/preamble.ts']) {

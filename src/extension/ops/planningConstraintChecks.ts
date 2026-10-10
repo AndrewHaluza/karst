@@ -61,20 +61,23 @@ export function archDocFiles(constraints: readonly string[], repoPaths: readonly
 }
 
 export function archWarnings(constraints: readonly string[], repoPaths: readonly string[], debug: Debug): string[] {
+  const malformed = constraints
+    .filter((c) => c.startsWith('@arch:') && !ARCH_CONSTRAINT.test(c))
+    .map((c) => `malformed design key ${c}`);
   const wanted = constraints.flatMap((c) => ARCH_CONSTRAINT.exec(c)?.[1] ?? []);
-  if (wanted.length === 0 || repoPaths.length === 0) return [];
+  if (wanted.length === 0 || repoPaths.length === 0) return malformed;
   const sets = repoPaths.map(archKeysOf).filter((s): s is Set<string> => s !== undefined);
   if (sets.length === 0) {
     debug(`[planning] constraint check: no readable docs/arch in ${repoPaths.length} repo(s) — @arch keys not verified`);
-    return [];
+    return malformed;
   }
-  return wanted.filter((k) => !sets.some((s) => s.has(k))).map((k) => `unknown design key @arch:${k}`);
+  return [...malformed, ...wanted.filter((k) => !sets.some((s) => s.has(k))).map((k) => `unknown design key @arch:${k}`)];
 }
 
 export function sensitivePathWarning(p: { description: string; summary: string; constraints?: readonly string[] }): string[] {
   const text = `${p.description}\n${p.summary}`;
   const touches = PROMPT_SENSITIVE_PATHS.some((path) => text.includes(path));
-  const cited = (p.constraints ?? []).some((c) => c.startsWith('@arch:'));
+  const cited = (p.constraints ?? []).some((c) => ARCH_CONSTRAINT.test(c));
   return touches && !cited ? ['touches prompt-sensitive code without citing a design rule'] : [];
 }
 
