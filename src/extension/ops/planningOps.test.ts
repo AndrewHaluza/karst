@@ -720,3 +720,111 @@ describe('planning launch: project notes index', () => {
     expect(text).not.toContain('Project notes');
   });
 });
+
+describe('planning ops: reopen offers a restart when the planner config moved on', () => {
+  let store: Store;
+  let scratch: string;
+  let created: Recorded[];
+  let agent: { provider: 'claude' | 'antigravity'; model: string | null };
+  let offers: { message: string; labels: { restart: string; keep: string } }[];
+  let answer: 'restart' | 'keep' | undefined;
+
+  function ops() {
+    const fake = fakeHost();
+    created = fake.created;
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    return {
+      projectId,
+      ops: createPlanningOps({
+        store,
+        projectId: () => projectId,
+        manifest: () => ({ baselineBranch: 'main', repositories: { api: repo({ repoPath: '/src/api' }) } }),
+        scratchDir: (id) => join(scratch, String(id)),
+        defaultAgent: () => agent,
+        host: fake.host,
+        cliEntry: () => '/dist/cli/main.js',
+        notify: { info: () => undefined, warn: () => undefined, error: async () => undefined },
+        confirmUnsafeCore: async () => true,
+        offerRestart: async (message, labels) => {
+          offers.push({ message, labels });
+          return answer;
+        },
+      }),
+    };
+  }
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    scratch = mkdtempSync(join(tmpdir(), 'karst-plan-restart-'));
+    agent = { provider: 'claude', model: 'opus' };
+    offers = [];
+    answer = undefined;
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(scratch, { recursive: true, force: true });
+  });
+
+  async function closedSession() {
+    const h = ops();
+    const session = (await h.ops.create('Auth'))!;
+    created[0]!.close?.();
+    return { ...h, session };
+  }
+
+  it('does not ask when the stored agent still matches', async () => {
+    const { ops: o, session } = await closedSession();
+    await o.open(session.id);
+    expect(offers).toEqual([]);
+    expect(created).toHaveLength(2);
+  });
+
+  it('Restart re-points the session and launches fresh on the new core', async () => {
+    const { ops: o, session } = await closedSession();
+    agent = { provider: 'antigravity', model: 'gemini-3.8-flash-medium' };
+    answer = 'restart';
+    await o.open(session.id);
+    expect(offers[0]!.message).toBe(
+      'This session runs on claude · opus, but Planner is now antigravity · gemini-3.8-flash-medium.',
+    );
+    expect(offers[0]!.labels).toEqual({
+      restart: 'Restart with antigravity · gemini-3.8-flash-medium',
+      keep: 'Keep claude · opus',
+    });
+    expect(getPlanningSession(store, session.id)).toMatchObject({ core: 'antigravity', model: 'gemini-3.8-flash-medium' });
+    expect(created.at(-1)!.opts.shellPath).not.toContain('claude');
+  });
+
+  it('Keep launches the stored agent and does not ask again for the same config', async () => {
+    const { ops: o, session } = await closedSession();
+    agent = { provider: 'antigravity', model: 'g' };
+    answer = 'keep';
+    await o.open(session.id);
+    created.at(-1)!.close?.();
+    await o.open(session.id);
+    expect(offers).toHaveLength(1);
+    expect(getPlanningSession(store, session.id)).toMatchObject({ core: 'claude', model: 'opus' });
+    // The config changes again → asked again.
+    agent = { provider: 'antigravity', model: 'h' };
+    created.at(-1)!.close?.();
+    await o.open(session.id);
+    expect(offers).toHaveLength(2);
+  });
+
+  it('a dismissed offer behaves like Keep', async () => {
+    const { ops: o, session } = await closedSession();
+    agent = { provider: 'antigravity', model: 'g' };
+    answer = undefined;
+    await o.open(session.id);
+    expect(getPlanningSession(store, session.id)).toMatchObject({ core: 'claude' });
+    expect(created).toHaveLength(2);
+  });
+
+  it('focusing a live terminal never asks', async () => {
+    const h = ops();
+    const session = (await h.ops.create('Auth'))!;
+    agent = { provider: 'antigravity', model: 'g' };
+    await h.ops.open(session.id);
+    expect(offers).toEqual([]);
+  });
+});

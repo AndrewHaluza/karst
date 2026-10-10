@@ -144,6 +144,20 @@ export function setPlanningSessionStatus(store: Store, id: number, status: Plann
   return requireSession(store, id);
 }
 
+/** Re-point a session at another core/model (the user accepted a restart offer). */
+export function setPlanningSessionAgent(
+  store: Store,
+  id: number,
+  core: string,
+  model: string | null,
+): PlanningSession {
+  requireSession(store, id);
+  store.db
+    .prepare("UPDATE planning_sessions SET core = ?, model = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(core, model, id);
+  return requireSession(store, id);
+}
+
 /** Remove a session outright — only for a create whose first launch failed. */
 export function deletePlanningSession(store: Store, id: number): void {
   store.db.prepare('DELETE FROM planning_sessions WHERE id = ?').run(id);

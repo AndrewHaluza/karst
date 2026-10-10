@@ -166,7 +166,7 @@ import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
-import { createPlanningOps } from './extension/ops/planningOps.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
+import { createPlanningOps } from './extension/ops/planningOps.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
@@ -775,7 +775,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     confirmUnsafeCore: async () => (await vscode.window.showWarningMessage(
       'agy cannot block edits; approve each action.', { modal: true }, 'Start')) === 'Start',
     debug: (m) => logger.debug(m), planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
-    onChange: () => provider.refresh(),
+    onChange: () => provider.refresh(), offerRestart: offerPlannerRestart,
   });
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
     choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[

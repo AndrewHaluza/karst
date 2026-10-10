@@ -12,6 +12,7 @@ import {
   getPlanningSession,
   listPlanningSessions,
   listPlanningTickets,
+  setPlanningSessionAgent,
   setPlanningSessionStatus,
   type PlanningSession,
 } from '../../store/planningSessions.js';
@@ -119,6 +120,13 @@ export interface PlanningOpsDeps {
    * `readOnlyInteractive` surface is unsupported — agy). Absent = declined.
    */
   confirmUnsafeCore?: (core: AgentProvider) => Promise<boolean>;
+  /**
+   * Asked when a reopened session's stored agent no longer matches the planner
+   * config. 'restart' re-points the session and launches fresh; 'keep' (or
+   * absent / dismissed) launches the stored agent and is not asked again until
+   * the config changes again.
+   */
+  offerRestart?: (message: string, labels: { restart: string; keep: string }) => Promise<'restart' | 'keep' | undefined>;
   /** Called when the session list or a terminal's liveness changes (the sidebar re-pushes). */
   onChange?: () => void;
   /**
@@ -146,8 +154,12 @@ export interface PlanningOps {
   isLive(id: number): boolean;
 }
 
+const agentLabel = (core: string, model: string | null): string => `${core} · ${model ?? 'default'}`;
+
 export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
   const live = new Map<number, SessionTerminal>();
+  /** Per window: the planner config a session's user already chose to Keep against. */
+  const declined = new Map<number, string>();
   const debug = (m: string): void => deps.debug?.(`[planning] ${m}`);
 
   function track(id: number, terminal: SessionTerminal): void {
@@ -185,6 +197,34 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       debug(`launch ${id}: history omitted: ${err instanceof Error ? err.message : String(err)}`);
       return undefined;
     }
+  }
+
+  /**
+   * A reopened session reuses the core it was created with, so a planner
+   * config fixed since then never reaches it. When they differ, offer to
+   * restart on the configured agent (fresh launch — no resume across cores);
+   * Keep launches the stored agent and is remembered for this config.
+   */
+  async function reconciled(session: PlanningSession): Promise<PlanningSession> {
+    const want = deps.defaultAgent();
+    const wantKey = agentLabel(want.provider, want.model);
+    const haveKey = agentLabel(session.core, session.model);
+    if (wantKey === haveKey || deps.offerRestart === undefined || declined.get(session.id) === wantKey) {
+      return session;
+    }
+    const restart = `Restart with ${wantKey}`;
+    const keep = `Keep ${haveKey}`;
+    const choice = await deps.offerRestart(
+      `This session runs on ${haveKey}, but Planner is now ${wantKey}.`,
+      { restart, keep },
+    );
+    debug(`open ${session.id}: ${haveKey} vs planner ${wantKey} — ${choice ?? 'dismissed'}`);
+    if (choice === 'restart') {
+      declined.delete(session.id);
+      return setPlanningSessionAgent(deps.store, session.id, want.provider, want.model);
+    }
+    declined.set(session.id, wantKey);
+    return session;
   }
 
   /** Start the agent terminal. False (after a warning) when it could not. */
@@ -300,7 +340,7 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
         deps.notify.warn('Karst: that planning session no longer exists.');
         return;
       }
-      await launch(session);
+      await launch(await reconciled(session));
     },
 
     archive(id) {
