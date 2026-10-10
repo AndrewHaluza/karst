@@ -8,11 +8,13 @@ import { defineConfig, devices } from '@playwright/test';
  * checked-in baselines.  See docs/ui/VISUAL-COVERAGE.md for which UI-RULES.md
  * VISUAL rules this covers.
  *
- * The five projects:
+ * The projects:
  *   dark / light / hc          — three themes, all specs
  *   dark-grayscale             — dark + CSS grayscale filter, status spec only (UI-R28)
  *   dark-reduced-motion        — dark + prefers-reduced-motion, status spec only (UI-R30)
  *   catalog                    — the standalone catalog page, dark only (D15)
+ *   layout-setup → layout → layout-teardown — the layout-sanity gate (ui:LAYOUT-SANITY):
+ *                                geometry checks, dark only, no baselines
  *
  * Baselines are CONTAINER-AUTHORED. `snapshotPathTemplate` carries no
  * {platform} token, so one set serves every OS — and macOS and Linux rasterize
@@ -92,6 +94,24 @@ export default defineConfig({
     {
       name: 'catalog',
       use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
+    },
+    // Layout-sanity gate. The top-level testMatch stays '**/*.visual.ts' so the
+    // other projects never pick up these files. Setup clears the shards, `layout`
+    // writes them (never fails on geometry), teardown renders the ledger verdict.
+    {
+      name: 'layout-setup',
+      testMatch: '**/layout.setup.ts',
+      teardown: 'layout-teardown',
+    },
+    {
+      name: 'layout',
+      testMatch: '**/*.layout.ts',
+      dependencies: ['layout-setup'],
+      use: { ...devices['Desktop Chrome'], channel: undefined, colorScheme: 'dark' },
+    },
+    {
+      name: 'layout-teardown',
+      testMatch: '**/layout.teardown.ts',
     },
   ],
 });
