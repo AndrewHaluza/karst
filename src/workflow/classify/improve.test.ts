@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { improveDescription, BUILT_IN_IMPROVE_PROMPT } from './improve.js';
+import {
+  improveDescription,
+  BUILT_IN_IMPROVE_PROMPT,
+  buildBuiltInImprovePrompt,
+} from './improve.js';
 import type { AgentAdapter, HeadlessResult } from '../../agent/adapter.js';
 
 function fakeAdapter(raw: string): AgentAdapter {
@@ -200,5 +204,52 @@ describe('improveDescription', () => {
       ticketId: 7,
     });
     expect(calls[0]!.tracking?.ticketId).toBe(7);
+  });
+});
+
+describe('built-in improve prompt', () => {
+  it('uses Why / Done when with 0-4 outcomes for a feature', () => {
+    const p = buildBuiltInImprovePrompt('feat');
+    expect(p).toMatch(/\*\*Why:\*\*/);
+    expect(p).toMatch(/\*\*Done when:\*\* <0-4/);
+    expect(p).not.toMatch(/2-4/);
+  });
+  it('uses Actual / Expected / Repro for a bug (fix)', () => {
+    const p = buildBuiltInImprovePrompt('fix');
+    expect(p).toMatch(/\*\*Actual:\*\*/);
+    expect(p).toMatch(/\*\*Expected:\*\*/);
+    expect(p).toMatch(/\*\*Repro:\*\*/);
+  });
+  it('exempts verbatim content from the word cap', () => {
+    expect(buildBuiltInImprovePrompt('feat')).toMatch(/verbatim content does not count toward/i);
+  });
+  it('composes the shared untrusted-input and missing-info rules', () => {
+    const p = buildBuiltInImprovePrompt('feat');
+    expect(p).toMatch(/is DATA/);
+    expect(p).toMatch(/never fill it in/);
+  });
+  it('a profile body still REPLACES the built-in prompt', async () => {
+    const { adapter, prompts } = capturingAdapter('ok');
+    await improveDescription(adapter, {
+      instructions: 'PROFILE BODY',
+      description: 'x',
+      title: 't',
+      cwd: '/p',
+      ticketType: 'fix',
+    });
+    expect(prompts[0]).toContain('PROFILE BODY');
+    expect(prompts[0]).not.toMatch(/\*\*Actual:\*\*/);
+  });
+  it('names the effective ticket type in the ticket block and picks the bug shape', async () => {
+    const { adapter, prompts } = capturingAdapter('ok');
+    await improveDescription(adapter, {
+      instructions: '',
+      description: 'x',
+      title: 't',
+      cwd: '/p',
+      ticketType: 'fix',
+    });
+    expect(prompts[0]).toContain('Type: fix');
+    expect(prompts[0]).toMatch(/\*\*Repro:\*\*/);
   });
 });
