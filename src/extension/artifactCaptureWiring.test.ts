@@ -64,9 +64,11 @@ describe('wireArtifactCapture', () => {
     }
   });
 
-  it('syncs once immediately at wire time', () => {
+  it('does not touch deps at wire time (caller may not be initialised yet); start() syncs once', () => {
     addWorktree();
     const w = wire();
+    expect(watched).toEqual([]);
+    w.start();
     expect(watched).toEqual(['/wt']);
     w.dispose();
   });

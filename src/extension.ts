@@ -1485,6 +1485,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return undefined;
     }
   };
+  artifactCapture.start(); // after `currentProject` exists: wiring-time sync hit its TDZ
   // Registered after `currentProject`; project-scoped, so this manifest's window never reaches another project's fix. Its immediate first tick covers activation.
   context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, sessionDelivery(localStore, sessions)));
 

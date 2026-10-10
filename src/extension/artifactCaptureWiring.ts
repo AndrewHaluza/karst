@@ -19,6 +19,8 @@ export interface ArtifactCaptureWiring {
   readonly beforeRemove: (target: ArchiveTarget) => Promise<void>;
   /** The agent session closed: capture what the debounce had not flushed yet. */
   readonly onSessionEnd: (ticketId: number) => void;
+  /** First reconcile. Separate from wiring: `deps` may close over bindings not initialised yet. */
+  readonly start: () => void;
   readonly dispose: () => void;
 }
 
@@ -26,11 +28,11 @@ export function wireArtifactCapture(
   deps: Omit<ArtifactCaptureServiceDeps, 'watch'> & { fsWatch: typeof nodeWatch },
 ): ArtifactCaptureWiring {
   const service = createArtifactCaptureService({ ...deps, watch: nodeFsWatch(deps.fsWatch) });
-  service.syncWatchers();
   const timer = setInterval(() => service.syncWatchers(), WATCHER_SYNC_MS);
   timer.unref();
   return {
     service,
+    start: () => service.syncWatchers(),
     beforeRemove: (t) =>
       service.sweepWorktree({ ticketId: t.ticketId, repoPath: t.repoPath, worktreePath: t.path, baseRef: t.baseRef }),
     onSessionEnd: (ticketId) => {
