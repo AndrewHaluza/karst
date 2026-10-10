@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/manifest-and-settings.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:PROFILE'):
-  awk "/^## \[@arch:PROFILE\]/,/END_DOC_BLOCK: \[@arch:PROFILE\]/" <file_path>
+  awk "/^## \[@arch:PROFILE\]/,/END_DOC_BLOCK: \[@arch:PROFILE\]/" docs/arch/manifest-and-settings.md
 -->
 # The manifest (`karst.yml`) and the Settings panel
 

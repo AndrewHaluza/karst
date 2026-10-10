@@ -347,6 +347,12 @@ describe('renderStartTaskCommand', () => {
     expect(body).toContain(MARKER_REFUSED);
   });
 
+  it('documents karst base set and reset command', () => {
+    const body = renderStartTaskCommand({ contextCommand });
+    expect(body).toContain('karst base set <repo> <baseRef> [--rebase]');
+    expect(body).toContain('karst base reset <repo>');
+  });
+
   it('with no guideCommand, output does not contain GUIDE_POINTER_INTRO', () => {
     const body = renderStartTaskCommand({ contextCommand });
     expect(body).not.toContain(GUIDE_POINTER_INTRO);

@@ -113,6 +113,8 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
     sub-tasks (refused for other tickets): gates and auto-heal do not run while paused.
   - \`unpause <key>\` — resume task execution for your own ticket or one of your direct
     sub-tasks (refused for other tickets).
+  - \`base set <repo> <baseRef> [--rebase] [--ticket <key>]\` — set the base branch for a repository on your own ticket or one of your direct sub-tasks (refused for other tickets). Pre-spin it writes the planned base override; post-spin it changes the live worktree base and optionally rebases (pass \`--rebase\`).
+  - \`base reset <repo> [--ticket <key>]\` — reset the base branch for a repository back to its default (parent branch for sub-tasks, manifest baseline otherwise) on your own ticket or one of your direct sub-tasks.
  - \`draft propose\` — ONLY inside a planning session (read-only
     investigation before any ticket exists). Reads ONE JSON object on stdin,
     \`{"title":…,"description":…,"summary":…,"repos":[…]}\`, and writes it as a

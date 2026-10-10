@@ -679,6 +679,14 @@ export async function ensureSubtaskForkPointOnParentBranch(
     return { diverged: false };
   }
   const parentBranch = parentWt.branch;
+  const subtaskWt = listWorktreesByTicket(store, ticketId).find((w) => w.repo === repo);
+  if (subtaskWt?.baseRef && subtaskWt.baseRef !== parentBranch) {
+    debug?.(
+      `[driver] ticket ${ticketId}: baseRef '${subtaskWt.baseRef}' differs from parent branch '${parentBranch}' — ` +
+        'not stacked, skipping fork-point push',
+    );
+    return { diverged: false };
+  }
 
   // The fork point is where the sub-task branched off the parent's branch. The
   // parent's newest commits may not be pushed yet (the sub-task stacks on the
