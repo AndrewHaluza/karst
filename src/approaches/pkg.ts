@@ -40,6 +40,12 @@ export interface ApproachPackage {
   workflow?: WorkflowPhase[];
   /** Repo-relative globs the approach writes artifacts to. */
   outputs?: OutputDef[];
+  /**
+   * Output globs the install-time scan SUGGESTED, awaiting the user's confirm in
+   * Settings. Lives only here, never in karst.yml: only an accept writes
+   * `outputs:` to the manifest (`setPendingOutputs` then clears this).
+   */
+  pendingOutputs?: OutputDef[];
 }
 
 /**
@@ -189,6 +195,9 @@ function validateApproachPackage(raw: unknown): ApproachPackage {
     ...(rec.artifacts !== undefined ? { artifacts: requireArtifacts(rec.artifacts) } : {}),
     ...(rec.workflow !== undefined ? { workflow: requireWorkflow(rec.workflow) } : {}),
     ...(rec.outputs !== undefined ? { outputs: validateOutputs(rec.outputs, 'outputs') } : {}),
+    ...(rec.pendingOutputs !== undefined
+      ? { pendingOutputs: validateOutputs(rec.pendingOutputs, 'pendingOutputs') }
+      : {}),
   };
 }
 
@@ -243,6 +252,9 @@ export function writeApproachPackage(
     ...(pkg.artifacts !== undefined ? { artifacts: pkg.artifacts.map((a) => ({ ...a })) } : {}),
     ...(pkg.workflow !== undefined ? { workflow: pkg.workflow.map((p) => ({ ...p })) } : {}),
     ...(pkg.outputs !== undefined ? { outputs: pkg.outputs.map((o) => ({ ...o })) } : {}),
+    ...(pkg.pendingOutputs !== undefined
+      ? { pendingOutputs: pkg.pendingOutputs.map((o) => ({ ...o })) }
+      : {}),
   };
   writeFileSync(join(dir, 'approach.yml'), yamlDump(meta));
 }
@@ -287,8 +299,31 @@ export function writeApproachArtifacts(
     artifacts: (pkg.artifacts ?? []).map((a) => ({ ...a })),
     ...(pkg.workflow !== undefined ? { workflow: pkg.workflow.map((p) => ({ ...p })) } : {}),
     ...(pkg.outputs !== undefined ? { outputs: pkg.outputs.map((o) => ({ ...o })) } : {}),
+    ...(pkg.pendingOutputs !== undefined
+      ? { pendingOutputs: pkg.pendingOutputs.map((o) => ({ ...o })) }
+      : {}),
   };
   writeFileSync(join(dir, 'approach.yml'), yamlDump(meta));
+}
+
+/**
+ * Replace (or, with `undefined`/empty, clear) the pending output suggestions in
+ * an installed package's approach.yml, leaving every other field as read. No-op
+ * when the package is absent. Never touches karst.yml.
+ */
+export function setPendingOutputs(
+  baseDir: string,
+  id: string,
+  pending: readonly OutputDef[] | undefined,
+): void {
+  const pkg = readApproachPackage(baseDir, id);
+  if (pkg === null) return;
+  const { pendingOutputs: _dropped, ...rest } = pkg;
+  const next: ApproachPackage =
+    pending !== undefined && pending.length > 0
+      ? { ...rest, pendingOutputs: pending.map((o) => ({ ...o })) }
+      : rest;
+  writeFileSync(join(approachDir(baseDir, id), 'approach.yml'), yamlDump(next));
 }
 
 /**

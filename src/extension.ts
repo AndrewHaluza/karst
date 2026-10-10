@@ -435,6 +435,7 @@ import {
   type ResourcesPanel,
   type ResourcesPanelHost,
 } from './ui/resources/panel.js';
+import { pendingOutputsByApproach } from './approaches/pendingOutputs.js';
 import { makeResourcesPanelHost } from './ui/resources/host.js';
 import { ServerLogsManager, type ServerLogsPanel, type ServerLogsPanelHost } from './ui/serverLogs/panel.js';
 import { makeServerLogsPanelHost } from './ui/serverLogs/host.js';
@@ -444,6 +445,7 @@ import {
   uninstallApproach,
   readArtifactBody,
   listArtifacts,
+  setPendingOutputs,
   type ApproachPackage,
 } from './approaches/pkg.js';
 import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
@@ -2171,6 +2173,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   };
 
+  // Install-time output suggestions awaiting a Settings decision (approach.yml, never karst.yml).
+  const readPendingOutputs = () => pendingOutputsByApproach(approachesDirOrThrow);
+
   // Settings page: edit the manifest (host, ports, services, agents, ...) on a
   // persistent surface. Opens even on an invalid manifest so a broken file can
   // be fixed from the UI; save re-validates before touching disk.
@@ -2279,6 +2284,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         writeAgentFile(agentsDirOrThrow(), name, agentStarterTemplate(name)),
       listAgentRows,
       listApproachCommands,
+      readPendingOutputs,
+      clearPendingOutputs: (id: string): void => setPendingOutputs(approachesDirOrThrow(), id, undefined),
       readApproachCommandBody: (approachId: string, command: string): string => {
         const dir = approachesDirOrThrow();
         const pkg = readApproachPackage(dir, approachId);
@@ -2334,6 +2341,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // The recently-used models for the shared picker's "Last used" group,
     // scoped to this window's project like every other ticket-adjacent read.
     () => listRecentlyUsedModels(localStore, currentProject()?.id ?? null, 5),
+    readPendingOutputs,
   );
 
   // Discovery is deliberately detached from activation: bundled models render

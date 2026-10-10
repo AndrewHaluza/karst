@@ -788,3 +788,53 @@ describe('installApproach — empty-package guard (git source)', () => {
     expect(readApproachPackage(base, 'empty-git')).toBeNull();
   });
 });
+
+describe('installApproach — output scan stays pending', () => {
+  async function installWith(body: string, extra: Partial<ApproachDef> = {}) {
+    const base = makeBaseDir();
+    const def: ApproachDef = {
+      id: extra.id ?? 'unknown-method',
+      label: 'U',
+      entrypoint: 'main',
+      source: { type: 'git', repo: 'acme/p', ref: 'main', include: ['prompts'] },
+      ...extra,
+    };
+    const fetchFn: FetchLike = (async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes('/contents/prompts')) {
+        return contentsResponse([
+          { name: 'main.md', type: 'file', download_url: 'https://raw.example.com/main.md' },
+        ]);
+      }
+      return new Response(body);
+    }) as FetchLike;
+    await installApproach(def, { baseDir: base, fetchFn, runCommand: noopRunCommand });
+    return readApproachPackage(base, def.id);
+  }
+
+  it('stores scanned suggestions as pendingOutputs on the package', async () => {
+    const pkg = await installWith('Save the plan to `docs/work/plans/<topic>.md`.');
+    expect(pkg?.pendingOutputs).toEqual([{ glob: 'docs/work/plans/**', kind: 'plan' }]);
+    expect(pkg?.outputs).toBeUndefined();
+  });
+
+  it('omits pendingOutputs when nothing looks like an output location', async () => {
+    const pkg = await installWith('# Just prose, no paths.');
+    expect(pkg?.pendingOutputs).toBeUndefined();
+  });
+
+  it('drops suggestions already covered by the built-in defaults', async () => {
+    const pkg = await installWith(
+      'Write specs to docs/superpowers/specs/x.md and notes to docs/extra/notes/y.md',
+      { id: 'superpowers' },
+    );
+    expect(pkg?.pendingOutputs).toEqual([{ glob: 'docs/extra/notes/**', kind: 'other' }]);
+  });
+
+  it('drops suggestions already declared in the def outputs', async () => {
+    const pkg = await installWith('Write to docs/mine/x.md', {
+      outputs: [{ glob: 'docs/mine/**', kind: 'other' }],
+    });
+    expect(pkg?.pendingOutputs).toBeUndefined();
+  });
+});

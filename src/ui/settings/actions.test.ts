@@ -71,6 +71,8 @@ function harness(overrides: Partial<SettingsActionsDeps> = {}) {
     uninstallApproach: () => { order.push('uninstall'); return true; },
     clearApproachFromTickets: () => 0,
     listInstalledIds: () => ['a'],
+    readPendingOutputs: () => ({}),
+    clearPendingOutputs: (id) => { order.push(`clearPending:${id}`); },
     setToken: async () => { order.push('setToken'); return true; },
     clearToken: async () => { order.push('clearToken'); },
     hasToken: async () => false,
@@ -1173,5 +1175,47 @@ describe('settings actions — openManifest', () => {
     });
     await actions.openManifest();
     expect(posted).toContainEqual({ type: 'error', message: 'no active editor' });
+  });
+});
+
+describe('settings actions — resolvePendingOutputs', () => {
+  const accepted = [{ glob: 'docs/out/**', kind: 'plan' as const }];
+
+  it('an accept writes outputs to the manifest, then clears the pending list', async () => {
+    const { actions, order, posted } = harness({
+      readPendingOutputs: () => ({ a: accepted }),
+    });
+    await actions.resolvePendingOutputs('a', accepted);
+    expect(order).toEqual(['write', 'reload', 'change', 'clearPending:a']);
+    expect(posted.find((m) => m.type === 'state')).toBeDefined();
+  });
+
+  it('writes the accepted outputs onto the approach entry', async () => {
+    let written: Manifest | undefined;
+    const { actions } = harness({ writeManifest: (_p, m) => { written = m; } });
+    await actions.resolvePendingOutputs('a', accepted);
+    expect(written?.approaches?.find((x) => x.id === 'a')?.outputs).toEqual(accepted);
+  });
+
+  it('a reject (nothing accepted) clears pending and never writes karst.yml', async () => {
+    const { actions, order } = harness();
+    await actions.resolvePendingOutputs('a', []);
+    expect(order).toEqual(['clearPending:a']);
+  });
+
+  it('an invalid accepted glob errors and leaves the pending list in place', async () => {
+    const { actions, order, posted } = harness();
+    await actions.resolvePendingOutputs('a', [{ glob: '../x/**', kind: 'plan' }]);
+    expect(order).toEqual([]);
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'error' }));
+  });
+
+  it('refuses while the manifest on disk is invalid', async () => {
+    const { actions, order, posted } = harness({
+      loadState: () => ({ manifest: VALID, error: 'broken' }),
+    });
+    await actions.resolvePendingOutputs('a', accepted);
+    expect(order).toEqual([]);
+    expect(posted).toContainEqual({ type: 'error', message: 'broken' });
   });
 });
