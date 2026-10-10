@@ -56,7 +56,13 @@ const strArray: JsonSchema = { type: 'array', items: str };
  */
 const csvArray: JsonSchema = { type: 'array', items: { type: 'string', pattern: '^[^,]*$' } };
 /** Host proposal ids a draft waits on; `draft propose` takes them in its JSON. */
-const proposalIdArray: JsonSchema = { type: 'array', items: { type: 'integer', minimum: 1 } };
+const draftRef: JsonSchema = {
+  anyOf: [
+    { type: 'integer', minimum: 1 },
+    { type: 'string', pattern: '^[Dd]?[1-9][0-9]*$' },
+  ],
+};
+const proposalIdArray: JsonSchema = { type: 'array', items: draftRef };
 
 function obj(
   properties: Readonly<Record<string, JsonSchema>>,
@@ -312,7 +318,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         description: str,
         summary: str,
         repos: csvArray,
-        id: { type: 'integer', minimum: 1 },
+        id: draftRef,
         dependsOn: proposalIdArray,
       },
       ['title', 'description', 'summary', 'repos'],

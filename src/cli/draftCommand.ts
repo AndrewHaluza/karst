@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { realpathSync, renameSync, statSync, writeFileSync, unlinkSync } from 'node:fs';
+import { formatId } from '../model/entityId.js';
 import { MAX_PROPOSAL_BYTES, validateProposal } from '../planning/proposal.js';
 import { readProposalIndex, waitForProposalId } from '../planning/proposalIndex.js';
 
@@ -90,13 +91,13 @@ function runPropose(deps: DraftProposeDeps): string {
       hint: 'the host has not ingested it yet (or rejected it); run `karst draft list` to see its id',
     });
   }
-  return JSON.stringify({ ok: true, file, id });
+  return JSON.stringify({ ok: true, file, id, ref: formatId('draft', id) });
 }
 
 function runList(deps: DraftProposeDeps): string {
   const dir = outboxDir(deps.outboxEnv);
   const entries = readProposalIndex(scratchOf(dir));
-  return JSON.stringify(entries.map(({ id, status, title }) => ({ id, status, title })));
+  return JSON.stringify(entries.map(({ id, status, title }) => ({ id, ref: formatId('draft', id), status, title })));
 }
 
 export function runDraftCommand(argv: string[], deps: DraftProposeDeps): string {

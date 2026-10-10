@@ -259,12 +259,12 @@ describe('createSubtask', () => {
     const lines: string[] = [];
     const child = createSubtask(store, parent, { title: 'sub' }, {}, (m) => lines.push(m));
     expect(child.key).toBe('PROJ-1-s1');
-    expect(lines[0]).toMatch(/\[driver\] sub-task under #\d+: parent stage is 'scope'/);
+    expect(lines[0]).toMatch(/\[driver\] sub-task under T\d+: parent stage is 'scope'/);
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] sub-task under #\d+: creating child 'PROJ-1-s1'/),
+      expect.stringMatching(/\[driver\] sub-task under T\d+: creating child 'PROJ-1-s1'/),
     );
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] sub-task under #\d+: child #\d+ \('PROJ-1-s1'\) created/),
+      expect.stringMatching(/\[driver\] sub-task under T\d+: child T\d+ \('PROJ-1-s1'\) created/),
     );
   });
 
@@ -275,7 +275,7 @@ describe('createSubtask', () => {
       SubtaskParentStageError,
     );
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] sub-task under #\d+: parent in 'ship' — refusing/),
+      expect.stringMatching(/\[driver\] sub-task under T\d+: parent in 'ship' — refusing/),
     );
   });
 });

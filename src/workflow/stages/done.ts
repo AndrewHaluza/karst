@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import { getTicket, type Ticket } from '../../store/tickets.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
+import { formatId } from '../../model/entityId.js';
 
 /**
  * Done stage (§T4.5, §11, §15). Pushes the ticket's post-ship status through the
@@ -54,7 +55,7 @@ export function statusPushSkipNote(
   if (result.advanced || result.reason === 'disabled') return null;
   return {
     level: 'debug',
-    message: `ticket #${ticketId} ${event} without a status update: no provider ref`,
+    message: `ticket ${formatId('ticket', ticketId)} ${event} without a status update: no provider ref`,
   };
 }
 

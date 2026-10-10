@@ -16,9 +16,9 @@ describe('diffsTicketChoices', () => {
     expect(out.map((c) => c.ticketId)).toEqual([1]);
   });
 
-  it('renders a keyless ticket as #<id>', () => {
+  it('renders a keyless ticket as T<id>', () => {
     const out = diffsTicketChoices([row(7, 'impl', null)], null);
-    expect(out[0]!.label).toBe('#7');
+    expect(out[0]!.label).toBe('T7');
   });
 
   it('maps title to description and falls back to an empty string when null', () => {

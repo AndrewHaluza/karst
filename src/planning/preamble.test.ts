@@ -14,6 +14,15 @@ const manifest = {
 describe('planningInstructions', () => {
   const text = planningInstructions({ sessionId: 7, title: 'Auth rework', manifest });
 
+  it('states its own P id once and cites drafts as D<n>', () => {
+    expect(text).toContain('PLANNING session P7: "Auth rework"');
+    expect(text.split('P7').length - 1).toBe(1);
+    expect(text).toContain('Cite drafts to the user as D<n>');
+    expect(text).toContain('{"ok":true,"id":3,"ref":"D3"}');
+    expect(text).toContain('"dependsOn":["D3"]');
+    expect(text).not.toMatch(/#N/);
+  });
+
   it('lists every enabled repository with its path and base branch', () => {
     expect(text).toContain('- api: /src/api (base develop)');
     expect(text).toContain('- web: /src/web (base main)');

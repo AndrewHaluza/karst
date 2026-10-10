@@ -3,6 +3,7 @@ import { getTicket } from '../store/tickets.js';
 import { listWorktreesByTicket, listPrsByTicket } from '../store/dashboard.js';
 import { getMergeCheck } from '../store/mergeChecks.js';
 import { renderConflictBrief } from './conflictBrief.js';
+import { formatTicketRef } from '../model/entityId.js';
 
 /**
  * The prompt for a "Resolve conflicts" click, assembled from what the store
@@ -28,7 +29,7 @@ export function buildConflictBrief(store: Store, ticketId: number, repo: string)
   const pr = listPrsByTicket(store, ticketId).find((p) => p.repo === repo);
 
   return renderConflictBrief({
-    ticketLabel: ticket.key ?? `#${ticketId}`,
+    ticketLabel: formatTicketRef(ticketId, ticket.key),
     repo,
     worktreePath: wt.path,
     branch: wt.branch,

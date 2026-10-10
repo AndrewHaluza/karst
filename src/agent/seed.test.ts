@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { composeResumeSeed, composeConflictSeed } from './entrySeed.js';
 import { buildSessionSeed, measureSeed, INSTRUCTIONS_HEADING } from './seed.js';
 import { renderInstructionsPointer } from './instructions.js';
 import { markerStageFor } from './markerStage.js';
@@ -313,5 +314,37 @@ describe('buildSessionSeed blockers section', () => {
     const seed = buildSessionSeed({ authoredContext: authored, factsContext: FACTS, invocation: '/karst:rpi PROJ-9' });
     expect(seed.kickoff).toContain('B-1 landed: Widget API');
     expect(seed.instructions ?? '').not.toContain('B-1 landed');
+  });
+});
+
+describe('seeds state the session own id once per route', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+  const count = (s: string, needle: string): number => s.split(needle).length - 1;
+
+  it('launch, resume and conflict seeds carry the facts self-line; sub-task names the parent', () => {
+    const parent = createTicket(store, { key: 'PK-1', title: 'Parent' });
+    const t = createTicket(store, { key: 'PK-2', title: 'Kid', subtaskParentId: parent.id });
+    const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+    const facts = renderTicketContext(ctx, undefined, { sections: 'facts' });
+    const authored = renderTicketContext(ctx, undefined, { sections: 'narrative' });
+    const self = `You are working on T${t.id}`;
+    const launch = buildSessionSeed({ authoredContext: authored, factsContext: facts, invocation: '/karst:rpi PK-2' });
+    expect(count(launch.instructions!, self)).toBe(1);
+    expect(launch.instructions).toContain(`sub-task of T${parent.id}`);
+    expect(launch.kickoff).not.toContain(self);
+    const resume = composeResumeSeed({ ticketKey: 'PK-2', resumeBrief: 'go', invocation: '/karst:rpi', factsContext: facts });
+    expect(count(resume.instructions!, self)).toBe(1);
+    const conflict = composeConflictSeed({ ticketKey: 'PK-2', conflictBrief: 'fix', invocation: '/karst:rpi', factsContext: facts });
+    expect(count(conflict.instructions!, self)).toBe(1);
+  });
+
+  it('inline mode states the id once, via the Ticket heading', () => {
+    const t = createTicket(store, { key: 'PK-3', title: 'Solo' });
+    const ctx = buildTicketContext(store, undefined, t.id, '/storage');
+    const seed = buildSessionSeed({ authoredContext: renderTicketContext(ctx), inlineInstructions: true });
+    expect(count(seed.kickoff, `# Ticket: T${t.id}`)).toBe(1);
+    expect(count(seed.kickoff, `T${t.id}`)).toBe(1);
   });
 });

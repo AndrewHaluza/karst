@@ -231,7 +231,7 @@ describe('sweepServerLiveness: pid=NULL container rows', () => {
 describe('describeRetired', () => {
   it('renders both the with-ticket and the baseline wording', () => {
     expect(describeRetired({ id: 3, ticketId: 7, service: 'api', pid: 4242 })).toBe(
-      "karst: 'api' is no longer running (pid 4242) on ticket #7 \u2014 marked offline.",
+      "karst: 'api' is no longer running (pid 4242) on ticket T7 \u2014 marked offline.",
     );
     expect(describeRetired({ id: 3, ticketId: null, service: 'api', pid: null })).toBe(
       "karst: 'api' is no longer running (pid unknown) \u2014 marked offline.",

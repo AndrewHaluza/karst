@@ -79,7 +79,7 @@ describe('compileExpertSpend', () => {
 describe('graphRecoveryRefusalNotice', () => {
   it('names the ticket, the attempted control and the refusal reason', () => {
     const notice = graphRecoveryRefusalNotice(42, 'replan', 'explicit-resolution');
-    expect(notice).toContain('Ticket #42');
+    expect(notice).toContain('Ticket T42');
     expect(notice).toContain('cannot replan itself');
     expect(notice).toContain('explicit-resolution');
   });

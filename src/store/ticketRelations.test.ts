@@ -499,7 +499,7 @@ describe('ticketRelations', () => {
       addRelation(store, { ticketId: a, kind: 'blocked-by', targetTicketId: b, source: 'user' });
       store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(b);
 
-      expect(listOpenBlockers(store, a)[0]!.label).toBe(`#${b}`);
+      expect(listOpenBlockers(store, a)[0]!.label).toBe(`T${b}`);
     });
 
     it('filters out blockers that are archived', () => {

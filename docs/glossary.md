@@ -27,6 +27,11 @@ agent states, hook events) are defined once in `src/model/types.ts` and
   an optional prompt, a resolved approach, an optional model override, and a
   project-scoped set of stage rows. Lives in the SQLite store; the board is
   re-derived from it on reopen. See *Project*, *Stage*, *Key*.
+- **Id** — the prefixed short id of a numeric entity: `T<n>` ticket
+  (`tickets.id`), `D<n>` draft (`planning_proposals.id`), `P<n>` planning
+  session. `#N` is reserved for GitHub PR numbers. A ticket's *Key* stays the
+  provider's id and is shown beside it: `T583 · ABC-123`. Built and parsed only
+  by `model/entityId.ts`; see `arch:IDS-01` (`docs/arch/ids.md`).
 - **Project** — the scope boundary between IDE windows. Identity is
   `projects.slug`, from the manifest `id:` or a path-derived fallback. Every
   ticket query is scoped by `project_id`, because the database lives in global
@@ -467,6 +472,9 @@ END_DOC_BLOCK: [@gloss:GL-10]
   `cli/guide.test.ts` pins it to the real CLI — a new verb, marker stage, or
   flow change fails `npm run test:unit` until the guide mentions it (869edmcme). The
   launch seed carries a one-line pointer to it, never the full text.
+- **Id arguments** — CLI commands accept `T<n>` / `D<n>` (case-insensitive)
+  and, where the kind is known, a bare number or legacy `#N`; all go through
+  `parseId` (`arch:IDS-01`).
 - **`context`** — renders the ticket context brief (header, stage, evidence,
   worktrees) for the invoking session. Both `context` and `stage` fall back to
   an unscoped ticket lookup when no project bound the key.
@@ -578,6 +586,9 @@ END_DOC_BLOCK: [@gloss:GL-14]
   panel, servers, usage, Now line. Posts typed messages; the single
   `routeAction`-shaped dispatch seam emits one `{type:'action-result',
   requestId, ok, message?}` per action.
+- **Ids in the UI** — tickets, drafts and planning sessions show as `T<n>` /
+  `D<n>` / `P<n>`, never `#N` (see *Id* in the Core entities section,
+  `arch:IDS-01`); webview surfaces adopt this in a follow-up ticket.
 - **Sidebar** — the Tickets tree view (Ticket tree + status bar contributions).
 - **Ticket form** — the create/edit ticket page (`src/ui/ticketForm/`).
   Gates Phase 2 on the title ALONE; the key is derived once at persist (see
@@ -678,7 +689,7 @@ END_DOC_BLOCK: [@gloss:GL-18]
 
 ## [@gloss:GL-19] Quick index
 
-Ticket flow: Ticket · Stage · Stage graph · Verdict · Marker · Confirm stage ·
+Ticket flow: Ticket · `T<n>` · `D<n>` · `P<n>` (see *Id*) · Stage · Stage graph · Verdict · Marker · Confirm stage ·
 Gate stage · Fix loop · Block · BlockerKind · Resume · Needs you · Ship · Merge
 gate · `done` means merged.
 

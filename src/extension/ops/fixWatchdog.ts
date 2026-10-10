@@ -25,6 +25,7 @@ import { karstCliRefs } from '../../agent/cliEnv.js';
 import { isKnownProvider, providerConfirmsLaunch } from '../../agent/provider.js';
 import { graphTicketSurface } from '../../approaches/graph/entryPoints.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
+import { formatTicketRef } from '../../model/entityId.js';
 
 export interface FixWatchdogDeps {
   store: Store;
@@ -295,7 +296,7 @@ function markNotStarted(deps: FixWatchdogDeps, ticketId: number): void {
  */
 export function redeliveryPrompt(store: Store, ticketId: number): string {
   const t = getTicket(store, ticketId);
-  const label = t.key ?? `#${ticketId}`;
+  const label = formatTicketRef(ticketId, t.key);
   const stage = markerStageFor(t.stageCurrent as StageKey | null);
   const refs = karstCliRefs();
   const marker =

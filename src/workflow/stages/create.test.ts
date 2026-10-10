@@ -97,7 +97,7 @@ describe('createTicketFlow', () => {
     expect(lines).toContainEqual(expect.stringMatching(/\[create\] ticket: key 'DBG-1' is new — creating/));
 
     createTicketFlow(store, { key: 'DBG-1', title: 'again' }, opts);
-    expect(lines).toContainEqual(expect.stringMatching(/\[create\] ticket: key 'DBG-1' exists — reusing ticket #\d+/));
+    expect(lines).toContainEqual(expect.stringMatching(/\[create\] ticket: key 'DBG-1' exists — reusing ticket T\d+/));
   });
 
   it('emits a debug line naming the resurrection of an archived ticket', () => {
@@ -108,7 +108,7 @@ describe('createTicketFlow', () => {
     createTicketFlow(store, { key: 'DBG-ARC', title: 'recreated' }, { debug: (m) => lines.push(m) });
 
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[create\] ticket: key 'DBG-ARC' archived — resurrecting ticket #\d+/),
+      expect.stringMatching(/\[create\] ticket: key 'DBG-ARC' archived — resurrecting ticket T\d+/),
     );
   });
 });

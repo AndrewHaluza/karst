@@ -5,6 +5,7 @@ import {
   unarchiveTicket,
   type Ticket,
 } from '../../store/tickets.js';
+import { formatId } from '../../model/entityId.js';
 
 /**
  * Manual ticket entry (§T4.2, MVP §2.4). Provider fetch is post-MVP (C1), so
@@ -53,12 +54,12 @@ export function createTicketFlow(
     // rather than silently staying hidden (the row is reused, no key duplicate).
     if (existing.archivedAt !== null) {
       opts.debug?.(
-        `[create] ticket: key '${input.key}' archived — resurrecting ticket #${existing.id}`,
+        `[create] ticket: key '${input.key}' archived — resurrecting ticket ${formatId('ticket', existing.id)}`,
       );
       unarchiveTicket(store, existing.id);
       return getTicketByKey(store, input.key, scope)!; // refreshed (archivedAt cleared)
     }
-    opts.debug?.(`[create] ticket: key '${input.key}' exists — reusing ticket #${existing.id}`);
+    opts.debug?.(`[create] ticket: key '${input.key}' exists — reusing ticket ${formatId('ticket', existing.id)}`);
     return existing;
   }
 

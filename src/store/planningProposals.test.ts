@@ -155,7 +155,9 @@ describe('planning proposals', () => {
     expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe('sum');
+    expect(saved.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toContain(`P${sessionId}`);
+    expect(saved.brief).toContain(`D${id}`);
     expect(saved.source).toBe('planning');
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
   });
@@ -166,8 +168,15 @@ describe('planning proposals', () => {
     updateTicketFields(store, t.id, { brief: 'user wrote this' });
     markProposalAccepted(store, id, t.id);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe('user wrote this');
+    expect(saved.brief).toBe(`user wrote this\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.source).toBe('planning');
+  });
+
+  it('markProposalAccepted gives an empty-summary draft a brief that is just the origin line', () => {
+    const id = insertProposal(store, sessionId, { ...payload, summary: '  ' });
+    const t = createTicket(store, { key: 'K-3', title: 'saved', projectId });
+    markProposalAccepted(store, id, t.id);
+    expect(getTicket(store, t.id)!.brief).toBe(`Planned in P${sessionId} as D${id}.`);
   });
 
   it('stores dependsOn and replaces (or clears) it on revise', () => {
@@ -262,7 +271,7 @@ describe('planning proposals', () => {
     expect(pruned).toEqual([p3]);
     expect(listRelations(store, t2)).toEqual([]);
     const inbox = listInbox(store, t2, { unreadOnly: false });
-    expect(inbox.some((m) => m.kind === 'event' && m.body.includes(`#${p1}`))).toBe(true);
+    expect(inbox.some((m) => m.kind === 'event' && m.body.includes(`D${p1}`))).toBe(true);
     // The still-pending dependent loses the edge and records it for the card warning.
     expect(getProposal(store, p3)!.payload.dependsOn ?? []).toEqual([]);
     expect(getProposal(store, p3)!.droppedDepends).toEqual([p1]);

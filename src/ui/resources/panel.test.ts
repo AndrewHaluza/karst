@@ -331,7 +331,7 @@ describe('ResourcesPanelManager', () => {
     expect(message).not.toContain('#12');
   });
 
-  it('falls back to #id for a dependent with no resolvable key', async () => {
+  it('falls back to T<id> for a dependent with no resolvable key', async () => {
     const m = fakeMonitor();
     const p = fakePanel();
     const confirm = vi.fn(async (_message: string) => true);
@@ -347,7 +347,7 @@ describe('ResourcesPanelManager', () => {
     p.receive({ type: 'kill-server', serverId: 1, requestId: 'k1-abc' });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const [message] = confirm.mock.calls[0]!;
-    expect(message).toContain('#7');
+    expect(message).toContain('T7');
   });
 
   it('declining a baseline stop still declines', async () => {

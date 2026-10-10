@@ -6,6 +6,7 @@ import { findTicketById, listOpenSubtasks, detachSubtaskParent } from '../store/
 import { changeBaseRef, type ChangeBaseRefResult } from './changeBaseRef.js';
 import { resolveTicketBaseRef } from './baseRef.js';
 import { onSubtaskLanded } from './subtaskGate.js';
+import { formatId } from '../model/entityId.js';
 
 export interface DetachSubtaskOpts {
   store: Store;
@@ -40,7 +41,7 @@ export class DetachSubtaskError extends Error {
 /** A non-subtask cannot be detached (already top-level). */
 export class NotASubtaskError extends DetachSubtaskError {
   constructor(ticketId: number) {
-    super(`ticket #${ticketId} is not a sub-task (no parent to detach from)`);
+    super(`ticket ${formatId('ticket', ticketId)} is not a sub-task (no parent to detach from)`);
     this.name = 'NotASubtaskError';
   }
 }
@@ -48,7 +49,7 @@ export class NotASubtaskError extends DetachSubtaskError {
 /** The parent does not exist or is archived (detach state is undefined). */
 export class SubtaskParentNotFoundError extends DetachSubtaskError {
   constructor(ticketId: number, parentId: number) {
-    super(`parent ticket #${parentId} of sub-task #${ticketId} does not exist or is archived`);
+    super(`parent ticket ${formatId('ticket', parentId)} of sub-task ${formatId('ticket', ticketId)} does not exist or is archived`);
     this.name = 'SubtaskParentNotFoundError';
   }
 }
@@ -56,7 +57,7 @@ export class SubtaskParentNotFoundError extends DetachSubtaskError {
 /** The ticket id does not exist. */
 export class DetachTicketNotFoundError extends DetachSubtaskError {
   constructor(ticketId: number) {
-    super(`ticket #${ticketId} does not exist`);
+    super(`ticket ${formatId('ticket', ticketId)} does not exist`);
     this.name = 'DetachTicketNotFoundError';
   }
 }
@@ -70,7 +71,7 @@ export class DetachTicketNotFoundError extends DetachSubtaskError {
 export class BlockingSubtaskDetachError extends DetachSubtaskError {
   constructor(ticketId: number) {
     super(
-      `cannot detach sub-task #${ticketId}: it blocks its parent — archive it first if it should stop holding the parent`,
+      `cannot detach sub-task ${formatId('ticket', ticketId)}: it blocks its parent — archive it first if it should stop holding the parent`,
     );
     this.name = 'BlockingSubtaskDetachError';
   }
@@ -87,7 +88,7 @@ export class SubtaskHasOpenChildrenError extends DetachSubtaskError {
   readonly childKeys: string[];
   constructor(ticketId: number, childKeys: string[]) {
     super(
-      `cannot detach sub-task #${ticketId}: it has open sub-tasks (${childKeys.join(', ')}) — finish or archive them first`,
+      `cannot detach sub-task ${formatId('ticket', ticketId)}: it has open sub-tasks (${childKeys.join(', ')}) — finish or archive them first`,
     );
     this.name = 'SubtaskHasOpenChildrenError';
     this.childKeys = childKeys;
@@ -97,7 +98,7 @@ export class SubtaskHasOpenChildrenError extends DetachSubtaskError {
 /** Karst never rewrites a tree under a live agent (same rule as `onSubtaskLanded`). */
 export class SubtaskAgentRunningError extends DetachSubtaskError {
   constructor(ticketId: number) {
-    super(`cannot detach sub-task #${ticketId} while its agent is running — stop the agent first`);
+    super(`cannot detach sub-task ${formatId('ticket', ticketId)} while its agent is running — stop the agent first`);
     this.name = 'SubtaskAgentRunningError';
   }
 }
@@ -177,41 +178,41 @@ export async function detachSubtask(opts: DetachSubtaskOpts): Promise<DetachSubt
 
   const ticket = findTicketById(store, ticketId);
   if (!ticket) {
-    debug?.(`[detach] ticket #${ticketId} does not exist — refusing`);
+    debug?.(`[detach] ticket ${formatId('ticket', ticketId)} does not exist — refusing`);
     throw new DetachTicketNotFoundError(ticketId);
   }
 
   const parentId = ticket.subtaskParentId;
   if (parentId === null || parentId === undefined) {
-    debug?.(`[detach] ticket #${ticketId} is not a sub-task — refusing`);
+    debug?.(`[detach] ticket ${formatId('ticket', ticketId)} is not a sub-task — refusing`);
     throw new NotASubtaskError(ticketId);
   }
 
   const parent = findTicketById(store, parentId);
   if (!parent || parent.archivedAt !== null) {
-    debug?.(`[detach] parent ticket #${parentId} does not exist or is archived — refusing`);
+    debug?.(`[detach] parent ticket ${formatId('ticket', parentId)} does not exist or is archived — refusing`);
     throw new SubtaskParentNotFoundError(ticketId, parentId);
   }
 
   if (ticket.blocksParent) {
-    debug?.(`[detach] sub-task #${ticketId} blocks its parent — refusing`);
+    debug?.(`[detach] sub-task ${formatId('ticket', ticketId)} blocks its parent — refusing`);
     throw new BlockingSubtaskDetachError(ticketId);
   }
 
   if (ticket.agentState === 'running') {
-    debug?.(`[detach] sub-task #${ticketId} has a running agent — refusing`);
+    debug?.(`[detach] sub-task ${formatId('ticket', ticketId)} has a running agent — refusing`);
     throw new SubtaskAgentRunningError(ticketId);
   }
 
   const openChildren = listOpenSubtasks(store, ticketId);
   if (openChildren.length > 0) {
-    const keys = openChildren.map((c) => c.key ?? `#${c.id}`);
-    debug?.(`[detach] sub-task #${ticketId} has open sub-tasks (${keys.join(', ')}) — refusing`);
+    const keys = openChildren.map((c) => c.key ?? formatId('ticket', c.id));
+    debug?.(`[detach] sub-task ${formatId('ticket', ticketId)} has open sub-tasks (${keys.join(', ')}) — refusing`);
     throw new SubtaskHasOpenChildrenError(ticketId, keys);
   }
 
   const rootId = rootAncestorId(store, parentId);
-  debug?.(`[detach] detaching sub-task #${ticketId} from parent #${parentId} (root #${rootId})`);
+  debug?.(`[detach] detaching sub-task ${formatId('ticket', ticketId)} from parent ${formatId('ticket', parentId)} (root ${formatId('ticket', rootId)})`);
 
   const rebases = new Map<string, ChangeBaseRefResult>();
   const moved: string[] = [];
@@ -247,14 +248,14 @@ export async function detachSubtask(opts: DetachSubtaskOpts): Promise<DetachSubt
   // single guarded writer, then release any parked awaiting-subtask gate on the
   // parent — a detach exists precisely to unblock the parent's ship.
   if (!detachSubtaskParent(store, ticketId, parentId)) {
-    debug?.(`[detach] ticket #${ticketId} is no longer a sub-task of #${parentId} — aborting`);
+    debug?.(`[detach] ticket ${formatId('ticket', ticketId)} is no longer a sub-task of ${formatId('ticket', parentId)} — aborting`);
     return {
       ok: false,
-      reason: `ticket #${ticketId} is no longer a sub-task of #${parentId} (re-parented or detached concurrently)`,
+      reason: `ticket ${formatId('ticket', ticketId)} is no longer a sub-task of ${formatId('ticket', parentId)} (re-parented or detached concurrently)`,
       rebases,
     };
   }
-  debug?.(`[detach] ticket #${ticketId} detached; subtask_parent_id cleared`);
+  debug?.(`[detach] ticket ${formatId('ticket', ticketId)} detached; subtask_parent_id cleared`);
   onSubtaskLanded(store, parentId, { debug });
 
   return { ok: true, reason: '', rebases };
