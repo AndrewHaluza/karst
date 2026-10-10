@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  applyLedger,
-  failureKey,
   runChecks,
+  stateSurvivesResize,
+  type RegionExpectation,
   type ElementSnap,
   type LayoutFailure,
   type LayoutSnapshot,
@@ -30,6 +30,9 @@ function el(over: Omit<Partial<ElementSnap>, 'rect'> & { rect?: Partial<ElementS
     clientH: 20,
     colSpan: 1,
     exposesText: false,
+    hasText: true,
+    region: null,
+    primaryAction: false,
     ...rest,
   };
 }
@@ -135,13 +138,20 @@ describe('column-alignment', () => {
 });
 
 describe('degenerate-control', () => {
-  it('fails on a button narrower than 16px', () => {
-    expect(checksOf(snap([el({ tag: 'button', rect: { w: 8 } })]), 'degenerate-control')).toHaveLength(1);
+  it('fails on an icon-only control under 24x24', () => {
+    expect(checksOf(snap([el({ tag: 'button', hasText: false, rect: { w: 20, h: 20 } })]), 'degenerate-control')).toHaveLength(1);
+  });
+  it('passes an icon-only control at 24x24', () => {
+    expect(checksOf(snap([el({ tag: 'button', hasText: false, rect: { w: 24, h: 24 } })]), 'degenerate-control')).toEqual([]);
+  });
+  it('fails a text control under 20px high, passes it at 20px', () => {
+    expect(checksOf(snap([el({ tag: 'button', rect: { w: 80, h: 19 } })]), 'degenerate-control')).toHaveLength(1);
+    expect(checksOf(snap([el({ tag: 'button', rect: { w: 80, h: 20 } })]), 'degenerate-control')).toEqual([]);
   });
   it('fails on a control outside the viewport horizontally', () => {
     expect(checksOf(snap([el({ tag: 'input', rect: { x: 1300, w: 80, h: 24 } })]), 'degenerate-control')).toHaveLength(1);
   });
-  it('fails on a [role=tab] shorter than 16px', () => {
+  it('fails on a [role=tab] shorter than 20px', () => {
     expect(checksOf(snap([el({ role: 'tab', rect: { h: 10 } })]), 'degenerate-control')).toHaveLength(1);
   });
   it('exempts native checkbox and radio boxes', () => {
@@ -149,26 +159,103 @@ describe('degenerate-control', () => {
     expect(checksOf(snap([box]), 'degenerate-control')).toEqual([]);
     expect(checksOf(snap([{ ...box, inputType: 'text' }]), 'degenerate-control')).toHaveLength(1);
   });
-  it('passes on a normal control and ignores non-controls', () => {
-    expect(checksOf(snap([el({ tag: 'button', rect: { w: 80, h: 24 } }), el({ tag: 'span', rect: { w: 4 } })]), 'degenerate-control')).toEqual([]);
+  it('ignores non-controls', () => {
+    expect(checksOf(snap([el({ tag: 'span', rect: { w: 4 } })]), 'degenerate-control')).toEqual([]);
   });
 });
 
-describe('ledger', () => {
-  const failure = (selector: string): LayoutFailure => ({
-    route: 'agents#agents/roles', width: 800, check: 'containment', selector, rects: [], detail: 'x',
+describe('scroller', () => {
+  const pane = el({ region: 'list', rect: { x: 0, y: 0, w: 400, h: 400 } });
+  const scroller = (over: Omit<Partial<ElementSnap>, 'rect'> & { rect?: Partial<ElementSnap['rect']> } = {}) =>
+    el({ parentId: pane.id, overflowY: 'auto', scrollH: 900, clientH: 300, rect: { x: 0, y: 0, w: 400, h: 300 }, ...over });
+  it('passes one scroller inside its pane and the viewport', () => {
+    expect(checksOf(snap([pane, scroller()]), 'scroller')).toEqual([]);
   });
-  it('fails on a failure that is not in the ledger', () => {
-    const r = applyLedger([failure('a')], []);
-    expect(r.unexpected).toHaveLength(1);
-    expect(r.stale).toEqual([]);
+  it('fails a scroller that extends past its pane', () => {
+    const f = checksOf(snap([pane, scroller({ rect: { w: 500 } })]), 'scroller');
+    expect(f).toHaveLength(1);
+    expect(f[0]?.detail).toContain('pane');
   });
-  it('fails on a stale ledger entry that no longer reproduces', () => {
-    const r = applyLedger([], [failureKey(failure('gone'))]);
-    expect(r.stale).toEqual([failureKey(failure('gone'))]);
+  it('fails a scroller outside the viewport', () => {
+    const f = checksOf(snap([scroller({ parentId: null, rect: { x: 1200, w: 300 } })]), 'scroller');
+    expect(f[0]?.detail).toContain('viewport');
   });
-  it('passes when the ledger matches exactly', () => {
-    const r = applyLedger([failure('a')], [failureKey(failure('a'))]);
-    expect(r).toEqual({ unexpected: [], stale: [] });
+  it('fails a second scroller in the same pane', () => {
+    const f = checksOf(snap([pane, scroller(), scroller()]), 'scroller');
+    expect(f).toHaveLength(1);
+    expect(f[0]?.detail).toContain('second scroll container');
+  });
+  it('allows one scroller per pane', () => {
+    const other = el({ region: 'detail', rect: { x: 400, y: 0, w: 400, h: 400 } });
+    const second = scroller({ parentId: other.id, rect: { x: 400 } });
+    expect(checksOf(snap([pane, other, scroller(), second]), 'scroller')).toEqual([]);
+  });
+  it('ignores overflow:auto that does not overflow', () => {
+    expect(checksOf(snap([pane, scroller({ scrollH: 300 }), scroller({ scrollH: 300 })]), 'scroller')).toEqual([]);
+  });
+});
+
+describe('section-spacing', () => {
+  const parent = el({ rect: { w: 400, h: 400 } });
+  const section = (y: number, h = 100) => el({ tag: 'section', parentId: parent.id, rect: { y, w: 400, h } });
+  const item = (s: ElementSnap, y: number) => el({ parentId: s.id, rect: { y, w: 100, h: 10 } });
+  it('passes when sections are further apart than their items', () => {
+    const a = section(0);
+    const b = section(140);
+    expect(checksOf(snap([parent, a, item(a, 0), item(a, 20), b, item(b, 140)]), 'section-spacing')).toEqual([]);
+  });
+  it('fails when the section gap equals the item gap', () => {
+    const a = section(0, 100);
+    const b = section(110, 100);
+    const f = checksOf(snap([parent, a, item(a, 0), item(a, 20), b, item(b, 110)]), 'section-spacing');
+    expect(f).toHaveLength(1);
+    expect(f[0]?.detail).toContain('not larger');
+  });
+});
+
+describe('region-order', () => {
+  const region = (name: string, x: number, y: number) => el({ region: name, rect: { x, y, w: 200, h: 100 } });
+  const side: RegionExpectation = { layout: 'side-by-side', order: ['list', 'detail'] };
+  const stacked: RegionExpectation = { layout: 'stacked', order: ['list', 'detail'] };
+  const run = (els: ElementSnap[], expected?: RegionExpectation) =>
+    runChecks(snap(els), expected).filter((f) => f.check === 'region-order');
+  it('reports nothing without an expectation', () => {
+    expect(run([region('list', 0, 0)])).toEqual([]);
+  });
+  it('passes side-by-side regions in order', () => {
+    expect(run([region('list', 0, 0), region('detail', 200, 0)], side)).toEqual([]);
+  });
+  it('fails side-by-side regions in the wrong order', () => {
+    expect(run([region('list', 200, 0), region('detail', 0, 0)], side)).toHaveLength(1);
+  });
+  it('passes stacked regions and fails when they sit side by side', () => {
+    expect(run([region('list', 0, 0), region('detail', 0, 100)], stacked)).toEqual([]);
+    expect(run([region('list', 0, 0), region('detail', 200, 0)], stacked)).toHaveLength(1);
+  });
+  it('fails a missing region', () => {
+    expect(run([region('list', 0, 0)], side)[0]?.detail).toContain('"detail" is not rendered');
+  });
+  it('fails a primary action outside header/toolbar and passes one inside', () => {
+    const header = region('header', 0, 0);
+    const body = region('detail', 0, 100);
+    const inHeader = el({ parentId: header.id, primaryAction: true, rect: { w: 80, h: 24 } });
+    const inBody = el({ parentId: body.id, primaryAction: true, rect: { y: 110, w: 80, h: 24 } });
+    const expected: RegionExpectation = { layout: 'stacked', order: ['header', 'detail'] };
+    expect(run([header, body, inHeader], expected)).toEqual([]);
+    expect(run([header, body, inBody], expected)[0]?.detail).toContain('"detail"');
+  });
+});
+
+describe('state-survives-resize', () => {
+  it('passes when hash and selection are unchanged', () => {
+    const s = { hash: '#agents/roles/uatTester', selected: 'uatTester' };
+    expect(stateSurvivesResize(s, { ...s })).toEqual([]);
+  });
+  it('fails when the hash or the selection changes', () => {
+    const before = { hash: '#agents/roles/uatTester', selected: 'uatTester' };
+    const f = stateSurvivesResize(before, { hash: '#agents/roles', selected: null });
+    expect(f).toHaveLength(1);
+    expect(f[0]?.detail).toContain('hash');
+    expect(f[0]?.detail).toContain('selected');
   });
 });

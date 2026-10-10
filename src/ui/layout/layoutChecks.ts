@@ -2,15 +2,20 @@
  * Pure layout checks over a serialized DOM snapshot (layout-sanity gate).
  *
  * jsdom has no layout engine (docs/ui/UI-INVARIANTS.md), so geometry is measured
- * in Playwright (`layout.visual.ts` collects the snapshot) and judged here, where
+ * in Playwright (`layout.layout.ts` collects the snapshot) and judged here, where
  * every check has a positive and a negative unit fixture. No baselines: a check
  * either holds or it does not, so re-recording cannot turn it green.
  *
  * Tolerance is 1px throughout. See docs/ui/VISUAL-COVERAGE.md `ui:LAYOUT-SANITY`.
  */
 
+import type { LayoutTier } from './layoutBreakpoints.js';
+
 export const TOLERANCE = 1;
-export const MIN_CONTROL_PX = 16;
+/** Icon-only interactive minimum (DESIGN-SYSTEM sizing block, `--k-hit-min`). */
+export const MIN_ICON_PX = 24;
+/** Minimum height of a control that carries a text label. */
+export const MIN_TEXT_CONTROL_H = 20;
 
 export interface Rect {
   readonly x: number;
@@ -42,6 +47,12 @@ export interface ElementSnap {
   readonly colSpan: number;
   /** aria-label / aria-describedby / aria-expanded present: full text reachable. */
   readonly exposesText: boolean;
+  /** Visible text content (trimmed, non-empty). */
+  readonly hasText: boolean;
+  /** `data-region` attribute value; marks a pane root. */
+  readonly region: string | null;
+  /** Carries the primary-action class (`k-btn--primary`). */
+  readonly primaryAction: boolean;
 }
 
 export interface LayoutSnapshot {
@@ -57,7 +68,11 @@ export type LayoutCheck =
   | 'containment'
   | 'clipped-text'
   | 'column-alignment'
-  | 'degenerate-control';
+  | 'degenerate-control'
+  | 'scroller'
+  | 'region-order'
+  | 'section-spacing'
+  | 'state-survives-resize';
 
 export interface LayoutFailure {
   readonly route: string;
@@ -219,21 +234,181 @@ function isControl(e: ElementSnap): boolean {
 function degenerateControl(s: LayoutSnapshot): Found[] {
   const out: Found[] = [];
   for (const e of s.elements.filter(isControl)) {
-    const tiny = e.rect.w < MIN_CONTROL_PX || e.rect.h < MIN_CONTROL_PX;
+    const tiny = e.hasText
+      ? e.rect.h < MIN_TEXT_CONTROL_H
+      : e.rect.w < MIN_ICON_PX || e.rect.h < MIN_ICON_PX;
     const off = e.rect.x < -TOLERANCE || e.rect.x + e.rect.w > s.viewport.w + TOLERANCE;
     if (!tiny && !off) continue;
+    const min = e.hasText ? `height min ${MIN_TEXT_CONTROL_H}` : `min ${MIN_ICON_PX}x${MIN_ICON_PX}`;
     out.push({
       check: 'degenerate-control',
       selector: e.path,
       rects: [e.rect],
-      detail: tiny ? `control is ${px(e.rect.w)}x${px(e.rect.h)}px (min ${MIN_CONTROL_PX})` : 'control lies outside the viewport horizontally',
+      detail: tiny ? `control is ${px(e.rect.w)}x${px(e.rect.h)}px (${min})` : 'control lies outside the viewport horizontally',
     });
   }
   return out;
 }
 
+function isScroller(e: ElementSnap): boolean {
+  const x = (e.overflowX === 'auto' || e.overflowX === 'scroll') && e.scrollW > e.clientW + TOLERANCE;
+  const y = (e.overflowY === 'auto' || e.overflowY === 'scroll') && e.scrollH > e.clientH + TOLERANCE;
+  return x || y;
+}
+
+/** Nearest ancestor that is a `data-region` root; null = the page. */
+function paneOf(byId: ReadonlyMap<number, ElementSnap>, e: ElementSnap): ElementSnap | null {
+  for (let id = e.parentId; id !== null; ) {
+    const p = byId.get(id);
+    if (!p) return null;
+    if (p.region !== null) return p;
+    id = p.parentId;
+  }
+  return null;
+}
+
+function scrollers(s: LayoutSnapshot): Found[] {
+  const byId = new Map(s.elements.map((e) => [e.id, e]));
+  const out: Found[] = [];
+  const perPane = new Map<number | null, ElementSnap[]>();
+  for (const e of s.elements.filter(isScroller)) {
+    const pane = paneOf(byId, e);
+    perPane.set(pane?.id ?? null, [...(perPane.get(pane?.id ?? null) ?? []), e]);
+    const outsideViewport = e.rect.x < -TOLERANCE || e.rect.x + e.rect.w > s.viewport.w + TOLERANCE || e.rect.h > s.viewport.h + TOLERANCE;
+    const outsidePane = pane !== null && (
+      e.rect.x < pane.rect.x - TOLERANCE ||
+      e.rect.x + e.rect.w > pane.rect.x + pane.rect.w + TOLERANCE ||
+      e.rect.y < pane.rect.y - TOLERANCE ||
+      e.rect.y + e.rect.h > pane.rect.y + pane.rect.h + TOLERANCE
+    );
+    if (!outsideViewport && !outsidePane) continue;
+    out.push({
+      check: 'scroller',
+      selector: e.path,
+      rects: pane ? [e.rect, pane.rect] : [e.rect],
+      detail: outsideViewport ? 'scroll container extends outside the viewport' : `scroll container extends outside its pane ${pane?.path ?? ''}`,
+    });
+  }
+  for (const group of perPane.values()) {
+    for (const extra of group.slice(1)) {
+      out.push({
+        check: 'scroller',
+        selector: extra.path,
+        rects: [extra.rect],
+        detail: `second scroll container in one pane (first: ${group[0]!.path})`,
+      });
+    }
+  }
+  return out;
+}
+
+/** In-flow children of `parent`, top to bottom. */
+function flowChildren(s: LayoutSnapshot, parentId: number): ElementSnap[] {
+  return s.elements
+    .filter((e) => e.parentId === parentId && IN_FLOW.has(e.position))
+    .sort((a, b) => a.rect.y - b.rect.y);
+}
+
+function maxVerticalGap(items: readonly ElementSnap[]): number {
+  let max = 0;
+  for (let i = 1; i < items.length; i += 1) {
+    max = Math.max(max, items[i]!.rect.y - (items[i - 1]!.rect.y + items[i - 1]!.rect.h));
+  }
+  return max;
+}
+
+/** UX-7: sections must be separated by more than the items inside them. */
+function sectionSpacing(s: LayoutSnapshot): Found[] {
+  const out: Found[] = [];
+  const parents = new Set(s.elements.filter((e) => e.tag === 'section').map((e) => e.parentId));
+  for (const parentId of parents) {
+    if (parentId === null) continue;
+    const sections = flowChildren(s, parentId).filter((e) => e.tag === 'section');
+    for (let i = 1; i < sections.length; i += 1) {
+      const prev = sections[i - 1]!;
+      const next = sections[i]!;
+      const between = next.rect.y - (prev.rect.y + prev.rect.h);
+      const inner = Math.max(maxVerticalGap(flowChildren(s, prev.id)), maxVerticalGap(flowChildren(s, next.id)));
+      if (between > inner) continue;
+      out.push({
+        check: 'section-spacing',
+        selector: `${prev.path} | ${next.path}`,
+        rects: [prev.rect, next.rect],
+        detail: `gap between sections ${px(between)}px is not larger than the largest gap inside one (${px(inner)}px)`,
+      });
+    }
+  }
+  return out;
+}
+
+/** UX-1: expected region placement for one route at one tier. */
+export interface RegionExpectation {
+  /** `data-region` names, in expected top-to-bottom (stacked) or left-to-right order. */
+  readonly order: readonly string[];
+  readonly layout: 'side-by-side' | 'stacked';
+}
+
+/** tests/visual/expectations/<section>.json: expectations per tier. */
+export type RegionExpectations = Readonly<Partial<Record<LayoutTier, RegionExpectation>>>;
+
+/** R40: the primary action sits inside the header or toolbar region. */
+const PRIMARY_HOMES = new Set(['header', 'toolbar']);
+
+function regionOrder(s: LayoutSnapshot, expected: RegionExpectation | undefined): Found[] {
+  if (!expected) return [];
+  const out: Found[] = [];
+  const byName = new Map(s.elements.filter((e) => e.region !== null).map((e) => [e.region!, e]));
+  const present: ElementSnap[] = [];
+  for (const name of expected.order) {
+    const hit = byName.get(name);
+    if (hit) present.push(hit);
+    else out.push({ check: 'region-order', selector: `[data-region="${name}"]`, rects: [], detail: `expected region "${name}" is not rendered` });
+  }
+  for (let i = 1; i < present.length; i += 1) {
+    const a = present[i - 1]!;
+    const b = present[i]!;
+    const ok = expected.layout === 'stacked'
+      ? b.rect.y >= a.rect.y + a.rect.h - TOLERANCE
+      : b.rect.x >= a.rect.x + a.rect.w - TOLERANCE && Math.abs(a.rect.y - b.rect.y) <= a.rect.h;
+    if (ok) continue;
+    out.push({
+      check: 'region-order',
+      selector: `${a.path} | ${b.path}`,
+      rects: [a.rect, b.rect],
+      detail: `regions "${a.region}" then "${b.region}" are not ${expected.layout} in that order`,
+    });
+  }
+  const byId = new Map(s.elements.map((e) => [e.id, e]));
+  for (const primary of s.elements.filter((e) => e.primaryAction)) {
+    const home = paneOf(byId, primary);
+    if (home !== null && PRIMARY_HOMES.has(home.region ?? '')) continue;
+    out.push({
+      check: 'region-order',
+      selector: primary.path,
+      rects: [primary.rect],
+      detail: `primary action is in region "${home?.region ?? 'page'}", not the header or toolbar`,
+    });
+  }
+  return out;
+}
+
+/** UX-8a: the hash and the selected item are unchanged after a resize round trip. */
+export interface ResizeState {
+  readonly hash: string;
+  readonly selected: string | null;
+}
+
+export function stateSurvivesResize(before: ResizeState, after: ResizeState): LayoutFailure[] {
+  const changed = [
+    before.hash !== after.hash ? `hash ${before.hash} -> ${after.hash}` : '',
+    before.selected !== after.selected ? `selected ${String(before.selected)} -> ${String(after.selected)}` : '',
+  ].filter(Boolean);
+  if (changed.length === 0) return [];
+  return [{ route: '', width: 0, check: 'state-survives-resize', selector: 'document', rects: [], detail: changed.join('; ') }];
+}
+
 /** Every check over one snapshot; route/width are stamped on by the caller. */
-export function runChecks(s: LayoutSnapshot): LayoutFailure[] {
+export function runChecks(s: LayoutSnapshot, expected?: RegionExpectation): LayoutFailure[] {
   const found = [
     ...pageOverflow(s),
     ...siblingOverlap(s),
@@ -241,6 +416,9 @@ export function runChecks(s: LayoutSnapshot): LayoutFailure[] {
     ...clippedText(s),
     ...columnAlignment(s),
     ...degenerateControl(s),
+    ...scrollers(s),
+    ...regionOrder(s, expected),
+    ...sectionSpacing(s),
   ];
   return found.map((f) => ({ route: '', width: s.viewport.w, ...f }));
 }
@@ -248,21 +426,4 @@ export function runChecks(s: LayoutSnapshot): LayoutFailure[] {
 /** Ledger key: route + width + check + selector. */
 export function failureKey(f: Pick<LayoutFailure, 'route' | 'width' | 'check' | 'selector'>): string {
   return `${f.route}|${f.width}|${f.check}|${f.selector}`;
-}
-
-export interface LedgerResult {
-  /** Failures the ledger does not list. */
-  readonly unexpected: readonly LayoutFailure[];
-  /** Ledger keys that no longer reproduce; delete them. */
-  readonly stale: readonly string[];
-}
-
-/** The ledger only shrinks: unknown failures AND stale entries both fail. */
-export function applyLedger(failures: readonly LayoutFailure[], ledger: readonly string[]): LedgerResult {
-  const known = new Set(ledger);
-  const seen = new Set(failures.map(failureKey));
-  return {
-    unexpected: failures.filter((f) => !known.has(failureKey(f))),
-    stale: ledger.filter((key) => !seen.has(key)),
-  };
 }

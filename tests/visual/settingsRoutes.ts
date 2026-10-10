@@ -36,3 +36,8 @@ export function settingsRoutes(): readonly LayoutRoute[] {
       : [{ id: section, section }],
   );
 }
+
+/** Shard route id of the Agents state-survives-resize test (check i). */
+export function resizeRouteId(routeId: string): string {
+  return `${routeId}#resize`;
+}
