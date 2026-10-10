@@ -352,6 +352,18 @@
   .pt-count{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .pt-deps{flex:none;font-size:var(--k-text-xs);color:var(--k-text-dim);font-family:var(--k-font-mono)}
   .pt-deps--warn{color:var(--k-attention)}
+  /* Dependency chips: a wrapping row under the draft title. Chips never truncate
+     the id (UI-R44) and wrap instead of scrolling sideways (UI-R43). */
+  .pt-deps-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-1);min-width:0;
+    padding:0 var(--k-space-1) var(--k-space-1) calc(var(--k-space-1) + var(--k-space-7) * 2);
+    font-size:var(--k-text-xs);color:var(--k-text-dim)}
+  .pt-dep{display:inline-flex;align-items:center;gap:var(--k-space-1);max-width:100%;min-width:0;
+    padding:0 var(--k-space-2);font:inherit;font-family:var(--k-font-mono);color:inherit;
+    border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-circle);background:transparent;
+    cursor:pointer;overflow-wrap:anywhere;text-align:left}
+  .pt-dep:hover,.pt-dep:focus-visible{color:var(--vscode-foreground)}
+  .pt-dep-dot{flex:none;width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:currentColor}
+  .pt-dep-dot.g-gray{background:transparent;border:calc(var(--k-border-w) * 1.5) solid currentColor}
   .pt-actions{display:none;flex:none;align-items:center;gap:var(--k-space-1)}
   .pt-actions .k-iconbtn{width:var(--k-space-8);height:var(--k-space-8)}
   .pt-row:hover .pt-actions,.pt-row:focus-within .pt-actions,
@@ -983,11 +995,30 @@
   // refer to) is shown before the title. Pending ones carry Approve (the prefilled ticket
   // form) / Discard; accepted ones stay, struck through, linked to the ticket
   // they became.
+  // One chip per dependency: a status marker (the shared g-* tint, never colour
+  // alone — the visible text states the kind) + the identifier, which is the
+  // link (UI-R09c). Ticket/done chips open the dashboard; a draft chip focuses
+  // its target card (`data-dep-draft`, handled below).
+  function depChip(x) {
+    const g = GLYPH_WORD[x.glyph] ? x.glyph : 'gray';
+    const dot = `<span class="pt-dep-dot g-${g}" aria-hidden="true"></span>`;
+    const id = esc(x.label);
+    const tl = esc(x.ticketLabel);
+    let text, name, attrs;
+    if (x.kind === 'draft') {
+      text = id; name = `${id}, draft pending`; attrs = `data-dep-draft="${Number(x.id)}"`;
+    } else {
+      const stage = x.kind === 'ticket' && x.stage ? ` · ${esc(x.stage)}` : '';
+      text = `${id}→${tl}${stage}`;
+      name = x.kind === 'done' ? `${id}, ticket ${tl} done` : `${id}, ticket ${tl} in ${esc(x.stage || 'progress')}`;
+      attrs = `data-act="open-dashboard" data-id="${Number(x.ticketId)}"`;
+    }
+    return `<button type="button" class="pt-dep" tabindex="-1" ${attrs} aria-label="${name}">${dot}<span>${text}</span></button>`;
+  }
   function planDeps(d) {
-    const deps = d.dependsOnLabels || [];
+    const deps = d.dependsOnStatus || [];
     if (!deps.length) return '';
-    const text = 'depends on ' + deps.join(', ');
-    return `<span class="pt-deps" title="${esc(text)}">${esc(text)}</span>`;
+    return `<div class="pt-deps-row"><span>needs</span>${deps.map(depChip).join('')}</div>`;
   }
 
   // A dependency the host pruned because its target was discarded: the card
@@ -1022,22 +1053,20 @@
         + `<div class="pt-row" title="${label}">`
         + karstIcon('circle-check', 14, 'pt-icon pt-c-passed')
         + `<span class="pt-label">${esc(d.idLabel)} ${t}</span>`
-        + planDeps(d)
         + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket ${esc(d.ticketIdLabel)}" aria-label="Open ticket ${esc(d.ticketIdLabel)}" title="Open ticket ${esc(d.ticketIdLabel)}">${esc(d.ticketIdLabel)}</button>` : '')
-        + `</div></div>`;
+        + `</div>${planDeps(d)}</div>`;
     }
     const label = esc(`${d.idLabel} ${d.title}, needs review`);
     return `<div role="treeitem" aria-level="2" class="pt-l2" data-node="${node}" tabindex="-1" aria-label="${label}">`
       + `<div class="pt-row" title="${label}">`
       + karstIcon('file-text', 14, 'pt-icon pt-c-attention')
       + `<span class="pt-label">${esc(d.idLabel)} ${t}</span>`
-      + planDeps(d)
       + planDropped(d)
       + planWarnings(d)
       + `<span class="pt-actions">`
       + planBtn(`data-act="plan-proposal-review" data-proposal="${id}"`, 'Approve', `Approve draft: ${t}`, ic.check)
       + planBtn(`data-act="plan-proposal-discard" data-proposal="${id}"`, 'Discard', `Discard draft: ${t}`, ic.x)
-      + `</span></div></div>`;
+      + `</span></div>${planDeps(d)}</div>`;
   }
 
   const treeItems = () => [...document.querySelectorAll('.ptree [role="treeitem"]')];
@@ -1092,7 +1121,29 @@
     if (items.length) openMenuAt(item, items.join(''), item.dataset.node);
   }
 
+  // A draft-dependency chip: reveal the target draft card (expanding its
+  // session first when collapsed) and focus it. Pure view state, never posts.
+  function revealDraft(id) {
+    const node = 'd' + id;
+    if (!document.querySelector(`.ptree [data-node="${node}"]`)) {
+      const owner = (state.planning || []).find((p) => (p.proposals || []).some((d) => Number(d.id) === id));
+      if (!owner) return;
+      planExpanded.set(owner.sessionId, true);
+      renderList();
+    }
+    const target = document.querySelector(`.ptree [data-node="${node}"]`);
+    if (!target) return;
+    focusItem(target);
+    if (target.scrollIntoView) target.scrollIntoView({ block: 'nearest' });
+  }
+
   document.addEventListener('click', (e) => {
+    const dep = e.target.closest('[data-dep-draft]');
+    if (dep) {
+      e.stopPropagation();
+      revealDraft(Number(dep.dataset.depDraft));
+      return;
+    }
     const toggle = e.target.closest('[data-plan-toggle]');
     if (toggle) {
       e.stopPropagation();
