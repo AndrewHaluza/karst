@@ -4627,7 +4627,18 @@
   function baselineReviewHtml(entries) {
     // `index` is spliced into attributes and ids below unescaped; force it to an
     // integer here so nothing but digits can ever reach the markup.
-    const rows = entries.map((r) => ({ ...r, index: Number(r.index) | 0 }));
+    // Enum fields are allowlisted for the same reason (values mirror
+    // BASELINE_STATUS_WORD / BASELINE_STATE_WORD).
+    const rows = entries.map((r) => ({
+      ...r,
+      index: Number(r.index) | 0,
+      status: Object.hasOwn(BASELINE_STATUS_WORD, r.status) ? r.status : 'modified',
+      decision: Object.hasOwn(BASELINE_STATE_WORD, r.decision) ? r.decision : 'pending',
+      label: String(r.label || ''),
+      reason: String(r.reason || ''),
+      oldSrc: r.oldSrc ? String(r.oldSrc) : '',
+      newSrc: r.newSrc ? String(r.newSrc) : '',
+    }));
     const open = rows.filter((r) => r.decision !== 'approved');
     const head = `<div class="blhead"><span>${open.length} of ${rows.length} changed baseline${rows.length === 1 ? '' : 's'} need${open.length === 1 ? 's' : ''} your approval</span>`
       + (open.length > 0
