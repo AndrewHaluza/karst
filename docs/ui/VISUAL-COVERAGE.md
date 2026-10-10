@@ -60,7 +60,9 @@ END_DOC_BLOCK: [@ui:RULE-COUNTS]
 | UI-R47 | Selection survives resize and Back | VISUAL | **covered** | Layout gate check (i) |
 | UI-R48 | Settings content capped at the content-width token | STATIC+VISUAL | **covered** | Token grep + content width ≤ token at the ≥1000 tier |
 
-**Still manual after this ticket: UI-R22 only.** Group L (UI-R39–R48) rows describe the contract the layout gate implements.
+**Still manual after this ticket: UI-R22 only.**
+
+Group L rows (R39 to R48) describe the contract the layout gate implements.
 END_DOC_BLOCK: [@ui:COVERAGE-TABLE]
 
 ## [@ui:LIMITATIONS] Named limitations
