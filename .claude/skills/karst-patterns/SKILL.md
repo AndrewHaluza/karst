@@ -53,7 +53,7 @@ Layering rules the history enforces:
 
 - `vscode` is never a runtime import outside thin binding wrappers — logic takes injected interfaces (`PanelHost`, `TerminalHost`, `GhRunner`, `GateRunner`, `AgentAdapter`) so everything runs under vitest with fakes.
 - One store module per table (`store/prs.ts`, `store/stageBlocks.ts`, …); every one of them has a sibling `.test.ts`. Elsewhere colocated tests are the strong default but not an invariant — pure leaf helpers (`agent/hookFailureLog.ts`, `workflow/gates/result.ts`) are covered by their consumers' suites instead.
-- Webviews are plain HTML + injected CSS/JS (CSP forbids external assets); host-side TS constants mirrored into HTML are pinned by differential tests.
+- Webviews are plain HTML + injected CSS/JS (CSP forbids external assets) except Settings, which is the one React surface (`src/ui/settings/app/**`, NDL-126); host-side TS constants mirrored into HTML are pinned by differential tests.
 - Files stay small — 200–400 lines typical, 800 max. Large modules get split by responsibility, not by type.
 
 ## Workflows
@@ -75,6 +75,11 @@ Guard: `writeManifest.test.ts` "round-trips every modeled section".
 3. Any control that posts to the host: local pending state on click, `aria-busy`, single-trigger guard, terminal `{type:'action-result', requestId, ok, message?}`, and a watchdog reporting "unknown" (≠ failure) on timeout. Keep the geometry stable rather than freezing the label.
 4. Actions are `<button>`, navigation is `<a href>`, and a visible filepath/PR/commit is itself the link — no duplicate `Open file` button. Icon-only controls need an accessible name; a `title` is supplemental and must agree with it, ≤80 chars.
 5. Workflow status is the icon-only `.k-status` (check / spinner / pause / cross / dot) with an accessible name and no visible status word; an agent core is always `providerIdentity.ts`'s canonical icon + name, with model/effort as secondary metadata.
+
+### Adding or changing a page
+1. Read `docs/ui/README.md` and follow its order: if a prototype is linked, list its `data-region` names first (binding, `ui:UI-R39`); then UI-RULES group L (`ui:UI-R39`..`R48`), the rules for the controls you touch, and DESIGN-SYSTEM `ui:LAYOUT-PRIMITIVES`.
+2. Give every region a `data-region` landmark; use the width tiers in `src/ui/layout/layoutBreakpoints.ts` for new and changed pages.
+3. Verify with `npm run test:layout` (advisory), then `npm run test:layout:docker`; screenshot changes need user approval. Never edit baselines or the layout ledger to pass a gate.
 
 ### Adding an agent core
 1. New adapter in `src/agent/<name>.ts` implementing `AgentAdapter`.
