@@ -50,11 +50,11 @@ describe('buildIntentPrompt', () => {
       title: 't',
       improvedDescription: 'IMPROVED',
       authorPrompt: 'AUTHOR',
-      ticketType: 'bug',
+      ticketType: 'fix',
     });
     expect(p).toContain('IMPROVED');
     expect(p).toContain('AUTHOR');
-    expect(p).toContain('Type: bug');
+    expect(p).toContain('Type: fix');
   });
 });
 
