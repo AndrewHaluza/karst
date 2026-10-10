@@ -47,7 +47,8 @@ import { isKnownProvider } from '../agent/provider.js';
 import type { Store } from '../store/db.js';
 import { formatSpanMs } from './inside/types.js';
 import type { InsideEvidenceTarget, TypedInsideAction } from './inside/types.js';
-import { sortBySeverityDesc } from './severityOrder.js';
+import { REVIEW_FINDINGS_DEFAULTS } from '../manifest/qualityDefaults.js';
+import { isBlockingSeverity, sortBySeverityDesc } from './severityOrder.js';
 import { scopeReviewFindings, scopeUatFindings } from './findingScope.js';
 import { processRunForAttempt } from './inside/rounds.js';
 
@@ -261,6 +262,8 @@ export interface ArtifactInput {
    * done/in-progress.
    */
   phaseMarks: PhaseMark[];
+  /** `review.findings.blockingSeverity`; absent → the manifest default. */
+  reviewBlockingSeverity?: Severity | 'none';
   /**
    * Mint an opaque capability for an evidence row (the ship summary's commits
    * get an `open-commit`). Absent → rows carry no actions, exactly like the
@@ -421,6 +424,7 @@ export function buildTicketArtifacts(
   store: Store,
   ticketId: number,
   declaredPhases: string[] = [],
+  reviewBlockingSeverity?: Severity | 'none',
 ): ArtifactSummary[] {
   return buildArtifactsFrom({
     ticket: getTicket(store, ticketId),
@@ -434,6 +438,7 @@ export function buildTicketArtifacts(
     plan: readPlanInput(store, ticketId),
     declaredPhases,
     phaseMarks: listPhaseMarks(store, ticketId),
+    reviewBlockingSeverity,
   });
 }
 
@@ -740,7 +745,8 @@ function reviewReport(input: ArtifactInput): ArtifactSummary | null {
     processRunForAttempt(processRuns, 'review', null),
   );
 
-  const blocking = scopedFindings.filter((f) => f.severity === 'high' || f.severity === 'critical').length;
+  const threshold = input.reviewBlockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
+  const blocking = scopedFindings.filter((f) => isBlockingSeverity(f.severity, threshold)).length;
   const createdAt = stage?.endedAt ?? stage?.startedAt ?? null;
   const attemptCount = versionAttempts(allEntries, processRuns, 'review');
   const failedStage = stage?.status === 'failed';

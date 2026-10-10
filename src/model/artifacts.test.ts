@@ -654,6 +654,22 @@ describe('buildTicketArtifacts', () => {
     expect(review!.findings).toHaveLength(1);
     expect(review!.findings[0]).toMatchObject({ title: 'legacy finding' });
   });
+
+  it('the Review card counts findings that need attention by the configured threshold', () => {
+    const t = ticket({ stageCurrent: 'review' });
+    stage(t.id, 'review', 'passed', '2026-08-01T09:00:00.000Z', '2026-08-01T10:00:00.000Z');
+    recordFindings(store, {
+      ticketId: t.id,
+      attempt: 0,
+      runAt: '2026-08-01T09:30:00.000Z',
+      findings: [{ severity: 'medium', repo: '/wt/web', title: 'm', detail: '', source: 'agent' }],
+    });
+    const summaryAt = (threshold?: 'medium' | 'none') =>
+      buildTicketArtifacts(store, t.id, [], threshold).find((a) => a.kind === 'review')!.summary;
+    expect(summaryAt('medium')).toBe('1 finding · 1 needs attention');
+    expect(summaryAt()).toBe('1 finding · 0 need attention');
+    expect(summaryAt('none')).toBe('1 finding · 0 need attention');
+  });
 });
 
 /** A minimal VALID canonical graph document — nodes carry the plan's labels. */

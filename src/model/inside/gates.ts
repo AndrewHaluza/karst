@@ -5,7 +5,9 @@ import type { Finding } from '../../store/reviewFindings.js';
 import type { UatFinding } from '../../store/uatFindings.js';
 import { scopeReviewFindings } from '../findingScope.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
-import { sortBySeverityDesc } from '../severityOrder.js';
+import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../manifest/qualityDefaults.js';
+import type { Severity } from '../../manifest/types.js';
+import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
@@ -145,9 +147,6 @@ function stripRepoDecoration(name: string): string {
   return name.replace(/\s+\([^)]*\)$/, '');
 }
 
-/** Findings at or above this severity read as fail-styled — they are the ones that can fail the ticket. */
-const BLOCKING_STATUS_SEVERITIES: ReadonlySet<Finding['severity']> = new Set(['critical', 'high']);
-
 /** Cap on a finding row's rendered detail — a list row, not a log line. */
 const FINDING_DETAIL_MAX = 200;
 
@@ -166,10 +165,10 @@ const FINDING_DETAIL_MAX = 200;
  * the resource identifier, so it is the row's link (UI-R09c), and a link
  * cannot be cut out of a sentence the webview is forbidden to parse.
  */
-function findingOp(finding: Finding): StageOp & { location: string | null } {
+function findingOp(finding: Finding, threshold: Severity | 'none'): StageOp & { location: string | null } {
   const title = collapseDiagnostic(finding.title, FINDING_DETAIL_MAX);
   return {
-    status: BLOCKING_STATUS_SEVERITIES.has(finding.severity) ? 'fail' : 'note',
+    status: isBlockingSeverity(finding.severity, threshold) ? 'fail' : 'note',
     name: finding.severity,
     detail: title,
     duration: '',
@@ -214,7 +213,17 @@ export interface QualityProcessesInput {
   gateRuns: readonly GateRun[];
   /** Review findings — the review stage's evidence; empty for uat. */
   findings: readonly Finding[];
-  /** Tester observations — the uat stage's advisory evidence; empty for review. */
+  /**
+   * The manifest's `review.findings.blockingSeverity`; absent → the manifest
+   * default. Display only: the stage verdict is decided in `workflow/`.
+   */
+  reviewBlockingSeverity?: Severity | 'none';
+  /**
+   * The manifest's `uat.testerObservations.blockingSeverity`; absent → `'none'`
+   * (observations advisory), the same default the uat stage applies.
+   */
+  testerBlockingSeverity?: Severity | 'none';
+  /** Tester observations — the uat stage's evidence; advisory unless `testerBlockingSeverity` says otherwise. */
   uatFindings: readonly UatFinding[];
   /** Every process run recorded for the ticket, ticket-wide. */
   processRuns: readonly ProcessRun[];
@@ -640,6 +649,14 @@ function scopeFindings<T extends { repo?: string | null }>(
   return { rows, filter: { repos: present, selected } };
 }
 
+/** The Tester's `observed` detail: advisory wording unless a threshold makes some block. */
+function testerObservedDetail(total: number, blocking: number, threshold: Severity | 'none'): string {
+  const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+  if (threshold === 'none') return `${plural(total, 'observation')} — advisory`;
+  if (blocking === total) return plural(blocking, 'blocking observation');
+  return `${blocking} blocking · ${plural(total, 'observation')}`;
+}
+
 /**
  * The Tester process (uat): the latest Tester run and ITS observations, by
  * process-run id — an observation from an older invocation is superseded
@@ -654,6 +671,8 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     ? input.uatFindings.filter((f) => f.processRunId === run.id)
     : [];
   const scoped = scopeFindings(observations, input.findingsRepo);
+  const threshold = input.testerBlockingSeverity ?? UAT_TESTER_BLOCKING_SEVERITY;
+  const blocking = observations.filter((f) => isBlockingSeverity(f.severity, threshold)).length;
   const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(
     // Rendered by the SAME blueprint the Review findings use — severity key,
@@ -663,7 +682,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
       const location = findingLocation(f.filePath, f.line);
       const title = collapseDiagnostic(f.title, FINDING_DETAIL_MAX);
       return {
-        status: 'note',
+        status: isBlockingSeverity(f.severity, threshold) ? 'fail' : 'note',
         label: f.severity,
         detail: title,
         ...(insideSeverity(f.severity) ? { severity: insideSeverity(f.severity)! } : {}),
@@ -695,7 +714,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
       ? {
           detail:
             run.resultKind === 'observed'
-              ? `${observations.length} observation${observations.length === 1 ? '' : 's'} — advisory`
+              ? testerObservedDetail(observations.length, blocking, threshold)
               : run.resultKind === 'verification-failed'
                 ? 'verifier failed — the observation did not hold'
                 : run.resultKind === 'unreadable-output'
@@ -718,10 +737,11 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
     // persisted tail (Task 13) is host-read on request. Host-derived, so the
     // webview renders the console button only for a run that actually happened.
     ...(run ? { console: true } : {}),
+    ...(blocking > 0 ? { aggregate: `${blocking} blocking` } : {}),
     // The SAME evidence kind the Review process emits: one blueprint renders
     // both stages' levels and locations, so `high` looks like `high` wherever
-    // it is read. Observations are advisory, so nothing here blocks.
-    evidence: { kind: 'findings', rows, blocking: 0 },
+    // it is read. Nothing blocks unless `testerBlockingSeverity` says so.
+    evidence: { kind: 'findings', rows, blocking },
     ...(scoped.filter ? { repoFilter: scoped.filter } : {}),
   };
 }
@@ -748,12 +768,13 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
       : scopeReviewFindings(input.findings, run);
   // blocking is the process's aggregate for the whole stage, not for the
   // visible rows — computed from the UNFILTERED, UNBOUNDED batch.
-  const blocking = batch.filter((f) => BLOCKING_STATUS_SEVERITIES.has(f.severity)).length;
+  const threshold = input.reviewBlockingSeverity ?? REVIEW_FINDINGS_DEFAULTS.blockingSeverity;
+  const blocking = batch.filter((f) => isBlockingSeverity(f.severity, threshold)).length;
   const scoped = scopeFindings(batch, input.findingsRepo);
   const ordered = sortBySeverityDesc(scoped.rows);
   const boundedRows = bounded(
     ordered.map((f): EvidenceRow => {
-      const op = findingOp(f);
+      const op = findingOp(f, threshold);
       return {
         status: op.status,
         label: op.name,
