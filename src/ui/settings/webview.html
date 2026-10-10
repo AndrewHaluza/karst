@@ -626,7 +626,7 @@
     width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;display:block;
   }
   .project-copy{min-width:0;display:flex;flex-direction:column;gap:var(--k-space-1)}
-  .project-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .project-id{font-family:var(--k-font-mono);font-weight:600;font-size:var(--k-text-sm);overflow-wrap:anywhere}
   .project-version{font-size:var(--k-text-2xs);color:var(--k-text-faint)}
   .project-more{color:var(--k-text-faint);font-size:var(--k-text-2xs);letter-spacing:.1em}
   .manifest-btn{
@@ -659,7 +659,7 @@
   .project-info-row strong{font-weight:500;min-width:0;overflow-wrap:anywhere}
   .project-info-row .mono{font-family:var(--k-font-mono)}
   .mobile-project-btn{
-    display:none;width:var(--k-space-8);height:var(--k-space-8);flex:0 0 auto;
+    display:none;width:var(--k-space-8);height:var(--k-space-8);min-width:var(--k-hit-min);min-height:var(--k-hit-min);flex:0 0 auto;
     padding:var(--k-space-0);cursor:pointer;background:transparent;border:none;
   }
   .mobile-project-btn svg{width:var(--k-space-8);height:var(--k-space-8);display:block}
@@ -887,14 +887,15 @@
     .bind-row{grid-template-columns:minmax(0,1fr)}
   }
   @media (max-width: 40em){
-    .app{grid-template-columns:minmax(0,1fr)}
+    .app{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh;min-height:0}
+    .main{height:auto;min-height:0}
     .sidebar{
       position:static;flex-direction:row;align-items:center;gap:var(--k-space-4);
-      padding:var(--k-space-3) var(--k-space-4);overflow-x:auto;border-right:none;
+      padding:var(--k-space-3) var(--k-space-4);flex-wrap:wrap;overflow:visible;border-right:none;
       border-bottom:var(--k-border-w) solid var(--vscode-panel-border);
     }
     .brand{display:none}
-    .nav-group{display:flex;gap:var(--k-space-2);margin:var(--k-space-0);white-space:nowrap}
+    .nav-group{display:flex;flex-wrap:wrap;gap:var(--k-space-2);margin:var(--k-space-0)}
     .nav-caption{display:none}
     .nav-btn{margin:var(--k-space-0);white-space:nowrap}
     .sidebar-foot{display:none}

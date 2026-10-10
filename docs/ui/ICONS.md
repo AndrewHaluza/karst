@@ -69,6 +69,9 @@ END_DOC_BLOCK: [@ui:ICONS-01]
 | Edit ticket | `pencil` | |
 | Archive ticket | `archive` | |
 | Restore / unarchive | `history` | matches the command palette's `$(history)` |
+| Pin a role to an agent (Agents page) | `pin` | icon button, label "Pin" |
+| Unpin a role (Agents page) | `pinned-off` | icon button, label "Unpin" |
+| Clear a role's own value (Agents page) | `eraser` | icon button, label "Clear" |
 | Delete / destructive remove | `trash` | danger variant on the control, never the glyph |
 | New ticket | `plus` | toolbar |
 | Start planning session | `bulb` | sidebar toolbar |

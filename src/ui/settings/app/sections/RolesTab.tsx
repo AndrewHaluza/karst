@@ -146,7 +146,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
         </div>
       ) : null}
 
-      <div className="agents-table" role="table" aria-label="Roles">
+      <div className="agents-table" role="table" aria-label="Roles" data-region="table">
         <div className="agents-row agents-head" role="row">
           <div role="columnheader">Role</div>
           {compare === null ? (
@@ -154,7 +154,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
               <div role="columnheader">Agent profile</div>
               <div role="columnheader">Core · Model · Effort</div>
               <div role="columnheader">Source</div>
-              <div role="columnheader">Pin</div>
+              <div role="columnheader">Actions</div>
             </>
           ) : (
             <>
@@ -206,7 +206,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
         })}
       </div>
 
-      <div className="agents-default">
+      <div className="agents-default" data-region="default">
         <div className="agents-default-title">Default</div>
         <div className="agents-default-desc">Used by any role with no preset value and no pin.</div>
         <AgentPickerIsland

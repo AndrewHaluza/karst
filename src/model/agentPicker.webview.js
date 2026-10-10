@@ -230,6 +230,9 @@ function mountAgentPicker(root, opts) {
   var inheritCore = o.inheritCore || '';
   var showEffort = o.showEffort !== false;
   var disabled = !!o.disabled;
+  // compact: captions become screen-reader-only and the core trigger shows the
+  // provider alone (the Model field beside it already says which model).
+  var compact = !!o.compact;
   var onChange = o.onChange;
   var state = {
     core: value.core || '',
@@ -239,17 +242,17 @@ function mountAgentPicker(root, opts) {
   var labelModel = o.labels && o.labels.model ? o.labels.model : 'Model';
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
 
-  root.innerHTML = '<div class="ap">'
+  root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
     + '<div class="ap-field">'
     + '<label class="ap-label">' + (o.labels && o.labels.core ? apEsc(o.labels.core) : 'Agent core') + '</label>'
     + '<div class="ap-shell" data-ap-shell="core">'
-    + '<button type="button" class="ap-trigger" data-ap-trigger="core" aria-haspopup="listbox" aria-expanded="false"></button>'
+    + '<button type="button" class="ap-trigger" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="core" role="listbox" hidden></div>'
     + '</div></div>'
     + '<div class="ap-field">'
     + '<label class="ap-label">' + apEsc(labelModel) + '</label>'
     + '<div class="ap-shell" data-ap-shell="model">'
-    + '<button type="button" class="ap-trigger" data-ap-trigger="model" aria-haspopup="listbox" aria-expanded="false"></button>'
+    + '<button type="button" class="ap-trigger" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="model" role="listbox" hidden>'
     + '<div class="ap-search"><input type="text" placeholder="Search models…" aria-label="Search models" data-ap-search /></div>'
     + '<div class="ap-scroll" data-ap-list="model"></div>'
@@ -290,7 +293,7 @@ function mountAgentPicker(root, opts) {
     );
     var coreLabel = modelLabel();
     $('[data-ap-trigger="core"]').innerHTML =
-      '<span class="ap-trigger-label">' + apCoreTriggerLabel(state.core, coreLabel || '') + '</span>'
+      '<span class="ap-trigger-label">' + apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || '')) + '</span>'
       + '<span class="chev" aria-hidden="true"></span>';
     modelTrigger.innerHTML = coreLabel
       ? '<span class="ap-trigger-label">' + apEsc(coreLabel) + '</span><span class="chev" aria-hidden="true"></span>'
@@ -307,7 +310,7 @@ function mountAgentPicker(root, opts) {
     if (show || state.effort) {
       field.hidden = false;
       var sel = $('[data-ap-effort]');
-      var effortInherit = labels().effort;
+      var effortInherit = labels().effort || (compact ? 'No effort' : '');
       var built = apEffortOptions(catalog, state.core, state.model, state.effort, effortInherit);
       sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
       if (built.efforts === null && !state.effort) {

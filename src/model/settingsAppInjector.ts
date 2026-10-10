@@ -28,12 +28,19 @@ export function settingsAppJs(): string {
   return readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui/settings/app.webview.js'), 'utf8').trim();
 }
 
+/** App stylesheets, in cascade order: the shared sheet, then the Agents page sheet. */
+const SETTINGS_APP_CSS_FILES = ['ui/settings/app.webview.css', 'ui/settings/agents.webview.css'] as const;
+
 export function settingsAppCss(): string {
-  try {
-    return readFileSync(join(RUNTIME_ASSETS_ROOT, 'ui/settings/app.webview.css'), 'utf8').trim();
-  } catch {
-    return '';
-  }
+  return SETTINGS_APP_CSS_FILES.map((file) => {
+    try {
+      return readFileSync(join(RUNTIME_ASSETS_ROOT, file), 'utf8').trim();
+    } catch {
+      return '';
+    }
+  })
+    .filter((css) => css !== '')
+    .join('\n');
 }
 
 /**

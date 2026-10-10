@@ -1,0 +1,5 @@
+{
+  "wide": { "layout": "stacked", "order": ["header", "tabs", "content"] },
+  "mid": { "layout": "stacked", "order": ["header", "tabs", "content"] },
+  "narrow": { "layout": "stacked", "order": ["header", "tabs", "content"] }
+}

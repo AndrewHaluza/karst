@@ -295,7 +295,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
       </nav>
 
       <div className="main">
-        <div className="topbar">
+        <div className="topbar" data-region="toolbar">
           <span
             id="dirtyDot"
             className={dirty ? 'dirty-dot' : 'dirty-dot hidden'}

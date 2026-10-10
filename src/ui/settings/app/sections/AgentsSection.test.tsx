@@ -124,20 +124,20 @@ describe('Agents page — roles table', () => {
 
   it('pin makes the edit land in the pin; Unpin returns to the preset', () => {
     const { probe } = mount();
-    fireEvent.click(within(row('planning')).getByText('Pin'));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Pin' }));
     expect(draftOf(probe).processes!.planning).toMatchObject({ pinned: true, provider: 'claude' });
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('pin');
     act(() => pickerOf('planning').onChange({ core: 'antigravity', model: 'gemini-3.8-flash-medium', effort: '' }));
     expect(draftOf(probe).processes!.planning).toMatchObject({ provider: 'antigravity', pinned: true });
     expect(draftOf(probe).agentPresets!.A!.slots.planning!.provider).toBe('claude');
-    fireEvent.click(within(row('planning')).getByText('Unpin'));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Unpin' }));
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('preset');
   });
 
   it('the reported bug cannot recur: preset claude + pin agy resolves to the pin', () => {
     const { probe } = mount();
     act(() => pickerOf('planning').onChange({ core: 'claude', model: 'claude-opus-5', effort: '' }));
-    fireEvent.click(within(row('planning')).getByText('Pin'));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Pin' }));
     act(() => pickerOf('planning').onChange({ core: 'antigravity', model: 'gemini-3.8-flash-medium', effort: '' }));
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('pin');
     expect(pickerOf('planning').value.core).toBe('antigravity');
@@ -146,7 +146,7 @@ describe('Agents page — roles table', () => {
 
   it('Clear drops the preset value so the role inherits the Default row', () => {
     mount();
-    fireEvent.click(within(row('planning')).getByText('Clear'));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear' }));
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('default');
     expect(pickerOf('planning').value.core).toBe('opencode');
   });
