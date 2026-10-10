@@ -6,6 +6,8 @@ import {
   TICKET_TYPES,
   type TicketType,
 } from '../../store/ticketTypes.js';
+import { UNTRUSTED_INPUT_RULES } from './promptRules.js';
+import { withEmptyCwd } from './sandbox.js';
 
 /**
  * The coupled ticket analyzer (§ ticket form). ONE bounded agent call turns a
@@ -70,14 +72,6 @@ export interface AnalyzeInput {
    * rule every launch applies. Absent → the agent CLI's own default.
    */
   effort?: string;
-  /**
-   * Retained as a public parameter exercised by `analyze.test.ts`. In
-   * production the classify pass is ALWAYS the built-in analyzer — no caller
-   * passes `instructions`. The Settings profile body now drives the
-   * description-improve pass (`improveDescription`), not this function.
-   * Blank/absent → the built-in analyzer prompt.
-   */
-  instructions?: string;
 }
 
 export interface TicketAnalysis {
@@ -87,6 +81,8 @@ export interface TicketAnalysis {
   reason: string;
   /** Conventional-commit type for `{type}`; always one of `TICKET_TYPES`. */
   type: TicketType;
+  /** True when the model never produced parseable JSON (even after one retry) and every field is a fallback. */
+  degraded: boolean;
 }
 
 function buildPrompt(input: AnalyzeInput): string {
@@ -103,22 +99,13 @@ function buildPrompt(input: AnalyzeInput): string {
     .join('\n');
   const prompt = input.prompt?.trim();
   const brief = input.brief.trim();
-  // A selected single-subagent (or configured process instructions) REPLACES
-  // the built-in role/strategy block — the analysis then runs with the agent's
-  // own body as its strategy, not the generic analyzer persona. The contract
-  // block below is ALWAYS composed: it carries invariants that protect
-  // correctness beyond this call site (the prompt outlives the analysis).
-  const instructionsText = input.instructions?.trim() ?? '';
-  const strategyBlock =
-    instructionsText.length > 0
-      ? [instructionsText]
-      : [
-          `You analyze a software ticket and produce THREE coupled decisions at once:`,
-          `(1) a clear, implementation-ready prompt for the coding agent — synthesize`,
-          `it from the ticket; do NOT merely copy the brief;`,
-          `(2) the best-fit development approach for the scope of work;`,
-          `(3) the services (repos) the work will touch.`,
-        ];
+  const strategyBlock = [
+    `You analyze a software ticket and produce THREE coupled decisions at once:`,
+    `(1) a clear, implementation-ready prompt for the coding agent — synthesize`,
+    `it from the ticket; do NOT merely copy the brief;`,
+    `(2) the best-fit development approach for the scope of work;`,
+    `(3) the services (repos) the work will touch.`,
+  ];
   // The contract block: always composed, never displaced by a profile override.
   // These constraints protect correctness beyond this call site — the prompt is
   // stored on the ticket and outlives the analysis; the user may re-pick
@@ -142,6 +129,7 @@ function buildPrompt(input: AnalyzeInput): string {
   ];
   return [
     ...strategyBlock,
+    ...UNTRUSTED_INPUT_RULES,
     ...contractBlock,
     `Available approaches:`,
     approachList,
@@ -217,6 +205,9 @@ function str(v: unknown): string {
   return typeof v === 'string' ? v : '';
 }
 
+const CLASSIFY_REFORMAT_NUDGE =
+  'Your previous answer was not a single JSON object. Reply again with ONLY the JSON object described above — no prose, no code fence.';
+
 /**
  * Analyze a ticket into a coupled {prompt, approach, repos, reason}. Runs one
  * headless agent call and folds the result over safe fallbacks:
@@ -228,23 +219,31 @@ function str(v: unknown): string {
  *   keyword-scored services (score > 0) — the offline fallback;
  * - reason → the model's sentence, else '';
  * - type → the model's pick when it is in `TICKET_TYPES`, else `feat`.
+ * Runs in an empty temp dir; an unparseable first answer gets ONE reformat
+ * retry, and a second failure sets `degraded`.
  */
 export async function analyzeTicket(
   adapter: AgentAdapter,
   input: AnalyzeInput,
 ): Promise<TicketAnalysis> {
-  const result = await adapter.runHeadless({
-    prompt: buildPrompt(input),
-    cwd: '.',
-    model: input.model,
-    effort: input.effort,
-    tracking: {
-      callSite: 'ticket-analysis',
-      ticketId: input.ticketId ?? null,
-      processRunId: input.processRunId ?? null,
-    },
+  const prompt = buildPrompt(input);
+  const call = (p: string, cwd: string) =>
+    adapter.runHeadless({
+      prompt: p,
+      cwd,
+      model: input.model,
+      effort: input.effort,
+      tracking: {
+        callSite: 'ticket-analysis',
+        ticketId: input.ticketId ?? null,
+        processRunId: input.processRunId ?? null,
+      },
+    });
+  const parsed = await withEmptyCwd(async (cwd) => {
+    const first = parse((await call(prompt, cwd)).raw);
+    if (first) return first;
+    return parse((await call(`${prompt}\n\n${CLASSIFY_REFORMAT_NUDGE}`, cwd)).raw);
   });
-  const parsed = parse(result.raw);
 
   const knownServices = new Set(input.services.map((s) => s.name));
   const scoredRepos = input.services.filter((s) => s.score > 0).map((s) => s.name);
@@ -267,5 +266,6 @@ export async function analyzeTicket(
     repos: modelRepos.length ? modelRepos : scoredRepos,
     reason: str(parsed?.reason),
     type: isTicketType(parsed?.type) ? parsed.type : DEFAULT_TICKET_TYPE,
+    degraded: parsed === null,
   };
 }

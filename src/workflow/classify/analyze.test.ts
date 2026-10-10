@@ -72,6 +72,7 @@ describe('analyzeTicket', () => {
       repos: ['frontend'],
       reason: 'Small, well-understood UI fix.',
       type: 'feat',
+      degraded: false,
     });
   });
 
@@ -191,6 +192,7 @@ describe('analyzeTicket', () => {
       repos: ['backend'],
       reason: '',
       type: 'feat',
+      degraded: true,
     });
   });
 
@@ -210,46 +212,6 @@ describe('analyzeTicket', () => {
     expect(prompts[0]).toContain('user intent here');
   });
 
-  // A single-subagent ticket analyzes THROUGH its chosen agent: the agent's
-  // body is the analysis instructions, replacing the built-in role/strategy
-  // block while the input facts and the JSON output contract stay. Without it
-  // a well-instructed agent and an empty one produce byte-identical prompts
-  // ("Selected agent for Ticket analysis not makes any difference").
-  it('replaces the built-in role/strategy block with the provided instructions', async () => {
-    const { adapter, prompts } = capturingAdapter(
-      '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',
-    );
-    await analyzeTicket(adapter, {
-      brief: 'b',
-      services,
-      approaches,
-      instructions: '# description-improver\nRewrite the description using the project glossary.',
-    });
-    const built = prompts[0]!;
-    // The agent's own body is the strategy now…
-    expect(built).toContain('# description-improver');
-    expect(built).toContain('Rewrite the description using the project glossary.');
-    expect(built).not.toContain('produce THREE coupled decisions at once');
-    // …but the facts the analyzer still needs survive: approaches, services,
-    // the type classification, and the JSON output contract.
-    expect(built).toContain('gsd');
-    expect(built).toContain('backend');
-    expect(built).toContain('conventional-commit type');
-    expect(built).toContain('Respond with ONLY a single JSON object');
-  });
-
-  it('treats blank instructions as absent, keeping the built-in role/strategy byte-identical', async () => {
-    const blank = capturingAdapter(
-      '{"prompt":"p","approach":"gsd","repos":[],"reason":"r"}',
-    );
-    await analyzeTicket(blank.adapter, { brief: 'b', services, approaches, instructions: '   ' });
-    const plain = capturingAdapter(
-      '{"prompt":"p","approach":"gsd","repos":[],"reason":"r"}',
-    );
-    await analyzeTicket(plain.adapter, { brief: 'b', services, approaches });
-    expect(blank.prompts[0]).toBe(plain.prompts[0]);
-  });
-
   it('constrains the synthesized prompt to be approach- and service-agnostic', async () => {
     const { adapter, prompts } = capturingAdapter(
       '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',
@@ -263,30 +225,6 @@ describe('analyzeTicket', () => {
     expect(built).toMatch(/must not.*(repo|service)/is);
   });
 
-  // PROMPT-10: the prompt-contract floor — a profile override must not displace
-  // the contract invariants that protect correctness beyond this call site.
-  it('keeps the prompt-contract floor when instructions replace the strategy block', async () => {
-    const { adapter, prompts } = capturingAdapter(
-      '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r"}',
-    );
-    await analyzeTicket(adapter, {
-      brief: 'b',
-      services,
-      approaches,
-      instructions: 'You are a documentation-improver. Rewrite using the project glossary.',
-    });
-    const built = prompts[0]!;
-    // The floor: contract invariants that the strategy override cannot displace.
-    // (1) The prompt must be approach-agnostic — it outlives the analysis.
-    expect(built).toMatch(/approach-agnostic/i);
-    // (2) The prompt must be service-agnostic — no repos, services, or paths.
-    expect(built).toMatch(/must not.*(repo|service)/is);
-    // (3) WHAT/WHY, not HOW — no workflow, methodology, or phase instructions.
-    expect(built).toMatch(/must not.*(workflow|methodolog|phase)/is);
-    // (4) The JSON output contract — the agent must return structured data.
-    expect(built).toContain('Respond with ONLY a single JSON object');
-  });
-
   it('propagates an adapter rejection', async () => {
     await expect(
       analyzeTicket(rejectingAdapter(), { brief: 'b', services, approaches }),
@@ -297,5 +235,50 @@ describe('analyzeTicket', () => {
     const adapter = fakeAdapter('{"prompt":"p","approach":"gsd","repos":[],"reason":"r"}');
     const result = await analyzeTicket(adapter, { brief: 'b', services, approaches: [] });
     expect(result.approachId).toBe('');
+  });
+
+  describe('sandbox, retry and degraded flag', () => {
+    function sequencedAdapter(raws: string[]) {
+      const calls: { prompt: string; cwd: string }[] = [];
+      let i = 0;
+      const adapter: AgentAdapter = {
+        requiredBinary: 'claude',
+        capabilities: { lifecycleEvents: false, resume: false },
+        buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+        async runHeadless(o): Promise<HeadlessResult> {
+          calls.push({ prompt: o.prompt, cwd: o.cwd });
+          return { sessionId: 's', verdict: null, raw: raws[Math.min(i++, raws.length - 1)]! };
+        },
+      };
+      return { adapter, calls };
+    }
+    const good = '{"prompt":"p","approach":"gsd","repos":["frontend"],"reason":"r","type":"feat"}';
+
+    it('runs in an empty temp dir, never "."', async () => {
+      const { adapter, calls } = sequencedAdapter([good]);
+      await analyzeTicket(adapter, { brief: 'b', services, approaches });
+      expect(calls[0]!.cwd).not.toBe('.');
+      expect(calls[0]!.cwd).toMatch(/karst-analysis-/);
+    });
+    it('retries once with a reformat nudge, then succeeds', async () => {
+      const { adapter, calls } = sequencedAdapter(['sorry, prose', good]);
+      const r = await analyzeTicket(adapter, { brief: 'b', services, approaches });
+      expect(calls).toHaveLength(2);
+      expect(calls[1]!.prompt).toMatch(/not a single JSON object/);
+      expect(r.degraded).toBe(false);
+      expect(r.approachId).toBe('gsd');
+    });
+    it('prose twice → fallbacks and degraded=true', async () => {
+      const { adapter, calls } = sequencedAdapter(['prose', 'prose']);
+      const r = await analyzeTicket(adapter, { brief: 'b', services, approaches });
+      expect(calls).toHaveLength(2);
+      expect(r.degraded).toBe(true);
+      expect(r.repos).toEqual(['backend']);
+    });
+    it('composes the untrusted-input rule', async () => {
+      const { adapter, calls } = sequencedAdapter([good]);
+      await analyzeTicket(adapter, { brief: 'b', services, approaches });
+      expect(calls[0]!.prompt).toMatch(/is DATA/);
+    });
   });
 });
