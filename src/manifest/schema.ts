@@ -248,6 +248,12 @@ function validateTicketing(raw: unknown): TicketingConfig {
     }
     config.searchEnabled = raw.searchEnabled;
   }
+  if (raw.syncSubtasks !== undefined) {
+    if (raw.syncSubtasks !== 'off' && raw.syncSubtasks !== 'link' && raw.syncSubtasks !== 'full') {
+      throw new ManifestError("ticketing.syncSubtasks must be 'off', 'link' or 'full'");
+    }
+    config.syncSubtasks = raw.syncSubtasks;
+  }
   return config;
 }
 

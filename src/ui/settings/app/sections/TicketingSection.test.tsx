@@ -466,6 +466,16 @@ describe('TicketingSection — the two advance rows', () => {
   });
 });
 
+describe('TicketingSection — sub-task sync', () => {
+  it('writes the picked mode onto the draft and drops it when leaving ClickUp', () => {
+    const { probe } = mountTicketing(stateWith({ provider: 'clickup', teamId: '9001', listId: 'L1' }));
+    fireEvent.change(byLabel('Sync sub-tasks to the provider'), { target: { value: 'link' } });
+    expect(cfgOf(probe)).toMatchObject({ syncSubtasks: 'link' });
+    fireEvent.click(document.querySelector('[data-value="manual"]') as Element);
+    expect(cfgOf(probe)).not.toHaveProperty('syncSubtasks');
+  });
+});
+
 /** The hint under the list row. */
 function hintText(): string {
   return [...document.querySelectorAll('.field-hint')].map((n) => n.textContent ?? '').join(' | ');

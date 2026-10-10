@@ -6,6 +6,7 @@ import type {
   BriefPerson,
   BriefRelation,
   BriefTimestamps,
+  CreateTicketInput,
   TicketList,
   TicketSearchResult,
   TicketSearchOptions,
@@ -516,7 +517,7 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
      * created task's `id` is the ref the host binds as `sourceRef`; `url` is
      * carried when the payload exposes it.
      */
-    async createTicket(input: { title: string; description?: string }) {
+    async createTicket(input: CreateTicketInput) {
       if (!deps.listId) {
         throw new ClickupError('a List ID is required to create tickets');
       }
@@ -535,8 +536,11 @@ export function clickupProvider(deps: ClickupDeps): TicketingProvider {
       }
       const body: Record<string, unknown> = { name: input.title };
       if (description) body.description = description;
+      const parentRef = input.parentRef?.trim();
+      if (parentRef) body.parent = parentRef;
       const raw = (await postJson(
-        `${API_BASE}/list/${encodeURIComponent(deps.listId)}/task`,
+        // A custom-id parent needs the same custom_task_ids/team_id query.
+        `${API_BASE}/list/${encodeURIComponent(deps.listId)}/task${parentRef ? taskQuery(deps.teamId) : ''}`,
         body,
       )) as RawTask;
       if (typeof raw.id !== 'string' || raw.id.trim() === '') {

@@ -480,6 +480,7 @@ import { TicketFormManager } from './ui/ticketForm/panel.js';
 import {
   buildTicketFormActions,
   NO_REPOS_MESSAGE,
+  onSourceRefBound,
   type StartTicketResult,
   type StartTicketOptions,
 } from './ui/ticketForm/actions.js';
@@ -494,6 +495,7 @@ import {
   hasToken,
 } from './extension/secrets.js';
 import { makeTicketingProvider } from './integrations/ticketing.js';
+import { makeSubtaskSync } from './extension/ops/subtaskSyncOps.js';
 import { SettingsManager, type LoadedManifest } from './ui/settings/panel.js';
 import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
@@ -3329,6 +3331,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     git: defaultGitRunner,
     gh: defaultGhRunnerAsync,
     manifest: () => currentManifest(),
+    syncSubtask: makeSubtaskSync({
+      store: localStore,
+      ticketing: () => currentManifest()?.ticketing,
+      makeProvider: (t) => makeTicketingProvider(t, fetch, makeTokenProvider(context)),
+      onSourceRefBound,
+      debug: (m) => logger.debug(m),
+    }),
   };
 
   // The gate-lane AI processes' console sink (Task 13): the UAT Tester and the

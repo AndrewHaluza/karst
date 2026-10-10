@@ -155,3 +155,23 @@ describe('advanceTicketOnStart — sub-tasks (source karst)', () => {
     expect(provider.updates).toEqual([]);
   });
 });
+
+describe('advanceTicketOnStart — syncSubtasks gate', () => {
+  async function pushFor(mode: TicketingConfig['syncSubtasks']): Promise<number> {
+    const store = openStore(':memory:');
+    const parentId = fetchedTicket(store);
+    updateTicketFields(store, parentId, { selectedRepos: ['api'] });
+    const child = createSubtask(store, parentId, { title: 'child' });
+    updateTicketFields(store, child.id, { sourceRef: 'child-ref' });
+    const provider = recorder();
+    await advanceTicketOnStart(store, child.id, { ...ON, syncSubtasks: mode }, provider);
+    return provider.updates.length;
+  }
+
+  it('pushes a bound sub-task only in full mode (or when sync is unset)', async () => {
+    expect(await pushFor('link')).toBe(0);
+    expect(await pushFor('full')).toBe(1);
+    expect(await pushFor('off')).toBe(1);
+    expect(await pushFor(undefined)).toBe(1);
+  });
+});

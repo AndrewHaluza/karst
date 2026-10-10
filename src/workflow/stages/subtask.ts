@@ -8,6 +8,7 @@ import {
   type ProjectScope,
   type TicketWithStages,
 } from '../../store/tickets.js';
+import { addRelation, type RelationSource } from '../../store/ticketRelations.js';
 import { getEnvOverrides, setServiceEnvOverrides } from '../../store/ticketEnvOverrides.js';
 
 /**
@@ -34,6 +35,11 @@ export interface SubtaskFields {
    * (CLI `--no-start`) leaves it at `scope` for a manual Start.
    */
   start?: boolean;
+  /**
+   * Who authored the relation rows: 'agent' (CLI, the default) or 'user'
+   * (dashboard). Decides which write-back promotion applies.
+   */
+  relationSource?: Extract<RelationSource, 'agent' | 'user'>;
 }
 
 /** No ticket with `parentId` exists (readers must tolerate a missing row). */
@@ -225,6 +231,24 @@ export function createSubtask(
   const overrides = getEnvOverrides(store, parent.id);
   for (const [envScope, entries] of Object.entries(overrides)) {
     setServiceEnvOverrides(store, child.id, envScope, entries);
+  }
+
+  // Always recorded, whatever `ticketing.syncSubtasks` says: the rows feed the
+  // blocked-by badges, and the provider sync (host-side) promotes them later.
+  const relationSource = fields.relationSource ?? 'agent';
+  addRelation(store, {
+    ticketId: child.id,
+    kind: 'parent',
+    targetTicketId: parent.id,
+    source: relationSource,
+  });
+  if (fields.blocking) {
+    addRelation(store, {
+      ticketId: parent.id,
+      kind: 'blocked-by',
+      targetTicketId: child.id,
+      source: relationSource,
+    });
   }
 
   debug?.(`[driver] sub-task under #${parentId}: child #${child.id} ('${key}') created`);
