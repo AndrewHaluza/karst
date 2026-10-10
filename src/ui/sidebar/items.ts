@@ -9,6 +9,7 @@ import type { AgentProvider } from '../../manifest/types.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import { MAX_SUBTASK_DEPTH } from '../../workflow/stages/subtask.js';
 import { subtaskAutostartPhase, type SubtaskAutostartPhase } from '../../model/subtask.js';
+import { formatId, formatTicketRef } from '../../model/entityId.js';
 import type { BlockerView } from '../../store/ticketRelations.js';
 
 /** The PR fields the sidebar's meta line reads — a narrowed `PrView`. */
@@ -42,6 +43,8 @@ export interface Blocker {
 export interface TicketNode {
   kind: 'ticket';
   ticketId: number;
+  /** Host-built `T583` — the id badge the webview paints before the title. */
+  idLabel: string;
   label: string;
   glyph: Glyph;
   /** Dimmed text beside the label — the current stage, visible when folded. */
@@ -150,6 +153,7 @@ export function buildTicketNodes(
     return {
       kind: 'ticket',
       ticketId: t.id,
+      idLabel: formatId('ticket', t.id),
       label: ticketLabel(t, labelTemplate),
       glyph: badge.glyph,
       description: `${t.stageCurrent ?? 'none'} (${currentStageStatus(t)})`,
@@ -266,7 +270,7 @@ export function visibleTicketRows<T extends TicketNode>(
   return out;
 }
 
-/** Case-insensitive substring filter over key + title; blank query = all. */
+/** Case-insensitive substring filter over id (`t583`), key and title; blank query = all. */
 export function filterTickets(
   tickets: readonly TicketWithStages[],
   query: string,
@@ -274,7 +278,7 @@ export function filterTickets(
   const q = query.trim().toLowerCase();
   if (q === '') return [...tickets];
   return tickets.filter((t) =>
-    `${t.key ?? ''} ${t.title ?? ''}`.toLowerCase().includes(q),
+    `${formatTicketRef(t.id, t.key)} ${t.title ?? ''}`.toLowerCase().includes(q),
   );
 }
 

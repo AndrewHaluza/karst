@@ -71,6 +71,8 @@ export interface DashboardWorktreeView extends WorktreeView {
 export interface DashboardSubtaskRow {
   /** Ticket id — the row's identity and what an "open" would target. */
   id: number;
+  /** Host-built `T584`. */
+  idLabel: string;
   /** The sub-task key (`<parentKey>-s<n>`), always present for a created row. */
   key: string;
   title: string | null;
@@ -95,14 +97,21 @@ export interface DashboardSubtaskRow {
 /** Fully serializable dashboard state pushed to the webview via postMessage. */
 export interface DashboardState {
   ticketId: number;
+  /** Host-built `T583` — the id badge the header paints (docs/arch/ids.md). */
+  idLabel: string;
   key: string | null;
   title: string | null;
+  /**
+   * `from D88 (P17)` when the ticket was filed from a planning draft; null for
+   * a hand-made ticket. Host-built through `entityId.ts`.
+   */
+  origin: string | null;
   /**
    * The parent ticket's key + title, when this ticket is a follow-up; null
    * otherwise. Relationship metadata for the roomy dashboard's secondary line
    * — never part of the title (model/followUp.ts).
    */
-  parent: { key: string; title: string | null } | null;
+  parent: { key: string; ref: string; title: string | null } | null;
   /**
    * The parent ticket's key + title, when this ticket is a SUB-TASK; null
    * otherwise. Orthogonal to `parent` above: `parent` is the follow-up relation
@@ -111,7 +120,7 @@ export interface DashboardState {
    * metadata, never part of the title; the dashboard words it as
    * `Sub-task of <key>` beside the follow-up line.
    */
-  subtaskParent: { key: string; title: string | null } | null;
+  subtaskParent: { key: string; ref: string; title: string | null } | null;
   /**
    * The ticket's direct, non-archived sub-tasks, oldest first — the "Sub-tasks"
    * section. Empty renders NO section (absence, never an empty card), unless
@@ -120,7 +129,7 @@ export interface DashboardState {
    */
   subtasks: DashboardSubtaskRow[];
   /** Open or unresolved blocked-by targets, shown as dependency chips. */
-  blockers: { ticketId: number | null; label: string; done?: boolean }[];
+  blockers: { ticketId: number | null; idLabel: string | null; label: string; done?: boolean }[];
   /**
    * `n/m done` over `subtasks`, by their stored `stage_current` (design §8).
    * `0/0` when there are none — rendered as absence, not "0".

@@ -2505,7 +2505,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     makeChangesPanelHost(context, brandIcon),
     (ticketId) => {
       const t = getTicket(localStore, ticketId);
-      return `${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
+      return `${formatId('ticket', ticketId)} ${tabTitle(compactTicketLabel(t, ticketLabel(t)))} — Changes`;
     },
     wrapLoadForChanges,
     openTicketDiff,
@@ -2527,7 +2527,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
     labelFor: (ticketId) => {
       const t = getTicket(localStore, ticketId);
-      return compactTicketLabel(t, ticketLabel(t));
+      return `${formatId('ticket', ticketId)} ${compactTicketLabel(t, ticketLabel(t))}`;
     },
     debug: logger.debug,
     discard: (repoPath, path, status) =>

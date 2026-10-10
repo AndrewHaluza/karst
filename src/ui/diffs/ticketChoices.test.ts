@@ -16,6 +16,10 @@ describe('diffsTicketChoices', () => {
     expect(out.map((c) => c.ticketId)).toEqual([1]);
   });
 
+  it('labels a keyed ticket T<id> · KEY', () => {
+    expect(diffsTicketChoices([row(7, 'impl', 'ABC-1')], null)[0]!.label).toBe('T7 · ABC-1');
+  });
+
   it('renders a keyless ticket as T<id>', () => {
     const out = diffsTicketChoices([row(7, 'impl', null)], null);
     expect(out[0]!.label).toBe('T7');

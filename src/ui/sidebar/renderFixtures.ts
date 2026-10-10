@@ -1,4 +1,4 @@
-import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow } from './state.js';
+import type { SidebarState, SidebarSections, TicketRow, SidebarPr, PlanningRow, PlanningProposalRow } from './state.js';
 import type { SidebarWorktree } from './state.js';
 import type { TicketPeek } from './peek.js';
 import type { FacetKey } from './facets.js';
@@ -51,6 +51,7 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
   return {
     kind: 'ticket',
     ticketId: 900001 + index,
+    idLabel: `T${900001 + index}`,
     label: `FEAT-${100 + index}`,
     glyph: 'blue' as Glyph,
     description: `fixture:desc:${index}`,
@@ -92,9 +93,23 @@ function emptyState(): SidebarState {
   };
 }
 
+/** A draft row with its host-built `D<n>` / `T<n>` labels derived from the raw ids. */
+export function fixtureDraft(
+  d: Pick<PlanningProposalRow, 'id' | 'title' | 'status' | 'ticketId' | 'dependsOn'> & Partial<PlanningProposalRow>,
+): PlanningProposalRow {
+  return {
+    idLabel: `D${d.id}`,
+    ticketIdLabel: d.ticketId === null ? null : `T${d.ticketId}`,
+    dependsOnLabels: d.dependsOn.map((n) => `D${n}`),
+    ...(d.droppedDepends ? { droppedLabels: d.droppedDepends.map((n) => `D${n}`) } : {}),
+    ...d,
+  };
+}
+
 export function fixturePlanningRow(sessionId: number, overrides: Partial<PlanningRow> = {}): PlanningRow {
   return {
     sessionId,
+    idLabel: `P${sessionId}`,
     title: `Planning ${sessionId}`,
     status: 'active',
     ticketCount: 0,
@@ -122,7 +137,7 @@ function allSectionsState(): SidebarState {
     },
     done: [],
     rows: [],
-    planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [{ id: 501, title: 'Add rate limit', status: 'pending', ticketId: null, dependsOn: [] }, { id: 503, title: 'Split auth module', status: 'accepted', ticketId: 3, dependsOn: [501] }] }), fixturePlanningRow(89)],
+    planning: [fixturePlanningRow(90, { live: true, ticketCount: 2, status: 'filed', proposals: [fixtureDraft({ id: 501, title: 'Add rate limit', status: 'pending', ticketId: null, dependsOn: [] }), fixtureDraft({ id: 503, title: 'Split auth module', status: 'accepted', ticketId: 3, dependsOn: [501] })] }), fixturePlanningRow(89)],
   };
 }
 
@@ -250,7 +265,7 @@ function hostileState(): SidebarState {
     },
     done: [],
     rows: [],
-    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [{ id: 502, title: HOSTILE_LABEL, status: 'pending', ticketId: null, dependsOn: [] }], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
+    planning: [fixturePlanningRow(91, { title: HOSTILE_LABEL, proposals: [fixtureDraft({ id: 502, title: HOSTILE_LABEL, status: 'pending', ticketId: null, dependsOn: [] })], agent: { provider: 'claude', model: '<img src=x onerror=alert(1)>' } })],
   };
 }
 

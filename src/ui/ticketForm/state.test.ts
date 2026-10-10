@@ -657,6 +657,22 @@ describe('applyPrefill — approved-draft base picks', () => {
     expect(fe.source).toBe('override');
   });
 
+  it('labels a draft review page D<n>, and a blank page nothing', () => {
+    const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
+    expect(built.refLabel).toBeUndefined();
+    expect(applyPrefill(built, { ...prefill, draftId: 88 }).refLabel).toBe('D88');
+  });
+
+  it('names the sub-task parent as T<n> on create, and the ticket as T<n> · KEY on edit', () => {
+    const parent = createTicket(store, { key: 'P-1', title: 'p' });
+    const child = createTicket(store, { key: 'P-1-s1', title: 'c', subtaskParentId: parent.id });
+    const create = buildTicketFormState(store, MANIFEST, () => [], () => [], undefined, undefined, undefined, undefined, undefined, undefined, undefined, parent.id);
+    expect(create.subtaskOf).toBe(`Sub-task of T${parent.id}`);
+    const edit = buildTicketFormState(store, MANIFEST, () => [], () => [], child.id);
+    expect(edit.refLabel).toBe(`T${child.id} · P-1-s1`);
+    expect(edit.subtaskOf).toBe(`Sub-task of T${parent.id}`);
+  });
+
   it('leaves repos without a pick on their default', () => {
     const built = buildTicketFormState(store, MANIFEST, () => [], () => []);
     const state = applyPrefill(built, prefill);

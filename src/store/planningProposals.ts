@@ -155,6 +155,14 @@ export function getProposal(store: Store, id: number): PlanningProposal | undefi
   return row ? toProposal(row) : undefined;
 }
 
+/** The draft a ticket was created from (`ticket_id` link), or undefined for a hand-made ticket. */
+export function getProposalForTicket(store: Store, ticketId: number): PlanningProposal | undefined {
+  const row = store.db
+    .prepare(`SELECT ${COLUMNS} FROM planning_proposals p WHERE p.ticket_id = ? ORDER BY p.id LIMIT 1`)
+    .get(ticketId) as ProposalRow | undefined;
+  return row ? toProposal(row) : undefined;
+}
+
 /** Pending proposals of the project's non-archived sessions, oldest first. */
 export function listPendingProposals(store: Store, projectId: number): PlanningProposal[] {
   const rows = store.db

@@ -778,8 +778,8 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/id="parentRef"/);
     expect(script).toMatch(/state\.subtaskParent/);
     expect(script).toMatch(/state\.parent/);
-    expect(script).toMatch(/Follow-up of '\s*\+ esc\(state\.parent\.key\)/);
-    expect(script).toMatch(/Sub-task of '\s*\+ esc\(state\.subtaskParent\.key\)/);
+    expect(script).toMatch(/Follow-up of '\s*\+ esc\(state\.parent\.ref\)/);
+    expect(script).toMatch(/Sub-task of '\s*\+ esc\(state\.subtaskParent\.ref\)/);
   });
 
   it('renders the Sub-tasks panel with progress, blocking badge and the Add action (NDL-76)', () => {

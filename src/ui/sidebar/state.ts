@@ -33,6 +33,7 @@ import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
+import { formatId } from '../../model/entityId.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
@@ -118,10 +119,18 @@ export interface SidebarSections {
  */
 export interface PlanningProposalRow {
   id: number;
+  /** Host-built `D88`. */
+  idLabel: string;
+  /** Host-built `T583` of the ticket this draft became; null while pending. */
+  ticketIdLabel: string | null;
+  /** `D<n>` of each entry in `dependsOn`, same order. */
+  dependsOnLabels: string[];
+  /** `D<n>` of each entry in `droppedDepends`; absent when none. */
+  droppedLabels?: string[];
   title: string;
   status: 'pending' | 'accepted';
   ticketId: number | null;
-  /** Host proposal ids this draft waits on (`#N`), in file order. */
+  /** Host proposal ids this draft waits on (`D<n>`), in file order. */
   dependsOn: number[];
   /**
    * Host proposal ids pruned from `dependsOn` because their target was discarded.
@@ -134,6 +143,8 @@ export interface PlanningProposalRow {
 
 export interface PlanningRow {
   sessionId: number;
+  /** Host-built `P17`. */
+  idLabel: string;
   title: string;
   status: PlanningStatus;
   ticketCount: number;
@@ -368,6 +379,8 @@ export function buildSidebarState(
   };
 }
 
+const isId = (n: number): boolean => Number.isSafeInteger(n) && n >= 1;
+
 function planningRows(
   store: Store,
   projectId: number | undefined,
@@ -381,9 +394,19 @@ function planningRows(
   // The All view lists live sessions; the Archived facet lists ONLY archived ones.
   return listPlanningSessions(store, projectId, { includeArchived: archived })
     .filter((s) => (s.status === 'archived') === archived)
-    .filter((s) => needle === '' || s.title.toLowerCase().includes(needle))
+    .filter(
+      (s) =>
+        needle === '' ||
+        `${formatId('plan', s.id)} ${s.title}`.toLowerCase().includes(needle) ||
+        drafts.some(
+          (p) =>
+            p.sessionId === s.id &&
+            `${formatId('draft', p.id)} ${p.payload.title}`.toLowerCase().includes(needle),
+        ),
+    )
     .map((s) => ({
       sessionId: s.id,
+      idLabel: formatId('plan', s.id),
       title: s.title,
       status: s.status,
       ticketCount: listPlanningTickets(store, s.id).length,
@@ -391,11 +414,16 @@ function planningRows(
       agent: { provider: s.core, model: s.model },
       proposals: drafts.filter((p) => p.sessionId === s.id).map((p) => ({
         id: p.id,
+        idLabel: formatId('draft', p.id),
+        ticketIdLabel: p.ticketId === null ? null : formatId('ticket', p.ticketId),
+        dependsOnLabels: (p.payload.dependsOn ?? []).filter(isId).map((n) => formatId('draft', n)),
         title: p.payload.title,
         status: p.status === 'accepted' ? 'accepted' : 'pending',
         ticketId: p.ticketId,
         dependsOn: p.payload.dependsOn ?? [],
-        ...(p.droppedDepends.length > 0 ? { droppedDepends: p.droppedDepends } : {}),
+        ...(p.droppedDepends.length > 0
+          ? { droppedDepends: p.droppedDepends, droppedLabels: p.droppedDepends.filter(isId).map((n) => formatId('draft', n)) }
+          : {}),
         ...(p.warnings.length > 0 ? { warnings: p.warnings } : {}),
       })),
     }));

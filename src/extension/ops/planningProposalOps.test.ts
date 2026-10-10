@@ -104,7 +104,7 @@ describe('planningProposalOps', () => {
   it('Review opens a prefilled form; nothing is created until it saves, and the save carries the summary as brief', async () => {
     choice = 'review';
     await ops().announce(getProposal(store, proposalId)!);
-    expect(forms[0]).toMatchObject({ title: 'Fix login', description: 'd'.repeat(40), summary: 'sum', repos: ['api'] });
+    expect(forms[0]).toMatchObject({ title: 'Fix login', description: 'd'.repeat(40), summary: 'sum', repos: ['api'], draftId: proposalId });
     expect(ticketCount()).toBe(0);
     const t = createTicket(store, { key: 'K', title: 'Fix login', projectId });
     forms[0]!.onCreated(t.id);

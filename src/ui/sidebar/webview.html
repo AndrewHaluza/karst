@@ -770,6 +770,7 @@
       ? `<span class="glyph chk g-${esc(row.glyph)}" aria-hidden="true">${karstIcon('circle-check', 14)}</span>`
       : `<span class="glyph g-${esc(row.glyph)}" role="img" aria-label="${esc(glyphWord)}" title="${esc(row.description)}">${ic.mark}<span class="sdot" aria-hidden="true"></span><span class="sdot-spin" aria-hidden="true"></span></span>`;
     const rowContent = glyphHtml
+      + `<span class="k-id" title="Ticket ${esc(row.idLabel)}">${esc(row.idLabel)}</span>`
       + `<span class="name">${esc(row.label)}</span>`
       + ((row.blockedBy || []).length ? `<span class="k-chip" title="Blocked by ${(row.blockedBy || []).map(esc).join(', ')}">Blocked by ${(row.blockedBy || []).map(esc).join(', ')}</span>` : '')
       + (row.subtaskParentKey
@@ -953,10 +954,9 @@
     const open = planIsOpen(p);
     const agent = agentLabel(p.agent.provider) + (p.agent.model ? ` · ${p.agent.model}` : '');
     const n = drafts.length === 1 ? '1 draft' : `${drafts.length} drafts`;
-    // The `P<id>` token the terminal tab carries, so a session is the same
-    // identity in the sidebar and in the terminal list. Drafts use `#<ticket>`
-    // instead, so a session and a draft never share a token.
-    const token = `P${p.sessionId}`;
+    // The host-built `P<id>` the terminal tab carries, so a session is the same
+    // identity in the sidebar and in the terminal list.
+    const token = p.idLabel;
     const label = esc(`${token} ${p.title}, ${st.word}, ${agent}, ${n}`);
     const t = esc(p.title);
     const shown = `${token} ${t}`;
@@ -979,23 +979,23 @@
       + `</div>`;
   }
 
-  // A draft: its `#<id>` (the planning_proposals row id agents refer to) is
-  // shown before the title. Pending ones carry Approve (the prefilled ticket
+  // A draft: its host-built `D<id>` (the planning_proposals row id agents
+  // refer to) is shown before the title. Pending ones carry Approve (the prefilled ticket
   // form) / Discard; accepted ones stay, struck through, linked to the ticket
   // they became.
   function planDeps(d) {
-    const deps = (d.dependsOn || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    const deps = d.dependsOnLabels || [];
     if (!deps.length) return '';
-    const text = 'depends on ' + deps.map((n) => '#' + n).join(', ');
+    const text = 'depends on ' + deps.join(', ');
     return `<span class="pt-deps" title="${esc(text)}">${esc(text)}</span>`;
   }
 
   // A dependency the host pruned because its target was discarded: the card
   // must show the edge was lost, not fall silent (criterion 5). Pending only.
   function planDropped(d) {
-    const dropped = (d.droppedDepends || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    const dropped = d.droppedLabels || [];
     if (!dropped.length) return '';
-    const ids = dropped.map((n) => '#' + n).join(', ');
+    const ids = dropped.join(', ');
     const text = ids + (dropped.length === 1 ? ' was discarded' : ' were discarded');
     return `<span class="pt-deps pt-deps--warn" title="${esc(text)}">${esc(text)}</span>`;
   }
@@ -1017,20 +1017,20 @@
     if (d.status === 'accepted') {
       const tid = Number(d.ticketId);
       const has = d.ticketId != null && Number.isFinite(tid);
-      const label = esc(has ? `#${id} ${d.title}, accepted as ticket #${tid}` : `#${id} ${d.title}, accepted`);
+      const label = esc(has ? `${d.idLabel} ${d.title}, accepted as ticket ${d.ticketIdLabel}` : `${d.idLabel} ${d.title}, accepted`);
       return `<div role="treeitem" aria-level="2" class="pt-l2 pt-accepted" data-node="${node}" tabindex="-1" aria-label="${label}">`
         + `<div class="pt-row" title="${label}">`
         + karstIcon('circle-check', 14, 'pt-icon pt-c-passed')
-        + `<span class="pt-label">#${id} ${t}</span>`
+        + `<span class="pt-label">${esc(d.idLabel)} ${t}</span>`
         + planDeps(d)
-        + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket #${tid}" aria-label="Open ticket #${tid}" title="Open ticket #${tid}">#${tid}</button>` : '')
+        + (has ? `<button type="button" class="pt-link" tabindex="-1" data-open="${tid}" data-primary="1" data-label="Open ticket ${esc(d.ticketIdLabel)}" aria-label="Open ticket ${esc(d.ticketIdLabel)}" title="Open ticket ${esc(d.ticketIdLabel)}">${esc(d.ticketIdLabel)}</button>` : '')
         + `</div></div>`;
     }
-    const label = esc(`#${id} ${d.title}, needs review`);
+    const label = esc(`${d.idLabel} ${d.title}, needs review`);
     return `<div role="treeitem" aria-level="2" class="pt-l2" data-node="${node}" tabindex="-1" aria-label="${label}">`
       + `<div class="pt-row" title="${label}">`
       + karstIcon('file-text', 14, 'pt-icon pt-c-attention')
-      + `<span class="pt-label">#${id} ${t}</span>`
+      + `<span class="pt-label">${esc(d.idLabel)} ${t}</span>`
       + planDeps(d)
       + planDropped(d)
       + planWarnings(d)

@@ -797,12 +797,12 @@
     // human label (key, else #id — mirrors ticketLabel(), so the chip and the
     // tab title agree) as a chip beside it. Create mode: "New ticket".
     const isEdit = state.mode === 'edit';
-    const editKey = state.key || `#${state.ticketId ?? ''}`;
+    const refLabel = state.refLabel || '';
     el('eyebrow').classList.toggle('hidden', !isEdit);
     el('heading').textContent = isEdit ? (state.title || '(untitled)') : 'New ticket';
-    el('keyChip').textContent = isEdit ? editKey : '';
-    el('keyChip').classList.toggle('hidden', !isEdit);
-    el('subhead').textContent = isEdit ? '' : 'Name the ticket, write a prompt, pick an approach.';
+    el('keyChip').textContent = refLabel;
+    el('keyChip').classList.toggle('hidden', !refLabel);
+    el('subhead').textContent = state.subtaskOf || (isEdit ? '' : 'Name the ticket, write a prompt, pick an approach.');
     // The label text is set here, once per state push, and NEVER touched while
     // busy (UI-R18) — setSubmitBusy only toggles aria-busy/disabled. The
     // create-mode pair matches the static markup.

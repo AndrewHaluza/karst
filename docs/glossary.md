@@ -588,7 +588,8 @@ END_DOC_BLOCK: [@gloss:GL-14]
   requestId, ok, message?}` per action.
 - **Ids in the UI** — tickets, drafts and planning sessions show as `T<n>` /
   `D<n>` / `P<n>`, never `#N` (see *Id* in the Core entities section,
-  `arch:IDS-01`); webview surfaces adopt this in a follow-up ticket.
+  `arch:IDS-01`). Every surface paints the host-built label in the one `.k-id`
+  id badge (muted monospace); webview HTML never builds an id string.
 - **Sidebar** — the Tickets tree view (Ticket tree + status bar contributions).
 - **Ticket form** — the create/edit ticket page (`src/ui/ticketForm/`).
   Gates Phase 2 on the title ALONE; the key is derived once at persist (see

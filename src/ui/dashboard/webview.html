@@ -1909,6 +1909,7 @@
 <div class="dhead">
   <div class="ticketIdentity">
     <span id="providerMark" class="provicon" aria-hidden="true"></span>
+    <span id="idBadge" class="k-id"></span>
     <button id="keyBtn" type="button" class="ticketKey" data-act="copy-ticket-key" data-copy title="Copy ticket key" aria-label="Copy ticket key"></button>
     <span id="priorityChip" class="prio" hidden></span>
     <a id="boardLink" class="k-iconbtn" href="#" data-act="open-ticket-link" data-url="${esc(state.ticketUrl)}" hidden
@@ -3974,8 +3975,11 @@
   // where a tooltip that truncates and cannot be scrolled was no preview at
   // all.
   function renderTicketIdentity(state) {
-    const label = state.key || `#${state.ticketId}`;
+    const label = state.key || '';
+    const idBadge = el('idBadge');
+    if (idBadge) idBadge.textContent = state.idLabel;
     const keyBtn = el('keyBtn');
+    keyBtn.hidden = !label;
     keyBtn.textContent = label;
     keyBtn.setAttribute('aria-label', `Copy ticket key ${label}`);
     keyBtn.title = 'Copy ticket key';
@@ -4010,10 +4014,11 @@
     const ref = el('parentRef');
     if (!ref) return;
     const parts = [];
-    if (state.subtaskParent) parts.push('Sub-task of ' + esc(state.subtaskParent.key));
-    if (state.parent) parts.push('Follow-up of ' + esc(state.parent.key));
+    if (state.origin) parts.push(esc(state.origin));
+    if (state.subtaskParent) parts.push('Sub-task of ' + esc(state.subtaskParent.ref));
+    if (state.parent) parts.push('Follow-up of ' + esc(state.parent.ref));
     for (const blocker of (state.blockers || [])) parts.push(`<span class="k-chip">Blocked by ${blocker.ticketId
-      ? `<a href="#" data-act="open-dependency" data-ticket="${blocker.ticketId}">${esc(blocker.label)}</a>`
+      ? `<a href="#" data-act="open-dependency" data-ticket="${blocker.ticketId}">${esc(blocker.idLabel ? blocker.idLabel + ' · ' + blocker.label : blocker.label)}</a>`
       : esc(blocker.label)}</span>`);
     ref.hidden = parts.length === 0;
     ref.innerHTML = parts.join(' · ');
@@ -4041,6 +4046,7 @@
       : '';
     return `<div class="subtask" data-id="${s.id}">`
       + `<span class="k-dot ${dot}" role="img" aria-label="${esc(word)}"></span>`
+      + `<span class="k-id">${esc(s.idLabel)}</span>`
       + `<span class="subtask-key">${esc(s.key)}</span>`
       + `<span class="subtask-title">${esc(s.title || '(untitled)')}</span>`
       + block

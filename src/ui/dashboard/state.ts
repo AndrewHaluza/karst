@@ -1,4 +1,5 @@
 import type { Store } from '../../store/db.js';
+import { getProposalForTicket } from '../../store/planningProposals.js';
 import { getTicket, listSubtasks } from '../../store/tickets.js';
 import { listServersByTicket } from '../../store/dashboard.js';
 import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
@@ -56,7 +57,7 @@ import { buildDashboardRows } from './stateRows.js';
 import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './stateInside.js';
 import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
 import { listOpenBlockers } from '../../store/ticketRelations.js';
-import { formatId } from '../../model/entityId.js';
+import { formatId, formatTicketRef } from '../../model/entityId.js';
 
 export type {
   DashboardAgentContext,
@@ -212,11 +213,11 @@ export function buildDashboardState(
   // The parent relationship for the dashboard's secondary metadata line. A
   // follow-up's identity is relationship metadata, never part of its title. A
   // hard-deleted parent degrades to null — same policy as ticketContext.
-  let parent: { key: string; title: string | null } | null = null;
+  let parent: { key: string; ref: string; title: string | null } | null = null;
   if (ticket.parentTicketId !== null) {
     try {
       const p = getTicket(store, ticket.parentTicketId);
-      parent = { key: p.key ?? formatId('ticket', p.id), title: p.title };
+      parent = { key: p.key ?? formatId('ticket', p.id), ref: formatTicketRef(p.id, p.key), title: p.title };
     } catch {
       parent = null;
     }
@@ -225,11 +226,11 @@ export function buildDashboardState(
   // follow-up relation above: `subtask_parent_id` says "is part of", while
   // `parent_ticket_id` says "continues after". A hard-deleted parent degrades
   // to null, the same policy as the follow-up line.
-  let subtaskParent: { key: string; title: string | null } | null = null;
+  let subtaskParent: { key: string; ref: string; title: string | null } | null = null;
   if (ticket.subtaskParentId !== null) {
     try {
       const p = getTicket(store, ticket.subtaskParentId);
-      subtaskParent = { key: p.key ?? formatId('ticket', p.id), title: p.title };
+      subtaskParent = { key: p.key ?? formatId('ticket', p.id), ref: formatTicketRef(p.id, p.key), title: p.title };
     } catch {
       subtaskParent = null;
     }
@@ -240,12 +241,18 @@ export function buildDashboardState(
   // and the alternative — a second stage-status derivation — would drift from
   // the one `stageBadge` every other surface paints with.
   const subtaskList = listSubtasks(store, ticketId);
-  const blockers = listOpenBlockers(store, ticketId).map((b) => ({ ticketId: b.targetTicketId, label: b.label }));
+  // A keyless target's label already IS `T<n>` (buildBlockerLabel), so the id is
+  // only added when the label doesn't lead with it.
+  const blockers = listOpenBlockers(store, ticketId).map((b) => {
+    const id = b.targetTicketId === null ? null : formatId('ticket', b.targetTicketId);
+    return { ticketId: b.targetTicketId, idLabel: id !== null && !b.label.startsWith(id) ? id : null, label: b.label };
+  });
   const subtasks: DashboardSubtaskRow[] = subtaskList.map((s) => {
     const child = getTicket(store, s.id);
     const badge = stageBadge(child);
     return {
       id: s.id,
+      idLabel: formatId('ticket', s.id),
       key: s.key ?? formatId('ticket', s.id),
       title: s.title,
       stage: s.stageCurrent,
@@ -657,6 +664,8 @@ export function buildDashboardState(
 
   return {
     ticketId: ticket.id,
+    idLabel: formatId('ticket', ticket.id),
+    origin: originLabel(store, ticket.id),
     key: ticket.key,
     title: ticket.title,
     parent,
@@ -742,4 +751,11 @@ export function buildDashboardState(
     prFeedbackFix,
     openPrFeedback,
   };
+}
+
+/** `from D88 (P17)` for a ticket filed from a planning draft; null otherwise. */
+function originLabel(store: Store, ticketId: number): string | null {
+  const draft = getProposalForTicket(store, ticketId);
+  if (!draft) return null;
+  return `from ${formatId('draft', draft.id)} (${formatId('plan', draft.sessionId)})`;
 }

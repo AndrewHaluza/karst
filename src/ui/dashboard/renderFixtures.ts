@@ -880,6 +880,8 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
   }
   return {
     ticketId: 0,
+    idLabel: 'T0',
+    origin: null,
     key: null,
     title: null,
     parent: null,
@@ -1079,6 +1081,8 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
   return {
     ...neutral,
     ticketId: POPULATED_TICKET_ID,
+    idLabel: `T${POPULATED_TICKET_ID}`,
+    origin: 'from D88 (P17)',
     key: POPULATED_KEY,
     title: POPULATED_TITLE,
     stepper,
@@ -1090,10 +1094,11 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
     // The Sub-tasks section: one landed, one blocking + in flight, so the
     // render pins the glyph/badge/progress copy. The fixture is also a sub-task
     // itself (`subtaskParent`), so both relation lines render.
-    subtaskParent: { key: 'FEAT-100', title: 'Parent ticket' },
+    subtaskParent: { key: 'FEAT-100', ref: 'T942001 · FEAT-100', title: 'Parent ticket' },
     subtasks: [
       {
         id: 942018,
+        idLabel: 'T942018',
         key: 'FEAT-142-s1',
         title: 'Extract the base-branch resolver',
         stage: 'done',
@@ -1105,6 +1110,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
       },
       {
         id: 942019,
+        idLabel: 'T942019',
         key: 'FEAT-142-s2',
         title: 'Add per-repo override to the picker',
         stage: 'impl',
@@ -1116,6 +1122,7 @@ export function populatedStateFor(stage: InsideStageKey): DashboardState {
       },
       {
         id: 942020,
+        idLabel: 'T942020',
         key: 'FEAT-142-s3',
         title: 'Waiting for a free sub-task slot',
         stage: 'scope',

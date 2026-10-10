@@ -270,6 +270,11 @@ describe('filterTickets', () => {
     expect(filterTickets(tickets, 'LOGIN').map((t) => t.id)).toEqual([1]);
     expect(filterTickets(tickets, 'log').map((t) => t.id)).toEqual([1, 2]);
   });
+
+  it('matches the prefixed id (t2), case-insensitive', () => {
+    expect(filterTickets(tickets, 't2').map((t) => t.id)).toEqual([2]);
+    expect(filterTickets(tickets, 'T1').map((t) => t.id)).toEqual([1]);
+  });
 });
 
 describe('isDoneTicket', () => {
@@ -434,6 +439,7 @@ describe('nestSubtasks', () => {
   function node(over: Partial<TicketNode> & { ticketId: number }): TicketNode {
     return {
       kind: 'ticket',
+      idLabel: `T${over.ticketId}`,
       label: `t${over.ticketId}`,
       glyph: 'gray',
       description: '',
@@ -530,6 +536,7 @@ describe('visibleTicketRows', () => {
   function node(over: Partial<TicketNode> & { ticketId: number }): TicketNode {
     return {
       kind: 'ticket',
+      idLabel: `T${over.ticketId}`,
       label: `t${over.ticketId}`,
       glyph: 'gray',
       description: '',
