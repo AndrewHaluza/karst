@@ -49,7 +49,6 @@ END_DOC_BLOCK: [@ui:RULE-COUNTS]
 | UI-R30 | Reduced motion preserves state information | STATIC+VISUAL | **covered** | Playwright `reducedMotion: 'reduce'` on dedicated project |
 | UI-R36 | Use a test that can prove the property | STATIC+RUNTIME+VISUAL | **covered** | This sweep IS the remedy for R36 on the VISUAL axis |
 | UI-R38 | A scrolling surface keeps its controls pinned | STATIC+VISUAL | **covered** | Scrolls container, asserts pinned bounding boxes unchanged |
-<<<<<<< HEAD
 | UI-R39 | Linked prototype's regions, order and stacking are binding | VISUAL+REVIEW | **covered** | Layout gate check (g) region order vs prototype; REVIEW compares the diff to the prototype |
 | UI-R40 | Reading order: header + primary action, main, secondary | VISUAL | **covered** | Layout gate check (g) |
 | UI-R41 | Table cells align to headers; form controls share a left edge | STATIC+VISUAL | **covered** | Layout gate check (e); `font-variant-numeric` grep for numeric columns |
@@ -60,9 +59,7 @@ END_DOC_BLOCK: [@ui:RULE-COUNTS]
 | UI-R46 | Empty/loading states keep the layout | RUNTIME+VISUAL | **partial** | `empty` corpus compares region boxes; the action's presence is a RUNTIME check |
 | UI-R47 | Selection survives resize and Back | VISUAL | **covered** | Layout gate check (i) |
 | UI-R48 | Settings content capped at the content-width token | STATIC+VISUAL | **covered** | Token grep + content width ≤ token at the ≥1000 tier |
-=======
 | UI-R19 / UI-R36 | Settings layout geometry holds on every route (overlap, clipping, overflow, containment, column alignment) | VISUAL | **covered** | Geometry assertions, no baselines: `ui:LAYOUT-SANITY` (`npm run test:layout`) |
->>>>>>> develop
 
 **Still manual after this ticket: UI-R22 only.**
 
