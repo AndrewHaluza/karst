@@ -133,6 +133,8 @@ export interface TicketFormPrefill {
    */
   summary: string;
   repos: string[];
+  /** The planning draft under review (`planning_proposals.id`); the page header shows it as `D<n>`. */
+  draftId?: number;
   /** Design rules / prior work the draft cites; shown read-only and appended to the brief on bind. */
   constraints?: string[];
   /** `@arch:KEY` → doc file name, for the review chips. */

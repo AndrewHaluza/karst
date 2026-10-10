@@ -16,11 +16,14 @@ const base: StatusTicket = {
 
 describe('statusBarText', () => {
   it('renders key · stage · state', () => {
-    expect(statusBarText(base)).toBe('KAR-7 · review · running');
+    expect(statusBarText(base)).toBe('T7 · KAR-7 · review · running');
+  });
+  it('shows just T<n> for a keyless ticket', () => {
+    expect(statusBarText({ ...base, key: '' })).toBe('T7 · review · running');
   });
   it('prefixes a warning glyph when blocked (red)', () => {
     expect(statusBarText({ ...base, stage: 'fix', state: 'idle', glyph: 'red' })).toBe(
-      '⚠ KAR-7 · fix · idle',
+      '⚠ T7 · KAR-7 · fix · idle',
     );
   });
 });
@@ -35,7 +38,7 @@ describe('StatusBarManager', () => {
     const m = new StatusBarManager(host);
     m.render({ ...base, glyph: 'red', stage: 'fix' });
     m.render(null);
-    expect(calls[0]).toEqual({ text: '⚠ KAR-7 · fix · running', warning: true, cmd: 7 });
+    expect(calls[0]).toEqual({ text: '⚠ T7 · KAR-7 · fix · running', warning: true, cmd: 7 });
     expect(calls[1]).toBe('hide');
   });
 

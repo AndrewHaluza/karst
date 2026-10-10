@@ -1,4 +1,4 @@
-import { formatId } from '../../model/entityId.js';
+import { formatTicketRef } from '../../model/entityId.js';
 
 export interface DiffsTicketChoice {
   ticketId: number;
@@ -36,7 +36,7 @@ export function diffsTicketChoices(
     if (t.stageCurrent === 'done') continue;
     const choice: DiffsTicketChoice = {
       ticketId: t.id,
-      label: t.key ?? formatId('ticket', t.id),
+      label: formatTicketRef(t.id, t.key),
       description: t.title ?? '',
       current: t.id === currentTicketId,
     };

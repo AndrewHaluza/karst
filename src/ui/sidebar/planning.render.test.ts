@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { renderWebview, type RenderHandle } from '../testing/renderHarness.js';
-import { sidebarRenderFixtures, fixturePlanningRow, HOSTILE_LABEL as HOSTILE } from './renderFixtures.js';
+import { sidebarRenderFixtures, fixturePlanningRow, fixtureDraft, HOSTILE_LABEL as HOSTILE } from './renderFixtures.js';
 import type { SidebarState, PlanningRow } from './state.js';
 
 const NONCE = 'fixture-nonce-000000000000';
@@ -57,10 +57,10 @@ describe('sidebar planning tree', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: withPlans([
-        fixturePlanningRow(1, { live: true, status: 'filed', proposals: [{ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] }] }),
+        fixturePlanningRow(1, { live: true, status: 'filed', proposals: [fixtureDraft({ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] })] }),
         fixturePlanningRow(2, { live: true, status: 'filed' }),
         fixturePlanningRow(3, { status: 'filed' }),
-        fixturePlanningRow(4, { proposals: [{ id: 41, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] }] }),
+        fixturePlanningRow(4, { proposals: [fixtureDraft({ id: 41, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] })] }),
         fixturePlanningRow(5),
       ]) });
       const dot = (id: number) => session(h, id).querySelector('.pt-dot')!.className;
@@ -78,8 +78,8 @@ describe('sidebar planning tree', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: withPlans([
-        fixturePlanningRow(1, { proposals: [{ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] }] }),
-        fixturePlanningRow(2, { proposals: [{ id: 21, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] }] }),
+        fixturePlanningRow(1, { proposals: [fixtureDraft({ id: 11, title: 'p', status: 'pending', ticketId: null, dependsOn: [] })] }),
+        fixturePlanningRow(2, { proposals: [fixtureDraft({ id: 21, title: 'a', status: 'accepted', ticketId: 9, dependsOn: [] })] }),
         fixturePlanningRow(3),
       ]) });
       expect(session(h, 1).getAttribute('aria-expanded')).toBe('true');
@@ -210,9 +210,9 @@ describe('sidebar planning drafts', () => {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const d = draft(h, 501);
       expect(d.getAttribute('aria-level')).toBe('2');
-      expect(d.getAttribute('aria-label')).toBe('#501 Add rate limit, needs review');
+      expect(d.getAttribute('aria-label')).toBe('D501 Add rate limit, needs review');
       expect(d.querySelector('.pt-icon.pt-c-attention')).not.toBeNull();
-      expect(d.querySelector('.pt-label')!.textContent).toBe('#501 Add rate limit');
+      expect(d.querySelector('.pt-label')!.textContent).toBe('D501 Add rate limit');
       const btn = (act: string) => d.querySelector(`[data-act="${act}"][data-proposal="501"]`)!;
       expect(btn('plan-proposal-review').getAttribute('aria-label')).toBe('Approve draft: Add rate limit');
       expect(btn('plan-proposal-discard').getAttribute('aria-label')).toBe('Discard draft: Add rate limit');
@@ -259,12 +259,12 @@ describe('sidebar planning drafts', () => {
       h.receive({ type: 'state', state: stateOf('all-sections') });
       const d = draft(h, 503);
       expect(d.classList.contains('pt-accepted')).toBe(true);
-      expect(d.getAttribute('aria-label')).toBe('#503 Split auth module, accepted as ticket #3');
-      expect(d.querySelector('.pt-label')!.textContent).toBe('#503 Split auth module');
+      expect(d.getAttribute('aria-label')).toBe('D503 Split auth module, accepted as ticket T3');
+      expect(d.querySelector('.pt-label')!.textContent).toBe('D503 Split auth module');
       expect(d.querySelector('.pt-icon.pt-c-passed')).not.toBeNull();
       expect(d.querySelector('[data-act^="plan-proposal-"]')).toBeNull();
       const link = d.querySelector('[data-open="3"]')!;
-      expect(link.textContent).toBe('#3');
+      expect(link.textContent).toBe('T3');
       h.click('[data-node="d503"] [data-open="3"]');
       expect(h.posted).toContainEqual(expect.objectContaining({ type: 'open-ticket', ticketId: 3 }));
     } finally { h.close(); }
@@ -274,7 +274,7 @@ describe('sidebar planning drafts', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {
       h.receive({ type: 'state', state: stateOf('all-sections') });
-      expect(draft(h, 503).querySelector('.pt-deps')!.textContent).toBe('depends on #501');
+      expect(draft(h, 503).querySelector('.pt-deps')!.textContent).toBe('depends on D501');
       expect(draft(h, 501).querySelector('.pt-deps')).toBeNull();
     } finally { h.close(); }
   });
@@ -284,21 +284,21 @@ describe('sidebar planning drafts', () => {
     try {
       h.receive({ type: 'state', state: withPlans([
         fixturePlanningRow(1, { proposals: [
-          { id: 11, title: 'Orphan', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [9] },
-          { id: 12, title: 'Settled', status: 'accepted', ticketId: 4, dependsOn: [], droppedDepends: [9] },
+          fixtureDraft({ id: 11, title: 'Orphan', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [9] }),
+          fixtureDraft({ id: 12, title: 'Settled', status: 'accepted', ticketId: 4, dependsOn: [], droppedDepends: [9] }),
         ] }),
       ]) });
       const warn = draft(h, 11).querySelector('.pt-deps--warn')!;
-      expect(warn.textContent).toBe('#9 was discarded');
-      expect(warn.getAttribute('title')).toBe('#9 was discarded');
+      expect(warn.textContent).toBe('D9 was discarded');
+      expect(warn.getAttribute('title')).toBe('D9 was discarded');
       // An accepted card never warns — its block is already the ticket relation.
       expect(draft(h, 12).querySelector('.pt-deps--warn')).toBeNull();
       h.receive({ type: 'state', state: withPlans([
         fixturePlanningRow(1, { proposals: [
-          { id: 11, title: 'Orphan', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [9, 10] },
+          fixtureDraft({ id: 11, title: 'Orphan', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [9, 10] }),
         ] }),
       ]) });
-      expect(draft(h, 11).querySelector('.pt-deps--warn')!.textContent).toBe('#9, #10 were discarded');
+      expect(draft(h, 11).querySelector('.pt-deps--warn')!.textContent).toBe('D9, D10 were discarded');
     } finally { h.close(); }
   });
 
@@ -307,9 +307,9 @@ describe('sidebar planning drafts', () => {
     try {
       h.receive({ type: 'state', state: withPlans([
         fixturePlanningRow(1, { proposals: [
-          { id: 21, title: 'One', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown design key @arch:<b>X'] },
-          { id: 22, title: 'Two', status: 'pending', ticketId: null, dependsOn: [], warnings: ['a', 'b'] },
-          { id: 23, title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] },
+          fixtureDraft({ id: 21, title: 'One', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown design key @arch:<b>X'] }),
+          fixtureDraft({ id: 22, title: 'Two', status: 'pending', ticketId: null, dependsOn: [], warnings: ['a', 'b'] }),
+          fixtureDraft({ id: 23, title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] }),
         ] }),
       ]) });
       const one = draft(h, 21).querySelector('.pt-cwarn')!;
@@ -328,7 +328,7 @@ describe('sidebar planning drafts', () => {
       h.receive({ type: 'state', state: stateOf('hostile') });
       expect(h.query('[data-node="d502"] script')).toBeNull();
       expect(h.query('[data-act="plan-proposal-review"][data-proposal="502"]')!.getAttribute('aria-label')).toBe(`Approve draft: ${HOSTILE}`);
-      expect(draft(h, 502).querySelector('.pt-label')!.textContent).toBe(`#502 ${HOSTILE}`);
+      expect(draft(h, 502).querySelector('.pt-label')!.textContent).toBe(`D502 ${HOSTILE}`);
     } finally { h.close(); }
   });
 });

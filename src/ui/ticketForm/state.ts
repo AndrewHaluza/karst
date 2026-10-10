@@ -1,6 +1,7 @@
 import type { TicketFormPrefill } from './panel.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
+import { formatId, formatTicketRef } from '../../model/entityId.js';
 import { listAttachments } from '../../store/attachments.js';
 import { attachmentPath } from '../../attachments/paths.js';
 import type { AttachmentKind } from '../../attachments/kinds.js';
@@ -112,6 +113,13 @@ export interface DesignConstraintsView {
 export interface TicketFormState {
   mode: 'create' | 'edit';
   ticketId?: number;
+  /**
+   * Host-built id label for the page header: `T583 · KEY` for a ticket, `D88`
+   * for a create page reviewing a planning draft. Absent on a blank create page.
+   */
+  refLabel?: string;
+  /** Host-built `Sub-task of T12` when the ticket is (or will be) a sub-task; absent otherwise. */
+  subtaskOf?: string;
   key: string;
   title: string;
   description: string;
@@ -395,6 +403,7 @@ export function buildTicketFormState(
     const createSubtaskTicket = subtaskParentId != null ? { subtaskParentId } : undefined;
     return {
       mode: 'create',
+      ...(subtaskParentId != null ? { subtaskOf: `Sub-task of ${formatId('ticket', subtaskParentId)}` } : {}),
       key: '',
       title: '',
       description: '',
@@ -453,6 +462,10 @@ export function buildTicketFormState(
   return {
     mode: 'edit',
     ticketId,
+    refLabel: formatTicketRef(ticket.id, ticket.key),
+    ...(ticket.subtaskParentId !== null
+      ? { subtaskOf: `Sub-task of ${formatId('ticket', ticket.subtaskParentId)}` }
+      : {}),
     key: ticket.key ?? '',
     title: ticket.title ?? '',
     description: ticket.description ?? '',
@@ -516,12 +529,13 @@ export function buildTicketFormState(
 /** Overlay a proposal prefill on a built create-form state; picked bases stay overrides. */
 export function applyPrefill(
   state: TicketFormState,
-  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs'>,
+  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs' | 'draftId'>,
 ): TicketFormState {
   const want = new Set(p.repos);
   const baseRefs = p.baseRefs ?? {};
   return {
     ...state,
+    ...(p.draftId !== undefined ? { refLabel: formatId('draft', p.draftId) } : {}),
     title: p.title,
     description: p.description,
     brief: p.summary || null,

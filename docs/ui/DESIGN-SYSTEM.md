@@ -787,6 +787,11 @@ Examples:
 - usage total;
 - draft / merged metadata.
 
+The entity id (`T583` / `D88` / `P17`) is a muted monospace badge,
+`.k-id`: non-interactive, token-only, the same on every surface. The label
+string is built host-side through `src/model/entityId.ts`; the HTML only
+paints it.
+
 An agent core/provider identity is **not** a badge. Use `.k-agent-core`
 (§11.9).
 

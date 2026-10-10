@@ -123,13 +123,20 @@ describe('ticket form — field order and headings', () => {
 
 describe('ticket form — edit header, callout, empty states', () => {
   it('edit mode: h1 is the title, key is a chip, "Editing" eyebrow', () => {
-    const v = open(baseState({ mode: 'edit', ticketId: 7, key: 'PROJ-142', title: 'Add retry' }));
+    const v = open(baseState({ mode: 'edit', ticketId: 7, refLabel: 'T7 · PROJ-142', key: 'PROJ-142', title: 'Add retry' }));
     expect(v.query('#heading')!.textContent).toBe('Add retry');
     const chip = v.query<HTMLElement>('#keyChip')!;
     expect(chip.classList.contains('hidden')).toBe(false);
-    expect(chip.textContent).toBe('PROJ-142');
+    expect(chip.textContent).toBe('T7 · PROJ-142');
     expect(v.query<HTMLElement>('#eyebrow')!.classList.contains('hidden')).toBe(false);
     expect(v.query('#eyebrow')!.textContent).toBe('Editing');
+  });
+
+  it('draft review page shows the draft id in the chip, and a sub-task names its parent as T<n>', () => {
+    const v = open(baseState({ refLabel: 'D88', subtaskOf: 'Sub-task of T12' }));
+    expect(v.query('#keyChip')!.textContent).toBe('D88');
+    expect(v.query('#keyChip')!.classList.contains('hidden')).toBe(false);
+    expect(v.query('#subhead')!.textContent).toBe('Sub-task of T12');
   });
 
   it('create mode hides the eyebrow and key chip', () => {

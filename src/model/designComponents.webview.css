@@ -151,6 +151,10 @@ button.k-chip{cursor:pointer}
 .k-chip.is-success{border-color:var(--k-success);color:var(--k-success)}
 .k-chip.is-warning{border-color:var(--k-attention);color:var(--k-attention)}
 .k-chip.is-danger{border-color:var(--k-danger);color:var(--k-danger)}
+.k-id{
+  display:inline-block;flex:none;
+  font-family:var(--k-font-mono);font-size:var(--k-text-2xs);line-height:var(--k-leading-tight);
+  color:var(--k-text-dim);white-space:nowrap}
 .k-dot{
   display:inline-block;flex:none;
   width:var(--k-space-4);height:var(--k-space-4);

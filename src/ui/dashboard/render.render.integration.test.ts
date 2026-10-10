@@ -31,12 +31,21 @@ describe('dashboard render — fixture corpus', () => {
     const h = renderWebview('dashboard');
     h.receive({
       type: 'state',
-      state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, label: '#42 / CU-123' }] },
+      state: { ...renderStateFor('impl'), blockers: [{ ticketId: 42, idLabel: 'T42', label: 'CU-123' }] },
     });
     const chip = h.query('#parentRef .k-chip');
-    expect(chip?.textContent).toContain('Blocked by #42 / CU-123');
+    expect(chip?.textContent).toContain('Blocked by T42 · CU-123');
     h.click('#parentRef [data-act="open-dependency"]');
     expect(h.posted[0]).toMatchObject({ type: 'open-dependency', ticketId: 42 });
+    h.close();
+  });
+
+  it('paints the prefixed id in the header, the origin line and each sub-task row', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: populatedStateFor('impl') });
+    expect(h.query('#idBadge')!.textContent).toMatch(/^T\d+$/);
+    expect(h.query('#parentRef')!.textContent).toContain('from D88 (P17)');
+    expect(h.queryAll('.subtask .k-id').map((e) => e.textContent)).toEqual(['T942018', 'T942019', 'T942020']);
     h.close();
   });
 
@@ -258,11 +267,11 @@ describe('dashboard render — fixture corpus', () => {
 
   it('shows only the relation for a sub-task with no overrides', () => {
     const h = renderWebview('dashboard');
-    h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS), { subtaskParent: { key: 'PARENT-1' } }) });
+    h.receive({ type: 'state', state: withCaps(caps(OPUS, OPUS, OPUS), { subtaskParent: { key: 'PARENT-1', ref: 'T9 · PARENT-1' } }) });
     const row = h.query('#headerMeta') as HTMLElement;
     expect(row.hidden).toBe(false);
     expect(row.firstElementChild!.id).toBe('parentRef');
-    expect(row.textContent).toContain('Sub-task of PARENT-1');
+    expect(row.textContent).toContain('Sub-task of T9 · PARENT-1');
     expect(h.queryAll('.capChip')).toHaveLength(0);
     h.close();
   });

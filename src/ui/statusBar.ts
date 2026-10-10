@@ -1,3 +1,4 @@
+import { formatTicketRef } from '../model/entityId.js';
 import type { Glyph } from '../model/glyph.js';
 
 /**
@@ -18,9 +19,9 @@ export interface StatusBarHost {
   hide(): void;
 }
 
-/** `KAR-7 · review · running`; a red glyph prefixes `⚠` (blocker, multi-channel). */
+/** `T7 · KAR-7 · review · running`; a red glyph prefixes `⚠` (blocker, multi-channel). */
 export function statusBarText(v: StatusTicket): string {
-  const body = `${v.key} · ${v.stage} · ${v.state}`;
+  const body = `${formatTicketRef(v.ticketId, v.key)} · ${v.stage} · ${v.state}`;
   return v.glyph === 'red' ? `⚠ ${body}` : body;
 }
 

@@ -7,6 +7,8 @@ import { recordGateRun } from '../../store/gateRuns.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { recordPhaseMark } from '../../store/phaseMarks.js';
 import { recordTokenUsage } from '../../store/tokenUsage.js';
+import { createPlanningSession } from '../../store/planningSessions.js';
+import { insertProposal, markProposalAccepted } from '../../store/planningProposals.js';
 import { upsertProject } from '../../store/projects.js';
 import { openProcessRun } from '../../store/processRuns.js';
 import { openStageRun } from '../../store/stageRuns.js';
@@ -103,8 +105,24 @@ describe('buildDashboardState', () => {
       parentTicketId: parent.id,
     });
     const childState = buildDashboardState(store, child.id);
-    expect(childState.parent).toEqual({ key: 'PROJ-1', title: 'root work' });
+    expect(childState.parent).toEqual({ key: 'PROJ-1', ref: `T${parent.id} · PROJ-1`, title: 'root work' });
     expect(buildDashboardState(store, parent.id).parent).toBeNull();
+  });
+
+  it('carries the prefixed id label and no origin for a hand-made ticket', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    const state = buildDashboardState(store, t.id);
+    expect(state.idLabel).toBe(`T${t.id}`);
+    expect(state.origin).toBeNull();
+  });
+
+  it('words the origin of a ticket filed from a draft as "from D<n> (P<n>)"', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const session = createPlanningSession(store, { projectId, title: 'Plan', core: 'claude', model: null });
+    const draft = insertProposal(store, session.id, { title: 'D', description: 'd', summary: 's', repos: [] });
+    const t = createTicket(store, { key: 'PROJ-2', title: 'from draft', projectId });
+    markProposalAccepted(store, draft, t.id);
+    expect(buildDashboardState(store, t.id).origin).toBe(`from D${draft} (P${session.id})`);
   });
 
   it('degrades to null when the linked parent was hard-deleted', () => {
@@ -126,7 +144,7 @@ describe('buildDashboardState', () => {
       subtaskParentId: parent.id,
     });
     const subState = buildDashboardState(store, sub.id);
-    expect(subState.subtaskParent).toEqual({ key: 'PROJ-1', title: 'root work' });
+    expect(subState.subtaskParent).toEqual({ key: 'PROJ-1', ref: `T${parent.id} · PROJ-1`, title: 'root work' });
     // The two relations are orthogonal: a sub-task is not a follow-up.
     expect(subState.parent).toBeNull();
     expect(buildDashboardState(store, parent.id).subtaskParent).toBeNull();

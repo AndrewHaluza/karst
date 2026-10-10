@@ -105,6 +105,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       const { title, description, summary, repos, constraints = [] } = p.payload;
       const reviewed = p.payload;
       deps.openForm({
+        draftId: id,
         title,
         description,
         summary,
