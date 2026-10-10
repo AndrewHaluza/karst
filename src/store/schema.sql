@@ -1316,3 +1316,32 @@ CREATE TABLE IF NOT EXISTS bulletin_reads (
   read_at          TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (note_id, reader_ticket_id)
 );
+
+-- v75: the user's append-only verdicts on baseline files a ticket changed
+-- (@arch:BASELINE-REVIEW). A path is approved iff its LATEST row for
+-- (ticket, repo, path) is 'approved' with the sha256 the worktree still has.
+CREATE TABLE IF NOT EXISTS baseline_decisions (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id  INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  repo       TEXT NOT NULL,
+  path       TEXT NOT NULL,
+  sha256     TEXT NOT NULL,
+  decision   TEXT NOT NULL CHECK (decision IN ('approved', 'rejected')),
+  reason     TEXT,
+  decided_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_baseline_decisions_ticket
+  ON baseline_decisions(ticket_id, repo, path, id);
+
+-- v76: fingerprints of working trees whose UAT gate list passed, per attempt
+-- (@arch:BASELINE-REVIEW). Lets a re-entry after a baseline approval skip the
+-- gate list when the code has not changed. Append-only.
+CREATE TABLE IF NOT EXISTS uat_gate_passes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id   INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  attempt     INTEGER NOT NULL,
+  fingerprint TEXT NOT NULL,
+  run_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_uat_gate_passes_ticket
+  ON uat_gate_passes(ticket_id, attempt, fingerprint);

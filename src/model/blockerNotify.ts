@@ -19,6 +19,7 @@ export const BLOCKS_NOTIFY_PARENT: Readonly<Record<BlockerKind, boolean>> = {
   'unmapped-repository': true,
   'approach-graph-failed': true,
   'subtask-integration-conflict': true,
+  'baseline-review': true,
   'awaiting-merge': false,
   'awaiting-impl-marker': false,
   'awaiting-subtask': false,

@@ -97,6 +97,10 @@ export function needsUser(t: TicketWithStages): boolean {
     // Same shape as `awaiting-merge`: the question was asked (the graph
     // completed), just not yet answered.
     current?.blockedKind === 'awaiting-impl-marker' ||
+    // UAT's gates passed and changed baseline images wait for the user's
+    // Approve/Reject (@arch:BASELINE-REVIEW): the question was asked, the
+    // answer is the user's alone.
+    current?.blockedKind === 'baseline-review' ||
     // A sub-task's landed work could not be merged into the parent's branch
     // automatically (design NDL-70 §6). Unlike `awaiting-subtask` — whose wait
     // is on a machine or another ticket — this one needs a human to resolve the

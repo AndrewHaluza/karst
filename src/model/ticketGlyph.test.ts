@@ -26,6 +26,17 @@ function ticket(over: Partial<TicketWithStages>): TicketWithStages {
   } as TicketWithStages;
 }
 
+describe('baseline-review block', () => {
+  it('reads Needs you (amber) at uat', () => {
+    const t = ticket({
+      stageCurrent: 'uat',
+      stages: [{ stageKey: 'uat', status: 'running', blockedKind: 'baseline-review' } as never],
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+});
+
 describe('ticketGlyph', () => {
   it('waiting agent → amber (needs-you wins)', () => {
     expect(ticketGlyph(ticket({ agentState: 'waiting' }))).toBe('amber');

@@ -52,6 +52,8 @@ import type { AgentProcessId } from './ui/dashboard/messages.js';
 import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
+import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
+import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
@@ -718,11 +720,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const diagnosticLogBuffer = makeBoundedLogBuffer();
   const logger = makeLogger(channel, undefined, diagnosticLogBuffer);
   const logError: LogError = (m, e) => logger.error(m, e);
-  const notify: Notify = {
-    info: (m) => void vscode.window.showInformationMessage(m),
-    warn: (m) => void vscode.window.showWarningMessage(m),
-    error: async (m) => { await vscode.window.showErrorMessage(m); },
-  };
+  const notify = vscodeNotify;
   // Hook-channel observation for the issue report. A failed agent-side hook says
   // only "exited with code 1"; these counters are the host's half of that.
   const hookChannelRecorder = createHookChannelRecorder();
@@ -3105,6 +3103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // "Open in Window": reveal or mint this ticket's standalone panel.
     (ticketId) => serverLogsManager.open(ticketId),
     logger,
+    buildBaselineRowsLoader({ store: localStore, manifest: currentManifest, storageRoot: baselineReviewRoot(context.globalStorageUri.fsPath) }),
   );
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),
@@ -7746,6 +7745,12 @@ function makeInsideActionHost(
   };
 }
 
+const vscodeNotify: Notify = {
+  info: (m) => void vscode.window.showInformationMessage(m),
+  warn: (m) => void vscode.window.showWarningMessage(m),
+  error: async (m) => { await vscode.window.showErrorMessage(m); },
+};
+
 function makeDashboardActions(
   store: Store,
   ticketId: number,
@@ -8152,6 +8157,9 @@ function makeDashboardActions(
     requestServerLogs: () => requestServerLogs(),
     // Close the combined server logs view and stop polling.
     closeServerLogs: () => closeServerLogs(),
+    // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
+    // all validation and effects live in ops/baselineDecisionOps.ts.
+    ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

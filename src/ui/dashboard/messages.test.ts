@@ -54,6 +54,8 @@ function actions(): DashboardActions {
     setDisabledGate: vi.fn(),
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
+    baselineApprove: vi.fn(),
+    baselineReject: vi.fn(),
     requestStageLog: vi.fn(),
     requestAgentLog: vi.fn(),
     changeBaseRef: vi.fn(),
@@ -680,6 +682,34 @@ describe('inside-action', () => {
     const a = actions();
     routeAction({ type: 'artifact-open-resource', artifactId: 'uat-report', index: 0 }, a);
     expect(a.openArtifactResource).toHaveBeenCalledWith('uat-report', 0);
+  });
+
+  it('routes valid baseline-approve and baseline-reject messages', () => {
+    const a = actions();
+    routeAction({ type: 'baseline-approve', blockId: 'baseline-review', indices: [0, 2] }, a);
+    expect(a.baselineApprove).toHaveBeenCalledWith('baseline-review', [0, 2]);
+    routeAction({ type: 'baseline-reject', blockId: 'baseline-review', index: 1, reason: 'wrong' }, a);
+    expect(a.baselineReject).toHaveBeenCalledWith('baseline-review', 1, 'wrong');
+  });
+
+  it('rejects crafted baseline messages: paths, wrong block, junk indices, bad reasons', () => {
+    const a = actions();
+    const bad = [
+      { type: 'baseline-approve', blockId: '/etc/passwd', indices: [0] },
+      { type: 'baseline-approve', blockId: 'uat-report', indices: [0] },
+      { type: 'baseline-approve', blockId: 'baseline-review', indices: [] },
+      { type: 'baseline-approve', blockId: 'baseline-review', indices: [-1] },
+      { type: 'baseline-approve', blockId: 'baseline-review', indices: [1.5] },
+      { type: 'baseline-approve', blockId: 'baseline-review', indices: '0' },
+      { type: 'baseline-approve', blockId: 'baseline-review', indices: new Array(501).fill(0) },
+      { type: 'baseline-reject', blockId: 'baseline-review', index: -1, reason: 'x' },
+      { type: 'baseline-reject', blockId: 'baseline-review', index: 0 },
+      { type: 'baseline-reject', blockId: 'baseline-review', index: 0, reason: 'x'.repeat(2001) },
+      { type: 'baseline-reject', blockId: 'nope', index: 0, reason: 'x' },
+    ];
+    for (const m of bad) routeAction(m, a);
+    expect(a.baselineApprove).not.toHaveBeenCalled();
+    expect(a.baselineReject).not.toHaveBeenCalled();
   });
 
   it('rejects a crafted artifact-open-resource: paths, negative or fractional indexes, junk ids', () => {
