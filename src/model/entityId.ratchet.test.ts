@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const ROOT = join(__dirname, '..');
-const SKIP_DIR = new Set(['ui', 'node_modules']);
+const SKIP_DIR = new Set(['node_modules']);
 // `#${…}` carrying a PR/revision/run number, not a ticket/draft/session id. Per entry:
 //   pr.number / p.number     GitHub pull-request numbers (the one legitimate `#N`)
 //   *.revisionNumber         graph plan revision counter, not an entity id
