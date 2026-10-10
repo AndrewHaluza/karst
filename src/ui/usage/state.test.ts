@@ -84,7 +84,7 @@ describe('buildUsageState', () => {
     const { byStage } = buildUsageState(store, { projectId: 1, now: NOW });
     expect(byStage.map((r) => [r.key, r.label, r.share])).toEqual([
       ['pr-description', 'PR description', 70],
-      ['ticket-analysis', 'Ticket analysis', 30],
+      ['ticket-analysis', 'Ticket classify', 30],
     ]);
   });
 

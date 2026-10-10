@@ -129,7 +129,7 @@ describe('improveDescription', () => {
     expect(prompts[0]).not.toContain('Primary repository:');
   });
 
-  it('passes tracking.callSite === ticket-analysis and processRunId through', async () => {
+  it('passes tracking.callSite === ticket-improve and processRunId through', async () => {
     const calls: Array<{ tracking?: { callSite: string; processRunId?: number | null } }> = [];
     const adapter: AgentAdapter = {
       requiredBinary: 'claude',
@@ -148,7 +148,7 @@ describe('improveDescription', () => {
       processRunId: 42,
     });
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.tracking?.callSite).toBe('ticket-analysis');
+    expect(calls[0]!.tracking?.callSite).toBe('ticket-improve');
     expect(calls[0]!.tracking?.processRunId).toBe(42);
   });
 

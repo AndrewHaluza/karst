@@ -16,8 +16,14 @@
  */
 
 export const AI_CALL_SITES = [
-  /** The ticket form's coupled ticket analyzer (prompt + approach + repos + type). */
+  /** The ticket form's classify pass (approach + repos + type). */
   'ticket-analysis',
+  /** The ticket form's description rewrite (profile body or built-in). */
+  'ticket-improve',
+  /** The ticket form's canonical intent pass (black-box test charter). */
+  'ticket-intent',
+  /** The ticket form's opt-in code-pointer pass (unverified implementer hints). */
+  'ticket-code-pointers',
   /** The ticket form's per-repository signal-word suggestion. */
   'signal-suggestion',
   /** The ship stage asking for a PR body. */
@@ -65,7 +71,10 @@ export function isAiCallSite(value: unknown): value is AiCallSite {
 
 /** Human label for one call site, for the stats view's rows. */
 const LABELS: Record<AiCallSite, string> = {
-  'ticket-analysis': 'Ticket analysis',
+  'ticket-analysis': 'Ticket classify',
+  'ticket-improve': 'Ticket improve',
+  'ticket-intent': 'Ticket intent',
+  'ticket-code-pointers': 'Ticket code pointers',
   'signal-suggestion': 'Signal suggestion',
   'pr-description': 'PR description',
   'fix-resume': 'Fix resume',

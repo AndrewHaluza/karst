@@ -116,7 +116,7 @@ export async function improveDescription(
     ...(input.model !== undefined ? { model: input.model } : {}),
     ...(input.effort !== undefined ? { effort: input.effort } : {}),
     tracking: {
-      callSite: 'ticket-analysis',
+      callSite: 'ticket-improve',
       ticketId: input.ticketId ?? null,
       processRunId: input.processRunId ?? null,
     },
