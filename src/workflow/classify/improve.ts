@@ -7,13 +7,55 @@
  */
 
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { TicketType } from '../../store/ticketTypes.js';
+import { ROLE_BOUNDARY_LINE, UNTRUSTED_INPUT_RULES, MISSING_INFO_RULES } from './promptRules.js';
 
-/** Built-in description-rewriter prompt used when no profile body is configured. */
-export const BUILT_IN_IMPROVE_PROMPT =
-  'Improve ONE ticket description into a short, precise statement of WHAT to achieve and WHY. ' +
-  'Say WHAT and WHY, not HOW. Do not restate the title. Do not name repos, services, or file paths. ' +
-  "Keep the author's intent and scope EXACTLY. Preserve verbatim: error strings, ids, keys, versions, URLs. " +
-  'If the description is already tight, return it nearly unchanged. Under 120 words.';
+const FEATURE_SHAPE: readonly string[] = [
+  "<one sentence: the change, in the project's own words>",
+  '',
+  '**Why:** <the concrete failure or gap, user-visible where possible>',
+  '',
+  '**Done when:** <0-4 checkable outcomes, each an observable state or behavior>',
+  '',
+  '**Not in scope:** <optional: what the ticket explicitly excludes>',
+];
+
+const BUG_SHAPE: readonly string[] = [
+  "<one sentence: what is broken, in the project's own words>",
+  '',
+  '**Actual:** <what happens now>',
+  '**Expected:** <what should happen>',
+  '**Repro:** <steps, verbatim when given; "unknown" when not>',
+];
+
+/**
+ * Built-in description-rewriter prompt used when no profile body is configured.
+ * A bug (`fix`) gets the Actual/Expected/Repro shape; everything else gets
+ * Why / Done when. A profile body REPLACES this prompt entirely (user ruling).
+ */
+export function buildBuiltInImprovePrompt(ticketType?: TicketType): string {
+  const shape = ticketType === 'fix' ? BUG_SHAPE : FEATURE_SHAPE;
+  return [
+    'Improve ONE ticket description into a short, precise statement of WHAT to achieve and WHY. ' +
+      ROLE_BOUNDARY_LINE,
+    ...UNTRUSTED_INPUT_RULES,
+    '',
+    'Shape (drop any section with nothing real in it):',
+    ...shape,
+    '',
+    'Rules:',
+    '- Say WHAT and WHY, not HOW. No phases, step ordering, or research/plan/approve gates.',
+    '- Do not restate the title. Do not name repos, services, file paths, modules or functions.',
+    '- No boilerplate: "this ticket aims to", "as a user I want", "Background", "Overview", tracker/status/date chatter.',
+    "- Keep the author's intent and scope EXACTLY. An already-tight description comes back nearly unchanged.",
+    '- Preserve verbatim: error strings, ids, ticket keys, versions, URLs, quoted user reports, reproduction steps. Verbatim content does not count toward the word limit.',
+    ...MISSING_INFO_RULES.map((r) => `- ${r}`),
+    '- Under 120 words, excluding verbatim content.',
+  ].join('\n');
+}
+
+/** Kept for existing imports: the feature-shaped built-in prompt. */
+export const BUILT_IN_IMPROVE_PROMPT = buildBuiltInImprovePrompt();
 
 export interface ImproveInput {
   /** The resolved Settings profile body; may be blank. */
@@ -22,6 +64,8 @@ export interface ImproveInput {
   description: string;
   /** Ticket title; may be empty. */
   title: string;
+  /** Effective ticket type (user pick ?? classify type); selects the built-in shape. */
+  ticketType?: TicketType;
   /** The PROJECT ROOT to run in (dirname(dirname(manifestPath))). */
   cwd: string;
   /** The classifier-selected repository's absolute path, rendered as a `Primary repository:` line. Absent → the line is omitted. */
@@ -46,7 +90,7 @@ export async function improveDescription(
 
   const instruction = input.instructions.trim()
     ? input.instructions.trim()
-    : BUILT_IN_IMPROVE_PROMPT;
+    : buildBuiltInImprovePrompt(input.ticketType);
 
   const titleLine = input.title.trim() || '(untitled)';
   const repoLine = input.repoPath
@@ -58,6 +102,7 @@ export async function improveDescription(
     '',
     '## The ticket',
     `Title: ${titleLine}`,
+    ...(input.ticketType ? [`Type: ${input.ticketType}`] : []),
     ...repoLine,
     'Current description to improve:',
     source,
@@ -71,7 +116,7 @@ export async function improveDescription(
     ...(input.model !== undefined ? { model: input.model } : {}),
     ...(input.effort !== undefined ? { effort: input.effort } : {}),
     tracking: {
-      callSite: 'ticket-analysis',
+      callSite: 'ticket-improve',
       ticketId: input.ticketId ?? null,
       processRunId: input.processRunId ?? null,
     },
