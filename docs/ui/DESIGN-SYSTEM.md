@@ -1055,6 +1055,32 @@ END_DOC_BLOCK: [@ui:11.20]
 
 ---
 
+## [@ui:LAYOUT-PRIMITIVES] Layout primitives
+
+Layout vocabulary for UI-RULES group L. Names only existing classes and tokens;
+grep `src/ui/**/*.css` before use. A token is added only when missing, under
+`ui:2-INTRO` and `ui:4`.
+
+- **Region** — a landmark element with `data-region` (`header`, `toolbar`, `main`,
+  `detail`, `matrix`, `footer`).
+- **Section** — one titled group of related controls (UI-R42). Spacing inside a
+  section uses `--k-space-4` (8px); between sections `--k-space-7` (16px), always
+  larger than the inside gap.
+- **Form grid** — label/control rows whose controls share one left edge within a
+  section (UI-R41); fields use `.k-field` (`ui:11.6`).
+- **Data table** — cells align to headers; numeric columns right-aligned with
+  `font-variant-numeric: tabular-nums` (UI-R41).
+- **Master/detail** — side-by-side at ≥700; at ≤699 the detail stacks over the
+  list with a Back control, and selection lives in the hash route (UI-R43, UI-R47).
+- **Content-width cap** — settings content is capped by one width token (UI-R48).
+  No settings content cap exists in current CSS, so the first change that needs it
+  adds `--k-content-max` to the token block per UI-R04, valued from the linked
+  prototype's content measure; it is never a px literal on a page.
+- **Breakpoints** — ≥1000 / 700–999 / ≤699 in `src/ui/layout/layoutBreakpoints.ts`.
+  They bind new and changed pages only; existing settings CSS (1024/768/800/700px)
+  migrates over time via `BREAKPOINT_PINNED_FILES`.
+END_DOC_BLOCK: [@ui:LAYOUT-PRIMITIVES]
+
 ## [@ui:12-INTRO] Accessibility baseline (overview)
 END_DOC_BLOCK: [@ui:12-INTRO]
 

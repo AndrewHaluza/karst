@@ -135,6 +135,17 @@ export function createSender(api: WebviewApi) {
       index: Msg<'artifact-open-resource'>['index'],
       requestId?: string,
     ) => send({ type: 'artifact-open-resource', artifactId, index }, requestId),
+    baselineApprove: (
+      blockId: Msg<'baseline-approve'>['blockId'],
+      indices: Msg<'baseline-approve'>['indices'],
+      requestId?: string,
+    ) => send({ type: 'baseline-approve', blockId, indices }, requestId),
+    baselineReject: (
+      blockId: Msg<'baseline-reject'>['blockId'],
+      index: Msg<'baseline-reject'>['index'],
+      reason: Msg<'baseline-reject'>['reason'],
+      requestId?: string,
+    ) => send({ type: 'baseline-reject', blockId, index, reason }, requestId),
     stageLogRequest: (stage: Msg<'stage-log-request'>['stage'], requestId?: string) =>
       send({ type: 'stage-log-request', stage }, requestId),
     agentLogRequest: (

@@ -42,6 +42,31 @@ try {
   fail(`visual-sweep-gate: tests/visual/.results.json is not valid JSON: ${err.message}`);
 }
 
+/** Flattened specs of a Playwright JSON report, each tagged with the project of its results. */
+function* projectSpecs(node, project) {
+  for (const spec of node.specs ?? []) {
+    for (const t of spec.tests ?? []) {
+      yield { project: t.projectName ?? project, status: t.status, title: spec.title };
+    }
+  }
+  for (const child of node.suites ?? []) yield* projectSpecs(child, project);
+}
+
+function layoutGateProblems(rep) {
+  const specs = [...projectSpecs(rep, undefined)];
+  const ranIn = (name) => specs.filter((s) => s.project === name && s.status !== 'skipped');
+  const problems = [];
+  if (ranIn('layout').length === 0) problems.push('project `layout` ran zero tests');
+  const teardown = ranIn('layout-teardown');
+  if (teardown.length !== 1) problems.push(`project \`layout-teardown\` ran ${teardown.length} test(s), expected exactly 1`);
+  for (const s of specs) {
+    if ((s.project === 'layout' || s.project === 'layout-teardown') && s.status === 'unexpected') {
+      problems.push(`${s.project}: "${s.title}" failed (see the grouped layout output above)`);
+    }
+  }
+  return problems;
+}
+
 const stats = report.stats ?? {};
 const ran =
   (stats.expected ?? 0) + (stats.unexpected ?? 0) + (stats.flaky ?? 0);
@@ -50,6 +75,15 @@ if (ran <= 0) {
   fail(
     `visual-sweep-gate: the sweep executed 0 tests (stats: ${JSON.stringify(stats)}).`,
   );
+}
+
+// Layout-sanity gate (ui:LAYOUT-SANITY). Geometry never fails a `layout` test, so
+// `unexpected` there is a harness error; in `layout-teardown` it is the ledger
+// verdict (a new or stale entry, or a seed/prune refusal). Screenshot diffs in the
+// other projects stay advisory.
+const layoutProblems = layoutGateProblems(report);
+if (layoutProblems.length > 0) {
+  fail(`visual-sweep-gate: layout gate failed:\n- ${layoutProblems.join('\n- ')}`);
 }
 
 console.log(

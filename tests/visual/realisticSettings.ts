@@ -1,5 +1,5 @@
 /**
- * REALISTIC settings state for the layout-sanity gate (`layout.visual.ts`).
+ * REALISTIC settings state for the layout-sanity gate (`layout.layout.ts`).
  *
  * MINIMAL_SETTINGS (corpora.ts) is an empty manifest on the General tab, so it
  * cannot expose a geometry bug on a populated page. This state is built through
@@ -110,6 +110,26 @@ export const REALISTIC_SETTINGS = {
     '1.2.3',
     [{ id: 'tdd', label: 'TDD', recommended: true }],
     { claude: ['claude-sonnet-5-5'] },
+  ),
+  currentSection: 'general',
+};
+
+/** UX-10: the same host shape with 0 presets and 0 local/approach profiles. */
+export const EMPTY_SETTINGS = {
+  ...buildSettingsState(
+    manifest({ backend: runnableRepo({}, { repoPath: '../backend' }) }, { baselineBranch: 'develop' }),
+    null,
+    [],
+    true,
+    ['claude', 'codex', 'antigravity', 'opencode'],
+    [],
+    {},
+    undefined,
+    '/work/project/karst.yml',
+    { value: 'empty-project', derived: false },
+    '1.2.3',
+    [],
+    {},
   ),
   currentSection: 'general',
 };

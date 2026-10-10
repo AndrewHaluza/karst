@@ -322,6 +322,16 @@ export interface GraphApproachConfig {
   limits: GraphLimits;
 }
 
+/** Fixed vocabulary for what an approach output is; checked at load. */
+export const OUTPUT_KINDS = ['plan', 'research', 'spec', 'review', 'meta', 'script', 'other'] as const;
+export type OutputKind = (typeof OUTPUT_KINDS)[number];
+
+/** A repo-relative glob an approach writes artifacts to, with its kind. */
+export interface OutputDef {
+  glob: string;
+  kind: OutputKind;
+}
+
 /**
  * A development approach offered on the ticket form (§ ticket form). `id` is
  * the stable key persisted on a ticket; `recommended` marks the default pick
@@ -336,6 +346,8 @@ export interface ApproachDef {
   source?: ApproachSource; // absent = hand-authored/custom (no fetch)
   recommended?: boolean;
   workflow?: WorkflowPhase[];
+  /** Where this approach writes artifacts; absent = built-in defaults (`effectiveOutputs`). */
+  outputs?: OutputDef[];
   enabled?: boolean; // default true
   /** Nested graph-runtime configuration; present only on graph approaches. */
   graph?: GraphApproachConfig;
@@ -506,6 +518,13 @@ export interface UatConfig {
    * manifest's behavior byte-for-byte.
    */
   testerObservations?: UatTesterObservationsConfig;
+  /**
+   * Opt-in (@arch:BASELINE-REVIEW), manifest-only: repo-relative globs of files
+   * (visual baselines, ratchet ledgers) whose change by a ticket counts only
+   * after the USER approves it in the UAT report. Absent — or an empty `paths`,
+   * which the validator drops — means the feature is off.
+   */
+  baselineReview?: UatBaselineReviewConfig;
   env: Record<string, string>;
   secrets: string[];
   passthrough: string[];
@@ -517,6 +536,11 @@ export interface UatConfig {
 
 /** Closed severity vocabulary for review findings (§6.7's `review_findings.severity`). */
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+export interface UatBaselineReviewConfig {
+  /** Repo-relative git pathspec globs; never empty (an empty list disables the knob). */
+  paths: string[];
+}
 
 export interface UatTesterObservationsConfig {
   /**

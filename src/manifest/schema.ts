@@ -13,6 +13,7 @@ import type {
   SubtaskLimits,
 } from './types.js';
 import { ManifestError } from './error.js';
+import { validateOutputs } from '../approaches/outputs.js';
 import { repoIdCollisions } from '../runtime/repoId.js';
 import {
   isObject,
@@ -127,6 +128,9 @@ function validateApproaches(raw: unknown): ApproachDef[] {
     }
     if (a.workflow !== undefined) {
       approach.workflow = validateWorkflow(a.workflow, `${where}.workflow`);
+    }
+    if (a.outputs !== undefined) {
+      approach.outputs = validateOutputs(a.outputs, `${where}.outputs`);
     }
     if (a.graph !== undefined) {
       assertNoHoistedGraphKeys(a, where);

@@ -192,4 +192,13 @@ describe('planningInstructions pre-proposal checklist', () => {
     expect(text).toContain('"constraints":["@arch:');
     expect(text).toMatch(/List in "constraints" the design rules/);
   });
+
+  it('always carries the static UI block, referenced from the checklist', () => {
+    expect(text).toContain('If the work changes a webview (src/ui/**)');
+    expect(text).toContain('docs/ui/README.md');
+    expect(text).toContain('`data-region` names');
+    expect(text).toMatch(/never call prototype layout "illustrative"/);
+    expect(text.indexOf('If the work changes a webview')).toBeLessThan(text.indexOf('When the user agrees on the work'));
+    expect(text).toMatch(/5\. If the work changes a webview/);
+  });
 });

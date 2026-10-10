@@ -65,6 +65,19 @@ describe('resumeBlockedStage', () => {
     expect(stageBlock(store, id, 'ship')?.kind).toBe('awaiting-merge');
   });
 
+  it('refuses to clear a baseline-review block — only the user\'s Approve/Reject is entitled to', () => {
+    const t = createTicket(store, { key: 'RB-BR', title: 'thing' });
+    setStage(store, t.id, 'uat', {
+      status: 'running',
+      blockedKind: 'baseline-review',
+      blockedReason: '2 visual baseline(s) changed — review in the UAT report',
+      blockedAt: '2026-07-16T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(t.id);
+    expect(resumeBlockedStage(store, t.id, t.id, 'uat')).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, t.id, 'uat')?.kind).toBe('baseline-review');
+  });
+
   it('an approach-graph-failed block returns the typed graph-recovery action, never clears', () => {
     const id = blockedTicket('RB-6', 'impl', 'approach-graph-failed');
     const runId = Number(

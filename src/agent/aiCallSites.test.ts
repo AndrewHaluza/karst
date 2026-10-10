@@ -36,10 +36,17 @@ describe('aiCallSites', () => {
     for (const site of AI_CALL_SITES) {
       expect(aiCallSiteLabel(site)).not.toBe('');
     }
-    expect(aiCallSiteLabel('ticket-analysis')).toBe('Ticket analysis');
+    expect(aiCallSiteLabel('ticket-analysis')).toBe('Ticket classify');
+    expect(aiCallSiteLabel('ticket-intent')).toBe('Ticket intent');
     expect(aiCallSiteLabel('implementation')).toBe('Implementation session');
     expect(aiCallSiteLabel('graph-planner')).toBe('Graph planner');
     expect(aiCallSiteLabel('graph-node')).toBe('Graph node');
     expect(aiCallSiteLabel('made-up')).toBe('made-up');
+  });
+
+  it('names each analysis pass separately', () => {
+    for (const s of ['ticket-analysis', 'ticket-improve', 'ticket-intent', 'ticket-code-pointers']) {
+      expect(AI_CALL_SITES).toContain(s);
+    }
   });
 });

@@ -18,6 +18,22 @@ describe('validateUat', () => {
     });
   });
 
+  it('parses uat.baselineReview.paths and leaves the knob off when absent or empty', () => {
+    expect(validateUat({})?.baselineReview).toBeUndefined();
+    expect(validateUat({ baselineReview: { paths: [] } })?.baselineReview).toBeUndefined();
+    expect(
+      validateUat({ baselineReview: { paths: ['tests/visual/__baselines__/**'] } })?.baselineReview,
+    ).toEqual({ paths: ['tests/visual/__baselines__/**'] });
+  });
+
+  it('refuses a malformed uat.baselineReview', () => {
+    expect(() => validateUat({ baselineReview: 'x' })).toThrow(/uat.baselineReview/);
+    expect(() => validateUat({ baselineReview: { paths: 'x' } })).toThrow(/uat.baselineReview.paths/);
+    expect(() => validateUat({ baselineReview: { paths: [''] } })).toThrow(/uat.baselineReview.paths/);
+    expect(() => validateUat({ baselineReview: { paths: ['/abs/**'] } })).toThrow(/repo-relative/);
+    expect(() => validateUat({ baselineReview: { paths: ['../x'] } })).toThrow(/repo-relative/);
+  });
+
   it('parses a script gate and a shell-free command gate', () => {
     const config = validateUat({
       gates: [

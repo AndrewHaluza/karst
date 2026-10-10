@@ -4,6 +4,7 @@ import type { BranchCandidatesLoader, DashboardPanel } from './panelTypes.js';
 import type { DashboardState } from './state.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
+import type { BaselineReviewRow, BaselineRowsLoader } from './baselineRows.js';
 
 /** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
 function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
@@ -62,17 +63,56 @@ export class SupplementalLoaders {
    * never a host round trip the webview waits on.
    */
   private readonly branchCandidates = new Map<string, string[]>();
+  /** The last baseline rows per ticket (@arch:BASELINE-REVIEW); dies with the panel. */
+  private readonly baselineCache = new Map<number, BaselineReviewRow[]>();
+  private readonly baselineRequests = new Map<number, number>();
 
   constructor(
     private readonly loadStats: WorktreeStatsLoader | undefined,
     private readonly loadGateOptions: GateOptionsLoader | undefined,
     private readonly loadBranchCandidates: BranchCandidatesLoader | undefined,
     private readonly logError: LogError,
+    private readonly loadBaselines?: BaselineRowsLoader,
   ) {}
 
   /** The last resolved gate options for a ticket, if any. */
   gateOptionsFor(ticketId: number): GateOptions | undefined {
     return this.gateOptionsCache.get(ticketId);
+  }
+
+  /** The last loaded baseline rows for a ticket; `[]` until the first load answers. */
+  baselinesFor(ticketId: number): BaselineReviewRow[] {
+    return this.baselineCache.get(ticketId) ?? [];
+  }
+
+  /**
+   * Load the ticket's changed-baseline rows for THIS panel (its URIs are minted
+   * per webview) and re-push only when they changed — otherwise every follow-up
+   * would trigger the next. Only the latest request for a live panel may land.
+   */
+  pushBaselines(
+    ticketId: number,
+    panel: DashboardPanel,
+    settlesActions: boolean,
+    host: SupplementalHost,
+  ): void {
+    if (!this.loadBaselines) return;
+    const request = (this.baselineRequests.get(ticketId) ?? 0) + 1;
+    this.baselineRequests.set(ticketId, request);
+    void this.loadBaselines(ticketId, (path) => panel.asWebviewUri?.(path) ?? path).then(
+      (rows) => {
+        if (!host.isCurrentPanel(ticketId, panel)) return;
+        if (this.baselineRequests.get(ticketId) !== request) return;
+        const previous = this.baselinesFor(ticketId);
+        this.baselineCache.set(ticketId, rows);
+        if (JSON.stringify(previous) !== JSON.stringify(rows)) host.repush(ticketId, settlesActions);
+      },
+      (error) => {
+        if (!host.isCurrentPanel(ticketId, panel)) return;
+        if (this.baselineRequests.get(ticketId) !== request) return;
+        this.logError('karst: dashboard baseline review rows failed', error);
+      },
+    );
   }
 
   /** Cached base-branch candidates for a repoPath; `[]` until fetched. */
@@ -196,5 +236,7 @@ export class SupplementalLoaders {
     this.gateRequests.delete(ticketId);
     this.gateControllers.delete(ticketId);
     this.gateOptionsCache.delete(ticketId);
+    this.baselineCache.delete(ticketId);
+    this.baselineRequests.delete(ticketId);
   }
 }

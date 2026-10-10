@@ -764,6 +764,8 @@ Legitimate local compositions include:
 
 Use shared semantic tokens and primitives where they genuinely fit.
 
+Local composition is bounded by UI-RULES group L (`ui:UI-R39`..`ui:UI-R48`): regions, reading order, alignment, grouping, widths and overflow are not free. A "settings structure" follows the linked prototype's regions and the DESIGN-SYSTEM layout primitives (`ui:LAYOUT-PRIMITIVES`).
+
 Do not distort a composition merely to increase primitive reuse.
 END_DOC_BLOCK: [@ui:SG-21]
 
@@ -890,4 +892,16 @@ END_DOC_BLOCK: [@ui:SG-24]
 - [ ] Mirrored behavior constants remain pinned
 - [ ] Tests/typecheck pass
 - [ ] Real webview verification covers what tests cannot prove
+
+Layout (UI-RULES group L):
+
+- [ ] Linked prototype's regions, order and stacking match (R39); `data-region` names listed
+- [ ] Primary action in header/toolbar; reading order holds (R40)
+- [ ] Alignment, grouping and spacing tokens correct (R41, R42)
+- [ ] Layout holds at all three width tiers; no page horizontal scroll (R43)
+- [ ] Overflow wraps or has a reachable full text; no overlap; one scroll region per pane (R44, R45)
+- [ ] Empty/loading keep layout; selection survives resize and Back (R46, R47)
+- [ ] Settings content capped at the content-width token (R48)
+- [ ] `npm run test:layout` run (advisory); final check via `npm run test:layout:docker`
+- [ ] Screenshot changes approved by the user; no baseline or ledger edit to pass a gate
 END_DOC_BLOCK: [@ui:SG-25]

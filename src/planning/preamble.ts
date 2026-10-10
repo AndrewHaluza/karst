@@ -135,6 +135,7 @@ const PRE_PROPOSAL_CHECKLIST = [
   '2. Check landed and in-flight work on the paths you change: `git -C <repo> log --oneline -30 <base> -- <paths>` and the recent history above.',
   '3. Run `draft list` and check open ticket worktrees (<repo>/.karst/worktrees) for the same files; if a draft already landed, say so instead of revising it.',
   '4. Cite what you relied on in the draft\'s "constraints" (arch keys, commits, D<n>/T<n> refs).',
+  '5. If the work changes a webview (src/ui/**): read docs/ui/README.md; cite `@ui:` keys in constraints; the brief lists routes, states, breakpoint tiers and the `data-region` names; name the layout reference if any; never call prototype layout "illustrative".',
 ];
 
 function enabledRepos(manifest: PlanningManifest): [string, Manifest['repositories'][string]][] {

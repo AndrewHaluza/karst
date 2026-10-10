@@ -1047,6 +1047,167 @@ END_DOC_BLOCK: [@ui:UI-R38]
 
 ---
 
+# L. Layout & placement
+
+Group L decides WHERE things go. A **region** is a named landmark element that
+carries `data-region` (`header`, `toolbar`, `main`, `detail`, `matrix`,
+`footer`, …). The check letters (a–i), the width tiers and the known-failures
+ledger belong to the layout gate; see `docs/ui/README.md` for the read order and
+how to run it. Rules here were filtered from ui-ux-pro-max for desktop VS Code
+webviews at compact density; mobile and touch-target rules are intentionally not
+imported.
+
+## [@ui:UI-R39] A linked prototype's regions, order and stacking are binding
+
+When a ticket links a prototype, its regions, their order and how they stack are
+requirements, not illustration. Where the prototype conflicts with a UI-R rule or
+DESIGN-SYSTEM, the rule and DESIGN-SYSTEM win on tokens, controls and spacing
+values only.
+
+T601 shipped odd placement although a prototype existed, because the prototype
+was described as illustrative. Colors and markup may differ; the layout may not.
+
+**Verification:** VISUAL + REVIEW
+
+**Check:** VISUAL check (g) asserts the `data-region` landmarks exist in the
+prototype's order at each width tier; REVIEW compares the diff against the linked
+prototype and names any region that moved.
+END_DOC_BLOCK: [@ui:UI-R39]
+
+## [@ui:UI-R40] Reading order: header and primary action, then main, then secondary
+
+Order is header with the primary action → main content → secondary or advanced
+content. The primary action sits in the `header` or `toolbar` region.
+
+A user scans top-down; a primary action buried below the content or in a footer
+is found last.
+
+**Verification:** VISUAL
+
+**Check:** VISUAL check (g) asserts region order in the DOM and on screen, and
+that the primary action's box lies inside the `header` or `toolbar` region.
+END_DOC_BLOCK: [@ui:UI-R40]
+
+## [@ui:UI-R41] Table cells align to headers; form controls share a left edge
+
+Table cells align with their column headers. Controls in a form grid share one
+left edge within a section. Numeric columns are right-aligned and use tabular
+figures.
+
+Ragged edges make rows unscannable; proportional digits make numbers jitter.
+
+**Verification:** VISUAL + STATIC
+
+**Check:** VISUAL check (e) compares each cell's left or right edge to its
+header's and the control left edges within a section; STATIC greps numeric
+column styles for `font-variant-numeric: tabular-nums`.
+END_DOC_BLOCK: [@ui:UI-R41]
+
+## [@ui:UI-R42] Related controls share one titled section; between-section gaps exceed inside gaps
+
+Related controls live in one titled section. The gap between sections is larger
+than the gap inside a section, using the spacing tokens named in DESIGN-SYSTEM
+`ui:LAYOUT-PRIMITIVES`.
+
+Proximity is the grouping cue. Equal gaps make unrelated controls look related.
+
+**Verification:** VISUAL + STATIC
+
+**Check:** VISUAL check (h) measures inside-section and between-section gaps;
+STATIC confirms both come from `--k-space-*` tokens.
+END_DOC_BLOCK: [@ui:UI-R42]
+
+## [@ui:UI-R43] Layout holds at all three width tiers and never scrolls the page sideways
+
+Width tiers are ≥1000, 700–999 and ≤699 px (`src/ui/layout/layoutBreakpoints.ts`).
+At ≤699 side-by-side regions stack and the detail view offers Back. A page never
+scrolls horizontally. The tiers bind new and changed pages (pinned via
+`BREAKPOINT_PINNED_FILES`); existing settings CSS (1024/768/800/700px) migrates
+over time.
+
+A VS Code webview is routinely docked narrow or split; layout that only works
+wide breaks in real use.
+
+**Verification:** VISUAL
+
+**Check:** VISUAL checks (a), (f) and (g) run each page at one width per tier:
+no horizontal page scroll, the stack applies at ≤699, region order holds.
+END_DOC_BLOCK: [@ui:UI-R43]
+
+## [@ui:UI-R44] Text wraps by default; truncation always has a reachable full text
+
+Text wraps. Ellipsis is for identifiers and names in fixed cells only, and the
+full text must be visible on expansion or in a keyboard-reachable tooltip
+(UI-R22). An `aria-label` alone is not enough. Long tokens use
+`overflow-wrap:anywhere`.
+
+Silent truncation hides the part of an id, path or message the user needs, and a
+mouse-only tooltip hides it from keyboard users.
+
+**Verification:** VISUAL
+
+**Check:** VISUAL check (d) finds clipped text without a visible or
+keyboard-reachable full form.
+END_DOC_BLOCK: [@ui:UI-R44]
+
+## [@ui:UI-R45] No overlap, no escape, at most one scroll region per pane
+
+Elements do not overlap, nothing escapes its container, and a pane has at most
+one scroll region.
+
+Nested scrollers trap the wheel and hide controls; escaped content covers its
+neighbours (see also UI-R38).
+
+**Verification:** VISUAL
+
+**Check:** VISUAL checks (b), (c) and (c2) assert no box intersection, no box
+outside its region, and one scroll container per pane.
+END_DOC_BLOCK: [@ui:UI-R45]
+
+## [@ui:UI-R46] Empty and loading states keep the layout
+
+An empty or loading state shows its message and action in the same region and at
+the same width as the loaded content.
+
+A state that collapses or jumps the layout makes the page look broken and moves
+the action under the pointer.
+
+**Verification:** VISUAL + RUNTIME
+
+**Check:** the VISUAL `empty` corpus renders each page with no data and compares
+region boxes to the loaded layout; RUNTIME confirms the action is present and
+enabled.
+END_DOC_BLOCK: [@ui:UI-R46]
+
+## [@ui:UI-R47] Selection survives resize and Back; the hash route is the state
+
+The selected item survives a width change and Back. The hash route is the single
+source of that state.
+
+Losing selection when the view crosses a tier forces the user to find their place
+again.
+
+**Verification:** VISUAL
+
+**Check:** VISUAL check (i) selects an item, crosses a tier boundary and uses
+Back, then asserts the same item is selected and the hash is unchanged.
+END_DOC_BLOCK: [@ui:UI-R47]
+
+## [@ui:UI-R48] Settings content is capped at the DESIGN-SYSTEM content-width token
+
+Settings page content is capped at the content-width token defined in
+DESIGN-SYSTEM `ui:LAYOUT-PRIMITIVES`, not a literal.
+
+On a wide window, unbounded lines and forms stretch so far that a label and its
+control sit far apart.
+
+**Verification:** STATIC + VISUAL
+
+**Check:** STATIC finds the token (not a px literal) as `max-width` on the
+settings content container; VISUAL asserts content width ≤ the token at the ≥1000
+tier.
+END_DOC_BLOCK: [@ui:UI-R48]
+
 ## [@ui:APPX-V31] Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
 
 **Version:** 3.1 · **Scope:** the Settings webview only (`src/ui/settings/app/**`),

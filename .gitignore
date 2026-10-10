@@ -100,4 +100,5 @@ tests/visual/.tmp/
 # tell an advisory diff failure apart from a sweep that never ran.
 tests/visual/.results.json
 tests/visual/.layout-report.json
+tests/visual/.layout-shards/
 test-results/

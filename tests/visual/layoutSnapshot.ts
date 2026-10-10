@@ -5,7 +5,7 @@
  * Playwright serializes the function into the page.
  */
 import type { Page } from '@playwright/test';
-import type { LayoutSnapshot } from './layoutChecks.js';
+import type { LayoutSnapshot } from '../../src/ui/layout/layoutChecks.js';
 
 export function collectSnapshot(page: Page): Promise<LayoutSnapshot> {
   return page.evaluate((): LayoutSnapshot => {
@@ -73,6 +73,9 @@ export function collectSnapshot(page: Page): Promise<LayoutSnapshot> {
         colSpan: e instanceof HTMLTableCellElement ? e.colSpan : Number(e.getAttribute('aria-colspan') ?? 1),
         exposesText:
           e.hasAttribute('aria-label') || e.hasAttribute('aria-describedby') || e.hasAttribute('aria-expanded'),
+        hasText: (e.textContent ?? '').trim().length > 0,
+        region: e.getAttribute('data-region'),
+        primaryAction: e.classList.contains('k-btn--primary'),
       });
     }
     const scroller = document.scrollingElement ?? document.documentElement;

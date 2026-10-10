@@ -58,6 +58,8 @@ export const test = base.extend<KarstFixtures>({
       'dark-grayscale': 'dark',
       'dark-reduced-motion': 'dark',
       catalog: 'dark',
+      // Geometry is theme-independent (ui:LAYOUT-SANITY): the layout project is dark-only.
+      layout: 'dark',
     };
     await use((themeMap[name] ?? 'dark') as ThemeId);
   },

@@ -157,6 +157,7 @@ describe('buildStepper', () => {
     expect(cellFor('unmapped-repository').blocked!.resumable).toBe(true);
     expect(cellFor('nothing-to-run').blocked!.resumable).toBe(true);
     expect(cellFor('awaiting-merge').blocked!.resumable).toBe(false);
+    expect(cellFor('baseline-review').blocked!.resumable).toBe(false);
   });
 });
 
