@@ -9,10 +9,40 @@
 import { test as base, expect, type Page } from '@playwright/test';
 import type { ThemeId } from './themes.js';
 import type { ViewId } from './chains.js';
+import { SECTION_LABELS, type SettingsSection } from '../../src/ui/settings/sections.js';
+
+/** A settings route: the outer nav section, plus an optional in-page hash. */
+export interface SettingsRoute {
+  section: SettingsSection;
+  hash?: string;
+}
+
+interface GotoOpts {
+  scenario?: string;
+  route?: SettingsRoute;
+}
 
 interface KarstFixtures {
   theme: ThemeId;
-  gotoView: (view: ViewId, opts?: { scenario?: string }) => Promise<Page>;
+  gotoView: (view: ViewId, opts?: GotoOpts) => Promise<Page>;
+}
+
+/**
+ * Click the settings nav entry for `route.section`, then (if given) assign the
+ * in-page hash. The outer section is not hash-driven, so there is no deep link.
+ */
+async function openRoute(page: Page, route: SettingsRoute): Promise<void> {
+  await page
+    .getByRole('navigation', { name: 'Settings sections' })
+    .getByRole('button', { name: SECTION_LABELS[route.section], exact: true })
+    .click();
+  if (route.hash !== undefined) {
+    await page.evaluate((hash) => {
+      window.location.hash = hash;
+    }, route.hash);
+  }
+  await page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => done())));
+  await page.waitForLoadState('networkidle');
 }
 
 export const test = base.extend<KarstFixtures>({
@@ -33,10 +63,12 @@ export const test = base.extend<KarstFixtures>({
   },
 
   gotoView: async ({ page, theme }, use) => {
-    const goto = async (view: ViewId, opts?: { scenario?: string }) => {
+    const goto = async (view: ViewId, opts?: GotoOpts) => {
       let filename = `${view}.html`;
       if (view === 'dashboard') {
         filename = `dashboard-${opts?.scenario ?? 'pending'}.html`;
+      } else if (view === 'settings' && opts?.scenario !== undefined) {
+        filename = `settings-${opts.scenario}.html`;
       }
       const path = `/${theme}/${filename}`;
       const fullUrl = new URL(path, 'http://127.0.0.1:4317').toString();
@@ -49,6 +81,7 @@ export const test = base.extend<KarstFixtures>({
         if (ready > 0) break;
         await page.waitForTimeout(100);
       }
+      if (opts?.route !== undefined) await openRoute(page, opts.route);
       return page;
     };
     await use(goto);

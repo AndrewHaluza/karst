@@ -5,7 +5,7 @@ export default defineConfig({
     // `scripts/**/*.test.mjs` covers plain-JS CI helper scripts (e.g. the
     // mutation mini report). They stay .mjs so CI runs them directly with
     // `node`, with no build/tsx step between Stryker and the summary.
-    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.mjs'],
+    include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'scripts/**/*.test.mjs', 'tests/visual/**/*.test.ts'],
     // The naming rule (see CONTRIBUTING.md §5) is a filename suffix, not a
     // directory: a file that spawns a real process, binds a real port, or
     // renders a full settings/dashboard jsdom document is named
