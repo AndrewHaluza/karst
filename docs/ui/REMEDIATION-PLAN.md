@@ -6,6 +6,8 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:PHASE-0'):
   awk "/^## \[@ui:PHASE-0\]/,/END_DOC_BLOCK: \[@ui:PHASE-0\]/" docs/ui/REMEDIATION-PLAN.md
 -->
+> **Historical — not guidance; see [docs/ui/README.md](./README.md).**
+
 # UI Remediation Plan — 869eckg0u
 
 Bringing the existing UI into conformance with [UI-RULES.md](./UI-RULES.md).

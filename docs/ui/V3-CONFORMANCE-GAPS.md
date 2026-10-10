@@ -6,6 +6,8 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:G1'):
   awk "/^## \[@ui:G1\]/,/END_DOC_BLOCK: \[@ui:G1\]/" docs/ui/V3-CONFORMANCE-GAPS.md
 -->
+> **Historical — not guidance; see [docs/ui/README.md](./README.md).**
+
 # v3.0 conformance gaps — the replacement backlog
 
 The v3.0 contract ([UI-RULES.md](./UI-RULES.md),

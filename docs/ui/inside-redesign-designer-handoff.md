@@ -6,6 +6,8 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'ui:SEC-01'):
   awk "/^## \[@ui:SEC-01\]/,/END_DOC_BLOCK: \[@ui:SEC-01\]/" docs/ui/inside-redesign-designer-handoff.md
 -->
+> **Historical — not guidance; see [docs/ui/README.md](./README.md).**
+
 # Inside Redesign — Designer Handoff
 
 **Audience:** Karst product and UI design team
