@@ -380,6 +380,20 @@ function validateArchiveDoneAfterDays(raw: unknown): number {
   return raw;
 }
 
+/** Parse the optional `artifacts` block; absent stays absent (keep forever). */
+function validateArtifacts(raw: unknown): { maxAgeDays?: number } | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new ManifestError('artifacts must be a mapping');
+  }
+  const maxAgeDays = (raw as Record<string, unknown>).maxAgeDays;
+  if (maxAgeDays === undefined) return {};
+  if (typeof maxAgeDays !== 'number' || !Number.isInteger(maxAgeDays) || maxAgeDays < 1) {
+    throw new ManifestError('artifacts.maxAgeDays must be a positive whole number of days');
+  }
+  return { maxAgeDays };
+}
+
 /** Default sub-task concurrency caps (`0` = unlimited). */
 export const DEFAULT_SUBTASK_LIMITS: SubtaskLimits = {
   maxConcurrentPerParent: 2,
@@ -664,6 +678,7 @@ export function validateManifest(raw: unknown): Manifest {
     activeAgentPreset,
     defaultAgentPreset,
     archiveDoneAfterDays: validateArchiveDoneAfterDays(raw.archiveDoneAfterDays),
+    artifacts: validateArtifacts(raw.artifacts),
     subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(

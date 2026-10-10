@@ -794,6 +794,12 @@ export interface Manifest {
    */
   archiveDoneAfterDays?: number;
   /**
+   * Artifact store retention. Absent = keep forever (the default); a positive
+   * `maxAgeDays` lets the periodic sweep purge a ticket's store once its
+   * newest revision is older than that.
+   */
+  artifacts?: { maxAgeDays?: number };
+  /**
    * Sub-task auto-start concurrency caps (`0` = unlimited). Always set by
    * `validateManifest` (2 per parent / 4 per project when absent).
    */

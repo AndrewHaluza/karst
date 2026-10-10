@@ -18,7 +18,9 @@ import { join } from 'node:path';
 // `ops/planningConstraintChecks.ts`.
 // Raised by 10 for the sub-task provider sync binding (`syncSubtask: makeSubtaskSync({...})`
 // in the lifecycle deps + 2 imports; logic is in `ops/subtaskSyncOps.ts`).
-const MAX_EXTENSION_LINES = 8441;
+// Raised by 2 for the artifact-store retention binding (one import + one
+// `sweepArtifactRetention` line in the PR-sync tick; logic is in `src/artifacts/retention.ts`).
+const MAX_EXTENSION_LINES = 8443;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

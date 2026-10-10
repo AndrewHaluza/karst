@@ -156,6 +156,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Optional: written when the manifest carries it, omitted (undefined →
     // dropped by the dumper, overriding any stale raw value) when it does not,
     // so a manifest that never had the block does not gain one on Save.
+    artifacts: manifest.artifacts,
     subtasks: manifest.subtasks,
     // Optional: written when set, dropped (undefined → omitted by the dumper,
     // overriding any stale raw value) when cleared, so it falls back to "debug

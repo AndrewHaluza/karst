@@ -1763,6 +1763,44 @@ describe('worktreePathDisplay', () => {
   });
 });
 
+describe('artifacts.maxAgeDays', () => {
+  it('is absent by default (keep forever)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).artifacts).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses a positive whole number of days', () => {
+    const { path, cleanup } = fixture(`${VALID}\nartifacts:\n  maxAgeDays: 30\n`);
+    try {
+      expect(loadManifest(path).artifacts).toEqual({ maxAgeDays: 30 });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['0', '1.5', 'soon'])('rejects maxAgeDays %s', (v) => {
+    const { path, cleanup } = fixture(`${VALID}\nartifacts:\n  maxAgeDays: ${v}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/artifacts\.maxAgeDays/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-mapping block', () => {
+    const { path, cleanup } = fixture(`${VALID}\nartifacts: 5\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/artifacts must be a mapping/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('archiveDoneAfterDays', () => {
   it('defaults to 3 days when omitted', () => {
     const { path, cleanup } = fixture(VALID);

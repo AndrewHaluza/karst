@@ -351,6 +351,7 @@ import { nowIso } from './model/time.js';
 import { settleShipGates } from './workflow/mergeGate.js';
 import { integrateAndReleaseParent, isIntegrating, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
 import { autoArchiveDoneTickets } from './store/doneArchive.js';
+import { sweepArtifactRetention } from './artifacts/retention.js';
 import { capForGate, lastFailedGate, type GateStageKey } from './workflow/fixAttempts.js';
 import { resumeConfiguredFixExecution } from './workflow/fixExecution.js';
 import { findTicketPr } from './store/prs.js';
@@ -5597,6 +5598,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (e) {
         logError('karst: done ticket auto-archive failed', e);
       }
+      await sweepArtifactRetention({ globalStorageRoot: context.globalStorageUri.fsPath, projectId: project.id, manifest: currentManifest(), debug: (m) => logger.debug(m), logError });
       // The ticket sweep above only stamps `archived_at`; it never removes the
       // worktree folder, so an auto-archived ticket's dir would sit on disk
       // forever — the archive-compact plan's 'No auto-sweep' gap. This rides
