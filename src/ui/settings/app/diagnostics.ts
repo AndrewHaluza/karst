@@ -80,10 +80,8 @@ export function sectionForError(raw: string | null): SettingsSection | null {
   if (/\bapproach(es)?\b/.test(msg)) return 'approaches';
   if (/^agents?\b/.test(msg)) return 'agents';
   if (/^processes\b/.test(msg)) return 'agents';
-  // The preset vocabulary lives on its own tab. Matched BEFORE the general list
-  // because `agentPresets`/`activeAgentPreset`/`defaultAgentPreset` all start
-  // with "agent" and would otherwise fall through to `^agents?`.
-  if (/\b(agentPresets|activeAgentPreset|defaultAgentPreset)\b/.test(msg)) return 'presets';
+  // The preset vocabulary lives on the Agents page too.
+  if (/\b(agentPresets|activeAgentPreset|defaultAgentPreset)\b/.test(msg)) return 'agents';
   if (/^uat\b|^review\b/.test(msg)) return 'quality';
   if (/^(host|portRange|baselineBranch|ticketLabelTemplate|agentProvider)\b/.test(msg)) {
     return 'general';

@@ -140,7 +140,6 @@ const SETTINGS_SECTIONS = [
   'services',
   'approaches',
   'agents',
-  'presets',
   'quality',
   'ticketing',
 ];

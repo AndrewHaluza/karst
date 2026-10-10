@@ -427,7 +427,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
         defaultEffort: 'ultracode', // Sonnet 5 advertises low/medium/high only
         approaches: [],
       },
-      'general',
+      'agents',
     );
 
     expect(writes).toEqual([]);
@@ -455,7 +455,7 @@ describe('settings actions — graph configuration saves (Slice-1 T6)', () => {
         defaultEffort: 'max',
         approaches: [],
       },
-      'general',
+      'agents',
     );
 
     expect(writes).toHaveLength(1);

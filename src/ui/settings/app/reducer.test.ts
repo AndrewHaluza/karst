@@ -452,7 +452,7 @@ describe('error attribution (the reducer-adjacent display selectors)', () => {
   it('points a fault at the tab that owns it', () => {
     expect(sectionForError('Invalid karst.yml: repository "api" service.docker.image is required')).toBe('services');
     expect(sectionForError('Invalid karst.yml: conventions.x is not a valid form')).toBe('git');
-    expect(sectionForError('Invalid karst.yml: activeAgentPreset names no preset')).toBe('presets');
+    expect(sectionForError('Invalid karst.yml: activeAgentPreset names no preset')).toBe('agents');
     expect(sectionForError('Invalid karst.yml: processes.p1 is missing a role')).toBe('agents');
     expect(sectionForError('Invalid karst.yml: review must name a core')).toBe('quality');
     expect(sectionForError('Invalid karst.yml: portRange min exceeds max')).toBe('general');

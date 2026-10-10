@@ -228,6 +228,7 @@ repositories:
             agent: 'tester',
             provider: 'claude',
             model: 'claude-opus-5.5',
+            pinned: true,
             preset: 'expensive',
           },
           review: {

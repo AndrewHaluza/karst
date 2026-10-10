@@ -25,7 +25,6 @@ export const SETTINGS_SECTIONS = [
   'services',
   'approaches',
   'agents',
-  'presets',
   'ticketing',
   'quality',
 ] as const;
@@ -39,7 +38,6 @@ export const SECTION_LABELS: Record<SettingsSection, string> = {
   services: 'Repositories',
   approaches: 'Approaches',
   agents: 'Agents',
-  presets: 'Presets',
   ticketing: 'Ticketing',
   quality: 'Quality',
 };
@@ -52,9 +50,6 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'worktreePathDisplay',
     'ticketLabelTemplate',
     'terminalNameTemplate',
-    'agentProvider',
-    'defaultModel',
-    'defaultEffort',
     'archiveDoneAfterDays',
     'debug',
     'closeDoneTerminalsWithTicket',
@@ -64,14 +59,33 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   git: ['conventions'],
   services: ['repositories'],
   approaches: ['approaches'],
-  agents: ['agents', 'processes'],
-  // The Presets tab owns the whole preset vocabulary (§5): the map, the active
-  // selection and the deprecated alias it renames on Save. Nothing preset-
-  // related is claimed by General any more.
-  presets: ['agentPresets', 'activeAgentPreset', 'defaultAgentPreset'],
+  // ONE Agents page owns every agent-identity field: the Default row
+  // (agentProvider/defaultModel/defaultEffort), the per-role pins (`processes`),
+  // the preset vocabulary (the map, the active selection and the deprecated
+  // alias it renames on Save) and the agent profiles. An edit there always lands
+  // in the layer that wins, so nothing is claimed by General or a Presets tab.
+  agents: [
+    'agentProvider',
+    'defaultModel',
+    'defaultEffort',
+    'agents',
+    'processes',
+    'agentPresets',
+    'activeAgentPreset',
+    'defaultAgentPreset',
+  ],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],
 };
+
+/**
+ * The retired Presets tab folded into Agents: an old `presets` section name
+ * (a stale webview, a saved link) redirects there instead of being dropped.
+ */
+export function normalizeSection(value: unknown): SettingsSection | undefined {
+  if (value === 'presets') return 'agents';
+  return isSettingsSection(value) ? value : undefined;
+}
 
 export function isSettingsSection(value: unknown): value is SettingsSection {
   return (

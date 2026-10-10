@@ -104,12 +104,12 @@ export interface SettingsProcessAssignmentView {
 
 /** Handoff §7 role labels — the primary user-facing names. */
 const ROLE_LABELS: Record<ProcessKey, string> = {
-  uatTester: 'UAT Tester',
-  uatFix: 'UAT Fix',
-  review: 'Review',
-  reviewFix: 'Review Fix',
+  uatTester: 'UAT Agent',
+  uatFix: 'UAT Fix Agent',
+  review: 'Review Agent',
+  reviewFix: 'Review Fix Agent',
   prDescription: 'PR description',
-  ticketAnalysis: 'Ticket analysis',
+  ticketAnalysis: 'Ticket Analysis Agent',
   planning: 'Planner',
 };
 

@@ -14,10 +14,11 @@ describe('validateProcessAssignments', () => {
           agentName: 'My UAT Agent',
           provider: 'codex',
           model: 'gpt-5.6-sol',
+          pinned: true,
           enabled: false,
         },
-        review: { provider: 'antigravity' },
-        ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro' },
+        review: { provider: 'antigravity', pinned: true },
+        ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', pinned: true },
       },
     );
     expect(result).toEqual({
@@ -26,10 +27,11 @@ describe('validateProcessAssignments', () => {
         agentName: 'My UAT Agent',
         provider: 'codex',
         model: 'gpt-5.6-sol',
+        pinned: true,
         enabled: false,
       },
-      review: { provider: 'antigravity', enabled: true },
-      ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', enabled: true },
+      review: { provider: 'antigravity', pinned: true, enabled: true },
+      ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', pinned: true, enabled: true },
     });
   });
 
@@ -103,10 +105,10 @@ describe('validateProcessAssignments', () => {
   // source able to outrank the profile shown in Settings.
   it('drops a legacy instructions value instead of failing the load', () => {
     const result = validateProcessAssignments({
-      uatTester: { instructions: 'Focus on API endpoint behavior.', provider: 'codex' },
+      uatTester: { instructions: 'Focus on API endpoint behavior.', provider: 'codex', pinned: true },
       review: { instructions: ['not even a string'] },
     });
-    expect(result?.uatTester).toEqual({ provider: 'codex', enabled: true });
+    expect(result?.uatTester).toEqual({ provider: 'codex', pinned: true, enabled: true });
     expect(result?.review).toEqual({ enabled: true });
   });
 
@@ -153,12 +155,29 @@ describe('validateProcessAssignments', () => {
 
   it('accepts the planning process key and its provider/model', () => {
     const result = validateProcessAssignments({
-      planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5' },
+      planning: { provider: 'opencode', model: 'opencode-go/mimo-v2.5', pinned: true },
     });
     expect(result?.planning).toEqual({
       provider: 'opencode',
       model: 'opencode-go/mimo-v2.5',
+      pinned: true,
       enabled: true,
     });
+  });
+
+  it('rejects core fields on an unpinned row with a fix hint', () => {
+    expect(() => validateProcessAssignments({ planning: { provider: 'opencode' } })).toThrow(
+      /processes\.planning sets provider\/model\/effort without `pinned: true`.*agentPresets/s,
+    );
+    expect(() => validateProcessAssignments({ review: { effort: 'high' } })).toThrow(/pinned: true/);
+  });
+
+  it('requires a provider on a pin and a boolean pinned flag', () => {
+    expect(() => validateProcessAssignments({ review: { pinned: true, model: 'x' } })).toThrow(
+      /processes\.review\.provider is required/,
+    );
+    expect(() => validateProcessAssignments({ review: { pinned: 'yes' } })).toThrow(
+      /processes\.review\.pinned must be a boolean/,
+    );
   });
 });

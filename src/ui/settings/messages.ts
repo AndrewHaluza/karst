@@ -3,7 +3,7 @@ import type { SettingsState } from './state.js';
 import type { SettingsProcessAssignmentView } from './processAssignmentViews.js';
 import type { TicketList } from '../../integrations/ticketing.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
-import { isSettingsSection, type SettingsSection } from './sections.js';
+import { normalizeSection, type SettingsSection } from './sections.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
 
 /** Webview → host messages. The webview is untrusted; parse before use. */
@@ -210,11 +210,12 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
       if (!isRecord(raw.manifest)) return null;
       // An unrecognized section is DROPPED, never downgraded to a whole-manifest
       // save — widening the write is the failure mode this scoping exists to stop.
-      if (raw.section !== undefined && !isSettingsSection(raw.section)) return null;
+      const section = normalizeSection(raw.section);
+      if (raw.section !== undefined && section === undefined) return null;
       return {
         type: 'save',
         manifest: raw.manifest as unknown as Manifest,
-        ...(raw.section !== undefined ? { section: raw.section as SettingsSection } : {}),
+        ...(section !== undefined ? { section } : {}),
       };
     }
     case 'validate':

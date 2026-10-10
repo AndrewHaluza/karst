@@ -1,3 +1,4 @@
+import { buildBuiltInPrompts, type BuiltInPrompts } from './builtInPrompts.js';
 import type { AgentProvider, ApproachDef, Manifest } from '../../manifest/types.js';
 import { sortAgentRowsByProvenance } from './agentGrouping.js';
 import {
@@ -20,7 +21,7 @@ import {
  * A row for the Agents tab: one selectable single-subagent (local file or
  * approach artifact), whether it's enabled (manifest `agents[name].enabled`,
  * default true), and its editable body — the file contents for a local file,
- * `null` for an approach artifact (those aren't edited here, only installed).
+ * the approach artifact's text for an approach agent (read-only here; managed in the approach).
  */
 export interface SettingsAgentRow {
   name: string;
@@ -88,6 +89,11 @@ export interface SettingsState {
    * cannot render a group whose labels it had to remember itself (UI-R31).
    */
   presetGroups: PresetCapabilityGroupView[];
+  /**
+   * The real built-in prompt behind each prompt-bearing role (key = process key;
+   * null = a fixed-prompt role), rendered read-only on the Agents page.
+   */
+  builtInPrompts: BuiltInPrompts;
   /** Absolute path of the manifest this window reads. Displayed, never edited. */
   manifestPath: string;
   /**
@@ -141,6 +147,7 @@ export function buildSettingsState(
     ),
     presetInheritance: buildPresetInheritanceViews(manifest, models),
     presetGroups: buildPresetCapabilityGroups(),
+    builtInPrompts: buildBuiltInPrompts(),
     manifestPath,
     projectSlug,
     version,

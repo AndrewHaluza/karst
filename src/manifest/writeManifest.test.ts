@@ -247,9 +247,10 @@ describe('writeManifest', () => {
             agentName: 'UAT Author',
             provider: 'codex',
             model: 'gpt-5.6-sol',
+            pinned: true,
             enabled: true,
           },
-          review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', enabled: false },
+          review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true, enabled: false },
         },
         worktreePathDisplay: 'absolute',
         ticketLabelTemplate: '{key} · {stage} · {status}',
@@ -675,6 +676,8 @@ processes:
           model: 'gpt-5.6-sol',
           // The retired `instructions:` in the fixture is dropped at load, so
           // the write cannot carry it back out either — one prompt source.
+          // No preset exists, so the legacy core fields became pins.
+          pinned: true,
           enabled: true,
         },
       });

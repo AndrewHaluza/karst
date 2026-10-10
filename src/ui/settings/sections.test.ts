@@ -5,6 +5,7 @@ import {
   SECTION_LABELS,
   isSettingsSection,
   mergeSection,
+  normalizeSection,
 } from './sections.js';
 import type { Manifest } from '../../manifest/types.js';
 import { fullPreset, manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
@@ -71,6 +72,21 @@ describe('settings sections — vocabulary', () => {
     );
   });
 
+  it('owns the agent identity fields on the one Agents page, not General', () => {
+    expect(SECTION_FIELDS.agents).toEqual(
+      expect.arrayContaining(['agentProvider', 'defaultModel', 'defaultEffort', 'processes', 'agentPresets', 'activeAgentPreset', 'defaultAgentPreset', 'agents']),
+    );
+    expect(SECTION_FIELDS.general).not.toContain('agentProvider');
+    expect((SETTINGS_SECTIONS as readonly string[]).includes('presets')).toBe(false);
+  });
+
+  it('redirects the retired presets section to agents', () => {
+    expect(normalizeSection('presets')).toBe('agents');
+    expect(normalizeSection('agents')).toBe('agents');
+    expect(normalizeSection('constructor')).toBeUndefined();
+    expect(normalizeSection(undefined)).toBeUndefined();
+  });
+
   it('narrows an untrusted section name', () => {
     expect(isSettingsSection('general')).toBe(true);
     expect(isSettingsSection('constructor')).toBe(false);
@@ -135,7 +151,7 @@ describe('settings sections — mergeSection', () => {
       agentPresets: { deep: fullPreset('claude', 'claude-sonnet-5') },
       activeAgentPreset: 'deep',
     };
-    const merged = mergeSection(base, incoming, 'presets');
+    const merged = mergeSection(base, incoming, 'agents');
 
     // agentPresets is CLAIMED by the presets tab (the editor writes it), so a
     // Presets Save writes the draft's map — not the baseline's — and the
@@ -144,13 +160,13 @@ describe('settings sections — mergeSection', () => {
     expect(merged.agentPresets).toEqual(incoming.agentPresets);
     expect(merged.activeAgentPreset).toBe('deep');
     expect(merged.defaultAgentPreset).toBe('fast');
-    // The presets tab owns no other field, so a General field is untouched.
+    // The Agents page owns no General field, so a General field is untouched.
     expect(merged.host).toBe(BASE.host);
 
     // The editor deletes the key when the last preset goes, and an absent field
     // means "cleared" — the baseline's map must not be carried forward.
     const { agentPresets: _cleared, ...without } = incoming;
-    expect(mergeSection(base, without as Manifest, 'presets').agentPresets).toBeUndefined();
+    expect(mergeSection(base, without as Manifest, 'agents').agentPresets).toBeUndefined();
   });
 
   it('a quality save leaves every other section untouched', () => {

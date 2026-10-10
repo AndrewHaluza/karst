@@ -1,126 +1,58 @@
 /**
- * COMPONENT-mode tests for the Agents tab (NDL-126 §9.5, phase 3 step 3).
+ * COMPONENT-mode tests for the Agents page (Roles + Agent profiles tabs).
  *
- * The load-bearing assertions:
- *
- * - **the roster is the HOST's pool, in the HOST's order** — file agents first,
- *   then approach agents grouped by `approachId`. The component derives no
- *   ordering and no identity (UI-R10c): a name is a name the host sent.
- * - **approach agents are read-only** — a switch and their owning approach, with
- *   no body editor and no Delete, because their prompt lives in the approach.
- * - **a saved profile the pool no longer offers stays VISIBLE** as its own option:
- *   silently dropping it would save an empty value away and quietly un-configure
- *   a working assignment.
- * - **the assignment rows SPREAD `processes`** — rebuilding the map from the
- *   rendered rows would drop a key the tab does not render, and the host's
- *   `mergeSection` deletes a field the incoming manifest no longer carries, so a
- *   rebuilt block silently deletes configuration (D1/D3).
- * - **a cleared optional value is DELETED**, not written as `''`.
- * - **the body editor is a local buffer** — typing must not write a file, and the
- *   Save is disabled until the buffer differs from the host's body.
- * - **the island's DOM survives a re-render** (R-X3).
+ * The state-dependent rendering rules run against the real document in
+ * `renderedAgents.render.integration.test.tsx`; the layer rules (where an edit
+ * lands) are pinned in `rolesModel.test.ts`. This file proves the wiring: the
+ * tablist and its hash, the source chips, edits landing in the winning layer,
+ * compare, and the profile texts.
  */
 // @vitest-environment jsdom
 import { act } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Manifest } from '../../../../manifest/types.js';
 import { AnnouncerProvider } from '../primitives/LiveRegion.js';
 import { SettingsAppProvider } from '../SettingsAppContext.js';
 import { createTestBridge, type TestBridge } from '../testBridge.js';
-import { buildSettingsState } from '../../state.js';
-import type { SettingsAgentRow } from '../../state.js';
-import type { SettingsProcessAssignmentView } from '../../processAssignmentViews.js';
 import { FIXTURE_MANIFEST } from '../testFixtures.js';
+import { buildSettingsState, type SettingsAgentRow } from '../../state.js';
+import type { AgentPickerOptions } from '../hostBridge.js';
 import { AgentsSection } from './AgentsSection.js';
 import { AppProbe, readProbe, type AppProbeShape } from './AppProbe.js';
 
-afterEach(cleanup);
-
-/** The stand-in vanilla picker writes a node it owns and records its options. */
-let pickerOptions: unknown[] = [];
-let pickerCalls = 0;
+const pickers = new Map<HTMLElement, AgentPickerOptions>();
 
 beforeEach(() => {
-  pickerOptions = [];
-  pickerCalls = 0;
-  (globalThis as unknown as Record<string, unknown>).mountAgentPicker = (
-    root: HTMLElement,
-    opts: unknown,
-  ) => {
-    pickerCalls += 1;
-    pickerOptions.push(opts);
-    if (root.childElementCount === 0) {
-      const owned = document.createElement('span');
-      owned.dataset.pickerOwned = 'true';
-      root.appendChild(owned);
-    }
+  pickers.clear();
+  window.location.hash = '';
+  (globalThis as unknown as Record<string, unknown>).mountAgentPicker = (root: HTMLElement, opts: AgentPickerOptions) => {
+    pickers.set(root, opts);
   };
 });
-
 afterEach(() => {
+  cleanup();
   delete (globalThis as unknown as Record<string, unknown>).mountAgentPicker;
 });
 
 const AGENTS: SettingsAgentRow[] = [
-  { name: 'review', source: 'file', enabled: true, body: 'review body' },
-  { name: 'tdd-one', source: 'approach', approachId: 'tdd', enabled: true, body: null },
-  { name: 'tdd-two', source: 'approach', approachId: 'tdd', enabled: false, body: null },
+  { name: 'reviewer', source: 'file', enabled: true, body: 'local reviewer text' },
+  { name: 'plan', source: 'approach', approachId: 'speckit', enabled: true, body: 'approach plan text' },
 ];
 
-const VIEWS: SettingsProcessAssignmentView[] = [
-  {
-    key: 'review',
-    roleLabel: 'Review findings',
-    description: 'Runs after the review pass',
-    state: 'ok',
-    stateTone: 'note',
-    stateMessage: '',
-    invalidField: null,
-    profileOptions: ['review', 'tdd-one'],
-    effectiveProvider: 'claude',
-    effectiveModel: 'claude-sonnet',
-    profileHint: 'Default: Review Agent',
-    coreHint: '',
-    modelHint: '',
-    effortHint: '',
-  } as unknown as SettingsProcessAssignmentView,
-  {
-    key: 'uatTester',
-    roleLabel: 'UAT Tester',
-    description: 'Runs after required UAT gates pass',
-    state: 'unknown-profile',
-    stateTone: 'error',
-    stateMessage: 'That agent profile no longer exists.',
-    invalidField: 'agent',
-    profileOptions: ['tdd-one'],
-    effectiveProvider: null,
-    effectiveModel: undefined,
-    profileHint: '',
-    coreHint: '',
-    modelHint: '',
-    effortHint: '',
-  } as unknown as SettingsProcessAssignmentView,
-];
-
-const BASE: Manifest = {
+const BASE = {
   ...FIXTURE_MANIFEST,
-  // `draft.agents` is the obsolete role/command shape; the ROSTER comes from the
-  // host pool. Only the body is carried here.
-  agents: { review: { body: 'review body' } } as unknown as Manifest['agents'],
-  processes: {
-    review: { agent: 'review', agentName: '', enabled: true, inertKeyKarstNeverRenders: 'keep me' },
-    // A saved profile the pool no longer offers.
-    uatTester: { agent: 'retired-profile', enabled: true },
-  } as unknown as Manifest['processes'],
-};
+  agentProvider: 'opencode',
+  defaultModel: 'opencode-go/deepseek-v4-flash',
+  agentPresets: {
+    A: { slots: { planning: { provider: 'claude', model: 'claude-opus-5' }, review: { provider: 'claude', model: 'claude-opus-5' } } },
+    B: { slots: { planning: { provider: 'antigravity', model: 'gemini-3.8-flash-medium' } } },
+  },
+  activeAgentPreset: 'A',
+  processes: { review: { agent: 'reviewer' } },
+} as unknown as Manifest;
 
-let probeRef: (() => AppProbeShape) | null = null;
-
-function mount(manifest: Manifest = BASE, agents: readonly SettingsAgentRow[] = AGENTS): {
-  bridge: TestBridge;
-  probe(): AppProbeShape;
-} {
+function mount(manifest: Manifest = BASE): { bridge: TestBridge; probe: () => AppProbeShape } {
   const bridge = createTestBridge();
   const view = render(
     <AnnouncerProvider>
@@ -133,231 +65,178 @@ function mount(manifest: Manifest = BASE, agents: readonly SettingsAgentRow[] = 
   act(() =>
     bridge.push({
       type: 'state',
-      state: buildSettingsState(manifest, null, ['tdd'], true, ['claude'], [...agents], { tdd: ['karst-tdd'] }, undefined, '/repo/karst.yml'),
+      state: buildSettingsState(manifest, null, [], true, ['claude', 'opencode'], AGENTS, {}, undefined, '/repo/karst.yml'),
     }),
   );
-  // The assignment views arrive in their OWN message, not on the `state` push.
-  act(() => bridge.push({ type: 'process-assignment-views', rows: VIEWS }));
-  const probe = (): AppProbeShape => readProbe(view.baseElement);
-  probeRef = probe;
-  return { bridge, probe };
+  return { bridge, probe: () => readProbe(view.baseElement) };
 }
 
-function live(): AppProbeShape {
-  if (!probeRef) throw new Error('mount() has not run in this test');
-  return probeRef();
-}
+const row = (cap: string): HTMLElement => {
+  const el = document.querySelector(`[data-role="${cap}"]`);
+  if (!(el instanceof HTMLElement)) throw new Error(`no row ${cap}`);
+  return el;
+};
+const pickerOf = (cap: string): AgentPickerOptions => {
+  const root = row(cap).querySelector('.agent-picker-island') as HTMLElement;
+  const opts = pickers.get(root);
+  if (!opts) throw new Error(`no picker mounted for ${cap}`);
+  return opts;
+};
+const draftOf = (probe: () => AppProbeShape): Manifest => probe().draft as Manifest;
 
-function processes(): Record<string, Record<string, unknown>> {
-  return ((live().draft as { processes?: Record<string, Record<string, unknown>> }).processes ??
-    {}) as Record<string, Record<string, unknown>>;
-}
-
-function setValue(name: string, value: string): void {
-  const el = document.querySelector(`[name="${name}"]`) as HTMLInputElement | null;
-  if (!el) throw new Error(`no control named ${name}`);
-  const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
-  if (!setter) throw new Error(`no value setter on ${name}`);
-  setter.call(el, value);
-  // act() flushes the draft commit, which Field schedules as a transition.
-  act(() => {
-    el.dispatchEvent(new Event('input', { bubbles: true }));
-    el.dispatchEvent(new Event('change', { bubbles: true }));
-  });
-}
-
-describe('AgentsSection — the roster is the host pool, in host order', () => {
-  it('renders every host row and names the owning approach for approach agents', () => {
+describe('Agents page — tabs and location', () => {
+  it('renders a tablist with Roles and Agent profiles (n), arrow keys switch, the hash follows', () => {
     mount();
-    expect(document.body.textContent).toContain('review');
-    expect(document.body.textContent).toContain('tdd-one');
-    // The approach id is shown, so a row's provenance is never guessed.
-    expect(document.querySelector('.agent-appr-head .appr-id')?.textContent).toBe('tdd');
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Roles', 'Agent profiles (2)']);
+    expect(tabs[0]!.getAttribute('aria-selected')).toBe('true');
+    fireEvent.keyDown(tabs[0]!, { key: 'ArrowRight' });
+    expect(screen.getAllByRole('tab')[1]!.getAttribute('aria-selected')).toBe('true');
+    expect(window.location.hash).toBe('#agents/profiles');
+    fireEvent.keyDown(screen.getAllByRole('tab')[1]!, { key: 'ArrowLeft' });
+    expect(window.location.hash).toBe('#agents/roles');
   });
 
-  it('emits one group header per approach id', () => {
+  it('redirects an old Presets hash to the Roles tab', () => {
+    window.location.hash = '#presets';
     mount();
-    expect(document.querySelectorAll('.agent-appr-head')).toHaveLength(1);
-  });
-
-  it('shows the enabled count as the hero stat', () => {
-    mount();
-    expect(document.querySelector('.agent-hero .stat')?.textContent?.replace(/\s+/g, '')).toBe('2/3');
-  });
-
-  it('renders the empty state when the host pool is empty', () => {
-    // The roster is the HOST pool, so an empty pool is what shows the empty
-    // state — not an empty manifest.
-    mount({ ...FIXTURE_MANIFEST }, []);
-    expect(document.body.textContent).toContain('No agents yet');
+    expect(screen.getAllByRole('tab')[0]!.getAttribute('aria-selected')).toBe('true');
   });
 });
 
-describe('AgentsSection — approach agents are read-only', () => {
-  it('gives an approach row a switch but no body editor and no Delete', () => {
-    mount();
-    // Only the FILE agent carries a Delete, and there is exactly one.
-    const deletes = screen.getAllByRole('button', { name: 'Delete' });
-    expect(deletes).toHaveLength(1);
-    expect(deletes[0]?.getAttribute('data-karst-action')).toBe('delete-agent');
-    // Only the file agent has a body editor.
-    expect(document.querySelector('[name="agent-body-review"]')).not.toBeNull();
-    expect(document.querySelector('[name="agent-body-tdd-one"]')).toBeNull();
+describe('Agents page — roles table', () => {
+  it('shows every role with where its value comes from', () => {
+    mount({ ...BASE, processes: { ...BASE.processes, uatTester: { provider: 'codex', model: 'gpt-5.6-sol', pinned: true } } } as unknown as Manifest);
+    expect(document.querySelectorAll('[data-role]')).toHaveLength(11);
+    expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('preset');
+    expect(row('uatTester').querySelector('[data-source]')!.getAttribute('data-source')).toBe('pin');
+    expect(row('implementation').querySelector('[data-source]')!.getAttribute('data-source')).toBe('default');
+    expect(pickerOf('planning').value).toEqual({ core: 'claude', model: 'claude-opus-5', effort: '' });
   });
 
-  it('emits data-karst-action="delete-agent" on the file row', () => {
-    mount();
-    expect(screen.getByRole('button', { name: 'Delete' }).getAttribute('data-karst-action')).toBe(
-      'delete-agent',
-    );
+  it('an unpinned edit writes the SELECTED preset, never the pin layer', () => {
+    const { probe } = mount();
+    act(() => pickerOf('planning').onChange({ core: 'antigravity', model: 'gemini-3.8-flash-medium', effort: '' }));
+    const d = draftOf(probe);
+    expect(d.agentPresets!.A!.slots.planning).toEqual({ provider: 'antigravity', model: 'gemini-3.8-flash-medium' });
+    expect(d.processes?.planning).toBeUndefined();
   });
 
-  it('removes the agent from the draft on Delete, and drops the key when last', () => {
-    mount();
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
-    expect((live().draft as { agents?: Record<string, unknown> }).agents).toBeUndefined();
-  });
-});
-
-describe('AgentsSection — the body editor is a local buffer', () => {
-  it('does not write the draft on typing, and disables Save until it differs', () => {
-    mount();
-    const save = screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
-    // Nothing typed: the buffer matches the host's body, so there is nothing to save.
-    expect(save.disabled).toBe(true);
-    setValue('agent-body-review', 'edited body');
-    expect((live().draft as { agents?: Record<string, { body?: string }> }).agents?.review?.body).toBe(
-      'review body',
-    );
+  it('pin makes the edit land in the pin; Unpin returns to the preset', () => {
+    const { probe } = mount();
+    fireEvent.click(within(row('planning')).getByText('Pin'));
+    expect(draftOf(probe).processes!.planning).toMatchObject({ pinned: true, provider: 'claude' });
+    expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('pin');
+    act(() => pickerOf('planning').onChange({ core: 'antigravity', model: 'gemini-3.8-flash-medium', effort: '' }));
+    expect(draftOf(probe).processes!.planning).toMatchObject({ provider: 'antigravity', pinned: true });
+    expect(draftOf(probe).agentPresets!.A!.slots.planning!.provider).toBe('claude');
+    fireEvent.click(within(row('planning')).getByText('Unpin'));
+    expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('preset');
   });
 
-  it('writes the body on Save', () => {
-    mount();
-    setValue('agent-body-review', 'edited body');
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect((live().draft as { agents?: Record<string, { body?: string }> }).agents?.review?.body).toBe(
-      'edited body',
-    );
-  });
-});
-
-describe('AgentsSection — the assignment matrix', () => {
-  it('renders a row per closed-vocabulary process key, with the host role label', () => {
-    mount();
-    expect(document.querySelectorAll('[data-proc-key]').length).toBeGreaterThan(0);
-    // The label is the HOST's, never the manifest key.
-    expect(document.body.textContent).toContain('Review findings');
-    expect(document.body.textContent).toContain('UAT Tester');
+  it('the reported bug cannot recur: preset claude + pin agy resolves to the pin', () => {
+    const { probe } = mount();
+    act(() => pickerOf('planning').onChange({ core: 'claude', model: 'claude-opus-5', effort: '' }));
+    fireEvent.click(within(row('planning')).getByText('Pin'));
+    act(() => pickerOf('planning').onChange({ core: 'antigravity', model: 'gemini-3.8-flash-medium', effort: '' }));
+    expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('pin');
+    expect(pickerOf('planning').value.core).toBe('antigravity');
+    expect(draftOf(probe).agentPresets!.A!.slots.planning!.provider).toBe('claude');
   });
 
-  it('keeps a saved profile the pool no longer offers visible', () => {
+  it('Clear drops the preset value so the role inherits the Default row', () => {
     mount();
-    const select = document.querySelector('[name="proc-uatTester-profile"]') as HTMLSelectElement;
-    const values = Array.from(select.options).map((o) => o.value);
-    // Dropping it would save an empty value away and un-configure the row.
-    expect(values).toContain('retired-profile');
-    expect(values).toContain('tdd-one');
+    fireEvent.click(within(row('planning')).getByText('Clear'));
+    expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('default');
+    expect(pickerOf('planning').value.core).toBe('opencode');
   });
 
-  it('attaches the host state message to the control it is about (UI-R25)', () => {
-    mount();
-    // `invalidField: 'agent'` means the profile control is the invalid one.
-    const field = document.querySelector('[name="proc-uatTester-profile"]');
-    const shell = field?.closest('.k-field');
-    expect(shell?.getAttribute('class')).toContain('k-field');
-    expect(document.body.textContent).toContain('That agent profile no longer exists.');
+  it('assigning an agent profile touches identity only', () => {
+    const { probe } = mount();
+    fireEvent.change(document.querySelector('[name="role-planning-profile"]')!, { target: { value: 'reviewer' } });
+    expect(draftOf(probe).processes!.planning).toEqual({ agent: 'reviewer' });
+    expect(draftOf(probe).agentPresets).toEqual(BASE.agentPresets);
   });
 
-  it('SPREADS processes — an unrendered key survives an edit (D1/D3)', () => {
-    mount();
-    setValue('proc-review-name', 'Snapshot');
-    // `inertKeyKarstNeverRenders` has no control, so a rebuilt map would drop it
-    // and the host's mergeSection would delete the field from the file.
-    expect(processes().review?.inertKeyKarstNeverRenders).toBe('keep me');
-    expect(processes().review?.agentName).toBe('Snapshot');
-  });
-
-  it('DELETES a cleared optional value instead of writing an empty string', () => {
-    mount();
-    setValue('proc-review-name', 'Snapshot');
-    setValue('proc-review-name', '');
-    expect('agentName' in (processes().review ?? {})).toBe(false);
-  });
-
-  it('writes the display name through the assignment row, not the roster', () => {
-    mount();
-    setValue('proc-review-name', 'Snapshot');
-    expect(processes().review?.agentName).toBe('Snapshot');
+  it('the Default row edits the three default keys', () => {
+    const { probe } = mount();
+    const defaults = pickers.get(document.querySelector('.agents-default .agent-picker-island') as HTMLElement)!;
+    act(() => defaults.onChange({ core: 'codex', model: 'gpt-5.6-sol', effort: '' }));
+    expect(draftOf(probe)).toMatchObject({ agentProvider: 'codex', defaultModel: 'gpt-5.6-sol' });
   });
 });
 
-describe('AgentsSection — the roster toggle writes the matching assignment row', () => {
-  it('records an explicit boolean rather than flipping an absent field', () => {
-    mount();
-    const toggle = document.querySelector('[data-switch="agent-enabled-review"]') as HTMLButtonElement;
-    expect(toggle.disabled).toBe(false);
-    fireEvent.click(toggle);
-    // Absent means true on disk, so the write is explicit.
-    expect(processes().review?.enabled).toBe(false);
+describe('Agents page — compare', () => {
+  it('summarises the differing roles from EFFECTIVE values and copies B into A', () => {
+    const { probe } = mount();
+    fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
+    expect(screen.getByRole('status').textContent).toBe('2 of 11 roles differ');
+    fireEvent.click(within(row('planning')).getByText('← Copy from B'));
+    expect(draftOf(probe).agentPresets!.A!.slots.planning).toEqual({ provider: 'antigravity', model: 'gemini-3.8-flash-medium' });
+    expect(draftOf(probe).agentPresets!.B).toEqual(BASE.agentPresets!.B);
+    expect(window.location.hash).toContain('compare=B');
   });
 
-  it('disables the toggle for an agent with no assignment row', () => {
+  it('Only show differences hides identical roles; Swap A/B exchanges the presets', () => {
     mount();
-    // `tdd-one` is not a process key, so there is nowhere legal to record it.
-    const toggle = document.querySelector('[data-switch="agent-enabled-tdd-one"]') as HTMLButtonElement;
-    expect(toggle.disabled).toBe(true);
+    fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
+    fireEvent.click(document.querySelector('[name="agents-only-diffs"]')!);
+    expect(document.querySelectorAll('.agents-compare-row')).toHaveLength(2);
+    fireEvent.click(screen.getByText('Swap A/B'));
+    expect(screen.getByText('A: B')).not.toBeNull();
+    expect(screen.getByText('B: A')).not.toBeNull();
   });
 });
 
-describe('AgentsSection — the island is opaque (R-X3)', () => {
-  it('preserves the vanilla runtime DOM across a re-render', () => {
+describe('Agents page — agent profiles', () => {
+  const openProfiles = (): void => {
+    fireEvent.click(screen.getAllByRole('tab')[1]!);
+  };
+
+  it('lists Local, From approach and Built-in prompts groups with used-by counts', () => {
+    mount();
+    openProfiles();
+    const titles = [...document.querySelectorAll('.agents-group-title')].map((n) => n.textContent);
+    expect(titles).toEqual(['Local (.karst/agents)', 'From approach: speckit', 'Built-in prompts']);
+    expect(screen.getByText('reviewer').closest('button')!.textContent).toContain('used by 1');
+    expect(screen.getByText('plan').closest('button')!.textContent).toContain('unused');
+  });
+
+  it('shows the real built-in prompt for a prompt-bearing role and the identity note for the rest', () => {
+    mount();
+    openProfiles();
+    fireEvent.click(screen.getByText('UAT Agent'));
+    expect(screen.getByLabelText(/built-in prompt$/).textContent).toMatch(/UAT tester/i);
+    fireEvent.click(screen.getByText('Planner'));
+    expect(screen.getByText(/keeps its built-in prompt; an agent profile changes identity only/)).not.toBeNull();
+    expect((screen.getByText('Customize…') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('an approach profile is read-only with its text visible', () => {
+    mount();
+    openProfiles();
+    fireEvent.click(screen.getByText('plan'));
+    expect(screen.getByLabelText('plan text').textContent).toBe('approach plan text');
+    expect(document.querySelector('[name="agent-body-plan"]')).toBeNull();
+    expect(screen.getByRole('button', { name: /manage in approach/ })).not.toBeNull();
+  });
+
+  it('a local profile edits a buffer, saves through the host, and guards leaving unsaved text', () => {
     const { bridge } = mount();
-    expect(document.querySelector('[data-picker-owned="true"]')).not.toBeNull();
-    const before = pickerCalls;
-    // An unrelated state push must not tear down the pickers: React never
-    // reconciles children into that container.
-    act(() =>
-      bridge.push({
-        type: 'state',
-        state: buildSettingsState(BASE, null, ['tdd'], true, ['claude'], AGENTS, { tdd: ['karst-tdd'] }, undefined, '/repo/karst.yml'),
-      }),
-    );
-    expect(document.querySelector('[data-picker-owned="true"]')).not.toBeNull();
-    expect(pickerCalls).toBe(before);
-  });
-});
-
-describe('AgentsSection — the process matrix structure (v7 parity)', () => {
-  it('emits the matrix head and UAT/Review/Ship group headers from the row renderer', () => {
-    mount();
-    const head = document.querySelector('.matrix-head');
-    expect(head, 'matrix head').not.toBeNull();
-    expect([...head!.children].map((child) => child.textContent)).toEqual([
-      'Process',
-      'Agent profile',
-      'Agent',
-      'State',
-    ]);
-    // PROCESS_KEYS order: uatTester, uatFix, review, reviewFix, prDescription,
-    // ticketAnalysis, planning — a group header precedes only the FIRST row of
-    // its group.
-    const markers = [...document.querySelectorAll('.matrix-group, .proc-row')].map((el) =>
-      el.classList.contains('matrix-group')
-        ? `group:${el.textContent?.trim()}`
-        : `row:${(el as HTMLElement).dataset.procKey}`,
-    );
-    expect(markers).toEqual([
-      'group:UAT',
-      'row:uatTester',
-      'row:uatFix',
-      'group:Review',
-      'row:review',
-      'row:reviewFix',
-      'group:Ship',
-      'row:prDescription',
-      'row:ticketAnalysis',
-      'group:Planning',
-      'row:planning',
-    ]);
+    openProfiles();
+    fireEvent.click(screen.getByText('reviewer'));
+    const area = document.querySelector('[name="agent-body-reviewer"]') as HTMLTextAreaElement;
+    expect(area.value).toBe('local reviewer text');
+    expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(area, { target: { value: 'edited' } });
+    expect((screen.getByText('Save') as HTMLButtonElement).disabled).toBe(false);
+    expect(bridge.last('save-agent-file')).toBeUndefined();
+    // Leaving the item asks first.
+    fireEvent.click(screen.getByText('plan'));
+    expect(screen.getByRole('alertdialog').textContent).toContain('Unsaved changes to reviewer');
+    fireEvent.click(screen.getByText('Keep editing'));
+    expect((document.querySelector('[name="agent-body-reviewer"]') as HTMLTextAreaElement).value).toBe('edited');
+    fireEvent.click(screen.getByText('Save'));
+    expect(bridge.last('save-agent-file')).toMatchObject({ name: 'reviewer', body: 'edited' });
   });
 });

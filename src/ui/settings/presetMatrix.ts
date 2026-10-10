@@ -66,17 +66,17 @@ export const PRESET_CAPABILITY_GROUPS: readonly PresetCapabilityGroup[] = [
  * are the profile ids' user-facing names.
  */
 export const PRESET_CAPABILITY_LABELS: Record<PresetCapability, string> = {
-  uatTester: 'UAT Tester',
-  uatFix: 'UAT Fix',
-  review: 'Review',
-  reviewFix: 'Review Fix',
+  uatTester: 'UAT Agent',
+  uatFix: 'UAT Fix Agent',
+  review: 'Review Agent',
+  reviewFix: 'Review Fix Agent',
   prDescription: 'PR description',
-  ticketAnalysis: 'Ticket analysis',
-  implementation: 'Ticket implementation',
+  ticketAnalysis: 'Ticket Analysis Agent',
+  implementation: 'Implementation',
   planning: 'Planner',
-  graphExpert: 'Expert',
-  graphWorker: 'Worker',
-  graphFast: 'Fast',
+  graphExpert: 'Graph expert',
+  graphWorker: 'Graph worker',
+  graphFast: 'Graph fast',
 };
 
 /**

@@ -166,7 +166,7 @@ import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
-import { createPlanningOps } from './extension/ops/planningOps.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
+import { createPlanningOps } from './extension/ops/planningOps.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
 import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
@@ -443,7 +443,7 @@ import {
   type ApproachPackage,
 } from './approaches/pkg.js';
 import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
-import { buildAgentPool, type PoolAgent } from './agents/pool.js';
+import { buildAgentPool, poolAgentBody, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
@@ -500,7 +500,7 @@ import { SettingsManager, type LoadedManifest } from './ui/settings/panel.js';
 import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
 import { makeSettingsPanelHost } from './ui/settings/host.js';
-import { writeManifest } from './manifest/write.js';
+import { writeManifest, loadAndPersistMigration } from './manifest/write.js';
 import {
   makeBoundedLogBuffer,
   makeLogger,
@@ -778,7 +778,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     confirmUnsafeCore: async () => (await vscode.window.showWarningMessage(
       'agy cannot block edits; approve each action.', { modal: true }, 'Start')) === 'Start',
     debug: (m) => logger.debug(m), planningHistory: (m) => gatherPlanningHistory(m, { runGit: execGit, debug: (msg) => logger.debug(msg) }),
-    onChange: () => provider.refresh(),
+    onChange: () => provider.refresh(), offerRestart: offerPlannerRestart,
   });
   const proposalOps = createPlanningProposalOps({ store: localStore, projectId: () => currentProject()?.id,
     choose: async (text) => ({ Review: 'review', Discard: 'discard' } as Record<string, ProposalChoice>)[
@@ -1766,7 +1766,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const loadSettingsState = (): LoadedManifest => {
     const path = manifestPathOrThrow();
     try {
-      const { manifest, warnings, notices } = loadManifestWithDiagnostics(path);
+      const { manifest, warnings, notices } = loadAndPersistMigration(path, (m) => logger.warn(m));
       // Non-fatal: log to the Karst output channel rather than a toast — the
       // Settings page the user just opened is where they'd fix it, and the
       // migrate.ts warning tells them to Save here to write the new shape.
@@ -2126,7 +2126,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         source: a.source,
         ...(a.approachId !== undefined ? { approachId: a.approachId } : {}),
         enabled: agentsMeta[a.name]?.enabled !== false,
-        body: a.source === 'file' ? (readAgentFile(agentsDirOrThrow(), a.name)?.body ?? null) : null,
+        body: poolAgentBody(a, agentsDirOrThrow(), approachesDirOrThrow()),
       }));
     } catch {
       return [];

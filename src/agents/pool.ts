@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import type { AgentDef, ApproachDef } from '../manifest/types.js';
-import { listAgentFiles } from './pkg.js';
-import { listInstalled, listArtifacts } from '../approaches/pkg.js';
+import { listAgentFiles, readAgentFile } from './pkg.js';
+import { listInstalled, listArtifacts, readArtifactBody } from '../approaches/pkg.js';
 
 /**
  * A selectable single-subagent: either a local file under `agentsDir` or an
@@ -63,4 +63,19 @@ export function buildAgentPool(input: {
   return [...byName.values()]
     .filter((agent) => agentsMeta[agent.name]?.enabled !== false)
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * The text of one pool agent: a local file's full contents (editable) or an
+ * approach artifact's body (read-only in Settings — managed in the approach).
+ * Null when the file is absent or unreadable.
+ */
+export function poolAgentBody(agent: PoolAgent, agentsDir: string, approachesDir: string): string | null {
+  if (agent.source === 'file') return readAgentFile(agentsDir, agent.name)?.body ?? null;
+  if (agent.approachId === undefined || agent.relPath === undefined) return null;
+  try {
+    return readArtifactBody(approachesDir, agent.approachId, agent.relPath);
+  } catch {
+    return null;
+  }
 }

@@ -258,58 +258,11 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
   });
 });
 
-describe('GeneralSection — the agent-identity picker is an opaque island (R-X3)', () => {
-  it('mounts the shared runtime into a container React never reconciles into', () => {
-    const { probe } = mountGeneral();
-    expect(pickerOptions).not.toBeNull();
-    const island = document.querySelector('.agent-picker-island');
-    expect(island).not.toBeNull();
-    expect(island!.childNodes).toHaveLength(0);
-    // The identity the host pushed is offered to the runtime, not re-derived.
-    expect(pickerOptions!.value).toEqual({ core: '', model: '', effort: '' });
-    expect(probe().section).toBe('general');
-  });
-
-  it('marks every core the host has not implemented unavailable', () => {
+describe('GeneralSection — agent identity lives on the Agents page', () => {
+  it('renders no agent picker and claims no agent-identity key', () => {
     mountGeneral();
-    const byId = new Map(pickerOptions!.cores.map((c) => [c.id, c]));
-    expect(byId.get('claude')?.disabled).toBe(false);
-    expect(byId.get('codex')?.disabled).toBe(false);
-    expect(byId.get('claude')?.label).toBe('Claude Code');
-  });
-
-  it('leads with the inherit/none row and offers effort', () => {
-    mountGeneral();
-    expect(pickerOptions!.inherit).toEqual({
-      core: '',
-      model: 'No default (agent picks)',
-      effort: 'No effort (agent picks)',
-    });
-    expect(pickerOptions!.showEffort).toBe(true);
-  });
-
-  it('writes the three identity keys independently of one another', () => {
-    const { probe } = mountGeneral();
-    act(() => pickerOptions!.onChange({ core: 'codex', model: 'gpt-5', effort: '' }));
-    expect(probe().draft).toMatchObject({ agentProvider: 'codex', defaultModel: 'gpt-5' });
-    expect(probe().draft).not.toHaveProperty('defaultEffort');
-    act(() => pickerOptions!.onChange({ core: '', model: '', effort: 'high' }));
-    expect(probe().draft).not.toHaveProperty('agentProvider');
-    expect(probe().draft).not.toHaveProperty('defaultModel');
-    expect(probe().draft).toMatchObject({ defaultEffort: 'high' });
-  });
-
-  it('keeps the island DOM across an unrelated re-render', () => {
-    mountGeneral();
-    const island = document.querySelector('.agent-picker-island') as HTMLElement;
-    const marker = island.ownerDocument.createElement('span');
-    marker.textContent = 'mounted by the vanilla runtime';
-    island.appendChild(marker);
-    fireEvent.change(screen.getByLabelText('Host'), { target: { value: '10.0.0.1' } });
-    fireEvent.change(screen.getByLabelText('Host'), { target: { value: '10.0.0.2' } });
-    expect(island.querySelector('span')?.textContent).toBe('mounted by the vanilla runtime');
-    // …and the island was NOT rebuilt, because its identity did not change.
-    expect(pickerOptions!.value).toEqual({ core: '', model: '', effort: '' });
+    expect(document.querySelector('.agent-picker-island')).toBeNull();
+    expect(pickerOptions).toBeNull();
   });
 });
 

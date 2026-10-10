@@ -180,7 +180,7 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
      * ANY write — an agent toggle, an install reconcile, a section save — would
      * resurrect the whole packaged built-in into the manifest (A7).
      *
-     * On Presets-tab save (section==='presets'): renames defaultAgentPreset →
+     * On Agents-page save (section==='agents'): renames defaultAgentPreset →
      * activeAgentPreset so the file carries the canonical spelling. On any
      * tab-scoped save: drops the deprecated processes.<key>.preset field.
      */
@@ -191,8 +191,8 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           next.approaches !== undefined ? approachDelta(next.approaches) : next.approaches,
       };
 
-      if (section === 'presets') {
-        // Rename defaultAgentPreset → activeAgentPreset on Presets-tab save.
+      if (section === 'agents') {
+        // Rename defaultAgentPreset → activeAgentPreset on Agents-page save.
         // The active selector on this tab writes the canonical key, so a legacy
         // alias still in the draft is dropped rather than left to collide with
         // it — the loader refuses a file carrying BOTH spellings.

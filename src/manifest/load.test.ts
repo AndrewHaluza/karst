@@ -2364,10 +2364,12 @@ processes:
           // The fixture declares a legacy `instructions:` — retired, so it is
           // dropped rather than typed (the load still succeeds; `inertKeys.ts`
           // reports it).
+          // No preset is defined, so the legacy core fields became pins.
+          pinned: true,
           enabled: false,
         },
-        review: { provider: 'antigravity', enabled: true },
-        ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', enabled: true },
+        review: { provider: 'antigravity', pinned: true, enabled: true },
+        ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', pinned: true, enabled: true },
       });
     } finally {
       cleanup();

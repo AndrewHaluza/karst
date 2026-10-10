@@ -4,6 +4,7 @@ import type { Manifest } from './types.js';
 import { validateManifest } from './schema.js';
 import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
+import { foldProcessRows } from './foldProcessRows.js';
 import { detectInertKeys } from './inertKeys.js';
 import { uatEnvWarnings } from './validate/uat.js';
 import { deprecatedPresetKeyWarnings } from './validate/agentPresets.js';
@@ -26,6 +27,12 @@ export interface LoadedManifestResult {
    * `catalogDiagnosticSeverity`'s split.
    */
   notices: string[];
+  /**
+   * True when `processes.<role>` core fields were folded into presets/pins on
+   * this load (`foldProcessRows`). The in-memory manifest is migrated; the file
+   * is not — the Settings host persists it when the page opens.
+   */
+  migrated: boolean;
 }
 
 /**
@@ -64,7 +71,10 @@ export function parseManifestText(text: string, path?: string): LoadedManifestRe
   }
 
   try {
-    const { raw, warnings } = migrateLegacyManifest(parsed);
+    const { raw: migrated, warnings } = migrateLegacyManifest(parsed);
+    // Unpinned `processes.<role>` core fields move into presets (or a pin)
+    // BEFORE validation, which refuses them on an unpinned row.
+    const { raw, notices: folded } = foldProcessRows(migrated);
     const manifest = validateManifest(raw);
     return {
       manifest,
@@ -77,7 +87,8 @@ export function parseManifestText(text: string, path?: string): LoadedManifestRe
         // §6: `processes.<key>.preset` is deprecated but still honoured.
         ...deprecatedPresetKeyWarnings(manifest.processes),
       ],
-      notices: detectInertKeys(raw),
+      notices: [...folded, ...detectInertKeys(raw)],
+      migrated: folded.length > 0,
     };
   } catch (e) {
     throw e instanceof ManifestError ? (path ? e.withPath(path) : e) : e;

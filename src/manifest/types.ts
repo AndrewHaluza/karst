@@ -622,6 +622,12 @@ export interface ProcessAssignmentConfig {
    * removed. Beaten by this block's explicit `provider`/`model`/`effort`.
    */
   preset?: string;
+  /**
+   * PIN: when true, `provider`/`model`/`effort` here beat every preset slot
+   * ("same in all presets"). Without it a row carries only `agent` and
+   * `enabled`; core fields on an unpinned row are a validation error.
+   */
+  pinned?: boolean;
   // NOTE: there is deliberately no `instructions` field. A process's prompt is
   // the BODY of the profile named by `agent` — one place to write it, one place
   // to read it. The retired key is still reported at load (`inertKeys.ts`).

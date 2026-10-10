@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeAgentFile } from './pkg.js';
-import { buildAgentPool } from './pool.js';
+import { buildAgentPool, poolAgentBody } from './pool.js';
 import { writeApproachArtifacts, type ApproachPackage, type ApproachArtifact } from '../approaches/pkg.js';
 import type { ApproachDef } from '../manifest/types.js';
 
@@ -160,5 +160,25 @@ describe('buildAgentPool', () => {
     });
 
     expect(pool.map((a) => a.name)).toEqual(['planner', 'reviewer']);
+  });
+});
+
+describe('poolAgentBody', () => {
+  it('reads a local file and an approach artifact; null when absent or unsafe', () => {
+    const agentsDir = makeDir('karst-agents-pool-');
+    const approachesDir = makeDir('karst-approaches-pool-');
+    writeAgentFile(agentsDir, 'reviewer', 'local body');
+    installApproach(approachesDir, 'tdd', ['agents/alpha.md']);
+    const approaches: ApproachDef[] = [{ id: 'tdd', label: 'TDD' }];
+    const pool = buildAgentPool({ agentsDir, approachesDir, approaches });
+    const body = (name: string): string | null =>
+      poolAgentBody(pool.find((a) => a.name === name)!, agentsDir, approachesDir);
+    expect(body('reviewer')).toBe('local body');
+    expect(body('alpha')).toBe('# agents/alpha.md');
+    expect(poolAgentBody({ name: 'gone', source: 'file' }, agentsDir, approachesDir)).toBeNull();
+    expect(poolAgentBody({ name: 'x', source: 'approach' }, agentsDir, approachesDir)).toBeNull();
+    expect(
+      poolAgentBody({ name: 'x', source: 'approach', approachId: 'tdd', relPath: '../../etc/passwd' }, agentsDir, approachesDir),
+    ).toBeNull();
   });
 });

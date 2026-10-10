@@ -3,6 +3,7 @@ import { load as yamlLoad, dump as yamlDump } from 'js-yaml';
 import { validateManifest, DEFAULT_ARCHIVE_DONE_AFTER_DAYS } from './schema.js';
 import { ManifestError } from './error.js';
 import { migrateLegacyManifest } from './migrate.js';
+import { loadManifestWithDiagnostics, type LoadedManifestResult } from './load.js';
 import type { Manifest, ServiceDef } from './types.js';
 
 /**
@@ -244,4 +245,27 @@ function overlayService(rawService: Record<string, unknown>, svc: ServiceDef): R
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+/**
+ * Load the manifest for Settings and, when the load migrated `processes.<role>`
+ * core fields into presets/pins (`foldProcessRows`), persist the migrated shape.
+ * Opening Settings is the explicit write; every other load stays read-only.
+ * A failed write never blocks the page — the in-memory manifest is already
+ * migrated and the next Save writes it — so it is reported via `warn`.
+ */
+export function loadAndPersistMigration(
+  path: string,
+  warn: (message: string) => void,
+  write: (path: string, manifest: Manifest) => void = writeManifest,
+): LoadedManifestResult {
+  const loaded = loadManifestWithDiagnostics(path);
+  if (loaded.migrated) {
+    try {
+      write(path, loaded.manifest);
+    } catch (e) {
+      warn(`karst.yml: could not persist the agent migration: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return loaded;
 }

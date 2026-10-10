@@ -1,0 +1,3238 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Karst - Settings - Agents</title>
+<style>
+:root {
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --vscode-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  --vscode-font-size: 13px;
+  --vscode-font-size-sm: 11px;
+  --vscode-font-size-xs: 10px;
+
+  /* Theme variables - Dark (default) */
+  --bg-app: #1e1e1e;
+  --bg-sidebar: #252526;
+  --bg-editor: #1e1e1e;
+  --bg-header: #2d2d2d;
+  --bg-surface: #252526;
+  --bg-surface-hover: #2a2d2e;
+  --bg-surface-active: #37373d;
+  --bg-input: #3c3c3c;
+  --bg-input-focus: #3c3c3c;
+  --border-subtle: #2d2d2d;
+  --border-default: #3c3c3c;
+  --border-focus: #007acc;
+  --border-contrast: #454545;
+
+  --text-main: #cccccc;
+  --text-muted: #858585;
+  --text-bright: #ffffff;
+  --text-dim: #606060;
+
+  --accent: #007acc;
+  --accent-hover: #0098ff;
+  --accent-tint: rgba(0, 122, 204, 0.15);
+  --accent-subtle: rgba(0, 122, 204, 0.25);
+  --accent-text: #ffffff;
+
+  --chip-pinned-bg: #382c16;
+  --chip-pinned-text: #f1b344;
+  --chip-pinned-border: #634a17;
+
+  --chip-preset-bg: #14324f;
+  --chip-preset-text: #6cb8f6;
+  --chip-preset-border: #1d4b75;
+
+  --chip-default-bg: #2d2d2d;
+  --chip-default-text: #969696;
+  --chip-default-border: #404040;
+
+  --badge-active-bg: #1e3a1e;
+  --badge-active-text: #73c991;
+  --badge-active-border: #2e592e;
+
+  --diff-a-bg: rgba(180, 100, 100, 0.12);
+  --diff-a-text: #d88e8e;
+  --diff-b-bg: rgba(60, 140, 220, 0.16);
+  --diff-b-text: #70baff;
+
+  --warning-bg: #332b00;
+  --warning-text: #cca700;
+  --warning-border: #665500;
+  --error-text: #f14c4c;
+  --error-bg: rgba(241, 76, 76, 0.15);
+
+  --toast-bg: #252526;
+  --toast-border: #007acc;
+  --toast-text: #ffffff;
+
+  --modal-backdrop: rgba(0, 0, 0, 0.65);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.35);
+}
+
+[data-theme="light"] {
+  --bg-app: #f3f3f3;
+  --bg-sidebar: #f8f8f8;
+  --bg-editor: #ffffff;
+  --bg-header: #f3f3f3;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #e8e8e8;
+  --bg-surface-active: #d6d6d6;
+  --bg-input: #ffffff;
+  --bg-input-focus: #ffffff;
+  --border-subtle: #e5e5e5;
+  --border-default: #cecece;
+  --border-focus: #0066b8;
+  --border-contrast: #d4d4d4;
+
+  --text-main: #3b3b3b;
+  --text-muted: #717171;
+  --text-bright: #1f1f1f;
+  --text-dim: #9e9e9e;
+
+  --accent: #0066b8;
+  --accent-hover: #005a9e;
+  --accent-tint: rgba(0, 102, 184, 0.10);
+  --accent-subtle: rgba(0, 102, 184, 0.18);
+  --accent-text: #ffffff;
+
+  --chip-pinned-bg: #fdf3d8;
+  --chip-pinned-text: #8c5d00;
+  --chip-pinned-border: #f0c36d;
+
+  --chip-preset-bg: #e1f0fa;
+  --chip-preset-text: #055f9e;
+  --chip-preset-border: #aed5f3;
+
+  --chip-default-bg: #eeeeee;
+  --chip-default-text: #666666;
+  --chip-default-border: #d5d5d5;
+
+  --badge-active-bg: #e6f4ea;
+  --badge-active-text: #137333;
+  --badge-active-border: #b7e1cd;
+
+  --diff-a-bg: rgba(220, 120, 120, 0.14);
+  --diff-a-text: #a83232;
+  --diff-b-bg: rgba(0, 102, 184, 0.12);
+  --diff-b-text: #005a9e;
+
+  --warning-bg: #fff8e1;
+  --warning-text: #826200;
+  --warning-border: #ffe082;
+  --error-text: #cd3131;
+  --error-bg: #fde8e8;
+
+  --toast-bg: #ffffff;
+  --toast-border: #0066b8;
+  --toast-text: #1f1f1f;
+
+  --modal-backdrop: rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 2px 10px rgba(0,0,0,0.15);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--text-main);
+  background: var(--bg-app);
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* App container layout */
+.app-shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* Left settings nav - fixed 180px, never collapses */
+.settings-nav {
+  width: 180px;
+  min-width: 180px;
+  max-width: 180px;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-default);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.settings-nav-header {
+  padding: 12px 14px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.settings-nav-list {
+  list-style: none;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.settings-nav-item {
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  color: var(--text-main);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: background 0.1s ease;
+}
+
+.settings-nav-item:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-bright);
+}
+
+.settings-nav-item.active {
+  background: var(--bg-surface-active);
+  color: var(--text-bright);
+  font-weight: 500;
+}
+
+.settings-nav-item svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.8;
+  flex-shrink: 0;
+}
+
+.settings-nav-spacer {
+  flex: 1;
+}
+
+.theme-toggle-wrap {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Main content workspace */
+.main-workspace {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Page Header & Tabs */
+.workspace-header {
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-default);
+  padding: 10px 20px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.workspace-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.workspace-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-bright);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workspace-badge {
+  font-size: 10.5px;
+  padding: 2px 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font-weight: normal;
+}
+
+.tab-nav {
+  display: flex;
+  gap: 20px;
+  border-bottom: none;
+  role: tablist;
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 6px 4px 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  outline: none;
+}
+
+.tab-button:hover {
+  color: var(--text-bright);
+}
+
+.tab-button.active {
+  color: var(--text-bright);
+  font-weight: 500;
+  border-bottom-color: var(--accent);
+}
+
+.tab-button:focus-visible {
+  outline: 1px solid var(--border-focus);
+}
+
+.tab-unsaved-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f1b344;
+  display: none;
+}
+.tab-button.has-unsaved .tab-unsaved-dot {
+  display: inline-block;
+}
+
+/* Tab panes container */
+.tab-content-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.tab-pane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.tab-pane.active {
+  display: flex;
+}
+
+/* Common button styles */
+.btn {
+  background: var(--bg-input);
+  color: var(--text-main);
+  border: 1px solid var(--border-default);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+  user-select: none;
+  transition: all 0.1s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-surface-hover);
+  color: var(--text-bright);
+  border-color: var(--border-contrast);
+}
+
+.btn:active:not(:disabled) {
+  background: var(--bg-surface-active);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+  font-weight: 500;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
+.btn-sm {
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.btn-icon {
+  padding: 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+/* Select dropdowns */
+.select {
+  background: var(--bg-input);
+  color: var(--text-main);
+  border: 1px solid var(--border-default);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+.select:focus {
+  border-color: var(--border-focus);
+}
+
+/* Input text */
+.input-text {
+  background: var(--bg-input);
+  color: var(--text-bright);
+  border: 1px solid var(--border-default);
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 3px;
+  outline: none;
+}
+
+.input-text:focus {
+  border-color: var(--border-focus);
+}
+
+/* Badges and Chips */
+.badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.badge-active {
+  background: var(--badge-active-bg);
+  color: var(--badge-active-text);
+  border: 1px solid var(--badge-active-border);
+}
+
+.chip {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.chip-pinned {
+  background: var(--chip-pinned-bg);
+  color: var(--chip-pinned-text);
+  border: 1px solid var(--chip-pinned-border);
+}
+
+.chip-preset {
+  background: var(--chip-preset-bg);
+  color: var(--chip-preset-text);
+  border: 1px solid var(--chip-preset-border);
+}
+
+.chip-default {
+  background: var(--chip-default-bg);
+  color: var(--chip-default-text);
+  border: 1px solid var(--chip-default-border);
+}
+
+.chip-subtle-grey {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+  font-size: 10px;
+}
+
+/* ========================================================================= */
+/* ROLES TAB STYLES                                                          */
+/* ========================================================================= */
+.roles-container {
+  padding: 16px 20px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* Presets Controls Bar */
+.presets-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 10px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preset-selector-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.preset-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.preset-actions-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.compare-selector-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-contrast);
+}
+
+/* Banner for previewing non-active preset */
+.preview-banner {
+  background: var(--accent-tint);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-bright);
+  font-size: 12px;
+  animation: fadeIn 0.2s ease;
+}
+
+.preview-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Compare Mode Summary Bar */
+.compare-summary-bar {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+
+.compare-summary-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.diff-count-badge {
+  font-weight: 600;
+  color: var(--diff-b-text);
+}
+
+.checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--text-main);
+  user-select: none;
+}
+
+/* Table styling */
+.table-wrap {
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  background: var(--bg-surface);
+  overflow-x: auto;
+}
+
+.roles-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.roles-table th {
+  background: var(--bg-header);
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+  white-space: nowrap;
+}
+
+.roles-table td {
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.roles-table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.roles-table tbody tr:hover {
+  background: var(--bg-surface-hover);
+}
+
+.roles-table tbody tr.row-pinned {
+  background: rgba(241, 179, 68, 0.03);
+}
+
+.roles-table tbody tr.row-same-profile {
+  background: var(--accent-tint);
+}
+
+.roles-table tbody tr.row-target-flash {
+  border-left: 3px solid var(--accent);
+  animation: flashRow 1.2s ease;
+}
+
+@keyframes flashRow {
+  0% { background: var(--accent-subtle); }
+  50% { background: var(--accent-subtle); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .roles-table tbody tr.row-target-flash {
+    animation: none;
+  }
+}
+
+.role-title-cell {
+  font-weight: 500;
+  color: var(--text-bright);
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.changes-dot {
+  width: 7px;
+  height: 7px;
+  background: var(--diff-b-text);
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px var(--diff-b-text);
+}
+
+.profile-link {
+  color: var(--accent-hover);
+  text-decoration: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: inherit;
+}
+
+.profile-link:hover {
+  text-decoration: underline;
+}
+
+.profile-link.built-in {
+  color: var(--text-muted);
+}
+
+.disabled-warning-icon {
+  color: var(--error-text);
+  display: inline-flex;
+  cursor: help;
+}
+
+/* Compare subcolumns in cells */
+.compare-cell-split {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.compare-subval {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 11.5px;
+  min-width: 80px;
+}
+
+.compare-subval.val-a {
+  background: var(--diff-a-bg);
+  color: var(--diff-a-text);
+}
+
+.compare-subval.val-b {
+  background: var(--diff-b-bg);
+  color: var(--diff-b-text);
+  font-weight: 500;
+}
+
+.compare-subval.val-identical {
+  color: var(--text-dim);
+}
+
+/* Tooltip wrapper */
+.tooltip-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+.tooltip-wrap:hover .tooltip-box {
+  visibility: visible;
+  opacity: 1;
+}
+
+.tooltip-box {
+  visibility: hidden;
+  opacity: 0;
+  width: max-content;
+  max-width: 260px;
+  background: var(--bg-header);
+  color: var(--text-bright);
+  text-align: left;
+  border: 1px solid var(--border-contrast);
+  border-radius: 4px;
+  padding: 5px 8px;
+  position: absolute;
+  z-index: 100;
+  bottom: 125%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.3;
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+/* Inherits default greyed indicator */
+.inherits-default-hint {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+/* Default fallback section */
+.default-row-card {
+  background: var(--bg-surface);
+  border: 1px dashed var(--border-contrast);
+  border-radius: 4px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.default-row-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.default-row-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.default-row-fields {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ========================================================================= */
+/* AGENT PROFILES TAB STYLES                                                 */
+/* ========================================================================= */
+.profiles-layout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Profiles sidebar */
+.profiles-list-col {
+  width: 270px;
+  min-width: 270px;
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.profiles-search-box {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.profiles-search-box input {
+  width: 100%;
+}
+
+.profiles-scroll-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.tree-group-title {
+  padding: 6px 12px 4px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  letter-spacing: 0.4px;
+}
+
+.profile-tree-item {
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  border-left: 3px solid transparent;
+  transition: background 0.1s;
+}
+
+.profile-tree-item:hover {
+  background: var(--bg-surface-hover);
+}
+
+.profile-tree-item.active {
+  background: var(--bg-surface-active);
+  border-left-color: var(--accent);
+  color: var(--text-bright);
+}
+
+.profile-tree-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profile-tree-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.count-chip {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 9px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+
+.count-chip.has-users {
+  background: var(--accent-tint);
+  color: var(--accent-hover);
+}
+
+.unsaved-dot-profile {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #f1b344;
+  margin-left: 4px;
+}
+
+/* Profiles detail pane */
+.profiles-detail-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-editor);
+  overflow-y: auto;
+  padding: 18px 24px 80px;
+  gap: 16px;
+}
+
+.profiles-mobile-back {
+  display: none;
+  margin-bottom: 8px;
+}
+
+.profile-detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 14px;
+  gap: 12px;
+}
+
+.profile-detail-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-detail-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.profile-detail-meta-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+}
+
+.used-by-chips-container {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.used-by-clickable-chip {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-contrast);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  color: var(--text-bright);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.1s;
+}
+
+.used-by-clickable-chip:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Unsaved switch inline confirmation bar */
+.unsaved-banner-bar {
+  background: #4a3800;
+  border: 1px solid #997300;
+  color: #fff;
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  animation: fadeIn 0.15s ease;
+}
+
+/* Text editor section */
+.profile-editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.profile-editor-caption {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--vscode-font-mono);
+}
+
+.profile-textarea {
+  width: 100%;
+  height: 280px;
+  background: var(--bg-input);
+  color: var(--text-bright);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 10px 12px;
+  font-family: var(--vscode-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+}
+
+.profile-textarea:focus {
+  border-color: var(--border-focus);
+}
+
+.profile-textarea[readonly] {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: default;
+}
+
+.editor-bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+/* Modal styling for All Presets Grid & Reopen Session demo */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--modal-backdrop);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.modal-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-contrast);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+  max-width: 900px;
+  width: 90%;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 12px 16px;
+  background: var(--bg-header);
+  border-bottom: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-bright);
+}
+
+.modal-body {
+  padding: 16px;
+  overflow: auto;
+}
+
+.matrix-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11.5px;
+}
+
+.matrix-table th {
+  background: var(--bg-input);
+  padding: 8px 10px;
+  border: 1px solid var(--border-default);
+  text-align: left;
+}
+
+.matrix-table td {
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.matrix-table td:hover:not(.role-name-cell) {
+  background: var(--bg-surface-hover);
+  border-color: var(--accent);
+}
+
+.matrix-cell-diff {
+  background: var(--accent-tint);
+  color: var(--accent-hover);
+  font-weight: 500;
+}
+
+.matrix-legend {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Bottom demo card: Reopen planning session */
+.demo-card-wrap {
+  border: 1px solid var(--border-default);
+  background: var(--bg-surface);
+  border-radius: 4px;
+  padding: 14px 16px;
+  margin-top: 14px;
+}
+
+.demo-card-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.session-reopen-dialog {
+  background: var(--bg-input);
+  border: 1px solid var(--border-contrast);
+  border-radius: 4px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+/* Sticky Footer */
+.sticky-footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 48px;
+  background: var(--bg-header);
+  border-top: 1px solid var(--border-default);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  z-index: 50;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.unsaved-counter {
+  font-weight: 600;
+  color: #f1b344;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Toast alert */
+.toast-notice {
+  position: fixed;
+  bottom: 60px;
+  right: 24px;
+  background: var(--toast-bg);
+  color: var(--toast-text);
+  border: 1px solid var(--toast-border);
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 2000;
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: all 0.25s ease;
+}
+
+.toast-notice.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Responsive adjustments */
+@media (max-width: 800px) {
+  .profiles-layout {
+    flex-direction: column;
+  }
+  .profiles-list-col {
+    width: 100%;
+    min-width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+    max-height: 40vh;
+  }
+  .profiles-mobile-back {
+    display: inline-flex;
+  }
+}
+</style>
+</head>
+<body>
+
+<div class="app-shell">
+  <!-- Left Settings Nav (Fixed ~180px, Never collapses) -->
+  <nav class="settings-nav" aria-label="Settings Categories">
+    <div class="settings-nav-header">Settings</div>
+    <ul class="settings-nav-list">
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.1 4.4L8.6 2H7.4l-.5 2.4-.7.3-2-1.3-.9.8 1.3 2-.2.7-2.4.5v1.2l2.4.5.3.8-1.3 2 .8.8 2-1.3.8.3.4 2.3h1.2l.5-2.4.8-.3 2 1.3.8-.8-1.3-2 .3-.7 2.3-.5V7.6l-2.4-.5-.3-.7 1.3-2-.8-.8-2 1.3-.7-.3zM8 10a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></svg>
+        General
+      </li>
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M15.5 8.5l-4-4-.7.7 2.8 2.8H8.5a4.5 4.5 0 0 0-4.5 4.5v2h1v-2a3.5 3.5 0 0 1 3.5-3.5h5.1L10.8 11.8l.7.7 4-4zM2 3.5a1.5 1.5 0 1 1 3 0 1.5 1.5 0 0 1-3 0zm1 0a.5.5 0 1 0 1 0 .5.5 0 0 0-1 0z"/></svg>
+        Git
+      </li>
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 3h12v2H2zm0 4h12v2H2zm0 4h12v2H2z"/></svg>
+        Repositories
+      </li>
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M3 2v12h10V2H3zm9 11H4V3h8v10z"/></svg>
+        Approaches
+      </li>
+      <li class="settings-nav-item active" aria-current="page">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8v1H2v-1s0-3 6-3 6 3 6 3zm-1.1-1c-.8-.7-2.3-1-4.9-1-2.6 0-4.1.3-4.9 1h9.8z"/></svg>
+        Agents
+      </li>
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M14 2H2v12h12V2zm-1 11H3V3h10v10zM5 5h6v1H5V5zm0 3h6v1H5V8zm0 3h4v1H5v-1z"/></svg>
+        Presets
+      </li>
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 4h12v8H2zm1 1v6h10V5H3zm3 2h4v2H6V7z"/></svg>
+        Ticketing
+      </li>
+      <li class="settings-nav-item">
+        <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1l2.2 4.4 4.8.7-3.5 3.4.8 4.8L8 12l-4.3 2.3.8-4.8L1 6.1l4.8-.7L8 1z"/></svg>
+        Quality
+      </li>
+    </ul>
+
+    <div class="settings-nav-spacer"></div>
+
+    <div class="theme-toggle-wrap">
+      <span>Theme</span>
+      <button class="btn btn-sm" id="themeToggleBtn" title="Toggle Light / Dark mode">🌓 Theme</button>
+    </div>
+  </nav>
+
+  <!-- Main Content Workspace -->
+  <main class="main-workspace">
+    <!-- Header with 2 Tabs -->
+    <header class="workspace-header">
+      <div class="workspace-title-row">
+        <div class="workspace-title">
+          Agents
+          <span class="workspace-badge">Karst Configuration</span>
+        </div>
+      </div>
+
+      <nav class="tab-nav" role="tablist" aria-label="Agents sections">
+        <button class="tab-button active" id="tabBtnRoles" role="tab" aria-selected="true" aria-controls="paneRoles" tabindex="0">
+          Roles
+        </button>
+        <button class="tab-button" id="tabBtnProfiles" role="tab" aria-selected="false" aria-controls="paneProfiles" tabindex="-1">
+          Agent profiles (9)
+          <span class="tab-unsaved-dot" id="tabProfilesUnsavedDot" title="Unsaved edits in profiles"></span>
+        </button>
+      </nav>
+    </header>
+
+    <div class="tab-content-area">
+      <!-- TAB 1: ROLES TAB -->
+      <section class="tab-pane active" id="paneRoles" role="tabpanel" aria-labelledby="tabBtnRoles">
+        <div class="roles-container">
+
+          <!-- Presets & Compare Bar -->
+          <div class="presets-bar">
+            <div class="preset-selector-group">
+              <span class="preset-label">Presets:</span>
+              <select class="select" id="presetSelect" aria-label="Select active preset"></select>
+              <span class="badge badge-active" id="presetActiveBadge" style="display:none;">active</span>
+              <button class="btn btn-primary btn-sm" id="btnActivatePreset" style="display:none;">Activate</button>
+
+              <div class="preset-actions-group">
+                <button class="btn btn-sm" id="btnNewPreset">+ New</button>
+                <button class="btn btn-sm" id="btnDuplicatePreset">Duplicate</button>
+                <button class="btn btn-sm" id="btnRenamePreset">Rename</button>
+                <button class="btn btn-sm" id="btnDeletePreset">Delete</button>
+              </div>
+            </div>
+
+            <div class="compare-selector-group">
+              <span class="preset-label" style="font-size: 11px;">Compare with:</span>
+              <select class="select" id="compareSelect" aria-label="Compare preset with">
+                <option value="">— (off)</option>
+              </select>
+              <button class="btn btn-sm" id="btnAllPresetsMatrix" title="View all presets in a matrix grid">All presets</button>
+            </div>
+          </div>
+
+          <!-- Preview Banner (When viewing a non-active preset without compare mode) -->
+          <div class="preview-banner" id="previewBanner" style="display:none;">
+            <div class="preview-banner-text">
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zm0 11.7A5.2 5.2 0 1 1 8 2.8a5.2 5.2 0 0 1 0 10.4zm-.7-7.7h1.4v4H7.3V5.5zm0 5.2h1.4v1.4H7.3v-1.4z"/></svg>
+              <span id="previewBannerMsg">Previewing "OC go\CC opus". 4 roles change if you activate it.</span>
+            </div>
+            <button class="btn btn-primary btn-sm" id="btnBannerActivate">Activate</button>
+          </div>
+
+          <!-- Compare Summary Bar (When compare mode is active) -->
+          <div class="compare-summary-bar" id="compareSummaryBar" style="display:none;">
+            <div class="compare-summary-left">
+              <span id="diffSummaryText"><span class="diff-count-badge">3 of 11 roles differ</span></span>
+              <label class="checkbox-label">
+                <input type="checkbox" id="onlyDiffsCheckbox"> Only show differences
+              </label>
+            </div>
+            <div>
+              <button class="btn btn-sm" id="btnSwapCompare">⇄ Swap A/B</button>
+            </div>
+          </div>
+
+          <!-- Roles Table -->
+          <div class="table-wrap">
+            <table class="roles-table" id="rolesTable">
+              <thead>
+                <tr id="tableHeaderRow">
+                  <th style="width: 170px;">Role</th>
+                  <th style="width: 160px;">Agent profile <span class="chip chip-subtle-grey">all presets</span></th>
+                  <th id="thCore">Core</th>
+                  <th id="thModel">Model</th>
+                  <th id="thEffort" style="width: 90px;">Effort</th>
+                  <th id="thSource" style="width: 90px;">Source</th>
+                  <th style="width: 130px; text-align: right;">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="rolesTableBody">
+                <!-- Dynamically populated rows -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Default row card -->
+          <div class="default-row-card">
+            <div class="default-row-left">
+              <div>
+                <strong style="color:var(--text-bright); font-size:12.5px;">Default</strong>
+                <div class="default-row-desc">Used by any role with no preset value and no pin.</div>
+              </div>
+            </div>
+            <div class="default-row-fields">
+              <select class="select" id="defaultCoreSelect"></select>
+              <select class="select" id="defaultModelSelect"></select>
+              <select class="select" id="defaultEffortSelect">
+                <option value="—">—</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Reopen Planning Session Demo Card -->
+          <div class="demo-card-wrap">
+            <div class="demo-card-title">Demo Component: Reopen planning session</div>
+            <div class="session-reopen-dialog">
+              <div>
+                <div style="font-weight: 500; color: var(--text-bright); margin-bottom: 2px;">
+                  This session runs on <span style="font-family: var(--vscode-font-mono); color: var(--text-bright);">claude</span>, but Planner is now <span style="font-family: var(--vscode-font-mono); color: var(--diff-b-text);">agy · gemini-3.8-flash-medium</span>.
+                </div>
+                <div style="font-size: 11px; color: var(--text-muted);">
+                  The agent settings changed since this session was created. Would you like to switch models?
+                </div>
+              </div>
+              <div style="display:flex; gap:8px;">
+                <button class="btn btn-primary btn-sm" id="btnRestartAgy">Restart with agy</button>
+                <button class="btn btn-sm" id="btnKeepClaude">Keep claude</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- TAB 2: AGENT PROFILES TAB -->
+      <section class="tab-pane" id="paneProfiles" role="tabpanel" aria-labelledby="tabBtnProfiles">
+        <!-- Inline unsaved warning inside profiles if switching between dirty items -->
+        <div class="unsaved-banner-bar" id="profileUnsavedBar" style="display:none; margin: 10px 14px 0;">
+          <span id="profileUnsavedMsg">Unsaved changes to reviewer</span>
+          <div style="display:flex; gap:6px;">
+            <button class="btn btn-primary btn-sm" id="btnProfileSaveInline">Save</button>
+            <button class="btn btn-sm" id="btnProfileDiscardInline">Discard</button>
+            <button class="btn btn-sm" id="btnProfileKeepInline">Keep editing</button>
+          </div>
+        </div>
+
+        <div class="profiles-layout">
+          <!-- Profiles Left List (~260px) -->
+          <div class="profiles-list-col" id="profilesListCol">
+            <div class="profiles-search-box">
+              <input type="text" class="input-text" id="profileSearchInput" placeholder="Filter profiles…">
+            </div>
+            <div class="profiles-scroll-tree" id="profilesTree">
+              <!-- Rendered via JS -->
+            </div>
+          </div>
+
+          <!-- Profiles Right Detail -->
+          <div class="profiles-detail-col" id="profilesDetailCol">
+            <button class="btn btn-sm profiles-mobile-back" id="btnBackToProfilesList">← Back to list</button>
+
+            <div class="profile-detail-header">
+              <div class="profile-detail-title-row">
+                <span class="profile-detail-name" id="detailProfileName">reviewer</span>
+                <span class="chip" id="detailSourceBadge">Local (.karst/agents)</span>
+              </div>
+              <div id="detailHeaderActions">
+                <button class="btn btn-sm" id="btnCustomizeBuiltin" style="display:none;">Customize…</button>
+              </div>
+            </div>
+
+            <!-- Meta Controls -->
+            <div class="profile-detail-meta-controls">
+              <!-- Enable Toggle -->
+              <div class="profile-meta-row" id="rowEnableToggle">
+                <label class="checkbox-label" style="font-weight: 500;">
+                  <input type="checkbox" id="profileEnableToggle"> Enable in create flow
+                </label>
+                <span id="approachDeclaredTag" class="chip chip-subtle-grey tooltip-wrap" style="display:none;">
+                  role: implement
+                  <span class="tooltip-box">declared, not used by karst yet</span>
+                </span>
+              </div>
+
+              <!-- Used by roles -->
+              <div class="profile-meta-row">
+                <span style="color:var(--text-muted); min-width:60px;">Used by:</span>
+                <div class="used-by-chips-container" id="detailUsedByContainer"></div>
+              </div>
+
+              <!-- Assign to role dropdown -->
+              <div class="profile-meta-row">
+                <span style="color:var(--text-muted); min-width:60px;">Assign to:</span>
+                <select class="select" id="assignToRoleSelect">
+                  <option value="">Assign to role…</option>
+                </select>
+                <span style="font-size:11px; color:var(--text-muted);">(links this profile to a role)</span>
+              </div>
+            </div>
+
+            <!-- Text editor section -->
+            <div class="profile-editor-section">
+              <div class="profile-editor-caption" id="detailEditorCaption">Editing .karst/agents/reviewer.md</div>
+              <textarea class="profile-textarea" id="profilePromptTextarea" spellcheck="false"></textarea>
+              <div class="editor-bottom-bar" id="editorButtonBar">
+                <span style="font-size:11px; color:var(--text-muted);" id="editorShortcutsHint">Press Cmd/Ctrl+S to save</span>
+                <div style="display:flex; gap:6px;">
+                  <button class="btn btn-sm" id="btnRevertProfileText">Revert</button>
+                  <button class="btn btn-primary btn-sm" id="btnSaveProfileText">Save</button>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Sticky Footer -->
+    <footer class="sticky-footer">
+      <div class="footer-left">
+        <span class="unsaved-counter" id="footerUnsavedCounter" style="display:none;">
+          ● Unsaved changes (<span id="unsavedCountNumber">0</span>)
+        </span>
+      </div>
+      <div class="footer-right">
+        <button class="btn" id="btnFooterDiscard" disabled>Discard</button>
+        <button class="btn btn-primary" id="btnFooterSave" disabled>Save</button>
+      </div>
+    </footer>
+  </main>
+</div>
+
+<!-- Modal: All Presets Matrix Grid -->
+<div class="modal-overlay" id="matrixModal" style="display:none;">
+  <div class="modal-card">
+    <div class="modal-header">
+      <div class="modal-title">All Presets Matrix</div>
+      <button class="btn btn-sm btn-icon" id="btnCloseMatrixModal">✕</button>
+    </div>
+    <div class="modal-body">
+      <table class="matrix-table" id="matrixTable">
+        <!-- Rendered dynamically -->
+      </table>
+      <div class="matrix-legend">
+        * Tinted cells differ from active preset. Click any preset cell to compare with it.
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Toast notification -->
+<div class="toast-notice" id="toastNotice">
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.8 3.5l-8 8.1-3.6-3.7.7-.7 2.9 3 7.3-7.4.7.7z"/></svg>
+  <span id="toastMsg">Saved to .karst/karst.yml</span>
+</div>
+
+<script>
+(function() {
+  'use strict';
+
+  // =========================================================================
+  // MODEL / CORE DEFINITIONS
+  // =========================================================================
+  const CORES = ['claude', 'opencode', 'agy', 'codex'];
+
+  const MODELS_BY_CORE = {
+    claude: [
+      'claude-opus-5-5',
+      'claude-sonnet-5-5',
+      'claude-haiku-5-5'
+    ],
+    opencode: [
+      'opencode-go/deepseek-v4.1-flash',
+      'opencode/mimo-v2.6-flash-free',
+      'openrouter/poolside/laguna-xs-2.1:free'
+    ],
+    agy: [
+      'gemini-3.8-flash-low',
+      'gemini-3.8-flash-medium',
+      'gemini-3.8-flash-high'
+    ],
+    codex: [
+      'gpt-5.5',
+      'gpt-5.5-mini'
+    ]
+  };
+
+  const EFFORT_OPTIONS = ['—', 'low', 'medium', 'high'];
+
+  // Role labels exact list
+  // Escape every value interpolated into markup (preset names are user-typed),
+  // and accept only known role ids as keys (no __proto__ / constructor writes).
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const ROLES_LIST = [
+    { id: 'impl', name: 'Implementation', identityOnly: true },
+    { id: 'planner', name: 'Planner', identityOnly: false },
+    { id: 'ticket_analysis', name: 'Ticket Analysis Agent', identityOnly: false },
+    { id: 'review', name: 'Review Agent', identityOnly: false },
+    { id: 'review_fix', name: 'Review Fix Agent', identityOnly: true },
+    { id: 'uat', name: 'UAT Agent', identityOnly: false },
+    { id: 'uat_fix', name: 'UAT Fix Agent', identityOnly: true },
+    { id: 'pr_desc', name: 'PR description', identityOnly: true },
+    { id: 'graph_expert', name: 'Graph expert', identityOnly: true },
+    { id: 'graph_worker', name: 'Graph worker', identityOnly: true },
+    { id: 'graph_fast', name: 'Graph fast', identityOnly: true }
+  ];
+
+  // =========================================================================
+  // INITIAL IN-MEMORY STATE
+  // =========================================================================
+  const state = {
+    theme: 'dark',
+    activeTab: 'roles', // 'roles' or 'profiles'
+    activePreset: 'OC go\\CC opus | opencode limits',
+    selectedPreset: 'OC go\\CC opus | opencode limits',
+    comparePreset: '', // '' means off
+    onlyShowDiffs: false,
+    selectedRoleRow: null,
+    highlightProfileId: null,
+
+    // Default configuration (when role does not have preset or pin)
+    defaultConfig: {
+      core: 'opencode',
+      model: 'openrouter/poolside/laguna-xs-2.1:free',
+      effort: '—'
+    },
+
+    // Pinned configurations across presets { roleId: { core, model, effort } }
+    pinned: {
+      uat: {
+        core: 'claude',
+        model: 'claude-sonnet-5-5',
+        effort: '—'
+      }
+    },
+
+    // Links from role -> agent profile id ('__builtin__' or profile id)
+    roleAgentLinks: {
+      review: 'reviewer',
+      uat: 'uat-tester',
+      impl: '__builtin__',
+      planner: '__builtin__',
+      ticket_analysis: '__builtin__',
+      review_fix: '__builtin__',
+      uat_fix: '__builtin__',
+      pr_desc: '__builtin__',
+      graph_expert: '__builtin__',
+      graph_worker: '__builtin__',
+      graph_fast: '__builtin__'
+    },
+
+    // Presets values: null if falls back to default
+    presets: {
+      'OC go\\CC opus | opencode limits': {
+        impl: { core: 'opencode', model: 'openrouter/poolside/laguna-xs-2.1:free', effort: '—' },
+        planner: { core: 'agy', model: 'gemini-3.8-flash-medium', effort: 'medium' },
+        review: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' },
+        review_fix: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        uat: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' }, // pinned in reality
+        uat_fix: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        pr_desc: { core: 'opencode', model: 'opencode/mimo-v2.6-flash-free', effort: '—' },
+        ticket_analysis: null, // default
+        graph_expert: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' },
+        graph_worker: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        graph_fast: { core: 'opencode', model: 'opencode/mimo-v2.6-flash-free', effort: '—' }
+      },
+      'OC go\\CC opus': {
+        impl: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        planner: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' },
+        review: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' },
+        review_fix: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        uat: { core: 'opencode', model: 'opencode/mimo-v2.6-flash-free', effort: '—' },
+        uat_fix: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        pr_desc: { core: 'opencode', model: 'opencode/mimo-v2.6-flash-free', effort: '—' },
+        ticket_analysis: { core: 'opencode', model: 'opencode/mimo-v2.6-flash-free', effort: '—' },
+        graph_expert: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' },
+        graph_worker: { core: 'opencode', model: 'opencode-go/deepseek-v4.1-flash', effort: '—' },
+        graph_fast: { core: 'opencode', model: 'opencode/mimo-v2.6-flash-free', effort: '—' }
+      },
+      'opus': {
+        impl: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        planner: { core: 'claude', model: 'claude-opus-5-5', effort: 'high' },
+        review: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        review_fix: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        uat: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        uat_fix: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        pr_desc: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' },
+        ticket_analysis: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        graph_expert: { core: 'claude', model: 'claude-opus-5-5', effort: 'high' },
+        graph_worker: { core: 'claude', model: 'claude-opus-5-5', effort: 'medium' },
+        graph_fast: { core: 'claude', model: 'claude-opus-5-5', effort: 'low' }
+      },
+      'agy only': {
+        impl: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        planner: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        review: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        review_fix: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        uat: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        uat_fix: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        pr_desc: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        ticket_analysis: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        graph_expert: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        graph_worker: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' },
+        graph_fast: { core: 'agy', model: 'gemini-3.8-flash-low', effort: 'low' }
+      }
+    },
+
+    // Agent profiles repository
+    agentProfiles: [
+      // Local
+      {
+        id: 'reviewer',
+        group: 'local',
+        name: 'reviewer',
+        desc: 'Performs code reviews prioritizing security and conventions.',
+        enabled: true,
+        content: '# Reviewer Persona\nYou are an uncompromising code reviewer focusing on correctness, idiomatic style, and test coverage.\nFlag race conditions and regressions.',
+        originalContent: '# Reviewer Persona\nYou are an uncompromising code reviewer focusing on correctness, idiomatic style, and test coverage.\nFlag race conditions and regressions.'
+      },
+      {
+        id: 'uat-tester',
+        group: 'local',
+        name: 'uat-tester',
+        desc: 'Runs end-to-end user acceptance scenarios.',
+        enabled: true,
+        content: '# UAT Tester\nValidate user stories against the acceptance criteria.\nProbe edge cases, responsive layout breaks, and permission guards.',
+        originalContent: '# UAT Tester\nValidate user stories against the acceptance criteria.\nProbe edge cases, responsive layout breaks, and permission guards.'
+      },
+      {
+        id: 'description-improver',
+        group: 'local',
+        name: 'description-improver',
+        desc: 'Refines PR descriptions and release change notes.',
+        enabled: false,
+        content: '# Description Improver\nCondense commits into crisp human-readable pull request summaries.',
+        originalContent: '# Description Improver\nCondense commits into crisp human-readable pull request summaries.'
+      },
+      // From approach: speckit
+      {
+        id: 'approach-research',
+        group: 'approach',
+        name: 'research',
+        desc: 'Speckit research persona for requirements gathering.',
+        enabled: true,
+        approachRole: 'research',
+        content: 'Provided by approach speckit — manage in approach.',
+        originalContent: 'Provided by approach speckit — manage in approach.'
+      },
+      {
+        id: 'approach-plan',
+        group: 'approach',
+        name: 'plan',
+        desc: 'Speckit architectural planning step persona.',
+        enabled: true,
+        approachRole: 'plan',
+        content: 'Provided by approach speckit — manage in approach.',
+        originalContent: 'Provided by approach speckit — manage in approach.'
+      },
+      {
+        id: 'approach-implement-fe',
+        group: 'approach',
+        name: 'implement-fe',
+        desc: 'Speckit front-end implementation specialist.',
+        enabled: true,
+        approachRole: 'implement',
+        content: 'Provided by approach speckit — manage in approach.',
+        originalContent: 'Provided by approach speckit — manage in approach.'
+      },
+      {
+        id: 'approach-implement-be',
+        group: 'approach',
+        name: 'implement-be',
+        desc: 'Speckit back-end API & database specialist.',
+        enabled: true,
+        approachRole: 'implement',
+        content: 'Provided by approach speckit — manage in approach.',
+        originalContent: 'Provided by approach speckit — manage in approach.'
+      },
+      {
+        id: 'approach-test',
+        group: 'approach',
+        name: 'test',
+        desc: 'Speckit test suite writer persona.',
+        enabled: true,
+        approachRole: 'test',
+        content: 'Provided by approach speckit — manage in approach.',
+        originalContent: 'Provided by approach speckit — manage in approach.'
+      },
+      {
+        id: 'approach-review',
+        group: 'approach',
+        name: 'review',
+        desc: 'Speckit automated checklist reviewer persona.',
+        enabled: true,
+        approachRole: 'review',
+        content: 'Provided by approach speckit — manage in approach.',
+        originalContent: 'Provided by approach speckit — manage in approach.'
+      }
+    ],
+
+    // Selected profile in Agent Profiles tab
+    selectedProfileId: 'reviewer',
+    pendingProfileSwitchId: null,
+
+    // Track unsaved modifications
+    unsavedChangesCount: 0,
+    hasProfileTextEdits: false,
+    dirtyFlag: false
+  };
+
+  // Build built-in prompt items for the tree
+  ROLES_LIST.forEach(r => {
+    state.agentProfiles.push({
+      id: `builtin-${r.id}`,
+      group: 'builtin',
+      name: `built-in: ${r.name}`,
+      roleId: r.id,
+      identityOnly: r.identityOnly,
+      desc: `Built-in default system prompt for ${r.name}.`,
+      enabled: true,
+      content: r.identityOnly 
+        ? `This process keeps its built-in prompt; an agent profile changes identity only.` 
+        : `# Built-in prompt for ${r.name}\nStandard Karst pipeline workflow execution.`,
+      originalContent: r.identityOnly 
+        ? `This process keeps its built-in prompt; an agent profile changes identity only.` 
+        : `# Built-in prompt for ${r.name}\nStandard Karst pipeline workflow execution.`
+    });
+  });
+
+  // Snapshot for discarding
+  let initialStateSnapshot = JSON.stringify({
+    presets: state.presets,
+    pinned: state.pinned,
+    roleAgentLinks: state.roleAgentLinks,
+    defaultConfig: state.defaultConfig,
+    agentProfiles: state.agentProfiles.map(p => ({ id: p.id, enabled: p.enabled, content: p.content }))
+  });
+
+  // =========================================================================
+  // DOM REFERENCES
+  // =========================================================================
+  const themeToggleBtn = document.getElementById('themeToggleBtn');
+  const tabBtnRoles = document.getElementById('tabBtnRoles');
+  const tabBtnProfiles = document.getElementById('tabBtnProfiles');
+  const paneRoles = document.getElementById('paneRoles');
+  const paneProfiles = document.getElementById('paneProfiles');
+  const tabProfilesUnsavedDot = document.getElementById('tabProfilesUnsavedDot');
+
+  const presetSelect = document.getElementById('presetSelect');
+  const presetActiveBadge = document.getElementById('presetActiveBadge');
+  const btnActivatePreset = document.getElementById('btnActivatePreset');
+  const btnNewPreset = document.getElementById('btnNewPreset');
+  const btnDuplicatePreset = document.getElementById('btnDuplicatePreset');
+  const btnRenamePreset = document.getElementById('btnRenamePreset');
+  const btnDeletePreset = document.getElementById('btnDeletePreset');
+
+  const compareSelect = document.getElementById('compareSelect');
+  const btnAllPresetsMatrix = document.getElementById('btnAllPresetsMatrix');
+  const previewBanner = document.getElementById('previewBanner');
+  const previewBannerMsg = document.getElementById('previewBannerMsg');
+  const btnBannerActivate = document.getElementById('btnBannerActivate');
+
+  const compareSummaryBar = document.getElementById('compareSummaryBar');
+  const diffSummaryText = document.getElementById('diffSummaryText');
+  const onlyDiffsCheckbox = document.getElementById('onlyDiffsCheckbox');
+  const btnSwapCompare = document.getElementById('btnSwapCompare');
+
+  const rolesTable = document.getElementById('rolesTable');
+  const rolesTableBody = document.getElementById('rolesTableBody');
+  const tableHeaderRow = document.getElementById('tableHeaderRow');
+
+  const defaultCoreSelect = document.getElementById('defaultCoreSelect');
+  const defaultModelSelect = document.getElementById('defaultModelSelect');
+  const defaultEffortSelect = document.getElementById('defaultEffortSelect');
+
+  // Profiles DOM
+  const profilesTree = document.getElementById('profilesTree');
+  const profileSearchInput = document.getElementById('profileSearchInput');
+  const detailProfileName = document.getElementById('detailProfileName');
+  const detailSourceBadge = document.getElementById('detailSourceBadge');
+  const btnCustomizeBuiltin = document.getElementById('btnCustomizeBuiltin');
+  const rowEnableToggle = document.getElementById('rowEnableToggle');
+  const profileEnableToggle = document.getElementById('profileEnableToggle');
+  const approachDeclaredTag = document.getElementById('approachDeclaredTag');
+  const detailUsedByContainer = document.getElementById('detailUsedByContainer');
+  const assignToRoleSelect = document.getElementById('assignToRoleSelect');
+  const detailEditorCaption = document.getElementById('detailEditorCaption');
+  const profilePromptTextarea = document.getElementById('profilePromptTextarea');
+  const editorButtonBar = document.getElementById('editorButtonBar');
+  const btnRevertProfileText = document.getElementById('btnRevertProfileText');
+  const btnSaveProfileText = document.getElementById('btnSaveProfileText');
+  const profileUnsavedBar = document.getElementById('profileUnsavedBar');
+  const profileUnsavedMsg = document.getElementById('profileUnsavedMsg');
+  const btnProfileSaveInline = document.getElementById('btnProfileSaveInline');
+  const btnProfileDiscardInline = document.getElementById('btnProfileDiscardInline');
+  const btnProfileKeepInline = document.getElementById('btnProfileKeepInline');
+  const btnBackToProfilesList = document.getElementById('btnBackToProfilesList');
+
+  // Matrix Modal DOM
+  const matrixModal = document.getElementById('matrixModal');
+  const btnCloseMatrixModal = document.getElementById('btnCloseMatrixModal');
+  const matrixTable = document.getElementById('matrixTable');
+
+  // Sticky Footer & Toast
+  const footerUnsavedCounter = document.getElementById('footerUnsavedCounter');
+  const unsavedCountNumber = document.getElementById('unsavedCountNumber');
+  const btnFooterDiscard = document.getElementById('btnFooterDiscard');
+  const btnFooterSave = document.getElementById('btnFooterSave');
+  const toastNotice = document.getElementById('toastNotice');
+  const toastMsg = document.getElementById('toastMsg');
+
+  // Demo buttons
+  const btnRestartAgy = document.getElementById('btnRestartAgy');
+  const btnKeepClaude = document.getElementById('btnKeepClaude');
+
+  // =========================================================================
+  // HELPER FUNCTIONS & LOGIC
+  // =========================================================================
+
+  function showToast(msg) {
+    toastMsg.textContent = msg;
+    toastNotice.classList.add('show');
+    setTimeout(() => {
+      toastNotice.classList.remove('show');
+    }, 2800);
+  }
+
+  function markUnsaved(changedCountDelta = 1) {
+    state.unsavedChangesCount += changedCountDelta;
+    if (state.unsavedChangesCount < 0) state.unsavedChangesCount = 0;
+    updateFooterUnsaved();
+  }
+
+  function updateFooterUnsaved() {
+    const isDirty = state.unsavedChangesCount > 0 || state.hasProfileTextEdits;
+    footerUnsavedCounter.style.display = isDirty ? 'inline-flex' : 'none';
+    unsavedCountNumber.textContent = state.unsavedChangesCount + (state.hasProfileTextEdits ? 1 : 0);
+    btnFooterDiscard.disabled = !isDirty;
+    btnFooterSave.disabled = !isDirty;
+
+    if (state.hasProfileTextEdits) {
+      tabProfilesUnsavedDot.style.display = 'inline-block';
+    } else {
+      tabProfilesUnsavedDot.style.display = 'none';
+    }
+  }
+
+  // Returns effective configuration { core, model, effort, source } for a role in a preset
+  function getEffectiveRoleConfig(presetName, roleId) {
+    if (state.pinned[roleId]) {
+      return {
+        ...state.pinned[roleId],
+        source: 'pinned'
+      };
+    }
+    const presetData = state.presets[presetName];
+    if (presetData && presetData[roleId]) {
+      return {
+        ...presetData[roleId],
+        source: 'preset'
+      };
+    }
+    // Inherits default
+    return {
+      ...state.defaultConfig,
+      source: 'default'
+    };
+  }
+
+  // Check if role config in selected preset differs from active preset
+  function isRoleDifferentFromActive(roleId, targetPreset) {
+    if (targetPreset === state.activePreset) return false;
+    const effActive = getEffectiveRoleConfig(state.activePreset, roleId);
+    const effTarget = getEffectiveRoleConfig(targetPreset, roleId);
+    return (
+      effActive.core !== effTarget.core ||
+      effActive.model !== effTarget.model ||
+      effActive.effort !== effTarget.effort
+    );
+  }
+
+  // Compare mode: differences between Preset A (selected) and Preset B (compare)
+  function isRoleDifferentBetweenAandB(roleId, presetA, presetB) {
+    if (!presetB) return false;
+    const a = getEffectiveRoleConfig(presetA, roleId);
+    const b = getEffectiveRoleConfig(presetB, roleId);
+    return a.core !== b.core || a.model !== b.model || a.effort !== b.effort;
+  }
+
+  function getRolesDiffCount(presetA, presetB) {
+    let count = 0;
+    ROLES_LIST.forEach(r => {
+      if (isRoleDifferentBetweenAandB(r.id, presetA, presetB)) count++;
+    });
+    return count;
+  }
+
+  function getAgentProfile(profileId) {
+    return state.agentProfiles.find(p => p.id === profileId) || null;
+  }
+
+  // =========================================================================
+  // TAB NAVIGATION & URL HASH ROUTING
+  // =========================================================================
+
+  function switchTab(tabKey, updateHash = true) {
+    // Check if switching tabs with unsaved profile text edits
+    if (state.activeTab === 'profiles' && tabKey !== 'profiles' && state.hasProfileTextEdits) {
+      profileUnsavedBar.style.display = 'flex';
+      profileUnsavedMsg.textContent = `Unsaved changes to ${getAgentProfile(state.selectedProfileId)?.name || 'profile'}`;
+      // do not switch immediately until user acts, or show banner
+    }
+
+    state.activeTab = tabKey;
+    if (tabKey === 'roles') {
+      tabBtnRoles.classList.add('active');
+      tabBtnRoles.setAttribute('aria-selected', 'true');
+      tabBtnRoles.tabIndex = 0;
+
+      tabBtnProfiles.classList.remove('active');
+      tabBtnProfiles.setAttribute('aria-selected', 'false');
+      tabBtnProfiles.tabIndex = -1;
+
+      paneRoles.classList.add('active');
+      paneProfiles.classList.remove('active');
+
+      if (updateHash) {
+        syncUrlHash();
+      }
+      renderRolesTable();
+    } else {
+      tabBtnProfiles.classList.add('active');
+      tabBtnProfiles.setAttribute('aria-selected', 'true');
+      tabBtnProfiles.tabIndex = 0;
+
+      tabBtnRoles.classList.remove('active');
+      tabBtnRoles.setAttribute('aria-selected', 'false');
+      tabBtnRoles.tabIndex = -1;
+
+      paneProfiles.classList.add('active');
+      paneRoles.classList.remove('active');
+
+      if (updateHash) {
+        syncUrlHash();
+      }
+      renderProfilesView();
+    }
+  }
+
+  function syncUrlHash() {
+    if (state.activeTab === 'roles') {
+      let hash = '#agents/roles';
+      if (state.selectedRoleRow) {
+        hash += `/${state.selectedRoleRow}`;
+      }
+      if (state.comparePreset) {
+        hash += `?compare=${encodeURIComponent(state.comparePreset)}`;
+      }
+      window.location.hash = hash;
+    } else {
+      window.location.hash = `#agents/profiles/${state.selectedProfileId || 'reviewer'}`;
+    }
+  }
+
+  function parseHashAndRestore() {
+    const hash = window.location.hash || '';
+    if (!hash || hash.startsWith('#agents/roles')) {
+      const parts = hash.split('?');
+      const pathPart = parts[0];
+      const queryPart = parts[1] || '';
+
+      const segs = pathPart.split('/');
+      if (segs[2]) {
+        state.selectedRoleRow = segs[2];
+      }
+
+      if (queryPart.includes('compare=')) {
+        const urlParams = new URLSearchParams(queryPart);
+        const comp = urlParams.get('compare');
+        if (state.presets[comp]) {
+          state.comparePreset = comp;
+        }
+      }
+      switchTab('roles', false);
+    } else if (hash.startsWith('#agents/profiles')) {
+      const segs = hash.split('/');
+      if (segs[2]) {
+        const found = state.agentProfiles.find(p => p.id === segs[2] || p.name === segs[2]);
+        if (found) state.selectedProfileId = found.id;
+      }
+      switchTab('profiles', false);
+    }
+  }
+
+  // Keyboard navigation for tablist
+  function handleTabKeydown(e) {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      if (state.activeTab === 'roles') {
+        switchTab('profiles');
+        tabBtnProfiles.focus();
+      } else {
+        switchTab('roles');
+        tabBtnRoles.focus();
+      }
+    }
+  }
+
+  tabBtnRoles.addEventListener('keydown', handleTabKeydown);
+  tabBtnProfiles.addEventListener('keydown', handleTabKeydown);
+  tabBtnRoles.addEventListener('click', () => switchTab('roles'));
+  tabBtnProfiles.addEventListener('click', () => switchTab('profiles'));
+
+  // Theme Toggle
+  themeToggleBtn.addEventListener('click', () => {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', state.theme);
+  });
+
+  // =========================================================================
+  // PRESETS DROPDOWN & ACTIONS
+  // =========================================================================
+
+  function populatePresetDropdowns() {
+    const presetNames = Object.keys(state.presets);
+
+    // Main preset select
+    presetSelect.innerHTML = '';
+    presetNames.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name + (name === state.activePreset ? ' (active)' : '');
+      presetSelect.appendChild(opt);
+    });
+    presetSelect.value = state.selectedPreset;
+
+    // Compare select
+    compareSelect.innerHTML = '<option value="">— (off)</option>';
+    presetNames.forEach(name => {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name;
+      compareSelect.appendChild(opt);
+    });
+    compareSelect.value = state.comparePreset;
+
+    updatePresetHeaderUI();
+  }
+
+  function updatePresetHeaderUI() {
+    const isSelectedActive = (state.selectedPreset === state.activePreset);
+
+    if (isSelectedActive) {
+      presetActiveBadge.style.display = 'inline-flex';
+      btnActivatePreset.style.display = 'none';
+      previewBanner.style.display = 'none';
+    } else {
+      presetActiveBadge.style.display = 'none';
+      btnActivatePreset.style.display = 'inline-flex';
+
+      // If compare mode is not on, show preview banner
+      if (!state.comparePreset) {
+        let diffCount = 0;
+        ROLES_LIST.forEach(r => {
+          if (isRoleDifferentFromActive(r.id, state.selectedPreset)) diffCount++;
+        });
+        previewBanner.style.display = 'flex';
+        previewBannerMsg.textContent = `Previewing "${state.selectedPreset}". ${diffCount} roles change if you activate it.`;
+      } else {
+        previewBanner.style.display = 'none';
+      }
+    }
+
+    // Compare summary bar
+    if (state.comparePreset) {
+      compareSummaryBar.style.display = 'flex';
+      const diffCount = getRolesDiffCount(state.selectedPreset, state.comparePreset);
+      diffSummaryText.innerHTML = `<span class="diff-count-badge">${diffCount} of 11 roles differ</span>`;
+    } else {
+      compareSummaryBar.style.display = 'none';
+    }
+  }
+
+  presetSelect.addEventListener('change', (e) => {
+    state.selectedPreset = e.target.value;
+    updatePresetHeaderUI();
+    renderRolesTable();
+    syncUrlHash();
+  });
+
+  function activateSelectedPreset() {
+    state.activePreset = state.selectedPreset;
+    populatePresetDropdowns();
+    renderRolesTable();
+    markUnsaved(1);
+    showToast(`Preset "${state.activePreset}" is now active`);
+  }
+
+  btnActivatePreset.addEventListener('click', activateSelectedPreset);
+  btnBannerActivate.addEventListener('click', activateSelectedPreset);
+
+  compareSelect.addEventListener('change', (e) => {
+    state.comparePreset = e.target.value;
+    updatePresetHeaderUI();
+    renderRolesTable();
+    syncUrlHash();
+  });
+
+  btnSwapCompare.addEventListener('click', () => {
+    if (!state.comparePreset) return;
+    const oldA = state.selectedPreset;
+    state.selectedPreset = state.comparePreset;
+    state.comparePreset = oldA;
+    populatePresetDropdowns();
+    renderRolesTable();
+    syncUrlHash();
+  });
+
+  onlyDiffsCheckbox.addEventListener('change', (e) => {
+    state.onlyShowDiffs = e.target.checked;
+    renderRolesTable();
+  });
+
+  btnNewPreset.addEventListener('click', () => {
+    const name = prompt('Enter name for new preset:');
+    if (!name || state.presets[name]) {
+      if (state.presets[name]) alert('A preset with that name already exists.');
+      return;
+    }
+    // clone active preset
+    state.presets[name] = JSON.parse(JSON.stringify(state.presets[state.activePreset]));
+    state.selectedPreset = name;
+    markUnsaved(1);
+    populatePresetDropdowns();
+    renderRolesTable();
+  });
+
+  btnDuplicatePreset.addEventListener('click', () => {
+    const base = state.selectedPreset;
+    const name = prompt(`Duplicate preset "${base}" as:`, `${base} (copy)`);
+    if (!name || state.presets[name]) {
+      if (state.presets[name]) alert('A preset with that name already exists.');
+      return;
+    }
+    state.presets[name] = JSON.parse(JSON.stringify(state.presets[base]));
+    state.selectedPreset = name;
+    markUnsaved(1);
+    populatePresetDropdowns();
+    renderRolesTable();
+  });
+
+  btnRenamePreset.addEventListener('click', () => {
+    const oldName = state.selectedPreset;
+    const newName = prompt(`Rename preset "${oldName}" to:`, oldName);
+    if (!newName || newName === oldName) return;
+    if (state.presets[newName]) {
+      alert('A preset with that name already exists.');
+      return;
+    }
+    state.presets[newName] = state.presets[oldName];
+    delete state.presets[oldName];
+    if (state.activePreset === oldName) state.activePreset = newName;
+    if (state.comparePreset === oldName) state.comparePreset = newName;
+    state.selectedPreset = newName;
+    markUnsaved(1);
+    populatePresetDropdowns();
+    renderRolesTable();
+  });
+
+  btnDeletePreset.addEventListener('click', () => {
+    const name = state.selectedPreset;
+    if (Object.keys(state.presets).length <= 1) {
+      alert('Cannot delete the only remaining preset.');
+      return;
+    }
+    if (name === state.activePreset) {
+      alert('Cannot delete the active preset. Activate another preset first.');
+      return;
+    }
+    if (confirm(`Delete preset "${name}"?`)) {
+      delete state.presets[name];
+      state.selectedPreset = state.activePreset;
+      if (state.comparePreset === name) state.comparePreset = '';
+      markUnsaved(1);
+      populatePresetDropdowns();
+      renderRolesTable();
+    }
+  });
+
+  // =========================================================================
+  // ROLES TABLE RENDERING
+  // =========================================================================
+
+  function renderRolesTable() {
+    const isCompare = Boolean(state.comparePreset && state.comparePreset !== state.selectedPreset);
+    rolesTableBody.innerHTML = '';
+
+    // Update table header in compare mode
+    if (isCompare) {
+      tableHeaderRow.innerHTML = `
+        <th style="width: 170px;">Role</th>
+        <th style="width: 160px;">Agent profile <span class="chip chip-subtle-grey">all presets</span></th>
+        <th>A: ${esc(state.selectedPreset)}</th>
+        <th>B: ${esc(state.comparePreset)}</th>
+        <th style="width: 90px;">Source</th>
+        <th style="width: 140px; text-align: right;">Actions</th>
+      `;
+    } else {
+      tableHeaderRow.innerHTML = `
+        <th style="width: 170px;">Role</th>
+        <th style="width: 160px;">Agent profile <span class="chip chip-subtle-grey">all presets</span></th>
+        <th id="thCore">Core</th>
+        <th id="thModel">Model</th>
+        <th id="thEffort" style="width: 90px;">Effort</th>
+        <th id="thSource" style="width: 90px;">Source</th>
+        <th style="width: 130px; text-align: right;">Actions</th>
+      `;
+    }
+
+    ROLES_LIST.forEach(role => {
+      const effA = getEffectiveRoleConfig(state.selectedPreset, role.id);
+      const isDiffFromActive = isRoleDifferentFromActive(role.id, state.selectedPreset);
+      const differsCompare = isCompare ? isRoleDifferentBetweenAandB(role.id, state.selectedPreset, state.comparePreset) : false;
+
+      // Filter: only show differences
+      if (isCompare && state.onlyShowDiffs && !differsCompare) {
+        return;
+      }
+
+      const tr = document.createElement('tr');
+      tr.id = `role-row-${role.id}`;
+
+      // Styling classes
+      if (effA.source === 'pinned') tr.classList.add('row-pinned');
+      if (state.selectedRoleRow === role.id) tr.classList.add('row-target-flash');
+
+      // Shared profile highlight
+      const linkedProfileId = state.roleAgentLinks[role.id];
+      if (state.highlightProfileId && linkedProfileId === state.highlightProfileId) {
+        tr.classList.add('row-same-profile');
+      }
+
+      // Column 1: Role Name (+ changes dot if differs from active preset)
+      const tdRole = document.createElement('td');
+      tdRole.className = 'role-title-cell';
+      let dotHtml = '';
+      if (!isCompare && state.selectedPreset !== state.activePreset && isDiffFromActive) {
+        dotHtml = `<span class="changes-dot" title="Differs from active preset"></span>`;
+      }
+      if (isCompare && differsCompare) {
+        dotHtml = `<span class="changes-dot" title="Differs between Preset A and B"></span>`;
+      }
+      tdRole.innerHTML = `${dotHtml}<span>${esc(role.name)}</span>`;
+      tr.appendChild(tdRole);
+
+      // Column 2: Agent profile (never changes with preset)
+      const tdProfile = document.createElement('td');
+      tdProfile.innerHTML = renderAgentProfileCell(role);
+      tr.appendChild(tdProfile);
+
+      if (isCompare) {
+        const effB = getEffectiveRoleConfig(state.comparePreset, role.id);
+
+        // Subcol A (Selected)
+        const tdA = document.createElement('td');
+        const diffCore = effA.core !== effB.core;
+        const diffModel = effA.model !== effB.model;
+        const diffEffort = effA.effort !== effB.effort;
+
+        tdA.innerHTML = `
+          <div class="compare-cell-split">
+            <span class="compare-subval ${differsCompare ? 'val-a' : 'val-identical'}">
+              ${esc(effA.core)} · ${esc(effA.model)} · ${esc(effA.effort)}
+            </span>
+            ${effA.source === 'default' ? '<span class="chip chip-default" style="font-size:9.5px;">default</span>' : ''}
+          </div>
+        `;
+        tr.appendChild(tdA);
+
+        // Subcol B (Compare)
+        const tdB = document.createElement('td');
+        tdB.innerHTML = `
+          <div class="compare-cell-split">
+            <span class="compare-subval ${differsCompare ? 'val-b' : 'val-identical'}">
+              ${esc(effB.core)} · ${esc(effB.model)} · ${esc(effB.effort)}
+            </span>
+            ${effB.source === 'default' ? '<span class="chip chip-default" style="font-size:9.5px;">default</span>' : ''}
+          </div>
+        `;
+        tr.appendChild(tdB);
+
+        // Source column
+        const tdSrc = document.createElement('td');
+        tdSrc.innerHTML = renderSourceChip(effA.source);
+        tr.appendChild(tdSrc);
+
+        // Actions: Copy from B if differing, or Pin
+        const tdActions = document.createElement('td');
+        tdActions.style.textAlign = 'right';
+        tdActions.innerHTML = `
+          <div style="display:inline-flex; gap:6px; align-items:center;">
+            ${differsCompare ? `<button class="btn btn-sm btn-copy-b" data-role="${esc(role.id)}" title="Copy B's value into ${esc(state.selectedPreset)}">← Copy B</button>` : ''}
+            <button class="btn btn-sm ${effA.source === 'pinned' ? 'btn-primary' : ''} btn-pin-toggle" data-role="${esc(role.id)}" title="${effA.source === 'pinned' ? 'Unpin' : 'Pin across all presets'}">
+              ${effA.source === 'pinned' ? 'Pinned' : 'Pin'}
+            </button>
+          </div>
+        `;
+        tr.appendChild(tdActions);
+
+      } else {
+        // Normal Mode: Core, Model, Effort, Source, Actions
+        // Core cell
+        const tdCore = document.createElement('td');
+        tdCore.appendChild(renderCoreSelect(role.id, effA));
+        tr.appendChild(tdCore);
+
+        // Model cell
+        const tdModel = document.createElement('td');
+        tdModel.appendChild(renderModelSelect(role.id, effA));
+        tr.appendChild(tdModel);
+
+        // Effort cell
+        const tdEffort = document.createElement('td');
+        tdEffort.appendChild(renderEffortSelect(role.id, effA));
+        tr.appendChild(tdEffort);
+
+        // Source cell
+        const tdSrc = document.createElement('td');
+        tdSrc.innerHTML = renderSourceChip(effA.source);
+        tr.appendChild(tdSrc);
+
+        // Actions cell
+        const tdActions = document.createElement('td');
+        tdActions.style.textAlign = 'right';
+        tdActions.innerHTML = `
+          <div style="display:inline-flex; gap:6px; align-items:center;">
+            <button class="btn btn-sm ${effA.source === 'pinned' ? 'btn-primary' : ''} btn-pin-toggle" data-role="${esc(role.id)}" title="${effA.source === 'pinned' ? 'Unpin role' : 'Pin to make value identical in ALL presets'}">
+              ${effA.source === 'pinned' ? 'Pinned' : 'Pin'}
+            </button>
+            <button class="btn btn-sm btn-clear-role" data-role="${esc(role.id)}" ${effA.source === 'default' ? 'disabled' : ''} title="Clear preset override (falls back to default)">
+              Clear
+            </button>
+          </div>
+        `;
+        tr.appendChild(tdActions);
+      }
+
+      rolesTableBody.appendChild(tr);
+    });
+
+    attachTableActionListeners();
+  }
+
+  // Render the Agent Profile cell
+  function renderAgentProfileCell(role) {
+    const linkedProfileId = state.roleAgentLinks[role.id];
+    const isBuiltin = !linkedProfileId || linkedProfileId === '__builtin__';
+
+    let warningHtml = '';
+    let label = 'built-in prompt ›';
+    let linkId = `builtin-${role.id}`;
+
+    if (!isBuiltin) {
+      const p = getAgentProfile(linkedProfileId);
+      if (p) {
+        label = `${esc(p.name)} ›`;
+        linkId = p.id;
+        if (!p.enabled) {
+          warningHtml = `
+            <span class="disabled-warning-icon tooltip-wrap" aria-label="Disabled agent warning">
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM7.2 4.5h1.6v4.6H7.2V4.5zm0 5.8h1.6v1.6H7.2v-1.6z"/></svg>
+              <span class="tooltip-box">agent disabled — role will run built-in</span>
+            </span>
+          `;
+        }
+      } else {
+        label = 'Role default ›';
+      }
+    }
+
+    return `
+      <div style="display:flex; align-items:center; gap:6px;">
+        ${warningHtml}
+        <a class="profile-link ${isBuiltin ? 'built-in' : ''}" data-profile-id="${esc(linkId)}" title="Inspect in Agent profiles tab">${label}</a>
+      </div>
+    `;
+  }
+
+  // Render Source chip with hover tooltip
+  function renderSourceChip(source) {
+    let chipClass = 'chip-default';
+    let label = 'default';
+    let tooltip = 'Inherits value from the Default row.';
+
+    if (source === 'pinned') {
+      chipClass = 'chip-pinned';
+      label = 'pinned';
+      tooltip = 'Pinned: same value in ALL presets; beats preset overrides.';
+    } else if (source === 'preset') {
+      chipClass = 'chip-preset';
+      label = 'preset';
+      tooltip = `Specified directly in the selected preset "${esc(state.selectedPreset)}".`;
+    }
+
+    return `
+      <div class="tooltip-wrap">
+        <span class="chip ${chipClass}">${label}</span>
+        <span class="tooltip-box">${tooltip}</span>
+      </div>
+    `;
+  }
+
+  // Select builders for normal table cells
+  function renderCoreSelect(roleId, eff) {
+    const sel = document.createElement('select');
+    sel.className = 'select';
+    CORES.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      sel.appendChild(opt);
+    });
+    sel.value = eff.core;
+
+    sel.addEventListener('change', (e) => {
+      handleCellEdit(roleId, 'core', e.target.value);
+    });
+    return sel;
+  }
+
+  function renderModelSelect(roleId, eff) {
+    const sel = document.createElement('select');
+    sel.className = 'select';
+    const models = MODELS_BY_CORE[eff.core] || [];
+    models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      sel.appendChild(opt);
+    });
+    sel.value = eff.model;
+
+    sel.addEventListener('change', (e) => {
+      handleCellEdit(roleId, 'model', e.target.value);
+    });
+    return sel;
+  }
+
+  function renderEffortSelect(roleId, eff) {
+    const sel = document.createElement('select');
+    sel.className = 'select';
+    EFFORT_OPTIONS.forEach(optVal => {
+      const opt = document.createElement('option');
+      opt.value = optVal;
+      opt.textContent = optVal;
+      sel.appendChild(opt);
+    });
+    sel.value = eff.effort;
+
+    sel.addEventListener('change', (e) => {
+      handleCellEdit(roleId, 'effort', e.target.value);
+    });
+    return sel;
+  }
+
+  // Handle cell edit: if pinned -> edit pin. If not pinned -> edit selected preset
+  function handleCellEdit(roleId, field, value) {
+    if (!ROLES_LIST.some((r) => r.id === roleId)) return;
+    const eff = getEffectiveRoleConfig(state.selectedPreset, roleId);
+    let target = null;
+
+    if (eff.source === 'pinned') {
+      target = state.pinned[roleId];
+      target[field] = value;
+      // if core changed, reset model to first valid
+      if (field === 'core' && !MODELS_BY_CORE[value].includes(target.model)) {
+        target.model = MODELS_BY_CORE[value][0];
+      }
+    } else {
+      // Writes into selected preset
+      if (!state.presets[state.selectedPreset]) {
+        state.presets[state.selectedPreset] = {};
+      }
+      if (!state.presets[state.selectedPreset][roleId]) {
+        // clone from eff
+        state.presets[state.selectedPreset][roleId] = {
+          core: eff.core,
+          model: eff.model,
+          effort: eff.effort
+        };
+      }
+      target = state.presets[state.selectedPreset][roleId];
+      target[field] = value;
+      if (field === 'core' && !MODELS_BY_CORE[value].includes(target.model)) {
+        target.model = MODELS_BY_CORE[value][0];
+      }
+    }
+
+    markUnsaved(1);
+    renderRolesTable();
+  }
+
+  function attachTableActionListeners() {
+    // Pin toggle
+    document.querySelectorAll('.btn-pin-toggle').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const roleId = e.currentTarget.getAttribute('data-role');
+        if (!ROLES_LIST.some((r) => r.id === roleId)) return;
+        if (state.pinned[roleId]) {
+          // Unpin
+          delete state.pinned[roleId];
+          showToast(`Unpinned role`);
+        } else {
+          // Pin current effective value
+          const eff = getEffectiveRoleConfig(state.selectedPreset, roleId);
+          state.pinned[roleId] = {
+            core: eff.core,
+            model: eff.model,
+            effort: eff.effort
+          };
+          showToast(`Pinned role — value is now identical in all presets`);
+        }
+        markUnsaved(1);
+        renderRolesTable();
+      });
+    });
+
+    // Clear preset value
+    document.querySelectorAll('.btn-clear-role').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const roleId = e.currentTarget.getAttribute('data-role');
+        if (!ROLES_LIST.some((r) => r.id === roleId)) return;
+        if (state.pinned[roleId]) {
+          delete state.pinned[roleId];
+        }
+        if (state.presets[state.selectedPreset] && state.presets[state.selectedPreset][roleId]) {
+          state.presets[state.selectedPreset][roleId] = null;
+        }
+        markUnsaved(1);
+        showToast(`Cleared override — role inherits Default`);
+        renderRolesTable();
+      });
+    });
+
+    // Copy from B in compare mode
+    document.querySelectorAll('.btn-copy-b').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const roleId = e.currentTarget.getAttribute('data-role');
+        if (!ROLES_LIST.some((r) => r.id === roleId)) return;
+        const effB = getEffectiveRoleConfig(state.comparePreset, roleId);
+
+        if (state.pinned[roleId]) {
+          state.pinned[roleId] = { core: effB.core, model: effB.model, effort: effB.effort };
+        } else {
+          if (!state.presets[state.selectedPreset]) state.presets[state.selectedPreset] = {};
+          state.presets[state.selectedPreset][roleId] = { core: effB.core, model: effB.model, effort: effB.effort };
+        }
+        markUnsaved(1);
+        showToast(`Copied B value for ${roleId}`);
+        renderRolesTable();
+      });
+    });
+
+    // Agent profile link clicks (switch to tab with profile selected)
+    document.querySelectorAll('.profile-link').forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const profileId = e.currentTarget.getAttribute('data-profile-id');
+        navigateToProfileDetail(profileId);
+      });
+    });
+  }
+
+  // =========================================================================
+  // DEFAULT ROW LOGIC
+  // =========================================================================
+
+  function populateDefaultRow() {
+    defaultCoreSelect.innerHTML = '';
+    CORES.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      defaultCoreSelect.appendChild(opt);
+    });
+    defaultCoreSelect.value = state.defaultConfig.core;
+
+    updateDefaultModelSelect();
+    defaultEffortSelect.value = state.defaultConfig.effort;
+
+    defaultCoreSelect.addEventListener('change', (e) => {
+      state.defaultConfig.core = e.target.value;
+      updateDefaultModelSelect();
+      markUnsaved(1);
+      renderRolesTable();
+    });
+
+    defaultModelSelect.addEventListener('change', (e) => {
+      state.defaultConfig.model = e.target.value;
+      markUnsaved(1);
+      renderRolesTable();
+    });
+
+    defaultEffortSelect.addEventListener('change', (e) => {
+      state.defaultConfig.effort = e.target.value;
+      markUnsaved(1);
+      renderRolesTable();
+    });
+  }
+
+  function updateDefaultModelSelect() {
+    defaultModelSelect.innerHTML = '';
+    const models = MODELS_BY_CORE[state.defaultConfig.core] || [];
+    models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m;
+      opt.textContent = m;
+      defaultModelSelect.appendChild(opt);
+    });
+    if (!models.includes(state.defaultConfig.model)) {
+      state.defaultConfig.model = models[0];
+    }
+    defaultModelSelect.value = state.defaultConfig.model;
+  }
+
+  // =========================================================================
+  // AGENT PROFILES TAB RENDERING & DETAILS
+  // =========================================================================
+
+  function renderProfilesView() {
+    renderProfilesTree();
+    renderProfileDetail();
+  }
+
+  function renderProfilesTree() {
+    const filter = (profileSearchInput.value || '').toLowerCase().trim();
+    profilesTree.innerHTML = '';
+
+    const groups = [
+      { key: 'local', title: 'Local (.karst/agents)' },
+      { key: 'approach', title: 'From approach: speckit' },
+      { key: 'builtin', title: 'Built-in prompts' }
+    ];
+
+    groups.forEach(g => {
+      const items = state.agentProfiles.filter(p => p.group === g.key && (!filter || p.name.toLowerCase().includes(filter)));
+      if (items.length === 0) return;
+
+      const groupHeader = document.createElement('div');
+      groupHeader.className = 'tree-group-title';
+      groupHeader.textContent = g.title;
+      profilesTree.appendChild(groupHeader);
+
+      items.forEach(p => {
+        const itemEl = document.createElement('div');
+        itemEl.className = `profile-tree-item ${p.id === state.selectedProfileId ? 'active' : ''}`;
+        itemEl.setAttribute('data-id', p.id);
+
+        // Count how many roles use this profile
+        const usersCount = getRolesUsingProfile(p.id).length;
+        const isDirty = (p.content !== p.originalContent);
+
+        itemEl.innerHTML = `
+          <div class="profile-tree-name" title="${esc(p.name)}">
+            <span>${esc(p.name)}</span>
+            ${isDirty ? '<span class="unsaved-dot-profile" title="Unsaved edits"></span>' : ''}
+          </div>
+          <div class="profile-tree-meta">
+            <span class="count-chip ${usersCount > 0 ? 'has-users' : ''}">
+              ${usersCount > 0 ? `used by ${usersCount}` : 'unused'}
+            </span>
+          </div>
+        `;
+
+        itemEl.addEventListener('click', () => {
+          handleSelectProfileItem(p.id);
+        });
+
+        profilesTree.appendChild(itemEl);
+      });
+    });
+  }
+
+  function handleSelectProfileItem(newProfileId) {
+    if (newProfileId === state.selectedProfileId) return;
+
+    // Check unsaved edits on current profile
+    const current = getAgentProfile(state.selectedProfileId);
+    if (current && current.content !== current.originalContent) {
+      state.pendingProfileSwitchId = newProfileId;
+      profileUnsavedBar.style.display = 'flex';
+      profileUnsavedMsg.textContent = `Unsaved changes to ${current.name}`;
+      return;
+    }
+
+    state.selectedProfileId = newProfileId;
+    renderProfilesTree();
+    renderProfileDetail();
+    syncUrlHash();
+  }
+
+  function renderProfileDetail() {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (!profile) return;
+
+    detailProfileName.textContent = profile.name;
+
+    // Badge source
+    if (profile.group === 'local') {
+      detailSourceBadge.className = 'chip chip-preset';
+      detailSourceBadge.textContent = 'Local (.karst/agents)';
+      detailEditorCaption.textContent = `Editing .karst/agents/${profile.name}.md`;
+      profilePromptTextarea.readOnly = false;
+      editorButtonBar.style.display = 'flex';
+    } else if (profile.group === 'approach') {
+      detailSourceBadge.className = 'chip chip-subtle-grey';
+      detailSourceBadge.textContent = 'From approach: speckit';
+      detailEditorCaption.textContent = 'Provided by approach speckit — manage in approach';
+      profilePromptTextarea.readOnly = true;
+      editorButtonBar.style.display = 'none';
+    } else {
+      // Built-in
+      detailSourceBadge.className = 'chip chip-default';
+      detailSourceBadge.textContent = 'built-in prompt';
+      detailEditorCaption.textContent = 'built-in prompt';
+      profilePromptTextarea.readOnly = true;
+      editorButtonBar.style.display = 'none';
+    }
+
+    // Customize button (only on built-ins)
+    if (profile.group === 'builtin') {
+      btnCustomizeBuiltin.style.display = 'inline-flex';
+      if (profile.identityOnly) {
+        btnCustomizeBuiltin.disabled = true;
+        btnCustomizeBuiltin.title = 'Identity-only role keeps its built-in prompt';
+      } else {
+        btnCustomizeBuiltin.disabled = false;
+        btnCustomizeBuiltin.title = 'Create a local profile prefilled with this prompt and assign it';
+      }
+    } else {
+      btnCustomizeBuiltin.style.display = 'none';
+    }
+
+    // Enable in create flow toggle (not visible on built-ins)
+    if (profile.group === 'builtin') {
+      rowEnableToggle.style.display = 'none';
+    } else {
+      rowEnableToggle.style.display = 'flex';
+      profileEnableToggle.checked = profile.enabled;
+    }
+
+    // Approach role tag
+    if (profile.group === 'approach' && profile.approachRole) {
+      approachDeclaredTag.style.display = 'inline-flex';
+      approachDeclaredTag.innerHTML = `role: ${esc(profile.approachRole)} <span class="tooltip-box">declared, not used by karst yet</span>`;
+    } else {
+      approachDeclaredTag.style.display = 'none';
+    }
+
+    // Used by chips
+    const usedByRoles = getRolesUsingProfile(profile.id);
+    detailUsedByContainer.innerHTML = '';
+    if (usedByRoles.length === 0) {
+      detailUsedByContainer.innerHTML = '<span style="color:var(--text-dim); font-size:12px;">unused</span>';
+    } else {
+      usedByRoles.forEach(r => {
+        const chip = document.createElement('button');
+        chip.className = 'used-by-clickable-chip';
+        chip.innerHTML = `${esc(r.name)} ↗`;
+        chip.title = `Jump to role in Roles tab`;
+        chip.addEventListener('click', () => {
+          navigateBackToRoleRow(r.id, profile.id);
+        });
+        detailUsedByContainer.appendChild(chip);
+      });
+    }
+
+    // Assign to role dropdown
+    populateAssignToDropdown();
+
+    // Textarea prompt
+    profilePromptTextarea.value = profile.content;
+  }
+
+  function getRolesUsingProfile(profileId) {
+    const roles = [];
+    ROLES_LIST.forEach(r => {
+      const link = state.roleAgentLinks[r.id];
+      if (profileId.startsWith('builtin-')) {
+        const targetRoleId = profileId.replace('builtin-', '');
+        if (r.id === targetRoleId && (!link || link === '__builtin__')) {
+          roles.push(r);
+        }
+      } else if (link === profileId) {
+        roles.push(r);
+      }
+    });
+    return roles;
+  }
+
+  function populateAssignToDropdown() {
+    assignToRoleSelect.innerHTML = '<option value="">Assign to role…</option>';
+    ROLES_LIST.forEach(r => {
+      const opt = document.createElement('option');
+      opt.value = r.id;
+      opt.textContent = `${r.name}`;
+      assignToRoleSelect.appendChild(opt);
+    });
+  }
+
+  assignToRoleSelect.addEventListener('change', (e) => {
+    const roleId = e.target.value;
+    if (!roleId) return;
+
+    state.roleAgentLinks[roleId] = state.selectedProfileId;
+    markUnsaved(1);
+    showToast(`Assigned "${getAgentProfile(state.selectedProfileId)?.name}" to ${ROLES_LIST.find(r => r.id === roleId)?.name}`);
+    renderProfileDetail();
+    renderProfilesTree();
+    assignToRoleSelect.value = '';
+  });
+
+  // Enable in create flow toggle logic with inline confirm if roles use it
+  profileEnableToggle.addEventListener('change', (e) => {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (!profile) return;
+
+    const willBeDisabled = !e.target.checked;
+    if (willBeDisabled) {
+      const users = getRolesUsingProfile(profile.id);
+      if (users.length > 0) {
+        const roleNames = users.map(u => u.name).join(', ');
+        const ok = confirm(`${roleNames} uses this agent. Disable anyway? (Role will fall back to running built-in)`);
+        if (!ok) {
+          e.target.checked = true;
+          return;
+        }
+      }
+    }
+    profile.enabled = e.target.checked;
+    markUnsaved(1);
+    renderProfilesTree();
+    renderRolesTable();
+  });
+
+  // Customize built-in button logic
+  btnCustomizeBuiltin.addEventListener('click', () => {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (!profile || profile.group !== 'builtin' || profile.identityOnly) return;
+
+    const baseName = profile.roleId || 'agent';
+    const newName = prompt(`Create custom local profile for "${profile.name}":`, `custom-${baseName}`);
+    if (!newName) return;
+
+    const newId = newName.toLowerCase().replace(/\s+/g, '-');
+    const newProfile = {
+      id: newId,
+      group: 'local',
+      name: newName,
+      desc: `Custom override profile for ${profile.name}`,
+      enabled: true,
+      content: `# Custom prompt for ${profile.name}\n${profile.content}`,
+      originalContent: `# Custom prompt for ${profile.name}\n${profile.content}`
+    };
+
+    state.agentProfiles.unshift(newProfile);
+    // Link to the role
+    state.roleAgentLinks[profile.roleId] = newId;
+    state.selectedProfileId = newId;
+
+    markUnsaved(2);
+    showToast(`Created local profile .karst/agents/${newName}.md and assigned to ${profile.name}`);
+    renderProfilesTree();
+    renderProfileDetail();
+  });
+
+  // Text editing in profile textarea
+  profilePromptTextarea.addEventListener('input', () => {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (!profile || profile.group !== 'local') return;
+
+    profile.content = profilePromptTextarea.value;
+    state.hasProfileTextEdits = (profile.content !== profile.originalContent);
+    updateFooterUnsaved();
+    renderProfilesTree();
+  });
+
+  profilePromptTextarea.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      saveProfileText();
+    }
+  });
+
+  function saveProfileText() {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (!profile) return;
+    profile.originalContent = profile.content;
+    state.hasProfileTextEdits = false;
+    profileUnsavedBar.style.display = 'none';
+    updateFooterUnsaved();
+    renderProfilesTree();
+    showToast(`Saved to .karst/agents/${profile.name}.md`);
+  }
+
+  btnSaveProfileText.addEventListener('click', saveProfileText);
+
+  btnRevertProfileText.addEventListener('click', () => {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (!profile) return;
+    profile.content = profile.originalContent;
+    profilePromptTextarea.value = profile.content;
+    state.hasProfileTextEdits = false;
+    profileUnsavedBar.style.display = 'none';
+    updateFooterUnsaved();
+    renderProfilesTree();
+    showToast('Reverted profile edits');
+  });
+
+  // Unsaved banner inside profile actions
+  btnProfileSaveInline.addEventListener('click', () => {
+    saveProfileText();
+    if (state.pendingProfileSwitchId) {
+      state.selectedProfileId = state.pendingProfileSwitchId;
+      state.pendingProfileSwitchId = null;
+      renderProfilesTree();
+      renderProfileDetail();
+      syncUrlHash();
+    }
+  });
+
+  btnProfileDiscardInline.addEventListener('click', () => {
+    const profile = getAgentProfile(state.selectedProfileId);
+    if (profile) {
+      profile.content = profile.originalContent;
+    }
+    state.hasProfileTextEdits = false;
+    profileUnsavedBar.style.display = 'none';
+    updateFooterUnsaved();
+    renderProfilesTree();
+    if (state.pendingProfileSwitchId) {
+      state.selectedProfileId = state.pendingProfileSwitchId;
+      state.pendingProfileSwitchId = null;
+      renderProfilesTree();
+      renderProfileDetail();
+      syncUrlHash();
+    }
+  });
+
+  btnProfileKeepInline.addEventListener('click', () => {
+    profileUnsavedBar.style.display = 'none';
+    state.pendingProfileSwitchId = null;
+  });
+
+  profileSearchInput.addEventListener('input', () => {
+    renderProfilesTree();
+  });
+
+  // Mobile back button
+  btnBackToProfilesList.addEventListener('click', () => {
+    // on stacked screens, scroll to list
+    document.getElementById('profilesListCol').scrollIntoView({ behavior: 'smooth' });
+  });
+
+  // =========================================================================
+  // INTER-TAB NAVIGATION & ROW FLASHING
+  // =========================================================================
+
+  function navigateToProfileDetail(profileId) {
+    state.selectedProfileId = profileId;
+    switchTab('profiles', true);
+  }
+
+  function navigateBackToRoleRow(roleId, profileId) {
+    state.selectedRoleRow = roleId;
+    state.highlightProfileId = profileId;
+    switchTab('roles', true);
+
+    // Scroll to role row and flash it
+    setTimeout(() => {
+      const row = document.getElementById(`role-row-${roleId}`);
+      if (row) {
+        row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        row.classList.remove('row-target-flash');
+        void row.offsetWidth; // re-trigger animation
+        row.classList.add('row-target-flash');
+      }
+    }, 50);
+  }
+
+  // =========================================================================
+  // ALL PRESETS MATRIX MODAL
+  // =========================================================================
+
+  function openAllPresetsMatrix() {
+    const presetNames = Object.keys(state.presets);
+    let tableHtml = '<thead><tr><th>Role</th>';
+
+    presetNames.forEach(pName => {
+      tableHtml += `<th>${esc(pName)} ${pName === state.activePreset ? '<span class="badge badge-active">active</span>' : ''}</th>`;
+    });
+    tableHtml += '</tr></thead><tbody>';
+
+    ROLES_LIST.forEach(role => {
+      tableHtml += `<tr><td class="role-name-cell"><strong>${esc(role.name)}</strong></td>`;
+      const effActive = getEffectiveRoleConfig(state.activePreset, role.id);
+
+      presetNames.forEach(pName => {
+        const eff = getEffectiveRoleConfig(pName, role.id);
+        const isDiff = (eff.core !== effActive.core || eff.model !== effActive.model || eff.effort !== effActive.effort);
+        tableHtml += `
+          <td class="${isDiff ? 'matrix-cell-diff' : ''}" data-preset="${esc(pName)}" title="Click to compare with ${esc(pName)}">
+            <div>${esc(eff.core)} · ${esc(eff.model)} · ${esc(eff.effort)}</div>
+            ${eff.source === 'pinned' ? '<span class="chip chip-pinned" style="font-size:9px;">pinned</span>' : ''}
+          </td>
+        `;
+      });
+      tableHtml += '</tr>';
+    });
+
+    tableHtml += '</tbody>';
+    matrixTable.innerHTML = tableHtml;
+
+    // Attach click events to cells to set Compare preset
+    matrixTable.querySelectorAll('td[data-preset]').forEach(td => {
+      td.addEventListener('click', (e) => {
+        const targetPreset = e.currentTarget.getAttribute('data-preset');
+        state.comparePreset = targetPreset;
+        compareSelect.value = targetPreset;
+        updatePresetHeaderUI();
+        renderRolesTable();
+        syncUrlHash();
+        closeAllPresetsMatrix();
+        showToast(`Comparing with "${targetPreset}"`);
+      });
+    });
+
+    matrixModal.style.display = 'flex';
+  }
+
+  function closeAllPresetsMatrix() {
+    matrixModal.style.display = 'none';
+  }
+
+  btnAllPresetsMatrix.addEventListener('click', openAllPresetsMatrix);
+  btnCloseMatrixModal.addEventListener('click', closeAllPresetsMatrix);
+  matrixModal.addEventListener('click', (e) => {
+    if (e.target === matrixModal) closeAllPresetsMatrix();
+  });
+
+  // =========================================================================
+  // FOOTER ACTIONS & PERSISTENCE
+  // =========================================================================
+
+  btnFooterSave.addEventListener('click', () => {
+    // Save profile content
+    state.agentProfiles.forEach(p => {
+      p.originalContent = p.content;
+    });
+    state.hasProfileTextEdits = false;
+
+    // Update snapshot
+    initialStateSnapshot = JSON.stringify({
+      presets: state.presets,
+      pinned: state.pinned,
+      roleAgentLinks: state.roleAgentLinks,
+      defaultConfig: state.defaultConfig,
+      agentProfiles: state.agentProfiles.map(p => ({ id: p.id, enabled: p.enabled, content: p.content }))
+    });
+
+    state.unsavedChangesCount = 0;
+    updateFooterUnsaved();
+    renderProfilesTree();
+    showToast('Saved to .karst/karst.yml');
+  });
+
+  btnFooterDiscard.addEventListener('click', () => {
+    if (!confirm('Discard all unsaved changes and reload original settings?')) return;
+
+    const snap = JSON.parse(initialStateSnapshot);
+    state.presets = snap.presets;
+    state.pinned = snap.pinned;
+    state.roleAgentLinks = snap.roleAgentLinks;
+    state.defaultConfig = snap.defaultConfig;
+
+    snap.agentProfiles.forEach(sp => {
+      const target = getAgentProfile(sp.id);
+      if (target) {
+        target.enabled = sp.enabled;
+        target.content = sp.content;
+        target.originalContent = sp.content;
+      }
+    });
+
+    state.unsavedChangesCount = 0;
+    state.hasProfileTextEdits = false;
+    updateFooterUnsaved();
+    populatePresetDropdowns();
+    renderRolesTable();
+    populateDefaultRow();
+    renderProfilesView();
+    showToast('Unsaved changes discarded');
+  });
+
+  // Demo dialog buttons
+  btnRestartAgy.addEventListener('click', () => {
+    showToast('Planning session restarted with agy · gemini-3.8-flash-medium');
+  });
+
+  btnKeepClaude.addEventListener('click', () => {
+    showToast('Continuing session with claude');
+  });
+
+  // Window hash change event
+  window.addEventListener('hashchange', () => {
+    parseHashAndRestore();
+  });
+
+  // =========================================================================
+  // INITIALIZATION
+  // =========================================================================
+  populatePresetDropdowns();
+  populateDefaultRow();
+  parseHashAndRestore();
+  renderRolesTable();
+  renderProfilesView();
+
+})();
+</script>
+</body>
+</html>

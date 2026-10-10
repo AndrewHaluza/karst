@@ -404,7 +404,7 @@ describe('DashboardManager', () => {
     updateTicketFields(store, t.id, { selectedRepos: ['svc-a'] });
     const m = manifest(
       { 'svc-a': runnableRepo() },
-      { processes: processes({ uatTester: { provider: 'codex', model: 'gpt-5' } }) },
+      { processes: processes({ uatTester: { provider: 'codex', model: 'gpt-5', pinned: true } }) },
     );
     const { host, panels } = fakeHost();
     const mgr = new DashboardManager(
