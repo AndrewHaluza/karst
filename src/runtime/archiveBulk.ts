@@ -1,7 +1,7 @@
 import type { Store } from '../store/db.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { PortAllocator } from '../resolver/allocator.js';
-import { archiveWorktree, compactWorktree, sweepOrphanRefs } from './archive.js';
+import { archiveWorktree, compactWorktree, sweepOrphanRefs, type ArchiveTarget } from './archive.js';
 import {
   listArchivableWorktrees,
   listCompactableArchives,
@@ -32,6 +32,8 @@ export interface ArchiveInactiveOptions {
   projectId: number;
   /** See `ArchivableWorktreesOptions.onlyArchived`. */
   onlyArchived?: boolean;
+  /** Artifact final sweep, awaited per worktree before it is archived. */
+  beforeRemove?: (target: ArchiveTarget) => Promise<void>;
 }
 
 /**
@@ -61,7 +63,7 @@ export async function archiveInactiveWorktrees(
     if (seen.has(c.path)) continue;
     seen.add(c.path);
     try {
-      const r = await archiveWorktree(runner, store, allocator, c);
+      const r = await archiveWorktree(runner, store, allocator, c, options.beforeRemove);
       summary.reapedServers.push(...r.reapedServers);
       if (r.outcome === 'archived') summary.archived += 1;
       else summary.skipped += 1;

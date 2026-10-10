@@ -2,7 +2,7 @@ import type { Store } from '../../store/db.js';
 import type { PortAllocator } from '../../resolver/allocator.js';
 import type { Notify } from './notify.js';
 import { getTicket, ticketLabel } from '../../store/tickets.js';
-import { deleteTicketPermanently } from '../../runtime/deleteTicket.js';
+import { deleteTicketPermanently, type PermanentDeleteLifecycle } from '../../runtime/deleteTicket.js';
 import { describeReap } from '../../runtime/worktreeServers.js';
 import { createFollowUpTicket, TicketNotDoneError } from '../../workflow/stages/followUp.js';
 import { createSubtask } from '../../workflow/stages/subtask.js';
@@ -35,6 +35,12 @@ export interface LifecycleOpsDeps {
   readonly manifest: () => Manifest | undefined;
   /** Mirror a new sub-task onto the ticketing provider (`ticketing.syncSubtasks`); never throws. */
   readonly syncSubtask?: (childId: number) => Promise<void>;
+  /** Artifact history: final sweeps before the delete tears worktrees down, and the keep/purge choice. */
+  readonly artifacts?: {
+    readonly mirrorGraph: (ticketId: number) => Promise<void>;
+    readonly sweepWorktree: NonNullable<PermanentDeleteLifecycle['sweepWorktree']>;
+    readonly purge: (ticketId: number) => Promise<void>;
+  };
 }
 
 export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): Promise<void> {
@@ -43,7 +49,17 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
   // ticket and all its child rows.
   if (!(await deps.confirm(`Permanently delete "${label}"? This cannot be undone.`, 'Delete'))) return;
   try {
-    const outcome = await deleteTicketPermanently(deps.store, ticketId, deps.deleteDeps);
+    // Keep or purge the ticket's captured artifact history. Purge skips the final
+    // sweep: capturing files only to delete them would be wasted work.
+    const purge = deps.artifacts !== undefined && (await deps.confirm(
+      `Also purge the captured artifact history of "${label}"? Cancel keeps it after the delete.`,
+      'Purge artifacts',
+    ));
+    const sweeps = deps.artifacts !== undefined && !purge
+      ? { sweepTicket: deps.artifacts.mirrorGraph, sweepWorktree: deps.artifacts.sweepWorktree }
+      : {};
+    const outcome = await deleteTicketPermanently(deps.store, ticketId, { ...deps.deleteDeps, ...sweeps });
+    if (purge) await deps.artifacts?.purge(ticketId);
     // Deleting the ticket takes its `servers` rows with it, so this is the last
     // moment anything running inside the worktrees can be named. A kill that
     // FAILED is a live server serving a deleted tree — the exact orphan this

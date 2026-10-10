@@ -24,7 +24,10 @@ import { join } from 'node:path';
 // `ui/dashboard/baselineRows.ts`.
 // Raised by 2 for the artifact-store retention binding (one import + one
 // `sweepArtifactRetention` line in the PR-sync tick; logic is in `src/artifacts/retention.ts`).
-const MAX_EXTENSION_LINES = 8453;
+// Raised by 19 for the artifact-capture binding (`wireArtifactCapture` call, its
+// four hook bindings and the SessionEnd line); logic is in `src/artifacts/service.ts`
+// and `src/extension/artifactCaptureWiring.ts`.
+const MAX_EXTENSION_LINES = 8472;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
