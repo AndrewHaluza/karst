@@ -7,6 +7,7 @@ import {
   type ProjectScope,
   type Ticket,
 } from '../../store/tickets.js';
+import { formatId, formatTicketRef } from '../../model/entityId.js';
 
 /**
  * A ticket is only a valid follow-up source once its work has actually
@@ -17,7 +18,7 @@ import {
  */
 export class TicketNotDoneError extends Error {
   constructor(ticketId: number, stageCurrent: string | null) {
-    super(`ticket #${ticketId} is not done yet (stage: ${stageCurrent ?? 'none'})`);
+    super(`ticket ${formatId('ticket', ticketId)} is not done yet (stage: ${stageCurrent ?? 'none'})`);
     this.name = 'TicketNotDoneError';
   }
 }
@@ -47,18 +48,18 @@ export function createFollowUpTicket(
 ): Ticket {
   const parent = getTicket(store, parentTicketId);
   debug?.(
-    `[driver] follow-up for ticket #${parentTicketId}: parent stage is '${parent.stageCurrent ?? 'none'}'`,
+    `[driver] follow-up for ticket ${formatId('ticket', parentTicketId)}: parent stage is '${parent.stageCurrent ?? 'none'}'`,
   );
   if (parent.stageCurrent !== 'done') {
     debug?.(
-      `[driver] follow-up for ticket #${parentTicketId}: parent not done — refusing`,
+      `[driver] follow-up for ticket ${formatId('ticket', parentTicketId)}: parent not done — refusing`,
     );
     throw new TicketNotDoneError(parentTicketId, parent.stageCurrent);
   }
 
-  const parentKey = parent.key ?? `#${parent.id}`;
+  const parentKey = parent.key ?? formatId('ticket', parent.id);
   const key = nextFollowUpKey(store, parentKey, scope);
-  debug?.(`[driver] follow-up for ticket #${parentTicketId}: creating child '${key}'`);
+  debug?.(`[driver] follow-up for ticket ${formatId('ticket', parentTicketId)}: creating child '${key}'`);
   const child = createTicket(store, {
     key,
     title: parent.title ?? parentKey,
@@ -75,6 +76,6 @@ export function createFollowUpTicket(
     agentProvider: parent.agentProvider ?? undefined,
   });
 
-  debug?.(`[driver] follow-up for ticket #${parentTicketId}: child #${child.id} ('${key}') created`);
+  debug?.(`[driver] follow-up for ticket ${formatId('ticket', parentTicketId)}: child ${formatId('ticket', child.id)} ('${key}') created`);
   return getTicket(store, child.id);
 }

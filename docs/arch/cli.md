@@ -8,7 +8,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 -->
 # The `karst` CLI (`src/cli/`)
 
-The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts).
+The agent-facing surface. The invoking agent reads ticket content it did not author, so prompt injection reaches argv — every rule here exists because of that. Related: `docs/arch/stages-and-gates.md` (the marker the CLI fires), `docs/arch/store-and-schema.md` (the schema version it asserts). Ids in output and argv: `docs/arch/ids.md` (`arch:IDS-01`) — id arguments go through `parseId`, which accepts `T<n>`/`D<n>`, and a bare number or `#N` only where the kind is known.
 
 ## [@arch:CLI-01] Contents
 
@@ -135,6 +135,15 @@ The planning instructions (`planningInstructions`, `src/planning/preamble.ts`) c
 - **Checklist.** Before the draft contract: read the matching `@arch` blocks, check landed and in-flight work on the changed paths (`git log -- <paths>`, `draft list`, `<repo>/.karst/worktrees`), say a landed draft landed instead of revising it, and cite what was relied on in the draft summary.
 - **Why resident** (`@arch:RESIDENT`): needed on most runs, short, and it prevents an error the planner cannot self-detect.
 END_DOC_BLOCK: [@arch:PLANNING-HISTORY]
+
+## [@arch:DRAFT-CONSTRAINTS] A draft cites the design rules and prior work it builds on
+
+`draft propose` accepts an optional `constraints: string[]` (`planning/proposal.ts`): each entry is `@arch:KEY`, a commit hash, a `D<n>`/`T<n>`/`#N` ref (draft/ticket/PR) or free text, max 20 entries (`MAX_PROPOSAL_CONSTRAINTS`) of ≤ 200 chars (`MAX_CONSTRAINT_LEN`), trimmed, deduped, order kept; empty or over-long entries reject the whole proposal. Absent reads as `[]`.
+
+- **No migration.** `constraints` and the host's check results both live inside `planning_proposals.payload_json`. Warnings sit under the reserved key `hostWarnings`: `validateProposal` REJECTS agent input containing it (an agent must not set or clear warnings), `toProposal` strips it from `payload` and exposes it as `PlanningProposal.warnings` (`[]` for old rows or a corrupt value), and `proposalPayloadEquals` ignores it, so a re-ingest with identical agent content stays a no-op. A revise recomputes and replaces the warnings.
+- **Checks are warnings, never rejections** (`extension/ops/planningConstraintChecks.ts`, run by `planningOutbox.ts` at ingest). Unknown `@arch:KEY` (not a `[@arch:KEY]` in any of the draft's repos' `docs/arch/*.md`); unknown commit (`git cat-file -e <hash>^{commit}` missing in every repo); prompt-sensitive code with no rule (`PROMPT_SENSITIVE_PATHS` mentioned in description/summary and no well-formed `@arch:KEY` entry; a malformed `@arch:` entry gets its own `malformed design key` warning and does not count as a citation). The git probe is async, so the commit warning lands on the stored row after ingest (dropped if the draft was revised or resolved meanwhile); a check that cannot run is skipped with a `[planning]` debug line.
+- **Visibility.** The sidebar draft card shows the warnings beside the dropped-dependency warning. Review opens the form with a read-only "Design constraints / prior work" card (one chip per entry, `@arch` chips with their doc file name) and the warnings above it. On first bind the entries are appended to the ticket brief as `## Design constraints` (never twice); warnings are not copied.
+END_DOC_BLOCK: [@arch:DRAFT-CONSTRAINTS]
 
 ## [@arch:CLI-14] `manifest` / `setup`: an onboarding setup session discovers, proposes, and verifies
 

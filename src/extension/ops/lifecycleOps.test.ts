@@ -18,7 +18,7 @@ vi.mock('../../workflow/stages/followUp.js', () => ({
   createFollowUpTicket: vi.fn().mockReturnValue({ id: 2, key: 'T-2' }),
   TicketNotDoneError: class TicketNotDoneError extends Error {
     constructor(ticketId: number, stageCurrent: string | null) {
-      super(`ticket #${ticketId} is not done yet (stage: ${stageCurrent ?? 'none'})`);
+      super(`ticket T${ticketId} is not done yet (stage: ${stageCurrent ?? 'none'})`);
       this.name = 'TicketNotDoneError';
     }
   },
@@ -208,7 +208,7 @@ describe('createFollowUpTicketOp', () => {
       throw new TicketNotDoneError(1, 'done');
     });
     await createFollowUpTicketOp(d, 1);
-    expect(d.notify.error).toHaveBeenCalledWith('ticket #1 is not done yet (stage: done)');
+    expect(d.notify.error).toHaveBeenCalledWith('ticket T1 is not done yet (stage: done)');
     expect(d.refresh).not.toHaveBeenCalled();
     expect(d.openEdit).not.toHaveBeenCalled();
   });
@@ -256,7 +256,7 @@ describe('createSubtaskOp', () => {
     expect(createSubtask).toHaveBeenCalledWith(
       d.store,
       5,
-      { title: 'piece', description: 'the ask', blocking: true, repos: ['web'], start: false },
+      { title: 'piece', description: 'the ask', blocking: true, repos: ['web'], start: false, relationSource: 'user' },
       { projectId: 1 },
       expect.any(Function),
     );
@@ -267,6 +267,21 @@ describe('createSubtaskOp', () => {
     expect(d.reloadManifest).toHaveBeenCalled();
     expect(d.openEdit).toHaveBeenCalledWith(3);
     expect(d.notify.info).toHaveBeenCalledWith('Created sub-task S-1.');
+  });
+
+  it('syncs the new child to the provider before refreshing, and not when creation fails', async () => {
+    const order: string[] = [];
+    const d = { ...makeDeps(), syncSubtask: vi.fn(async () => void order.push('sync')) };
+    vi.mocked(d.refresh).mockImplementation(() => void order.push('refresh'));
+    await createSubtaskOp(d, 5, { title: 'x' });
+    expect(d.syncSubtask).toHaveBeenCalledWith(3);
+    expect(order).toEqual(['sync', 'refresh']);
+
+    vi.mocked(createSubtask).mockImplementationOnce(() => {
+      throw new Error('nope');
+    });
+    await createSubtaskOp(d, 5, { title: 'y' });
+    expect(d.syncSubtask).toHaveBeenCalledTimes(1);
   });
 
   it('passes an Error message through and does not continue', async () => {
@@ -329,7 +344,7 @@ describe('detachSubtaskOp', () => {
     expect(d.refresh).toHaveBeenCalled();
     expect(d.reloadManifest).toHaveBeenCalled();
     expect(d.notify.info).toHaveBeenCalledWith(
-      'Detached S-9 from its parent (no started worktrees to rebase).',
+      'Detached T7 · S-9 from its parent (no started worktrees to rebase).',
     );
   });
 
@@ -351,7 +366,7 @@ describe('detachSubtaskOp', () => {
 
     expect(describeChangeBaseRef).toHaveBeenCalledWith({ ok: true });
     expect(d.notify.info).toHaveBeenCalledWith(
-      'Detached S-9 from its parent. /repo/web: moved onto main /repo/api: moved onto main',
+      'Detached T7 · S-9 from its parent. /repo/web: moved onto main /repo/api: moved onto main',
     );
   });
 
@@ -368,7 +383,7 @@ describe('detachSubtaskOp', () => {
     await detachSubtaskOp(d, 7);
 
     expect(d.notify.info).toHaveBeenCalledWith(
-      'Detached #7 from its parent (no started worktrees to rebase).',
+      'Detached T7 from its parent (no started worktrees to rebase).',
     );
   });
 

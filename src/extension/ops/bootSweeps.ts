@@ -20,6 +20,7 @@ import { integrateAndReleaseParent } from '../../workflow/subtaskIntegration.js'
 import { isPortOpen } from '../../runtime/portConflict.js';
 import { removeContainer } from '../../runtime/dockerContainer.js';
 import { removeOrphanContainers } from '../../runtime/orphanContainers.js';
+import { formatId } from '../../model/entityId.js';
 
 export interface BootSweepDeps {
   store: Store;
@@ -107,7 +108,7 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
       if (container) removeContainer(container);
       deps.info(
         `karst: '${s.service}' is no longer running (pid ${s.pid ?? 'unknown'})` +
-          `${s.ticketId === null ? '' : ` on ticket #${s.ticketId}`} — marked offline.`,
+          `${s.ticketId === null ? '' : ` on ticket ${formatId('ticket', s.ticketId)}`} — marked offline.`,
       );
     }
     // Leaked karst-t<id>-* containers: no live row claims them, or their ticket

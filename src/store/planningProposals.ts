@@ -3,6 +3,7 @@ import { getTicket, updateTicketFields } from './tickets.js';
 import { linkPlanningTicket } from './planningSessions.js';
 import { addRelation } from './ticketRelations.js';
 import { postMessage } from './ticketMessages.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Planning proposals (v65) — a draft ticket a planning session handed to the
@@ -24,6 +25,8 @@ export interface ProposalPayload {
    * merge it back onto the payload so callers see one object. Absent when empty.
    */
   dependsOn?: number[];
+  /** Design rules / prior work the draft cites (see `Proposal.constraints`). Absent when none. */
+  constraints?: string[];
 }
 
 export type ProposalStatus = 'pending' | 'accepted' | 'discarded';
@@ -40,6 +43,13 @@ export interface PlanningProposal {
    * card so a broken ordering edge is not lost silently. Cleared on revise.
    */
   droppedDepends: number[];
+  /**
+   * Host-owned check results (unknown design key/commit, sensitive code with no
+   * rule). Stored under the reserved `hostWarnings` key of `payload_json` — no
+   * column — and stripped from `payload`, so callers see agent content and host
+   * warnings apart. Recomputed on every revise; `[]` for rows without the key.
+   */
+  warnings: string[];
   /** The outbox file uuid that created or last revised this proposal. Host-owned
    *  correlation data, persisted here so the index is never read back. */
   sourceUuid: string;
@@ -82,14 +92,21 @@ function parseIdArray(raw: string | null): number[] {
   }
 }
 
-/** Split the public payload into the stored body and its `depends_on` column. */
-function splitPayload(payload: ProposalPayload): { body: string; dependsOn: string } {
-  const { dependsOn = [], ...body } = payload;
+/** Split the public payload into the stored body and its `depends_on` column;
+ *  `warnings` ride in the body under the reserved `hostWarnings` key. */
+function splitPayload(
+  payload: ProposalPayload,
+  warnings: readonly string[],
+): { body: string; dependsOn: string } {
+  const { dependsOn = [], ...rest } = payload;
+  const body = warnings.length > 0 ? { ...rest, hostWarnings: warnings } : rest;
   return { body: JSON.stringify(body), dependsOn: JSON.stringify(dependsOn) };
 }
 
 function toProposal(r: ProposalRow): PlanningProposal {
-  const payload = JSON.parse(r.payload_json) as ProposalPayload;
+  const { hostWarnings, ...payload } = JSON.parse(r.payload_json) as ProposalPayload & { hostWarnings?: unknown };
+  const warnings =
+    Array.isArray(hostWarnings) && hostWarnings.every((w): w is string => typeof w === 'string') ? hostWarnings : [];
   const dependsOn = parseIdArray(r.depends_on);
   if (dependsOn.length > 0) payload.dependsOn = dependsOn;
   return {
@@ -99,6 +116,7 @@ function toProposal(r: ProposalRow): PlanningProposal {
     status: r.status,
     ticketId: r.ticket_id,
     droppedDepends: parseIdArray(r.depends_dropped),
+    warnings,
     sourceUuid: r.source_uuid,
     createdAt: r.created_at,
     // The v66 column is nullable on a migrated DB (SQLite forbids a function
@@ -115,12 +133,13 @@ export function insertProposal(
   sessionId: number,
   payload: ProposalPayload,
   sourceUuid = '',
+  warnings: readonly string[] = [],
 ): number {
   // `updated_at` is set EXPLICITLY, not left to the schema default: on a
   // migrated v65 DB the v66 column is nullable (SQLite forbids a function
   // default in ALTER TABLE ADD COLUMN), so a bare INSERT would write NULL and
   // the proposal would vanish from the session index.
-  const { body, dependsOn } = splitPayload(payload);
+  const { body, dependsOn } = splitPayload(payload, warnings);
   const { lastInsertRowid } = store.db
     .prepare(
       "INSERT INTO planning_proposals (session_id, payload_json, depends_on, source_uuid, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
@@ -187,8 +206,8 @@ export function countPending(store: Store, sessionId: number): number {
 
 function requirePending(store: Store, id: number): PlanningProposal {
   const p = getProposal(store, id);
-  if (!p) throw new Error(`planning proposal ${id} not found`);
-  if (p.status !== 'pending') throw new Error(`planning proposal ${id} is not pending (${p.status})`);
+  if (!p) throw new Error(`draft ${formatId('draft', id)} not found`);
+  if (p.status !== 'pending') throw new Error(`draft ${formatId('draft', id)} is not pending (${p.status})`);
   return p;
 }
 
@@ -202,9 +221,10 @@ export function updateProposalPayload(
   id: number,
   payload: ProposalPayload,
   sourceUuid?: string,
+  warnings: readonly string[] = [],
 ): void {
   requirePending(store, id);
-  const { body, dependsOn } = splitPayload(payload);
+  const { body, dependsOn } = splitPayload(payload, warnings);
   if (sourceUuid === undefined) {
     store.db
       .prepare(
@@ -218,6 +238,13 @@ export function updateProposalPayload(
       "UPDATE planning_proposals SET payload_json = ?, depends_on = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .run(body, dependsOn, sourceUuid, id);
+}
+
+/** Replace only a pending proposal's host warnings (a late async check result). */
+export function setProposalWarnings(store: Store, id: number, warnings: readonly string[]): void {
+  const p = requirePending(store, id);
+  const { body } = splitPayload(p.payload, warnings);
+  store.db.prepare('UPDATE planning_proposals SET payload_json = ?, updated_at = datetime(\'now\') WHERE id = ?').run(body, id);
 }
 
 /**
@@ -244,7 +271,7 @@ export function discardProposal(store: Store, id: number): number[] {
         fromTicketId: null,
         toTicketId: ticket_id,
         kind: 'event',
-        body: `blocker draft #${id} was discarded; this ticket is no longer blocked by it`,
+        body: `blocker draft ${formatId('draft', id)} was discarded; this ticket is no longer blocked by it`,
       });
     }
     const pruned: number[] = [];
@@ -277,11 +304,16 @@ export function discardProposal(store: Store, id: number): number[] {
   })();
 }
 
-/** Exact content equality (repos and dependsOn order-sensitive), independent of JSON key order. */
+const sameList = <T>(a: readonly T[], b: readonly T[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** Exact content equality (repos, dependsOn and constraints order-sensitive; host warnings
+ *  are not payload and never compared), independent of JSON key order. */
 export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): boolean {
   const ad = a.dependsOn ?? [];
   const bd = b.dependsOn ?? [];
   return (
+    sameList(a.constraints ?? [], b.constraints ?? []) &&
     a.title === b.title &&
     a.description === b.description &&
     a.summary === b.summary &&
@@ -310,8 +342,8 @@ export function validateProposalDependsOn(
   const byId = new Map(proposals.map((p) => [p.id, p]));
   for (const depId of dependsOn) {
     const dep = byId.get(depId);
-    if (!dep) return `dependsOn #${depId} is not a proposal of this session`;
-    if (dep.status === 'discarded') return `dependsOn #${depId} was already discarded`;
+    if (!dep) return `dependsOn ${formatId('draft', depId)} is not a proposal of this session`;
+    if (dep.status === 'discarded') return `dependsOn ${formatId('draft', depId)} was already discarded`;
   }
   const edges = new Map<number, number[]>();
   for (const p of proposals) {
@@ -360,12 +392,14 @@ export function markProposalAccepted(store: Store, id: number, ticketId: number)
     const p = requirePending(store, id);
     const ticket = getTicket(store, ticketId);
     // Seed the summary as the brief only when the ticket has none AND the
-    // summary actually carries text — an empty summary leaves brief NULL rather
-    // than storing ''.
-    const seedBrief = (!ticket.brief || !ticket.brief.trim()) && p.payload.summary.trim();
+    // summary actually carries text; the origin line is always appended, so the
+    // ticket names the plan and draft it came from.
+    const existing = ticket.brief?.trim() ? ticket.brief : '';
+    const base = existing || p.payload.summary.trim();
+    const origin = `Planned in ${formatId('plan', p.sessionId)} as ${formatId('draft', id)}.`;
     updateTicketFields(store, ticketId, {
       source: 'planning',
-      ...(seedBrief ? { brief: p.payload.summary } : {}),
+      brief: base ? `${base}\n\n${origin}` : origin,
     });
     linkPlanningTicket(store, p.sessionId, ticketId);
     applyProposalDependencies(store, p, ticketId);

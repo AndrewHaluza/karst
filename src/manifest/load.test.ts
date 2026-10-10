@@ -1281,6 +1281,33 @@ describe('ticketing', () => {
     }
   });
 
+  it('leaves syncSubtasks absent by default (off)', () => {
+    const { path, cleanup } = fixture(`${VALID}\nticketing:\n  provider: clickup\n`);
+    try {
+      expect(loadManifest(path).ticketing?.syncSubtasks).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['off', 'link', 'full'])('parses syncSubtasks: %s', (mode) => {
+    const { path, cleanup } = fixture(`${VALID}\nticketing:\n  provider: clickup\n  syncSubtasks: ${mode}\n`);
+    try {
+      expect(loadManifest(path).ticketing?.syncSubtasks).toBe(mode);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown syncSubtasks value', () => {
+    const { path, cleanup } = fixture(`${VALID}\nticketing:\n  provider: clickup\n  syncSubtasks: all\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/syncSubtasks must be 'off', 'link' or 'full'/);
+    } finally {
+      cleanup();
+    }
+  });
+
   it('rejects a non-boolean searchEnabled', () => {
     const yaml = `${VALID}\nticketing:\n  provider: clickup\n  searchEnabled: "yes"\n`;
     const { path, cleanup } = fixture(yaml);

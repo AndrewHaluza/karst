@@ -302,6 +302,26 @@ describe('sidebar planning drafts', () => {
     } finally { h.close(); }
   });
 
+  it('shows constraint warnings on a pending card, escaped, and none on a clean one', () => {
+    const h = renderWebview('sidebar', { nonce: NONCE });
+    try {
+      h.receive({ type: 'state', state: withPlans([
+        fixturePlanningRow(1, { proposals: [
+          { id: 21, title: 'One', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown design key @arch:<b>X'] },
+          { id: 22, title: 'Two', status: 'pending', ticketId: null, dependsOn: [], warnings: ['a', 'b'] },
+          { id: 23, title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] },
+        ] }),
+      ]) });
+      const one = draft(h, 21).querySelector('.pt-cwarn')!;
+      expect(one.textContent).toBe('unknown design key @arch:<b>X');
+      expect(draft(h, 21).querySelector('.pt-cwarn b')).toBeNull();
+      const two = draft(h, 22).querySelector('.pt-cwarn')!;
+      expect(two.textContent).toBe('2 constraint warnings');
+      expect(two.getAttribute('title')).toBe('a; b');
+      expect(draft(h, 23).querySelector('.pt-cwarn')).toBeNull();
+    } finally { h.close(); }
+  });
+
   it('escapes a hostile draft title in text and labels (UI-R32)', () => {
     const h = renderWebview('sidebar', { nonce: NONCE });
     try {

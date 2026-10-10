@@ -77,7 +77,7 @@ describe('createLivenessLoop', () => {
 
     expect(info).toHaveBeenCalledTimes(1);
     expect(info).toHaveBeenCalledWith(
-      "karst: 'api' is no longer running (pid unknown) on ticket #7 \u2014 marked offline.",
+      "karst: 'api' is no longer running (pid unknown) on ticket T7 \u2014 marked offline.",
     );
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(

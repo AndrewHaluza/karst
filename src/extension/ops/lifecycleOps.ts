@@ -11,6 +11,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import { detachSubtask, DetachSubtaskError, type DetachSubtaskResult } from '../../workflow/detachSubtask.js';
 import { describeChangeBaseRef } from '../../workflow/changeBaseRef.js';
 import type { Manifest } from '../../manifest/types.js';
+import { formatTicketRef } from '../../model/entityId.js';
 
 export interface LifecycleOpsDeps {
   readonly store: Store;
@@ -32,6 +33,8 @@ export interface LifecycleOpsDeps {
   readonly git: GitRunner;
   readonly gh?: GhRunner;
   readonly manifest: () => Manifest | undefined;
+  /** Mirror a new sub-task onto the ticketing provider (`ticketing.syncSubtasks`); never throws. */
+  readonly syncSubtask?: (childId: number) => Promise<void>;
 }
 
 export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): Promise<void> {
@@ -111,7 +114,7 @@ export async function createSubtaskOp(
     // Not queued yet: the description is written in the edit form opened
     // below, and an agent must never launch before its ask exists. Saving the
     // form is what queues it (`setAutostartPending`).
-    child = createSubtask(deps.store, parentId, { ...input, start: false }, { projectId: deps.projectId() },
+    child = createSubtask(deps.store, parentId, { ...input, start: false, relationSource: 'user' }, { projectId: deps.projectId() },
       (message) => deps.log.debug(message));
   } catch (err) {
     // Every Subtask*Error message is user-ready (it names the rule and the
@@ -121,6 +124,7 @@ export async function createSubtaskOp(
     await deps.notify.error(message);
     return;
   }
+  await deps.syncSubtask?.(child.id);
   deps.refresh();
   await deps.reloadManifest();
   deps.openEdit(child.id);
@@ -186,5 +190,5 @@ export async function detachSubtaskOp(deps: LifecycleOpsDeps, subtaskId: number)
   deps.refresh();
   await deps.reloadManifest();
   const ticket = getTicket(deps.store, subtaskId);
-  await deps.notify.info(describeDetach(ticket.key ?? `#${subtaskId}`, result));
+  await deps.notify.info(describeDetach(formatTicketRef(subtaskId, ticket.key), result));
 }

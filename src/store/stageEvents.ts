@@ -2,6 +2,7 @@ import type { Store } from './db.js';
 import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { PostMessageInput } from './ticketMessages.js';
 import { blockNotifiesParent } from '../model/blockerNotify.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Sub-task events written AT THE SOURCE (v64 mailbox). The host never sees a
@@ -33,7 +34,7 @@ export function blockedEventBody(childKey: string, stageKey: StageKey, reason: s
 export type StageEventClass = 'landed' | 'blocked' | 'other';
 
 /**
- * Which builder wrote an event body. Keys carry no whitespace, so the first
+ * Which builder wrote an event body. Keys carry no whitespace (the T<n> fallback is one token too — never a `T5 · KEY` ref here), so the first
  * token is the key; the reason (untrusted) only ever FOLLOWS the frame.
  */
 export function classifyStageEvent(body: string): StageEventClass {
@@ -102,7 +103,7 @@ export function subtaskStageEvent(
     .get(ticketId, stageKey) as PriorStageRow | undefined;
   if (!prior) return null;
 
-  const body = eventBody(ticket.key ?? `#${ticketId}`, stageKey, patch, prior, entersDone);
+  const body = eventBody(ticket.key ?? formatId('ticket', ticketId), stageKey, patch, prior, entersDone);
   if (body === null) return null;
   return {
     projectId: ticket.project_id,

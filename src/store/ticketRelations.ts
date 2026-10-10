@@ -1,5 +1,6 @@
 import type { Store } from './db.js';
 import type { ContextBrief, BriefRelation } from '../integrations/ticketing.js';
+import { formatId } from '../model/entityId.js';
 
 /**
  * Persisted inter-ticket dependency links (v69) — the store half of the
@@ -580,14 +581,14 @@ export function listOpenBlockersFor(
   return result;
 }
 
-/** Build the display label for a blocker: 'key / ref', 'ref', or 'proposal #N'. */
+/** Build the display label for a blocker: 'key / ref', 'ref', or 'proposal D<n>'. */
 export function buildBlockerLabel(
   targetTicketId: number | null,
   targetKey: string,
   targetRef: string | null,
   targetProposalId: number | null,
 ): string {
-  const key = targetKey || (targetTicketId !== null ? `#${targetTicketId}` : null);
+  const key = targetKey || (targetTicketId !== null ? formatId('ticket', targetTicketId) : null);
   const ref = trimToNull(targetRef);
 
   if (key && ref && key !== ref) {
@@ -600,7 +601,7 @@ export function buildBlockerLabel(
     return ref;
   }
   if (targetProposalId !== null) {
-    return `proposal #${targetProposalId}`;
+    return `proposal ${formatId('draft', targetProposalId)}`;
   }
   return '(unknown)';
 }

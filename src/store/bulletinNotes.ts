@@ -1,6 +1,7 @@
 import type { Store } from './db.js';
 import { forbiddenBodyChar, sanitizeInline } from '../model/messageText.js';
 import { noteMatchesScope, type NoteScope } from '../model/bulletinRelevance.js';
+import { formatTicketRef } from '../model/entityId.js';
 
 /**
  * The project bulletin (v72): a pull-only, project-scoped board of notes a
@@ -249,7 +250,7 @@ export function recordTicketMerged(store: Store, input: RecordTicketMergedInput)
   const ticket = store.db
     .prepare('SELECT key, project_id FROM tickets WHERE id = ?')
     .get(input.ticketId) as { key: string | null; project_id: number | null } | undefined;
-  const key = ticket?.key ?? `#${input.ticketId}`;
+  const key = formatTicketRef(input.ticketId, ticket?.key);
   const paths = input.changedPaths === null ? null : normalizeRepoPaths(input.changedPaths);
   const title = truncate(`${key} merged ${input.repo}`, BULLETIN_TITLE_MAX);
   store.db

@@ -14,6 +14,7 @@ import {
   countPending,
   markProposalAccepted,
   proposalPayloadEquals,
+  setProposalWarnings,
   validateProposalDependsOn,
   type ProposalPayload,
 } from './planningProposals.js';
@@ -155,7 +156,9 @@ describe('planning proposals', () => {
     expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe('sum');
+    expect(saved.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${id}.`);
+    expect(saved.brief).toContain(`P${sessionId}`);
+    expect(saved.brief).toContain(`D${id}`);
     expect(saved.source).toBe('planning');
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
   });
@@ -166,8 +169,15 @@ describe('planning proposals', () => {
     updateTicketFields(store, t.id, { brief: 'user wrote this' });
     markProposalAccepted(store, id, t.id);
     const saved = getTicket(store, t.id)!;
-    expect(saved.brief).toBe('user wrote this');
+    expect(saved.brief).toBe(`user wrote this\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.source).toBe('planning');
+  });
+
+  it('markProposalAccepted gives an empty-summary draft a brief that is just the origin line', () => {
+    const id = insertProposal(store, sessionId, { ...payload, summary: '  ' });
+    const t = createTicket(store, { key: 'K-3', title: 'saved', projectId });
+    markProposalAccepted(store, id, t.id);
+    expect(getTicket(store, t.id)!.brief).toBe(`Planned in P${sessionId} as D${id}.`);
   });
 
   it('stores dependsOn and replaces (or clears) it on revise', () => {
@@ -262,7 +272,7 @@ describe('planning proposals', () => {
     expect(pruned).toEqual([p3]);
     expect(listRelations(store, t2)).toEqual([]);
     const inbox = listInbox(store, t2, { unreadOnly: false });
-    expect(inbox.some((m) => m.kind === 'event' && m.body.includes(`#${p1}`))).toBe(true);
+    expect(inbox.some((m) => m.kind === 'event' && m.body.includes(`D${p1}`))).toBe(true);
     // The still-pending dependent loses the edge and records it for the card warning.
     expect(getProposal(store, p3)!.payload.dependsOn ?? []).toEqual([]);
     expect(getProposal(store, p3)!.droppedDepends).toEqual([p1]);
@@ -278,5 +288,54 @@ describe('planning proposals', () => {
     expect(getProposal(store, p2)!.droppedDepends).toEqual([p1]);
     updateProposalPayload(store, p2, { ...payload, title: 'p2', dependsOn: [] });
     expect(getProposal(store, p2)!.droppedDepends).toEqual([]);
+  });
+
+  describe('constraints and host warnings (inside payload_json, no migration)', () => {
+    const rowJson = (id: number) =>
+      JSON.parse(
+        (store.db.prepare('SELECT payload_json AS j FROM planning_proposals WHERE id = ?').get(id) as { j: string }).j,
+      ) as Record<string, unknown>;
+
+    it('round-trips constraints and splits warnings from the payload', () => {
+      const withC = { ...payload, constraints: ['@arch:RESIDENT', '#88'] };
+      const id = insertProposal(store, sessionId, withC, 'u1', ['unknown commit abc1234']);
+      const got = getProposal(store, id)!;
+      expect(got.payload).toEqual(withC);
+      expect(got.payload).not.toHaveProperty('hostWarnings');
+      expect(got.warnings).toEqual(['unknown commit abc1234']);
+      expect(rowJson(id).hostWarnings).toEqual(['unknown commit abc1234']);
+    });
+
+    it('reads an old row without the key as no warnings and no constraints', () => {
+      const id = insertProposal(store, sessionId, payload);
+      expect(rowJson(id)).not.toHaveProperty('hostWarnings');
+      const got = getProposal(store, id)!;
+      expect(got.warnings).toEqual([]);
+      expect(got.payload).toEqual(payload);
+    });
+
+    it('revise replaces warnings; setProposalWarnings patches them', () => {
+      const id = insertProposal(store, sessionId, payload, 'u1', ['a']);
+      updateProposalPayload(store, id, payload, 'u2', ['b']);
+      expect(getProposal(store, id)!.warnings).toEqual(['b']);
+      updateProposalPayload(store, id, payload, 'u3');
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+      setProposalWarnings(store, id, ['c', 'd']);
+      expect(getProposal(store, id)!.warnings).toEqual(['c', 'd']);
+    });
+
+    it('a corrupt hostWarnings value reads as none', () => {
+      const id = insertProposal(store, sessionId, payload);
+      store.db.prepare('UPDATE planning_proposals SET payload_json = ? WHERE id = ?').run(JSON.stringify({ ...payload, hostWarnings: 'x' }), id);
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+    });
+
+    it('equality compares constraints (absent equals empty) and ignores warnings', () => {
+      expect(proposalPayloadEquals(payload, { ...payload, constraints: [] })).toBe(true);
+      expect(proposalPayloadEquals(payload, { ...payload, constraints: ['#1'] })).toBe(false);
+      expect(proposalPayloadEquals({ ...payload, constraints: ['#1', '#2'] }, { ...payload, constraints: ['#1', '#3'] })).toBe(false);
+      const id = insertProposal(store, sessionId, payload, 'u', ['w']);
+      expect(proposalPayloadEquals(getProposal(store, id)!.payload, payload)).toBe(true);
+    });
   });
 });

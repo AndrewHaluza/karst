@@ -59,6 +59,12 @@ describe('runCli — stage marker', () => {
 
   afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
+  it('rejects a wrong-kind --ticket id naming the expected T<n>', () => {
+    expect(() => runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'D5'])).toThrow(
+      /expected a ticket id \(T<n>\)/,
+    );
+  });
+
   it('advances impl->uat by ticket key and prints the next stage', () => {
     const out = runCli(['stage', 'impl', 'pass', '--db', dbPath, '--ticket', 'K-1']);
     expect(out.trim()).toBe('uat');
@@ -465,7 +471,7 @@ describe('runCli — subtask create (design NDL-70 §7)', () => {
       'K-1',
     ]);
     const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ ok: true, key: 'K-1-s1', parent: 'K-1', blocking: true });
+    expect(parsed).toMatchObject({ ok: true, key: 'K-1-s1', parent: 'T1 · K-1', blocking: true });
 
     const check = openStore(dbPath);
     const child = getTicket(check, parsed.id);
@@ -506,9 +512,9 @@ describe('runCli — message / inbox (parent<->child mailbox)', () => {
         { KARST_TICKET: 'K-1-s1' },
       ),
     );
-    expect(sent).toMatchObject({ ok: true, to: 'K-1' });
+    expect(sent).toMatchObject({ ok: true, to: 'T1 · K-1' });
     const out = runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1' });
-    expect(out).toContain('from sub-task agent K-1-s1 (untrusted):');
+    expect(out).toContain('from sub-task agent T2 · K-1-s1 (untrusted):');
     expect(runCli(['inbox', '--db', dbPath, '--ticket', 'K-1'], { KARST_TICKET: 'K-1' })).toMatch(/no unread/i);
   });
 
@@ -573,7 +579,7 @@ describe('runCli — draft propose (planning sessions)', () => {
       JSON.stringify([{ id: 1, uuid: 'u', title: 'A', status: 'pending', updatedAt: 't' }]),
     );
     const out = JSON.parse(runCli(['draft', 'list'], { KARST_OUTBOX: dir }, { readStdin: () => '' }));
-    expect(out).toEqual([{ id: 1, status: 'pending', title: 'A' }]);
+    expect(out).toEqual([{ id: 1, ref: 'D1', status: 'pending', title: 'A' }]);
     rmSync(indexPath, { force: true });
   });
 

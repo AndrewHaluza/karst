@@ -5,6 +5,7 @@ import { listGateRuns } from '../../store/gateRuns.js';
 import { activeRecoverySeries } from '../../store/recoveryRounds.js';
 import { listPrFeedbackForRound } from '../../store/prFeedback.js';
 import { renderFixBrief } from '../../agent/fixBrief.js';
+import { formatTicketRef } from '../../model/entityId.js';
 
 /**
  * The fix brief for a ticket at `fix`, carrying the reviewer comments when the
@@ -22,7 +23,7 @@ export function fixBriefForTicket(store: Store, ticketId: number, label?: string
   const t = getTicket(store, ticketId);
   const shipRound = activeRecoverySeries(store, ticketId, 'ship');
   return renderFixBrief(
-    label ?? t.key ?? `#${ticketId}`,
+    label ?? formatTicketRef(ticketId, t.key),
     t.stages,
     latestFindingBatch(store, ticketId),
     listGateRuns(store, ticketId),

@@ -8,6 +8,7 @@ import {
   type PlanningProposal,
 } from '../../store/planningProposals.js';
 import type { TicketFormPrefill } from '../../ui/ticketForm/panel.js';
+import { formatId } from '../../model/entityId.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -25,6 +26,8 @@ export interface PlanningProposalOpsDeps {
   /** Notification with Review (first), Discard; undefined = dismissed. */
   choose(text: string, p: PlanningProposal): Promise<ProposalChoice | undefined>;
   openForm(prefill: TicketFormPrefill): void;
+  /** `@arch:KEY` entry → doc file name, looked up in the draft's repos; absent = no doc names. */
+  archDocs?(repos: string[], constraints: string[]): Record<string, string>;
   notify: Notify;
   onChange(): void;
   /** Rewrite the session's on-disk proposal index after a state change. */
@@ -49,12 +52,12 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     const session = p ? getPlanningSession(deps.store, p.sessionId) : undefined;
     if (!p || !session || session.projectId !== deps.projectId()) {
       debug(`proposal ${id}: not found in this project`);
-      await deps.notify.error(`Planning proposal #${id} was not found.`);
+      await deps.notify.error(`Draft ${formatId('draft', id)} was not found.`);
       return undefined;
     }
     if (p.status !== 'pending') {
       debug(`proposal ${id}: already ${p.status}`);
-      await deps.notify.error(`Planning proposal #${id} is already ${p.status}.`);
+      await deps.notify.error(`Draft ${formatId('draft', id)} is already ${p.status}.`);
       return undefined;
     }
     return p;
@@ -65,7 +68,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       fn();
     } catch (e) {
       debug(`proposal ${id}: ${what} failed: ${errText(e)}`);
-      await deps.notify.error(`Couldn't ${what} planning proposal #${id}: ${errText(e)}`);
+      await deps.notify.error(`Couldn't ${what} draft ${formatId('draft', id)}: ${errText(e)}`);
     }
     deps.onChange();
   }
@@ -87,8 +90,8 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     async announce(p, change) {
       const session = getPlanningSession(deps.store, p.sessionId);
       const { title, description, summary } = p.payload;
-      const verb = change === 'updated' ? 'updated its draft' : 'proposes a ticket';
-      const text = `Planning session "${session?.title ?? '?'}" (#${p.sessionId}) ${verb}: "${title}" `
+      const verb = change === 'updated' ? 'updated' : 'proposes';
+      const text = `Plan ${formatId('plan', p.sessionId)} "${session?.title ?? '?'}" ${verb} ${formatId('draft', p.id)}: "${title}" `
         + `(description ${description.length} chars, summary ${summary.length} chars).`;
       const choice = await deps.choose(text, p);
       debug(`proposal ${p.id}: choice ${choice ?? 'dismissed'}`);
@@ -99,13 +102,16 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     async review(id) {
       const p = await pending(id);
       if (!p) return;
-      const { title, description, summary, repos } = p.payload;
+      const { title, description, summary, repos, constraints = [] } = p.payload;
       const reviewed = p.payload;
       deps.openForm({
         title,
         description,
         summary,
         repos,
+        constraints,
+        constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
+        warnings: p.warnings,
         onCreated: (ticketId) =>
           void guarded('link', id, () => {
             const current = getProposal(deps.store, id);
@@ -115,7 +121,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
             // form was open, say so rather than dropping it silently.
             if (current && !proposalPayloadEquals(current.payload, reviewed)) {
               deps.notify.warn(
-                `Planning draft #${id} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
+                `Draft ${formatId('draft', id)} was revised while you were editing; your saved ticket is linked and the newer revision was discarded.`,
               );
             }
             refresh(p.sessionId);
@@ -129,9 +135,9 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
       await guarded('discard', id, () => {
         const pruned = discardProposal(deps.store, id);
         if (pruned.length > 0) {
-          const list = pruned.map((n) => `#${n}`).join(', ');
+          const list = pruned.map((n) => formatId('draft', n)).join(', ');
           const verb = pruned.length === 1 ? 'no longer waits' : 'no longer wait';
-          deps.notify.warn(`Planning draft #${id} was discarded; ${list} ${verb} on it.`);
+          deps.notify.warn(`Draft ${formatId('draft', id)} was discarded; ${list} ${verb} on it.`);
         }
         refresh(p.sessionId);
       });

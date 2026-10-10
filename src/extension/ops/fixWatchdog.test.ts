@@ -888,7 +888,7 @@ describe('fixWatchdog', () => {
   it('renders the re-delivery prompt for a fix ticket with the fix marker', () => {
     toFix(ticketId);
     const prompt = redeliveryPrompt(store, ticketId);
-    expect(prompt).toContain('The uat gate failed for ticket T-1');
+    expect(prompt).toContain('The uat gate failed for ticket T1 · T-1');
     expect(prompt).toContain('--ticket T-1');
     expect(prompt).toContain('stage fix pass');
     expect(prompt).not.toContain('launch brief did not reach you');
@@ -897,7 +897,7 @@ describe('fixWatchdog', () => {
   it('falls back to a generic fix brief when there is no failed gate', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'fix' WHERE id = ?").run(ticketId);
     const prompt = redeliveryPrompt(store, ticketId);
-    expect(prompt).toContain('A gate failed for ticket T-1');
+    expect(prompt).toContain('A gate failed for ticket T1 · T-1');
     expect(prompt).toContain('stage fix pass');
   });
 
@@ -913,7 +913,7 @@ describe('fixWatchdog', () => {
   it('falls back to #id in the re-delivery prompt when the ticket has no key', () => {
     store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(ticketId);
     const prompt = redeliveryPrompt(store, ticketId);
-    expect(prompt).toContain(`#${ticketId}`);
+    expect(prompt).toContain(`T${ticketId}`);
   });
 
   describe('sessionDelivery', () => {

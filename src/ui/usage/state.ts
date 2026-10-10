@@ -17,6 +17,7 @@ import {
 } from '../../store/tokenUsageQuery.js';
 import { aiCallSiteLabel } from '../../agent/aiCallSites.js';
 import { formatExactTokens, formatTokens, shareOfTotal } from '../../model/tokenFormat.js';
+import { formatId } from '../../model/entityId.js';
 
 /**
  * The token-usage view's read model (§ token consumption stats).
@@ -158,7 +159,7 @@ function modelLabel(key: string): string {
 
 function ticketRowLabel(row: UsageTicketRow): string {
   if (row.ticketId === null) return 'Not attributed to a ticket';
-  const key = row.ticketKey ?? `#${row.ticketId}`;
+  const key = row.ticketKey ?? formatId('ticket', row.ticketId);
   return row.ticketTitle ? `${key} — ${row.ticketTitle}` : key;
 }
 

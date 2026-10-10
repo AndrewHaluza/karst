@@ -10,6 +10,7 @@
 import { parseTemplateTokens, parseTokenBody } from '../template/token.js';
 import { applyTransforms, validateTemplateTransforms } from '../template/transforms.js';
 import { compactTicketLabel } from '../model/followUp.js';
+import { formatId } from '../model/entityId.js';
 
 /** The default template — matches the pre-config `ticketLabel` output exactly. */
 export const DEFAULT_TICKET_LABEL_TEMPLATE = '{key} — {title}';
@@ -47,7 +48,7 @@ export interface TicketLabelFields {
 /** Resolve each `{var}` to its display value, mirroring the historical fallbacks. */
 function substitutions(ticket: TicketLabelFields): Record<string, string> {
   return {
-    key: ticket.key ?? `#${ticket.id}`,
+    key: ticket.key ?? formatId('ticket', ticket.id),
     title: ticket.title ?? '(untitled)',
     id: String(ticket.id),
     status: ticket.agentState ?? '',

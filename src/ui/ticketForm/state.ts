@@ -104,6 +104,11 @@ export interface AttachmentView {
   src: string;
 }
 
+export interface DesignConstraintsView {
+  entries: { text: string; doc?: string }[];
+  warnings: string[];
+}
+
 export interface TicketFormState {
   mode: 'create' | 'edit';
   ticketId?: number;
@@ -114,6 +119,12 @@ export interface TicketFormState {
   sourceRef: string;
   /** Synthesized context brief, or null before a fetch. */
   brief: string | null;
+  /**
+   * Read-only block of a planning draft under review: the design rules / prior
+   * work it cites (an `@arch:` entry carries its doc file name) and the host's
+   * check warnings. Absent for any other form.
+   */
+  designConstraints?: DesignConstraintsView;
   /**
    * Configured ticketing provider. Drives the "Fetches from …" indicator and
    * whether a fetch is even possible (`manual` has no board to fetch from).

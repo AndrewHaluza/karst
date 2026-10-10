@@ -106,9 +106,9 @@ describe('attentionItems', () => {
     expect(items[0]).toMatchObject({ kind: 'failed', reason: 'uat failed' });
   });
 
-  it('falls back to #id and an empty title when the ticket has neither', () => {
+  it('falls back to T<id> and an empty title when the ticket has neither', () => {
     const items = attentionItems([ticket({ key: null, title: null, agentState: 'waiting' })]);
-    expect(items[0]).toMatchObject({ key: '#1', title: '' });
+    expect(items[0]).toMatchObject({ key: 'T1', title: '' });
   });
 
   it('sorts failed before input, then by updated_at as a recency tiebreaker', () => {

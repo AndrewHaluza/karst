@@ -190,7 +190,7 @@ describe('sub-task events from the stage writer', () => {
   it('falls back to #id when the sub-task has no key', () => {
     store.db.prepare('UPDATE tickets SET key = NULL WHERE id = ?').run(childId);
     setStage(store, childId, 'done', { status: 'passed' });
-    expect(inbox(parentId)[0]!.body).toBe(`#${childId} landed (done)`);
+    expect(inbox(parentId)[0]!.body).toBe(`T${childId} landed (done)`);
   });
 
   it('rolls the event back with the stage write when the enclosing transaction fails', () => {

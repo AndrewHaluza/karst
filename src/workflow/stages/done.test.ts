@@ -3,6 +3,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
 import { updateTicketFields, getTicket } from '../../store/tickets.js';
 import { providerRef, advanceTicketOnShip, statusPushSkipNote } from './done.js';
+import { createSubtask } from './subtask.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
 import type { TicketingConfig } from '../../manifest/types.js';
 
@@ -137,14 +138,33 @@ describe('statusPushSkipNote', () => {
   it('describes a no-ref skip as a DEBUG note, never an error', () => {
     expect(statusPushSkipNote('started', 3, { advanced: false, reason: 'no-ref' })).toEqual({
       level: 'debug',
-      message: 'ticket #3 started without a status update: no provider ref',
+      message: 'ticket T3 started without a status update: no provider ref',
     });
   });
 
   it('words the completed event as completed', () => {
     expect(statusPushSkipNote('completed', 3, { advanced: false, reason: 'no-ref' })).toEqual({
       level: 'debug',
-      message: 'ticket #3 completed without a status update: no provider ref',
+      message: 'ticket T3 completed without a status update: no provider ref',
     });
+  });
+});
+
+describe('advanceTicketOnShip — syncSubtasks gate', () => {
+  async function pushFor(mode: TicketingConfig['syncSubtasks']): Promise<number> {
+    const store = openStore(':memory:');
+    const parentId = fetchedTicket(store);
+    updateTicketFields(store, parentId, { selectedRepos: ['api'] });
+    const child = createSubtask(store, parentId, { title: 'child' });
+    updateTicketFields(store, child.id, { sourceRef: 'child-ref' });
+    const provider = recorder();
+    await advanceTicketOnShip(store, child.id, { ...ON, syncSubtasks: mode }, provider);
+    return provider.updates.length;
+  }
+
+  it('pushes a bound sub-task only in full mode (or when sync is unset)', async () => {
+    expect(await pushFor('link')).toBe(0);
+    expect(await pushFor('full')).toBe(1);
+    expect(await pushFor(undefined)).toBe(1);
   });
 });

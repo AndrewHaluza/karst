@@ -5,12 +5,20 @@ import {
   countPending,
   getProposal,
   insertProposal,
+  setProposalWarnings,
   updateProposalPayload,
   validateProposalDependsOn,
   type PlanningProposal,
 } from '../../store/planningProposals.js';
 import { MAX_PROPOSAL_BYTES, validateProposal, type Proposal } from '../../planning/proposal.js';
 import { planningOutboxDir } from '../../planning/preamble.js';
+import {
+  archWarnings,
+  commitWarnings,
+  sensitivePathWarning,
+  type CommitExists,
+} from './planningConstraintChecks.js';
+import { formatId } from '../../model/entityId.js';
 import { refreshProposalIndex } from './planningIndex.js';
 import type { Notify } from './notify.js';
 
@@ -43,6 +51,12 @@ export interface PlanningOutboxDeps {
   debug?: (line: string) => void;
   /** A new draft (`change` undefined) or an in-place revision (`'updated'`). */
   onProposal(p: PlanningProposal, change?: 'updated'): void;
+  /** Repo names → their distinct repoPaths, for the constraint checks; absent = path checks skipped. */
+  repoPaths?(names: string[]): string[];
+  /** Async `git cat-file` probe for commit constraints; absent = commit check skipped. */
+  commitExists?: CommitExists;
+  /** A late (async) check added warnings to a stored proposal. */
+  onWarnings?(p: PlanningProposal): void;
 }
 
 export interface PlanningOutbox {
@@ -67,7 +81,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       }
     } catch (e) {
       if (errCode(e) === 'ENOENT') return undefined;
-      deps.notify.warn(`Karst: planning session #${sessionId} outbox is not a plain directory; skipped.`);
+      deps.notify.warn(`Karst: plan ${formatId('plan', sessionId)} outbox is not a plain directory; skipped.`);
       debug(`session ${sessionId}: outbox rejected (${errCode(e) ?? String(e)})`);
       return undefined;
     }
@@ -134,7 +148,7 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   function reject(sessionId: number, claimed: string, proposal: string, reason: string): void {
     remove(claimed);
     debug(`session ${sessionId}: ${proposal} rejected (${reason})`);
-    deps.notify.warn(`Karst: planning session #${sessionId} proposal rejected — ${reason}.`);
+    deps.notify.warn(`Karst: plan ${formatId('plan', sessionId)} draft rejected — ${reason}.`);
   }
 
   /**
@@ -149,6 +163,32 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
     } catch (e) {
       debug(`session ${sessionId}: proposal index refresh failed (${e instanceof Error ? e.message : String(e)})`);
     }
+  }
+
+  /** Warnings computable without spawning anything: unknown @arch keys, sensitive code with no rule. */
+  function quickWarnings(p: Proposal): string[] {
+    const paths = deps.repoPaths?.(p.repos) ?? [];
+    return [
+      ...archWarnings(p.constraints ?? [], paths, debug),
+      ...sensitivePathWarning(p),
+    ];
+  }
+
+  /** Unknown-commit warnings need git; they land on the stored row once the probe answers. */
+  function verifyCommits(id: number, uuid: string, p: Proposal): void {
+    const paths = deps.repoPaths?.(p.repos) ?? [];
+    if (!deps.commitExists || paths.length === 0) return;
+    void commitWarnings(p.constraints ?? [], paths, deps.commitExists, debug)
+      .then((extra) => {
+        if (extra.length === 0) return;
+        const cur = getProposal(deps.store, id);
+        // A revise or resolution since ingest owns the warnings now.
+        if (!cur || cur.status !== 'pending' || cur.sourceUuid !== uuid) return;
+        setProposalWarnings(deps.store, id, [...cur.warnings, ...extra]);
+        const row = getProposal(deps.store, id);
+        if (row) deps.onWarnings?.(row);
+      })
+      .catch((e: unknown) => debug(`commit check for proposal ${id} failed (${e instanceof Error ? e.message : String(e)})`));
   }
 
   function ingest(sessionId: number, scratch: string, claimed: string, proposal: string): void {
@@ -181,21 +221,22 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       const existing = getProposal(deps.store, requestedId);
       const reason =
         !existing
-          ? `no proposal #${requestedId}`
+          ? `no draft ${formatId('draft', requestedId)}`
           : existing.sessionId !== sessionId
-            ? `proposal #${requestedId} belongs to another session`
+            ? `draft ${formatId('draft', requestedId)} belongs to another session`
             : existing.status !== 'pending'
-              ? `proposal #${requestedId} is ${existing.status}`
+              ? `draft ${formatId('draft', requestedId)} is ${existing.status}`
               : undefined;
       if (reason) {
         reject(sessionId, claimed, proposal, reason);
         return;
       }
-      updateProposalPayload(deps.store, requestedId, payload, uuid);
+      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value));
       safeRefresh(sessionId, scratch);
       remove(claimed);
       const row = getProposal(deps.store, requestedId);
       if (row) deps.onProposal(row, 'updated');
+      verifyCommits(requestedId, uuid, read.value);
       debug(`session ${sessionId}: ${proposal} → proposal ${requestedId} updated`);
       return;
     }
@@ -211,11 +252,12 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       );
       return;
     }
-    const id = insertProposal(deps.store, sessionId, payload, uuid);
+    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value));
     safeRefresh(sessionId, scratch);
     remove(claimed);
     const row = getProposal(deps.store, id);
     if (row) deps.onProposal(row);
+    verifyCommits(id, uuid, read.value);
     debug(`session ${sessionId}: ${proposal} → proposal ${id}`);
   }
 

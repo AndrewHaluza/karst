@@ -33,6 +33,7 @@ describe('draft propose / draft list', () => {
     expect(files).toHaveLength(1);
     expect(files[0]).toMatch(/^[0-9a-f-]{36}\.json$/);
     expect(out).toMatchObject({ ok: true, file: join(outbox, files[0]!), id: null });
+    expect('ref' in out).toBe(false);
     expect(JSON.parse(readFileSync(out.file, 'utf8'))).toEqual(proposal);
   });
 
@@ -49,7 +50,7 @@ describe('draft propose / draft list', () => {
     const out = JSON.parse(
       run(['draft', 'propose'], JSON.stringify(proposal), outbox, { timeoutMs: 10_000, now: () => clock, sleep }),
     );
-    expect(out).toMatchObject({ ok: true, id: 42 });
+    expect(out).toMatchObject({ ok: true, id: 42, ref: 'D42' });
   });
 
   it('times out to id:null with a hint to run draft list', () => {
@@ -80,8 +81,8 @@ describe('draft propose / draft list', () => {
       ]),
     );
     expect(JSON.parse(run(['draft', 'list'], ''))).toEqual([
-      { id: 3, status: 'pending', title: 'A' },
-      { id: 4, status: 'discarded', title: 'B' },
+      { id: 3, ref: 'D3', status: 'pending', title: 'A' },
+      { id: 4, ref: 'D4', status: 'discarded', title: 'B' },
     ]);
   });
 

@@ -428,13 +428,13 @@ describe('SessionManager', () => {
     expect(calls[0]!.sessionName).toBe(terminals[0]!.name);
   });
 
-  it('falls back to #id in the name when no key is given', () => {
+  it('falls back to T<id> in the name when no key is given', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const mgr = new SessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
-    expect(terminals[0]!.name).toBe('Karst: #7');
+    expect(terminals[0]!.name).toBe('Karst: T7');
   });
 
   it('passes a provider-neutral hook channel to the selected adapter', () => {

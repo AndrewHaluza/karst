@@ -9,6 +9,7 @@ import {
   updateTicketFields,
   type ProjectScope,
 } from '../../store/tickets.js';
+import { listRelations } from '../../store/ticketRelations.js';
 import { getEnvOverrides, setServiceEnvOverrides } from '../../store/ticketEnvOverrides.js';
 import {
   createSubtask,
@@ -259,12 +260,12 @@ describe('createSubtask', () => {
     const lines: string[] = [];
     const child = createSubtask(store, parent, { title: 'sub' }, {}, (m) => lines.push(m));
     expect(child.key).toBe('PROJ-1-s1');
-    expect(lines[0]).toMatch(/\[driver\] sub-task under #\d+: parent stage is 'scope'/);
+    expect(lines[0]).toMatch(/\[driver\] sub-task under T\d+: parent stage is 'scope'/);
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] sub-task under #\d+: creating child 'PROJ-1-s1'/),
+      expect.stringMatching(/\[driver\] sub-task under T\d+: creating child 'PROJ-1-s1'/),
     );
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] sub-task under #\d+: child #\d+ \('PROJ-1-s1'\) created/),
+      expect.stringMatching(/\[driver\] sub-task under T\d+: child T\d+ \('PROJ-1-s1'\) created/),
     );
   });
 
@@ -275,7 +276,28 @@ describe('createSubtask', () => {
       SubtaskParentStageError,
     );
     expect(lines).toContainEqual(
-      expect.stringMatching(/\[driver\] sub-task under #\d+: parent in 'ship' — refusing/),
+      expect.stringMatching(/\[driver\] sub-task under T\d+: parent in 'ship' — refusing/),
     );
+  });
+
+  describe('ticket_relations rows', () => {
+    it('records a parent row child -> parent, and no blocked-by when not blocking', () => {
+      const parentId = parentTicket();
+      const child = createSubtask(store, parentId, { title: 'c' });
+      const rows = listRelations(store, child.id);
+      expect(rows.map((r) => [r.kind, r.targetTicketId, r.source])).toEqual([
+        ['parent', parentId, 'agent'],
+      ]);
+      expect(listRelations(store, parentId)).toEqual([]);
+    });
+
+    it('records parent blocked-by child when blocking, with the given source', () => {
+      const parentId = parentTicket();
+      const child = createSubtask(store, parentId, { title: 'c', blocking: true, relationSource: 'user' });
+      expect(listRelations(store, child.id).map((r) => [r.kind, r.source])).toEqual([['parent', 'user']]);
+      expect(
+        listRelations(store, parentId).map((r) => [r.kind, r.targetTicketId, r.source, r.writebackState]),
+      ).toEqual([['blocked-by', child.id, 'user', null]]);
+    });
   });
 });

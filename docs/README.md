@@ -25,7 +25,7 @@ current behaviour. Where a note and the code disagree, the code is right.
 
 | Directory | What it holds |
 |---|---|
-| [`arch/`](arch/) | Architecture invariants. Read the one covering what you are touching **before** you change it — [`CONTRIBUTING.md`](../CONTRIBUTING.md#3-architecture-invariants) maps areas to files. |
+| [`arch/`](arch/) | Architecture invariants. Read the one covering what you are touching **before** you change it — [`CONTRIBUTING.md`](../CONTRIBUTING.md#3-architecture-invariants) maps areas to files. Ids: [`arch/ids.md`](arch/ids.md) (`arch:IDS-01`). |
 | [`ui/`](ui/) | `UI-RULES.md` (numbered, pass/fail), the design system, the style guide, the rendered catalog, and the known conformance gaps. Binding for any webview change. |
 | [`agent-cores/`](agent-cores/) | The hook contract and the cross-core parity table. |
 | [`guides/`](guides/) | How-to: adding an agent core, resuming an investigation session. |
