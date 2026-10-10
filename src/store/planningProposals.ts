@@ -25,6 +25,8 @@ export interface ProposalPayload {
    * merge it back onto the payload so callers see one object. Absent when empty.
    */
   dependsOn?: number[];
+  /** Design rules / prior work the draft cites (see `Proposal.constraints`). Absent when none. */
+  constraints?: string[];
 }
 
 export type ProposalStatus = 'pending' | 'accepted' | 'discarded';
@@ -41,6 +43,13 @@ export interface PlanningProposal {
    * card so a broken ordering edge is not lost silently. Cleared on revise.
    */
   droppedDepends: number[];
+  /**
+   * Host-owned check results (unknown design key/commit, sensitive code with no
+   * rule). Stored under the reserved `hostWarnings` key of `payload_json` — no
+   * column — and stripped from `payload`, so callers see agent content and host
+   * warnings apart. Recomputed on every revise; `[]` for rows without the key.
+   */
+  warnings: string[];
   /** The outbox file uuid that created or last revised this proposal. Host-owned
    *  correlation data, persisted here so the index is never read back. */
   sourceUuid: string;
@@ -83,14 +92,21 @@ function parseIdArray(raw: string | null): number[] {
   }
 }
 
-/** Split the public payload into the stored body and its `depends_on` column. */
-function splitPayload(payload: ProposalPayload): { body: string; dependsOn: string } {
-  const { dependsOn = [], ...body } = payload;
+/** Split the public payload into the stored body and its `depends_on` column;
+ *  `warnings` ride in the body under the reserved `hostWarnings` key. */
+function splitPayload(
+  payload: ProposalPayload,
+  warnings: readonly string[],
+): { body: string; dependsOn: string } {
+  const { dependsOn = [], ...rest } = payload;
+  const body = warnings.length > 0 ? { ...rest, hostWarnings: warnings } : rest;
   return { body: JSON.stringify(body), dependsOn: JSON.stringify(dependsOn) };
 }
 
 function toProposal(r: ProposalRow): PlanningProposal {
-  const payload = JSON.parse(r.payload_json) as ProposalPayload;
+  const { hostWarnings, ...payload } = JSON.parse(r.payload_json) as ProposalPayload & { hostWarnings?: unknown };
+  const warnings =
+    Array.isArray(hostWarnings) && hostWarnings.every((w): w is string => typeof w === 'string') ? hostWarnings : [];
   const dependsOn = parseIdArray(r.depends_on);
   if (dependsOn.length > 0) payload.dependsOn = dependsOn;
   return {
@@ -100,6 +116,7 @@ function toProposal(r: ProposalRow): PlanningProposal {
     status: r.status,
     ticketId: r.ticket_id,
     droppedDepends: parseIdArray(r.depends_dropped),
+    warnings,
     sourceUuid: r.source_uuid,
     createdAt: r.created_at,
     // The v66 column is nullable on a migrated DB (SQLite forbids a function
@@ -116,12 +133,13 @@ export function insertProposal(
   sessionId: number,
   payload: ProposalPayload,
   sourceUuid = '',
+  warnings: readonly string[] = [],
 ): number {
   // `updated_at` is set EXPLICITLY, not left to the schema default: on a
   // migrated v65 DB the v66 column is nullable (SQLite forbids a function
   // default in ALTER TABLE ADD COLUMN), so a bare INSERT would write NULL and
   // the proposal would vanish from the session index.
-  const { body, dependsOn } = splitPayload(payload);
+  const { body, dependsOn } = splitPayload(payload, warnings);
   const { lastInsertRowid } = store.db
     .prepare(
       "INSERT INTO planning_proposals (session_id, payload_json, depends_on, source_uuid, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
@@ -203,9 +221,10 @@ export function updateProposalPayload(
   id: number,
   payload: ProposalPayload,
   sourceUuid?: string,
+  warnings: readonly string[] = [],
 ): void {
   requirePending(store, id);
-  const { body, dependsOn } = splitPayload(payload);
+  const { body, dependsOn } = splitPayload(payload, warnings);
   if (sourceUuid === undefined) {
     store.db
       .prepare(
@@ -219,6 +238,13 @@ export function updateProposalPayload(
       "UPDATE planning_proposals SET payload_json = ?, depends_on = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
     )
     .run(body, dependsOn, sourceUuid, id);
+}
+
+/** Replace only a pending proposal's host warnings (a late async check result). */
+export function setProposalWarnings(store: Store, id: number, warnings: readonly string[]): void {
+  const p = requirePending(store, id);
+  const { body } = splitPayload(p.payload, warnings);
+  store.db.prepare('UPDATE planning_proposals SET payload_json = ?, updated_at = datetime(\'now\') WHERE id = ?').run(body, id);
 }
 
 /**
@@ -278,11 +304,16 @@ export function discardProposal(store: Store, id: number): number[] {
   })();
 }
 
-/** Exact content equality (repos and dependsOn order-sensitive), independent of JSON key order. */
+const sameList = <T>(a: readonly T[], b: readonly T[]): boolean =>
+  a.length === b.length && a.every((v, i) => v === b[i]);
+
+/** Exact content equality (repos, dependsOn and constraints order-sensitive; host warnings
+ *  are not payload and never compared), independent of JSON key order. */
 export function proposalPayloadEquals(a: ProposalPayload, b: ProposalPayload): boolean {
   const ad = a.dependsOn ?? [];
   const bd = b.dependsOn ?? [];
   return (
+    sameList(a.constraints ?? [], b.constraints ?? []) &&
     a.title === b.title &&
     a.description === b.description &&
     a.summary === b.summary &&

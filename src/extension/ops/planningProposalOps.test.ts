@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
 import { createPlanningSession, listPlanningTickets } from '../../store/planningSessions.js';
@@ -141,6 +141,27 @@ describe('planningProposalOps', () => {
     expect(getProposal(store, dependent)!.payload.dependsOn ?? []).toEqual([]);
     expect(getProposal(store, second)!.payload.dependsOn ?? []).toEqual([]);
     expect(warns.join(' ')).toContain(`D${dependent}, D${second} no longer wait on it`);
+  });
+
+  it('review passes constraints, doc names and host warnings to the form', async () => {
+    const id = insertProposal(
+      store, sessionId,
+      { title: 'C', description: 'd', summary: 's', repos: ['api'], constraints: ['@arch:RESIDENT', '#9'] },
+      'u', ['unknown commit abc1234'],
+    );
+    const archDocs = vi.fn(() => ({ '@arch:RESIDENT': 'prompt-metrics.md' }));
+    await ops({ archDocs }).review(id);
+    expect(archDocs).toHaveBeenCalledWith(['api'], ['@arch:RESIDENT', '#9']);
+    expect(forms[0]).toMatchObject({
+      constraints: ['@arch:RESIDENT', '#9'],
+      constraintDocs: { '@arch:RESIDENT': 'prompt-metrics.md' },
+      warnings: ['unknown commit abc1234'],
+    });
+  });
+
+  it('review of an old draft passes empty constraints and warnings', async () => {
+    await ops().review(proposalId);
+    expect(forms[0]).toMatchObject({ constraints: [], constraintDocs: {}, warnings: [] });
   });
 
   it('a resolved or foreign proposal is refused with a message', async () => {

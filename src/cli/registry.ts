@@ -320,6 +320,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         repos: csvArray,
         id: draftRef,
         dependsOn: proposalIdArray,
+        constraints: strArray,
       },
       ['title', 'description', 'summary', 'repos'],
     ),

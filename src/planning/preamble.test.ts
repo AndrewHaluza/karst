@@ -189,5 +189,7 @@ describe('planningInstructions pre-proposal checklist', () => {
     expect(text).toContain('<repo>/.karst/worktrees');
     expect(text).toMatch(/already landed, say so instead of revising it/);
     expect(text).toMatch(/Cite what you relied on/);
+    expect(text).toContain('"constraints":["@arch:');
+    expect(text).toMatch(/List in "constraints" the design rules/);
   });
 });

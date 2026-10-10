@@ -815,6 +815,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -838,6 +848,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -1970,6 +1981,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -1993,6 +2014,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -3125,6 +3147,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -3148,6 +3180,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -4280,6 +4313,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -4303,6 +4346,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -5435,6 +5479,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -5458,6 +5512,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -6590,6 +6645,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -6613,6 +6678,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -7745,6 +7811,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -7768,6 +7844,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)
@@ -8900,6 +8977,16 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<span class="pt-deps pt-deps--warn" title="\${esc(text)}">\${esc(text)}</span>\`;
   }
 
+  // Host warnings on the draft's constraints (unknown key/commit, no design rule
+  // on prompt-sensitive code). Pending only; the full text is the tooltip.
+  function planWarnings(d) {
+    const ws = (d.warnings || []).map((w) => String(w));
+    if (!ws.length) return '';
+    const text = ws.join('; ');
+    const label = ws.length === 1 ? ws[0] : ws.length + ' constraint warnings';
+    return \`<span class="pt-deps pt-deps--warn pt-cwarn" title="\${esc(text)}">\${esc(label)}</span>\`;
+  }
+
   function planDraftHtml(d) {
     const t = esc(d.title);
     const id = Number(d.id);
@@ -8923,6 +9010,7 @@ function agentIdentityHtml(provider, model, compact) {
       + \`<span class="pt-label">#\${id} \${t}</span>\`
       + planDeps(d)
       + planDropped(d)
+      + planWarnings(d)
       + \`<span class="pt-actions">\`
       + planBtn(\`data-act="plan-proposal-review" data-proposal="\${id}"\`, 'Approve', \`Approve draft: \${t}\`, ic.check)
       + planBtn(\`data-act="plan-proposal-discard" data-proposal="\${id}"\`, 'Discard', \`Discard draft: \${t}\`, ic.x)

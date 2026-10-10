@@ -3,7 +3,8 @@ import { getTicket, ticketLabel, updateTicketFields } from '../../store/tickets.
 import type { Manifest } from '../../manifest/types.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import type { LogError } from '../../logging/logger.js';
-import { applyPrefill, buildTicketFormState, type TicketFormState } from './state.js';
+import { applyPrefill, buildTicketFormState, type DesignConstraintsView, type TicketFormState } from './state.js';
+import { appendConstraintsToBrief } from '../../planning/constraintBrief.js';
 import {
   parseTicketFormMessage,
   routeTicketFormAction,
@@ -132,6 +133,12 @@ export interface TicketFormPrefill {
    */
   summary: string;
   repos: string[];
+  /** Design rules / prior work the draft cites; shown read-only and appended to the brief on bind. */
+  constraints?: string[];
+  /** `@arch:KEY` → doc file name, for the review chips. */
+  constraintDocs?: Record<string, string>;
+  /** Host check warnings on the draft; shown above the constraints, never copied into the brief. */
+  warnings?: string[];
   /**
    * Sub-task parent ticket id when known at create time (e.g. from an approved
    * proposal prefill), so create mode resolves effective subtask defaults.
@@ -141,6 +148,18 @@ export interface TicketFormPrefill {
   baseRefs?: Record<string, string>;
   /** Called once, when the user's save first creates the ticket. */
   onCreated(ticketId: number): void;
+}
+
+/** The review page's constraints block; undefined when the draft cites nothing and has no warnings. */
+function designConstraintsView(p: TicketFormPrefill): DesignConstraintsView | undefined {
+  const constraints = p.constraints ?? [];
+  const warnings = p.warnings ?? [];
+  if (constraints.length === 0 && warnings.length === 0) return undefined;
+  const entries = constraints.map((text) => {
+    const doc = p.constraintDocs?.[text];
+    return doc ? { text, doc } : { text };
+  });
+  return { entries, warnings };
 }
 
 export class TicketFormManager {
@@ -296,7 +315,9 @@ export class TicketFormManager {
       );
       // A prefilled create page shows the prefill only until it has a ticket;
       // from then on the stored ticket is the truth.
-      const state = prefill && boundId === undefined ? applyPrefill(built, prefill) : built;
+      const overlaid = prefill && boundId === undefined ? applyPrefill(built, prefill) : built;
+      const dc = prefill ? designConstraintsView(prefill) : undefined;
+      const state = dc ? { ...overlaid, designConstraints: dc } : overlaid;
       // The state builder emits filesystem paths; only the panel can turn one
       // into a URI the webview is allowed to load. Mapped here, at the last
       // moment before the message leaves, so everything upstream stays
@@ -346,10 +367,11 @@ export class TicketFormManager {
         // seeing it; the ephemeral `applyPrefill` overlay only shows while
         // unbound. Never clobber a brief the ticket already has (e.g. a
         // provider fetch).
-        if (prefill && prefill.summary.trim()) {
+        const seed = prefill ? appendConstraintsToBrief(prefill.summary, prefill.constraints ?? []) : '';
+        if (prefill && seed.trim()) {
           const bound = getTicket(this.store, id);
           if (!bound.brief || !bound.brief.trim()) {
-            updateTicketFields(this.store, id, { brief: prefill.summary });
+            updateTicketFields(this.store, id, { brief: seed });
           }
         }
         // Once bound, this panel IS the ticket's edit panel — re-key it so

@@ -26,6 +26,8 @@ export interface PlanningProposalOpsDeps {
   /** Notification with Review (first), Discard; undefined = dismissed. */
   choose(text: string, p: PlanningProposal): Promise<ProposalChoice | undefined>;
   openForm(prefill: TicketFormPrefill): void;
+  /** `@arch:KEY` entry → doc file name, looked up in the draft's repos; absent = no doc names. */
+  archDocs?(repos: string[], constraints: string[]): Record<string, string>;
   notify: Notify;
   onChange(): void;
   /** Rewrite the session's on-disk proposal index after a state change. */
@@ -100,13 +102,16 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
     async review(id) {
       const p = await pending(id);
       if (!p) return;
-      const { title, description, summary, repos } = p.payload;
+      const { title, description, summary, repos, constraints = [] } = p.payload;
       const reviewed = p.payload;
       deps.openForm({
         title,
         description,
         summary,
         repos,
+        constraints,
+        constraintDocs: deps.archDocs?.(repos, constraints) ?? {},
+        warnings: p.warnings,
         onCreated: (ticketId) =>
           void guarded('link', id, () => {
             const current = getProposal(deps.store, id);
