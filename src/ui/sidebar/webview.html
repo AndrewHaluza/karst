@@ -354,14 +354,16 @@
   .pt-deps--warn{color:var(--k-attention)}
   /* Dependency chips: a wrapping row under the draft title. Chips never truncate
      the id (UI-R44) and wrap instead of scrolling sideways (UI-R43). */
-  .pt-deps-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-1);min-width:0;
-    padding:0 var(--k-space-1) var(--k-space-1) calc(var(--k-space-1) + var(--k-space-7) * 2);
+  .pt-deps-row{display:flex;flex-wrap:wrap;align-items:center;gap:var(--k-space-2);min-width:0;
+    padding:var(--k-space-1) var(--k-space-1) var(--k-space-2) calc(var(--k-space-1) + var(--k-space-7) * 2);
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
-  .pt-dep{display:inline-flex;align-items:center;gap:var(--k-space-1);max-width:100%;min-width:0;
-    padding:0 var(--k-space-2);font:inherit;font-family:var(--k-font-mono);color:inherit;
-    border:var(--k-border-w) solid currentColor;border-radius:var(--k-radius-circle);background:transparent;
-    cursor:pointer;overflow-wrap:anywhere;text-align:left}
-  .pt-dep:hover,.pt-dep:focus-visible{color:var(--vscode-foreground)}
+  .pt-dep{display:inline-flex;align-items:center;gap:var(--k-space-2);max-width:100%;min-width:0;
+    padding:var(--k-space-1) var(--k-space-3);font:inherit;line-height:var(--k-leading-tight);
+    color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-pill);
+    background:transparent;cursor:pointer;overflow-wrap:anywhere;text-align:left;
+    transition:background var(--k-dur-fast) var(--k-ease-standard)}
+  .pt-dep:hover{background:var(--k-surface-hover);color:var(--k-text)}
+  .pt-dep:focus-visible{color:var(--k-text);outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .pt-dep-dot{flex:none;width:var(--k-space-3);height:var(--k-space-3);border-radius:var(--k-radius-circle);background:currentColor}
   .pt-dep-dot.g-gray{background:transparent;border:calc(var(--k-border-w) * 1.5) solid currentColor}
   .pt-actions{display:none;flex:none;align-items:center;gap:var(--k-space-1)}
