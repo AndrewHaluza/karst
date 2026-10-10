@@ -19,6 +19,12 @@ const WRITE_VERB =
 /** Segments that are tooling or VCS state, never an approach's deliverable. */
 const EXCLUDED_SEGMENTS = new Set(['node_modules', '.git', '.claude', '.github', '.karst']);
 
+/** Source-tree roots: code the agent edits, not a place it files deliverables. */
+const SOURCE_ROOTS = new Set(['src', 'lib', 'app', 'test', 'tests', 'packages', 'origin']);
+
+/** A numbered instance dir (`01-foo`, `2026-07-30`) stands for a family: `*`. */
+const NUMBERED_SEGMENT = /^\d+(?:[-_.].*)?$/;
+
 const PLACEHOLDERS: readonly RegExp[] = [
   /<[^>]*>/g,
   /\{[^}]*\}/g,
@@ -62,16 +68,31 @@ function isRepoRelative(token: string): boolean {
   );
 }
 
+/**
+ * Prose is full of `and/or` and `foo/bar`; only a token that is shaped like a
+ * location counts: a trailing slash, a file extension, a placeholder, or a
+ * dot-directory root. A bare `docs/a/b` is ambiguous and is skipped.
+ */
+function looksLikePath(token: string): boolean {
+  return (
+    token.endsWith('/') ||
+    FILE_EXT.test(token) ||
+    PLACEHOLDERS.some((re) => new RegExp(re.source).test(token)) ||
+    token.startsWith('.')
+  );
+}
+
 /** Directory glob for a path-like token, or null when it is not a usable output dir. */
 function toGlob(token: string): string | null {
-  if (!isRepoRelative(token)) return null;
+  if (!isRepoRelative(token) || !looksLikePath(token)) return null;
   const normalized = PLACEHOLDERS.reduce((acc, re) => acc.replace(re, '*'), token);
-  const segments = normalized.split('/');
+  const segments = normalized.split('/').map((s) => (NUMBERED_SEGMENT.test(s) ? '*' : s));
   const trailingSlash = segments[segments.length - 1] === '';
   const parts = segments.filter((s) => s !== '');
   const last = parts[parts.length - 1];
   const dirs = !trailingSlash && last !== undefined && FILE_EXT.test(last) ? parts.slice(0, -1) : parts;
   if (dirs.length === 0) return null;
+  if (SOURCE_ROOTS.has(dirs[0] ?? '')) return null;
   if (dirs.some((s) => EXCLUDED_SEGMENTS.has(s) || !SAFE_SEGMENT.test(s))) return null;
   return `${dirs.join('/')}/**`;
 }
@@ -91,8 +112,10 @@ export function scanOutputSuggestions(bodies: readonly string[]): OutputDef[] {
   const found: OutputDef[] = [];
   for (const body of bodies) {
     for (const line of body.split('\n')) {
-      if (!WRITE_VERB.test(line)) continue;
-      for (const token of candidateTokens(line)) {
+      const verb = WRITE_VERB.exec(line);
+      if (verb === null) continue;
+      // Only what follows the verb can be its object ("Create a branch x/y and write to …").
+      for (const token of candidateTokens(line.slice(verb.index))) {
         const glob = toGlob(token);
         if (glob === null || seen.has(glob)) continue;
         const entry: OutputDef = { glob, kind: guessKind(glob) };

@@ -80,4 +80,22 @@ describe('scanOutputSuggestions — rules', () => {
     const text = Array.from({ length: 40 }, (_, i) => `Write to d${i}/sub/x.md`).join('\n');
     expect(scanOutputSuggestions([text])).toHaveLength(12);
   });
+
+  it('ignores prose that merely looks like a path (and/or, foo/bar, branches)', () => {
+    const text = [
+      'write output to src/index.ts and use the foo/bar approach',
+      'Write results (see docs/a/b) and/or create tests/ dir',
+      'Create a branch feature/foo and write to origin/main',
+    ].join('\n');
+    expect(globs(text)).toEqual([]);
+  });
+
+  it('only reads paths after the write verb', () => {
+    expect(globs('See docs/old/notes.md, then write nothing')).toEqual([]);
+    expect(globs('Read docs/in/a.md then save to docs/out/b.md')).toEqual(['docs/out/**']);
+  });
+
+  it('generalises numbered instance directories', () => {
+    expect(globs('Write to .planning/phases/01-foo/PLAN.md')).toEqual(['.planning/phases/*/**']);
+  });
 });
