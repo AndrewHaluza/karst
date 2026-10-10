@@ -25,6 +25,7 @@ import { validateRepository } from './validate/repository.js';
 import { assertSharedRepoBaselineBranches } from './baselineBranch.js';
 import { validateGraph } from './validate/graph.js';
 import { validateUat } from './validate/uat.js';
+import { validateAnalysis } from './validate/analysis.js';
 import { validateReview } from './validate/review.js';
 import { validateProcessAssignments } from './validate/processAssignments.js';
 import {
@@ -690,6 +691,7 @@ export function validateManifest(raw: unknown): Manifest {
     ),
     diffsInSourceControl: validateDiffsInSourceControl(raw.diffsInSourceControl),
     uat: validateUat(raw.uat),
+    analysis: validateAnalysis(raw.analysis),
     review: validateReview(raw.review, Object.keys(repositories)),
   };
 }
