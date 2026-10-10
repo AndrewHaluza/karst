@@ -1,3 +1,4 @@
+import type { OutputKind } from '../../manifest/types.js';
 import { diffViewColumn } from './diffColumn.js';
 import type { DiffTarget, WorktreeSpec } from './git.js';
 import { buildScmGroups } from './scmModel.js';
@@ -38,6 +39,13 @@ export interface DiffTreeControllerDeps {
   discard: (repoPath: string, path: string, status: string) => Promise<{ ok: boolean; error?: string }>;
   unstage: (repoPath: string, path: string) => Promise<{ ok: boolean; error?: string }>;
   confirmDiscard: (path: string) => Promise<boolean>;
+  /** The kind picker for 'Add to artifacts'; undefined when dismissed. */
+  pickArtifactKind: () => Promise<OutputKind | undefined>;
+  addArtifact: (
+    ticketId: number,
+    absolutePath: string,
+    kind: OutputKind,
+  ) => Promise<{ ok: boolean; error?: string }>;
   debug?: (message: string) => void;
 }
 
@@ -179,6 +187,21 @@ export class DiffTreeController {
       return;
     }
     await this.refresh();
+  }
+
+  async addToArtifacts(changeId: string): Promise<void> {
+    const row = this.row(changeId);
+    if (!row || this.ticketId === null) return;
+    const kind = await this.deps.pickArtifactKind();
+    if (kind === undefined) {
+      this.deps.debug?.('[diffs] tree add-to-artifacts declined');
+      return;
+    }
+    const result = await this.deps.addArtifact(this.ticketId, row.absolutePath, kind);
+    if (!result.ok) {
+      this.deps.host.warn(`Could not add to artifacts: ${result.error ?? 'unknown error'}`);
+      this.deps.debug?.('[diffs] tree add-to-artifacts failed');
+    }
   }
 
   async unstage(changeId: string): Promise<void> {

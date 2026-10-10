@@ -2532,6 +2532,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     discard: (repoPath, path, status) =>
       gitDiscard(defaultGitRunner, repoPath, path, status as FileChangeStatus),
     unstage: (repoPath, path) => gitUnstage(defaultGitRunner, repoPath, path),
+    artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
     store: localStore,
     projectId: () => currentProject()?.id,
   });

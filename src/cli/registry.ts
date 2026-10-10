@@ -17,6 +17,7 @@
  *    parser, so a malformed payload fails with one clear, non-zero-exit error.
  */
 
+import { OUTPUT_KINDS } from '../manifest/types.js';
 import { validateJson, type JsonSchema } from './jsonSchema.js';
 
 export interface CommandGlobals {
@@ -150,6 +151,17 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
     globals: { db: true, manifest: true, ticket: true },
     writes: true,
     toArgv: (input) => ['phase', requireString(input, 'name')],
+  },
+  {
+    name: 'artifact',
+    summary: 'Capture a file outside the outputs globs into the ticket artifacts.',
+    input: obj(
+      { path: str, kind: { type: 'string', enum: [...OUTPUT_KINDS] } },
+      ['path', 'kind'],
+    ),
+    globals: { db: true, manifest: true, ticket: true },
+    writes: true,
+    toArgv: (input) => ['artifact', 'add', requireString(input, 'path'), '--kind', requireString(input, 'kind')],
   },
   {
     name: 'graph',

@@ -117,9 +117,9 @@ describe('renderWorkflowCommand', () => {
     expect(body).toContain('$KARST guide');
     // the done-marker is directly executable
     expect(body).toContain('node "/ext/dist/cli/main.js" stage impl pass --db "/x.db" --ticket $ARGUMENTS');
-    // the path appears only in the alias definition, the done-marker, and the notes-post ask
+    // the path appears only in the alias definition, the done-marker, the notes-post ask and the artifact-add ask
     const occurrences = body.split('node "/ext/dist/cli/main.js"').length - 1;
-    expect(occurrences).toBe(3);
+    expect(occurrences).toBe(4);
     expect(body).toContain('KARST = node "/ext/dist/cli/main.js"');
   });
 
@@ -251,6 +251,15 @@ describe('renderDoneMarkerInstruction', () => {
       'node "/ext/cli.js" notes post --db "/x.db" --ticket PROJ-9 --title <short title> --body <learnings>',
     );
     expect(s.toLowerCase()).toContain('optional');
+  });
+
+  it('tells the IMPLEMENTER about `artifact add`, and a fix session nothing', () => {
+    const impl = renderDoneMarkerInstruction('node "/ext/cli.js" stage impl pass --db "/x.db" --ticket', 'PROJ-9');
+    expect(impl).toContain(
+      'node "/ext/cli.js" artifact add <path> --kind <kind> --db "/x.db" --ticket PROJ-9',
+    );
+    const fix = renderDoneMarkerInstruction('node "/ext/cli.js" stage fix pass --db "/x.db" --ticket', 'PROJ-9');
+    expect(fix).not.toContain('artifact add');
   });
 
   it('does NOT ask a fix session for a bulletin note', () => {
