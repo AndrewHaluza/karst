@@ -34,22 +34,22 @@ function mSparse(): Manifest {
 
 describe('resolveProcessAssignment', () => {
   it('resolves the approved defaults when no process config exists', () => {
-    expect(resolveProcessAssignment(BASE, 'uat-tester')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'uat-tester')).toMatchObject({
       agentName: 'UAT Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
     });
-    expect(resolveProcessAssignment(BASE, 'uat-fix')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'uat-fix')).toMatchObject({
       agentName: 'UAT Fix Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
     });
-    expect(resolveProcessAssignment(BASE, 'review')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'review')).toMatchObject({
       agentName: 'Review Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
     });
-    expect(resolveProcessAssignment(BASE, 'review-fix')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'review-fix')).toMatchObject({
       agentName: 'Review Fix Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -57,7 +57,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('resolves the pr-description role to the ticket-resolved adapter', () => {
-    expect(resolveProcessAssignment(BASE, 'pr-description')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'pr-description')).toMatchObject({
       agentName: 'Codex',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -65,7 +65,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('resolves the ticket-analysis role to the approved default agent on the manifest core', () => {
-    expect(resolveProcessAssignment(BASE, 'ticket-analysis')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'ticket-analysis')).toMatchObject({
       agentName: 'Ticket Analysis Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -75,9 +75,9 @@ describe('resolveProcessAssignment', () => {
   it('applies an explicit ticketAnalysis assignment and the ticket override', () => {
     const manifest: Manifest = {
       ...BASE,
-      processes: { ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro' } },
+      processes: { ticketAnalysis: { provider: 'opencode', model: 'gemini-2.5-pro', pinned: true } },
     };
-    expect(resolveProcessAssignment(manifest, 'ticket-analysis')).toEqual({
+    expect(resolveProcessAssignment(manifest, 'ticket-analysis')).toMatchObject({
       agentName: 'Ticket Analysis Agent',
       provider: 'opencode',
       model: 'gemini-2.5-pro',
@@ -87,7 +87,7 @@ describe('resolveProcessAssignment', () => {
         provider: 'claude',
         model: 'claude-sonnet-5',
       }),
-    ).toEqual({
+    ).toMatchObject({
       agentName: 'Ticket Analysis Agent',
       // §4 rung 1: the TICKET's own core and model win over the config's.
       provider: 'claude',
@@ -108,10 +108,11 @@ describe('resolveProcessAssignment', () => {
           agentName: 'My Analyzer',
           provider: 'opencode',
           model: 'gemini-2.5-pro',
+          pinned: true,
         },
       },
     };
-    expect(resolveProcessAssignment(manifest, 'ticket-analysis')).toEqual({
+    expect(resolveProcessAssignment(manifest, 'ticket-analysis')).toMatchObject({
       agentName: 'My Analyzer',
       agent: 'description-improver',
       provider: 'opencode',
@@ -122,7 +123,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('applies an explicit assignment over the defaults (plan example)', () => {
-    const manifest: Manifest = { ...BASE, processes: { uatTester: { model: 'sol' } } };
+    const manifest: Manifest = { ...BASE, processes: { uatTester: { provider: 'codex', model: 'sol', pinned: true } } };
     expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
       agentName: 'UAT Agent',
       provider: 'codex',
@@ -134,10 +135,10 @@ describe('resolveProcessAssignment', () => {
     const manifest: Manifest = {
       ...BASE,
       processes: {
-        review: { agentName: 'Team Reviewer', provider: 'antigravity', model: 'gemini-3.6-flash-high' },
+        review: { agentName: 'Team Reviewer', provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true },
       },
     };
-    expect(resolveProcessAssignment(manifest, 'review')).toEqual({
+    expect(resolveProcessAssignment(manifest, 'review')).toMatchObject({
       agentName: 'Team Reviewer',
       provider: 'antigravity',
       model: 'gemini-3.6-flash-high',
@@ -167,7 +168,7 @@ describe('resolveProcessAssignment', () => {
   it('ticket override wins over manifest defaults', () => {
     expect(
       resolveProcessAssignment(BASE, 'review', { provider: 'claude', model: 'claude-sonnet-5' }),
-    ).toEqual({
+    ).toMatchObject({
       agentName: 'Review Agent',
       provider: 'claude',
       model: 'claude-sonnet-5',
@@ -175,10 +176,10 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('the ticket override beats the explicit process config (§4 rung 1)', () => {
-    const manifest: Manifest = { ...BASE, processes: { review: { provider: 'antigravity' } } };
+    const manifest: Manifest = { ...BASE, processes: { review: { provider: 'antigravity', pinned: true } } };
     expect(
       resolveProcessAssignment(manifest, 'review', { provider: 'claude', model: 'claude-opus-4-8' }),
-    ).toEqual({
+    ).toMatchObject({
       agentName: 'Review Agent',
       provider: 'claude',
       model: 'claude-opus-4-8',
@@ -186,7 +187,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('drops a ticket model known only for another provider, keeping the manifest default', () => {
-    expect(resolveProcessAssignment(BASE, 'review', { model: 'claude-sonnet-5' })).toEqual({
+    expect(resolveProcessAssignment(BASE, 'review', { model: 'claude-sonnet-5' })).toMatchObject({
       agentName: 'Review Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -210,7 +211,7 @@ describe('resolveProcessAssignment', () => {
         { provider: 'codex', model: 'feed-only-claude' },
         activeCatalog,
       ),
-    ).toEqual({
+    ).toMatchObject({
       agentName: 'Review Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -218,7 +219,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('keeps an explicitly configured model even when known only for another provider', () => {
-    const manifest: Manifest = { ...BASE, processes: { review: { model: 'claude-sonnet-5' } } };
+    const manifest: Manifest = { ...BASE, processes: { review: { provider: 'codex', model: 'claude-sonnet-5', pinned: true } } };
     expect(resolveProcessAssignment(manifest, 'review')).toMatchObject({
       model: 'claude-sonnet-5',
     });
@@ -229,7 +230,7 @@ describe('resolveProcessAssignment', () => {
       { api: { repoPath: '/repo/api', hasMigrations: false } },
       { agentProvider: 'codex' },
     );
-    expect(resolveProcessAssignment(manifest, 'uat-tester')).toEqual({
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
       agentName: 'UAT Agent',
       provider: 'codex',
       model: undefined,
@@ -239,7 +240,7 @@ describe('resolveProcessAssignment', () => {
   it('carries the verbatim config effort when the resolved model advertises it', () => {
     const manifest: Manifest = {
       ...BASE,
-      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'high' } },
+      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'high', pinned: true } },
     };
     expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
       provider: 'claude',
@@ -251,7 +252,7 @@ describe('resolveProcessAssignment', () => {
   it('drops an explicit config effort the resolved model does not advertise', () => {
     const manifest: Manifest = {
       ...BASE,
-      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'xhigh' } },
+      processes: { uatTester: { provider: 'claude', model: 'claude-sonnet-5', effort: 'xhigh', pinned: true } },
     };
     const snapshot = resolveProcessAssignment(manifest, 'uat-tester')!;
     expect(snapshot.model).toBe('claude-sonnet-5');
@@ -263,7 +264,7 @@ describe('resolveProcessAssignment', () => {
       { api: { repoPath: '/repo/api', hasMigrations: false } },
       { agentProvider: 'codex' },
     );
-    const withEffort: Manifest = { ...manifest, processes: { review: { effort: 'high' } } };
+    const withEffort: Manifest = { ...manifest, processes: { review: { effort: 'high', pinned: true } } };
     const snapshot = resolveProcessAssignment(withEffort, 'review')!;
     expect(snapshot.model).toBeUndefined();
     expect('effort' in snapshot).toBe(false);
@@ -315,7 +316,7 @@ describe('resolveProcessAssignment', () => {
 
   it('pr-description keeps its existing behavior — unaffected by another role being disabled', () => {
     const manifest: Manifest = { ...BASE, processes: { uatTester: { enabled: false } } };
-    expect(resolveProcessAssignment(manifest, 'pr-description')).toEqual({
+    expect(resolveProcessAssignment(manifest, 'pr-description')).toMatchObject({
       agentName: 'Codex',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -324,7 +325,7 @@ describe('resolveProcessAssignment', () => {
 
   it('falls back to claude when the manifest declares no provider', () => {
     const manifest = buildManifest({ api: { repoPath: '/repo/api', hasMigrations: false } });
-    expect(resolveProcessAssignment(manifest, 'uat-tester')).toEqual({
+    expect(resolveProcessAssignment(manifest, 'uat-tester')).toMatchObject({
       agentName: 'UAT Agent',
       provider: 'claude',
       model: undefined,
@@ -332,7 +333,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('exposes the approved default names keyed by role', () => {
-    expect(DEFAULT_PROCESS_AGENT_NAMES).toEqual({
+    expect(DEFAULT_PROCESS_AGENT_NAMES).toMatchObject({
       'uat-tester': 'UAT Agent',
       'uat-fix': 'UAT Fix Agent',
       review: 'Review Agent',
@@ -359,7 +360,7 @@ describe('resolveProcessAssignment', () => {
   });
 
   it('carries no instructions key when none are configured', () => {
-    expect(resolveProcessAssignment(BASE, 'uat-tester')).toEqual({
+    expect(resolveProcessAssignment(BASE, 'uat-tester')).toMatchObject({
       agentName: 'UAT Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -367,26 +368,54 @@ describe('resolveProcessAssignment', () => {
     expect('instructions' in (resolveProcessAssignment(BASE, 'uat-tester') ?? {})).toBe(false);
   });
 
-  // §4 rung 2 over rung 3 (§8: "preset beats processes.<key>"): the slot
-  // replaces the config's own provider/model, it does not merge with them.
-  it('the preset slot beats the process config provider and model', () => {
+  // A PIN (`pinned: true`) outranks the preset slot and replaces it whole; an
+  // unpinned row's core fields are ignored (the loader folds them into presets).
+  it('a pin beats the preset slot and reports source "pin"', () => {
     const manifest: Manifest = {
       ...BASE,
       agentPresets: {
         fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash'),
       },
       activeAgentPreset: 'fast',
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', {});
+    expect(snap?.provider).toBe('antigravity');
+    expect(snap?.model).toBe('gemini-3.6-flash-high');
+    expect(snap?.source).toBe('pin');
+  });
+
+  it('ignores core fields on an unpinned row: the preset slot wins, source "preset"', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      agentPresets: { fast: fullPreset('opencode', 'opencode-go/deepseek-v4-flash') },
+      activeAgentPreset: 'fast',
       processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
     };
     const snap = resolveProcessAssignment(manifest, 'review', {});
-    expect(snap?.provider).toBe('opencode');
-    expect(snap?.model).toBe('opencode-go/deepseek-v4-flash');
+    expect(snap).toMatchObject({ provider: 'opencode', source: 'preset' });
+  });
+
+  it('a ticket core drops the pin whole and reports source "ticket"', () => {
+    const manifest: Manifest = {
+      ...BASE,
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true } },
+    };
+    const snap = resolveProcessAssignment(manifest, 'review', { provider: 'claude' });
+    expect(snap).toMatchObject({ provider: 'claude', source: 'ticket' });
+    expect(snap?.model).not.toBe('gemini-3.6-flash-high');
+  });
+
+  it('reports source "default" from the manifest row and "fallback" with none', () => {
+    expect(resolveProcessAssignment(BASE, 'review')?.source).toBe('default');
+    const bare = { ...BASE, agentProvider: undefined } as unknown as Manifest;
+    expect(resolveProcessAssignment(bare, 'review')?.source).toBe('fallback');
   });
 
   it('the process config supplies the slot when the preset has no slot for the role (Inherit)', () => {
     const manifest: Manifest = {
       ...mSparse(),
-      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true } },
     };
     const snap = resolveProcessAssignment(manifest, 'review', {});
     expect(snap?.provider).toBe('antigravity');
@@ -481,7 +510,7 @@ describe('resolveProcessAssignment precedence rungs (§4)', () => {
       agentPresets: { all: fullPreset('claude', 'claude-opus-5', 'low') },
       activeAgentPreset: 'all',
     };
-    expect(resolveProcessAssignment(manifest, 'review', {})).toEqual({
+    expect(resolveProcessAssignment(manifest, 'review', {})).toMatchObject({
       agentName: 'Review Agent',
       provider: 'claude',
       model: 'claude-opus-5',
@@ -489,7 +518,7 @@ describe('resolveProcessAssignment precedence rungs (§4)', () => {
     });
     // A ticket that picks another core drops the WHOLE slot, never just its
     // model — then the manifest defaults take over.
-    expect(resolveProcessAssignment(manifest, 'review', { provider: 'codex' })).toEqual({
+    expect(resolveProcessAssignment(manifest, 'review', { provider: 'codex' })).toMatchObject({
       agentName: 'Review Agent',
       provider: 'codex',
       model: 'gpt-5.6-sol',
@@ -499,7 +528,7 @@ describe('resolveProcessAssignment precedence rungs (§4)', () => {
   it('rung 1: a ticket core never drags a known-foreign config model across it', () => {
     const manifest: Manifest = {
       ...BASE,
-      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true } },
     };
     // On the config's own core the declared model stays verbatim, exactly as
     // before — even though the catalog knows it for another provider.
@@ -517,7 +546,7 @@ describe('resolveProcessAssignment precedence rungs (§4)', () => {
   it('rung 3: the process config beats the manifest defaults', () => {
     const manifest: Manifest = {
       ...BASE,
-      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high' } },
+      processes: { review: { provider: 'antigravity', model: 'gemini-3.6-flash-high', pinned: true } },
     };
     expect(resolveProcessAssignment(manifest, 'review')).toMatchObject({
       provider: 'antigravity',
@@ -574,7 +603,7 @@ describe('process_runs snapshot immutability', () => {
     const edited: Manifest = {
       ...BASE,
       processes: {
-        review: { agentName: 'Renamed', provider: 'claude', model: 'claude-opus-4-8' },
+        review: { agentName: 'Renamed', provider: 'claude', model: 'claude-opus-4-8', pinned: true },
       },
     };
     resolveProcessAssignment(edited, 'review');

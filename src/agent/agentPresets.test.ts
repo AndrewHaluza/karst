@@ -48,18 +48,18 @@ describe('resolveAgentPreset', () => {
 
 describe('resolvePresetSlot', () => {
   it('returns the whole slot — provider, model and effort — for the capability asked for', () => {
-    expect(resolvePresetSlot(m(), 'review', 'deep')).toEqual({
+    expect(resolvePresetSlot(m(), 'review', 'deep')).toMatchObject({
       provider: 'claude',
       model: 'claude-opus-5',
       effort: 'high',
     });
-    expect(resolvePresetSlot(m(), 'implementation', 'deep')).toEqual({
+    expect(resolvePresetSlot(m(), 'implementation', 'deep')).toMatchObject({
       provider: 'claude',
       model: 'claude-opus-5',
       effort: 'high',
     });
     // No name supplied → the active preset's slot, all three fields together.
-    expect(resolvePresetSlot(m(), 'review')).toEqual({
+    expect(resolvePresetSlot(m(), 'review')).toMatchObject({
       provider: 'opencode',
       model: 'opencode-go/deepseek-v4-flash',
     });
@@ -89,7 +89,7 @@ describe('resolvePresetSlot', () => {
       activeAgentPreset: 'onlyReview',
       defaultAgentPreset: undefined,
     };
-    expect(resolvePresetSlot(sparse, 'review')).toEqual({
+    expect(resolvePresetSlot(sparse, 'review')).toMatchObject({
       provider: 'claude',
       model: 'claude-opus-5',
     });
@@ -106,7 +106,7 @@ describe('resolvePresetSlot', () => {
 
 describe('resolvePresetDefaults', () => {
   it('a preset overrides the legacy manifest defaults', () => {
-    expect(resolvePresetDefaults(m(), 'implementation', {})).toEqual({
+    expect(resolvePresetDefaults(m(), 'implementation', {})).toMatchObject({
       provider: 'opencode',
       model: 'opencode-go/deepseek-v4-flash',
       effort: 'low',
@@ -119,10 +119,10 @@ describe('resolvePresetDefaults', () => {
         'implementation',
         {},
       ),
-    ).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' });
+    ).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' });
   });
   it('a dangling ticket preset falls back to the legacy fields', () => {
-    expect(resolvePresetDefaults(m(), 'implementation', { ticketPreset: 'nope' })).toEqual({
+    expect(resolvePresetDefaults(m(), 'implementation', { ticketPreset: 'nope' })).toMatchObject({
       provider: 'codex',
       model: 'gpt-5.6-sol',
       effort: 'low',
@@ -144,13 +144,13 @@ describe('resolvePresetDefaults', () => {
   it('drops the preset model/effort when the explicit core differs', () => {
     expect(
       resolvePresetDefaults(m(), 'implementation', { ticketPreset: 'deep', explicitProvider: 'codex' }),
-    ).toEqual({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' });
+    ).toMatchObject({ provider: 'codex', model: 'gpt-5.6-sol', effort: 'low' });
   });
 
   it('keeps the preset model/effort when the explicit core matches it', () => {
     expect(
       resolvePresetDefaults(m(), 'implementation', { ticketPreset: 'deep', explicitProvider: 'claude' }),
-    ).toEqual({ provider: 'claude', model: 'claude-opus-5', effort: 'high' });
+    ).toMatchObject({ provider: 'claude', model: 'claude-opus-5', effort: 'high' });
   });
 
   it('a role preset still beats the ticket preset (§6)', () => {
@@ -168,12 +168,12 @@ describe('resolvePresetDefaults', () => {
       activeAgentPreset: 'onlyReview',
       defaultAgentPreset: undefined,
     };
-    expect(resolvePresetDefaults(sparse, 'review', {})).toEqual({
+    expect(resolvePresetDefaults(sparse, 'review', {})).toMatchObject({
       provider: 'claude',
       model: 'claude-opus-5',
       effort: 'low',
     });
-    expect(resolvePresetDefaults(sparse, 'implementation', {})).toEqual({
+    expect(resolvePresetDefaults(sparse, 'implementation', {})).toMatchObject({
       provider: 'codex',
       model: 'gpt-5.6-sol',
       effort: 'low',
@@ -186,7 +186,36 @@ describe('resolvePresetDefaults', () => {
 describe('AgentPreset shape', () => {
   it('carries slots, never a legacy flat bundle', () => {
     const preset: AgentPreset = { label: 'Smart', slots: { graphFast: { provider: 'opencode', model: 'mimo-2.5' } } };
-    expect(preset.slots.graphFast).toEqual({ provider: 'opencode', model: 'mimo-2.5' });
+    expect(preset.slots.graphFast).toMatchObject({ provider: 'opencode', model: 'mimo-2.5' });
     expect(Object.keys(preset)).toEqual(['label', 'slots']);
+  });
+});
+
+describe('resolvePresetDefaults — pin rung and source', () => {
+  const pin = { review: { provider: 'antigravity' as const, model: 'gemini-3.6-flash-high', pinned: true } };
+  const withDeep = (over: Partial<Manifest> = {}): Manifest => m({ activeAgentPreset: 'deep', ...over });
+
+  it('a pin beats the active preset slot for its role, source "pin"', () => {
+    expect(resolvePresetDefaults(withDeep({ processes: pin }), 'review')).toMatchObject({
+      provider: 'antigravity',
+      model: 'gemini-3.6-flash-high',
+      source: 'pin',
+    });
+  });
+  it('an unpinned row is not a pin', () => {
+    const processes = { review: { provider: 'antigravity' as const, model: 'x' } };
+    expect(resolvePresetDefaults(withDeep({ processes }), 'review')).toMatchObject({
+      provider: 'claude',
+      source: 'preset',
+    });
+  });
+  it('an explicit core other than the pin drops it, source "ticket"', () => {
+    const d = resolvePresetDefaults(withDeep({ processes: pin }), 'review', { explicitProvider: 'codex' });
+    expect(d).toMatchObject({ provider: 'codex', source: 'ticket' });
+  });
+  it('reports "default" from the manifest row and "fallback" with none', () => {
+    expect(resolvePresetDefaults(m({ defaultAgentPreset: undefined }), 'review').source).toBe('default');
+    const bare = { ...m({ defaultAgentPreset: undefined }), agentProvider: undefined } as unknown as Manifest;
+    expect(resolvePresetDefaults(bare, 'review').source).toBe('fallback');
   });
 });

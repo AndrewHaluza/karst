@@ -103,7 +103,7 @@ describe('preset matrix — Inherit preview', () => {
     // — an OFF role still shows the identity it would take if switched on.
     const off: Manifest = {
       ...BASE,
-      processes: { uatTester: { provider: 'claude', model: 'claude-opus-5', enabled: false } },
+      processes: { uatTester: { provider: 'claude', model: 'claude-opus-5', pinned: true, enabled: false } },
     };
     expect(buildPresetInheritanceViews(off, CATALOG).uatTester)
       .toEqual({ provider: 'claude', model: 'claude-opus-5' });
@@ -118,7 +118,7 @@ describe('preset matrix — Inherit preview', () => {
     // A `processes.planning` row is what an Inherit row previews.
     const planned: Manifest = {
       ...BASE,
-      processes: { ...processes(), planning: { provider: 'claude', model: 'claude-opus-5' } },
+      processes: { ...processes(), planning: { provider: 'claude', model: 'claude-opus-5', pinned: true } },
     };
     expect(buildPresetInheritanceViews(planned, CATALOG).planning)
       .toEqual({ provider: 'claude', model: 'claude-opus-5' });

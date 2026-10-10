@@ -44,9 +44,10 @@
 import type { AgentProvider, Manifest } from '../manifest/types.js';
 import {
   PROCESS_KEY_BY_ROLE,
+  type ProcessKey,
   type ProcessRole,
 } from '../manifest/validate/processAssignments.js';
-import { resolvePresetSlot } from './agentPresets.js';
+import { resolvePresetSlot, resolveRolePin, type AgentSource } from './agentPresets.js';
 import { resolveEffortForProvider, isModelCompatibleWithProvider } from './models.js';
 import { resolveProvider } from './provider.js';
 import { bundledModelCatalog, type ModelCatalog } from './modelCatalog.js';
@@ -59,6 +60,8 @@ export interface ProcessAssignmentSnapshot {
   provider: AgentProvider;
   model?: string;
   effort?: string;
+  /** Which rung of the ladder supplied the core (ticket / pin / preset / default / fallback). Always set by the resolver. */
+  source?: AgentSource;
   /**
    * The settings agent-pool profile this process is assigned to run as
    * (`processes.<key>.agent`), carried VERBATIM alongside `agentName`. The
@@ -143,7 +146,12 @@ export function resolveProcessAssignment(
   // adapter for the role and opens no process run.
   if (config?.enabled === false) return null;
 
-  // §4 rung 2: the preset slot for THIS role's capability, read by the ONE
+  // Rung 2: the PIN (`processes.<key>` with `pinned: true`), "same in all
+  // presets". An unpinned row carries no identity (the loader folds legacy
+  // rows into presets), so only a pin is read here.
+  const pin = resolveRolePin(manifest, key as ProcessKey);
+
+  // Rung 3: the preset slot for THIS role's capability, read by the ONE
   // resolver. The deprecated `processes.<key>.preset` still outranks the
   // ticket's preset name for one release (§6); blanks normalize away at load.
   const slot =
@@ -151,57 +159,51 @@ export function resolveProcessAssignment(
       ? undefined
       : resolvePresetSlot(manifest, key, config?.preset ?? ticketOverride.preset);
 
-  // Rung 1 over rungs 2–4 for the CORE: the ticket's own provider first, then
-  // the slot, then the process config, then the manifest default, with 'claude'
-  // as the floor (`resolveProvider`'s convention).
+  // Rung 1 over the rest for the CORE: ticket provider, then pin, slot, the
+  // manifest default, with 'claude' as the floor (`resolveProvider`).
+  const ticketProvider = ticketOverride.provider ?? null;
   const provider = resolveProvider(
-    ticketOverride.provider ?? null,
-    slot?.provider ?? config?.provider ?? manifest.agentProvider,
+    ticketProvider,
+    pin?.provider ?? slot?.provider ?? manifest.agentProvider,
   );
 
-  // §4 rung 2 is ATOMIC: the slot's core+model+effort travel together, so it
-  // contributes only while the effective core is the slot's own. A ticket that
-  // explicitly picks another core drops the WHOLE slot — never just its model —
-  // and the rungs below (config, then manifest) take over.
-  const activeSlot = slot !== undefined && provider === slot.provider ? slot : undefined;
+  // Pin and slot are ATOMIC: core+model+effort travel together, so each
+  // contributes only while the effective core is its own. A ticket that picks
+  // another core drops the WHOLE pin/slot. A live pin also shadows the slot.
+  const activePin = pin !== undefined && provider === pin.provider ? pin : undefined;
+  const activeSlot =
+    activePin === undefined && slot !== undefined && provider === slot.provider ? slot : undefined;
+  const layer = activePin ?? activeSlot;
 
-  // The ticket and slot models are catalog-gated; the config model stays
-  // VERBATIM — an author-declared model is launched as written, even when the
-  // catalog knows it for another core — but only ON THE CORE THAT CONFIG
-  // DECLARES. A ticket that picks a different core (rung 1) must not drag it
-  // across: "a model never crosses to another core" holds for this rung too.
-  // The manifest default is gated last.
+  const source: AgentSource =
+    ticketProvider !== null
+      ? 'ticket'
+      : activePin !== undefined
+        ? 'pin'
+        : activeSlot !== undefined
+          ? 'preset'
+          : manifest.agentProvider !== undefined
+            ? 'default'
+            : 'fallback';
+
+  // Ticket, pin/slot and manifest models are catalog-gated; an author-declared
+  // pin model is gated too only when a ticket core made it cross (it never
+  // does: activePin requires the same core), so it stays verbatim.
   const compatible = (id: string | null | undefined): string | undefined => {
     const value = typeof id === 'string' && id.trim() !== '' ? id : undefined;
     return value !== undefined && isModelCompatibleWithProvider(provider, value, catalog)
       ? value
       : undefined;
   };
-  const configModel =
-    config?.model === undefined
-      ? undefined
-      : provider === (config.provider ?? manifest.agentProvider)
-        ? config.model
-        : compatible(config.model);
   const model =
     compatible(ticketOverride.model) ??
-    compatible(activeSlot?.model) ??
-    configModel ??
+    (activePin !== undefined ? activePin.model : compatible(activeSlot?.model)) ??
     compatible(manifest.defaultModel);
 
   // Effort follows the same ladder, and every rung is only carried when the
-  // RESOLVED model advertises it — an explicit value for a model with no
-  // advertised efforts is a configuration error the settings view reports,
-  // never something silently launched (`resolveEffortForProvider`'s rule,
-  // applied candidate by candidate so a refused rung falls through instead of
-  // ending the resolution).
+  // RESOLVED model advertises it — a refused rung falls through.
   let effort: string | undefined;
-  for (const candidate of [
-    ticketOverride.effort,
-    activeSlot?.effort,
-    config?.effort,
-    manifest.defaultEffort,
-  ]) {
+  for (const candidate of [ticketOverride.effort, layer?.effort, manifest.defaultEffort]) {
     effort = resolveEffortForProvider(provider, candidate ?? null, null, model, catalog);
     if (effort !== undefined) break;
   }
@@ -218,6 +220,7 @@ export function resolveProcessAssignment(
     agentName,
     provider,
     model,
+    source,
     // The resolved effort rides the snapshot only when the resolved model
     // advertises it (`resolveEffortForProvider` refuses the rest); an absent
     // value is left off so the launch keeps the agent CLI's own default.

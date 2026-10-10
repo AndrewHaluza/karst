@@ -27,15 +27,46 @@ import type {
   PresetCapability,
   PresetSlot,
 } from '../manifest/types.js';
+import { PROCESS_KEYS, type ProcessKey } from '../manifest/validate/processAssignments.js';
 import { resolveProvider } from './provider.js';
 
 export type { AgentPreset, PresetSlot } from '../manifest/types.js';
+
+/**
+ * Which rung of the precedence ladder supplied the effective core:
+ * ticket field → pin (`processes.<role>` with `pinned: true`) → active preset
+ * slot → manifest default row → the 'claude' floor.
+ */
+export type AgentSource = 'ticket' | 'pin' | 'preset' | 'default' | 'fallback';
 
 /** The manifest-level defaults a caller feeds into the existing launch gates. */
 export interface AgentDefaults {
   provider: AgentProvider;
   model?: string;
   effort?: string;
+  source: AgentSource;
+}
+
+/** A role's PIN: core (+ model/effort) that beats every preset ("same in all presets"). */
+export interface RolePin {
+  provider: AgentProvider;
+  model?: string;
+  effort?: string;
+}
+
+/**
+ * The pin for a capability, or undefined. Only a `processes.<key>` row with
+ * `pinned: true` and a core is a pin; an unpinned row carries no identity.
+ */
+export function resolveRolePin(manifest: Manifest, capability: PresetCapability): RolePin | undefined {
+  if (!(PROCESS_KEYS as readonly string[]).includes(capability)) return undefined;
+  const row = manifest.processes?.[capability as ProcessKey];
+  if (row?.pinned !== true || row.provider === undefined) return undefined;
+  return {
+    provider: row.provider,
+    ...(row.model === undefined ? {} : { model: row.model }),
+    ...(row.effort === undefined ? {} : { effort: row.effort }),
+  };
 }
 
 export interface ResolvePresetDefaultsOptions {
@@ -133,19 +164,37 @@ export function resolvePresetDefaults(
   capability: PresetCapability,
   opts: ResolvePresetDefaultsOptions = {},
 ): AgentDefaults {
-  const slot = resolvePresetSlot(
-    manifest,
-    capability,
-    effectiveAgentPresetName(manifest, opts.ticketPreset, opts.rolePreset),
-  );
+  const explicit = firstNonBlank(opts.explicitProvider) as AgentProvider | undefined;
+  const pin = resolveRolePin(manifest, capability);
+  // Pin beats the preset slot; a differing explicit core drops the whole pin.
+  const activePin = pin !== undefined && (explicit === undefined || explicit === pin.provider) ? pin : undefined;
+  const slot =
+    activePin !== undefined
+      ? undefined
+      : resolvePresetSlot(
+          manifest,
+          capability,
+          effectiveAgentPresetName(manifest, opts.ticketPreset, opts.rolePreset),
+        );
   const provider = resolveProvider(
     opts.explicitProvider ?? null,
-    slot?.provider ?? manifest.agentProvider,
+    activePin?.provider ?? slot?.provider ?? manifest.agentProvider,
   );
-  const applies = slot !== undefined && provider === slot.provider;
+  const layer = activePin ?? (slot !== undefined && provider === slot.provider ? slot : undefined);
+  const source: AgentSource =
+    explicit !== undefined
+      ? 'ticket'
+      : activePin !== undefined
+        ? 'pin'
+        : layer !== undefined
+          ? 'preset'
+          : manifest.agentProvider !== undefined
+            ? 'default'
+            : 'fallback';
   return {
     provider,
-    model: applies ? slot.model : manifest.defaultModel,
-    effort: applies ? (slot.effort ?? manifest.defaultEffort) : manifest.defaultEffort,
+    model: layer !== undefined ? layer.model : manifest.defaultModel,
+    effort: layer !== undefined ? (layer.effort ?? manifest.defaultEffort) : manifest.defaultEffort,
+    source,
   };
 }

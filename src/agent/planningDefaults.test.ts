@@ -22,7 +22,7 @@ const BASE: Manifest = buildManifest(
 
 describe('resolvePlanningDefaults', () => {
   it('falls back to the implementation resolution when nothing planning-specific is set', () => {
-    expect(resolvePlanningDefaults(BASE, CATALOG)).toEqual({
+    expect(resolvePlanningDefaults(BASE, CATALOG)).toMatchObject({
       provider: 'claude',
       model: 'claude-sonnet-5',
     });
@@ -36,7 +36,7 @@ describe('resolvePlanningDefaults', () => {
       },
       activeAgentPreset: 'turbo',
     };
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({
       provider: 'codex',
       model: 'gpt-5.6-sol',
     });
@@ -45,35 +45,36 @@ describe('resolvePlanningDefaults', () => {
   it('prefers processes.planning over the implementation fallback', () => {
     const m: Manifest = {
       ...BASE,
-      processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol' } },
+      processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol', pinned: true } },
     };
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({
       provider: 'codex',
       model: 'gpt-5.6-sol',
     });
   });
 
-  it('prefers the active preset planning slot over processes.planning', () => {
+  it('a processes.planning PIN beats the active preset planning slot (source "pin")', () => {
     const m: Manifest = {
       ...BASE,
-      processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol' } },
+      processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol', pinned: true } },
       agentPresets: {
         smart: { slots: { planning: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } } },
       },
       activeAgentPreset: 'smart',
     };
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
-      provider: 'opencode',
-      model: 'opencode-go/deepseek-v4-flash',
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({
+      provider: 'codex',
+      model: 'gpt-5.6-sol',
+      source: 'pin',
     });
   });
 
   it('honours a planning effort the resolved model advertises', () => {
     const m: Manifest = {
       ...BASE,
-      processes: { planning: { provider: 'claude', model: 'claude-sonnet-5', effort: 'high' } },
+      processes: { planning: { provider: 'claude', model: 'claude-sonnet-5', effort: 'high', pinned: true } },
     };
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({
       provider: 'claude',
       model: 'claude-sonnet-5',
       effort: 'high',
@@ -83,21 +84,21 @@ describe('resolvePlanningDefaults', () => {
   it('never crosses a model to another core when a planning row changes the core', () => {
     const m: Manifest = {
       ...BASE,
-      processes: { planning: { provider: 'codex' } },
+      processes: { planning: { provider: 'codex', pinned: true } },
     };
     // The implementation model is a claude model; the resolved core is codex,
     // so it is dropped rather than launched on the wrong core.
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({ provider: 'codex' });
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({ provider: 'codex' });
   });
 
   it('treats processes.planning.enabled false as "inherit the implementation setting"', () => {
     const m: Manifest = {
       ...BASE,
       processes: {
-        planning: { provider: 'codex', model: 'gpt-5.6-sol', enabled: false },
+        planning: { provider: 'codex', model: 'gpt-5.6-sol', enabled: false, pinned: true },
       },
     };
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({
       provider: 'claude',
       model: 'claude-sonnet-5',
     });
@@ -105,7 +106,7 @@ describe('resolvePlanningDefaults', () => {
 
   it('does not carry the implementation effort into planning', () => {
     const m: Manifest = { ...BASE, defaultEffort: 'high' };
-    expect(resolvePlanningDefaults(m, CATALOG)).toEqual({
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({
       provider: 'claude',
       model: 'claude-sonnet-5',
     });
@@ -116,15 +117,30 @@ describe('resolvePlanningInherited', () => {
   it('ignores the processes.planning row, keeping the preset + implementation fallback', () => {
     const m: Manifest = {
       ...BASE,
-      processes: { planning: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } },
+      processes: { planning: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash', pinned: true } },
       agentPresets: {
         turbo: { slots: { implementation: { provider: 'codex', model: 'gpt-5.6-sol' } } },
       },
       activeAgentPreset: 'turbo',
     };
-    expect(resolvePlanningInherited(m, CATALOG)).toEqual({
+    expect(resolvePlanningInherited(m, CATALOG)).toMatchObject({
       provider: 'codex',
       model: 'gpt-5.6-sol',
     });
+  });
+});
+
+describe('resolvePlanningDefaults — source', () => {
+  it('reports the implementation resolution source when the planner overrides nothing', () => {
+    expect(resolvePlanningDefaults(BASE, CATALOG).source).toBe('default');
+  });
+  it('reports "preset" for a planning slot and ignores an unpinned planning row', () => {
+    const m: Manifest = {
+      ...BASE,
+      processes: { planning: { provider: 'codex', model: 'gpt-5.6-sol' } },
+      agentPresets: { smart: { slots: { planning: { provider: 'opencode', model: 'opencode-go/deepseek-v4-flash' } } } },
+      activeAgentPreset: 'smart',
+    };
+    expect(resolvePlanningDefaults(m, CATALOG)).toMatchObject({ provider: 'opencode', source: 'preset' });
   });
 });

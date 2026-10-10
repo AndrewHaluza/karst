@@ -7,8 +7,8 @@
  * rather than the bare manifest defaults.
  *
  * Order, most specific first:
- *   1. the active preset's `planning` slot (rung 2),
- *   2. `processes.planning` (rung 3),
+ *   1. the `processes.planning` PIN (`pinned: true`),
+ *   2. the active preset's `planning` slot,
  *   3. the implementation resolution — `resolvePresetDefaults(…, 'implementation')`,
  *      which itself composes the active preset's `implementation` slot over the
  *      manifest `agentProvider`/`defaultModel`.
@@ -73,12 +73,17 @@ export function resolvePlanningDefaults(
     return {
       provider: base.provider,
       ...(base.model === undefined ? {} : { model: base.model }),
+      source: base.source,
     };
   }
   return {
     provider: snapshot.provider,
     ...(snapshot.model === undefined ? {} : { model: snapshot.model }),
     ...(snapshot.effort === undefined ? {} : { effort: snapshot.effort }),
+    // The floor is made the manifest default, so a 'default' hit means the
+    // planner overrode nothing: report the implementation resolution's source.
+    source:
+      snapshot.source === undefined || snapshot.source === 'default' ? base.source : snapshot.source,
   };
 }
 
