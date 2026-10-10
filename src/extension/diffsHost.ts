@@ -1,9 +1,13 @@
 import * as vscode from 'vscode';
 import type { Store } from '../store/db.js';
+import { addArtifactForTicket } from '../artifacts/forTicket.js';
+import { OUTPUT_KINDS } from '../manifest/types.js';
+import type { OutputKind } from '../manifest/types.js';
 import { listTickets } from '../store/tickets.js';
 import type { DiffTarget, WorktreeSpec } from '../ui/diffs/git.js';
 import type { TicketChangesSnapshot } from '../ui/diffs/snapshot.js';
 import { diffsTicketChoices, diffsTicketScope } from '../ui/diffs/ticketChoices.js';
+import { diffNodeChangeId } from '../ui/diffs/treeModel.js';
 import { DiffTreeController } from '../ui/diffs/treeController.js';
 import { DIFFS_VIEW_ID, DiffTreeProvider, makeDiffTreeHost } from '../ui/diffs/treeHost.js';
 
@@ -18,6 +22,8 @@ export interface DiffsHostDeps {
   labelFor: (ticketId: number) => string;
   discard: (repoPath: string, path: string, status: string) => Promise<{ ok: boolean; error?: string }>;
   unstage: (repoPath: string, path: string) => Promise<{ ok: boolean; error?: string }>;
+  /** `<globalStorage>/artifacts` — where 'Add to artifacts' commits. */
+  artifactsRoot: string;
   debug: (message: string) => void;
   /** The open store — the ticket selector reads `listTickets` from it (Task 6). */
   store: Store;
@@ -88,11 +94,31 @@ export function wireDiffsTree(deps: DiffsHostDeps): DiffTreeController {
       );
       return choice === 'Discard Changes';
     },
+    pickArtifactKind: async () => {
+      const picked = await vscode.window.showQuickPick([...OUTPUT_KINDS], {
+        title: 'Karst: add to artifacts',
+        placeHolder: 'What kind of artifact is this file?',
+      });
+      return picked as OutputKind | undefined;
+    },
+    addArtifact: async (ticketId, absolutePath, kind) => {
+      try {
+        await addArtifactForTicket(deps.store, deps.artifactsRoot, ticketId, absolutePath, kind);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, error: e instanceof Error ? e.message : String(e) };
+      }
+    },
   });
 
   const refreshCommand = vscode.commands.registerCommand('karst.refreshDiffsTree', () =>
     controller.refresh(),
   );
+
+  const addArtifactCommand = vscode.commands.registerCommand('karst.scmAddArtifact', async (arg: unknown) => {
+    const changeId = diffNodeChangeId(arg);
+    if (changeId !== undefined) await controller.addToArtifacts(changeId);
+  });
 
   const selectCommand = vscode.commands.registerCommand('karst.selectDiffsTicket', async () => {
     const picked = await pickDiffsTicket(deps.store, deps.projectId(), controller.selectedTicket());
@@ -100,7 +126,7 @@ export function wireDiffsTree(deps: DiffsHostDeps): DiffTreeController {
     await controller.show(picked);
   });
 
-  deps.context.subscriptions.push(view, provider, refreshCommand, selectCommand, {
+  deps.context.subscriptions.push(view, provider, refreshCommand, addArtifactCommand, selectCommand, {
     dispose: () => controller.dispose(),
   });
 

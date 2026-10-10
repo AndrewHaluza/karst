@@ -87,6 +87,8 @@ function makeDeps(
     discard: vi.fn().mockResolvedValue({ ok: true }),
     unstage: vi.fn().mockResolvedValue({ ok: true }),
     confirmDiscard: vi.fn().mockResolvedValue(true),
+    pickArtifactKind: vi.fn().mockResolvedValue('script'),
+    addArtifact: vi.fn().mockResolvedValue({ ok: true }),
     ...overrides,
   };
 }
@@ -405,6 +407,49 @@ describe('DiffTreeController', () => {
 
     expect(host.warn).toHaveBeenCalledWith('Could not unstage file: locked');
     expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  describe('addToArtifacts', () => {
+    const setup = async (overrides: Partial<DiffTreeControllerDeps> = {}) => {
+      const host = createFakeHost();
+      const views = [
+        makeWorktreeChangesView({
+          untracked: [makeChangedFileView({ changeId: 'u', status: 'added', path: 'tools/dev.sh' })],
+        }),
+      ];
+      const load = vi.fn().mockResolvedValue({ snapshot: makeSnapshot(views), worktrees: [makeSpec('/wt/repo')] });
+      const deps = makeDeps(host, { load, ...overrides });
+      const controller = new DiffTreeController(deps);
+      await controller.show(7);
+      return { controller, host, deps };
+    };
+
+    it('adds the picked kind for the row file under the selected ticket', async () => {
+      const { controller, deps } = await setup();
+      await controller.addToArtifacts('u');
+      expect(deps.addArtifact).toHaveBeenCalledWith(7, '/wt/repo/tools/dev.sh', 'script');
+    });
+
+    it('does nothing when the kind picker is dismissed', async () => {
+      const { controller, deps } = await setup({ pickArtifactKind: vi.fn().mockResolvedValue(undefined) });
+      await controller.addToArtifacts('u');
+      expect(deps.addArtifact).not.toHaveBeenCalled();
+    });
+
+    it('warns with the reason when the add fails', async () => {
+      const { controller, host } = await setup({
+        addArtifact: vi.fn().mockResolvedValue({ ok: false, error: 'artifact skipped' }),
+      });
+      await controller.addToArtifacts('u');
+      expect(host.warn).toHaveBeenCalledWith(expect.stringContaining('artifact skipped'));
+    });
+
+    it('warns on an unknown row', async () => {
+      const { controller, host, deps } = await setup();
+      await controller.addToArtifacts('nope');
+      expect(host.warn).toHaveBeenCalled();
+      expect(deps.addArtifact).not.toHaveBeenCalled();
+    });
   });
 
   it('dispose makes a later show a no-op', async () => {
