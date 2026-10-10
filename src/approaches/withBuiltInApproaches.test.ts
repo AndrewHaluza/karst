@@ -267,3 +267,12 @@ describe('seam boundary: exactly the consumers resolve built-ins', () => {
     expect(packagedApproachFor(builtInId)?.id).toBe(builtInId);
   });
 });
+
+describe('outputs through the seam', () => {
+  it('approachDelta keeps a built-in override of outputs', () => {
+    const packaged = BUILT_IN_APPROACHES[0]!;
+    const entry: ApproachDef = { ...packaged, outputs: [{ glob: 'a/**', kind: 'meta' }] };
+    const delta = approachDelta([entry]).find((a) => a.id === packaged.id);
+    expect(delta?.outputs).toEqual([{ glob: 'a/**', kind: 'meta' }]);
+  });
+});

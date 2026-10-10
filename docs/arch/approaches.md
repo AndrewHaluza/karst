@@ -52,3 +52,7 @@ open question and left to fail a gate, where the block is visible in karst. Enfo
 `src/agents/skillBlockingDirective.test.ts`, which scans every packaged skill body for
 stop-and-wait-for-user directives.
 END_DOC_BLOCK: [@arch:APP-07]
+
+## [@arch:APP-08] `outputs:` is where an approach writes; NOT `artifacts:`
+`ApproachDef.outputs` / `approach.yml outputs` = `{ glob, kind }[]` (kinds: plan|research|spec|review|meta|script|other), validated at load by `validateOutputs` (`src/approaches/outputs.ts`; repo-relative, no `..`/empty segments, literal prefix passes `normalizeGraphPath`). `artifacts:` stays the agent/skill/command inventory. An approach with no outputs falls back to `DEFAULT_OUTPUTS` (superpowers, speckit, gsd, rpi — rpi verified from its fetched commands). `effectiveOutputs(manifest)` = union over enabled approaches, tagged `approachId`. Karst never moves, filters or redirects these files.
+END_DOC_BLOCK: [@arch:APP-08]

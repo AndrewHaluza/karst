@@ -282,3 +282,30 @@ repositories:
     }
   });
 });
+
+describe('approach outputs round-trip', () => {
+  it('survives load → writeManifest → load, and bad globs fail at load', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const outputs = [{ glob: 'docs/plans/**', kind: 'plan' }];
+      writeFileSync(
+        path,
+        VALID +
+          'approaches:\n  - id: custom\n    label: Custom\n    outputs:\n      - { glob: docs/plans/**, kind: plan }\n',
+      );
+      const loaded = loadManifest(path);
+      expect(loaded.approaches![0]!.outputs).toEqual(outputs);
+      writeManifest(path, loaded);
+      expect(loadManifest(path).approaches![0]!.outputs).toEqual(outputs);
+
+      writeFileSync(
+        path,
+        VALID +
+          'approaches:\n  - id: custom\n    label: Custom\n    outputs:\n      - { glob: ../x/**, kind: plan }\n',
+      );
+      expect(() => loadManifest(path)).toThrow(/approaches\[0\]\.outputs\[0\]\.glob/);
+    } finally {
+      cleanup();
+    }
+  });
+});
