@@ -122,6 +122,16 @@ function writeRow(
       if (patch[field] === '') delete row[field];
     }
     if (patch.enabled === undefined) delete row.enabled;
+    // An unpinned row carries no core (the loader refuses it): a row that holds
+    // a core/model/effort here IS the role's pin, "same in all presets".
+    const hasCore = (['provider', 'model', 'effort'] as const).some(
+      (f) => typeof row[f] === 'string' && row[f] !== '',
+    );
+    if (hasCore) {
+      row.pinned = true;
+    } else {
+      delete row.pinned;
+    }
     next[key] = row;
     return { ...draft, processes: next as Manifest['processes'] };
   };

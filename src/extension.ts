@@ -498,7 +498,7 @@ import { SettingsManager, type LoadedManifest } from './ui/settings/panel.js';
 import { buildSettingsActions } from './ui/settings/actions.js';
 import type { SettingsState } from './ui/settings/state.js';
 import { makeSettingsPanelHost } from './ui/settings/host.js';
-import { writeManifest } from './manifest/write.js';
+import { writeManifest, loadAndPersistMigration } from './manifest/write.js';
 import {
   makeBoundedLogBuffer,
   makeLogger,
@@ -1762,7 +1762,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const loadSettingsState = (): LoadedManifest => {
     const path = manifestPathOrThrow();
     try {
-      const { manifest, warnings, notices } = loadManifestWithDiagnostics(path);
+      const { manifest, warnings, notices } = loadAndPersistMigration(path, (m) => logger.warn(m));
       // Non-fatal: log to the Karst output channel rather than a toast — the
       // Settings page the user just opened is where they'd fix it, and the
       // migrate.ts warning tells them to Save here to write the new shape.

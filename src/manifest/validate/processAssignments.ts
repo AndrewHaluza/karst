@@ -151,6 +151,23 @@ function validateProcessAssignment(
   // error) — the value is simply dropped, so nothing downstream can read a
   // second, competing source of the same prompt.
 
+  if (raw.pinned !== undefined && typeof raw.pinned !== 'boolean') {
+    throw new ManifestError(`${where}.pinned must be a boolean`);
+  }
+  const hasCore = provider !== undefined || model !== undefined || effort !== undefined;
+  if (raw.pinned === true) {
+    if (provider === undefined) {
+      throw new ManifestError(`${where}.provider is required when ${where}.pinned is true`);
+    }
+    config.pinned = true;
+  } else if (hasCore) {
+    throw new ManifestError(
+      `${where} sets provider/model/effort without \`pinned: true\` — an unpinned row carries ` +
+        'only `agent` and `enabled`. Add `pinned: true` to keep it the same in all presets, or ' +
+        `move the value into the active preset's slot (agentPresets.<name>.slots.${where.replace('processes.', '')}).`,
+    );
+  }
+
   if (raw.enabled !== undefined && typeof raw.enabled !== 'boolean') {
     throw new ManifestError(`${where}.enabled must be a boolean`);
   }
