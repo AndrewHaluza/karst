@@ -147,4 +147,6 @@ Three invariants the original investigators learned the hard way, now load-beari
   Settings floor (52 inputs / 44 buttons) was measured on the vanilla view; the
   React DOM satisfies it as the union across all eight tabs, because the app
   mounts one tab at a time while vanilla mounted all tabs in one DOM.- **CSS must be extracted.** To keep `webview.html` maintainable and component-driven, any CSS specific to a React component must be written in a dedicated `.css` file alongside the component (e.g. `PresetsSection.css`) and imported in the `.tsx` file, rather than placed in an inline `<style>` block in `webview.html`. `esbuild` bundles these imports and the injector places them in the document.
+
+The Agents page follows the approved clickable prototype, kept in the repo: [`docs/design/agents-settings-prototype.html`](../design/agents-settings-prototype.html) (generation brief: [`pT2.txt`](../design/pT2.txt)). Colors and markup there are illustrative; the layout and the cell-edit rule are not (`arch:AGENTSPAGE`).
 END_DOC_BLOCK: [@ui:REACT-VIEWS]
