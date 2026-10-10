@@ -101,7 +101,7 @@ export function AgentsSection() {
 
   return (
     <div className="section" id="section-agents">
-      <div className="page-header">
+      <div className="page-header" data-region="header">
         <div>
           <div className="page-title">Agents</div>
           <div className="page-desc">
@@ -111,7 +111,7 @@ export function AgentsSection() {
         </div>
       </div>
 
-      <div className="agents-tabs" role="tablist" aria-label="Agents">
+      <div className="agents-tabs" role="tablist" aria-label="Agents" data-region="tabs">
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -168,7 +168,7 @@ export function AgentsSection() {
         </div>
       ) : null}
 
-      <div role="tabpanel" id={`agents-panel-${route.tab}`} aria-labelledby={`agents-tab-${route.tab}`}>
+      <div data-region="content" role="tabpanel" id={`agents-panel-${route.tab}`} aria-labelledby={`agents-tab-${route.tab}`}>
         {route.tab === 'roles' ? (
           <RolesTab route={route} navigate={navigate} />
         ) : (
