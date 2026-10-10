@@ -21,7 +21,6 @@ import type { ReactElement } from 'react';
 import type { SettingsSection } from '../../sections.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { GeneralSection } from './GeneralSection.js';
-import { PresetsSection } from './PresetsSection.js';
 import { ApproachesSection } from './ApproachesSection.js';
 import { AgentsSection } from './AgentsSection.js';
 import { ServicesSection } from './ServicesSection.js';
@@ -34,7 +33,6 @@ const PORTED: Readonly<Partial<Record<SettingsSection, () => ReactElement>>> = {
   git: GitSection,
   quality: QualitySection,
   ticketing: TicketingSection,
-  presets: PresetsSection,
   approaches: ApproachesSection,
   agents: AgentsSection,
   services: ServicesSection,

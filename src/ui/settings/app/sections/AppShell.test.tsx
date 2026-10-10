@@ -79,7 +79,6 @@ describe('AppShell — the left nav is the whole section vocabulary', () => {
       'services',
       'approaches',
       'agents',
-      'presets',
       'quality',
       'ticketing',
     ]);

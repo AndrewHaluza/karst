@@ -34,12 +34,12 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
       'planning',
     ]);
     expect(all.map((v) => v.roleLabel)).toEqual([
-      'UAT Tester',
-      'UAT Fix',
-      'Review',
-      'Review Fix',
+      'UAT Agent',
+      'UAT Fix Agent',
+      'Review Agent',
+      'Review Fix Agent',
       'PR description',
-      'Ticket analysis',
+      'Ticket Analysis Agent',
       'Planner',
     ]);
     expect(all.map((v) => v.description)).toEqual([
@@ -151,7 +151,7 @@ describe('buildProcessAssignmentViews (handoff §7)', () => {
     const v = row(m, 'uatTester');
     expect(v.state).toBe('disabled');
     expect(v.stateTone).toBe('note');
-    expect(v.stateMessage).toContain('UAT Tester');
+    expect(v.stateMessage).toContain('UAT Agent');
   });
 
   it('resolves a fully configured row to valid with no message', () => {

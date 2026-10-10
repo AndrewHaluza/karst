@@ -443,7 +443,7 @@ import {
   type ApproachPackage,
 } from './approaches/pkg.js';
 import { readAgentFile, writeAgentFile, removeAgentFile } from './agents/pkg.js';
-import { buildAgentPool, type PoolAgent } from './agents/pool.js';
+import { buildAgentPool, poolAgentBody, type PoolAgent } from './agents/pool.js';
 import { spinTicket, SpinCancelledError, allocationRanges, hotRepoPaths } from './runtime/spin.js';
 import { confirmScope } from './workflow/stages/scope.js';
 import { transition } from './workflow/machine.js';
@@ -2122,7 +2122,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         source: a.source,
         ...(a.approachId !== undefined ? { approachId: a.approachId } : {}),
         enabled: agentsMeta[a.name]?.enabled !== false,
-        body: a.source === 'file' ? (readAgentFile(agentsDirOrThrow(), a.name)?.body ?? null) : null,
+        body: poolAgentBody(a, agentsDirOrThrow(), approachesDirOrThrow()),
       }));
     } catch {
       return [];

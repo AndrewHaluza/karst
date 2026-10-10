@@ -26,7 +26,6 @@ import type {
   SubtaskLimits,
   WorktreePathDisplay,
 } from '../../../../manifest/types.js';
-import { AGENT_PROVIDER_LABELS, KNOWN_AGENT_PROVIDERS } from '../../../../model/agentProviders.js';
 import {
   DEFAULT_TERMINAL_NAME_TEMPLATE,
   DEFAULT_TICKET_LABEL_TEMPLATE,
@@ -34,13 +33,13 @@ import {
   renderTicketLabel,
   type TicketLabelFields,
 } from '../../../../store/ticketLabelTemplate.js';
+import { KNOWN_AGENT_PROVIDERS } from '../../../../model/agentProviders.js';
 import { TRANSFORM_NAMES } from '../../../../template/transforms.js';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
 import { Field } from '../primitives/Field.js';
 import { Button } from '../primitives/Button.js';
 import { insertAtCaret } from './templateCaret.js';
 import { useCaretEdit } from './useCaretEdit.js';
-import { AgentPickerIsland } from './AgentPickerIsland.js';
 
 /**
  * The sample ticket every template preview renders against — the same one the
@@ -56,13 +55,6 @@ const PREVIEW_TICKET: TicketLabelFields = {
   selectedRepos: ['fe', 'be'],
   parentTicketId: null,
 };
-
-/** The one inherit row the General picker leads with, as the vanilla view pins it. */
-const PICKER_INHERIT = {
-  core: '',
-  model: 'No default (agent picks)',
-  effort: 'No effort (agent picks)',
-} as const;
 
 /** The default `worktreePathDisplay` the host validator falls back to. */
 const WORKTREE_DISPLAY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
@@ -144,29 +136,6 @@ export function GeneralSection() {
   const labelCaret = useCaretEdit(labelRef, (value) => edit(set('ticketLabelTemplate', value || undefined)));
   const terminalCaret = useCaretEdit(terminalRef, (value) => edit(set('terminalNameTemplate', value || undefined)));
 
-  // Memoise every island input: the island rebuilds on an input change, so an
-  // unstable object here would tear the shared runtime down on every render.
-  const pickerCatalog = useMemo(() => state.models?.models ?? {}, [state.models]);
-  const pickerRecent = useMemo(() => state.models?.recentModels ?? {}, [state.models]);
-  const pickerValue = useMemo(
-    () => ({
-      core: readField<string>(draft, 'agentProvider', ''),
-      model: readField<string>(draft, 'defaultModel', ''),
-      effort: readField<string>(draft, 'defaultEffort', ''),
-    }),
-    [draft],
-  );
-
-  const pickerCores = useMemo(
-    () =>
-      KNOWN_AGENT_PROVIDERS.map((provider) => ({
-        id: provider,
-        label: AGENT_PROVIDER_LABELS[provider] ?? provider,
-        disabled: !state.implementedProviders.includes(provider),
-      })),
-    [state.implementedProviders],
-  );
-
   const setArchiveDays = (raw: string): void => {
     const parsed = Number(raw);
     edit(set('archiveDoneAfterDays', Number.isInteger(parsed) && parsed >= 1 ? parsed : undefined));
@@ -201,29 +170,13 @@ export function GeneralSection() {
       edit(set(key, checked ? true : undefined));
     };
 
-  const setIdentity = (next: {
-    core: string;
-    model: string;
-    effort: string;
-  }): void => {
-    const core = next.core as AgentProvider | '';
-    // The picker writes each of the three keys independently: unchecking effort
-    // must not clear the chosen model. An empty selection clears its own key.
-    edit((current) => ({
-      ...current,
-      agentProvider: core || undefined,
-      defaultModel: next.model || undefined,
-      defaultEffort: next.effort || undefined,
-    }));
-  };
-
   return (
     <div className="section" id="section-general">
       <div className="page-header">
         <div className="page-title">General</div>
         <div className="page-desc">
-          Project defaults Karst applies to every run, and the shared agent this project launches by
-          default.
+          Project defaults Karst applies to every run. The agent each role launches with is set on
+          the Agents page.
         </div>
       </div>
 
@@ -290,37 +243,6 @@ export function GeneralSection() {
                 edit(set('worktreePathDisplay', value as WorktreePathDisplay)),
             }}
           />
-        </div>
-      </div>
-
-      <div className="section-block">
-        <div className="section-head">
-          <div>
-            <div className="section-title">Default implementation agent</div>
-            <div className="section-desc">
-              Used for normal implementation sessions. Inside process assignments are configured on
-              the Agents page.
-            </div>
-          </div>
-        </div>
-        <div className="form-grid">
-          <div className="field-label">Default implementation agent</div>
-          <div className="field-control">
-            <AgentPickerIsland
-              cores={pickerCores}
-              catalog={pickerCatalog}
-              recent={pickerRecent}
-              value={pickerValue}
-              inherit={PICKER_INHERIT}
-              showEffort
-              onChange={setIdentity}
-            />
-            <span className="k-field-help">
-              Used for normal implementation sessions. “No default” lets the provider choose. Effort
-              / variant appears only for models that advertise it. Inside process assignments are
-              configured on the Agents page.
-            </span>
-          </div>
         </div>
       </div>
 

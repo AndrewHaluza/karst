@@ -144,7 +144,7 @@ describe('buildSettingsState', () => {
     expect(uat?.state).toBe('unknown-profile');
     expect(uat?.stateMessage).toContain('ghost');
     expect(uat?.profileOptions).toEqual(['reviewer']);
-    expect(uat?.roleLabel).toBe('UAT Tester');
+    expect(uat?.roleLabel).toBe('UAT Agent');
   });
 
   it('carries the manifest path and the resolved project slug', () => {

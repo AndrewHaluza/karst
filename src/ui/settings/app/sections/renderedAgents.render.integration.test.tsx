@@ -22,7 +22,7 @@
  * DOM or the harness `posted` channel, mapping the probe reads like this:
  * - `dirtySections` → the nav buttons carrying `has-changes`;
  * - `section` → the `.nav-btn.active` marker's `data-section`;
- * - `draft.processes` (the display-name override, the process role fields) →
+ * - `draft.processes` (the profile assignment, the process role fields) →
  *   the rendered `.proc-row[data-proc-key]` matrix rows and their controls
  *   (`proc-<key>-name`), the same reducer read back out of the DOM;
  * - a manifest-shape fact no control renders (the inert keys of an untouched
@@ -141,9 +141,10 @@ describe('rendered Agents tab — the roster and matrix mount', () => {
     // `state.host.agents` → the roster rows inside the React mount; the
     // assignment matrix renders one `.proc-row[data-proc-key]` per process key.
     const mine = tab(view);
-    expect(mine.textContent).toContain('review');
-    expect(mine.textContent).toContain('tdd-one');
-    expect(mine.querySelectorAll('[data-proc-key]').length).toBeGreaterThan(0);
+    expect(mine.querySelectorAll('[data-role]')).toHaveLength(11);
+    expect(mine.querySelector('[data-role="review"]')?.textContent).toContain('Review Agent');
+    // The profile pool rides the Agent profiles tab: the two rows, the real text.
+    expect(tab(view).textContent).toContain('Agent profiles (2)');
   });
 });
 
@@ -152,7 +153,7 @@ describe('rendered Agents tab — dirty marking (R26)', () => {
     const { view } = await mountOnAgents();
     // `probe().dirtySections` → the nav buttons carrying `has-changes`.
     expect(dirtySections(view)).toEqual([]);
-    await setField(view, 'proc-review-name', 'Snapshot');
+    await setField(view, 'role-review-profile', 'tdd-one');
     expect(dirtySections(view)).toEqual(['agents']);
     expect(navMarker(view, 'agents')?.className).toContain('has-changes');
     expect(navMarker(view, 'general')?.className).not.toContain('has-changes');
@@ -160,20 +161,20 @@ describe('rendered Agents tab — dirty marking (R26)', () => {
 
   it('rolls Agents back alone on Discard', async () => {
     const { view } = await mountOnAgents();
-    await setField(view, 'proc-review-name', 'Snapshot');
+    await setField(view, 'role-review-profile', 'tdd-one');
     expect(dirtySections(view)).toEqual(['agents']);
     await view.click(buttonNamed(root(view), 'Discard'));
     expect(dirtySections(view)).toEqual([]);
-    // `probe().draft.processes.review.agentName` → the rendered `proc-review-name`
-    // control, back to baseline (blank = role default).
-    expect(fieldValue(view, 'proc-review-name')).toBe('');
+    // `probe().draft.processes.review.agent` → the rendered profile select, back
+    // to baseline.
+    expect(fieldValue(view, 'role-review-profile')).toBe('review');
   });
 });
 
 describe('rendered Agents tab — the tab-scoped Save carries the whole draft', () => {
   it('posts section agents and preserves the unrendered process key', async () => {
     const { view } = await mountOnAgents();
-    await setField(view, 'proc-review-name', 'Snapshot');
+    await setField(view, 'role-review-profile', 'tdd-one');
     await view.click(buttonNamed(root(view), 'Save Agents'));
 
     const save = view.last('save') as { manifest: Manifest } | undefined;
@@ -181,9 +182,9 @@ describe('rendered Agents tab — the tab-scoped Save carries the whole draft', 
     const processes = save?.manifest.processes as
       | Record<string, Record<string, unknown>>
       | undefined;
-    // `probe().draft.processes.review.agentName` → the save payload, which IS
+    // `probe().draft.processes.review.agent` → the save payload, which IS
     // the whole draft.
-    expect(processes?.review?.agentName).toBe('Snapshot');
+    expect(processes?.review?.agent).toBe('tdd-one');
     // The key this tab renders no control for still rides along: a rebuilt
     // `processes` map would drop it and the host would delete it from the file.
     expect(processes?.review?.inertKeyKarstNeverRenders).toBe('keep me');
@@ -193,7 +194,7 @@ describe('rendered Agents tab — the tab-scoped Save carries the whole draft', 
 describe('rendered Agents tab — a state push re-renders the roster', () => {
   it('keeps an uncommitted assignment edit across an out-of-band write', async () => {
     const { view } = await mountOnAgents();
-    await setField(view, 'proc-review-name', 'Snapshot');
+    await setField(view, 'role-review-profile', 'tdd-one');
     await view.receive({
       type: 'state',
       state: buildSettingsState(
@@ -208,9 +209,9 @@ describe('rendered Agents tab — a state push re-renders the roster', () => {
         '/repo/karst.yml',
       ),
     });
-    // `probe().draft.processes.review.agentName` → the rendered control still
+    // `probe().draft.processes.review.agent` → the rendered control still
     // shows the edit: the Agents draft survived the push.
-    expect(fieldValue(view, 'proc-review-name')).toBe('Snapshot');
+    expect(fieldValue(view, 'role-review-profile')).toBe('tdd-one');
     expect(dirtySections(view)).toEqual(['agents']);
     // `probe().draft.host` lives on a tab this single-tab mount does not render,
     // so the whole draft is read where it crosses the boundary: the payload of a
@@ -222,6 +223,6 @@ describe('rendered Agents tab — a state push re-renders the roster', () => {
     expect(save?.manifest.host).toBe('10.0.0.1');
     // …while the uncommitted Agents edit survives.
     const processes = (save?.manifest.processes as Record<string, Record<string, unknown>> | undefined);
-    expect(processes?.review?.agentName).toBe('Snapshot');
+    expect(processes?.review?.agent).toBe('tdd-one');
   });
 });
