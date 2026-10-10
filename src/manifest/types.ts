@@ -506,6 +506,13 @@ export interface UatConfig {
    * manifest's behavior byte-for-byte.
    */
   testerObservations?: UatTesterObservationsConfig;
+  /**
+   * Opt-in (@arch:BASELINE-REVIEW), manifest-only: repo-relative globs of files
+   * (visual baselines, ratchet ledgers) whose change by a ticket counts only
+   * after the USER approves it in the UAT report. Absent — or an empty `paths`,
+   * which the validator drops — means the feature is off.
+   */
+  baselineReview?: UatBaselineReviewConfig;
   env: Record<string, string>;
   secrets: string[];
   passthrough: string[];
@@ -517,6 +524,11 @@ export interface UatConfig {
 
 /** Closed severity vocabulary for review findings (§6.7's `review_findings.severity`). */
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
+
+export interface UatBaselineReviewConfig {
+  /** Repo-relative git pathspec globs; never empty (an empty list disables the knob). */
+  paths: string[];
+}
 
 export interface UatTesterObservationsConfig {
   /**

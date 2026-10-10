@@ -35,6 +35,9 @@ import type { WarnFn } from '../review/findings.js';
 import { getDisabledGates } from '../../store/ticketGates.js';
 import { capForGate } from '../fixAttempts.js';
 import { getTicket } from '../../store/tickets.js';
+import { latestBaselineDecisions } from '../../store/baselineDecisions.js';
+import { unapprovedBaselines } from '../gates/baselineReview.js';
+import { detectTicketBaselines } from '../gates/baselineReviewTicket.js';
 import {
   aggregateUat,
   reviewIdentitiesFrom,
@@ -137,6 +140,8 @@ export interface UatDeps {
   checkDeps?: (cwd: string) => Promise<NodeDepsCheck>;
   /** Where the Tester's boundary diagnostics land (a failed AI call, garbage output). */
   warn?: WarnFn;
+  /** Seam over the baseline-review change detection (@arch:BASELINE-REVIEW). */
+  detectBaselines?: typeof detectTicketBaselines;
 }
 
 /** What a gate invocation IS, as a dedup key: the command, not the label on it. */
@@ -595,6 +600,36 @@ export async function runUat(
   // never runs, because it only ever runs after the required gates PASS.
   if (outcome.verdict.kind === 'failed') {
     return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  }
+
+  // ---- Baseline review (@arch:BASELINE-REVIEW) ----
+  // Only after the required gates PASSED (a failing build goes to fix first) and
+  // before the Tester: a baseline the ticket changed counts only once the USER
+  // approved it in the UAT report. The agent re-recording its own screenshots
+  // must never pass itself. Opt-in: no `uat.baselineReview.paths`, no check.
+  if ((opts.manifest?.uat?.baselineReview?.paths.length ?? 0) > 0) {
+    const detect = deps.detectBaselines ?? detectTicketBaselines;
+    opts.debug?.(`[gate] uat ticket ${opts.ticketId}: baseline review — detecting changed baselines`);
+    let changed;
+    try {
+      changed = await detect(store, opts.manifest, opts.ticketId, targets, { git });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      opts.debug?.(`[gate] uat ticket ${opts.ticketId}: baseline review could not ask (${reason})`);
+      return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+    }
+    const pending = unapprovedBaselines(changed, latestBaselineDecisions(store, opts.ticketId));
+    opts.debug?.(
+      `[gate] uat ticket ${opts.ticketId}: baseline review — ${changed.length} changed, ` +
+        `${pending.length} unapproved → ${pending.length > 0 ? 'blocked (baseline-review)' : 'proceed'}`,
+    );
+    if (pending.length > 0) {
+      const reason = `${pending.length} visual baseline(s) changed — review in the UAT report`;
+      sections.push(
+        `# baseline review\n${pending.map((e) => `${e.status} ${e.repo}:${e.path}`).join('\n')}`,
+      );
+      return finish({ kind: 'blocked', blocker: 'baseline-review', reason }, [reason]);
+    }
   }
 
   // ---- Tester + optional deterministic verifier (Task 8) ----
