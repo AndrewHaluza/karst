@@ -36,6 +36,7 @@ const PROTECTED_FIELDS = [
   'activeAgentPreset',
   'defaultAgentPreset',
   'archiveDoneAfterDays',
+  'artifacts',
   'subtasks',
   'debug',
   'closeDoneTerminalsWithTicket',
