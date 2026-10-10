@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Manifest } from '../../manifest/types.js';
 import { openStore, type Store } from '../../store/db.js';
 import { upsertProject } from '../../store/projects.js';
-import { createTicket, findTicketById, setStageCurrent } from '../../store/tickets.js';
+import { createTicket, findTicketById, setStageCurrent, updateTicketFields } from '../../store/tickets.js';
 import { listInbox } from '../../store/ticketMessages.js';
 import {
   autostartCapsFrom,
@@ -83,6 +83,35 @@ describe('subtask autostart op', () => {
     expect(findTicketById(store, c)?.autostartPending).toBe(true);
     expect(findTicketById(store, a)?.autostartStarting).toBe(true);
     expect(d.debug).toHaveBeenCalledWith(expect.stringContaining('[driver] autostart'));
+  });
+
+  describe('pullBase follows the resolved base, not the presence of an override', () => {
+    const manifest = {
+      baselineBranch: 'main',
+      repositories: { backend: { repoPath: '/r/backend', baselineBranch: 'main' } },
+    } as unknown as Manifest;
+
+    function startWith(baseRefs: Record<string, string>) {
+      const a = child('P-1-s1');
+      store.db
+        .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+        .run(parentId, '/r/backend', '/w/p', 'karst/P-1', 'main');
+      updateTicketFields(store, a, { baseRefs });
+      const d = deps({ manifest: () => manifest });
+      return { a, d };
+    }
+
+    it('pulls when the override points away from the parent branch', async () => {
+      const { a, d } = startWith({ backend: 'develop' });
+      expect(await makeSubtaskAutostart(d).sweep()).toEqual([a]);
+      expect(d.startTicket).toHaveBeenCalledWith(a, { pullBase: true, quiet: true });
+    });
+
+    it('does not pull when the override equals the parent branch', async () => {
+      const { a, d } = startWith({ backend: 'karst/P-1' });
+      await makeSubtaskAutostart(d).sweep();
+      expect(d.startTicket).toHaveBeenCalledWith(a, { pullBase: false, quiet: true });
+    });
   });
 
   it('does nothing without a bound project', async () => {

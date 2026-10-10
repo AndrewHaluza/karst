@@ -19,7 +19,7 @@ same pull request.
 in time. They are a historical record — read them for reasoning, never for
 current behaviour. Where a note and the code disagree, the code is right.
 
-**Format.** Binding reference files are keyed blocks (`## [@ns:ID] Title` … `END_DOC_BLOCK: [@ns:ID]`). List a file's keys with `grep -F "## [@" <file> | tail -n +2`; extract one with the `awk` recipe in the file's header comment. Do not read them whole.
+**Format.** Binding reference files are keyed blocks (`## [@ns:ID] Title` … `END_DOC_BLOCK: [@ns:ID]`). List a file's keys with `grep -F "## [@" <file> | tail -n +2`; extract one with the `awk` recipe in the file's header comment. Do not read them whole. To find a key across **all** docs in one step: `grep -i <topic> docs/INDEX.md` (generated; `npm run -s docs:index`). `npm run -s docs:lint` enforces the format in CI.
 
 ## [@idx:IDX-01] Binding reference
 

@@ -5,6 +5,7 @@ import { findTicketById } from '../../store/tickets.js';
 import { claimAutostart, releaseAutostart, requeueStaleClaims } from '../../store/autostart.js';
 import { postMessage } from '../../store/ticketMessages.js';
 import { pickSubtasksToStart, type AutostartCaps } from '../../workflow/subtaskAutostart.js';
+import { isStackedSubtask } from '../../workflow/baseRef.js';
 import type { Notify } from './notify.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
 
@@ -40,11 +41,13 @@ export interface SubtaskAutostartDeps {
   /** The window's bound project; `undefined` = not bound yet, nothing to do. */
   projectId: () => number | undefined;
   caps: () => AutostartCaps;
+  /** The current manifest; without it every child counts as stacked (no pull). */
+  manifest?: () => Manifest | undefined;
   ownsParent: (parentId: number) => boolean;
   /**
-   * The host start path. Autostart always passes `pullBase: false` (the child's
-   * base is its parent's branch, not a remote) and `quiet: true` — this op owns
-   * the single user-facing warning, so the host must not pop its own.
+   * The host start path. Autostart passes `pullBase: false` for stacked sub-tasks
+   * (the child's base is its parent's branch, not a remote) or `pullBase: true`
+   * when non-stacked, and `quiet: true` — this op owns the single user-facing warning.
    */
   startTicket: (ticketId: number, opts: { pullBase: boolean; quiet: boolean }) => Promise<AutostartStartResult>;
   notify: Notify;
@@ -74,7 +77,10 @@ export function makeSubtaskAutostart(deps: SubtaskAutostartDeps): SubtaskAutosta
     deps.debug(`[driver] autostart ${formatId('ticket', id)}: claimed — starting`);
     let reason: string;
     try {
-      const res = await deps.startTicket(id, { pullBase: false, quiet: true });
+      const child = findTicketById(deps.store, id);
+      const manifest = deps.manifest?.();
+      const stacked = !child || !manifest || isStackedSubtask(deps.store, child, manifest);
+      const res = await deps.startTicket(id, { pullBase: !stacked, quiet: true });
       if (res.ok) {
         deps.debug(`[driver] autostart ${formatId('ticket', id)}: started`);
         return true;

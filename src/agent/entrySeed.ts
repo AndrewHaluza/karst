@@ -1,3 +1,5 @@
+// Before changing what a seed or context render contains, read
+// docs/arch/prompt-metrics.md @arch:RESIDENT and @arch:GUIDEGATE.
 /**
  * Pure string functions for composing entry-point seeds. No vscode, fs, or
  * store imports — these are unit-testable under vitest with no host wiring.

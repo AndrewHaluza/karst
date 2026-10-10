@@ -1,10 +1,10 @@
 <!-- AGENT INSTRUCTIONS:
 This file uses an agent-optimized block format. DO NOT read this file entirely.
 1. TABLE OF CONTENTS: Run this to list all available keys:
-  grep -F "## [@" <file_path>
+  grep -F "## [@" docs/arch/store-and-schema.md
 
 2. EXTRACT A RULE: Run this to read a specific block (Example for ID 'arch:SQLITE'):
-  awk "/^## \[@arch:SQLITE\]/,/END_DOC_BLOCK: \[@arch:SQLITE\]/" <file_path>
+  awk "/^## \[@arch:SQLITE\]/,/END_DOC_BLOCK: \[@arch:SQLITE\]/" docs/arch/store-and-schema.md
 -->
 # The store: SQLite, projects, and schema changes
 

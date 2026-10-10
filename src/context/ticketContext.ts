@@ -1,3 +1,5 @@
+// Before changing what a seed or context render contains, read
+// docs/arch/prompt-metrics.md @arch:RESIDENT and @arch:GUIDEGATE.
 /**
  * The ticket-context aggregator (§ context loader): one pure function that
  * gathers everything a session needs about a ticket — the authored prompt, the
@@ -28,6 +30,7 @@ import {
   listServersByTicket,
   listPrsByTicket,
 } from '../store/dashboard.js';
+import { subtaskPrSuffix } from './subtaskPrSuffix.js';
 import { listMergeChecksByTicket } from '../store/mergeChecks.js';
 import { summarizeMergeCheck, type MergeCheckView } from '../model/mergeCheckView.js';
 import { listGateRuns } from '../store/gateRuns.js';
@@ -45,6 +48,7 @@ export interface TicketContextWorktree {
   path: string;
   branch: string | null;
   baseRef: string | null;
+  source?: 'override' | 'parent' | 'manifest';
   depsMode: string;
 }
 
@@ -60,6 +64,8 @@ export interface TicketContextPr {
   number: number | null;
   url: string | null;
   status: string | null;
+  /** Target branch the PR merges into; omitted when unknown (keeps old JSON). */
+  baseRef?: string;
   /**
    * Whether this repo's branch still merges into its base, as of the last ship.
    * Optional and omitted entirely when never checked — a ticket shipped before
@@ -231,6 +237,8 @@ export interface TicketContextSubtask {
   autostartPending: boolean;
   /** Waiting to be auto-started: `autostartPending` while still at `scope`. */
   queued: boolean;
+  /** Cached PR rows for this sub-task (display cache; gh stays source of truth). */
+  prs: TicketContextPr[];
 }
 
 /** This ticket's mailbox, as a pointer: a count, never the bodies (untrusted). */
@@ -370,6 +378,26 @@ function repoRows(name: string, def: RepositoryDef | undefined): TicketContextRe
   }));
 }
 
+/** A ticket's cached PR rows with their last merge check, as the context shows them. */
+function contextPrs(store: Store, ticketId: number): TicketContextPr[] {
+  const checks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
+  return listPrsByTicket(store, ticketId).map((p) => {
+    const check = checks.get(p.repo);
+    return {
+      repo: p.repo,
+      number: p.number,
+      url: p.url,
+      status: p.status,
+      ...(p.baseRef ? { baseRef: p.baseRef } : {}),
+      // Spread rather than `mergeCheck: undefined`, so a never-checked PR
+      // serializes to the exact JSON the CLI emitted before this existed.
+      ...(check
+        ? { mergeCheck: { state: check.state, files: check.files, reason: check.reason } }
+        : {}),
+    };
+  });
+}
+
 /**
  * Aggregate all ticket-implementation data by id. Pure over the injected store
  * and manifest — no fs, no vscode. `manifest` is optional (absent at some launch
@@ -390,7 +418,6 @@ export function buildTicketContext(
   storageDir?: string,
 ): TicketContext {
   const t = getTicket(store, ticketId);
-  const mergeChecks = new Map(listMergeChecksByTicket(store, ticketId).map((c) => [c.repo, c]));
 
   const defs = manifest?.repositories ?? {};
   const repos: TicketContextRepo[] = t.selectedRepos.flatMap((name) =>
@@ -455,6 +482,7 @@ export function buildTicketContext(
     blocksParent: s.blocksParent,
     autostartPending: s.autostartPending,
     queued: isQueuedSubtask({ ...s, subtaskParentId: ticketId }),
+    prs: contextPrs(store, s.id),
   }));
 
   const stageRow = relevantStageRow(t);
@@ -528,33 +556,33 @@ export function buildTicketContext(
     paused: t.pausedAt !== null,
     pausedAt: t.pausedAt,
     selectedRepos: t.selectedRepos,
-    worktrees: listWorktreesByTicket(store, ticketId).map((w) => ({
-      repo: w.repo,
-      path: w.path,
-      branch: w.branch,
-      baseRef: w.baseRef,
-      depsMode: w.depsMode,
-    })),
+    worktrees: listWorktreesByTicket(store, ticketId).map((w) => {
+      let source: 'override' | 'parent' | 'manifest' | undefined;
+      if (w.baseRef) {
+        if (t.baseRefs?.[w.repo] && t.baseRefs[w.repo] === w.baseRef) {
+          source = 'override';
+        } else if (subtaskParent?.branches.some((b) => b.repo === w.repo && b.branch === w.baseRef)) {
+          source = 'parent';
+        } else {
+          source = 'manifest';
+        }
+      }
+      return {
+        repo: w.repo,
+        path: w.path,
+        branch: w.branch,
+        baseRef: w.baseRef,
+        source,
+        depsMode: w.depsMode,
+      };
+    }),
     servers: listServersByTicket(store, ticketId).map((s) => ({
       service: s.service,
       host: s.host,
       port: s.port,
       status: s.status,
     })),
-    prs: listPrsByTicket(store, ticketId).map((p) => {
-      const check = mergeChecks.get(p.repo);
-      return {
-        repo: p.repo,
-        number: p.number,
-        url: p.url,
-        status: p.status,
-        // Spread rather than `mergeCheck: undefined`, so a never-checked PR
-        // serializes to the exact JSON the CLI emitted before this existed.
-        ...(check
-          ? { mergeCheck: { state: check.state, files: check.files, reason: check.reason } }
-          : {}),
-      };
-    }),
+    prs: contextPrs(store, ticketId),
     attachments:
       storageDir === undefined
         ? []
@@ -635,6 +663,7 @@ export function renderTicketContext(
   opts?: {
     bounded?: boolean;
     sections?: ContextSections;
+    stageEnding?: string;
     /** Keep the T-id in the heading. Default: only for `all`; set it on a narrative render when no facts layer (which states the id) is delivered. */
     headingId?: boolean;
   },
@@ -662,30 +691,6 @@ export function renderTicketContext(
   // a bare numeric id (§ resolveTicketByKey), so it is a genuinely runnable
   // fallback, unlike the placeholder string 'this ticket' would be.
   const key = ctx.key?.trim() || String(ctx.id);
-
-  const promptRaw = authored ? ctx.prompt?.trim() : undefined;
-  if (promptRaw) {
-    const prompt = bounded
-      ? (() => {
-          const { text, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
-          if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
-          return text;
-        })()
-      : promptRaw;
-    parts.push(`## Prompt\n${prompt}`);
-  }
-
-  const briefRaw = authored ? ctx.brief?.trim() : undefined;
-  if (briefRaw) {
-    const brief = bounded
-      ? (() => {
-          const { text, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
-          if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
-          return text;
-        })()
-      : briefRaw;
-    parts.push(`## Context brief\n${brief}`);
-  }
 
   if (operational && ctx.stage) {
     const s = ctx.stage;
@@ -787,114 +792,8 @@ export function renderTicketContext(
     parts.push(`## Current stage\n${lines.join('\n')}`);
   }
 
-  if (authored && ctx.attachments.length > 0) {
-    const rowsBlock = ctx.attachments
-      .map((a) => {
-        // Video is stated as unreadable rather than omitted. Omitting it would let
-        // an agent conclude nothing was attached; listing it bare would let one
-        // report on footage it never opened.
-        const note = a.kind === 'video' ? ' (not agent-readable)' : '';
-        return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
-      })
-      .join('\n');
-    const attachmentsText = bounded
-      ? (() => {
-          const { text, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
-          if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
-          return text;
-        })()
-      : rowsBlock;
-    parts.push(`## Attachments\n${attachmentsText}`);
-  }
-
-  // One section, not two. The old render emitted a bare name list AND a richer
-  // "## Services" list, so a repository appeared twice and a non-runnable one
-  // appeared in the first with no hint it would never start.
-  if (operational && ctx.repos.length > 0) {
-    const rows = ctx.repos.map((r) => {
-      if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
-      if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
-      const cwd = r.cwd !== undefined ? `, cwd: ${r.cwd}` : '';
-      const health = r.health ? `, health: ${r.health}` : '';
-      return `- ${r.name}: ${r.repoPath} (start: \`${r.start}\`${cwd}${health})`;
-    });
-    parts.push(`## Repositories in scope\n${rows.join('\n')}`);
-  }
-
-  if (operational && ctx.worktrees.length > 0) {
-    const rows = ctx.worktrees.map((w) => {
-      const branch = w.branch ?? '(no branch)';
-      const base = w.baseRef ? ` (from ${w.baseRef})` : '';
-      return `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
-    });
-    parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
-  }
-
-  if (operational && ctx.servers.length > 0) {
-    const rows = ctx.servers.map(
-      (s) => `- ${s.service}: ${s.host ?? '?'}:${s.port ?? '?'} (${s.status})`,
-    );
-    parts.push(`## Running servers\n${rows.join('\n')}`);
-  }
-
-  if (operational && ctx.prs.length > 0) {
-    const rows = ctx.prs.map((p) => {
-      const num = p.number !== null ? `#${p.number}` : '(no number)';
-      const url = p.url ? ` — ${p.url}` : '';
-      const status = p.status ? ` [${p.status}]` : '';
-      // Suffixed on the existing line rather than given a section of its own: an
-      // agent already reads this list, and mergeability is a fact ABOUT the PR.
-      const merge = p.mergeCheck ? ` · merge: ${summarizeMergeCheck(p.mergeCheck)}` : '';
-      return `- ${p.repo} ${num}${status}${url}${merge}`;
-    });
-    parts.push(`## Pull requests\n${rows.join('\n')}`);
-  }
-
-  if (authored && ctx.parent) {
-    const parentRef = formatTicketRef(ctx.parent.id, ctx.parent.key);
-    const parentTitle = ctx.parent.title?.trim();
-    const heading = parentTitle ? `${parentRef}: ${parentTitle}` : parentRef;
-    const lines: string[] = [];
-    const parentBrief = ctx.parent.brief?.trim();
-    if (parentBrief) lines.push(parentBrief);
-    for (const pr of ctx.parent.prs) {
-      const num = pr.number !== null ? `#${pr.number}` : '(no number)';
-      const url = pr.url ? ` — ${pr.url}` : '';
-      lines.push(`- ${pr.repo} ${num}${url}`);
-    }
-    parts.push(`## Continuing from ${heading}\n${lines.join('\n')}`);
-  }
-
-  // A sub-task's parent (design NDL-70 §7). Rendered in every section mode: a
-  // session must know its branch lands into the parent's branch — not main —
-  // whether it reads the seed or re-pulls `karst context`. The parent's PRs are
-  // deliberately not rendered (that is the follow-up section's job).
-  if (authored && ctx.subtaskParent) {
-    const p = ctx.subtaskParent;
-    const parentRef = formatTicketRef(p.id, p.key);
-    const parentTitle = p.title?.trim();
-    const base = parentTitle ? `${parentRef}: ${parentTitle}` : parentRef;
-    // The child's own blocking status, legible without a parent round-trip
-    // (NDL-96) — the same tag the parent's Sub-tasks section prints per child.
-    const heading = p.blocksParent ? `${base} [blocking]` : base;
-    const lines: string[] = [
-      `This ticket is a sub-task of ${heading} — its work is part of that open ticket, not standalone.`,
-    ];
-    if (p.blocksParent) {
-      lines.push(
-        'This sub-task blocks its parent: the parent waits on it before it can leave impl/fix.',
-      );
-    }
-    const parentAsk = p.prompt?.trim();
-    if (parentAsk) lines.push(parentAsk);
-    const parentBrief = p.brief?.trim();
-    if (parentBrief) lines.push(parentBrief);
-    for (const b of p.branches) lines.push(`- ${b.repo}: \`${b.branch}\``);
-    lines.push(
-      "Your branch lands into the parent's branch, not into main — open your PR against " +
-        "the parent's branch, and expect it to stack on the parent's work.",
-    );
-    parts.push(`## Parent task\n${lines.join('\n')}`);
+  if (operational && opts?.stageEnding) {
+    parts.push(`## How this stage ends\n${opts.stageEnding}`);
   }
 
   // The work this ticket delegated to sub-tasks (design NDL-70 §7), so the
@@ -908,7 +807,8 @@ export function renderTicketContext(
       const flag = s.blocksParent ? ' [blocking]' : '';
       const queued = s.queued ? ', queued' : '';
       const paused = s.pausedAt ? `, paused since ${s.pausedAt}` : '';
-      return `- ${ref}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}`;
+      const prs = bounded ? '' : subtaskPrSuffix(s.stageCurrent, s.prs);
+      return `- ${ref}${named} (stage: ${s.stageCurrent ?? 'unknown'}${queued}${paused})${flag}${prs}`;
     });
 
     const total = ctx.subtasks.length;
@@ -933,6 +833,50 @@ export function renderTicketContext(
     );
   }
 
+  if (operational && ctx.prs.length > 0) {
+    const rows = ctx.prs.map((p) => {
+      const num = p.number !== null ? `#${p.number}` : '(no number)';
+      const url = p.url ? ` — ${p.url}` : '';
+      const status = p.status ? ` [${p.status}]` : '';
+      // Suffixed on the existing line rather than given a section of its own: an
+      // agent already reads this list, and mergeability is a fact ABOUT the PR.
+      const merge = p.mergeCheck ? ` · merge: ${summarizeMergeCheck(p.mergeCheck)}` : '';
+      return `- ${p.repo} ${num}${status}${url}${merge}`;
+    });
+    parts.push(`## Pull requests\n${rows.join('\n')}`);
+  }
+
+  // One section, not two. The old render emitted a bare name list AND a richer
+  // "## Services" list, so a repository appeared twice and a non-runnable one
+  // appeared in the first with no hint it would never start.
+  if (operational && ctx.repos.length > 0) {
+    const rows = ctx.repos.map((r) => {
+      if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
+      if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
+      const cwd = r.cwd !== undefined ? `, cwd: ${r.cwd}` : '';
+      const health = r.health ? `, health: ${r.health}` : '';
+      return `- ${r.name}: ${r.repoPath} (start: \`${r.start}\`${cwd}${health})`;
+    });
+    parts.push(`## Repositories in scope\n${rows.join('\n')}`);
+  }
+
+  if (operational && ctx.worktrees.length > 0) {
+    const rows = ctx.worktrees.map((w) => {
+      const branch = w.branch ?? '(no branch)';
+      const sourceTag = w.source ? `, ${w.source}` : '';
+      const base = w.baseRef ? ` (from ${w.baseRef}${sourceTag})` : '';
+      return `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
+    });
+    parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
+  }
+
+  if (operational && ctx.servers.length > 0) {
+    const rows = ctx.servers.map(
+      (s) => `- ${s.service}: ${s.host ?? '?'}:${s.port ?? '?'} (${s.status})`,
+    );
+    parts.push(`## Running servers\n${rows.join('\n')}`);
+  }
+
   // The mailbox is a pointer only: bodies are untrusted agent prose and are
   // framed by `karst inbox`, never inlined into a seed.
   if (authored && ctx.inbox.unread > 0) {
@@ -953,5 +897,111 @@ export function renderTicketContext(
     parts.push(`## Blockers\nThese blockers landed before you started.\n\n${rows.join('\n\n---\n\n')}`);
   }
 
+  const promptRaw = authored ? ctx.prompt?.trim() : undefined;
+  if (promptRaw) {
+    const prompt = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(promptRaw, SEED_BUDGETS.ticketPrompt, key);
+          if (truncated) debug?.(`[seed] truncated ticket prompt to ${SEED_BUDGETS.ticketPrompt} chars`);
+          return text;
+        })()
+      : promptRaw;
+    parts.push(`## Prompt\n${prompt}`);
+  }
+
+  const briefRaw = authored ? ctx.brief?.trim() : undefined;
+  if (briefRaw && briefRaw !== promptRaw) {
+    const brief = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(briefRaw, SEED_BUDGETS.brief, key);
+          if (truncated) debug?.(`[seed] truncated context brief to ${SEED_BUDGETS.brief} chars`);
+          return text;
+        })()
+      : briefRaw;
+    parts.push(`## Context brief\n${brief}`);
+  }
+
+  if (authored && ctx.attachments.length > 0) {
+    const rowsBlock = ctx.attachments
+      .map((a) => {
+        // Video is stated as unreadable rather than omitted. Omitting it would let
+        // an agent conclude nothing was attached; listing it bare would let one
+        // report on footage it never opened.
+        const note = a.kind === 'video' ? ' (not agent-readable)' : '';
+        return `- ${a.kind}: ${a.path} — "${a.name}"${note}`;
+      })
+      .join('\n');
+    const attachmentsText = bounded
+      ? (() => {
+          const { text, truncated } = truncateToBudget(rowsBlock, SEED_BUDGETS.attachments, key);
+          if (truncated) debug?.(`[seed] truncated attachments list to ${SEED_BUDGETS.attachments} chars`);
+          return text;
+        })()
+      : rowsBlock;
+    parts.push(`## Attachments\n${attachmentsText}`);
+  }
+
+  if (authored && ctx.parent) {
+    const parentRef = formatTicketRef(ctx.parent.id, ctx.parent.key);
+    const parentTitle = ctx.parent.title?.trim();
+    const heading = parentTitle ? `${parentRef}: ${parentTitle}` : parentRef;
+    const lines: string[] = [];
+    const parentBrief = ctx.parent.brief?.trim();
+    if (parentBrief) lines.push(parentBrief);
+    for (const pr of ctx.parent.prs) {
+      const num = pr.number !== null ? `#${pr.number}` : '(no number)';
+      const url = pr.url ? ` — ${pr.url}` : '';
+      lines.push(`- ${pr.repo} ${num}${url}`);
+    }
+    parts.push(`## Continuing from ${heading}\n${lines.join('\n')}`);
+  }
+
+  // A sub-task's parent (design NDL-70 §7). Rendered in every section mode: a
+  // session must know where its branch lands (into the parent's branch or its
+  // chosen base) whether it reads the seed or re-pulls `karst context`. The parent's PRs are
+  // deliberately not rendered (that is the follow-up section's job).
+  if (authored && ctx.subtaskParent) {
+    const p = ctx.subtaskParent;
+    const parentRef = formatTicketRef(p.id, p.key);
+    const parentTitle = p.title?.trim();
+    const base = parentTitle ? `${parentRef}: ${parentTitle}` : parentRef;
+    // The child's own blocking status, legible without a parent round-trip
+    // (NDL-96) — the same tag the parent's Sub-tasks section prints per child.
+    const heading = p.blocksParent ? `${base} [blocking]` : base;
+    const lines: string[] = [
+      `This ticket is a sub-task of ${heading} — its work is part of that open ticket, not standalone.`,
+    ];
+    if (p.blocksParent) {
+      lines.push(
+        'This sub-task blocks its parent: the parent waits on it before it can leave impl/fix.',
+      );
+    }
+    const parentAsk = p.prompt?.trim();
+    if (parentAsk) lines.push(parentAsk);
+    const parentBrief = p.brief?.trim();
+    if (parentBrief) lines.push(parentBrief);
+    for (const b of p.branches) lines.push(`- ${b.repo}: \`${b.branch}\``);
+
+    // Landing instruction: check if this sub-task is non-stacked.
+    const parentBranches = new Map(p.branches.map((b) => [b.repo, b.branch]));
+    const nonStacked = ctx.worktrees.filter(
+      (w) => w.baseRef && parentBranches.has(w.repo) && w.baseRef !== parentBranches.get(w.repo),
+    );
+    if (nonStacked.length > 0) {
+      const targets = nonStacked.map((w) => `\`${w.baseRef}\``).join(', ');
+      lines.push(
+        `Your branch lands into ${targets}, not into the parent's branch — open your PR against ${targets}.`,
+      );
+    } else {
+      lines.push(
+        "Your branch lands into the parent's branch, not into main — open your PR against " +
+          "the parent's branch, and expect it to stack on the parent's work.",
+      );
+    }
+    parts.push(`## Parent task\n${lines.join('\n')}`);
+  }
+
   return parts.join('\n\n');
 }
+
+

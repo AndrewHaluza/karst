@@ -1,3 +1,4 @@
+import type { TicketFormPrefill } from './panel.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
 import { listAttachments } from '../../store/attachments.js';
@@ -21,6 +22,7 @@ import {
 } from '../../agent/modelCatalog.js';
 import { withBuiltInApproaches } from '../../approaches/withBuiltInApproaches.js';
 import { buildBlockerLabel, list as listRelationViews, listRelations, listPendingWritebacks } from '../../store/ticketRelations.js';
+import { subtaskParentBranch, type PlannedBaseTicket } from '../../workflow/baseRef.js';
 
 /**
  * Serializable state for the ticket form (§ ticket form). One surface serves
@@ -61,10 +63,14 @@ export interface RepoRow {
  */
 export interface RepoBaseRow {
   repo: string;
-  /** Persisted override, or '' when the ticket has none (follows the manifest). */
+  /** Persisted override, or '' when the ticket has none (follows the effective default). */
   value: string;
-  /** The manifest's resolved default branch for this repo, for the placeholder. */
+  /** The effective default branch for this repo (parent branch for sub-tasks, manifest baseline for regular). */
   default: string;
+  /** Optional label describing the default choice, e.g. 'parent branch: <branch> (default)'. */
+  defaultLabel?: string;
+  /** Where the effective base comes from: 'override' when value is set, else 'parent' (for sub-tasks) or 'manifest'. */
+  source?: 'override' | 'parent' | 'manifest';
   /**
    * Local heads + `origin/*`, loaded lazily (empty until the row has been
    * selected at least once in this panel's life — see actions.ts `setRepos`).
@@ -287,6 +293,11 @@ export function buildTicketFormState(
    * fetched for every manifest repository up front.
    */
   branchCandidates: Record<string, string[]> = {},
+  /**
+   * Sub-task parent ticket id when known at create time (e.g. from an approved
+   * proposal prefill), so create mode resolves effective subtask defaults.
+   */
+  subtaskParentId?: number | null,
 ): TicketFormState {
   // The built-in overlay seam: the ticket form resolves packaged built-ins
   // ONLY through `withBuiltInApproaches` (design, Selection and Enablement).
@@ -334,16 +345,43 @@ export function buildTicketFormState(
     });
   };
 
-  const makeRepoBases = (baseRefs: Record<string, string>): RepoBaseRow[] =>
-    repoEntries.map(([name, def]) => ({
-      repo: name,
-      value: baseRefs[name] ?? '',
-      default: resolveBaselineBranch(manifest, def),
-      candidates: branchCandidates[def.repoPath] ?? [],
-    }));
+  const makeRepoBases = (
+    baseRefs: Record<string, string>,
+    subtaskTicket?: PlannedBaseTicket,
+  ): RepoBaseRow[] =>
+    repoEntries.map(([name, def]) => {
+      const manifestDefault = resolveBaselineBranch(manifest, def);
+      const parentBranch = subtaskTicket
+        ? subtaskParentBranch(store, subtaskTicket, manifest, name)
+        : null;
+      const isSubtask = parentBranch !== null;
+      const defaultBranch = isSubtask ? parentBranch : manifestDefault;
+      const value = baseRefs[name] ?? '';
+      const source: 'override' | 'parent' | 'manifest' =
+        value !== '' ? 'override' : isSubtask ? 'parent' : 'manifest';
+      const defaultLabel = isSubtask
+        ? `parent branch: ${parentBranch} (default)`
+        : undefined;
+
+      const rawCandidates = branchCandidates[def.repoPath] ?? [];
+      let candidates = [...rawCandidates];
+      if (isSubtask && !candidates.includes(manifestDefault)) {
+        candidates = [manifestDefault, ...candidates];
+      }
+
+      return {
+        repo: name,
+        value,
+        default: defaultBranch,
+        ...(defaultLabel ? { defaultLabel } : {}),
+        source,
+        candidates,
+      };
+    });
 
   if (ticketId === undefined) {
     const createDefaults = resolvePresetDefaults(manifest, 'implementation');
+    const createSubtaskTicket = subtaskParentId != null ? { subtaskParentId } : undefined;
     return {
       mode: 'create',
       key: '',
@@ -357,7 +395,7 @@ export function buildTicketFormState(
       ticketUrl: null,
       unclassified,
       repos: makeRepos(new Set(), new Map()),
-      repoBases: makeRepoBases({}),
+      repoBases: makeRepoBases({}, createSubtaskTicket),
       approaches,
       selectedApproach: defaultApproach(approaches),
       pickerTouched,
@@ -415,7 +453,7 @@ export function buildTicketFormState(
     ticketUrl: providerTicketUrl(provider, ticket.sourceRef),
     unclassified,
     repos: makeRepos(selectedSet, scores),
-    repoBases: makeRepoBases(ticket.baseRefs ?? {}),
+    repoBases: makeRepoBases(ticket.baseRefs ?? {}, ticket),
     approaches,
     selectedApproach: ticket.approach ?? defaultApproach(approaches),
     pickerTouched,
@@ -461,5 +499,32 @@ export function buildTicketFormState(
       return { id: r.id, kind: r.kind, ticketId: r.targetTicketId, label, writebackError: stored?.writebackError ?? null };
     }),
     failedWritebacks: listPendingWritebacks(store, ticketId).filter((r) => r.writebackState === 'failed').map((r) => r.id),
+  };
+}
+
+/** Overlay a proposal prefill on a built create-form state; picked bases stay overrides. */
+export function applyPrefill(
+  state: TicketFormState,
+  p: Pick<TicketFormPrefill, 'title' | 'description' | 'summary' | 'repos' | 'baseRefs'>,
+): TicketFormState {
+  const want = new Set(p.repos);
+  const baseRefs = p.baseRefs ?? {};
+  return {
+    ...state,
+    title: p.title,
+    description: p.description,
+    brief: p.summary || null,
+    repos: want.size ? state.repos.map((r) => ({ ...r, selected: want.has(r.service) })) : state.repos,
+    repoBases: state.repoBases.map((rb) => {
+      const override = baseRefs[rb.repo];
+      if (override !== undefined) {
+        return {
+          ...rb,
+          value: override,
+          source: override !== '' ? 'override' : rb.source,
+        };
+      }
+      return rb;
+    }),
   };
 }

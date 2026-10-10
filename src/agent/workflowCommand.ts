@@ -175,6 +175,8 @@ function renderCommandCore(contextCommand: string, guideCommand?: string): strin
     '',
     'Re-run this command whenever those facts may have moved. Do not work outside the worktree it names.',
     '',
+    'To change or reset the base branch for a repository on this ticket or a direct sub-task, use `karst base set <repo> <baseRef> [--rebase]` or `karst base reset <repo>`.',
+    '',
     `A session ending does not advance the ticket — you must fire the marker explicitly. Do NOT fire it while you are waiting for the user to answer a question: a stage whose agent is waiting on the user is not complete, and the ${MARKER_REFUSED}.`,
   ];
   if (guideCommand) {

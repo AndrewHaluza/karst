@@ -162,8 +162,7 @@ export function runContextCommand(
           hasBlockingSubtasks,
         );
   if (parsed.format === 'md') {
-    const base = renderTicketContext(ctx, undefined, { bounded: false });
-    return ending ? `${base}\n\n## How this stage ends\n${ending}` : base;
+    return renderTicketContext(ctx, undefined, { bounded: false, stageEnding: ending });
   }
   const json = withRefs(ctx);
   return JSON.stringify(ending ? { ...json, stageEnding: ending } : json, null, 2);

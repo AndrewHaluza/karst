@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { historySection } from '../../planning/preamble.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -190,6 +191,41 @@ describe('planning ops', () => {
   // Item 8: a planning session has no process-run row, so its instruction-layer
   // telemetry is logged at debug level only — size, digest and channel, never
   // the body.
+  it('writes the gathered history into the instructions and logs its size', async () => {
+    const debugs: string[] = [];
+    const history = [{ repo: 'api', base: 'main', commits: ['abc123 feat: landed'], archKeys: [{ file: 'cli.md', keys: ['CLI-13'] }] }];
+    const ops = createPlanningOps({ ...deps, planningHistory: async () => history, debug: (m) => void debugs.push(m) });
+    const s = (await ops.create('t'))!;
+    const body = readFileSync(created[0]!.opts.env!.KARST_INSTRUCTIONS!, 'utf8');
+    expect(body).toContain('  abc123 feat: landed');
+    expect(body).toContain('- cli.md: CLI-13');
+    const size = historySection(history).join('\n').length;
+    expect(size).toBeGreaterThan(0);
+    expect(debugs.find((m) => m.includes(`launch ${s.id}:`))).toContain(`history ${size}c)`);
+  });
+
+  it('launches without history when gathering rejects, and logs why', async () => {
+    const debugs: string[] = [];
+    const ops = createPlanningOps({
+      ...deps,
+      planningHistory: async () => { throw new Error('git gone'); },
+      debug: (m) => void debugs.push(m),
+    });
+    const s = await ops.create('t');
+    expect(s).toBeDefined();
+    expect(created).toHaveLength(1);
+    expect(readFileSync(created[0]!.opts.env!.KARST_INSTRUCTIONS!, 'utf8')).not.toContain('Recent history');
+    expect(debugs.some((m) => m.includes(`launch ${s!.id}: history omitted: git gone`))).toBe(true);
+    expect(debugs.find((m) => m.includes(`launch ${s!.id}: `) && m.includes('instructions'))).toContain('history 0c)');
+  });
+
+  it('logs history 0c when no gatherer is wired', async () => {
+    const debugs: string[] = [];
+    const ops = createPlanningOps({ ...deps, debug: (m) => void debugs.push(m) });
+    const s = (await ops.create('t'))!;
+    expect(debugs.find((m) => m.includes(`launch ${s.id}:`))).toContain('history 0c)');
+  });
+
   it('logs the instruction layer size, digest and channel at debug level, never the body', async () => {
     const debugs: string[] = [];
     const ops = createPlanningOps({ ...deps, debug: (m) => void debugs.push(m) });

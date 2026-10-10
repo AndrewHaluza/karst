@@ -48,7 +48,94 @@ export interface PreambleInput {
   title: string;
   manifest: PlanningManifest;
   notes?: PlanningNotes;
+  /** Host-gathered history snapshot, one entry per repoPath; absent = no section. */
+  history?: PlanningRepoHistory[];
 }
+
+/** A repo's recent base commits and its docs/arch keys (keys only — never block bodies). */
+export interface PlanningRepoHistory {
+  repo: string;
+  base: string;
+  commits: string[];
+  archKeys: { file: string; keys: string[] }[];
+}
+
+export const PLANNING_HISTORY_MAX_COMMITS = 12;
+/** The per-repo bound on the rendered history block. */
+export const PLANNING_HISTORY_MAX_CHARS = 1500;
+/** A file's smallest arch line: the name and how many keys it holds. */
+function countLine(file: string, keys: string[]): string {
+  return `- ${file} (${keys.length} keys)`;
+}
+
+/** One file's arch line showing its first `n` keys, then `+N` for the rest. */
+function keyLine(file: string, keys: string[], n: number): string {
+  if (n === 0) return countLine(file, keys);
+  return `- ${file}: ${keys.slice(0, n).join(', ')}${n < keys.length ? `, +${keys.length - n}` : ''}`;
+}
+
+/**
+ * The arch lines of one repo within `budget` chars. Every file starts as a count line, then the
+ * spare room is handed out one key at a time, round-robin, so no doc (e.g. prompt-metrics.md) is
+ * hidden and the total never exceeds the budget.
+ */
+function archKeyLines(files: PlanningRepoHistory['archKeys'], budget: number): string[] {
+  const shown = files.map(() => 0);
+  const render = (): string[] => files.map(({ file, keys }, i) => keyLine(file, keys, shown[i]!));
+  const total = (lines: string[]): number => lines.join('\n').length;
+  for (let grew = true; grew; ) {
+    grew = false;
+    files.forEach(({ keys }, i) => {
+      if (shown[i]! >= keys.length) return;
+      shown[i] = shown[i]! + 1;
+      if (total(render()) <= budget) grew = true;
+      else shown[i] = shown[i]! - 1;
+    });
+  }
+  return render();
+}
+
+/** The longest prefix of `lines` that fits `budget` chars once joined with newlines. */
+function fitLines(lines: string[], budget: number): string[] {
+  let used = 0;
+  const kept = lines.filter((line) => (used += line.length + 1) - 1 <= budget);
+  return lines.slice(0, kept.length);
+}
+
+/**
+ * One repo's block within PLANNING_HISTORY_MAX_CHARS. The doc list is reserved first (every file
+ * with at least its key count), the commits take what is left, and spare room goes to key names.
+ */
+function repoHistoryBlock(h: PlanningRepoHistory): string[] {
+  const files = h.archKeys.filter(({ keys }) => keys.length > 0);
+  const docsHeader = `Design docs of ${h.repo} (docs/arch keyed blocks; grep -n "@arch:KEY" docs/arch/*.md):`;
+  const minDocs = files.length > 0
+    ? [docsHeader, ...files.map(({ file, keys }) => countLine(file, keys))].join('\n').length + 1
+    : 0;
+  const commitHeader = `Recent history of ${h.repo} (base ${h.base}):`;
+  const commitLines = h.commits.slice(0, PLANNING_HISTORY_MAX_COMMITS).map((c) => `  ${c}`);
+  const fitted = fitLines([commitHeader, ...commitLines], PLANNING_HISTORY_MAX_CHARS - minDocs);
+  const head = fitted.length > 1 ? fitted : [];
+  const headLen = head.length > 0 ? head.join('\n').length + 1 : 0;
+  if (files.length === 0) return head;
+  const keys = archKeyLines(files, PLANNING_HISTORY_MAX_CHARS - headLen - docsHeader.length - 1);
+  return [...head, docsHeader, ...keys];
+}
+
+/** The history section: a leading blank line, then each non-empty repo block. */
+export function historySection(history: PlanningRepoHistory[] | undefined): string[] {
+  const blocks = (history ?? []).map(repoHistoryBlock).filter((b) => b.length > 0);
+  return blocks.length > 0 ? ['', ...blocks.flat()] : [];
+}
+
+/** The pre-proposal checklist: read the design rules and landed work first. */
+const PRE_PROPOSAL_CHECKLIST = [
+  'Before you propose or revise a draft:',
+  '1. Read the docs/arch blocks for the area you change (`grep -n "@arch:" <repo>/docs/arch/*.md`, then read the matching block).',
+  '2. Check landed and in-flight work on the paths you change: `git -C <repo> log --oneline -30 <base> -- <paths>` and the recent history above.',
+  '3. Run `draft list` and check open ticket worktrees (<repo>/.karst/worktrees) for the same files; if a draft already landed, say so instead of revising it.',
+  '4. Cite what you relied on (arch keys, commits) in the draft summary.',
+];
 
 function enabledRepos(manifest: PlanningManifest): [string, Manifest['repositories'][string]][] {
   return Object.entries(manifest.repositories).filter(([, def]) => def.enabled !== false);
@@ -79,7 +166,7 @@ function notesSection(notes: PlanningNotes | undefined, repoNames: string[]): st
 
 /** The standing instructions delivered through the core's own channel. */
 export function planningInstructions(input: PreambleInput): string {
-  const { title, manifest, notes } = input;
+  const { title, manifest, notes, history } = input;
   const draftN = `${PREFIX.draft}<n>`;
   const draft3 = formatId('draft', 3);
   const cli = envRef(KARST_CLI_ENV);
@@ -95,6 +182,9 @@ export function planningInstructions(input: PreambleInput): string {
     '',
     'The stack (repository: path, base branch):',
     ...repos,
+    ...historySection(history),
+    '',
+    ...PRE_PROPOSAL_CHECKLIST,
     '',
     'When the user agrees on the work, propose it as one or more draft tickets. Each proposal is',
     'ONE shell command that pipes one JSON object to karst on stdin, e.g.:',

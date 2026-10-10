@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { exitsAfterFlush, parseGlobalFlags, runCli } from './main.js';
+import { exitsAfterFlush, parseGlobalFlags, runCli, runCliAsync } from './main.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicket, getTicket, setAgentState } from '../store/tickets.js';
 import { insertAttachment } from '../store/attachments.js';
@@ -790,3 +790,42 @@ describe('runCli — pause and unpause', () => {
     ).toThrow(/refusing: session ticket 'PARENT-1' may only unpause itself and its direct sub-tasks/);
   });
 });
+
+describe('runCliAsync — base', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'karst-cli-base-')));
+    dbPath = join(dir, 'karst.db');
+    const seed = openStore(dbPath);
+    const parent = createTicket(seed, { key: 'PARENT-1', title: 'Parent' });
+    createTicket(seed, { key: 'CHILD-1', title: 'Child', subtaskParentId: parent.id });
+    createTicket(seed, { key: 'OTHER-1', title: 'Other' });
+    seed.close();
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('sets base branch pre-spin for direct sub-task', async () => {
+    const out = await runCliAsync(
+      ['base', 'set', 'api', 'develop', '--db', dbPath, '--ticket', 'CHILD-1'],
+      { KARST_TICKET: 'PARENT-1' },
+    );
+    expect(out).toContain('Base branch for api set to develop');
+
+    const check = openStore(dbPath);
+    expect(getTicket(check, 2).baseRefs?.api).toBe('develop');
+    check.close();
+  });
+
+  it('refuses to change base for an unrelated ticket', async () => {
+    await expect(
+      runCliAsync(
+        ['base', 'set', 'api', 'develop', '--db', dbPath, '--ticket', 'OTHER-1'],
+        { KARST_TICKET: 'PARENT-1' },
+      ),
+    ).rejects.toThrow(/Permission denied.*allowed scope: own ticket or direct sub-tasks/);
+  });
+});
+
