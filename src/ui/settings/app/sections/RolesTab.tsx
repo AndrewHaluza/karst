@@ -154,7 +154,7 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
               <div role="columnheader">Agent profile</div>
               <div role="columnheader">Core · Model · Effort</div>
               <div role="columnheader">Source</div>
-              <div role="columnheader">Pin</div>
+              <div role="columnheader">Actions</div>
             </>
           ) : (
             <>

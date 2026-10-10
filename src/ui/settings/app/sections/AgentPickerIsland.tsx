@@ -37,7 +37,7 @@ export function AgentPickerIsland({ mount, ...options }: AgentPickerIslandProps)
   // Rebuild when any INPUT changes. Callers memoise `cores` / `catalog` / `recent`,
   // so a parent re-render on unrelated state does not re-run this — which is what
   // keeps an open menu and a caret alive across an ordinary `state` push.
-  const { cores, catalog, recent, inherit, inheritCore, showEffort, disabled } = options;
+  const { cores, catalog, recent, inherit, inheritCore, showEffort, disabled, compact } = options;
   const { core, model, effort } = options.value;
 
   useEffect(() => {
@@ -48,7 +48,7 @@ export function AgentPickerIsland({ mount, ...options }: AgentPickerIslandProps)
       ...latest.current,
       onChange: (value) => latest.current.onChange(value),
     });
-  }, [mount, cores, catalog, recent, inherit, inheritCore, showEffort, core, model, effort, disabled]);
+  }, [mount, cores, catalog, recent, inherit, inheritCore, showEffort, core, model, effort, disabled, compact]);
 
   return <div ref={rootRef} className="agent-picker-island" />;
 }

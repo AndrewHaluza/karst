@@ -54,6 +54,13 @@ describe('agentPickerJs', () => {
     expect(js).toContain('function apModelOptionsHtml(');
   });
 
+  it('has a compact mode: screen-reader-only captions, provider-only core trigger', () => {
+    expect(js).toContain("var compact = !!o.compact;");
+    expect(js).toContain("' ap-compact'");
+    expect(js).toContain("apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || ''))");
+    expect(agentPickerCss()).toContain('.ap-compact .ap-label{position:absolute');
+  });
+
   it('clears the prior provider model and effort when selecting a different core', () => {
     const { apCoreSelection } = load() as {
       apCoreSelection?: (

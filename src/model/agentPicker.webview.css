@@ -1,6 +1,11 @@
 .ap{display:grid;gap:var(--k-space-5)}
 .ap-field{display:flex;flex-direction:column;gap:var(--k-space-2);min-width:0}
 .ap-label{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+/* compact (table rows): one aligned run of Core | Model | Effort, captions screen-reader-only. */
+.ap-compact{grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;gap:var(--k-space-3)}
+.ap-compact .ap-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
+  clip-path:inset(50%);white-space:nowrap}
+.ap-compact .ap-trigger,.ap-compact .ap-effort{min-height:var(--k-control-h-lg);box-sizing:border-box}
 .ap-shell{position:relative;min-width:0}
 .ap-trigger{
   width:100%;min-height:var(--k-control-h-lg);

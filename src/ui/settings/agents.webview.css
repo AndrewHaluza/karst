@@ -143,7 +143,8 @@
 }
 
 #section-agents .agents-cell-actions { display: flex; gap: var(--k-space-1); }
-#section-agents .agents-profile-cell { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+#section-agents .agents-profile-cell { display: flex; align-items: center; gap: var(--k-space-1); width: 100%; }
+#section-agents .agents-profile-cell select { min-height: var(--k-control-h-lg); min-width: 0; flex: 1 1 auto; }
 #section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); flex-wrap: wrap; }
 
 #section-agents .agents-default {
@@ -206,6 +207,8 @@
 #section-agents .agents-text-foot { display: flex; align-items: center; gap: var(--k-space-2); margin-top: var(--k-space-2); }
 #section-agents .agents-back { display: none; }
 
+#section-agents .k-iconbtn .icon-island { display: inline-flex; line-height: 0; }
+
 /* Targets and truncation (UI-R41, UI-R44): controls reach the hit minimum and
    text wraps instead of clipping. */
 #section-agents .agents-item,
@@ -221,13 +224,12 @@
 #section-agents .k-chip { max-width: 100%; white-space: normal; }
 #section-agents .agents-muted { min-width: 0; overflow-wrap: anywhere; }
 
-/* The picker's Core / Model / Effort sit side by side in a wide row (UI-R39: prototype order). */
-@media (min-width: 1000px) {
-  #section-agents .agents-cell-picker .ap { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--k-space-2); width: 100%; }
-}
+/* The picker (compact) is one aligned Core | Model | Effort run per row (UI-R39: prototype order). */
+#section-agents .agents-cell-picker > .agent-picker-island { flex: 1 1 100%; min-width: 0; }
 
 /* Tiers: wide >= 1000, mid 700-999, narrow <= 699 (src/ui/layout/layoutBreakpoints.ts). */
 @media (max-width: 699px) {
+  #section-agents .ap-compact { grid-template-columns: minmax(0, 1fr); }
   #section-agents .agents-profiles { grid-template-columns: minmax(0, 1fr); }
   #section-agents .agents-profiles.has-selection .agents-list { display: none; }
   #section-agents .agents-profiles:not(.has-selection) .agents-detail { display: none; }

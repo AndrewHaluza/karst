@@ -11,7 +11,9 @@ import { AgentPickerIsland } from './AgentPickerIsland.js';
 import { Button } from '../primitives/Button.js';
 import { Chip } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
+import { IconButton } from '../primitives/IconButton.js';
 import { Switch } from '../primitives/Switch.js';
+import { TablerIcon } from '../primitives/TablerIcon.js';
 import { NO_INHERIT, usePickerInputs } from './usePickerInputs.js';
 import { pinKeyOf, type EffectiveRole, type RoleValue } from './rolesModel.js';
 
@@ -70,9 +72,12 @@ function ProfileCell({
         error={view?.invalidField === 'agent' ? view.stateMessage : undefined}
         control={{ kind: 'select', name: `role-${capability}-profile`, value: profile, options, onChange: onProfile }}
       />
-      <Button variant="text" size="sm" onClick={() => onOpenProfile(profile === '' ? null : profile)}>
-        {profile === '' ? (promptBearing ? 'built-in prompt ›' : 'built-in ›') : `${profile} ›`}
-      </Button>
+      <IconButton
+        label={profile === '' ? (promptBearing ? 'Open built-in prompt' : 'Open built-in profile') : `Open profile ${profile}`}
+        onClick={() => onOpenProfile(profile === '' ? null : profile)}
+      >
+        <TablerIcon name="chevron-right" />
+      </IconButton>
     </div>
   );
 }
@@ -117,6 +122,7 @@ export function RoleRow(props: RoleRowProps) {
           value={{ core: effective.core, model: effective.model, effort: effective.effort }}
           labels={{ core: 'Core', model: 'Model', effort: 'Effort' }}
           showEffort
+          compact
           onChange={props.onChange}
         />
       </div>
@@ -128,18 +134,18 @@ export function RoleRow(props: RoleRowProps) {
       <div className="agents-cell agents-cell-actions" role="cell">
         {pinnable ? (
           effective.source === 'pin' ? (
-            <Button variant="ghost" size="sm" onClick={props.onUnpin}>
-              Unpin
-            </Button>
+            <IconButton label="Unpin" onClick={props.onUnpin}>
+              <TablerIcon name="pinned-off" />
+            </IconButton>
           ) : (
-            <Button variant="ghost" size="sm" disabled={effective.core === ''} onClick={props.onPin}>
-              Pin
-            </Button>
+            <IconButton label="Pin" disabled={effective.core === ''} onClick={props.onPin}>
+              <TablerIcon name="pin" />
+            </IconButton>
           )
         ) : null}
-        <Button variant="ghost" size="sm" disabled={effective.source === 'default'} onClick={props.onClear}>
-          Clear
-        </Button>
+        <IconButton label="Clear" disabled={effective.source === 'default'} onClick={props.onClear}>
+          <TablerIcon name="eraser" />
+        </IconButton>
       </div>
     </div>
   );
