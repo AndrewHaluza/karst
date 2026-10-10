@@ -33,6 +33,8 @@ export interface LifecycleOpsDeps {
   readonly git: GitRunner;
   readonly gh?: GhRunner;
   readonly manifest: () => Manifest | undefined;
+  /** Mirror a new sub-task onto the ticketing provider (`ticketing.syncSubtasks`); never throws. */
+  readonly syncSubtask?: (childId: number) => Promise<void>;
 }
 
 export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): Promise<void> {
@@ -112,7 +114,7 @@ export async function createSubtaskOp(
     // Not queued yet: the description is written in the edit form opened
     // below, and an agent must never launch before its ask exists. Saving the
     // form is what queues it (`setAutostartPending`).
-    child = createSubtask(deps.store, parentId, { ...input, start: false }, { projectId: deps.projectId() },
+    child = createSubtask(deps.store, parentId, { ...input, start: false, relationSource: 'user' }, { projectId: deps.projectId() },
       (message) => deps.log.debug(message));
   } catch (err) {
     // Every Subtask*Error message is user-ready (it names the rule and the
@@ -122,6 +124,7 @@ export async function createSubtaskOp(
     await deps.notify.error(message);
     return;
   }
+  await deps.syncSubtask?.(child.id);
   deps.refresh();
   await deps.reloadManifest();
   deps.openEdit(child.id);

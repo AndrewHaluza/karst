@@ -24,7 +24,7 @@
  * and quietly un-configure a working board.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Manifest, TicketingConfig } from '../../../../manifest/types.js';
+import type { Manifest, SyncSubtasksMode, TicketingConfig } from '../../../../manifest/types.js';
 import {
   TICKET_PROVIDER_IDS,
   providerLabel,
@@ -142,6 +142,7 @@ export function TicketingSection() {
         cleared.advanceOnStart = false;
         delete cleared.startStatus;
         delete cleared.searchEnabled;
+        delete cleared.syncSubtasks;
         return { ...draft, ticketing: cleared };
       });
       return;
@@ -275,6 +276,30 @@ export function TicketingSection() {
               />
             </div>
           </div>
+        </div>
+      ) : null}
+
+      {providerIsClickup ? (
+        <div className="section-block" id="syncSubtasksCard">
+          <div className="section-title">Sub-tasks</div>
+          <div className="section-desc">
+            Whether Karst sub-tasks also appear on the board.
+          </div>
+          <Field
+            label="Sync sub-tasks to the provider"
+            help="Off: sub-tasks stay in Karst. Link: a sub-task becomes a child task of its parent, and a blocking sub-task blocks the parent there. Full: Link, plus the sub-task's own status updates."
+            control={{
+              kind: 'select',
+              name: 'syncSubtasks',
+              value: cfg.syncSubtasks ?? 'off',
+              options: [
+                { value: 'off', label: 'Off' },
+                { value: 'link', label: 'Link' },
+                { value: 'full', label: 'Full' },
+              ],
+              onChange: (value) => setCfg({ syncSubtasks: value as SyncSubtasksMode }),
+            }}
+          />
         </div>
       ) : null}
 

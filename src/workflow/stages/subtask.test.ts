@@ -9,6 +9,7 @@ import {
   updateTicketFields,
   type ProjectScope,
 } from '../../store/tickets.js';
+import { listRelations } from '../../store/ticketRelations.js';
 import { getEnvOverrides, setServiceEnvOverrides } from '../../store/ticketEnvOverrides.js';
 import {
   createSubtask,
@@ -277,5 +278,26 @@ describe('createSubtask', () => {
     expect(lines).toContainEqual(
       expect.stringMatching(/\[driver\] sub-task under T\d+: parent in 'ship' — refusing/),
     );
+  });
+
+  describe('ticket_relations rows', () => {
+    it('records a parent row child -> parent, and no blocked-by when not blocking', () => {
+      const parentId = parentTicket();
+      const child = createSubtask(store, parentId, { title: 'c' });
+      const rows = listRelations(store, child.id);
+      expect(rows.map((r) => [r.kind, r.targetTicketId, r.source])).toEqual([
+        ['parent', parentId, 'agent'],
+      ]);
+      expect(listRelations(store, parentId)).toEqual([]);
+    });
+
+    it('records parent blocked-by child when blocking, with the given source', () => {
+      const parentId = parentTicket();
+      const child = createSubtask(store, parentId, { title: 'c', blocking: true, relationSource: 'user' });
+      expect(listRelations(store, child.id).map((r) => [r.kind, r.source])).toEqual([['parent', 'user']]);
+      expect(
+        listRelations(store, parentId).map((r) => [r.kind, r.targetTicketId, r.source, r.writebackState]),
+      ).toEqual([['blocked-by', child.id, 'user', null]]);
+    });
   });
 });

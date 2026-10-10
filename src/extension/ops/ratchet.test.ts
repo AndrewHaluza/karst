@@ -16,7 +16,9 @@ import { join } from 'node:path';
 // Raised by 2 for the draft-constraints bindings (`archDocs` on the proposal ops,
 // `repoPaths`/`commitExists`/`onWarnings` on the outbox); the checks live in
 // `ops/planningConstraintChecks.ts`.
-const MAX_EXTENSION_LINES = 8431;
+// Raised by 10 for the sub-task provider sync binding (`syncSubtask: makeSubtaskSync({...})`
+// in the lifecycle deps + 2 imports; logic is in `ops/subtaskSyncOps.ts`).
+const MAX_EXTENSION_LINES = 8441;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

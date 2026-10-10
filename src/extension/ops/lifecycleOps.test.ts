@@ -256,7 +256,7 @@ describe('createSubtaskOp', () => {
     expect(createSubtask).toHaveBeenCalledWith(
       d.store,
       5,
-      { title: 'piece', description: 'the ask', blocking: true, repos: ['web'], start: false },
+      { title: 'piece', description: 'the ask', blocking: true, repos: ['web'], start: false, relationSource: 'user' },
       { projectId: 1 },
       expect.any(Function),
     );
@@ -267,6 +267,21 @@ describe('createSubtaskOp', () => {
     expect(d.reloadManifest).toHaveBeenCalled();
     expect(d.openEdit).toHaveBeenCalledWith(3);
     expect(d.notify.info).toHaveBeenCalledWith('Created sub-task S-1.');
+  });
+
+  it('syncs the new child to the provider before refreshing, and not when creation fails', async () => {
+    const order: string[] = [];
+    const d = { ...makeDeps(), syncSubtask: vi.fn(async () => void order.push('sync')) };
+    vi.mocked(d.refresh).mockImplementation(() => void order.push('refresh'));
+    await createSubtaskOp(d, 5, { title: 'x' });
+    expect(d.syncSubtask).toHaveBeenCalledWith(3);
+    expect(order).toEqual(['sync', 'refresh']);
+
+    vi.mocked(createSubtask).mockImplementationOnce(() => {
+      throw new Error('nope');
+    });
+    await createSubtaskOp(d, 5, { title: 'y' });
+    expect(d.syncSubtask).toHaveBeenCalledTimes(1);
   });
 
   it('passes an Error message through and does not continue', async () => {

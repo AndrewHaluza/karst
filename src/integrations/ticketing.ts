@@ -169,6 +169,12 @@ export interface TicketSearchOptions {
 export interface CreateTicketInput {
   title: string;
   description?: string;
+  /**
+   * Provider ref of the task to create this one under (a sub-task link). The
+   * parent link can only be set at creation, so this is the one place it is
+   * written. Omitted by every caller that creates a top-level task.
+   */
+  parentRef?: string;
 }
 
 /** A created task, normalized across providers. `ref` is what `fetchTicket`/`updateStatus` take. */
