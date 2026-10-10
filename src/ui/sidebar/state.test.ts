@@ -578,6 +578,19 @@ describe('buildSidebarState — planning sessions', () => {
     ]);
   });
 
+  it('carries host warnings on a draft card, and omits the key when there are none', () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+    const body = { description: 'd', summary: 's', repos: [] };
+    const warned = insertProposal(store, s.id, { title: 'Warned', ...body }, 'u', ['unknown commit abc1234']);
+    const clean = insertProposal(store, s.id, { title: 'Clean', ...body });
+    const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
+    expect(state.planning[0]!.proposals).toEqual([
+      { id: warned, title: 'Warned', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown commit abc1234'] },
+      { id: clean, title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] },
+    ]);
+  });
+
   it('keeps accepted proposals under their session with their ticket id, after the pending ones', () => {
     const projectId = upsertProject(store, { slug: 'p' }).id;
     const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });

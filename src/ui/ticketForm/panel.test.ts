@@ -711,4 +711,54 @@ describe('TicketFormManager — create prefill (planning proposal review)', () =
     seen[0]!.bindTicket(ticket.id);
     expect(getTicket(store, ticket.id)!.brief).toBe('# Provider\n\nfetched context');
   });
+
+  it('appends the draft constraints to the brief on bind, once, without warnings', () => {
+    const ticket = createTicket(store, { key: 'P-4', title: 'draft' });
+    const { host } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({
+      title: 'T', description: '', summary: 'Plan S', repos: [], onCreated: () => {},
+      constraints: ['@arch:RESIDENT', '#88'], warnings: ['unknown commit abc1234'],
+    });
+    seen[0]!.bindTicket(ticket.id);
+    seen[0]!.bindTicket(ticket.id);
+    const brief = getTicket(store, ticket.id)!.brief;
+    expect(brief).toBe('Plan S\n\n## Design constraints\n- @arch:RESIDENT\n- #88');
+    expect(brief).not.toContain('abc1234');
+  });
+
+  it('seeds a constraints-only brief when the summary is blank', () => {
+    const ticket = createTicket(store, { key: 'P-5', title: 'draft' });
+    const { host } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({ title: 'T', description: '', summary: '', repos: [], onCreated: () => {}, constraints: ['#1'] });
+    seen[0]!.bindTicket(ticket.id);
+    expect(getTicket(store, ticket.id)!.brief).toBe('## Design constraints\n- #1');
+  });
+
+  it('pushes the read-only constraints block (with doc names and warnings), before and after bind', () => {
+    const ticket = createTicket(store, { key: 'P-6', title: 'draft' });
+    const { host, panels } = fakeHost();
+    const { factory, seen } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({
+      title: 'T', description: '', summary: '', repos: [], onCreated: () => {},
+      constraints: ['@arch:RESIDENT', '#88'], constraintDocs: { '@arch:RESIDENT': 'prompt-metrics.md' }, warnings: ['w1'],
+    });
+    const expected = { entries: [{ text: '@arch:RESIDENT', doc: 'prompt-metrics.md' }, { text: '#88' }], warnings: ['w1'] };
+    expect((panels[0]!.posted[0] as { state: TicketFormState }).state.designConstraints).toEqual(expected);
+    seen[0]!.bindTicket(ticket.id);
+    seen[0]!.pushState();
+    expect((panels[0]!.posted.at(-1) as { state: TicketFormState }).state.designConstraints).toEqual(expected);
+  });
+
+  it('pushes no constraints block for a draft that cites nothing', () => {
+    const { host, panels } = fakeHost();
+    const { factory } = recordingFactory();
+    const mgr = new TicketFormManager(store, () => MANIFEST, host, factory);
+    mgr.openCreate({ title: 'T', description: '', summary: 's', repos: [], onCreated: () => {} });
+    expect((panels[0]!.posted[0] as { state: TicketFormState }).state).not.toHaveProperty('designConstraints');
+  });
 });

@@ -128,6 +128,8 @@ export interface PlanningProposalRow {
    * A pending draft's card renders these as a warning; absent/empty when none.
    */
   droppedDepends?: number[];
+  /** Host check warnings on the draft's `constraints` (unknown key/commit, no rule); absent when none. */
+  warnings?: string[];
 }
 
 export interface PlanningRow {
@@ -394,6 +396,7 @@ function planningRows(
         ticketId: p.ticketId,
         dependsOn: p.payload.dependsOn ?? [],
         ...(p.droppedDepends.length > 0 ? { droppedDepends: p.droppedDepends } : {}),
+        ...(p.warnings.length > 0 ? { warnings: p.warnings } : {}),
       })),
     }));
 }

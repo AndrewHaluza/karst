@@ -133,7 +133,7 @@ const PRE_PROPOSAL_CHECKLIST = [
   '1. Read the docs/arch blocks for the area you change (`grep -n "@arch:" <repo>/docs/arch/*.md`, then read the matching block).',
   '2. Check landed and in-flight work on the paths you change: `git -C <repo> log --oneline -30 <base> -- <paths>` and the recent history above.',
   '3. Run `draft list` and check open ticket worktrees (<repo>/.karst/worktrees) for the same files; if a draft already landed, say so instead of revising it.',
-  '4. Cite what you relied on (arch keys, commits) in the draft summary.',
+  '4. Cite what you relied on in the draft\'s "constraints" (arch keys, commits, #N).',
 ];
 
 function enabledRepos(manifest: PlanningManifest): [string, Manifest['repositories'][string]][] {
@@ -185,12 +185,15 @@ export function planningInstructions(input: PreambleInput): string {
     '',
     'When the user agrees on the work, propose it as one or more draft tickets. Each proposal is',
     'ONE shell command that pipes one JSON object to karst on stdin, e.g.:',
-    `  printf '%s' '{"title":"…","description":"…","summary":"…","repos":["…"]}' | node ${cli} draft propose`,
+    `  printf '%s' '{"title":"…","description":"…","summary":"…","repos":["…"],"constraints":["@arch:…","<hash>","#N"]}' | node ${cli} draft propose`,
     `or, for long text, a quoted heredoc: node ${cli} draft propose <<'EOF' … EOF`,
     `"repos" lists repository names from the stack above (${enabled.map(([n]) => n).join(', ')}); [] when unsure.`,
     'A proposal is not a ticket: the user reviews the full content and confirms or discards it.',
     'The summary holds the decisions reached and the options rejected, with reasons;',
     'it becomes the ticket brief the implementing agent reads. Propose one draft per piece of work.',
+    'List in "constraints" the design rules (@arch keys) and commits/tickets (hash, #N) your plan',
+    'relies on — what you found in the pre-proposal check. The host flags unknown keys/commits and',
+    'a draft that touches prompt-sensitive code without citing a rule; max 20 entries of 200 chars.',
     'When one draft waits on another, set "dependsOn" to the host ids already assigned to the',
     'drafts it needs (the #N each propose prints and `draft list` shows) — do NOT describe the',
     'ordering in prose. Propose the prerequisite first, read its #N, then list it in the dependent',

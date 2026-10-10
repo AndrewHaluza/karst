@@ -314,6 +314,7 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
         repos: csvArray,
         id: { type: 'integer', minimum: 1 },
         dependsOn: proposalIdArray,
+        constraints: strArray,
       },
       ['title', 'description', 'summary', 'repos'],
     ),

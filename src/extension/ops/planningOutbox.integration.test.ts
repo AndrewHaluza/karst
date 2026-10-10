@@ -542,4 +542,86 @@ describe('planning outbox', () => {
     expect(getProposal(store, a)!.payload.dependsOn ?? []).toEqual([]);
     expect(readdirSync(outbox)).toEqual([]);
   });
+
+  describe('constraint warnings', () => {
+    let repo: string;
+    beforeEach(() => {
+      repo = join(root, 'repo');
+      mkdirSync(join(repo, 'docs', 'arch'), { recursive: true });
+      writeFileSync(join(repo, 'docs', 'arch', 'prompt-metrics.md'), '## [@arch:RESIDENT] R\nEND_DOC_BLOCK: [@arch:RESIDENT]\n');
+    });
+    const withRepo = (over: Partial<PlanningOutboxDeps> = {}) => make({ repoPaths: () => [repo], ...over });
+    const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
+    it('stores constraints and no warnings for a known key', () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['@arch:RESIDENT', '#3'] });
+      withRepo().scan();
+      const p = pending()[0]!;
+      expect(p.payload.constraints).toEqual(['@arch:RESIDENT', '#3']);
+      expect(p.warnings).toEqual([]);
+    });
+
+    it('warns on an unknown @arch key but still stores the draft', () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['@arch:NOPE'] });
+      withRepo().scan();
+      expect(pending()[0]!.warnings).toEqual(['unknown design key @arch:NOPE']);
+    });
+
+    it('warns for a sensitive path without a rule, not with one', () => {
+      put(`${UUID(1)}.json`, { ...good, description: 'change src/agent/seed.ts' });
+      put(`${UUID(2)}.json`, { ...good, description: 'change src/agent/seed.ts', constraints: ['@arch:RESIDENT'] });
+      withRepo().scan();
+      const [a, b] = pending();
+      expect(a!.warnings).toEqual(['touches prompt-sensitive code without citing a design rule']);
+      expect(b!.warnings).toEqual([]);
+    });
+
+    it('adds an unknown-commit warning once the async probe answers', async () => {
+      const onWarnings = vi.fn();
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      withRepo({ commitExists: async () => false, onWarnings }).scan();
+      expect(pending()[0]!.warnings).toEqual([]);
+      await flush();
+      expect(pending()[0]!.warnings).toEqual(['unknown commit abc1234']);
+      expect(onWarnings).toHaveBeenCalledTimes(1);
+    });
+
+    it('tolerates a failing commit probe', async () => {
+      const debug = vi.fn();
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      withRepo({ commitExists: async () => { throw new Error('no git'); }, debug }).scan();
+      await flush();
+      expect(pending()[0]!.warnings).toEqual([]);
+      expect(debug.mock.calls.some(([l]) => String(l).includes('abc1234'))).toBe(true);
+    });
+
+    it('drops a late commit warning when the draft was revised meanwhile', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      put(`${UUID(1)}.json`, { ...good, constraints: ['abc1234'] });
+      withRepo({ commitExists: async () => { await gate; return false; } }).scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, constraints: ['#1'] });
+      withRepo().scan();
+      release();
+      await flush();
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+    });
+
+    it('revise recomputes warnings', () => {
+      put(`${UUID(1)}.json`, { ...good, constraints: ['@arch:NOPE'] });
+      withRepo().scan();
+      const id = pending()[0]!.id;
+      put(`${UUID(2)}.json`, { ...good, id, constraints: ['@arch:RESIDENT'] });
+      withRepo().scan();
+      expect(getProposal(store, id)!.warnings).toEqual([]);
+    });
+
+    it('rejects agent-supplied hostWarnings', () => {
+      put(`${UUID(1)}.json`, { ...good, hostWarnings: [] });
+      withRepo().scan();
+      expect(pending()).toEqual([]);
+      expect(warns.join()).toMatch(/hostWarnings/);
+    });
+  });
 });

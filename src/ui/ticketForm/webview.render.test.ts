@@ -139,6 +139,24 @@ describe('ticket form — edit header, callout, empty states', () => {
     expect(v.query('#eyebrow')!.classList.contains('hidden')).toBe(true);
   });
 
+  it('shows the design constraints card with chips, doc names and escaped warnings', () => {
+    const v = open(baseState({ designConstraints: {
+      entries: [{ text: '@arch:RESIDENT', doc: 'prompt-metrics.md' }, { text: '<b>x</b>' }],
+      warnings: ['unknown commit <i>abc</i>'],
+    } }));
+    expect(v.query<HTMLElement>('#designConstraintsCard')!.hidden).toBe(false);
+    const chips = [...v.document.querySelectorAll('#designConstraintsList .chip')];
+    expect(chips.map((c) => c.textContent)).toEqual(['@arch:RESIDENT prompt-metrics.md', '<b>x</b>']);
+    expect(v.query('#designConstraintsList b')).toBeNull();
+    expect(v.query('#designConstraintsWarnings .callout')!.textContent).toBe('unknown commit <i>abc</i>');
+    expect(v.query('#designConstraintsWarnings i')).toBeNull();
+  });
+
+  it('hides the design constraints card when the state has none', () => {
+    const v = open(baseState());
+    expect(v.query<HTMLElement>('#designConstraintsCard')!.hidden).toBe(true);
+  });
+
   it('classify gate renders as a compact callout', () => {
     const v = open(baseState({ unclassified: ['api', 'web'], repos: [] }));
     const gate = v.query<HTMLElement>('#gateCard')!;
