@@ -4624,7 +4624,10 @@
   // HOST-DERIVED (UI-R31): decision state, image URIs and entry indices all come
   // from the snapshot, and every decision message names only the block id and
   // those indices. Approving lives HERE, never in the artifact (@arch:SHELF).
-  function baselineReviewHtml(rows) {
+  function baselineReviewHtml(entries) {
+    // `index` is spliced into attributes and ids below unescaped; force it to an
+    // integer here so nothing but digits can ever reach the markup.
+    const rows = entries.map((r) => ({ ...r, index: Number(r.index) | 0 }));
     const open = rows.filter((r) => r.decision !== 'approved');
     const head = `<div class="blhead"><span>${open.length} of ${rows.length} changed baseline${rows.length === 1 ? '' : 's'} need${open.length === 1 ? 's' : ''} your approval</span>`
       + (open.length > 0
