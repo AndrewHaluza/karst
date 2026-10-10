@@ -130,11 +130,15 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
   const marker = ' stage impl pass ';
   if (!stageCommand.includes(marker)) return base;
   const notesCommand = `${stageCommand.replace(marker, ' notes post ')} ${ticketArg}`;
+  const artifactCommand = `${stageCommand.replace(marker, ' artifact add <path> --kind <kind> ')} ${ticketArg}`;
   return (
     base +
     ' If you learned something another task should know, post ONE short note for the ' +
     `project bulletin first: \`${notesCommand} --title <short title> --body <learnings>\`. ` +
-    'It is optional.'
+    'It is optional.' +
+    ' To keep a file outside the approach output folders (e.g. a dev script) in this ' +
+    `ticket's artifacts, run \`${artifactCommand}\` (kind: plan, research, spec, review, ` +
+    'meta, script or other; the path must be inside this ticket\'s worktree).'
   );
 }
 

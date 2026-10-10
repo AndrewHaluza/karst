@@ -94,6 +94,8 @@ export interface InsideViewsInput {
   mergeChecks: ShipProcessesInput['mergeChecks'];
   shipFindings: ShipProcessesInput['findings'];
   findingsBlockingSeverity: Severity | 'none';
+  reviewBlockingSeverity?: Severity | 'none';
+  testerBlockingSeverity?: Severity | 'none';
   stepper: readonly StepperCell[];
   recordedTotal: NonNullable<DoneReceiptInput['tokens']>;
   roleTokens: DoneReceiptInput['roles'];
@@ -152,6 +154,8 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
     mergeChecks,
     shipFindings,
     findingsBlockingSeverity,
+    reviewBlockingSeverity,
+    testerBlockingSeverity,
     stepper,
     recordedTotal,
     roleTokens,
@@ -220,6 +224,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         selectedAttempt: uatSwitch.selectedKey,
         currentAttempt: uatCurrent,
         findingsRepo: findingsRepoSelection?.uat ?? null,
+        testerBlockingSeverity,
       }),
       now,
       consoleFor('uat', cellOf),
@@ -245,6 +250,7 @@ export function buildInsideViews(input: InsideViewsInput): Record<InsideStageKey
         selectedAttempt: reviewSwitch.selectedKey,
         currentAttempt: reviewCurrent,
         findingsRepo: findingsRepoSelection?.review ?? null,
+        reviewBlockingSeverity,
       }),
       now,
       consoleFor('review', cellOf),

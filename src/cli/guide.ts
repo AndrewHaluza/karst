@@ -221,6 +221,11 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
  - \`phase <name>\` — append-only evidence that you REPORTED entering a phase
    of your declared workflow (e.g. \`research\`, \`plan\`, \`implement\`). It
    records an event; it never moves the ticket.
+ - \`artifact add <path> --kind <kind>\` — keep a file that lives outside the
+   approach's output folders (e.g. a dev script) in this ticket's artifacts.
+   \`<kind>\` is one of plan, research, spec, review, meta, script, other. The
+   path must be inside one of this ticket's worktrees; it takes no other
+   arguments and never moves the ticket.
  - \`graph submit\` — internal: submits the fixed planner artifact
    (\`graph.json\`) for the graph run named by the host-owned environment. It
    takes no arguments, reads no ticket key, and is invoked ON YOUR BEHALF by

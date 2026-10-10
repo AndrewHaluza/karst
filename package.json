@@ -247,6 +247,11 @@
         "icon": "$(discard)"
       },
       {
+        "command": "karst.scmAddArtifact",
+        "title": "Karst: Add to artifacts",
+        "icon": "$(archive)"
+      },
+      {
         "command": "karst.scmUnstage",
         "title": "Karst: Unstage Changes",
         "icon": "$(remove)"
@@ -282,6 +287,10 @@
         },
         {
           "command": "karst.scmUnstage",
+          "when": "false"
+        },
+        {
+          "command": "karst.scmAddArtifact",
           "when": "false"
         },
         {
@@ -325,6 +334,11 @@
           "command": "karst.scmOpenFile",
           "when": "view == karst.diffs && viewItem =~ /^karst\\.diffFile\\./",
           "group": "navigation@1"
+        },
+        {
+          "command": "karst.scmAddArtifact",
+          "when": "view == karst.diffs && viewItem =~ /^karst\\.diffFile\\./",
+          "group": "artifacts@1"
         },
         {
           "command": "karst.scmUnstage",

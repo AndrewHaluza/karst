@@ -24,6 +24,7 @@ import {
   artifactRootDir,
   assertStagingAbsent,
   graphRunDir,
+  snapshotBytes,
   snapshotFile,
   workspaceRootDir,
   type SnapshotSpec,
@@ -199,5 +200,38 @@ describe('locations (Decision 15) and worktree cleanliness (E4)', () => {
       encoding: 'utf8',
     });
     expect(status.trim()).toBe('');
+  });
+});
+
+describe('snapshotBytes (async twin of the one-descriptor protocol)', () => {
+  it('returns the bytes of a regular file', async () => {
+    const { dir, makeSpec } = harness();
+    const file = join(dir, 'a.md');
+    writeFileSync(file, 'hello');
+    const result = await snapshotBytes(makeSpec(file));
+    expect(result.ok && result.bytes.toString()).toBe('hello');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('rejects symlink, hardlink, FIFO, oversize, missing and media mismatch', async () => {
+    const { dir, makeSpec } = harness();
+    const real = join(dir, 'real.md');
+    writeFileSync(real, 'x');
+    symlinkSync(real, join(dir, 'sym.md'));
+    linkSync(real, join(dir, 'hard.md'));
+    execFileSync('mkfifo', [join(dir, 'pipe.md')]);
+    writeFileSync(join(dir, 'big.md'), 'y'.repeat(50));
+    writeFileSync(join(dir, 'bin.md'), Buffer.from([65, 0, 66]));
+    const code = async (name: string, o?: Partial<SnapshotSpec>) => {
+      const r = await snapshotBytes(makeSpec(join(dir, name), o));
+      return r.ok ? 'ok' : r.code;
+    };
+    expect(await code('sym.md')).toBe('not-regular');
+    expect(await code('hard.md')).toBe('hardlinked');
+    expect(await code('pipe.md')).toBe('not-regular');
+    expect(await code('big.md', { maxBytes: 10 })).toBe('oversize');
+    expect(await code('nope.md')).toBe('missing');
+    expect(await code('bin.md')).toBe('media-mismatch');
+    rmSync(dir, { recursive: true, force: true });
   });
 });

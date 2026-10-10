@@ -1,6 +1,6 @@
 import type { Store } from '../../store/db.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
-import { listTickets, listArchivedTickets, type TicketWithStages } from '../../store/tickets.js';
+import { listTickets, listArchivedTickets, getTicket, type TicketWithStages } from '../../store/tickets.js';
 import {
   listServersByTicket,
   listWorktreesByTicket,
@@ -34,6 +34,8 @@ import { resolvePresetDefaults } from '../../agent/agentPresets.js';
 import { listVisibleProposals } from '../../store/planningProposals.js';
 import { listPlanningSessions, listPlanningTickets, type PlanningStatus } from '../../store/planningSessions.js';
 import { formatId } from '../../model/entityId.js';
+import { ticketGlyph } from '../../model/ticketGlyph.js';
+import type { Glyph } from '../../model/glyph.js';
 import { listOpenBlockersFor } from '../../store/ticketRelations.js';
 
 /** A worktree row enriched with its display path (honors `worktreePathDisplay`). */
@@ -117,6 +119,23 @@ export interface SidebarSections {
  * `agent` is the semantic core id the webview renders as icon + canonical
  * name (UI-R10c); `live` is window state — this window holds its terminal.
  */
+/**
+ * Live state of one draft dependency. Facts only (UI-R31): the webview picks
+ * markup and the shared status marker from `kind` + `glyph`.
+ */
+export interface DepStatus {
+  id: number;
+  /** Host-built `D94`. */
+  label: string;
+  kind: 'draft' | 'ticket' | 'done';
+  ticketId: number | null;
+  /** Host-built `T605`; null while the dependency is still a pending draft. */
+  ticketLabel: string | null;
+  /** The ticket's current stage while `kind === 'ticket'`; null otherwise. */
+  stage: string | null;
+  glyph: Glyph | null;
+}
+
 export interface PlanningProposalRow {
   id: number;
   /** Host-built `D88`. */
@@ -125,6 +144,8 @@ export interface PlanningProposalRow {
   ticketIdLabel: string | null;
   /** `D<n>` of each entry in `dependsOn`, same order. */
   dependsOnLabels: string[];
+  /** Live state of each dependency, same order as `dependsOn`; discarded targets are omitted. */
+  dependsOnStatus: DepStatus[];
   /** `D<n>` of each entry in `droppedDepends`; absent when none. */
   droppedLabels?: string[];
   title: string;
@@ -381,6 +402,21 @@ export function buildSidebarState(
 
 const isId = (n: number): boolean => Number.isSafeInteger(n) && n >= 1;
 
+/** One dependency's live state; `[]` when the target is gone (discarded edges render via `droppedLabels`). */
+function depStatus(store: Store, target: { status: string; ticketId: number | null } | undefined, id: number): DepStatus[] {
+  if (!target) return [];
+  const label = formatId('draft', id);
+  if (target.status !== 'accepted' || target.ticketId === null) {
+    return [{ id, label, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray' }];
+  }
+  const ticket = getTicket(store, target.ticketId);
+  const ticketLabel = formatId('ticket', ticket.id);
+  if (ticket.stageCurrent === 'done' || ticket.archivedAt != null) {
+    return [{ id, label, kind: 'done', ticketId: ticket.id, ticketLabel, stage: null, glyph: 'green' }];
+  }
+  return [{ id, label, kind: 'ticket', ticketId: ticket.id, ticketLabel, stage: ticket.stageCurrent, glyph: ticketGlyph(ticket) }];
+}
+
 function planningRows(
   store: Store,
   projectId: number | undefined,
@@ -391,6 +427,7 @@ function planningRows(
   if (projectId === undefined) return [];
   const needle = query.trim().toLowerCase();
   const drafts = listVisibleProposals(store, projectId);
+  const byId = new Map(drafts.map((p) => [p.id, p]));
   // The All view lists live sessions; the Archived facet lists ONLY archived ones.
   return listPlanningSessions(store, projectId, { includeArchived: archived })
     .filter((s) => (s.status === 'archived') === archived)
@@ -417,6 +454,7 @@ function planningRows(
         idLabel: formatId('draft', p.id),
         ticketIdLabel: p.ticketId === null ? null : formatId('ticket', p.ticketId),
         dependsOnLabels: (p.payload.dependsOn ?? []).filter(isId).map((n) => formatId('draft', n)),
+        dependsOnStatus: (p.payload.dependsOn ?? []).filter(isId).flatMap((n) => depStatus(store, byId.get(n), n)),
         title: p.payload.title,
         status: p.status === 'accepted' ? 'accepted' : 'pending',
         ticketId: p.ticketId,

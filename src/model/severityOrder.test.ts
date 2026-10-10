@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SEVERITY_RANK, sortBySeverityDesc } from './severityOrder.js';
+import { SEVERITY_RANK, isBlockingSeverity, sortBySeverityDesc } from './severityOrder.js';
 
 describe('SEVERITY_RANK', () => {
   it('ranks critical (0) through info (4)', () => {
@@ -68,5 +68,19 @@ describe('sortBySeverityDesc', () => {
 
   it('returns an empty array for an empty input', () => {
     expect(sortBySeverityDesc([])).toEqual([]);
+  });
+});
+
+describe('isBlockingSeverity', () => {
+  it('blocks at and above the threshold only', () => {
+    expect(isBlockingSeverity('critical', 'medium')).toBe(true);
+    expect(isBlockingSeverity('medium', 'medium')).toBe(true);
+    expect(isBlockingSeverity('low', 'medium')).toBe(false);
+    expect(isBlockingSeverity('info', 'info')).toBe(true);
+    expect(isBlockingSeverity('high', 'critical')).toBe(false);
+  });
+
+  it("never blocks under 'none'", () => {
+    expect(isBlockingSeverity('critical', 'none')).toBe(false);
   });
 });

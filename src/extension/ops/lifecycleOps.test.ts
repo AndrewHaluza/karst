@@ -99,6 +99,48 @@ describe('deleteTicketOp', () => {
     expect(d.refresh).toHaveBeenCalled();
   });
 
+  describe('artifact history keep/purge', () => {
+    const artifacts = () => ({
+      mirrorGraph: vi.fn().mockResolvedValue(undefined),
+      sweepWorktree: vi.fn().mockResolvedValue(undefined),
+      purge: vi.fn().mockResolvedValue(undefined),
+    });
+
+    it('keep (second prompt declined) wires the sweeps in and does not purge', async () => {
+      const a = artifacts();
+      const confirm = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+      const d = makeDeps({ artifacts: a, confirm });
+      await deleteTicketOp(d, 1);
+      expect(confirm).toHaveBeenCalledTimes(2);
+      expect(deleteTicketPermanently).toHaveBeenCalledWith(d.store, 1, {
+        ...d.deleteDeps,
+        sweepTicket: a.mirrorGraph,
+        sweepWorktree: a.sweepWorktree,
+      });
+      expect(a.purge).not.toHaveBeenCalled();
+    });
+
+    it('purge skips the sweeps and purges after the delete', async () => {
+      const a = artifacts();
+      const order: string[] = [];
+      vi.mocked(deleteTicketPermanently).mockImplementationOnce(async () => {
+        order.push('delete');
+        return { reapedServers: [], failedWorktrees: 0 };
+      });
+      a.purge.mockImplementation(async () => void order.push('purge'));
+      const d = makeDeps({ artifacts: a });
+      await deleteTicketOp(d, 1);
+      expect(deleteTicketPermanently).toHaveBeenCalledWith(d.store, 1, d.deleteDeps);
+      expect(order).toEqual(['delete', 'purge']);
+    });
+
+    it('declining the delete never reaches the keep/purge prompt', async () => {
+      const confirm = vi.fn().mockResolvedValue(false);
+      await deleteTicketOp(makeDeps({ artifacts: artifacts(), confirm }), 1);
+      expect(confirm).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('delete throwing logs warn, notifies error, and still refreshes', async () => {
     const d = makeDeps();
     vi.mocked(deleteTicketPermanently).mockRejectedValue(new Error('disk full'));

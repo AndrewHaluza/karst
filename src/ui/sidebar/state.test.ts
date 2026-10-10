@@ -562,7 +562,7 @@ describe('buildSidebarState — planning sessions', () => {
     const a = insertProposal(store, s.id, { title: 'First', ...body });
     discardProposal(store, insertProposal(store, s.id, { title: 'Gone', ...body }));
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
-    expect(state.planning[0]!.proposals).toEqual([{ id: a, idLabel: `D${a}`, ticketIdLabel: null, dependsOnLabels: [], title: 'First', status: 'pending', ticketId: null, dependsOn: [] }]);
+    expect(state.planning[0]!.proposals).toEqual([{ id: a, idLabel: `D${a}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'First', status: 'pending', ticketId: null, dependsOn: [] }]);
   });
 
   it('carries a discarded dependency as droppedDepends for the card warning', () => {
@@ -574,7 +574,7 @@ describe('buildSidebarState — planning sessions', () => {
     discardProposal(store, target);
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(state.planning[0]!.proposals).toEqual([
-      { id: dependent, idLabel: `D${dependent}`, ticketIdLabel: null, dependsOnLabels: [], title: 'Dependent', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [target], droppedLabels: [`D${target}`] },
+      { id: dependent, idLabel: `D${dependent}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Dependent', status: 'pending', ticketId: null, dependsOn: [], droppedDepends: [target], droppedLabels: [`D${target}`] },
     ]);
   });
 
@@ -586,8 +586,8 @@ describe('buildSidebarState — planning sessions', () => {
     const clean = insertProposal(store, s.id, { title: 'Clean', ...body });
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(state.planning[0]!.proposals).toEqual([
-      { id: warned, idLabel: `D${warned}`, ticketIdLabel: null, dependsOnLabels: [], title: 'Warned', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown commit abc1234'] },
-      { id: clean, idLabel: `D${clean}`, ticketIdLabel: null, dependsOnLabels: [], title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] },
+      { id: warned, idLabel: `D${warned}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Warned', status: 'pending', ticketId: null, dependsOn: [], warnings: ['unknown commit abc1234'] },
+      { id: clean, idLabel: `D${clean}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Clean', status: 'pending', ticketId: null, dependsOn: [] },
     ]);
   });
 
@@ -601,9 +601,79 @@ describe('buildSidebarState — planning sessions', () => {
     const open = insertProposal(store, s.id, { title: 'Open one', ...body });
     const state = buildSidebarState(store, { facets: ['all'], filter: '', projectId });
     expect(state.planning[0]!.proposals).toEqual([
-      { id: open, idLabel: `D${open}`, ticketIdLabel: null, dependsOnLabels: [], title: 'Open one', status: 'pending', ticketId: null, dependsOn: [] },
-      { id: done, idLabel: `D${done}`, ticketIdLabel: `T${ticketId}`, dependsOnLabels: [], title: 'Done one', status: 'accepted', ticketId, dependsOn: [] },
+      { id: open, idLabel: `D${open}`, ticketIdLabel: null, dependsOnLabels: [], dependsOnStatus: [], title: 'Open one', status: 'pending', ticketId: null, dependsOn: [] },
+      { id: done, idLabel: `D${done}`, ticketIdLabel: `T${ticketId}`, dependsOnLabels: [], dependsOnStatus: [], title: 'Done one', status: 'accepted', ticketId, dependsOn: [] },
     ]);
+  });
+
+  describe('dependsOnStatus', () => {
+    const body = { description: 'd', summary: 's', repos: [] };
+    function setup() {
+      const projectId = upsertProject(store, { slug: 'p' }).id;
+      const s = createPlanningSession(store, { projectId, title: 'Auth rework', core: 'claude', model: null });
+      const accept = (id: number, key: string) => {
+        const ticketId = createTicket(store, { key, title: key, projectId }).id;
+        markProposalAccepted(store, id, ticketId);
+        return ticketId;
+      };
+      const statusOf = (dependent: number) =>
+        buildSidebarState(store, { facets: ['all'], filter: '', projectId }).planning[0]!.proposals.find((p) => p.id === dependent)!;
+      return { projectId, s, accept, statusOf };
+    }
+
+    it('a pending dependency is a gray draft chip', () => {
+      const { s, statusOf } = setup();
+      const dep = insertProposal(store, s.id, { title: 'Dep', ...body });
+      const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
+      expect(statusOf(d).dependsOnStatus).toEqual([
+        { id: dep, label: `D${dep}`, kind: 'draft', ticketId: null, ticketLabel: null, stage: null, glyph: 'gray' },
+      ]);
+    });
+
+    it('an accepted dependency whose ticket is in impl carries the stage and the ticket row glyph', () => {
+      const { projectId, s, accept, statusOf } = setup();
+      const dep = insertProposal(store, s.id, { title: 'Dep', ...body });
+      const tid = accept(dep, 'DEP-1');
+      store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(tid);
+      const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
+      const rowGlyph = buildSidebarState(store, { facets: ['all'], filter: '', projectId })
+        .sections.current.find((r) => r.ticketId === tid)!.glyph;
+      expect(statusOf(d).dependsOnStatus).toEqual([
+        { id: dep, label: `D${dep}`, kind: 'ticket', ticketId: tid, ticketLabel: `T${tid}`, stage: 'impl', glyph: rowGlyph },
+      ]);
+    });
+
+    it('a done ticket is a green done chip', () => {
+      const { s, accept, statusOf } = setup();
+      const dep = insertProposal(store, s.id, { title: 'Dep', ...body });
+      const tid = accept(dep, 'DEP-2');
+      markDone(store, tid, '2026-01-01T00:00:00.000Z');
+      const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
+      expect(statusOf(d).dependsOnStatus).toEqual([
+        { id: dep, label: `D${dep}`, kind: 'done', ticketId: tid, ticketLabel: `T${tid}`, stage: null, glyph: 'green' },
+      ]);
+    });
+
+    it('an archived ticket counts as done', () => {
+      const { s, accept, statusOf } = setup();
+      const dep = insertProposal(store, s.id, { title: 'Dep', ...body });
+      const tid = accept(dep, 'DEP-3');
+      archiveTicket(store, tid);
+      const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [dep] });
+      expect(statusOf(d).dependsOnStatus[0]).toMatchObject({ kind: 'done', glyph: 'green', ticketId: tid });
+    });
+
+    it('omits a discarded dependency but keeps it in droppedLabels; preserves order', () => {
+      const { s, statusOf } = setup();
+      const a = insertProposal(store, s.id, { title: 'A', ...body });
+      const gone = insertProposal(store, s.id, { title: 'Gone', ...body });
+      const b = insertProposal(store, s.id, { title: 'B', ...body });
+      const d = insertProposal(store, s.id, { title: 'D', ...body, dependsOn: [b, gone, a] });
+      discardProposal(store, gone);
+      const row = statusOf(d);
+      expect(row.dependsOnStatus.map((x) => x.id)).toEqual([b, a]);
+      expect(row.droppedLabels).toEqual([`D${gone}`]);
+    });
   });
 
   it('lists an archived session\'s proposals under the Archived facet', () => {
@@ -615,7 +685,7 @@ describe('buildSidebarState — planning sessions', () => {
     markProposalAccepted(store, done, ticketId);
     setPlanningSessionStatus(store, s.id, 'archived');
     const archived = buildSidebarState(store, { facets: ['archived'], filter: '', projectId }).planning;
-    expect(archived[0]!.proposals).toEqual([{ id: done, idLabel: `D${done}`, ticketIdLabel: `T${ticketId}`, dependsOnLabels: [], title: 'Filed', status: 'accepted', ticketId, dependsOn: [] }]);
+    expect(archived[0]!.proposals).toEqual([{ id: done, idLabel: `D${done}`, ticketIdLabel: `T${ticketId}`, dependsOnLabels: [], dependsOnStatus: [], title: 'Filed', status: 'accepted', ticketId, dependsOn: [] }]);
   });
 
   it('filters planning sessions by the search query and hides them outside the All view', () => {

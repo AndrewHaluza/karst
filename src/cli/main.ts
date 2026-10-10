@@ -11,6 +11,7 @@ import { parseConflictBriefArgs, runConflictBriefCommand } from './conflictBrief
 import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
 import { runPhaseCommand } from './phase.js';
+import { runArtifactAddCommand } from './artifactAdd.js';
 import { runGraphCommand } from './graph.js';
 import { runNodeCommand } from './node.js';
 import { runGuideCommand } from './guide.js';
@@ -91,6 +92,10 @@ function loadProjectSlug(
  *             its declared workflow. A separate parse path that never produces a
  *             `Verdict` and never touches the machine: a mark records an event,
  *             it cannot move a ticket (see parsePhaseArgs).
+ *   artifact: `… artifact add <path> --kind <kind> --db <db> --manifest <yml> --ticket <ticketKey>`
+ *             capture a file outside the outputs globs into the ticket's artifact
+ *             store and track it; narrow argv, path contained to the ticket's
+ *             worktrees (see artifactAdd.ts). Async: runs via runCliAsync.
  *   test:     `… test <subcommand> --db <db> [--ticket <key>] …`
  *             the AGENT TEST DRIVER — programmatically drive the full workflow
  *             and inspect every layer (stage machine, PRs, hooks, evidence).
@@ -578,7 +583,7 @@ export function runCli(
   }
 
   throw new Error(
-    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
+    `unknown command '${subcommand ?? ''}' (want 'context', 'stats', 'stage', 'phase', 'artifact', 'graph', 'node', 'test', 'guide', 'compact', 'servers', 'env', 'pause', 'unpause', 'subtask', 'draft', 'message', 'inbox', 'notes', 'fix-brief', 'conflict-brief', 'schema', 'manifest', 'setup', 'doctor', 'base' or 'mcp')`,
   );
 }
 
@@ -629,6 +634,20 @@ export async function runCliAsync(
     const store = parseDoctorArgs(rest).fix ? openWritableStore(db) : openReadonlyStore(db);
     try {
       return runDoctorCommand(store, db, manifestPath, rest, env);
+    } finally {
+      store.close();
+    }
+  }
+  // `artifact add` — a SEPARATE narrow parse path like `phase` (see
+  // src/cli/artifactAdd.ts): async because the store commits through git.
+  if (rest[0] === 'artifact') {
+    if (!db) throw new Error('missing --db <path>');
+    if (!ticket) throw new Error('missing --ticket <key>');
+    const store = openWritableStore(db);
+    try {
+      const found = resolveTicketByKey(store, ticket, loadProjectSlug(manifestPath, verbose));
+      if (!found) throw new Error(`no ticket found for key or id '${ticket}'`);
+      return await runArtifactAddCommand(store, found.id, db, rest);
     } finally {
       store.close();
     }

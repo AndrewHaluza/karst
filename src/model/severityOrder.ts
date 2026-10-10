@@ -19,6 +19,17 @@ export const SEVERITY_RANK: Readonly<Record<Severity, number>> = {
 };
 
 /**
+ * Whether a finding/observation of `severity` fails its stage under the
+ * configured `blockingSeverity`. Display-side twin of the verdict check in
+ * `workflow/review/aggregate.ts` and `workflow/stages/uat.ts`: both compare
+ * ranks the same way, so the row a reader sees matches the verdict. `'none'`
+ * never blocks.
+ */
+export function isBlockingSeverity(severity: Severity, threshold: Severity | 'none'): boolean {
+  return threshold !== 'none' && SEVERITY_RANK[severity] <= SEVERITY_RANK[threshold];
+}
+
+/**
  * Sort worst-first, STABLE within a rank. Report order is the order an
  * agent chose to report in and carries meaning; only the rank overrides
  * it. Returns a new array — the input is never mutated.

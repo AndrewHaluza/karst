@@ -22,6 +22,10 @@ export interface PermanentDeleteLifecycle {
    *  the ticket's gate console-log dir after its rows (the activation sweep
    *  covers the absent case). */
   artifactsRoot?: string;
+  /** Artifact final sweep for one worktree, awaited BEFORE it is removed. Never throws. */
+  sweepWorktree?: (wt: { ticketId: number; repoPath: string; path: string; baseRef: string }) => Promise<void>;
+  /** Ticket-level capture (graph mirror), awaited before any worktree comes down. Never throws. */
+  sweepTicket?: (ticketId: number) => Promise<void>;
 }
 
 /** What a permanent delete had to intervene on beyond the row transaction. */
@@ -65,7 +69,16 @@ export async function deleteTicketPermanently(
   const reapedServers: ReapedServer[] = [];
   let failedWorktrees = 0;
   const allocator = lifecycle.allocator;
+  await lifecycle.sweepTicket?.(ticketId);
   for (const wt of listWorktreesByTicket(store, ticketId)) {
+    // Sweep first: this is the last moment the files exist. `sweepWorktree`
+    // never throws, so a capture problem can never block the delete.
+    await lifecycle.sweepWorktree?.({
+      ticketId: wt.ticketId,
+      repoPath: wt.repo,
+      path: wt.path,
+      baseRef: wt.baseRef ?? wt.branch ?? '',
+    });
     try {
       reapedServers.push(
         ...removeWorktree(store, { ticketId: wt.ticketId, repoPath: wt.repo, path: wt.path }, allocator),
