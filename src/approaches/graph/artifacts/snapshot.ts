@@ -42,6 +42,7 @@ import {
   writeFileSync,
   constants,
 } from 'node:fs';
+import { open as openAsync } from 'node:fs/promises';
 import { join } from 'node:path';
 
 export type SnapshotMediaType = 'text/markdown' | 'application/json' | 'text/plain';
@@ -178,6 +179,67 @@ export function snapshotFile(spec: SnapshotSpec, snapshotDir: string): SnapshotR
     return { ok: true, sha256, size: snapshotBytes.length };
   } finally {
     if (fd !== undefined) closeSync(fd);
+  }
+}
+
+export type SnapshotBytesResult =
+  | { ok: true; bytes: Buffer }
+  | { ok: false; code: SnapshotFailureCode; reason: string };
+
+/**
+ * Async twin of `snapshotFile`'s validate-and-read, for callers on the
+ * extension host that must not block its event loop. Same protocol: ONE
+ * descriptor opened `O_NOFOLLOW | O_NONBLOCK`, `fstat` on that descriptor,
+ * regular file / single link / size-bounded / media-checked, read bounded to
+ * the validated size. Returns the bytes instead of copying them into
+ * content-addressed storage.
+ */
+export async function snapshotBytes(spec: SnapshotSpec): Promise<SnapshotBytesResult> {
+  let handle: Awaited<ReturnType<typeof openAsync>>;
+  try {
+    handle = await openAsync(
+      spec.path,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ELOOP') {
+      return { ok: false, code: 'not-regular', reason: `${spec.path} is a symlink` };
+    }
+    return { ok: false, code: 'missing', reason: `cannot open ${spec.path}` };
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) {
+      return { ok: false, code: 'not-regular', reason: `${spec.path} is not a regular file` };
+    }
+    if (stat.nlink > 1) {
+      return { ok: false, code: 'hardlinked', reason: `${spec.path} has ${stat.nlink} links` };
+    }
+    if (stat.size > spec.maxBytes) {
+      return {
+        ok: false,
+        code: 'oversize',
+        reason: `${spec.path} is ${stat.size} bytes, over the declared ${spec.maxBytes}`,
+      };
+    }
+    const bytes = Buffer.allocUnsafe(stat.size);
+    let offset = 0;
+    while (offset < stat.size) {
+      const { bytesRead } = await handle.read(bytes, offset, stat.size - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    const read = offset === stat.size ? bytes : bytes.subarray(0, offset);
+    if (mediaMismatch(read, spec.mediaType)) {
+      return {
+        ok: false,
+        code: 'media-mismatch',
+        reason: `${spec.path} bytes do not match declared media type ${spec.mediaType}`,
+      };
+    }
+    return { ok: true, bytes: read };
+  } finally {
+    await handle.close();
   }
 }
 

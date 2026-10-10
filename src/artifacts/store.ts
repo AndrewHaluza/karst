@@ -1,9 +1,7 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
-import { appendFile, mkdir, readdir, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { appendFile, mkdir, readdir, readFile, rm, access } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { snapshotFile } from '../approaches/graph/artifacts/snapshot.js';
+import { snapshotBytes } from '../approaches/graph/artifacts/snapshot.js';
 import { runGit, runGitText } from './gitRun.js';
 import { KeyedQueue } from './queue.js';
 import { DEFAULT_MAX_ARTIFACT_BYTES, isSafeTreePath, isSecretPath } from './skipRules.js';
@@ -76,6 +74,7 @@ export function ticketStoreDir(artifactsRoot: string, projectId: number, ticketI
   return join(artifactsRoot, `p${projectId}`, String(ticketId));
 }
 
+const exists = (p: string): Promise<boolean> => access(p).then(() => true, () => false);
 const clean = (v: string): string => v.replace(/[\r\n]+/g, ' ').trim();
 const SHA = /^[0-9a-f]{40,64}$/;
 
@@ -108,7 +107,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
 
   async function ensureRepo(ticketId: number): Promise<string> {
     const gitDir = gitDirOf(ticketId);
-    if (!existsSync(join(gitDir, 'HEAD'))) {
+    if (!(await exists(join(gitDir, 'HEAD')))) {
       await mkdir(gitDir, { recursive: true });
       await runGit(gitDir, ['init', '--bare', '-q', '--initial-branch=main']);
     }
@@ -151,15 +150,10 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
     return build('');
   }
 
-  function readSnapshot(sourcePath: string): { bytes: Buffer } | { skip: string } {
-    const scratch = mkdtempSync(join(tmpdir(), 'karst-art-'));
-    try {
-      const res = snapshotFile({ path: sourcePath, maxBytes, mediaType: 'text/plain' }, scratch);
-      if (!res.ok) return { skip: res.code };  // the reason text names the absolute source path
-      return { bytes: readFileSync(join(scratch, res.sha256)) };
-    } finally {
-      rmSync(scratch, { recursive: true, force: true });
-    }
+  async function readSnapshot(sourcePath: string): Promise<{ bytes: Buffer } | { skip: string }> {
+    const res = await snapshotBytes({ path: sourcePath, maxBytes, mediaType: 'text/plain' });
+    // The reason text names the absolute source path; the code is what we record.
+    return res.ok ? { bytes: res.bytes } : { skip: res.code };
   }
 
   async function commit(input: RevisionInput): Promise<string | null> {
@@ -175,7 +169,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
     }
     let bytes: Buffer | null = null;
     if (!input.deleted) {
-      const snap = readSnapshot(input.sourcePath);
+      const snap = await readSnapshot(input.sourcePath);
       if ('skip' in snap) {
         await recordSkip(ticketId, treePath, snap.skip);
         return null;
@@ -217,7 +211,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
 
   async function readableRepo(ticketId: number): Promise<string | null> {
     const gitDir = gitDirOf(ticketId);
-    return existsSync(join(gitDir, 'HEAD')) ? gitDir : null;
+    return (await exists(join(gitDir, 'HEAD'))) ? gitDir : null;
   }
 
   return {
