@@ -1595,6 +1595,9 @@ body {
   const EFFORT_OPTIONS = ['—', 'low', 'medium', 'high'];
 
   // Role labels exact list
+  // Escape every value interpolated into markup (preset names are user-typed),
+  // and accept only known role ids as keys (no __proto__ / constructor writes).
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const ROLES_LIST = [
     { id: 'impl', name: 'Implementation', identityOnly: true },
     { id: 'planner', name: 'Planner', identityOnly: false },
@@ -2304,8 +2307,8 @@ body {
       tableHeaderRow.innerHTML = `
         <th style="width: 170px;">Role</th>
         <th style="width: 160px;">Agent profile <span class="chip chip-subtle-grey">all presets</span></th>
-        <th>A: ${state.selectedPreset}</th>
-        <th>B: ${state.comparePreset}</th>
+        <th>A: ${esc(state.selectedPreset)}</th>
+        <th>B: ${esc(state.comparePreset)}</th>
         <th style="width: 90px;">Source</th>
         <th style="width: 140px; text-align: right;">Actions</th>
       `;
@@ -2354,7 +2357,7 @@ body {
       if (isCompare && differsCompare) {
         dotHtml = `<span class="changes-dot" title="Differs between Preset A and B"></span>`;
       }
-      tdRole.innerHTML = `${dotHtml}<span>${role.name}</span>`;
+      tdRole.innerHTML = `${dotHtml}<span>${esc(role.name)}</span>`;
       tr.appendChild(tdRole);
 
       // Column 2: Agent profile (never changes with preset)
@@ -2374,7 +2377,7 @@ body {
         tdA.innerHTML = `
           <div class="compare-cell-split">
             <span class="compare-subval ${differsCompare ? 'val-a' : 'val-identical'}">
-              ${effA.core} · ${effA.model} · ${effA.effort}
+              ${esc(effA.core)} · ${esc(effA.model)} · ${esc(effA.effort)}
             </span>
             ${effA.source === 'default' ? '<span class="chip chip-default" style="font-size:9.5px;">default</span>' : ''}
           </div>
@@ -2386,7 +2389,7 @@ body {
         tdB.innerHTML = `
           <div class="compare-cell-split">
             <span class="compare-subval ${differsCompare ? 'val-b' : 'val-identical'}">
-              ${effB.core} · ${effB.model} · ${effB.effort}
+              ${esc(effB.core)} · ${esc(effB.model)} · ${esc(effB.effort)}
             </span>
             ${effB.source === 'default' ? '<span class="chip chip-default" style="font-size:9.5px;">default</span>' : ''}
           </div>
@@ -2403,8 +2406,8 @@ body {
         tdActions.style.textAlign = 'right';
         tdActions.innerHTML = `
           <div style="display:inline-flex; gap:6px; align-items:center;">
-            ${differsCompare ? `<button class="btn btn-sm btn-copy-b" data-role="${role.id}" title="Copy B's value into ${state.selectedPreset}">← Copy B</button>` : ''}
-            <button class="btn btn-sm ${effA.source === 'pinned' ? 'btn-primary' : ''} btn-pin-toggle" data-role="${role.id}" title="${effA.source === 'pinned' ? 'Unpin' : 'Pin across all presets'}">
+            ${differsCompare ? `<button class="btn btn-sm btn-copy-b" data-role="${esc(role.id)}" title="Copy B's value into ${esc(state.selectedPreset)}">← Copy B</button>` : ''}
+            <button class="btn btn-sm ${effA.source === 'pinned' ? 'btn-primary' : ''} btn-pin-toggle" data-role="${esc(role.id)}" title="${effA.source === 'pinned' ? 'Unpin' : 'Pin across all presets'}">
               ${effA.source === 'pinned' ? 'Pinned' : 'Pin'}
             </button>
           </div>
@@ -2438,10 +2441,10 @@ body {
         tdActions.style.textAlign = 'right';
         tdActions.innerHTML = `
           <div style="display:inline-flex; gap:6px; align-items:center;">
-            <button class="btn btn-sm ${effA.source === 'pinned' ? 'btn-primary' : ''} btn-pin-toggle" data-role="${role.id}" title="${effA.source === 'pinned' ? 'Unpin role' : 'Pin to make value identical in ALL presets'}">
+            <button class="btn btn-sm ${effA.source === 'pinned' ? 'btn-primary' : ''} btn-pin-toggle" data-role="${esc(role.id)}" title="${effA.source === 'pinned' ? 'Unpin role' : 'Pin to make value identical in ALL presets'}">
               ${effA.source === 'pinned' ? 'Pinned' : 'Pin'}
             </button>
-            <button class="btn btn-sm btn-clear-role" data-role="${role.id}" ${effA.source === 'default' ? 'disabled' : ''} title="Clear preset override (falls back to default)">
+            <button class="btn btn-sm btn-clear-role" data-role="${esc(role.id)}" ${effA.source === 'default' ? 'disabled' : ''} title="Clear preset override (falls back to default)">
               Clear
             </button>
           </div>
@@ -2467,7 +2470,7 @@ body {
     if (!isBuiltin) {
       const p = getAgentProfile(linkedProfileId);
       if (p) {
-        label = `${p.name} ›`;
+        label = `${esc(p.name)} ›`;
         linkId = p.id;
         if (!p.enabled) {
           warningHtml = `
@@ -2485,7 +2488,7 @@ body {
     return `
       <div style="display:flex; align-items:center; gap:6px;">
         ${warningHtml}
-        <a class="profile-link ${isBuiltin ? 'built-in' : ''}" data-profile-id="${linkId}" title="Inspect in Agent profiles tab">${label}</a>
+        <a class="profile-link ${isBuiltin ? 'built-in' : ''}" data-profile-id="${esc(linkId)}" title="Inspect in Agent profiles tab">${label}</a>
       </div>
     `;
   }
@@ -2503,7 +2506,7 @@ body {
     } else if (source === 'preset') {
       chipClass = 'chip-preset';
       label = 'preset';
-      tooltip = `Specified directly in the selected preset "${state.selectedPreset}".`;
+      tooltip = `Specified directly in the selected preset "${esc(state.selectedPreset)}".`;
     }
 
     return `
@@ -2569,6 +2572,7 @@ body {
 
   // Handle cell edit: if pinned -> edit pin. If not pinned -> edit selected preset
   function handleCellEdit(roleId, field, value) {
+    if (!ROLES_LIST.some((r) => r.id === roleId)) return;
     const eff = getEffectiveRoleConfig(state.selectedPreset, roleId);
     let target = null;
 
@@ -2608,6 +2612,7 @@ body {
     document.querySelectorAll('.btn-pin-toggle').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const roleId = e.currentTarget.getAttribute('data-role');
+        if (!ROLES_LIST.some((r) => r.id === roleId)) return;
         if (state.pinned[roleId]) {
           // Unpin
           delete state.pinned[roleId];
@@ -2631,6 +2636,7 @@ body {
     document.querySelectorAll('.btn-clear-role').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const roleId = e.currentTarget.getAttribute('data-role');
+        if (!ROLES_LIST.some((r) => r.id === roleId)) return;
         if (state.pinned[roleId]) {
           delete state.pinned[roleId];
         }
@@ -2647,6 +2653,7 @@ body {
     document.querySelectorAll('.btn-copy-b').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const roleId = e.currentTarget.getAttribute('data-role');
+        if (!ROLES_LIST.some((r) => r.id === roleId)) return;
         const effB = getEffectiveRoleConfig(state.comparePreset, roleId);
 
         if (state.pinned[roleId]) {
@@ -2761,8 +2768,8 @@ body {
         const isDirty = (p.content !== p.originalContent);
 
         itemEl.innerHTML = `
-          <div class="profile-tree-name" title="${p.name}">
-            <span>${p.name}</span>
+          <div class="profile-tree-name" title="${esc(p.name)}">
+            <span>${esc(p.name)}</span>
             ${isDirty ? '<span class="unsaved-dot-profile" title="Unsaved edits"></span>' : ''}
           </div>
           <div class="profile-tree-meta">
@@ -2852,7 +2859,7 @@ body {
     // Approach role tag
     if (profile.group === 'approach' && profile.approachRole) {
       approachDeclaredTag.style.display = 'inline-flex';
-      approachDeclaredTag.innerHTML = `role: ${profile.approachRole} <span class="tooltip-box">declared, not used by karst yet</span>`;
+      approachDeclaredTag.innerHTML = `role: ${esc(profile.approachRole)} <span class="tooltip-box">declared, not used by karst yet</span>`;
     } else {
       approachDeclaredTag.style.display = 'none';
     }
@@ -2866,7 +2873,7 @@ body {
       usedByRoles.forEach(r => {
         const chip = document.createElement('button');
         chip.className = 'used-by-clickable-chip';
-        chip.innerHTML = `${r.name} ↗`;
+        chip.innerHTML = `${esc(r.name)} ↗`;
         chip.title = `Jump to role in Roles tab`;
         chip.addEventListener('click', () => {
           navigateBackToRoleRow(r.id, profile.id);
@@ -3097,20 +3104,20 @@ body {
     let tableHtml = '<thead><tr><th>Role</th>';
 
     presetNames.forEach(pName => {
-      tableHtml += `<th>${pName} ${pName === state.activePreset ? '<span class="badge badge-active">active</span>' : ''}</th>`;
+      tableHtml += `<th>${esc(pName)} ${pName === state.activePreset ? '<span class="badge badge-active">active</span>' : ''}</th>`;
     });
     tableHtml += '</tr></thead><tbody>';
 
     ROLES_LIST.forEach(role => {
-      tableHtml += `<tr><td class="role-name-cell"><strong>${role.name}</strong></td>`;
+      tableHtml += `<tr><td class="role-name-cell"><strong>${esc(role.name)}</strong></td>`;
       const effActive = getEffectiveRoleConfig(state.activePreset, role.id);
 
       presetNames.forEach(pName => {
         const eff = getEffectiveRoleConfig(pName, role.id);
         const isDiff = (eff.core !== effActive.core || eff.model !== effActive.model || eff.effort !== effActive.effort);
         tableHtml += `
-          <td class="${isDiff ? 'matrix-cell-diff' : ''}" data-preset="${pName}" title="Click to compare with ${pName}">
-            <div>${eff.core} · ${eff.model} · ${eff.effort}</div>
+          <td class="${isDiff ? 'matrix-cell-diff' : ''}" data-preset="${esc(pName)}" title="Click to compare with ${esc(pName)}">
+            <div>${esc(eff.core)} · ${esc(eff.model)} · ${esc(eff.effort)}</div>
             ${eff.source === 'pinned' ? '<span class="chip chip-pinned" style="font-size:9px;">pinned</span>' : ''}
           </td>
         `;
