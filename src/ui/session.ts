@@ -1,3 +1,4 @@
+import { launchHasMcp } from '../agent/karstCommandText.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
@@ -473,7 +474,9 @@ export class SessionManager {
     options: OpenSessionOptions,
     hookChannel: HookChannel | undefined,
   ): string | undefined {
-    if (!adapter.surfaces?.mcpConfigInteractive?.supported) return undefined;
+    if (!launchHasMcp({ adapter, hookChannel, cliEntry: options.cliEntry, dbPath: options.dbPath })) {
+      return undefined;
+    }
     if (!hookChannel || !options.cliEntry || !options.dbPath) return undefined;
     const connection: McpConnection = {
       cliEntry: options.cliEntry,

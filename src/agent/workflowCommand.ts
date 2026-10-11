@@ -1,5 +1,6 @@
 import type { WorkflowPhase } from '../manifest/types.js';
 import { PREFIX } from '../model/entityId.js';
+import type { MarkerStage } from './markerStage.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO } from './promptText.js';
 
 const TICKET_ID = `${PREFIX.ticket}<n>`;
@@ -118,15 +119,29 @@ export function buildWorkflowInvocation(approachId: string, ticketKey: string): 
  * gate surface does. The composed notes command is the marker command with the
  * `stage impl pass` tokens swapped for `notes post` — same cli/db/manifest tail.
  */
-export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: string): string {
+export function renderDoneMarkerInstruction(
+  stageCommand: string,
+  ticketArg: string,
+  mcpStage?: MarkerStage,
+): string {
+  const cliRun = `\`${stageCommand} ${ticketArg}\``;
+  const runPhrase = mcpStage
+    ? `call the karst MCP tool \`stage\` with { stage: "${mcpStage}" }`
+    : `run ${cliRun}`;
+  const mcpFallback = mcpStage
+    ? ` If the tool is not available, run ${cliRun}. An MCP tool error means the same as a non-zero exit — read the reason, do not retry blindly.`
+    : '';
+  const sandboxTail = mcpStage
+    ? ' If you fall back to the command and access to the Karst registry is denied, request approval to run this exact marker command outside the workspace sandbox.'
+    : ' If access to the Karst registry is denied, request approval to run this exact marker command outside the workspace sandbox.';
   const base =
     "When you have finished this stage's work — whether that is code, research, or a " +
-    `confirmation — run \`${stageCommand} ${ticketArg}\` to record the done marker and ` +
-    'advance the ticket to its next stage. A session ending does not advance the ticket ' +
+    `confirmation — ${runPhrase} to record the done marker and ` +
+    `advance the ticket to its next stage.${mcpFallback} A session ending does not advance the ticket ` +
     `on its own — you must fire this marker explicitly. Do NOT fire it while you are ` +
     'waiting for the user to answer a question: a stage whose agent is waiting on the ' +
-    `user is not complete, and the ${MARKER_REFUSED}. If access to the Karst registry ` +
-    'is denied, request approval to run this exact marker command outside the workspace sandbox.';
+    `user is not complete, and the ${MARKER_REFUSED}.` +
+    sandboxTail;
   const marker = ' stage impl pass ';
   if (!stageCommand.includes(marker)) return base;
   const notesCommand = `${stageCommand.replace(marker, ' notes post ')} ${ticketArg}`;
@@ -134,10 +149,18 @@ export function renderDoneMarkerInstruction(stageCommand: string, ticketArg: str
   return (
     base +
     ' If you learned something another task should know, post ONE short note for the ' +
-    `project bulletin first: \`${notesCommand} --title <short title> --body <learnings>\`. ` +
+    (mcpStage
+      ? 'project bulletin first: call the karst MCP tool `notes` with { action: "post", title: "<short title>", body: "<learnings>" } ' +
+        `(or run \`${notesCommand} --title <short title> --body <learnings>\`). `
+      : `project bulletin first: \`${notesCommand} --title <short title> --body <learnings>\`. `) +
     'It is optional.' +
     ' To keep a file outside the approach output folders (e.g. a dev script) in this ' +
-    `ticket's artifacts, run \`${artifactCommand}\` (kind: plan, research, spec, review, ` +
+    `ticket's artifacts, ` +
+    (mcpStage
+      ? 'call the karst MCP tool `artifact` with { path: "<path>", kind: "<kind>" } ' +
+        `(or run \`${artifactCommand}\`)`
+      : `run \`${artifactCommand}\``) +
+    ` (kind: plan, research, spec, review, ` +
     'meta, script or other; the path must be inside this ticket\'s worktree).'
   );
 }

@@ -313,10 +313,12 @@ export function composeGuideCommand(cliEntry: string): string {
  * sentence on purpose — the guide is long and the seed is read on every
  * launch, so the pointer must be cheap and the content pulled on demand.
  */
-export function renderGuideInstruction(guideCommand: string): string {
+export function renderGuideInstruction(guideCommand: string, hasMcp = false): string {
+  const action = hasMcp
+    ? `call the karst MCP tool \`guide\` (if the tool is not available, run \`${guideCommand}\`)`
+    : `run \`${guideCommand}\``;
   return (
-    `${GUIDE_POINTER_INTRO}, run ` +
-    `\`${guideCommand}\` and read its output. ` +
+    `${GUIDE_POINTER_INTRO}, ${action} and read its output. ` +
     MCP_TOOLS_PREFERRED
   );
 }

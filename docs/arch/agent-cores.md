@@ -222,6 +222,8 @@ END_DOC_BLOCK: [@arch:AC-23]
 ## [@arch:AC-24] The guide pointer rides the instruction layer on a fresh launch, never a resume
 
 The guide-pointer sentence (`GUIDE_POINTER_MARKER` from `agent/promptTelemetry.ts`) is composed into the instruction layer of every FRESH ticket launch (`buildSessionSeed`), so the `seedHasGuide` telemetry denominator and the committed baseline in `docs/arch/prompt-metrics.md` are preserved. `measureSeed` scans BOTH layers for the marker. A RESUME's regenerated instruction body deliberately omits it — a resumed session is not a new guide invite — so the fresh-vs-resume denominator asymmetry survives the split. Removing it entirely would zero the guide-pull rate and invalidate the metric without a replacement.
+
+The pointer's phrase follows the launch channel: with karst MCP registered (`launchHasMcp`) it says to call the `guide` tool and falls back to `node "$KARST_CLI" guide`; otherwise it is the CLI line alone. The pointer is still one sentence and still fresh-launch only.
 END_DOC_BLOCK: [@arch:AC-24]
 
 ## [@arch:AC-25] The servers rule ships in the instruction layer, not behind the guide
