@@ -96,4 +96,45 @@ describe('artifact capture service (real git + store)', () => {
     await svc.purge(ticketId);
     expect(await history().listArtifacts(ticketId)).toEqual([]);
   });
+
+  describe('captureEdit (agent post-edit hook)', () => {
+    const rel = 'docs/superpowers/plans/hooked.md';
+    const hooked = () => `${basename(repo)}/${rel}`;
+
+    it('commits the notified file tagged agent-hook with the provider session', async () => {
+      put(wtPath, rel, 'v1');
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: join(wtPath, rel), sessionId: 'prov-9' });
+      const h = await history().history(ticketId, hooked());
+      expect(h).toHaveLength(1);
+      expect(h[0]!.trailers).toMatchObject({ source: 'agent-hook', session: 'prov-9' });
+    });
+
+    it('reads the file itself: only the notified path is captured', async () => {
+      put(wtPath, rel, 'v1');
+      put(wtPath, 'docs/superpowers/plans/other.md', 'not notified');
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: join(wtPath, rel), sessionId: 's' });
+      expect((await history().listArtifacts(ticketId)).map((a) => a.path)).toEqual([hooked()]);
+    });
+
+    it('dedups with the watcher/sweep: same content adds no revision', async () => {
+      put(wtPath, rel, 'v1');
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: join(wtPath, rel), sessionId: 's' });
+      await svc.sweepWorktree({ ticketId, repoPath: repo, worktreePath: wtPath, baseRef: 'develop' });
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: join(wtPath, rel), sessionId: 's' });
+      expect(await history().history(ticketId, hooked())).toHaveLength(1);
+    });
+
+    it('rejects a path outside the worktree', async () => {
+      put(tmp, 'docs/superpowers/plans/evil.md', 'x');
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: join(tmp, 'docs/superpowers/plans/evil.md'), sessionId: 's' });
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: '../../../evil.md', sessionId: 's' });
+      expect(await history().listArtifacts(ticketId)).toEqual([]);
+    });
+
+    it('ignores a notified file that is not an output', async () => {
+      put(wtPath, 'src/unrelated.ts', 'x');
+      await svc.captureEdit({ ticketId, cwd: wtPath, filePath: join(wtPath, 'src/unrelated.ts'), sessionId: 's' });
+      expect(await history().listArtifacts(ticketId)).toEqual([]);
+    });
+  });
 });
