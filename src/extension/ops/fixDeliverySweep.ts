@@ -1,3 +1,4 @@
+import { formatFixBriefNumber } from '../../model/entityId.js';
 import {
   claimArmed,
   clearEnqueued,
@@ -80,7 +81,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
         armed: push,
         at: deps.now(),
       });
-      if (moved) deps.debug(`[driver] fix delivery #${row.id}: re-armed for launch ${current}`);
+      if (moved) deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: re-armed for launch ${current}`);
       return;
     }
     const running = deps.isRunning(row.ticketId);
@@ -144,7 +145,7 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
           if (gated(row)) apply(row);
         } catch (err) {
           // One bad row must never starve the rest; the next tick retries.
-          deps.debug(`[driver] fix delivery #${row.id}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
+          deps.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: sweep failed (${err instanceof Error ? err.message : String(err)})`);
         }
       }
     },

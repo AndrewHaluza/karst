@@ -1,3 +1,4 @@
+import { formatFixBriefNumber } from '../model/entityId.js';
 import type { Store } from '../store/db.js';
 import { getTicket } from '../store/tickets.js';
 import { latestFindingBatch } from '../store/reviewFindings.js';
@@ -127,7 +128,7 @@ function ackBrief(store: Store, ticketId: number, options: FixBriefOptions): str
   const row = currentFixDelivery(store, ticketId);
   if (row === null) return liveBrief(store, ticketId);
   const first = claimRead(store, row.id, 'pointer', (options.now ?? (() => new Date().toISOString()))());
-  const head = first ? `karst fix brief #${row.id}:` : `karst fix brief #${row.id} (already read):`;
+  const head = first ? `karst fix brief ${formatFixBriefNumber(row.id)}:` : `karst fix brief ${formatFixBriefNumber(row.id)} (already read):`;
   return `${head}\n${row.body}`;
 }
 

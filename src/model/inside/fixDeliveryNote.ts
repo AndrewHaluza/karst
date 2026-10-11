@@ -1,3 +1,4 @@
+import { formatFixBriefNumber } from '../entityId.js';
 /**
  * How a round's stored fix brief (@arch:V77) reads on its recovery row: the
  * receipt state of "fix brief #<id>". Pure — the dashboard state builder feeds
@@ -16,7 +17,7 @@ export interface FixDeliveryFacts {
 /** The note for a round's delivery, or undefined when there is nothing to say. */
 export function fixDeliveryNote(delivery: FixDeliveryFacts | undefined): string | undefined {
   if (delivery === undefined || delivery.supersededAt !== null) return undefined;
-  const label = `fix brief #${delivery.id}`;
+  const label = `fix brief ${formatFixBriefNumber(delivery.id)}`;
   if (delivery.readAt !== null) {
     return delivery.deliveredVia === 'seed'
       ? `${label} delivered in the launch seed`

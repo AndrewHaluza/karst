@@ -1,3 +1,4 @@
+import { formatFixBriefNumber } from '../../model/entityId.js';
 import type { Store } from '../../store/db.js';
 import type { NudgeHooks } from '../../ui/nudgeQueue.js';
 import type { MessageRoute } from '../../workflow/messageDelivery.js';
@@ -116,7 +117,7 @@ export function sendTypedPointer(
 /** The pointer cannot be built: fail this delivery once and ask for a human. */
 export function failPointer(host: FixDeliveryHost, row: FixDelivery): void {
   if (!claimPointerFailed(host.store, row.id, host.now())) return;
-  host.debug(`[driver] fix delivery #${row.id}: pointer unbuildable — needs you`);
+  host.debug(`[driver] fix delivery ${formatFixBriefNumber(row.id)}: pointer unbuildable — needs you`);
   host.needsYou(row.ticketId, 'the fix-brief pointer could not be built');
 }
 
@@ -149,7 +150,7 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
   const row = currentFixDelivery(host.store, input.ticketId);
   if (row === null || row.id !== id) return false;
   const route = host.routeFor(input.ticketId);
-  host.debug(`[driver] fix delivery #${id}: stored for ticket ${input.ticketId}, route ${route}`);
+  host.debug(`[driver] fix delivery ${formatFixBriefNumber(id)}: stored for ticket ${input.ticketId}, route ${route}`);
   if (isPushRoute(route)) {
     claimArmed(host.store, id, at);
     return true;
