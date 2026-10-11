@@ -375,7 +375,9 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
       async save(manifest: Manifest, section?: SettingsSection): Promise<void> {
         // On a parse failure `loadState` returns the last good in-memory copy,
         // not the file. Merging onto it and writing would silently discard the
-        // user's hand edits, so refuse (same as `syncApproachEnabled`).
+        // user's hand edits, so refuse (same as `syncApproachEnabled`). Any load
+        // error counts — a schema-invalid file also falls back to the stale copy,
+        // so a Save would overwrite the on-disk file just the same (T638 ruling).
         const loaded = deps.loadState();
         if (loaded.error) {
           ctx.post({

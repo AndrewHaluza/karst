@@ -211,8 +211,15 @@ describe('settings actions — save', () => {
 });
 
 describe('settings actions — save while karst.yml is unreadable', () => {
-  const broken = () =>
-    harness({ loadState: () => ({ manifest: VALID, error: 'bad yaml' }) });
+  const broken = (error = 'bad yaml') =>
+    harness({ loadState: () => ({ manifest: VALID, error }) });
+
+  it('refuses on a schema error too (the stale fallback applies to any load error)', async () => {
+    const { actions, posted, order } = broken('portRange min > max');
+    await actions.save({ ...VALID, host: '0.0.0.0' });
+    expect(order).toEqual([]);
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+  });
 
   it.each([
     ['whole-manifest', undefined],
