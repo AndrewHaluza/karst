@@ -198,7 +198,10 @@ describe('stage-vsix copy list packaging', () => {
   });
 
   it('only names required entries that exist in the repo', () => {
-    for (const entry of COPY_LIST.required) {
+    // Build outputs are absent in a fresh worktree; they are checked below
+    // against the build script, and post-build by scripts/verify-build.mjs.
+    const outputs = buildOutputDirs();
+    for (const entry of COPY_LIST.required.filter((e) => !outputs.has(e))) {
       // A node_modules entry may resolve OUTSIDE this checkout: a git worktree
       // (`.karst/worktrees/<name>/`) has no node_modules of its own and inherits
       // the main checkout's install. Resolve those through the same walked-up
@@ -210,4 +213,19 @@ describe('stage-vsix copy list packaging', () => {
       expect(existsSync(resolved), `required stage entry is missing: ${entry}`).toBe(true);
     }
   });
+
+  it('treats dist as the esbuild output dir written by build-extension.mjs', () => {
+    expect(buildOutputDirs()).toEqual(new Set(['dist']));
+    expect(COPY_LIST.required).toContain('dist');
+  });
 });
+
+/** Top-level dirs of every `outfile` that scripts/build-extension.mjs writes. */
+function buildOutputDirs(): Set<string> {
+  const source = readFileSync(join(ROOT, 'scripts', 'build-extension.mjs'), 'utf8');
+  const dirs = new Set<string>();
+  for (const match of source.matchAll(/outfile:\s*['"]([^'"]+)['"]/g)) {
+    dirs.add(match[1]!.split('/')[0]!);
+  }
+  return dirs;
+}

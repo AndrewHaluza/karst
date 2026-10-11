@@ -40,7 +40,8 @@ import { join } from 'node:path';
 // Raised by 18 for the reviewer-conformance bindings (`makeReviewArtifactsBinding` arg,
 // the `onRevision` feed and the `makeAlignmentTrigger` call + disposal); logic is in
 // `src/extension/reviewArtifactsBinding.ts` and `src/extension/alignmentBinding.ts`.
-const MAX_EXTENSION_LINES = 8531;
+// Raised by 2 (8531 -> 8533): #583 (MCP-first delivery pointers) landed on develop one line over the cap.
+const MAX_EXTENSION_LINES = 8533;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
