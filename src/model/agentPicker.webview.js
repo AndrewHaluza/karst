@@ -170,8 +170,11 @@ function apModelItemHtml(m, saved, tags) {
     + '</div>';
 }
 
-/** The identity the core trigger shows: full pattern when a model is set. */
-/** A clipping trigger label points at its trigger, whose accessible name holds the full text (UI-R44). */
+/**
+ * A clipping trigger label points at its trigger (UI-R44). The describedby exists to satisfy
+ * layout check (d): a clipped element must carry aria-describedby. The real accessible full
+ * text is the trigger's aria-label.
+ */
 function apTriggerLabelHtml(inner, triggerId) {
   return '<span class="ap-trigger-label" aria-describedby="' + apEsc(triggerId) + '">' + inner + '</span>';
 }
@@ -181,8 +184,10 @@ function apCoreTriggerName(caption, coreName) {
   return coreName ? caption + ': ' + coreName : caption;
 }
 
+/** Per-page counter for unique picker trigger ids. */
 var AP_SEQ = 0;
 
+/** The identity the core trigger shows: full pattern when a model is set. */
 function apCoreTriggerLabel(provider, modelLabel) {
   if (typeof agentIdentityHtml === 'function') {
     return agentIdentityHtml(provider, modelLabel, true);

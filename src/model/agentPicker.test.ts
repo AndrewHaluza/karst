@@ -455,6 +455,7 @@ describe('compact effort placeholder', () => {
     expect(js).toContain('data-ap-effort-placeholder');
     expect(js).toContain('Effort is not available for this model');
     expect(agentPickerCss()).toContain('.ap-effort-placeholder');
+    expect(agentPickerCss()).toMatch(/\.ap-effort-placeholder\{[^}]*color:var\(--k-text-dim\)[^}]*dashed/);
   });
 });
 

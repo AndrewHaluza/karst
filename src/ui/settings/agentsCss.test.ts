@@ -5,7 +5,8 @@ const css = readFileSync('src/ui/settings/agents.webview.css', 'utf8');
 
 describe('agents.webview.css — roles table', () => {
   it('uses one 8-track template for header and rows', () => {
-    expect(css).toContain('--agents-cols:');
+    const cols = /--agents-cols:\s*([^;]+);/.exec(css)![1]!;
+    expect(cols.replace(/minmax\([^)]*\)/g, 'X').trim().split(/\s+/)).toHaveLength(8);
     expect(css.match(/grid-template-columns:\s*var\(--agents-cols\)/g)!.length).toBeGreaterThanOrEqual(1);
   });
   it('lets the picker fields be the row\'s own grid items (1:1 with the headings)', () => {
@@ -28,11 +29,12 @@ describe('agents.webview.css — roles table', () => {
     expect(css).not.toMatch(/\.k-chip\s*\{[^}]*white-space:\s*normal/);
   });
   it('truncates model labels with an ellipsis on one line', () => {
-    expect(css).toMatch(/\.ap-trigger-label[^{]*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(css).toMatch(/\.agents-cell-picker \.ap-trigger-label[^{]*\{[^}]*text-overflow:\s*ellipsis/);
+    expect(css).toMatch(/\.agents-cell-picker \.ap-trigger-label[^{]*\{[^}]*white-space:\s*nowrap/);
   });
   it('hides field labels on wide rows and shows them on cards', () => {
     expect(css).toMatch(/\.agents-field-label\s*\{[^}]*display:\s*none/);
-    expect(css).toMatch(/@media \(max-width: 999px\)[\s\S]*\.agents-field-label[^}]*display:\s*block/);
+    expect(css).toMatch(/@media \(max-width: 999px\)[\s\S]*?#section-agents \.agents-field-label\s*\{[^}]*display:\s*block/);
   });
   it('keeps the pin slot the size of an icon button', () => {
     expect(css).toMatch(/\.agents-pin-slot\s*\{[^}]*width:\s*var\(--k-hit-min\)/);

@@ -55,7 +55,7 @@
 .ap-effort:disabled{opacity:.45;cursor:default}
 
 .ap-effort-placeholder{display:flex;align-items:center;justify-content:center;width:100%;min-height:var(--k-control-h-lg);box-sizing:border-box;
-  color:var(--k-text-faint);border:var(--k-border-w) dashed var(--k-border);border-radius:var(--k-radius-sm);
+  color:var(--k-text-dim);border:var(--k-border-w) dashed var(--k-border);border-radius:var(--k-radius-sm);
   font-size:var(--k-text-md);cursor:default}
 .ap-effort-placeholder[hidden]{display:none}
 .ap-effort[hidden]{display:none}

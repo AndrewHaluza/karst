@@ -105,7 +105,7 @@
 #section-agents .agents-cell-source { justify-content: flex-start; }
 #section-agents .agents-cell-actions { display: flex; justify-content: flex-end; gap: var(--k-space-1); }
 #section-agents .agents-pin-slot { display: inline-block; width: var(--k-hit-min); height: var(--k-hit-min); flex: none; visibility: hidden; }
-#section-agents .agents-field-label { display: none; font-size: var(--k-text-xs); color: var(--vscode-descriptionForeground); }
+#section-agents .agents-field-label { display: none; font-size: var(--k-text-xs); color: var(--k-text-dim); }
 #section-agents .agents-cell-switch { justify-content: center; }
 #section-agents .agents-role-name { font-weight: 500; overflow-wrap: break-word; }
 
