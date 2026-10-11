@@ -1723,3 +1723,33 @@ describe('ticket context — intent and code pointers', () => {
     expect(renderTicketContext(ctx, undefined, { bounded: false })).toContain(longPointers);
   });
 });
+
+describe('ticket context — tester audience', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function testerView() {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
+    updateTicketFields(store, t.id, {
+      description: 'DONE-WHEN-TEXT',
+      intent: '## Goal\ng',
+      codePointers: '- a.ts — x',
+    });
+    const ctx = buildTicketContext(store, undefined, t.id);
+    return renderTicketContext(ctx, undefined, { audience: 'tester' });
+  }
+
+  it('keeps intent and done-when criteria', () => {
+    const md = testerView();
+    expect(md).toContain('## Intent');
+    expect(md).toContain('## Done-when criteria\nDONE-WHEN-TEXT');
+  });
+
+  it('excludes code pointers and the implementation prompt section', () => {
+    const md = testerView();
+    expect(md).not.toContain('Code pointers');
+    expect(md).not.toContain('a.ts');
+    expect(md).not.toContain('## Prompt');
+  });
+});

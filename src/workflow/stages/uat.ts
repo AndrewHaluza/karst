@@ -691,14 +691,9 @@ export async function runUat(
         debug: opts.debug,
         git,
         criteria: ticket.description,
+        intent: ticket.intent,
         ticketKey: ticket.key,
         contextCommand: opts.contextCommand,
-        // The gates that actually RAN and passed (a null exit code is "no such
-        // script", not a pass). Named in the prompt so the Tester does not
-        // re-run the deterministic half the stage just finished.
-        gatesPassed: entries
-          .filter((entry) => entry.result.exitCode === 0)
-          .map((entry) => entry.result.name),
         onOutput: opts.onTesterOutput,
         onTargetProgress: opts.onTesterTargetProgress,
         // The ONE knob that can make an observation a verdict. Coalesced at

@@ -222,6 +222,7 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
           ? `- An empty \`git diff\` is NOT proof of no changes. Before concluding "no changes to ${subject}", verify: \`git status --porcelain\` is empty, AND the ticket branch's tip differs from the base (\`git rev-parse ${branch}\` vs \`git rev-parse ${baseRef ?? '<base-branch>'}\`). If the range cannot be resolved — remote ref absent, local ref stale, or a checkout that is not on the ticket branch — report the resolution failure as an observation; never output \`[]\` because a diff came back empty.`
           : `- The diff range above shows COMMITTED changes only. If it comes back EMPTY, there are no committed changes to ${subject} — report exactly one observation (severity "info", title "no changes to ${subject}") rather than silently outputting \`[]\`. Do NOT run \`git status\` or look for uncommitted work; this review is scoped to committed changes only.`
         : null;
+  if (intent === 'test') return buildTestScopeBlock(opts, branch, orientation);
   return [
     SCOPE_ORIENTATION_HEADING,
     orientation,
@@ -240,5 +241,32 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
           `ticket, and never query the graph.`
         : ` No querying the orchestration tool that launched you — its CLI or its state database.`),
     `- Widen beyond the diff only into a file the diff actually touches or directly calls, and only when a specific question requires it.`,
+  ];
+}
+
+/**
+ * The tester's scope: where it is (branch / base / worktree facts) and the
+ * recon ban. Deliberately names no diff and no diff range — the tester judges
+ * observable behavior against the ticket's intent, never the changes (reading
+ * them is what produces false-positive tests).
+ */
+function buildTestScopeBlock(opts: ScopeBlockOpts, branch: string | null, orientation: string): string[] {
+  const baseRef = opts.baseRef?.trim() || null;
+  return [
+    SCOPE_ORIENTATION_HEADING,
+    orientation.replace(/ Do NOT `git diff` or conclude "no changes" from a stale ref\./, ''),
+    ...(baseRef !== null && branch !== null
+      ? [`- The branch merges into \`${baseRef}\`; you test the running behavior of \`${branch}\`.`]
+      : []),
+    ``,
+    SCOPE_RULES_HEADING,
+    `- Do NOT run repository-wide reconnaissance: no \`git worktree list\`, no branch/remote mapping, ` +
+      `no \`git log\`, no reading other worktrees or checkouts, ` +
+      `no querying the orchestration tool's graph.` +
+      (opts.contextCommand
+        ? ` The one exception is the command named above — it is scoped to THIS ticket and nothing ` +
+          `else: never run it (or any other orchestrator CLI/state-database query) for another ` +
+          `ticket, and never query the graph.`
+        : ` No querying the orchestration tool that launched you — its CLI or its state database.`),
   ];
 }

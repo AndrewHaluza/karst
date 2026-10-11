@@ -81,6 +81,27 @@ function buildCriteriaBlock(criteria: string | null | undefined, ticketKey: stri
   ];
 }
 
+/** The tester-safe context view: no code pointers, no review findings (`karst context --for tester`). */
+const TESTER_AUDIENCE_FLAGS = '--for tester --md';
+
+/** The ticket's canonical intent as the authoritative charter, bounded; empty when absent/blank. */
+function buildIntentBlock(intent: string | null | undefined, ticketKey: string | null | undefined): string[] {
+  const trimmed = intent?.trim() ?? '';
+  if (trimmed === '') return [];
+  const key = ticketKey?.trim() ?? '';
+  const { text } = truncateToBudget(
+    trimmed,
+    SEED_BUDGETS.intent,
+    key,
+    key === '' ? keylessTruncationPointer() : undefined,
+  );
+  return [
+    `Intent for this ticket (authoritative — exercise every scenario against the running app):`,
+    text,
+    ``,
+  ];
+}
+
 /**
  * The tier-1 context pointer (Prompt 17): the ONE command permitted past the
  * scope block's repo-wide-recon ban, for pulling anything the criteria block
@@ -96,7 +117,7 @@ function buildContextPointerLine(
   if (!contextCommand || !ticketKey) return [];
   return [
     `Need more than the criteria above (prior findings from the last round, gate output, ` +
-      `attachments, running services)? Run exactly: ${contextCommand} ${ticketKey} --md`,
+      `attachments, running services)? Run exactly: ${contextCommand} ${ticketKey} ${TESTER_AUDIENCE_FLAGS}`,
     `Nothing else about the orchestrator is in scope.`,
   ];
 }
@@ -216,13 +237,6 @@ export interface RunUatTesterOpts {
    */
   maxObservations?: number;
   /**
-   * Names of the deterministic gates the stage ALREADY ran and passed. Carried
-   * into the prompt so the Tester spends its budget on behavior the gates
-   * cannot check instead of re-running the suite that just went green. Absent
-   * → the prompt names no gates (never a fabricated list).
-   */
-  gatesPassed?: readonly string[];
-  /**
    * `uat.testerObservations.blockingSeverity` (Task 3.2). ABSENT → `'none'`,
    * which is the shipped behavior: observations are advisory and `blocking` is
    * always 0. Set to a severity, every recorded observation at or above it is
@@ -233,6 +247,8 @@ export interface RunUatTesterOpts {
   observationsBlockingSeverity?: Severity | 'none';
   /** The ticket's done-when criteria (`Ticket.description`), read once by the stage. Absent/blank → no criteria block. */
   criteria?: string | null;
+  /** The ticket's canonical black-box intent (`Ticket.intent`), read once by the stage. Absent/blank → criteria only. */
+  intent?: string | null;
   /** The ticket's key, e.g. `PROMPT-17-UAT-CRITERIA`. Required (with `contextCommand`) for the tier-1 pointer line. */
   ticketKey?: string | null;
   /**
@@ -405,6 +421,10 @@ export interface TesterDeps {
  * rules always remain.
  */
 export interface TesterPromptExtra {
+  /** The ticket's canonical black-box intent (`Ticket.intent`). Bounded, omitted when empty. */
+  intent?: string | null;
+  /** Decision-point logging, `[gate]`-prefixed by the caller's convention. */
+  debug?: (message: string) => void;
   /** The ticket's done-when criteria (`Ticket.description`). Bounded, omitted when empty. */
   criteria?: string | null;
   /** The ticket's key, for the tier-1 context pointer line. */
@@ -416,7 +436,6 @@ export interface TesterPromptExtra {
 export function buildTesterPrompt(
   target: TesterTarget,
   instructions?: string,
-  gatesPassed?: readonly string[],
   snapshotRef?: string | null,
   extra?: TesterPromptExtra,
 ): string {
@@ -442,8 +461,9 @@ export function buildTesterPrompt(
           '',
         ]
       : [
-          `Act as the UAT tester for the changes in this worktree (repository: ${target.repo}) ${baseClause}`,
-          `Try to BREAK the changes: run them, exercise the acceptance criteria, and report what you observe.${serviceClause}`,
+          `You are a black-box UAT tester. Verify the intent below by exercising the running application (UI, CLI, API) the way a user would. (repository: ${target.repo}) ${baseClause}`,
+          `Do NOT read source code, the diff, implementation plans, review findings or code pointers — judge only observable behavior against the intent. ` +
+            `Do not run the project's test suites; the deterministic gates already did. Try to break it.${serviceClause}`,
         ];
   // Compose the ONE command the agent may run past the recon ban — a single
   // value shared by the pointer line and the scope block's ban exception so the
@@ -451,14 +471,20 @@ export function buildTesterPrompt(
   // carve-out is true by construction.
   const composedContextCommand =
     extra?.contextCommand && extra?.ticketKey
-      ? `${extra.contextCommand} ${extra.ticketKey} --md`
+      ? `${extra.contextCommand} ${extra.ticketKey} ${TESTER_AUDIENCE_FLAGS}`
       : undefined;
+  const intentBlock = buildIntentBlock(extra?.intent, extra?.ticketKey);
+  if (intentBlock.length === 0) extra?.debug?.('[gate] tester: no intent, criteria only');
+  const intentAndCriteria = [
+    ...intentBlock,
+    ...buildCriteriaBlock(extra?.criteria, extra?.ticketKey),
+  ];
   return [
     ...strategy,
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.
-    ...buildCriteriaBlock(extra?.criteria, extra?.ticketKey),
+    ...intentAndCriteria,
     // Named BEFORE the scope block so its ban exception (`agentScope.ts`) can
     // say "the command named above" and mean this line.
     ...buildContextPointerLine(extra?.contextCommand, extra?.ticketKey),
@@ -470,7 +496,6 @@ export function buildTesterPrompt(
       baseRef: target.baseRef,
       branch: target.branch,
       worktreePath: target.worktreePath,
-      gatesPassed,
       snapshotRef,
       contextCommand: composedContextCommand,
     }),
@@ -595,9 +620,14 @@ export async function runUatTester(
       const prompt = buildTesterPrompt(
         target,
         opts.assignment.instructions,
-        opts.gatesPassed,
         snapshotRef,
-        { criteria: opts.criteria, ticketKey: opts.ticketKey, contextCommand: opts.contextCommand },
+        {
+          criteria: opts.criteria,
+          intent: opts.intent,
+          ticketKey: opts.ticketKey,
+          contextCommand: opts.contextCommand,
+          debug: opts.debug,
+        },
       );
       // Prompt 09: when the core declares native structured output support, ask
       // its CLI to ENFORCE the observation array shape (claude `--json-schema`,

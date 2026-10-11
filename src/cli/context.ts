@@ -4,7 +4,13 @@ import type { Manifest } from '../manifest/types.js';
 import type { StageKey } from '../model/types.js';
 import { formatId } from '../model/entityId.js';
 import { resolveTicketByKey } from './resolveTicket.js';
-import { buildTicketContext, renderTicketContext, type TicketContext } from '../context/ticketContext.js';
+import {
+  buildTicketContext,
+  renderTicketContext,
+  CONTEXT_AUDIENCES,
+  type ContextAudience,
+  type TicketContext,
+} from '../context/ticketContext.js';
 import { composeStageCommand } from './stage.js';
 import { markerStageFor } from '../agent/markerStage.js';
 import { renderDoneMarkerInstruction, renderGateOnlyInstruction } from '../agent/workflowCommand.js';
@@ -89,6 +95,8 @@ export function renderStageEnding(
 export interface ParsedContext {
   key: string;
   format: ContextFormat;
+  /** `--for <audience>`: a restricted view (tester-safe). Absent → the full view. */
+  audience?: ContextAudience;
 }
 
 /**
@@ -101,15 +109,23 @@ export function parseContextArgs(argv: string[]): ParsedContext {
     throw new Error(`expected 'context' command, got '${cmd ?? ''}'`);
   }
   if (!key || key.startsWith('-')) {
-    throw new Error('missing ticket key (usage: context <key> [--json|--md])');
+    throw new Error('missing ticket key (usage: context <key> [--json|--md] [--for tester])');
   }
   let format: ContextFormat = 'json';
-  for (const flag of rest) {
+  let audience: ContextAudience | undefined;
+  for (let i = 0; i < rest.length; i++) {
+    const flag = rest[i];
     if (flag === '--json') format = 'json';
     else if (flag === '--md') format = 'md';
-    else throw new Error(`unknown flag '${flag}' (want --json or --md)`);
+    else if (flag === '--for') {
+      const value = rest[++i];
+      if (!CONTEXT_AUDIENCES.includes(value as ContextAudience)) {
+        throw new Error(`unknown audience '${value ?? ''}' (want ${CONTEXT_AUDIENCES.join('|')})`);
+      }
+      audience = value as ContextAudience;
+    } else throw new Error(`unknown flag '${flag}' (want --json, --md or --for tester)`);
   }
-  return { key, format };
+  return audience ? { key, format, audience } : { key, format };
 }
 
 /**
@@ -162,9 +178,13 @@ export function runContextCommand(
           hasBlockingSubtasks,
         );
   if (parsed.format === 'md') {
-    return renderTicketContext(ctx, undefined, { bounded: false, stageEnding: ending });
+    return renderTicketContext(ctx, undefined, {
+      bounded: false,
+      stageEnding: ending,
+      ...(parsed.audience ? { audience: parsed.audience } : {}),
+    });
   }
-  const json = withRefs(ctx);
+  const json = withRefs(parsed.audience === 'tester' ? testerSafe(ctx) : ctx);
   return JSON.stringify(ending ? { ...json, stageEnding: ending } : json, null, 2);
 }
 
@@ -181,5 +201,22 @@ function withRefs(ctx: TicketContext) {
     subtaskParent: ctx.subtaskParent && withRef(ctx.subtaskParent),
     subtasks: ctx.subtasks.map(withRef),
     blockers: ctx.blockers.map(withRef),
+  };
+}
+
+/** The tester-safe JSON view: drops code pointers, review findings, gate output, PRs, notes and family tickets. */
+function testerSafe(ctx: TicketContext): TicketContext {
+  const stage = ctx.stage && ctx.stage.stageKey === 'uat' ? { ...ctx.stage, gates: [] } : null;
+  return {
+    ...ctx,
+    codePointers: null,
+    stage,
+    prs: [],
+    parent: null,
+    subtaskParent: null,
+    subtasks: [],
+    blockers: [],
+    notes: { unread: 0, titles: [] },
+    inbox: { unread: 0 },
   };
 }
