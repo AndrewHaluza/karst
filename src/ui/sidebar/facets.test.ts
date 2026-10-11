@@ -23,6 +23,8 @@ function ticket(over: Partial<TicketWithStages> = {}): TicketWithStages {
     sessionId: null,
     description: null,
     brief: null,
+    intent: null,
+    codePointers: null,
     sourceRef: null,
     sourceRefInternal: null,
     sourceFetchedAt: null,

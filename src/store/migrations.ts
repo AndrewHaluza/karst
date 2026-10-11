@@ -2620,5 +2620,16 @@ function migrateLocked(db: Database): void {
     db.exec(FIX_DELIVERIES_DDL);
   }
 
+  if (current < 78) {
+    // v78: ticket-analysis outputs. `intent` is the canonical black-box charter
+    // the UAT tester will read; `code_pointers` are opt-in, unverified
+    // implementer hints. NULL is honest for every pre-v78 row: neither pass
+    // existed. Guarded on CURRENT columns so a fresh DB (schema.sql carries
+    // both) and a re-open are no-ops.
+    const cols78 = ticketColumns(db);
+    if (cols78.size > 0 && !cols78.has('intent')) db.exec('ALTER TABLE tickets ADD COLUMN intent TEXT');
+    if (cols78.size > 0 && !cols78.has('code_pointers')) db.exec('ALTER TABLE tickets ADD COLUMN code_pointers TEXT');
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

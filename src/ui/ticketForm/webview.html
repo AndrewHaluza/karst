@@ -101,6 +101,7 @@
   /* A single page-level bucket for failures that belong to no one field
      (fetch/attach/host errors); "Title is required" ALSO marks the title
      field itself via aria-invalid/aria-describedby (§ DESIGN-SYSTEM 4.5). */
+  .analysis-warning{color:var(--k-warning,var(--k-text-dim));font-size:var(--k-text-md);margin-top:var(--k-space-4)}
   .err{color:var(--k-danger);font-size:var(--k-text-md);margin-top:var(--k-space-4)}
 
   .attachrow{display:flex;align-items:center;gap:var(--k-space-4);margin-top:var(--k-space-3)}
@@ -563,6 +564,13 @@
     <span class="hint" id="autoImproveHint">Improves the prompt after each fetch.</span>
   </div>
   <textarea class="k-input" id="desc" placeholder="What should the agent do? Pre-filled from the brief when fetched — edit freely."></textarea>
+  <label for="intent">Intent <span class="hint">black-box test charter — what UAT checks</span></label>
+  <textarea id="intent" class="k-input" rows="6"></textarea>
+  <div id="codePointersRow" hidden>
+    <label for="codePointers">Code pointers <span class="hint">unverified hints — implementer only</span></label>
+    <textarea id="codePointers" class="k-input" rows="4"></textarea>
+  </div>
+  <div class="analysis-warning" id="analysisWarning" hidden></div>
   <div class="attachrow">
     <button type="button" id="attachBtn" class="k-btn k-btn--ghost"
             title="Attach any file from disk">Attach…</button>
@@ -830,6 +838,15 @@
     // Create mode with a title but no key yet: show what will be persisted.
     if (!refTouched) el('ref').value = deriveKey(el('title').value);
     if (!el('desc').value) el('desc').value = state.description || '';
+    if (!el('intent').value) {
+      el('intent').value = state.intent || '';
+      lastIntent = el('intent').value;
+    }
+    if (!el('codePointers').value) {
+      el('codePointers').value = state.codePointers || '';
+      lastPointers = el('codePointers').value;
+    }
+    el('codePointersRow').hidden = !el('codePointers').value;
     el('attachments').innerHTML = renderAttachments(state.attachments || []);
     const rels = state.relations || [];
     const depsCard = el('dependenciesCard');
@@ -1194,6 +1211,19 @@
   // accepts the default never fires the select's `change` handler, so
   // draft.selectedAgent stays null; submit ORs this in.
   let lastSelectedAgent = null;
+  // Last intent / pointers received from the host (render or analysis). Save and
+  // submit send a field only when it differs, so an untouched reopen never
+  // rewrites stored analysis output.
+  let lastIntent = '';
+  let lastPointers = '';
+  function changedAnalysisFields() {
+    const out = {};
+    const intent = el('intent').value;
+    const pointers = el('codePointers').value;
+    if (intent !== lastIntent) out.intent = intent;
+    if (pointers !== lastPointers) out.codePointers = pointers;
+    return out;
+  }
   // Last pushed type vocabulary + resolved default, so an `analysis` message can
   // redraw the type picker without waiting for the next state push.
   let lastTicketTypes = [];
@@ -1608,7 +1638,7 @@
     // message that follows only confirms/clears it.
     setSubmitBusy(true);
     const baseRefs = collectBaseRefs();
-    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn });
+    post({ type: 'submit', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, pullBase: pullBaseOn, ...changedAnalysisFields() });
   });
 
   el('saveBtn').addEventListener('click', () => {
@@ -1638,7 +1668,7 @@
     const ticketType = (draft.ticketType ?? el('typeSelect').value ?? '') || null;
     setSaveBusy(true);
     const baseRefs = collectBaseRefs();
-    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs });
+    post({ type: 'save', key, title, description: el('desc').value, repos, approach, agent, model, effort, agentProvider, agentPreset, ticketType, createInProvider: createInOn, keyAutoDerived: !refTouched, baseRefs, ...changedAnalysisFields() });
   });
 
   // Typing an identity in Phase 1 reveals (or re-hides) Phase 2 live. When the
@@ -2323,6 +2353,21 @@
         if (typeof msg.prompt === 'string' && msg.prompt.trim()) {
           el('desc').value = msg.prompt;
         }
+        if (typeof msg.intent === 'string') {
+          el('intent').value = msg.intent;
+          lastIntent = msg.intent;
+        }
+        if (typeof msg.codePointers === 'string' && msg.codePointers) {
+          el('codePointers').value = msg.codePointers;
+          lastPointers = msg.codePointers;
+        }
+        el('codePointersRow').hidden = !el('codePointers').value;
+        const warned = Array.isArray(msg.warnings) ? msg.warnings : [];
+        const warnEl = el('analysisWarning');
+        warnEl.hidden = warned.length === 0;
+        warnEl.textContent = warned.length
+          ? 'Analysis fell back for: ' + warned.join(', ') + ' — check the fields before saving.'
+          : '';
         if (Array.isArray(msg.repos)) {
           const picked = new Set(msg.repos);
           for (const r of lastRepos) draft.repos[r.service] = picked.has(r.service);

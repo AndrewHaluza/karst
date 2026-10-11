@@ -359,6 +359,14 @@ describe('buildTicketFormState — edit mode', () => {
     expect(s.selectedApproach).toBe('tdd');
   });
 
+  it('edit mode carries the stored intent and code pointers; a fresh ticket and create mode carry null', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'x' });
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => [], t.id)).toMatchObject({ intent: null, codePointers: null });
+    updateTicketFields(store, t.id, { intent: '## Goal\ng', codePointers: '- a.ts — x' });
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => [], t.id)).toMatchObject({ intent: '## Goal\ng', codePointers: '- a.ts — x' });
+    expect(buildTicketFormState(store, MANIFEST, () => [], () => [])).toMatchObject({ intent: null, codePointers: null });
+  });
+
   it('retains an absent saved ticket model for the model picker', () => {
     const t = createTicket(store, { key: 'P-MODEL', title: 'keep saved model' });
     updateTicketFields(store, t.id, { model: 'codex-preview-removed' });

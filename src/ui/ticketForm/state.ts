@@ -127,6 +127,10 @@ export interface TicketFormState {
   sourceRef: string;
   /** Synthesized context brief, or null before a fetch. */
   brief: string | null;
+  /** Stored analysis intent (black-box test charter), or null before an analysis. */
+  intent: string | null;
+  /** Stored opt-in code pointers (unverified implementer hints), or null. */
+  codePointers: string | null;
   /**
    * Read-only block of a planning draft under review: the design rules / prior
    * work it cites (an `@arch:` entry carries its doc file name) and the host's
@@ -409,6 +413,8 @@ export function buildTicketFormState(
       description: '',
       sourceRef: '',
       brief: null,
+      intent: null,
+      codePointers: null,
       provider,
       ticketSearchEnabled,
       canCreateProviderTicket: provider === 'clickup',
@@ -471,6 +477,8 @@ export function buildTicketFormState(
     description: ticket.description ?? '',
     sourceRef: ticket.sourceRef ?? '',
     brief: ticket.brief,
+    intent: ticket.intent,
+    codePointers: ticket.codePointers,
     provider,
     ticketSearchEnabled,
     canCreateProviderTicket: provider === 'clickup',

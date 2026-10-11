@@ -29,11 +29,9 @@ import { resolvePlannedBaseRef, subtaskParentBranch, assertSharedRepoBaseOverrid
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { scoreRepos } from '../../workflow/classify/gate.js';
 import { suggestSignals as suggestSignalsAI } from '../../workflow/classify/suggest.js';
-import {
-  analyzeTicket,
-  type AnalyzeServiceInput,
-} from '../../workflow/classify/analyze.js';
-import { improveDescription } from '../../workflow/classify/improve.js';
+import type { AnalyzeServiceInput } from '../../workflow/classify/analyze.js';
+import { runAnalysis, type RunAnalysisResult } from '../../workflow/classify/runAnalysis.js';
+import { codePointersEnabled } from '../../manifest/validate/analysis.js';
 import type { TicketFormActions, TicketDraftFields } from './messages.js';
 import type { TicketFormActionsCtx, TicketFormActionsFactory } from './panel.js';
 import {
@@ -404,6 +402,9 @@ function persistDraft(
     agentPreset: input.agentPreset ?? '',
     type: input.ticketType ?? '',
     baseRefs: input.baseRefs ?? {},
+    // Absent = untouched: a plain save/submit never rewrites analysis output.
+    ...(input.intent !== undefined ? { intent: input.intent } : {}),
+    ...(input.codePointers !== undefined ? { codePointers: input.codePointers } : {}),
   });
   // The user's explicit Save/Submit is the ONLY commit of a prefilled page; a
   // fetch/attach that bound an earlier draft must not have accepted it (see
@@ -1049,21 +1050,35 @@ export function buildTicketFormActions(
           model: process.assignment.model ?? null,
           startedAt,
         });
-        // (a) CLASSIFY — the built-in coupled analyzer. The Settings profile
-        // body is deliberately NOT passed: a prose rewriter contradicts the JSON
-        // classify contract. classify.prompt is kept only as a fallback
-        // description.
-        let classification: Awaited<ReturnType<typeof analyzeTicket>>;
+        // cwd is the PROJECT ROOT, not the picked repo: the profile body greps
+        // `.karst/karst.yml`, `CLAUDE.md` and `docs/glossary.md`, which live
+        // beside `.karst/`. The manifest is always `<projectRoot>/.karst/karst.yml`.
+        const cwd = dirname(dirname(deps.manifestPath));
+        // Resolved lazily: it needs the classified repos. Falls back to the sole
+        // configured repo when classify picked none.
+        const resolveRepoPath = (repos: string[]): string | undefined => {
+          const repoEntries = Object.keys(deps.manifest.repositories ?? {});
+          const improveRepo = repos[0] ?? (repoEntries.length === 1 ? repoEntries[0] : undefined);
+          return improveRepo ? deps.manifest.repositories[improveRepo]?.repoPath : undefined;
+        };
+        let result: RunAnalysisResult;
         try {
-          classification = await analyzeTicket(process.adapter, {
-            brief,
-            prompt,
-            services,
-            approaches,
-            ticketId,
-            processRunId: run.id,
-            model: process.assignment.model ?? undefined,
-            effort: process.assignment.effort ?? undefined,
+          result = await runAnalysis(process.adapter, {
+            analyze: {
+              brief,
+              prompt,
+              services,
+              approaches,
+              ticketId,
+              processRunId: run.id,
+              model: process.assignment.model ?? undefined,
+              effort: process.assignment.effort ?? undefined,
+            },
+            title: bound?.title ?? '',
+            ticketType: bound?.type ?? undefined,
+            improve: { instructions: process.assignment.instructions ?? '', cwd, resolveRepoPath },
+            codePointers: { enabled: codePointersEnabled(deps.manifest) },
+            warn: deps.warn,
           });
         } catch (error) {
           // The call's spend is already recorded (a 429 arrives after the input
@@ -1071,43 +1086,9 @@ export function buildTicketFormActions(
           finishProcessRun(deps.store, run.id, 'failed', new Date().toISOString(), 'execution-failed');
           throw error;
         }
-        // (b) IMPROVE — repo-context description rewrite through the Settings
-        // profile body (the ticket-description agent). Soft-failure: degrade to
-        // the classify prompt and keep the run passed.
-        const combined = [prompt, brief].filter(Boolean).join('\n\n');
-        const repoEntries = Object.keys(deps.manifest.repositories ?? {});
-        const improveRepo =
-          classification.repos[0] ??
-          (repoEntries.length === 1 ? repoEntries[0] : undefined);
-        const repoPath = improveRepo
-          ? deps.manifest.repositories[improveRepo]?.repoPath
-          : undefined;
-        // cwd is the PROJECT ROOT, not the picked repo: the profile body greps
-        // `.karst/karst.yml`, `CLAUDE.md` and `docs/glossary.md`, which live
-        // beside `.karst/`, while `repoPath` is an absolute path to a source
-        // tree that may sit anywhere. The manifest is always
-        // `<projectRoot>/.karst/karst.yml`.
-        const cwd = dirname(dirname(deps.manifestPath));
-        const instructions = process.assignment.instructions ?? '';
-        let improved = '';
-        try {
-          improved = await improveDescription(process.adapter, {
-            instructions,
-            description: combined,
-            title: bound?.title ?? '',
-            cwd,
-            ...(repoPath ? { repoPath } : {}),
-            ticketId,
-            processRunId: run.id,
-            model: process.assignment.model ?? undefined,
-            effort: process.assignment.effort ?? undefined,
-          });
-        } catch (error) {
-          deps.warn?.(`description improve failed for ticket ${ctx.ticketId}: ${errorMessage(error)}`);
-          improved = '';
-        }
-        const descriptionOut = improved.trim() || classification.prompt;
         finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
+        const { classification } = result;
+        const descriptionOut = result.description;
         // Persist only when a ticket is bound (post-fetch / edit). Pure create
         // mode holds the draft in the webview until submit, so just return the
         // analysis and let the page apply it.
@@ -1132,6 +1113,10 @@ export function buildTicketFormActions(
             // an explicit pick is the user's, and a re-run of the analyzer must
             // not quietly overwrite it. Absent one, the suggestion IS the value.
             ...(bound?.type ? {} : { type: classification.type }),
+            // Only a produced value is written, so a failed or empty re-run never
+            // clears an existing intent / pointers.
+            ...(result.intent !== null ? { intent: result.intent } : {}),
+            ...(result.codePointers !== null ? { codePointers: result.codePointers } : {}),
           });
           // The analyzer MAY apply its approach pick, but only while the user has
           // not touched the picker AND no choice is persisted yet (design,
@@ -1150,6 +1135,9 @@ export function buildTicketFormActions(
           repos: classification.repos,
           reason: classification.reason,
           ticketType: bound?.type ?? classification.type,
+          intent: result.intent,
+          codePointers: result.codePointers,
+          warnings: result.degraded,
         });
       } catch (e) {
         ctx.post({ type: 'error', message: errorMessage(e) });
