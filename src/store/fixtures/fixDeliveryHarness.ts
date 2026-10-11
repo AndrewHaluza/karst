@@ -1,11 +1,11 @@
 import { vi } from 'vitest';
-import { openStore, type Store } from '../../store/db.js';
-import { createTicket, setAgentState, setStageCurrent } from '../../store/tickets.js';
-import { upsertProject } from '../../store/projects.js';
-import { openRecoveryRound } from '../../store/recoveryRoundsWrite.js';
+import { openStore, type Store } from '../db.js';
+import { createTicket, setAgentState, setStageCurrent } from '../tickets.js';
+import { upsertProject } from '../projects.js';
+import { openRecoveryRound } from '../recoveryRoundsWrite.js';
 import type { NudgeHooks } from '../../ui/nudgeQueue.js';
 import type { MessageRoute } from '../../workflow/messageDelivery.js';
-import type { FixDeliveryHost, TypedSendResult } from './fixDeliveryOps.js';
+import type { FixDeliveryHost, TypedSendResult } from '../../extension/ops/fixDeliveryOps.js';
 
 /** Test harness shared by the fix-delivery ops and sweep tests (not production code). */
 export interface Harness {

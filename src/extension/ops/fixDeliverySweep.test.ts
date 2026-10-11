@@ -14,7 +14,7 @@ import {
   FIX_UNREAD_NEEDS_YOU_MS,
   makeFixDeliverySweep,
 } from './fixDeliverySweep.js';
-import { makeHarness, type Harness } from './fixtures.js';
+import { makeHarness, type Harness } from '../../store/fixtures/fixDeliveryHarness.js';
 
 describe('fixDeliverySweep', () => {
   let h: Harness;

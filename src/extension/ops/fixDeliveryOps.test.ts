@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getFixDelivery, currentFixDelivery, claimArmed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
 import { recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
 import { deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
-import { makeHarness, type Harness } from './fixtures.js';
+import { makeHarness, type Harness } from '../../store/fixtures/fixDeliveryHarness.js';
 
 describe('fixDeliveryOps', () => {
   let h: Harness;
