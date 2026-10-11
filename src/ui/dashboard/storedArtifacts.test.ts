@@ -34,7 +34,7 @@ describe('buildStoredArtifacts', () => {
     expect(plan.approaches[1]!.rows[0]).toEqual({
       path: 'app/plans/a.md', repo: 'app', relPath: 'plans/a.md', kind: 'plan',
       approach: 'superpowers', source: 'watcher', revisions: 3, lastAt: '2026-01-02T00:00:00Z',
-      latestSha: 'sha-a',
+      latestSha: 'sha-a', history: [{ sha: 'top-app/plans/a.md', at: '2026-01-02T00:00:00Z', source: 'watcher' }],
     });
   });
 

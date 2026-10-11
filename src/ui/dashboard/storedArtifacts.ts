@@ -1,4 +1,4 @@
-import type { ArtifactStore } from '../../artifacts/store.js';
+import type { ArtifactStore, RevisionInfo } from '../../artifacts/store.js';
 
 /**
  * The dashboard's Artifacts view model: what the T2 store holds for one ticket,
@@ -19,7 +19,12 @@ export interface StoredArtifactRow {
   revisions: number;
   lastAt: string;
   latestSha: string;
+  /** Newest first, capped at `HISTORY_CAP`; diffs pair adjacent entries. */
+  history: Array<Pick<RevisionInfo, 'sha' | 'at'> & { source: string }>;
 }
+
+/** Revisions listed per artifact; the store keeps all of them. */
+export const HISTORY_CAP = 50;
 
 export interface StoredArtifactGroup {
   kind: string;
@@ -50,7 +55,8 @@ export async function buildStoredArtifacts(
   const [summaries, skips] = await Promise.all([store.listArtifacts(ticketId), store.listSkips(ticketId)]);
   const rows: StoredArtifactRow[] = [];
   for (const s of summaries) {
-    const latest = (await store.history(ticketId, s.path))[0];
+    const revs = await store.history(ticketId, s.path);
+    const latest = revs[0];
     const slash = s.path.indexOf('/');
     rows.push({
       path: s.path,
@@ -62,6 +68,7 @@ export async function buildStoredArtifacts(
       revisions: s.revisions,
       lastAt: latest?.at ?? '',
       latestSha: s.latestSha,
+      history: revs.slice(0, HISTORY_CAP).map((r) => ({ sha: r.sha, at: r.at, source: r.trailers.source || UNKNOWN_LABEL })),
     });
   }
   const kinds = [...new Set(rows.map((r) => r.kind))].sort(byName);
