@@ -27,7 +27,7 @@ function load(): Record<string, unknown> {
   return new Function(`${agentIdentityJs()}\n${js}\nreturn {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
-    apTags, apModelTagsHtml, apInheritLabels,
+    apTags, apModelTagsHtml, apInheritLabels, apEffortMode, apModelTriggerName,
   };`)();
 }
 
@@ -421,5 +421,37 @@ describe('injectAgentPicker', () => {
     const html = `<style>/*KARST_AGENT_PICKER_CSS*/</style>`;
     const out = injectAgentPicker(html);
     expect(out).not.toContain(AGENT_PICKER_CSS_MARKER);
+  });
+});
+
+describe('compact effort placeholder', () => {
+  const fns = load() as {
+    apEffortMode: (e: string[] | undefined, saved: string, compact: boolean) => string;
+    apModelTriggerName: (label: string, id: string, fallback: string) => string;
+  };
+  it('offers a select when the model advertises efforts', () => {
+    expect(fns.apEffortMode(['low', 'high'], '', true)).toBe('select');
+    expect(fns.apEffortMode(['low', 'high'], '', false)).toBe('select');
+  });
+  it('keeps a saved effort visible as a select', () => {
+    expect(fns.apEffortMode(undefined, 'high', true)).toBe('select');
+  });
+  it('shows a disabled placeholder only in compact mode', () => {
+    expect(fns.apEffortMode(undefined, '', true)).toBe('placeholder');
+    expect(fns.apEffortMode([], '', true)).toBe('placeholder');
+  });
+  it('hides Effort outside compact mode as today', () => {
+    expect(fns.apEffortMode(undefined, '', false)).toBe('hidden');
+  });
+  it('puts the full model id in the trigger name', () => {
+    expect(fns.apModelTriggerName('deepseek-v4.1-flash', 'opencode-go/deepseek-v4.1-flash', 'No model'))
+      .toBe('deepseek-v4.1-flash \u2014 opencode-go/deepseek-v4.1-flash');
+    expect(fns.apModelTriggerName('', '', 'No model')).toBe('No model');
+    expect(fns.apModelTriggerName('same', 'same', 'x')).toBe('same');
+  });
+  it('ships the placeholder markup and CSS', () => {
+    expect(js).toContain('data-ap-effort-placeholder');
+    expect(js).toContain('Effort is not available for this model');
+    expect(agentPickerCss()).toContain('.ap-effort-placeholder');
   });
 });

@@ -38,6 +38,19 @@ function apModelTagsHtml(tags) {
   return out + '</div>';
 }
 
+/** How the Effort field presents: a select, a compact-only disabled "\u2014", or nothing. */
+function apEffortMode(efforts, saved, compact) {
+  if ((efforts && efforts.length > 0) || saved) return 'select';
+  return compact ? 'placeholder' : 'hidden';
+}
+
+/** Accessible name / tooltip of the model trigger: label plus the full id. */
+function apModelTriggerName(label, id, fallback) {
+  if (!label && !id) return fallback;
+  if (!id || label === id) return label || id;
+  return label + ' \u2014 ' + id;
+}
+
 /** The effort options HTML for a model: inherit/none row + advertised efforts. */
 function apEffortOptions(catalog, provider, modelId, saved, inheritLabel) {
   var efforts = apEfforts(catalog, provider, modelId);
@@ -260,6 +273,8 @@ function mountAgentPicker(root, opts) {
     + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
     + '<select class="ap-effort" data-ap-effort aria-label="' + apEsc(labelEffort) + '"></select>'
+    + '<div class="ap-effort-placeholder" data-ap-effort-placeholder hidden role="group" aria-disabled="true"'
+    + ' aria-label="' + apEsc(labelEffort) + ': Effort is not available for this model" title="Effort is not available for this model">\u2014</div>'
     + '</div>'
     + '</div>';
 
@@ -299,24 +314,27 @@ function mountAgentPicker(root, opts) {
       ? '<span class="ap-trigger-label">' + apEsc(coreLabel) + '</span><span class="chev" aria-hidden="true"></span>'
       : '<span class="ap-trigger-label">' + apEsc(labels().model || 'No model (agent picks)') + '</span>'
         + '<span class="chev" aria-hidden="true"></span>';
+    var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
+    modelTrigger.title = triggerName;
+    if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
     renderEffort();
   }
 
   function renderEffort() {
     var field = $('[data-ap-effort-field]');
+    var placeholder = $('[data-ap-effort-placeholder]');
+    var sel = $('[data-ap-effort]');
     if (!showEffort) { field.hidden = true; return; }
     var efforts = apEfforts(catalog, state.core, state.model);
-    var show = efforts !== undefined && efforts.length > 0;
-    if (show || state.effort) {
-      field.hidden = false;
-      var sel = $('[data-ap-effort]');
+    var mode = apEffortMode(efforts, state.effort, compact);
+    if (mode === 'select') {
+      field.hidden = false; sel.hidden = false; placeholder.hidden = true;
       var effortInherit = labels().effort || (compact ? 'No effort' : '');
       var built = apEffortOptions(catalog, state.core, state.model, state.effort, effortInherit);
       sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
-      if (built.efforts === null && !state.effort) {
-        // No advertised efforts and nothing saved — keep a single none row.
-        sel.innerHTML = '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
-      }
+    } else if (mode === 'placeholder') {
+      field.hidden = false; sel.hidden = true; placeholder.hidden = false;
+      state.effort = '';
     } else {
       field.hidden = true;
       state.effort = '';
