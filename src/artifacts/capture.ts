@@ -6,13 +6,14 @@
  * teardown the user asked for.
  */
 
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
 
 import type { TaggedOutput } from '../approaches/outputs.js';
 import type { GitRunner } from '../integrations/git.js';
 import { listBaseChanges } from './baseDiff.js';
 import { matchOutput } from './globMatch.js';
 import type { ArtifactStore, RevisionTrailers } from './store.js';
+import { treeRepoName } from './treeRepo.js';
 
 export interface CaptureDeps {
   store: Pick<ArtifactStore, 'commitRevision'>;
@@ -39,7 +40,7 @@ export async function captureWorktree(
   only?: ReadonlySet<string>,
 ): Promise<number> {
   const { debug } = deps;
-  const repo = basename(target.repoPath);
+  const repo = treeRepoName(target.repoPath);
   debug(`[artifacts] capture ${repo} (ticket ${target.ticketId}${only ? `, ${only.size} path(s)` : ', full'})`);
   try {
     const outputs = deps.outputs();
