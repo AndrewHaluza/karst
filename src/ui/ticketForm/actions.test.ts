@@ -1304,6 +1304,14 @@ describe('buildTicketFormActions', () => {
     expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ warnings: ['classify'] });
   });
 
+  it('analyze in pure create mode persists intent on the bound draft so the page need not resend it', async () => {
+    deps.adapter = siteAdapter({ 'ticket-analysis': CLASSIFY_FE, 'ticket-improve': 'IMPROVED', 'ticket-intent': INTENT });
+    const ctx = mkCtx();
+    await buildTicketFormActions(deps)(ctx).analyze('a prompt');
+    expect(ctx.boundTicketId).toBeDefined();
+    expect(getTicket(store, ctx.boundTicketId!).intent).toBe(INTENT);
+  });
+
   it('save without intent in the payload leaves stored intent and pointers untouched', async () => {
     const t = createTicket(store, { key: 'I-1', title: 't' });
     updateTicketFields(store, t.id, { intent: '## Goal\ng', codePointers: '- a.ts — x' });

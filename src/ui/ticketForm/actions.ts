@@ -1089,6 +1089,17 @@ export function buildTicketFormActions(
         finishProcessRun(deps.store, run.id, 'passed', new Date().toISOString());
         const { classification } = result;
         const descriptionOut = result.description;
+        // Intent and pointers persist on the ensured ticket even in pure create
+        // mode (where `ctx.ticketId` is still unset and the description stays in
+        // the webview): the page marks them as received, so it will NOT resend
+        // them on save. Only a produced value is written, so a failed or empty
+        // re-run never clears an existing one.
+        if (result.intent !== null || result.codePointers !== null) {
+          updateTicketFields(deps.store, ticketId, {
+            ...(result.intent !== null ? { intent: result.intent } : {}),
+            ...(result.codePointers !== null ? { codePointers: result.codePointers } : {}),
+          });
+        }
         // Persist only when a ticket is bound (post-fetch / edit). Pure create
         // mode holds the draft in the webview until submit, so just return the
         // analysis and let the page apply it.
@@ -1113,10 +1124,6 @@ export function buildTicketFormActions(
             // an explicit pick is the user's, and a re-run of the analyzer must
             // not quietly overwrite it. Absent one, the suggestion IS the value.
             ...(bound?.type ? {} : { type: classification.type }),
-            // Only a produced value is written, so a failed or empty re-run never
-            // clears an existing intent / pointers.
-            ...(result.intent !== null ? { intent: result.intent } : {}),
-            ...(result.codePointers !== null ? { codePointers: result.codePointers } : {}),
           });
           // The analyzer MAY apply its approach pick, but only while the user has
           // not touched the picker AND no choice is persisted yet (design,
