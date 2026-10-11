@@ -310,6 +310,13 @@ export interface MaterializeOpts {
    * Absent → the `resolve-conflict` command is not materialized.
    */
   cliConflictBriefPrefix?: string;
+  /**
+   * The launch registers the karst MCP server (the shared `launchHasMcp`
+   * predicate). The written command files then name the MCP tools first and
+   * keep the CLI line as fallback; absent/false → CLI-only, unchanged. The
+   * `test` skill is CLI-only either way (`test` is never an MCP tool).
+   */
+  mcp?: boolean;
 }
 
 /**

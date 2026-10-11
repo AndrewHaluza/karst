@@ -447,3 +447,72 @@ describe('renderResumeCommand / renderFixCommand / renderResolveConflictCommand'
     expect(RESERVED_BASENAMES).toHaveLength(4);
   });
 });
+
+describe('MCP-first command bodies', () => {
+  const ctx = 'node "$KARST_CLI" context --db "$KARST_DB" --manifest "$KARST_MANIFEST"';
+  const guide = 'node "$KARST_CLI" guide';
+  const stage = 'node "$KARST_CLI" stage impl pass --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket';
+
+  it('start-task / resume name context + guide MCP tools first, CLI as fallback', () => {
+    for (const body of [
+      renderStartTaskCommand({ contextCommand: ctx, guideCommand: guide, mcp: true }),
+      renderResumeCommand({ contextCommand: ctx, guideCommand: guide, mcp: true }),
+    ]) {
+      expect(body).toContain('call the karst MCP tool `context` with { key: "<key>", format: "md" }');
+      expect(body).toContain('call the karst MCP tool `guide`');
+      expect(body.indexOf('karst MCP tool `context`')).toBeLessThan(body.indexOf(`${ctx} <key> --md`));
+      expect(body).toContain(`${ctx} <key> --md`);
+      expect(body).toContain(`run \`${guide}\``);
+      expect(body).toContain('If the tool is not available');
+    }
+  });
+
+  it('fix / resolve-conflict name their brief MCP tool first', () => {
+    const fix = renderFixCommand({ contextCommand: ctx, fixBriefCommand: 'node "$KARST_CLI" fix-brief', mcp: true });
+    expect(fix).toContain('Call the karst MCP tool `fix-brief` with { key: "<key>" }');
+    expect(fix).toContain('node "$KARST_CLI" fix-brief <key>');
+    const rc = renderResolveConflictCommand({
+      contextCommand: ctx,
+      conflictBriefCommand: 'node "$KARST_CLI" conflict-brief',
+      mcp: true,
+    });
+    expect(rc).toContain('Call the karst MCP tool `conflict-brief` with { key: "<key>", repo: "<repo>" }');
+    expect(rc).toContain('node "$KARST_CLI" conflict-brief <key> <repo>');
+  });
+
+  it('without mcp the entry bodies carry no MCP tool mention', () => {
+    for (const body of [
+      renderStartTaskCommand({ contextCommand: ctx, guideCommand: guide }),
+      renderFixCommand({ contextCommand: ctx, fixBriefCommand: 'x fix-brief', guideCommand: guide }),
+      renderResolveConflictCommand({ contextCommand: ctx, conflictBriefCommand: 'x cb' }),
+    ]) {
+      expect(body).not.toContain('MCP');
+    }
+  });
+
+  it('workflow command: phase, stage, context, guide MCP-first with marker wording as the seed', () => {
+    const body = renderWorkflowCommand({
+      id: 'rpi',
+      label: 'RPI',
+      phases: rpiPhases,
+      contextCommand: ctx,
+      guideCommand: guide,
+      stageCommand: stage,
+      phaseCommand: (n) => `node "$KARST_CLI" phase ${n} --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket`,
+      mcp: true,
+    });
+    expect(body).toContain('call the karst MCP tool `context` with { key: "$ARGUMENTS", format: "md" }');
+    expect(body).toContain('call the karst MCP tool `phase` with { name: "research" }');
+    expect(body).toContain('call the karst MCP tool `guide`');
+    expect(body).toContain(renderDoneMarkerInstruction(stage, '$ARGUMENTS', 'impl'));
+    expect(body).toContain('$KARST phase research');
+    expect(body).not.toMatch(/\/Users\/|globalStorage/);
+  });
+
+  it('workflow command without mcp is unchanged (no MCP mention)', () => {
+    const body = renderWorkflowCommand({
+      id: 'rpi', label: 'RPI', phases: rpiPhases, contextCommand: ctx, guideCommand: guide, stageCommand: stage,
+    });
+    expect(body).not.toContain('MCP');
+  });
+});
