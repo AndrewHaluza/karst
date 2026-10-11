@@ -47,6 +47,26 @@ import { recordGateRun } from './gateRuns.js';
 import { recordPhaseMark } from './phaseMarks.js';
 import { setMergeCheck } from './mergeChecks.js';
 
+describe('ticket intent and code pointers', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('defaults both to null', () => {
+    const t = createTicket(store, { key: 'K-0', title: 't' });
+    expect(getTicket(store, t.id)).toMatchObject({ intent: null, codePointers: null });
+  });
+  it('round-trips intent and codePointers; empty string clears to null', () => {
+    const t = createTicket(store, { key: 'K-1', title: 't' });
+    updateTicketFields(store, t.id, { intent: '## Goal\ng', codePointers: '- a.ts — x' });
+    expect(getTicket(store, t.id)).toMatchObject({ intent: '## Goal\ng', codePointers: '- a.ts — x' });
+    updateTicketFields(store, t.id, { intent: '' });
+    const after = getTicket(store, t.id);
+    expect(after.intent).toBeNull();
+    expect(after.codePointers).toBe('- a.ts — x');
+  });
+});
+
 describe('ticketLabel', () => {
   const base: Ticket = {
     id: 7,
@@ -58,6 +78,8 @@ describe('ticketLabel', () => {
     agentState: 'none',
     sessionId: null,
     description: null,
+    intent: null,
+    codePointers: null,
     brief: null,
     sourceRef: null,
     sourceRefInternal: null,

@@ -4,6 +4,7 @@ import { isHttpUrl } from '../shared/url.js';
 import { isKnownProvider } from '../../agent/registry.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 import type { ActionResultMessage } from '../../model/actionResult.js';
+import type { AnalysisPass } from '../../workflow/classify/runAnalysis.js';
 
 /**
  * Ticket-form webview ↔ host message protocol (§ ticket form). The webview is a
@@ -32,6 +33,12 @@ export interface TicketDraftFields {
    * `type`. Null = inherit the manifest default.
    */
   ticketType: string | null;
+  /**
+   * Analysis outputs. Present ONLY when the user edited the field since the last
+   * analysis; absent = leave the stored value alone ('' clears it).
+   */
+  intent?: string;
+  codePointers?: string;
   /**
    * Create-mode checkbox: when the ticket is persisted (submit or save), also
    * mint a task in the ticketing provider's list and bind it as `sourceRef`.
@@ -155,6 +162,9 @@ export type TicketFormHostMessage =
       repos: string[];
       reason: string;
       ticketType: string;
+      intent: string | null;
+      codePointers: string | null;
+      warnings: AnalysisPass[];
     }
   // A provider task was created and bound to the ticket. `ref`/`url` let the
   // page say what happened without waiting for the next state push.
@@ -308,6 +318,8 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
   // or malformed reads as "local ticket only" — a stale page must never mint
   // an unrequested remote task (the host re-checks capability + binding too).
   const createInProvider = m.createInProvider === true;
+  const intent = typeof m.intent === 'string' ? m.intent : undefined;
+  const codePointers = typeof m.codePointers === 'string' ? m.codePointers : undefined;
   return {
     key: m.key as string,
     title: m.title as string,
@@ -321,6 +333,8 @@ function parseDraftFields(m: Record<string, unknown>): TicketDraftFields | null 
     agentPreset,
     ticketType,
     createInProvider,
+    ...(intent !== undefined ? { intent } : {}),
+    ...(codePointers !== undefined ? { codePointers } : {}),
     keyAutoDerived: m.keyAutoDerived === true,
     baseRefs: parseBaseRefsMessage(m.baseRefs),
   };

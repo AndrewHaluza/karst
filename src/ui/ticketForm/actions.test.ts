@@ -1248,6 +1248,92 @@ describe('buildTicketFormActions', () => {
     };
   }
 
+  const INTENT = '## Goal\ng\n\n## Scenarios\n- Given a, when b, then c';
+  const CLASSIFY_FE = '{"prompt":"p","approach":"rpi","repos":["fe"],"reason":"r","type":"feat"}';
+  function siteAdapter(answers: Record<string, string>): AgentAdapter {
+    return {
+      ...fakeAdapter(),
+      runHeadless: vi.fn(async (o: { tracking?: { callSite?: string } }) => ({
+        sessionId: 's',
+        verdict: null,
+        raw: answers[o.tracking?.callSite ?? ''] ?? '',
+      })),
+    };
+  }
+  function analysisCtx(ticketId: number) {
+    const posted: TicketFormHostMessage[] = [];
+    const ctx: TicketFormActionsCtx = {
+      post: (m) => posted.push(m), pushState: () => {}, mode: 'edit', ticketId,
+      bindTicket: () => {}, commitPrefill: () => {}, close: () => {},
+    };
+    return { ctx, posted };
+  }
+
+  it('analyze persists intent and pointers and posts no warnings when every pass succeeds', async () => {
+    const t = createTicket(store, { key: 'P-I1', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.manifest = { ...MANIFEST, analysis: { codePointers: true } };
+    deps.adapter = siteAdapter({
+      'ticket-analysis': CLASSIFY_FE, 'ticket-improve': 'IMPROVED', 'ticket-intent': INTENT, 'ticket-code-pointers': '- src/a.ts — x',
+    });
+    const { ctx, posted } = analysisCtx(t.id);
+    await buildTicketFormActions(deps)(ctx).analyze('');
+    const stored = getTicket(store, t.id);
+    expect(stored.description).toBe('IMPROVED');
+    expect(stored.intent).toBe(INTENT);
+    expect(stored.codePointers).toBe('- src/a.ts — x');
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ intent: INTENT, codePointers: '- src/a.ts — x', warnings: [] });
+  });
+
+  it('analyze with invalid intent stores NULL (never half-valid) and posts warnings naming intent', async () => {
+    const t = createTicket(store, { key: 'P-I2', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.adapter = siteAdapter({ 'ticket-analysis': CLASSIFY_FE, 'ticket-improve': 'IMPROVED', 'ticket-intent': 'just prose' });
+    const { ctx, posted } = analysisCtx(t.id);
+    await buildTicketFormActions(deps)(ctx).analyze('');
+    expect(getTicket(store, t.id).intent).toBeNull();
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ intent: null, codePointers: null, warnings: ['intent'] });
+  });
+
+  it('analyze with classify prose twice posts warnings naming classify and still applies fallbacks', async () => {
+    const t = createTicket(store, { key: 'P-I3', title: 't' });
+    updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
+    deps.adapter = siteAdapter({ 'ticket-analysis': 'prose', 'ticket-improve': 'IMPROVED', 'ticket-intent': INTENT });
+    const { ctx, posted } = analysisCtx(t.id);
+    await buildTicketFormActions(deps)(ctx).analyze('');
+    expect(posted.find((m) => m.type === 'analysis')).toMatchObject({ warnings: ['classify'] });
+  });
+
+  it('analyze in pure create mode persists intent on the bound draft so the page need not resend it', async () => {
+    deps.adapter = siteAdapter({ 'ticket-analysis': CLASSIFY_FE, 'ticket-improve': 'IMPROVED', 'ticket-intent': INTENT });
+    const ctx = mkCtx();
+    await buildTicketFormActions(deps)(ctx).analyze('a prompt');
+    expect(ctx.boundTicketId).toBeDefined();
+    expect(getTicket(store, ctx.boundTicketId!).intent).toBe(INTENT);
+  });
+
+  it('save without intent in the payload leaves stored intent and pointers untouched', async () => {
+    const t = createTicket(store, { key: 'I-1', title: 't' });
+    updateTicketFields(store, t.id, { intent: '## Goal\ng', codePointers: '- a.ts — x' });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    await actions.save({ key: 'I-1', title: 'retitled', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false });
+    expect(getTicket(store, t.id)).toMatchObject({ title: 'retitled', intent: '## Goal\ng', codePointers: '- a.ts — x' });
+  });
+
+  it('save with an edited intent persists it; an empty string clears it', async () => {
+    const t = createTicket(store, { key: 'I-2', title: 't' });
+    updateTicketFields(store, t.id, { intent: '## Goal\nold' });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    const base = { key: 'I-2', title: 't', description: '', repos: [], approach: null, agent: null, model: null, ticketType: null,
+      createInProvider: false };
+    await actions.save({ ...base, intent: '## Goal\nnew' });
+    expect(getTicket(store, t.id).intent).toBe('## Goal\nnew');
+    await actions.save({ ...base, intent: '' });
+    expect(getTicket(store, t.id).intent).toBeNull();
+  });
+
+
   it('analyze posts busy on, persists the coupled result, and posts analysis, then busy off', async () => {
     const t = createTicket(store, { key: 'P-1', title: 't' });
     updateTicketFields(store, t.id, { brief: 'the brief text', selectedRepos: [] });
@@ -1276,6 +1362,9 @@ describe('buildTicketFormActions', () => {
       repos: ['fe'],
       reason: 'UI-only change',
       ticketType: 'feat',
+      intent: null,
+      codePointers: null,
+      warnings: ['intent'],
     });
     expect(posted[posted.length - 1]).toEqual({ type: 'busy', what: 'analyze', on: false });
     // prompt + repos are prefilled onto the ticket + re-pushed state…
@@ -1479,8 +1568,8 @@ describe('buildTicketFormActions', () => {
 
     await actions.analyze('a ticket prompt');
 
-    // Two headless calls: classify then improve, both with the configured model.
-    expect(runHeadless).toHaveBeenCalledTimes(2);
+    // Four headless calls: classify, improve, intent, intent reformat retry; classify and improve (calls 0 and 1) carry the configured model.
+    expect(runHeadless).toHaveBeenCalledTimes(4);
     expect(runHeadless.mock.calls[0]![0].model).toBe('gemini-2.5-pro');
     expect(runHeadless.mock.calls[1]![0].model).toBe('gemini-2.5-pro');
     // The prefill run snapshots the identity that actually ran — the settings
@@ -1527,7 +1616,7 @@ describe('buildTicketFormActions', () => {
 
     await actions.analyze('');
 
-    expect(runHeadless).toHaveBeenCalledTimes(2);
+    expect(runHeadless).toHaveBeenCalledTimes(4);
     // Call[0] is classify — built-in analyzer, NO profile body.
     expect(runHeadless.mock.calls[0]![0].prompt).toContain('conventional-commit type');
     expect(runHeadless.mock.calls[0]![0].prompt).not.toContain('# description-improver');

@@ -1216,3 +1216,50 @@ describe('content width cap (UI-R48)', () => {
     expect(bodyHas(/max-width\s*:\s*var\(--k-content-max\)/, /margin-inline\s*:\s*auto/)).toBe(true);
   });
 });
+
+describe('ticket-form webview.html — intent and code pointers', () => {
+  const analysisBody = () => HTML.match(/case 'analysis': {([\s\S]*?)\n {6}}/)![1]!;
+
+  it('declares the intent textarea, a hidden code-pointers row and a warning slot', () => {
+    expect(HTML).toContain('<textarea id="intent"');
+    expect(HTML).toMatch(/<div id="codePointersRow" hidden>/);
+    expect(HTML).toContain('<textarea id="codePointers"');
+    expect(HTML).toMatch(/<div class="analysis-warning" id="analysisWarning" hidden>/);
+  });
+  it('the analysis handler fills #intent from a string, remembers it, and names degraded passes', () => {
+    const body = analysisBody();
+    expect(body).toContain("el('intent').value = msg.intent");
+    expect(body).toContain('lastIntent = msg.intent');
+    expect(body).toContain('Analysis fell back for: ');
+    expect(body).toContain("warned.join(', ')");
+  });
+  it('the analysis handler hides the code-pointers row when there are none', () => {
+    expect(analysisBody()).toContain("el('codePointersRow').hidden = !el('codePointers').value");
+  });
+  it('changedAnalysisFields sends a field only when it differs from the last received value', () => {
+    const values: Record<string, string> = { intent: 'edited', codePointers: 'same' };
+    const fn = loadFunction('changedAnalysisFields', {
+      el: (id: string) => ({ value: values[id] }),
+      lastIntent: 'original',
+      lastPointers: 'same',
+    });
+    expect(fn()).toEqual({ intent: 'edited' });
+  });
+  it('changedAnalysisFields sends nothing when neither field changed', () => {
+    const fn = loadFunction('changedAnalysisFields', {
+      el: () => ({ value: 'v' }), lastIntent: 'v', lastPointers: 'v',
+    });
+    expect(fn()).toEqual({});
+  });
+  it('both submit and save payloads spread changedAnalysisFields()', () => {
+    expect(HTML.match(/\.\.\.changedAnalysisFields\(\)/g)).toHaveLength(2);
+  });
+  it('render(state) seeds the fields and lastIntent/lastPointers from the stored state', () => {
+    const src = functionSource('render');
+    expect(src).toContain("el('intent').value = state.intent || ''");
+    expect(src).toContain("lastIntent = el('intent').value");
+    expect(src).toContain("el('codePointers').value = state.codePointers || ''");
+    expect(src).toContain("lastPointers = el('codePointers').value");
+    expect(src).toContain("el('codePointersRow').hidden = !el('codePointers').value");
+  });
+});

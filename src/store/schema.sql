@@ -33,6 +33,9 @@ CREATE TABLE IF NOT EXISTS tickets (
   agent             TEXT,                 -- chosen single-subagent id (nullable)
   selected_repos    TEXT,                 -- JSON array of confirmed repository names
   base_refs         TEXT,                 -- v48: JSON object of per-repo base branch overrides
+  -- v78 analysis columns (kept in sync with migrations.ts v78 ALTERs):
+  intent            TEXT,                 -- canonical black-box test charter; NULL = none yet
+  code_pointers     TEXT,                 -- unverified implementer hints; NULL = none
   -- v3 lifecycle column (kept in sync with migrations.ts v3 ALTER):
   archived_at       TEXT,                 -- soft-delete timestamp; NULL = active
   -- v5 model column (kept in sync with migrations.ts v5 ALTER):

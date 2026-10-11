@@ -27,6 +27,10 @@ export interface Ticket {
   /** v2 ticket-form fields (§ ticket form). */
   description: string | null;
   brief: string | null;
+  /** Canonical black-box test charter from ticket analysis (v78); null = none yet. */
+  intent: string | null;
+  /** Opt-in unverified implementer hints from ticket analysis (v78); null = none. */
+  codePointers: string | null;
   sourceRef: string | null;
   /**
    * The provider's INTERNAL task id when `sourceRef` is a custom id (v71), so a
@@ -130,6 +134,8 @@ interface TicketRow {
   session_id: string | null;
   description: string | null;
   brief: string | null;
+  intent: string | null;
+  code_pointers: string | null;
   source_ref: string | null;
   source_ref_internal: string | null;
   source_fetched_at: string | null;
@@ -203,6 +209,8 @@ function rowToTicket(r: TicketRow): Ticket {
     sessionId: r.session_id,
     description: r.description,
     brief: r.brief,
+    intent: r.intent ?? null,
+    codePointers: r.code_pointers ?? null,
     sourceRef: r.source_ref,
     sourceRefInternal: r.source_ref_internal,
     sourceFetchedAt: r.source_fetched_at,
@@ -535,6 +543,10 @@ export function updateTicketCore(
 export interface TicketFieldsPatch {
   description?: string;
   brief?: string;
+  /** '' clears to NULL. */
+  intent?: string;
+  /** '' clears to NULL. */
+  codePointers?: string;
   /**
    * Ticket origin (diagnostics metadata). Set at create time by `createTicket`;
    * also patchable so a ticket minted by the form and then accepted from a
@@ -589,6 +601,8 @@ export function updateTicketFields(
   const columns: Record<string, unknown> = {};
   if (patch.description !== undefined) columns.description = patch.description;
   if (patch.brief !== undefined) columns.brief = patch.brief;
+  if (patch.intent !== undefined) columns.intent = patch.intent === '' ? null : patch.intent;
+  if (patch.codePointers !== undefined) columns.code_pointers = patch.codePointers === '' ? null : patch.codePointers;
   if (patch.source !== undefined) columns.source = patch.source;
   if (patch.sourceRef !== undefined) columns.source_ref = patch.sourceRef;
   if (patch.sourceRefInternal !== undefined) {

@@ -75,6 +75,13 @@ const FOCUS_CAP = 12;
  * opens the semantic artifact index, this one the T2 store's file history. The
  * Artifacts view's own controls (rows, Reveal, Purge) render only inside
  * `#artView`, which the sweep never opens, so they add nothing.
+ *
+ * Updated a ninth time by ticket-analysis intent/code pointers: `ticketForm`
+ * +2 — the Intent and Code pointers textareas (ticket analysis now stores a
+ * black-box test charter and opt-in implementer hints). Both are net-new edit
+ * fields; neither folds into the description textarea, whose role (WHAT/WHY)
+ * is distinct. The pointers textarea sits in a `hidden` row but the sweep's
+ * selector still counts it.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 47,
@@ -84,7 +91,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   sidebar: 69, // restored: the sidebar corpus still renders 69 focusables (see seventh note); was 57 before the planning-tree redesign
   diffs: 35,
   settings: 193,
-  ticketForm: 25,
+  ticketForm: 27,
   gettingStarted: 6,
 };
 

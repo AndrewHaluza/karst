@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { openStore } from './db.js';
 import { readSchema } from './migrations.js';
+import { SCHEMA_VERSION } from './schemaVersion.js';
 
 describe('merged schema migration', () => {
   const cleanups: (() => void)[] = [];
@@ -34,7 +35,7 @@ describe('merged schema migration', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table'")
       .all()
       .map((r) => (r as { name: string }).name);
-    expect(version).toBe(77);
+    expect(version).toBe(SCHEMA_VERSION);
     expect(tables).toContain('approach_graph_runs');
     expect(tables).toContain('approach_graph_tokens');
     expect(tables).toContain('test_logs');

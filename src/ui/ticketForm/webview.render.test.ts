@@ -315,3 +315,37 @@ describe('ticket form — F3 split repo chips (group 4)', () => {
     expect(v.query('[data-repo="api"] .repo-branch.is-overridden')!.textContent).toContain('main (override)');
   });
 });
+
+describe('ticket form — reopen shows stored intent and code pointers', () => {
+  const editState = (over: Record<string, unknown> = {}) =>
+    baseState({ mode: 'edit', ticketId: 7, key: 'K-7', title: 'T', intent: '## Goal\ng', codePointers: '- a.ts — x', ...over });
+  const lastSave = (v: RenderHandle) =>
+    [...v.posted].reverse().find((m) => (m as { type: string }).type === 'save') as Record<string, unknown>;
+
+  it('fills #intent and #codePointers and shows the pointers row', () => {
+    const v = open(editState());
+    expect(v.query<HTMLTextAreaElement>('#intent')!.value).toBe('## Goal\ng');
+    expect(v.query<HTMLTextAreaElement>('#codePointers')!.value).toBe('- a.ts — x');
+    expect(v.query<HTMLElement>('#codePointersRow')!.hidden).toBe(false);
+  });
+  it('keeps the pointers row hidden when the ticket has none', () => {
+    const v = open(editState({ codePointers: null }));
+    expect(v.query<HTMLElement>('#codePointersRow')!.hidden).toBe(true);
+  });
+  it('an untouched reopen saves without intent/codePointers, so stored values are not rewritten', () => {
+    const v = open(editState());
+    v.click('#saveBtn');
+    const save = lastSave(v);
+    expect(save).toBeTruthy();
+    expect('intent' in save).toBe(false);
+    expect('codePointers' in save).toBe(false);
+  });
+  it('editing #intent sends only that field on save', () => {
+    const v = open(editState());
+    v.query<HTMLTextAreaElement>('#intent')!.value = '## Goal\nedited';
+    v.click('#saveBtn');
+    const save = lastSave(v);
+    expect(save.intent).toBe('## Goal\nedited');
+    expect('codePointers' in save).toBe(false);
+  });
+});
