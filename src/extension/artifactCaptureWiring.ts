@@ -19,7 +19,7 @@ export interface ArtifactCaptureWiring {
   readonly beforeRemove: (target: ArchiveTarget) => Promise<void>;
   /** The agent session closed: capture what the debounce had not flushed yet. */
   readonly onSessionEnd: (ticketId: number) => void;
-  /** Claude PostToolUse hook payload: capture the notified edit path (no-op for any other event). */
+  /** Hook payload fan-in: SessionEnd runs the final capture; PostToolUse captures the notified edit path. */
   readonly onHookEvent: (
     ticketId: number,
     payload: { hook_event_name?: string; cwd?: string; file_path?: string; session_id?: string },
@@ -33,6 +33,11 @@ export function wireArtifactCapture(
   deps: Omit<ArtifactCaptureServiceDeps, 'watch'> & { fsWatch: typeof nodeWatch },
 ): ArtifactCaptureWiring {
   const service = createArtifactCaptureService({ ...deps, watch: nodeFsWatch(deps.fsWatch) });
+  const onSessionEnd = (ticketId: number): void => {
+    void service.captureTicket(ticketId).catch((err: unknown) => {
+      deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);
+    });
+  };
   const timer = setInterval(() => service.syncWatchers(), WATCHER_SYNC_MS);
   timer.unref();
   return {
@@ -40,12 +45,12 @@ export function wireArtifactCapture(
     start: () => service.syncWatchers(),
     beforeRemove: (t) =>
       service.sweepWorktree({ ticketId: t.ticketId, repoPath: t.repoPath, worktreePath: t.path, baseRef: t.baseRef }),
-    onSessionEnd: (ticketId) => {
-      void service.captureTicket(ticketId).catch((err: unknown) => {
-        deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);
-      });
-    },
+    onSessionEnd,
     onHookEvent: (ticketId, payload) => {
+      if (payload.hook_event_name === 'SessionEnd') {
+        onSessionEnd(ticketId);
+        return;
+      }
       if (payload.hook_event_name !== 'PostToolUse' || !payload.file_path || !payload.cwd) return;
       void service
         .captureEdit({

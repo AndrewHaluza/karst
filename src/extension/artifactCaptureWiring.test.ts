@@ -137,4 +137,18 @@ describe('wireArtifactCapture', () => {
     await vi.waitFor(() => expect(cwds).toContain('/wt'));
     w.dispose();
   });
+
+  it('onHookEvent routes SessionEnd to the final capture', async () => {
+    addWorktree();
+    const cwds: string[] = [];
+    const w = wireArtifactCapture({
+      store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
+      manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
+      git: async (_a, cwd) => { cwds.push(cwd); return { stdout: '', stderr: '', exitCode: 1 }; },
+      debug: () => {}, fsWatch,
+    });
+    w.onHookEvent(5, { hook_event_name: 'SessionEnd' });
+    await vi.waitFor(() => expect(cwds).toContain('/wt'));
+    w.dispose();
+  });
 });
