@@ -274,6 +274,31 @@ describe('DashboardManager', () => {
     expect(loadGateOptions).toHaveBeenCalledOnce();
   });
 
+  it('overlays the stored-artifact view once its loader answers, and only re-pushes on change', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    const { host, panels } = fakeHost();
+    const view = { total: 0, groups: [], skips: [], globs: ['plans/**'] };
+    const loadStored = vi.fn(async () => view);
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, loadStored,
+    );
+    mgr.openDashboard(t.id);
+    await vi.waitFor(() => {
+      const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: { storedArtifacts?: unknown } }>;
+      expect(states.at(-1)!.state.storedArtifacts).toEqual(view);
+    });
+    const pushed = panels[0]!.posted.length;
+    mgr.pushStoreState(t.id);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(loadStored).toHaveBeenCalled();
+    // A second identical answer adds the store push only — no extra loader-triggered repush.
+    expect(panels[0]!.posted.length).toBeLessThanOrEqual(pushed + 1);
+  });
+
   it('pushPassiveState reloads supplemental facts without settling dashboard actions', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host, panels } = fakeHost();

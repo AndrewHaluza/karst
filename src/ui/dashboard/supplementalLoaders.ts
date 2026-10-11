@@ -5,6 +5,10 @@ import type { DashboardState } from './state.js';
 import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { BaselineReviewRow, BaselineRowsLoader } from './baselineRows.js';
+import type { StoredArtifactsView } from './storedArtifacts.js';
+
+/** Read the ticket's stored-artifact view (T2 store); may reject. */
+export type StoredArtifactsLoader = (ticketId: number) => Promise<StoredArtifactsView>;
 
 /** Content equality for `GateOptions` — a fresh resolution is a new object every time. */
 function sameGateOptions(a: GateOptions, b: GateOptions): boolean {
@@ -66,6 +70,9 @@ export class SupplementalLoaders {
   /** The last baseline rows per ticket (@arch:BASELINE-REVIEW); dies with the panel. */
   private readonly baselineCache = new Map<number, BaselineReviewRow[]>();
   private readonly baselineRequests = new Map<number, number>();
+  /** The last stored-artifact view per ticket; dies with the panel. */
+  private readonly storedCache = new Map<number, StoredArtifactsView>();
+  private readonly storedRequests = new Map<number, number>();
 
   constructor(
     private readonly loadStats: WorktreeStatsLoader | undefined,
@@ -73,6 +80,7 @@ export class SupplementalLoaders {
     private readonly loadBranchCandidates: BranchCandidatesLoader | undefined,
     private readonly logError: LogError,
     private readonly loadBaselines?: BaselineRowsLoader,
+    private readonly loadStoredArtifacts?: StoredArtifactsLoader,
   ) {}
 
   /** The last resolved gate options for a ticket, if any. */
@@ -111,6 +119,35 @@ export class SupplementalLoaders {
         if (!host.isCurrentPanel(ticketId, panel)) return;
         if (this.baselineRequests.get(ticketId) !== request) return;
         this.logError('karst: dashboard baseline review rows failed', error);
+      },
+    );
+  }
+
+  /** The last loaded stored-artifact view; undefined until the first load answers. */
+  storedArtifactsFor(ticketId: number): StoredArtifactsView | undefined {
+    return this.storedCache.get(ticketId);
+  }
+
+  /** Reload the stored-artifact view; re-push only when it changed. Latest request for a live panel wins. */
+  pushStoredArtifacts(
+    ticketId: number,
+    panel: DashboardPanel,
+    settlesActions: boolean,
+    host: SupplementalHost,
+  ): void {
+    if (!this.loadStoredArtifacts) return;
+    const request = (this.storedRequests.get(ticketId) ?? 0) + 1;
+    this.storedRequests.set(ticketId, request);
+    const live = (): boolean => host.isCurrentPanel(ticketId, panel) && this.storedRequests.get(ticketId) === request;
+    void this.loadStoredArtifacts(ticketId).then(
+      (view) => {
+        if (!live()) return;
+        const previous = this.storedCache.get(ticketId);
+        this.storedCache.set(ticketId, view);
+        if (JSON.stringify(previous) !== JSON.stringify(view)) host.repush(ticketId, settlesActions);
+      },
+      (error) => {
+        if (live()) this.logError('karst: dashboard stored artifacts failed', error);
       },
     );
   }
@@ -238,5 +275,7 @@ export class SupplementalLoaders {
     this.gateOptionsCache.delete(ticketId);
     this.baselineCache.delete(ticketId);
     this.baselineRequests.delete(ticketId);
+    this.storedCache.delete(ticketId);
+    this.storedRequests.delete(ticketId);
   }
 }

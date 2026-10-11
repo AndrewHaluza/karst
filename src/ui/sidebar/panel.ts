@@ -90,6 +90,8 @@ export class SidebarViewManager {
     private readonly manifest?: () => Manifest | undefined,
     /** Whether this window holds a live terminal for a planning session. */
     private readonly planningLive?: (sessionId: number) => boolean,
+    /** Cached captured-file count per ticket, for the expanded row's Artifacts chip. */
+    private readonly artifactCount?: (ticketId: number) => number,
   ) {}
 
   /** Bind the manager to a view host; wires resolve → initial push + routing. */
@@ -142,6 +144,7 @@ export class SidebarViewManager {
         activeTicketId: this.activeTicketId?.(),
         projectId: this.projectId?.(),
         ...(this.planningLive ? { planningLive: this.planningLive } : {}),
+        ...(this.artifactCount ? { artifactCount: this.artifactCount } : {}),
       },
       this.pathContext?.(),
     );

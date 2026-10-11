@@ -51,6 +51,7 @@ function fixturePeek(overrides?: Partial<TicketPeek>): TicketPeek {
 function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
   return {
     kind: 'ticket',
+    artifacts: 0,
     ticketId: 900001 + index,
     idLabel: `T${900001 + index}`,
     label: `FEAT-${100 + index}`,

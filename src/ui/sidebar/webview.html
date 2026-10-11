@@ -271,6 +271,11 @@
   /* Ship landing rows (prototype repo-list): PR number + ready/conflict per
      repo. The state word is the non-color carrier (UI-R28), color reinforces. */
   .peek-repos{margin-top:var(--k-space-2);display:grid;gap:var(--k-space-2)}
+  .peek-artifacts{margin-top:var(--k-space-2);padding:0 var(--k-space-3);font-size:var(--k-text-2xs);
+    color:var(--k-text-dim);background:none;border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-pill);cursor:pointer}
+  .peek-artifacts:hover{background:var(--k-surface-hover)}
+  .peek-artifacts:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
   .peek-repo{display:flex;align-items:center;gap:var(--k-space-3);font-size:var(--k-text-xs)}
   .peek-repo-pr{font-family:var(--k-font-mono);color:var(--k-text-dim);flex:none}
   .peek-repo-name{font-family:var(--k-font-mono);color:var(--k-text-dim);flex:1;
@@ -680,6 +685,15 @@
     return `<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="${progress.passed}" aria-valuemin="0" aria-valuemax="${progress.total}"><span style="width:${pct}%"></span></div>`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return `<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="${Number(row.ticketId)}"`
+      + ` title="Open the dashboard to browse captured artifacts">${n} artifact${n === 1 ? '' : 's'}</button>`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return `<div class="peek-repos">`
@@ -763,6 +777,7 @@
           + `<div class="peek-sep"></div>`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + `</div>`
         + (peek.next ? `<div class="peek-actions">${nextCtaHtml(peek.next, row)}</div>` : '')

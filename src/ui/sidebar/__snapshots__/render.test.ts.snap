@@ -481,6 +481,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -564,6 +573,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -1686,6 +1696,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -1769,6 +1788,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -2891,6 +2911,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -2974,6 +3003,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -4096,6 +4126,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -4179,6 +4218,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -5301,6 +5341,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -5384,6 +5433,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -6506,6 +6556,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -6589,6 +6648,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -7711,6 +7771,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -7794,6 +7863,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -8916,6 +8986,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -8999,6 +9078,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')
@@ -10121,6 +10201,15 @@ function agentIdentityHtml(provider, model, compact) {
     return \`<div class="peek-progress" role="progressbar" aria-label="Gate progress" aria-valuenow="\${progress.passed}" aria-valuemin="0" aria-valuemax="\${progress.total}"><span style="width:\${pct}%"></span></div>\`;
   }
 
+  // Captured-artifact count (artifact store): a chip that opens the dashboard,
+  // where the Artifacts panel lists them. Absent at zero.
+  function peekArtifactsHtml(row) {
+    if (!row.artifacts) return '';
+    const n = Number(row.artifacts);
+    return \`<button type="button" class="peek-artifacts" data-act="open-dashboard" data-id="\${Number(row.ticketId)}"\`
+      + \` title="Open the dashboard to browse captured artifacts">\${n} artifact\${n === 1 ? '' : 's'}</button>\`;
+  }
+
   function peekReposHtml(repos) {
     if (!repos || !repos.length) return '';
     return \`<div class="peek-repos">\`
@@ -10204,6 +10293,7 @@ function agentIdentityHtml(provider, model, compact) {
           + \`<div class="peek-sep"></div>\`
           + peekAgentHtml(peek.agent)
           + peekReposHtml(peek.repos)
+          + peekArtifactsHtml(row)
           + metaHtml
         + \`</div>\`
         + (peek.next ? \`<div class="peek-actions">\${nextCtaHtml(peek.next, row)}</div>\` : '')

@@ -1,5 +1,5 @@
-import { appendFile, mkdir, readdir, readFile, rm, access } from 'node:fs/promises';
-import { join } from 'node:path';
+import { appendFile, chmod, mkdir, readdir, readFile, rm, access, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 import { snapshotBytes } from '../approaches/graph/artifacts/snapshot.js';
 import { runGit, runGitText } from './gitRun.js';
@@ -57,11 +57,18 @@ export interface ArtifactStore {
   /** Commit sha, or null when skipped / unchanged. */
   commitRevision(input: RevisionInput): Promise<string | null>;
   listArtifacts(ticketId: number): Promise<ArtifactSummary[]>;
+  /** Files in the latest tree — one git call, cheap enough for a sidebar badge. */
+  countArtifacts(ticketId: number): Promise<number>;
   history(ticketId: number, path: string): Promise<RevisionInfo[]>;
   show(ticketId: number, sha: string, path: string): Promise<Buffer>;
   diff(ticketId: number, a: string, b: string, path: string): Promise<string>;
   listSkips(ticketId: number): Promise<SkipRecord[]>;
   purgeArtifacts(ticketId: number): Promise<void>;
+  /**
+   * Check the latest tree out into `<ticket store>/view/` (read-only, rebuilt
+   * on every call). Returns the dir, or null when nothing is stored yet.
+   */
+  materializeView(ticketId: number): Promise<string | null>;
   /** Purge every ticket store whose newest revision is older than `maxAgeDays`; returns purged ticket ids. */
   purgeStale(maxAgeDays: number): Promise<number[]>;
 }
@@ -89,6 +96,22 @@ function treePathConflicts(files: ReadonlyMap<string, TreeEntry>, path: string):
   const asDir = `${path}/`;
   for (const existing of files.keys()) if (existing.startsWith(asDir)) return true;
   return false;
+}
+
+/** Remove a read-only checkout: unlock every dir first, since 0o555 dirs refuse unlink. */
+async function rmWritable(dir: string): Promise<void> {
+  const unlock = async (d: string): Promise<void> => {
+    let entries;
+    try {
+      await chmod(d, 0o755);
+      entries = await readdir(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) if (e.isDirectory()) await unlock(join(d, e.name));
+  };
+  await unlock(dir);
+  await rm(dir, { recursive: true, force: true });
 }
 
 export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
@@ -231,6 +254,12 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
       return out;
     },
 
+    async countArtifacts(ticketId) {
+      const gitDir = await readableRepo(ticketId);
+      if (!gitDir) return 0;
+      return (await readTree(gitDir, await headSha(gitDir))).size;
+    },
+
     async history(ticketId, path) {
       const gitDir = await readableRepo(ticketId);
       if (!gitDir || !(await headSha(gitDir))) return [];
@@ -266,8 +295,30 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
       }
     },
 
+    materializeView: (ticketId) =>
+      queue.run(String(ticketId), async () => {
+        const gitDir = await readableRepo(ticketId);
+        const head = gitDir ? await headSha(gitDir) : null;
+        if (!gitDir || !head) return null;
+        const view = join(dirOf(ticketId), 'view');
+        await rmWritable(view);
+        const files = await readTree(gitDir, head);
+        await mkdir(view, { recursive: true });
+        const dirs = new Set<string>([view]);
+        for (const [path, entry] of files) {
+          const target = join(view, path);
+          await mkdir(dirname(target), { recursive: true });
+          await writeFile(target, await runGit(gitDir, ['cat-file', 'blob', entry.sha]), { mode: 0o444 });
+          for (let d = dirname(target); d.length >= view.length; d = dirname(d)) dirs.add(d);
+        }
+        // Deepest first, so locking a parent never blocks its children.
+        for (const d of [...dirs].sort((a, b) => b.length - a.length)) await chmod(d, 0o555);
+        return view;
+      }),
+
     purgeArtifacts: (ticketId) =>
       queue.run(String(ticketId), async () => {
+        await rmWritable(join(dirOf(ticketId), 'view'));
         await rm(dirOf(ticketId), { recursive: true, force: true });
       }),
 
@@ -288,6 +339,7 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
           if (!gitDir || !(await headSha(gitDir))) return false;
           const secs = Number((await runGitText(gitDir, ['log', '-1', '--format=%ct', BRANCH])).trim());
           if (!Number.isFinite(secs) || secs * 1000 >= cutoff) return false;
+          await rmWritable(join(dirOf(ticketId), 'view'));
           await rm(dirOf(ticketId), { recursive: true, force: true });
           return true;
         });

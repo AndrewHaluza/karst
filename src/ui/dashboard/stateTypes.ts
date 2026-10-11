@@ -1,6 +1,7 @@
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
 import type { AgentProvider, PresetCapability } from '../../manifest/types.js';
 import type { BaselineReviewRow } from './baselineRows.js';
+import type { StoredArtifactsView } from './storedArtifacts.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { ShipSlot } from '../../model/shipSlot.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
@@ -302,6 +303,11 @@ export interface DashboardState {
    * on them (@arch:BASELINE-REVIEW); absent or empty = nothing to review.
    */
   baselineReview?: BaselineReviewRow[];
+  /**
+   * What the T2 artifact store holds for this ticket (host-overlaid: async git).
+   * Absent until the first load answers; the Artifacts view renders it.
+   */
+  storedArtifacts?: StoredArtifactsView;
   /**
    * The "Send back to Implement" recovery action's availability for the
    * CURRENT stage, host-derived (`workflow/sendBack.ts`) in the same snapshot

@@ -94,6 +94,8 @@ export interface TicketRow extends TicketNode {
    * computed host-side so the standalone webview never phrases domain state.
    */
   peek: TicketPeek;
+  /** Files captured for this ticket in the artifact store; 0 hides the sidebar chip. */
+  artifacts: number;
 }
 
 /**
@@ -259,6 +261,8 @@ export function buildSidebarState(
      * window, if any; its row is highlighted. Null/undefined → no highlight.
      */
     activeTicketId?: number | null;
+    /** Cached captured-file count per ticket (artifact store); absent → 0. */
+    artifactCount?: (ticketId: number) => number;
     /** Whether this window holds a live terminal for a planning session. */
     planningLive?: (sessionId: number) => boolean;
   },
@@ -316,6 +320,7 @@ export function buildSidebarState(
         // stage that needs them — the gate ledger only for a gate stage, the
         // merge gate only for ship — so the board never pays per-ticket for
         // state it will not show.
+        artifacts: opts.artifactCount?.(t.id) ?? 0,
         peek: buildPeek({
           stageCurrent: t.stageCurrent,
           current: t.stages.find((s) => s.stageKey === t.stageCurrent) ?? null,

@@ -31,7 +31,7 @@ import {
   toRegisteredGraphTarget,
 } from './snapshotRegistry.js';
 import { DashboardSelections } from './selections.js';
-import { SupplementalLoaders, type SupplementalHost } from './supplementalLoaders.js';
+import { SupplementalLoaders, type StoredArtifactsLoader, type SupplementalHost } from './supplementalLoaders.js';
 import { DashboardConsole } from './consoleOutput.js';
 import { attachMessagePump } from './messagePump.js';
 import { agentContextFor, assignmentFor, repoNameFor, serviceNamesFor } from './resolvers.js';
@@ -242,6 +242,8 @@ export class DashboardManager {
      * `uat-report` artifact. Absent → no rows, the pre-feature panel.
      */
     loadBaselines?: BaselineRowsLoader,
+    /** The Artifacts view's data (T2 store): async git, so it rides the supplemental loaders. */
+    loadStoredArtifacts?: StoredArtifactsLoader,
   ) {
     this.loaders = new SupplementalLoaders(
       loadStats,
@@ -249,6 +251,7 @@ export class DashboardManager {
       loadBranchCandidates,
       logError,
       loadBaselines,
+      loadStoredArtifacts,
     );
     this.console = new DashboardConsole(
       store,
@@ -527,7 +530,11 @@ export class DashboardManager {
         };
       })(),
     );
-    const state = withBaselines(built, this.loaders.baselinesFor(ticketId));
+    const stored = this.loaders.storedArtifactsFor(ticketId);
+    const state = {
+      ...withBaselines(built, this.loaders.baselinesFor(ticketId)),
+      ...(stored ? { storedArtifacts: stored } : {}),
+    };
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,
     // so a mismatch means the requested key named no attempt this round —
@@ -573,6 +580,7 @@ export class DashboardManager {
       this.loaders.prefetchBranchCandidates(ticketId, panel, state.worktrees, this.supplementalHost);
       this.loaders.pushGateOptions(ticketId, panel, settlesActions, this.supplementalHost);
       this.loaders.pushBaselines(ticketId, panel, settlesActions, this.supplementalHost);
+      this.loaders.pushStoredArtifacts(ticketId, panel, settlesActions, this.supplementalHost);
     }
     this.scheduleLiveTick(ticketId, state);
   }
