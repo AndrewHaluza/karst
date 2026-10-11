@@ -320,4 +320,19 @@ describe('Agents page — roles table layout markup', () => {
     expect(r.firstElementChild!.className).toContain('agents-cell-switch');
     expect(Array.from(r.querySelectorAll('.agents-field-label')).map((l) => l.textContent?.slice(0, 2))).toEqual(['A:', 'B:']);
   });
+
+  it('compare A / B labels are exposed to screen readers (cards have no header)', () => {
+    mountCompare();
+    const labels = document.querySelector('.agents-compare-row')!.querySelectorAll('.agents-field-label');
+    expect(labels).toHaveLength(2);
+    for (const l of labels) expect(l.closest('[aria-hidden="true"]') ?? (l.getAttribute('aria-hidden') === 'true' ? l : null)).toBeNull();
+  });
+
+  it('compare cells reuse the source cell: default chips carry the Karst mark, tooltip and SR text', () => {
+    mountCompare();
+    const chip = document.querySelector('.agents-compare-row [data-source="default"]')!;
+    expect(chip.querySelector('.k-karst-mark')).not.toBeNull();
+    expect(chip.getAttribute('title')).toContain('Karst default');
+    expect(chip.querySelector('.sr-only')!.textContent).toBe('Karst default');
+  });
 });

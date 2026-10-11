@@ -3,11 +3,20 @@ import { describe, expect, it } from 'vitest';
 
 const css = readFileSync('src/ui/settings/agents.webview.css', 'utf8');
 
+const TEMPLATE = '40px minmax(84px, 1.1fr) minmax(104px, 1fr) minmax(110px, 150px) minmax(130px, 1.3fr) minmax(86px, 120px) 92px 72px';
+
 describe('agents.webview.css — roles table', () => {
   it('uses one 8-track template for header and rows', () => {
     const cols = /--agents-cols:\s*([^;]+);/.exec(css)![1]!;
     expect(cols.replace(/minmax\([^)]*\)/g, 'X').trim().split(/\s+/)).toHaveLength(8);
     expect(css.match(/grid-template-columns:\s*var\(--agents-cols\)/g)!.length).toBeGreaterThanOrEqual(1);
+  });
+  it('track minimums fit a 1000px viewport without horizontal overflow', () => {
+    const cols = /--agents-cols:\s*([^;]+);/.exec(css)![1]!;
+    expect(cols.trim()).toBe(TEMPLATE);
+  });
+  it('uses a token for the profile cell gap', () => {
+    expect(css).not.toMatch(/gap:\s*2px/);
   });
   it('lets the picker fields be the row\'s own grid items (1:1 with the headings)', () => {
     expect(css).toMatch(/\.agents-cell-picker,[^{]*\.ap-compact\s*\{\s*display:\s*contents/);

@@ -66,7 +66,7 @@
    The picker cell, its island and .ap-compact are display: contents, so the three
    compact .ap-field cells (role=cell) sit in the core/model/effort tracks themselves. */
 #section-agents .agents-table {
-  --agents-cols: 40px minmax(120px, 1.1fr) minmax(150px, 1fr) 150px minmax(170px, 1.3fr) 120px 92px 72px;
+  --agents-cols: 40px minmax(84px, 1.1fr) minmax(104px, 1fr) minmax(110px, 150px) minmax(130px, 1.3fr) minmax(86px, 120px) 92px 72px;
   display: flex;
   flex-direction: column;
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
@@ -168,7 +168,7 @@
 }
 
 #section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); }
-#section-agents .agents-profile-cell { display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; }
+#section-agents .agents-profile-cell { display: flex; flex-direction: column; gap: var(--k-space-1); width: 100%; min-width: 0; }
 #section-agents .agents-profile-fields { display: flex; align-items: center; gap: var(--k-space-1); min-width: 0; }
 #section-agents .agents-profile-select { position: relative; flex: 1 1 auto; min-width: 0; }
 #section-agents .agents-profile-select select { width: 100%; min-height: var(--k-control-h-lg); min-width: 0; text-overflow: ellipsis; }
@@ -245,7 +245,7 @@
 #section-agents .agents-item,
 #section-agents .agents-tab,
 #section-agents .k-btn--link,
-#section-agents .k-switch { min-height: var(--k-hit-min); }
+#section-agents .k-switch { min-height: 44px; }
 #section-agents .k-switch { min-width: var(--k-hit-min); }
 /* Identifiers truncate on one line; the full id is in the trigger's title / accessible name (UI-R44). */
 #section-agents .agents-cell-picker .ap-trigger-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }

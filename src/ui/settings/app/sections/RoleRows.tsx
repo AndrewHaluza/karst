@@ -202,14 +202,14 @@ export function CompareRow({ capability, label, a, b, differs, aName, bName, onC
         <span className="agents-role-name">{label}</span>
       </div>
       <div className="agents-cell" role="cell">
-        <span className="agents-field-label" aria-hidden="true">A: {aName}</span>
+        <span className="agents-field-label">A: {aName}</span>
         <span className="agents-a">{roleText(a)}</span>
-        <Chip>{SOURCE_TEXT[a.source].chip}</Chip>
+        <SourceCell source={a.source} />
       </div>
       <div className="agents-cell" role="cell">
-        <span className="agents-field-label" aria-hidden="true">B: {bName}</span>
+        <span className="agents-field-label">B: {bName}</span>
         <span className="agents-b">{roleText(b)}</span>
-        <Chip>{SOURCE_TEXT[b.source].chip}</Chip>
+        <SourceCell source={b.source} />
         {a.source === 'pin' && b.source === 'pin' ? (
           <span className="agents-muted">pinned — same in all presets</span>
         ) : null}
