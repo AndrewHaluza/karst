@@ -1,7 +1,7 @@
+import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, expect, it } from 'vitest';
 import {
   KARST_LAUNCH_ENV,
-  SessionManager,
   ticketIdFromTerminalEnv,
   type CreateTerminalOpts,
   type FakeTerminal,
@@ -149,7 +149,7 @@ const candidate = (id: number): RecoveryCandidate => ({
 describe('sessions that are still running after an IDE reload', () => {
   it('adopts them by launch pid instead of launching a second agent', () => {
     const win = new FakeWindow();
-    const before = new SessionManager(win.host(), channelFor('launch-7'));
+    const before = new DefaultedSessionManager(win.host(), channelFor('launch-7'));
     before.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, {
       name: 'Karst: ABC-1',
     }, [], {}, { provider: 'codex', model: 'codex-x' });
@@ -159,7 +159,7 @@ describe('sessions that are still running after an IDE reload', () => {
 
     // A fresh extension host: new manager, same window, same live agent.
     const adoptedLaunches: Array<[number, string | undefined]> = [];
-    const after = new SessionManager(
+    const after = new DefaultedSessionManager(
       win.host(),
       channelFor('launch-next'),
       undefined,
@@ -187,13 +187,13 @@ describe('sessions that are still running after an IDE reload', () => {
 
   it('opens onto the surviving terminal rather than a duplicate', () => {
     const win = new FakeWindow();
-    const before = new SessionManager(win.host(), channelFor('launch-7'));
+    const before = new DefaultedSessionManager(win.host(), channelFor('launch-7'));
     before.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, {
       name: 'Karst: ABC-1',
     });
     win.reload();
 
-    const after = new SessionManager(win.host(), channelFor('launch-next'));
+    const after = new DefaultedSessionManager(win.host(), channelFor('launch-next'));
     // The tab is revived AFTER the activation scan, so the open path is what has
     // to recognize it — the case background recovery hits.
     after.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, {
@@ -209,14 +209,14 @@ describe('sessions that are still running after an IDE reload', () => {
     // The pid registry is the evidence. Without it a revived tab is just a
     // terminal, and adopting one would hand a stranger the ticket's prompts.
     const win = new FakeWindow();
-    const before = new SessionManager(win.host(), channelFor('launch-7'));
+    const before = new DefaultedSessionManager(win.host(), channelFor('launch-7'));
     before.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, {
       name: 'Karst: ABC-1',
     });
     win.reload();
     win.records = [];
 
-    const after = new SessionManager(win.host(), channelFor('launch-next'));
+    const after = new DefaultedSessionManager(win.host(), channelFor('launch-next'));
 
     expect(after.reconcileRestoredSessions(() => 'resume')).toEqual({
       resume: [],

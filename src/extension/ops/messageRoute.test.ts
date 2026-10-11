@@ -9,7 +9,6 @@ import {
 import { messageRouteFor } from './messageDeliveryOps.js';
 
 const CORES = ['claude', 'codex', 'opencode', 'opencode2', 'antigravity'] as const;
-const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
 
 function typedSpy(): MessageDelivery & { deliver: ReturnType<typeof vi.fn> } {
   return { deliver: vi.fn(() => 'delivered' as const) };
@@ -99,8 +98,7 @@ describe('makeRoutedDelivery — sender × recipient matrix', () => {
       isLive: () => true,
       graphOwned: () => false,
       nudge,
-      sessionCliEnv: () => undefined,
-      literal: () => LITERAL,
+      sessionChannel: () => 'cli-env',
     });
     const delivery = makeRoutedDelivery({
       routeFor: () => 'hook-block',
@@ -113,14 +111,13 @@ describe('makeRoutedDelivery — sender × recipient matrix', () => {
     expect(nudge).toHaveBeenCalledWith(9, expect.stringContaining('karst: 2 new message(s)'));
   });
 
-  it('types the pointer with the RECIPIENT session env, never the sender', () => {
+  it('types the pointer through the RECIPIENT session channel, never the sender', () => {
     const nudge = vi.fn(() => true);
     const typed = makeTerminalDelivery({
       isLive: () => true,
       graphOwned: () => false,
       nudge,
-      sessionCliEnv: (id) => (id === 9 ? { cli: true, manifest: true, ticket: true } : undefined),
-      literal: () => LITERAL,
+      sessionChannel: (id) => (id === 9 ? 'mcp' : 'cli-env'),
     });
     const delivery = makeRoutedDelivery({
       routeFor: () => 'typed',
@@ -130,7 +127,7 @@ describe('makeRoutedDelivery — sender × recipient matrix', () => {
       typed,
     });
     delivery.deliver(9, mailPointer(1));
-    expect(nudge).toHaveBeenCalledWith(9, expect.stringContaining('"$KARST_CLI"'));
+    expect(nudge).toHaveBeenCalledWith(9, expect.stringContaining('karst MCP tool "inbox"'));
   });
 });
 

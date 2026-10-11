@@ -5,7 +5,6 @@ import { createTicket, setAgentState } from '../../store/tickets.js';
 import { listInbox, markRead, postMessage } from '../../store/ticketMessages.js';
 import { makeMailDeliveryWiring, type MailDeliveryWiringDeps } from './mailDeliveryWiring.js';
 
-const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
 
 let store: Store;
 let projectId: number;
@@ -44,9 +43,8 @@ function deps(over: Partial<MailDeliveryWiringDeps> = {}): MailDeliveryWiringDep
     graphOwned: () => false,
     agyBusy: () => false,
     nudge: vi.fn(() => true),
-    sessionCliEnv: () => undefined,
+    sessionChannel: () => 'cli-env',
     sessionProvider: () => 'claude',
-    literal: () => LITERAL,
     isCurrentHook: () => true,
     ...over,
   };
@@ -247,14 +245,15 @@ describe('makeMailDeliveryWiring', () => {
     expect(mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' })).toBeNull();
   });
 
-  it('uses the recipient session env for the reply pointer', () => {
+  it('uses the recipient session channel for the reply pointer', () => {
     send();
     const mailbox = makeMailDeliveryWiring(
-      deps({ sessionCliEnv: () => ({ cli: true, manifest: true, ticket: true }) }),
+      deps({ sessionChannel: () => 'mcp' }),
     );
     mailbox.sweep.sweep();
     const reply = mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' });
-    expect(reply?.reason).toContain('"$KARST_CLI"');
+    expect(reply?.reason).toContain('call the karst MCP tool "inbox"');
+    expect(reply?.reason).not.toContain('/');
   });
 
   it('does not reply when the launch generation is stale', () => {

@@ -15,7 +15,7 @@ describe('fixDeliveryWiring', () => {
   let ticketId: number;
   let projectId: number;
   const nudge = vi.fn<FixDeliveryWiringDeps['nudge']>(() => true);
-  const state = { agy: false, live: true, provider: 'claude' as string | null, literal: LITERAL as FixDeliveryWiringDeps['literal'] extends () => infer T ? T : never };
+  const state = { channel: 'cli-env' as 'mcp' | 'cli-env', agy: false, live: true, provider: 'claude' as string | null, literal: LITERAL as FixDeliveryWiringDeps['literal'] extends () => infer T ? T : never };
 
   const make = (over: Partial<FixDeliveryWiringDeps> = {}) =>
     makeFixDeliveryWiring({
@@ -26,7 +26,7 @@ describe('fixDeliveryWiring', () => {
       sessionProvider: () => state.provider,
       currentLaunchId: () => 'L1',
       nudge,
-      sessionCliEnv: () => undefined,
+      sessionChannel: () => state.channel,
       literal: () => state.literal,
       agyBusy: () => state.agy,
       debug: vi.fn(),
@@ -52,6 +52,7 @@ describe('fixDeliveryWiring', () => {
     state.live = true;
     state.provider = 'claude';
     state.literal = LITERAL;
+    state.channel = 'cli-env';
   });
   afterEach(() => store.close());
 
@@ -87,8 +88,16 @@ describe('fixDeliveryWiring', () => {
       const id = currentFixDelivery(store, ticketId)!.id;
       expect(nudge).toHaveBeenCalledTimes(1);
       expect(nudge.mock.calls[0]![1]).toBe(
-        `karst: fix brief #${id} ready - run node "/ext/dist/cli.js" fix-brief --ack --db "/g/karst.db" --manifest "/w/karst.yml" --ticket ${ticketId}`,
+        `karst: fix brief #${id} ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"`,
       );
+    });
+
+    it('typed route, MCP session: names the fix-brief tool, no paths', () => {
+      state.provider = 'opencode2';
+      state.channel = 'mcp';
+      expect(make().deliver(ticketId, null)).toBe(true);
+      const id = currentFixDelivery(store, ticketId)!.id;
+      expect(nudge.mock.calls[0]![1]).toBe(`karst: fix brief #${id} ready - call the karst MCP tool "fix-brief" with ack: true`);
     });
 
     it('typed route, running agent: nothing typed now', () => {
@@ -110,15 +119,6 @@ describe('fixDeliveryWiring', () => {
       nudge.mockReturnValueOnce(false);
       expect(make().deliver(ticketId, null)).toBe(false);
       expect(currentFixDelivery(store, ticketId)).toBeNull();
-    });
-
-    it('typed route, unbuildable literal: needs-you once, no line typed', () => {
-      state.provider = 'opencode2';
-      state.literal = { ...LITERAL, db: '/g/$bad.db' };
-      expect(make().deliver(ticketId, null)).toBe(true);
-      expect(nudge).not.toHaveBeenCalled();
-      expect(currentFixDelivery(store, ticketId)!.pointerFailedAt).not.toBeNull();
-      expect(getFixDeliveryAgent()).toBe('not-started');
     });
   });
 

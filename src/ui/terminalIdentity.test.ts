@@ -312,3 +312,29 @@ describe('graph-owned terminals', () => {
     ]);
   });
 });
+
+describe('mcp flag (delivery channel) survives a reload', () => {
+  it('a record carries the flag back when the env is stripped', () => {
+    expect(identifyTerminal({ pid: 5 }, [{ ticketId: 7, pid: 5, mcp: true }])).toEqual({ ticketId: 7, mcp: true });
+  });
+
+  it('a record without the flag (older build) names no mcp', () => {
+    expect(identifyTerminal({ pid: 5 }, [{ ticketId: 7, pid: 5 }])).toEqual({ ticketId: 7 });
+  });
+
+  it('a live env still reads the flag from this ticket\'s record only', () => {
+    const env = { KARST_TICKET_ID: '7' };
+    expect(identifyTerminal({ env, pid: 5 }, [{ ticketId: 7, pid: 5, mcp: true }])?.mcp).toBe(true);
+    expect(identifyTerminal({ env, pid: 5 }, [{ ticketId: 8, pid: 5, mcp: true }])?.mcp).toBeUndefined();
+  });
+
+  it('parses only a literal true', () => {
+    expect(
+      parseSessionTerminalRecords([
+        { ticketId: 1, pid: 1, mcp: true },
+        { ticketId: 2, pid: 2, mcp: 'yes' },
+        { ticketId: 3, pid: 3 },
+      ]),
+    ).toEqual([{ ticketId: 1, pid: 1, mcp: true }, { ticketId: 2, pid: 2 }, { ticketId: 3, pid: 3 }]);
+  });
+});

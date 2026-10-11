@@ -1,3 +1,4 @@
+import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   planSessionRecovery,
@@ -9,7 +10,6 @@ import {
   shouldApplySessionHookState,
 } from './sessionRecovery.js';
 import {
-  SessionManager,
   type FakeTerminal,
   type RestoredSession,
 } from './session.js';
@@ -60,7 +60,7 @@ describe('recovery interrupted by another window reload', () => {
       return { ticketId: ticket.id, launchId, terminal } satisfies RestoredSession;
     });
     const lifecycle = new SessionRecoveryLifecycle();
-    const sessions = new SessionManager(
+    const sessions = new DefaultedSessionManager(
       {
         createTerminal: () => {
           throw new Error('restored adoption must not relaunch');
@@ -282,7 +282,7 @@ describe('recovery interrupted by another window reload', () => {
       const cleanup = vi.fn(() => {
         throw cleanupError;
       });
-      const sessions = new SessionManager(
+      const sessions = new DefaultedSessionManager(
         {
           createTerminal: (opts) => {
             const terminal: FakeTerminal = {

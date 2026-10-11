@@ -1,6 +1,6 @@
+import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, expect, it } from 'vitest';
 import {
-  SessionManager,
   type RestoredSession,
   type SessionTerminal,
   type TerminalHost,
@@ -87,7 +87,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
     const restored = restoredSession(7, 'old-launch');
     const { host, created } = hostWith([restored]);
     const adopted: Array<[number, string | undefined]> = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       () => {
         throw new Error('adoption must not allocate a launch generation');
@@ -110,7 +110,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
   it('launches fresh when the only restored terminal is a dead process', () => {
     const restored = restoredSession(7, 'old-launch', true);
     const { host, created } = hostWith([restored]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
 
@@ -121,7 +121,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
   it('leaves other tickets alone when adopting for one', () => {
     const other = restoredSession(9, 'other-launch');
     const { host, created } = hostWith([other]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
 
@@ -133,7 +133,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
   it('disposes and retires a late arrival for a ticket already running here', () => {
     const { host } = hostWith([]);
     const closed: Array<[number, string | undefined]> = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -154,7 +154,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
   it('ignores the open event for the terminal it just created', () => {
     const { host } = hostWith([]);
     const closed: Array<[number, string | undefined]> = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -172,7 +172,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
   it('adopts a late arrival for an untracked ticket with its disposition', () => {
     const { host } = hostWith([]);
     const adopted: Array<[number, string | undefined]> = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -192,7 +192,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
 
   it('never touches a terminal belonging to another project', () => {
     const { host } = hostWith([]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     const late = restoredSession(7, 'old-launch');
 
     expect(mgr.adoptLateSession(late, () => 'ignore')).toEqual({
@@ -204,7 +204,7 @@ describe('adopting terminals VS Code revives after the activation scan', () => {
 
   it('does not adopt a late arrival whose process already exited', () => {
     const { host } = hostWith([]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     const late = restoredSession(7, 'old-launch', true);
 
     expect(mgr.adoptLateSession(late, () => 'resume')).toEqual({
@@ -228,7 +228,7 @@ describe('reload whose terminal tab is revived after the activation scan', () =>
       restoredSessions: () => revived,
     };
     const lifecycle = new SessionRecoveryLifecycle(50);
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,

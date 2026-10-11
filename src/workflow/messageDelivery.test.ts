@@ -10,42 +10,38 @@ import {
   type MessageRoute,
 } from './messageDelivery.js';
 
-const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
+const CLI = (cmd: string): string => `run node "$KARST_CLI" ${cmd} --db "$KARST_DB" --ticket "$KARST_TICKET_ID"`;
 
 describe('messagePointer', () => {
-  it('uses env refs when the session exported them, with no ticket key', () => {
-    const p = messagePointer(mailPointer(3), 42, { cli: true, manifest: true, ticket: true }, LITERAL);
-    expect(p).toBe(
-      'karst: 3 new message(s) - run node "$KARST_CLI" inbox --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket "$KARST_TICKET"',
+  it('mcp: names the tool, no shell, no paths', () => {
+    expect(messagePointer(mailPointer(3), 'mcp')).toBe('karst: 3 new message(s) - call the karst MCP tool "inbox"');
+    expect(messagePointer(notesPointer(2), 'mcp')).toBe('karst: 2 new project note(s) - call the karst MCP tool "notes"');
+    expect(messagePointer(fixPointer(12), 'mcp')).toBe(
+      'karst: fix brief #12 ready - call the karst MCP tool "fix-brief" with ack: true',
     );
   });
 
-  it('falls back to literal paths and the numeric ticket id', () => {
-    const p = messagePointer(mailPointer(1), 42, undefined, LITERAL);
-    expect(p).toBe(
-      'karst: 1 new message(s) - run node "/ext/dist/cli.js" inbox --db "/g/karst.db" --manifest "/w/karst.yml" --ticket 42',
+  it('cli-env: "$KARST_*" refs only', () => {
+    expect(messagePointer(mailPointer(3), 'cli-env')).toBe(`karst: 3 new message(s) - ${CLI('inbox')}`);
+    expect(messagePointer(notesPointer(2), 'cli-env')).toBe(`karst: 2 new project note(s) - ${CLI('notes')}`);
+    expect(messagePointer(fixPointer(12), 'cli-env')).toBe(
+      'karst: fix brief #12 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"',
     );
   });
 
-  it('contains only printable ASCII, even from a hostile path', () => {
-    const p = messagePointer(mailPointer(2), 7, undefined, { cli: '/a\u001b[31m\nrm -rf /x', db: '/d\u0007b' });
-    expect(p).toMatch(/^[\x20-\x7e]+$/);
-    expect(p).not.toContain('\n');
-  });
-
-  it.each(['/a"b', '/a$b', '/a`b', '/a\\b', "/a'b"])('refuses a literal path with shell metacharacters (%s)', (bad) => {
-    expect(messagePointer(mailPointer(1), 7, undefined, { ...LITERAL, db: bad })).toBeNull();
-    expect(messagePointer(mailPointer(1), 7, undefined, { ...LITERAL, manifest: bad })).toBeNull();
-  });
-
-  it('env refs make an unsafe literal irrelevant', () => {
-    expect(messagePointer(mailPointer(1), 7, { cli: true, manifest: true, ticket: true }, { cli: '/a"b', db: '/x$' })).not.toBeNull();
+  it.each(['mcp', 'cli-env'] as const)('%s: never carries a host path, body, title or ticket key', (channel) => {
+    for (const p of [mailPointer(1), notesPointer(1), fixPointer(1)]) {
+      const line = messagePointer(p, channel);
+      expect(line).not.toMatch(/\/(Users|home)\/|\.js|\.db|\.yml|title|body|NDL-/i);
+      expect(line).toMatch(/^[\x20-\x7e]+$/);
+    }
   });
 
   it('carries digits only for the count and id', () => {
-    expect(() => messagePointer(mailPointer(-1), 7, undefined, LITERAL)).toThrow();
-    expect(() => messagePointer(mailPointer(1.5), 7, undefined, LITERAL)).toThrow();
-    expect(() => messagePointer(mailPointer(1), 0, undefined, LITERAL)).toThrow();
+    expect(() => messagePointer(mailPointer(-1), 'mcp')).toThrow();
+    expect(() => messagePointer(mailPointer(1.5), 'cli-env')).toThrow();
+    expect(() => messagePointer(fixPointer(0), 'mcp')).toThrow(/delivery id/);
+    expect(() => messagePointer(fixPointer(1.5), 'cli-env')).toThrow();
   });
 });
 
@@ -55,8 +51,7 @@ describe('makeTerminalDelivery', () => {
       isLive: vi.fn(() => true),
       graphOwned: vi.fn(() => false),
       nudge: vi.fn(() => true),
-      sessionCliEnv: vi.fn(() => undefined),
-      literal: () => LITERAL,
+      sessionChannel: vi.fn((): 'mcp' | 'cli-env' => 'cli-env'),
       ...over,
     };
   }
@@ -64,7 +59,7 @@ describe('makeTerminalDelivery', () => {
   it('nudges a live, non-graph recipient with the pointer', () => {
     const d = deps();
     expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('delivered');
-    expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(mailPointer(2), 5, undefined, LITERAL));
+    expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(mailPointer(2), 'cli-env'));
   });
 
   it('defers when not live in this window', () => {
@@ -88,13 +83,14 @@ describe('makeTerminalDelivery', () => {
   it('delivers once the agy session reports idle', () => {
     const d = deps({ agyBusy: vi.fn(() => false) });
     expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('delivered');
-    expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(mailPointer(2), 5, undefined, LITERAL));
+    expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(mailPointer(2), 'cli-env'));
   });
 
-  it('defers (types nothing) when a literal path is unsafe', () => {
-    const d = deps({ literal: () => ({ ...LITERAL, cli: '/x/$(rm)/cli.js' }) });
-    expect(makeTerminalDelivery(d).deliver(5, mailPointer(1))).toBe('deferred');
-    expect(d.nudge).not.toHaveBeenCalled();
+  it('types the MCP pointer into a session that registered the karst MCP server', () => {
+    const d = deps({ sessionChannel: vi.fn((): 'mcp' | 'cli-env' => 'mcp') });
+    expect(makeTerminalDelivery(d).deliver(5, mailPointer(2))).toBe('delivered');
+    expect(d.nudge).toHaveBeenCalledWith(5, messagePointer(mailPointer(2), 'mcp'));
+    expect(d.sessionChannel).toHaveBeenCalledWith(5);
   });
 
   it('defers when the nudge finds no terminal', () => {
@@ -102,63 +98,16 @@ describe('makeTerminalDelivery', () => {
   });
 });
 
-describe('messagePointer — notes kind', () => {
-  it('renders the notes pointer with the notes command and env refs', () => {
-    const p = messagePointer(notesPointer(2), 42, { cli: true, manifest: true, ticket: true }, LITERAL);
-    expect(p).toBe(
-      'karst: 2 new project note(s) - run node "$KARST_CLI" notes --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket "$KARST_TICKET"',
-    );
-  });
-
-  it('falls back to literal paths and the numeric ticket id', () => {
-    expect(messagePointer(notesPointer(1), 42, undefined, LITERAL)).toBe(
-      'karst: 1 new project note(s) - run node "/ext/dist/cli.js" notes --db "/g/karst.db" --manifest "/w/karst.yml" --ticket 42',
-    );
-  });
-
-  it('never names a body, title or ticket key', () => {
-    const p = messagePointer(notesPointer(3), 42, undefined, LITERAL);
-    expect(p).not.toMatch(/P-1|title|body/i);
-  });
-
-  it('refuses an unsafe literal path just like mail', () => {
-    expect(messagePointer(notesPointer(1), 7, undefined, { ...LITERAL, db: '/x$y' })).toBeNull();
-  });
-
-  it('makeTerminalDelivery nudges the notes pointer', () => {
+describe('makeTerminalDelivery — notes kind', () => {
+  it('nudges the notes pointer', () => {
     const nudge = vi.fn(() => true);
     const d = makeTerminalDelivery({
       isLive: () => true,
       graphOwned: () => false,
       nudge,
-      sessionCliEnv: () => undefined,
-      literal: () => LITERAL,
+      sessionChannel: () => 'mcp',
     });
     expect(d.deliver(5, notesPointer(2))).toBe('delivered');
-    expect(nudge).toHaveBeenCalledWith(5, messagePointer(notesPointer(2), 5, undefined, LITERAL));
-  });
-});
-
-describe('messagePointer — fix kind', () => {
-  it('renders the fix pointer with --ack and env refs', () => {
-    const p = messagePointer(fixPointer(12), 42, { cli: true, manifest: true, ticket: true }, LITERAL);
-    expect(p).toBe(
-      'karst: fix brief #12 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket "$KARST_TICKET"',
-    );
-  });
-
-  it('falls back to literal paths and the numeric ticket id', () => {
-    expect(messagePointer(fixPointer(3), 42, undefined, LITERAL)).toBe(
-      'karst: fix brief #3 ready - run node "/ext/dist/cli.js" fix-brief --ack --db "/g/karst.db" --manifest "/w/karst.yml" --ticket 42',
-    );
-  });
-
-  it('is null on a shell metacharacter in a literal path', () => {
-    expect(messagePointer(fixPointer(1), 7, undefined, { ...LITERAL, db: '/x$y' })).toBeNull();
-  });
-
-  it('rejects a non-positive delivery id', () => {
-    expect(() => messagePointer(fixPointer(0), 7, undefined, LITERAL)).toThrow(/delivery id/);
-    expect(() => messagePointer(fixPointer(1.5), 7, undefined, LITERAL)).toThrow();
+    expect(nudge).toHaveBeenCalledWith(5, messagePointer(notesPointer(2), 'mcp'));
   });
 });
