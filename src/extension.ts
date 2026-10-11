@@ -170,6 +170,7 @@ import {
   composeConflictSeed,
 } from './agent/entrySeed.js';
 import { shouldResumeSession } from './agent/resumeDecision.js';
+import { launchHasMcp } from './agent/karstCommandText.js';
 import { markerStageFor, type MarkerStage } from './agent/markerStage.js';
 import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch.js';
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
@@ -6199,12 +6200,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // refs the seed and command files may use.
       const cliLit = cliLiteral(context, dbPath, t.key || String(ticketId));
       const cliTok = launchTokens(cliLit);
+      const hasMcp = launchHasMcp({
+        adapter,
+        hookChannel: true,
+        cliEntry: cliLit.cli,
+        dbPath: cliLit.db,
+      });
       const markerInstruction =
         markerStage === null
           ? renderGateOnlyInstruction()
           : renderDoneMarkerInstruction(
               buildCliStagePrefix(cliTok, markerStage),
               t.key || String(ticketId),
+              hasMcp ? markerStage : undefined,
             );
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
@@ -6304,7 +6312,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
         renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId });
-      const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok));
+      const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok), hasMcp);
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
       // `hasRunnableRepos` applies (`ui/dashboard/state.ts`).

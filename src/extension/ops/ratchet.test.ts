@@ -41,7 +41,8 @@ import { join } from 'node:path';
 // the `onRevision` feed and the `makeAlignmentTrigger` call + disposal); logic is in
 // `src/extension/reviewArtifactsBinding.ts` and `src/extension/alignmentBinding.ts`.
 // Raised by 2 (8531 -> 8533): #583 (MCP-first delivery pointers) landed on develop one line over the cap.
-const MAX_EXTENSION_LINES = 8533;
+// Raised by 8 (8533 -> 8541): launch MCP channel binding for the seed (`launchHasMcp`); logic is in `agent/karstCommandText.ts`.
+const MAX_EXTENSION_LINES = 8541;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
