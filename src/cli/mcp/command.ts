@@ -21,7 +21,10 @@ import { runMcpServe, type McpToolRunner } from './server.js';
  */
 export const defaultMcpRunner: McpToolRunner = {
   async run(argv: string[], env, io: CliIo): Promise<string> {
-    if (argv[0] === 'servers' || (argv[0] === 'setup' && argv[1] === 'verify') || argv[0] === 'base') {
+    if (
+      argv[0] === 'servers' || (argv[0] === 'setup' && argv[1] === 'verify') || argv[0] === 'base' ||
+      argv[0] === 'stage'
+    ) {
       return runCliAsync(argv, env);
     }
     return runCli(argv, env, io);
