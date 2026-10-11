@@ -1,3 +1,4 @@
+import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode';
 import { registerDoctorCommand } from './ui/doctor/host.js';
 import { readFileSync, mkdirSync, existsSync, writeFileSync, statSync, appendFileSync, readdirSync, watch as fsWatch } from 'node:fs';
@@ -3519,6 +3520,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // and the Fix seam performs no launch or nudge.
           uatTester: (id) => processFor(id, 'uat-tester'),
           reviewProcess: (id) => processFor(id, 'review'),
+          reviewArtifacts: makeReviewArtifactsBinding({
+            registry: localStore,
+            artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
+            manifest: currentManifest,
+            fallbackProjectId: () => currentProject()?.id,
+          }),
           fixProcess,
           runVerifier: runProcess,
           // Prompt 17: the SAME composed `karst context` prefix the generated
