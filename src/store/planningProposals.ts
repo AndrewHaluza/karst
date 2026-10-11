@@ -419,6 +419,17 @@ export function markProposalAccepted(store: Store, id: number, ticketId: number)
   })();
 }
 
+/** Add `depId` to a proposal's `depends_dropped` (idempotent). */
+function recordDroppedDependency(store: Store, proposalId: number, depId: number): void {
+  const current = parseIdArray(
+    (store.db.prepare('SELECT depends_dropped FROM planning_proposals WHERE id = ?').get(proposalId) as { depends_dropped: string }).depends_dropped,
+  );
+  if (current.includes(depId)) return;
+  store.db
+    .prepare('UPDATE planning_proposals SET depends_dropped = ? WHERE id = ?')
+    .run(JSON.stringify([...current, depId]), proposalId);
+}
+
 /** Materialize this proposal's `dependsOn` as blocked-by rows and resolve the
  *  pending dependents that targeted it. Called inside the accept transaction. */
 function applyProposalDependencies(store: Store, p: PlanningProposal, ticketId: number): void {
@@ -426,8 +437,12 @@ function applyProposalDependencies(store: Store, p: PlanningProposal, ticketId: 
     const dep = getProposal(store, depId);
     // Ingest guaranteed same-session, non-discarded; stay defensive anyway.
     if (!dep || dep.sessionId !== p.sessionId || dep.status === 'discarded') continue;
-    if (dep.status === 'accepted' && dep.ticketId !== null) {
-      addRelation(store, { ticketId, kind: 'blocked-by', targetTicketId: dep.ticketId, source: 'agent' });
+    if (dep.status === 'accepted' && dep.ticketId === null) {
+      // Its ticket was deleted: nothing left to wait on, so the edge is dropped
+      // (mirrors discard) rather than left as a proposal link that never resolves.
+      recordDroppedDependency(store, p.id, depId);
+    } else if (dep.status === 'accepted') {
+      addRelation(store, { ticketId, kind: 'blocked-by', targetTicketId: dep.ticketId!, source: 'agent' });
     } else {
       addRelation(store, { ticketId, kind: 'blocked-by', targetProposalId: depId, source: 'agent' });
     }

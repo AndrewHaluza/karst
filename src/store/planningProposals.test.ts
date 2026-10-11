@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { openStore, type Store } from './db.js';
 import { upsertProject } from './projects.js';
-import { createTicket, getTicket, updateTicketFields } from './tickets.js';
+import { createTicket, deleteTicket, getTicket, updateTicketFields } from './tickets.js';
 import { createPlanningSession, listPlanningTickets, setPlanningSessionStatus } from './planningSessions.js';
 import {
   insertProposal,
@@ -336,6 +336,42 @@ describe('planning proposals', () => {
       expect(proposalPayloadEquals({ ...payload, constraints: ['#1', '#2'] }, { ...payload, constraints: ['#1', '#3'] })).toBe(false);
       const id = insertProposal(store, sessionId, payload, 'u', ['w']);
       expect(proposalPayloadEquals(getProposal(store, id)!.payload, payload)).toBe(true);
+    });
+  });
+  describe('dependency on an accepted draft whose ticket was deleted', () => {
+    const acceptWithTicket = (key: string, deps?: number[]): { id: number; ticketId: number } => {
+      const id = insertProposal(store, sessionId, { ...payload, ...(deps ? { dependsOn: deps } : {}) });
+      const t = createTicket(store, { key, title: key, projectId });
+      markProposalAccepted(store, id, t.id);
+      return { id, ticketId: t.id };
+    };
+
+    it('delete before accept: the edge is skipped and the id recorded in depends_dropped', () => {
+      const d1 = acceptWithTicket('K-1');
+      const d2 = insertProposal(store, sessionId, { ...payload, dependsOn: [d1.id] });
+      deleteTicket(store, d1.ticketId);
+      const t2 = createTicket(store, { key: 'K-2', title: 'k2', projectId });
+      markProposalAccepted(store, d2, t2.id);
+      expect(listRelations(store, t2.id)).toEqual([]);
+      expect(getProposal(store, d2)).toMatchObject({ status: 'accepted', droppedDepends: [d1.id] });
+    });
+
+    it('delete after accept: the blocker row is gone with the deleted ticket', () => {
+      const d1 = acceptWithTicket('K-1');
+      const d2 = acceptWithTicket('K-2', [d1.id]);
+      expect(listRelations(store, d2.ticketId)).toHaveLength(1);
+      deleteTicket(store, d1.ticketId);
+      expect(listRelations(store, d2.ticketId)).toEqual([]);
+    });
+
+    it('delete removes stale rows still targeting the deleted ticket\'s proposal', () => {
+      const d1 = acceptWithTicket('K-1');
+      const t2 = createTicket(store, { key: 'K-2', title: 'k2', projectId });
+      store.db
+        .prepare("INSERT INTO ticket_relations (ticket_id, kind, target_proposal_id, source) VALUES (?, 'blocked-by', ?, 'agent')")
+        .run(t2.id, d1.id);
+      deleteTicket(store, d1.ticketId);
+      expect(listRelations(store, t2.id)).toEqual([]);
     });
   });
 });
