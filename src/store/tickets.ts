@@ -978,6 +978,14 @@ export function deleteTicket(
         'DELETE FROM ticket_relations WHERE target_ticket_id = ? AND target_ref IS NULL AND target_proposal_id IS NULL',
       )
       .run(ticketId);
+    // Rows that still target a proposal this ticket was accepted from can never
+    // resolve (the proposal is no longer pending): a deleted dependency must not
+    // block, so drop them the way discarding the proposal does.
+    store.db
+      .prepare(
+        'DELETE FROM ticket_relations WHERE target_proposal_id IN (SELECT id FROM planning_proposals WHERE ticket_id = ?)',
+      )
+      .run(ticketId);
     // Inverse provider rows this ticket's brief authored live on OTHER tickets
     // (`origin_ticket_id`); delete them explicitly rather than relying on the
     // FK cascade, matching the invariant above.
