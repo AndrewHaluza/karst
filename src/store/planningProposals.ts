@@ -395,9 +395,17 @@ function graphHasCycle(edges: Map<number, number[]>): boolean {
  * accept order does not matter. Finally eligible rows are promoted to a
  * pending provider write-back (#63).
  */
-export function markProposalAccepted(store: Store, id: number, ticketId: number): void {
+export function markProposalAccepted(
+  store: Store,
+  id: number,
+  ticketId: number,
+  reviewed?: ProposalPayload,
+): void {
   store.db.transaction((): void => {
-    const p = requirePending(store, id);
+    // What the human reviewed in the form is what lands on the ticket; a newer
+    // agent revision stays on the proposal row as history only.
+    const current = requirePending(store, id);
+    const p = reviewed ? { ...current, payload: reviewed } : current;
     const ticket = getTicket(store, ticketId);
     // Seed the summary as the brief only when the ticket has none AND the
     // summary actually carries text; the origin line is always appended, so the
