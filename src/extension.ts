@@ -7252,10 +7252,9 @@ function buildCliContextPrefix(tok: CliTokens): string {
  * legitimately use the same key.
  *
  * `stage` defaults to `impl` — the generated `/karst:<id>` command is written
- * per launch (there is no install-time generation) and only ever carries the
- * impl boundary. A live session seed passes the ticket's actual
- * stage, so a resume at `fix` fires `fix pass` instead of the impl marker (which
- * would throw: there is no impl→? edge from fix).
+ * per launch (no install-time generation) and only carries the impl boundary.
+ * A live session seed passes the ticket's actual stage, so a resume at `fix`
+ * fires `fix pass` instead of the impl marker (which would throw: no impl→? edge from fix).
  */
 function buildCliStagePrefix(tok: CliTokens, stage: MarkerStage = 'impl'): string {
   return composeStageCommand(tok.cli, tok.db, stage, tok.manifest);
