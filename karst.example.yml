@@ -533,9 +533,6 @@ agents:
 # (`./gradlew`, `.venv/bin/pytest`) resolves against the repository worktree; a
 # bare name (`pytest`) is a PATH lookup, so a virtualenv must already be on the
 # PATH the extension host inherited.
-# analysis:
-#   codePointers: false   # opt-in: extra pass that lists unverified code hints for the implementer
-
 uat:
   # WIRED. Fix→UAT→fix retries before the ticket parks. Narrows UAT only; review
   # has its own `review.maxFixAttempts`.
@@ -708,6 +705,10 @@ uat:
 # apply only when Karst creates a new PR; an existing PR adopted during ship is
 # never retitled or rewritten. branchName applies only to worktrees created after
 # it is set — an existing worktree keeps the branch recorded on its row.
+
+# Ticket-analysis passes (form Analyze button). Optional; omit for defaults.
+# analysis:
+#   codePointers: false   # opt-in: extra pass that lists unverified code hints for the implementer
 
 # Ticketing integration (optional; default { provider: manual }). `manual` is
 # local-only. `clickup` fetches ticket context; set `teamId` (ClickUp workspace

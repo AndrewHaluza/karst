@@ -83,6 +83,7 @@ export function parseIntent(raw: string): string | null {
 export async function generateIntent(
   adapter: AgentAdapter,
   input: IntentInput,
+  debug?: (msg: string) => void,
 ): Promise<IntentResult> {
   const hasSource = [input.authorPrompt, input.brief, input.improvedDescription, input.title].some(
     (s) => s?.trim(),
@@ -101,10 +102,15 @@ export async function generateIntent(
         processRunId: input.processRunId ?? null,
       },
     });
-  const text = await withEmptyCwd(
-    async (cwd) =>
-      parseIntent((await call(prompt, cwd)).raw) ??
-      parseIntent((await call(`${prompt}\n\n${INTENT_REFORMAT_NUDGE}`, cwd)).raw),
-  );
-  return { text, degraded: text === null };
+  try {
+    const text = await withEmptyCwd(
+      async (cwd) =>
+        parseIntent((await call(prompt, cwd)).raw) ??
+        parseIntent((await call(`${prompt}\n\n${INTENT_REFORMAT_NUDGE}`, cwd)).raw),
+    );
+    return { text, degraded: text === null };
+  } catch (e) {
+    debug?.(`[agent:intent] adapter failed: ${e instanceof Error ? e.message : 'unknown'}`);
+    return { text: null, degraded: true };
+  }
 }

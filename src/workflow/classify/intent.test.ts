@@ -98,4 +98,17 @@ describe('generateIntent', () => {
     expect(calls[0].effort).toBe('low');
     expect(calls[0].tracking.ticketId).toBe(3);
   });
+  it('adapter rejection degrades instead of throwing, and logs', async () => {
+    const adapter = {
+      async runHeadless() {
+        throw new Error('rate limited');
+      },
+    };
+    const logs: string[] = [];
+    expect(await generateIntent(adapter as any, { title: 't' }, (m) => logs.push(m))).toEqual({
+      text: null,
+      degraded: true,
+    });
+    expect(logs[0]).toContain('rate limited');
+  });
 });

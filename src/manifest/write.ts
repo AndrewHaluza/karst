@@ -202,6 +202,8 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Without this line Save silently drops the whole block — the failure mode
     // the writeManifest round-trip test exists to catch.
     uat: manifest.uat,
+    // Same seam: Save must not drop the opt-in analysis block.
+    analysis: manifest.analysis,
     review: manifest.review,
     // Same seam, same failure mode: the Agents tab owns `processes`, and an
     // explicit save must never drop the block. Deprecated process.<key>.preset
