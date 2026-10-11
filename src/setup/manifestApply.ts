@@ -42,6 +42,7 @@ const PROTECTED_FIELDS = [
   'closeDoneTerminalsWithTicket',
   'diffsInSourceControl',
   'uat',
+  'analysis',
   'review',
   'processes',
   'approaches',
