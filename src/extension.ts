@@ -6309,7 +6309,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         localStore,
         currentManifest(),
         ticketId,
-        context.globalStorageUri.fsPath,
+        context.globalStorageUri.fsPath, { markNotesShown: true },
       );
       const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
         renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId });

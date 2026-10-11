@@ -68,6 +68,7 @@ const EXPECTED_TABLES = [
   'ticket_relations',
   'bulletin_notes',
   'bulletin_reads',
+  'bulletin_context_shown',
   'baseline_decisions',
   'uat_gate_passes',
   'fix_deliveries',
@@ -1909,11 +1910,27 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION
       intent: null,
       code_pointers: null,
     });
-    expect(migrated.db.pragma('user_version', { simple: true })).toBe(78);
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
 
     const reopened = openStore(path);
     cleanups.push(() => reopened.close());
-    expect(reopened.db.pragma('user_version', { simple: true })).toBe(78);
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
+  it('migrates a v78 DB to v79, adding an empty context-shown ledger', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.pragma('user_version = 78');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(tableColumnsOf(migrated, 'bulletin_context_shown')).toEqual(
+      expect.arrayContaining(['note_id', 'reader_ticket_id', 'shown_at']),
+    );
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
   // v21 was RENUMBERED before release: it first shipped as the gate_runs

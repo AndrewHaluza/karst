@@ -23,7 +23,7 @@ import type { Severity } from '../manifest/types.js';
 import { listAttachments } from '../store/attachments.js';
 import { landedBlockerOutcomes, renderBlockerOutcome, type BlockerOutcome } from '../store/blockerOutcome.js';
 import { unreadCount } from '../store/ticketMessages.js';
-import { NOTE_INDEX_TITLE_MAX, unreadNoteIndex } from '../store/bulletinNotes.js';
+import { NOTE_INDEX_TITLE_MAX, contextNoteIndex } from '../store/bulletinNotes.js';
 import { getTicket, listSubtasks, type TicketWithStages } from '../store/tickets.js';
 import {
   listWorktreesByTicket,
@@ -250,12 +250,21 @@ export interface TicketContextInbox {
 export interface TicketContextNotes {
   unread: number;
   titles: string[];
+  otherMerges: number;
+  otherMergesSince: string | null;
+  shownEarlier: number;
 }
 
 /** The host-written notes index: counts and titles from the store, never bodies. */
-function ticketNotes(store: Store, ticketId: number): TicketContextNotes {
-  const index = unreadNoteIndex(store, ticketId);
-  return { unread: index.count, titles: index.titles };
+function ticketNotes(store: Store, ticketId: number, markShown: boolean): TicketContextNotes {
+  const index = contextNoteIndex(store, ticketId, { markShown });
+  return {
+    unread: index.count,
+    titles: index.titles,
+    otherMerges: index.otherMerges,
+    otherMergesSince: index.otherMergesSince,
+    shownEarlier: index.shownEarlier,
+  };
 }
 
 /**
@@ -420,6 +429,8 @@ export function buildTicketContext(
    * file's own directory.
    */
   storageDir?: string,
+  /** `markNotesShown`: record the listed notes as shown — the launch seed only. */
+  opts: { markNotesShown?: boolean } = {},
 ): TicketContext {
   const t = getTicket(store, ticketId);
 
@@ -601,7 +612,7 @@ export function buildTicketContext(
     subtaskParent,
     subtasks,
     inbox: { unread: unreadCount(store, ticketId) },
-    notes: ticketNotes(store, ticketId),
+    notes: ticketNotes(store, ticketId, opts.markNotesShown === true),
     blockers: landedBlockerOutcomes(store, ticketId),
     repos,
     stage,
@@ -650,14 +661,20 @@ const NOTE_REMINDER =
 
 /** The `## Project notes` index: titles only; bodies are read with `karst notes`. */
 function renderNotesSection(ctx: TicketContext): string {
-  const { unread, titles } = ctx.notes;
-  const lines = [
-    `## Project notes`,
-    `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`karst notes\` to read them.`,
-    ...titles.slice(0, NOTE_INDEX_TITLE_MAX).map((title) => `- ${title}`),
-  ];
+  const { unread, titles, otherMerges, otherMergesSince, shownEarlier } = ctx.notes;
+  const lines = [`## Project notes`];
+  if (unread > 0) {
+    lines.push(
+      `${unread} unread project note${unread === 1 ? '' : 's'} match this ticket — run \`karst notes\` to read them.`,
+      ...titles.slice(0, NOTE_INDEX_TITLE_MAX).map((title) => `- ${title}`),
+    );
+  }
   if (unread > titles.length) lines.push(`- … and ${unread - titles.length} more`);
-  if (ctx.stageCurrent !== null && NOTE_REMINDER_STAGES.includes(ctx.stageCurrent)) {
+  if (otherMerges > 0) {
+    lines.push(`${otherMerges} other merges since ${otherMergesSince ?? 'an unknown time'} (karst notes --all)`);
+  }
+  if (shownEarlier > 0) lines.push(`${shownEarlier} notes shown earlier - karst notes`);
+  if (unread > 0 && ctx.stageCurrent !== null && NOTE_REMINDER_STAGES.includes(ctx.stageCurrent)) {
     lines.push(NOTE_REMINDER);
   }
   return lines.join('\n');
@@ -903,7 +920,7 @@ export function renderTicketContext(
     );
   }
 
-  if (authored && ctx.notes.unread > 0) {
+  if (authored && (ctx.notes.unread > 0 || ctx.notes.otherMerges > 0 || ctx.notes.shownEarlier > 0)) {
     parts.push(renderNotesSection(ctx));
   }
 

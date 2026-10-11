@@ -1320,6 +1320,14 @@ CREATE TABLE IF NOT EXISTS bulletin_reads (
   PRIMARY KEY (note_id, reader_ticket_id)
 );
 
+-- v79: context exposure is distinct from a deliberate `karst notes` read.
+CREATE TABLE IF NOT EXISTS bulletin_context_shown (
+  note_id          INTEGER NOT NULL REFERENCES bulletin_notes(id) ON DELETE CASCADE,
+  reader_ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  shown_at         TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (note_id, reader_ticket_id)
+);
+
 -- v75: the user's append-only verdicts on baseline files a ticket changed
 -- (@arch:BASELINE-REVIEW). A path is approved iff its LATEST row for
 -- (ticket, repo, path) is 'approved' with the sha256 the worktree still has.
