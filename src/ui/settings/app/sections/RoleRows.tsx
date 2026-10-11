@@ -12,16 +12,38 @@ import { Button } from '../primitives/Button.js';
 import { Chip } from '../primitives/Chip.js';
 import { Field } from '../primitives/Field.js';
 import { IconButton } from '../primitives/IconButton.js';
+import { KarstMark } from '../primitives/KarstMark.js';
 import { Switch } from '../primitives/Switch.js';
 import { TablerIcon } from '../primitives/TablerIcon.js';
 import { NO_INHERIT, usePickerInputs } from './usePickerInputs.js';
 import { pinKeyOf, type EffectiveRole, type RoleValue } from './rolesModel.js';
 
-export const SOURCE_TEXT: Readonly<Record<EffectiveRole['source'], { chip: string; why: string }>> = {
-  pin: { chip: 'pinned', why: 'Pinned: the same in all presets, and it beats the preset.' },
-  preset: { chip: 'preset', why: 'From the selected preset.' },
-  default: { chip: 'default', why: 'No preset value and no pin: inherits the Default row.' },
+export const SOURCE_TEXT: Readonly<Record<EffectiveRole['source'], { chip: string; label: string; why: string }>> = {
+  pin: { chip: 'pinned', label: 'Pinned', why: 'Pinned: the same in all presets, and it beats the preset.' },
+  preset: { chip: 'preset', label: 'Preset', why: 'From the selected preset.' },
+  default: { chip: 'default', label: 'Karst default', why: "No preset value and no pin: uses Karst's built-in default." },
 };
+
+/** The Source cell chip. A Karst default carries the mark and a screen-reader label. */
+function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
+  const t = SOURCE_TEXT[source];
+  if (source === 'default') {
+    return (
+      <span title={`${t.label}. ${t.why}`} data-source={source}>
+        <Chip>
+          <KarstMark size={12} />
+          <span aria-hidden="true">{t.chip}</span>
+          <span className="sr-only">{t.label}</span>
+        </Chip>
+      </span>
+    );
+  }
+  return (
+    <span title={t.why} data-source={source}>
+      <Chip tone={source === 'pin' ? 'success' : 'neutral'}>{t.chip}</Chip>
+    </span>
+  );
+}
 
 export const roleText = (v: RoleValue): string =>
   [v.core, v.model, v.effort].filter((part) => part !== '').join(' · ') || '—';
@@ -57,27 +79,34 @@ function ProfileCell({
     const listed = view?.profileOptions ?? [];
     const kept = profile !== '' && !listed.includes(profile) ? [profile] : [];
     return [
-      { value: '', label: 'Role default' },
+      { value: '', label: 'default' },
       ...[...kept, ...listed].map((name) => ({ value: name, label: name })),
     ];
   }, [view?.profileOptions, profile]);
   const key = pinKeyOf(capability);
   if (key === undefined) return <span className="agents-muted">—</span>;
+  const builtIn = profile === '';
   const promptBearing = PROMPT_BEARING_PROCESS_KEYS.includes(key as ProcessKey);
   return (
     <div className="agents-profile-cell">
-      <Field
-        label={`Agent profile for ${view?.roleLabel ?? capability}`}
-        hideLabel
-        error={view?.invalidField === 'agent' ? view.stateMessage : undefined}
-        control={{ kind: 'select', name: `role-${capability}-profile`, value: profile, options, onChange: onProfile }}
-      />
-      <IconButton
-        label={profile === '' ? (promptBearing ? 'Open built-in prompt' : 'Open built-in profile') : `Open profile ${profile}`}
-        onClick={() => onOpenProfile(profile === '' ? null : profile)}
-      >
-        <TablerIcon name="chevron-right" />
-      </IconButton>
+      <span className="agents-field-label" aria-hidden="true">Agent profile</span>
+      <div className="agents-profile-fields">
+        <div className={`agents-profile-select${builtIn ? ' has-mark' : ''}`}>
+          {builtIn ? <KarstMark /> : null}
+          <Field
+            label={`Agent profile for ${view?.roleLabel ?? capability}`}
+            hideLabel
+            error={view?.invalidField === 'agent' ? view.stateMessage : undefined}
+            control={{ kind: 'select', name: `role-${capability}-profile`, value: profile, options, onChange: onProfile }}
+          />
+        </div>
+        <IconButton
+          label={builtIn ? (promptBearing ? 'Open Karst built-in prompt' : 'Open Karst built-in profile') : `Open profile ${profile}`}
+          onClick={() => onOpenProfile(builtIn ? null : profile)}
+        >
+          {builtIn ? <KarstMark /> : <TablerIcon name="file-text" />}
+        </IconButton>
+      </div>
     </div>
   );
 }
@@ -86,7 +115,6 @@ export function RoleRow(props: RoleRowProps) {
   const { capability, label, effective, selected, flash, sharesProfile } = props;
   const { catalog, recent, cores } = usePickerInputs();
   const pinnable = pinKeyOf(capability) !== undefined;
-  const source = SOURCE_TEXT[effective.source];
   const classes = [
     'agents-row',
     selected ? 'is-selected' : '',
@@ -99,8 +127,7 @@ export function RoleRow(props: RoleRowProps) {
     .join(' ');
   return (
     <div className={classes} data-role={capability} role="row">
-      <div className="agents-cell agents-cell-role" role="cell">
-        <span className="agents-role-name">{label}</span>
+      <div className="agents-cell agents-cell-switch" role="cell">
         {pinnable ? (
           <Switch
             name={`role-${capability}-enabled`}
@@ -110,7 +137,10 @@ export function RoleRow(props: RoleRowProps) {
           />
         ) : null}
       </div>
-      <div className="agents-cell" role="cell">
+      <div className="agents-cell agents-cell-role" role="cell">
+        <span className="agents-role-name">{label}</span>
+      </div>
+      <div className="agents-cell agents-cell-profile" role="cell">
         <ProfileCell {...props} />
       </div>
       <div className="agents-cell agents-cell-picker" role="cell">
@@ -126,10 +156,9 @@ export function RoleRow(props: RoleRowProps) {
           onChange={props.onChange}
         />
       </div>
-      <div className="agents-cell" role="cell">
-        <span title={source.why} data-source={effective.source}>
-          <Chip tone={effective.source === 'pin' ? 'success' : 'neutral'}>{source.chip}</Chip>
-        </span>
+      <div className="agents-cell agents-cell-source" role="cell">
+        <span className="agents-field-label" aria-hidden="true">Source</span>
+        <SourceCell source={effective.source} />
       </div>
       <div className="agents-cell agents-cell-actions" role="cell">
         {pinnable ? (
@@ -142,7 +171,9 @@ export function RoleRow(props: RoleRowProps) {
               <TablerIcon name="pin" />
             </IconButton>
           )
-        ) : null}
+        ) : (
+          <span className="agents-pin-slot" aria-hidden="true" />
+        )}
         <IconButton label="Clear" disabled={effective.source === 'default'} onClick={props.onClear}>
           <TablerIcon name="eraser" />
         </IconButton>
@@ -157,21 +188,26 @@ export interface CompareRowProps {
   readonly a: EffectiveRole;
   readonly b: EffectiveRole;
   readonly differs: boolean;
+  readonly aName: string;
+  readonly bName: string;
   readonly onCopy: () => void;
 }
 
-export function CompareRow({ capability, label, a, b, differs, onCopy }: CompareRowProps) {
+export function CompareRow({ capability, label, a, b, differs, aName, bName, onCopy }: CompareRowProps) {
   return (
     <div className={`agents-row agents-compare-row${differs ? ' differs' : ' same'}`} data-role={capability} role="row">
+      <div className="agents-cell agents-cell-switch" role="cell" />
       <div className="agents-cell agents-cell-role" role="cell">
         {differs ? <span className="agents-change-dot" title="Differs" aria-label="differs" /> : null}
         <span className="agents-role-name">{label}</span>
       </div>
       <div className="agents-cell" role="cell">
+        <span className="agents-field-label" aria-hidden="true">A: {aName}</span>
         <span className="agents-a">{roleText(a)}</span>
         <Chip>{SOURCE_TEXT[a.source].chip}</Chip>
       </div>
       <div className="agents-cell" role="cell">
+        <span className="agents-field-label" aria-hidden="true">B: {bName}</span>
         <span className="agents-b">{roleText(b)}</span>
         <Chip>{SOURCE_TEXT[b.source].chip}</Chip>
         {a.source === 'pin' && b.source === 'pin' ? (

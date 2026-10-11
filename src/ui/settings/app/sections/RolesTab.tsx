@@ -148,11 +148,14 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
 
       <div className="agents-table" role="table" aria-label="Roles" data-region="table">
         <div className="agents-row agents-head" role="row">
+          <div role="columnheader"><span className="sr-only">Enabled</span></div>
           <div role="columnheader">Role</div>
           {compare === null ? (
             <>
               <div role="columnheader">Agent profile</div>
-              <div role="columnheader">Core · Model · Effort</div>
+              <div role="columnheader">Core</div>
+              <div role="columnheader">Model</div>
+              <div role="columnheader">Effort</div>
               <div role="columnheader">Source</div>
               <div role="columnheader">Actions</div>
             </>
@@ -175,6 +178,8 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
                 a={effectiveRole(draft, preset, cap)}
                 b={effectiveRole(draft, compare, cap)}
                 differs={differs.includes(cap)}
+                aName={preset ?? ''}
+                bName={compare}
                 onCopy={() => preset !== null && edit((d) => copyRoleFrom(d, preset, compare, cap))}
               />
             );
