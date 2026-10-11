@@ -1,6 +1,6 @@
 import type { Store } from './db.js';
 import { forbiddenBodyChar, sanitizeInline } from '../model/messageText.js';
-import { noteMatchesScope, type NoteScope } from '../model/bulletinRelevance.js';
+import { noteMatchesScope, pathsOverlap, type NoteScope } from '../model/bulletinRelevance.js';
 import { formatTicketRef } from '../model/entityId.js';
 
 /**
@@ -41,6 +41,12 @@ CREATE TABLE IF NOT EXISTS bulletin_reads (
   note_id          INTEGER NOT NULL REFERENCES bulletin_notes(id) ON DELETE CASCADE,
   reader_ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
   read_at          TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (note_id, reader_ticket_id)
+);
+CREATE TABLE IF NOT EXISTS bulletin_context_shown (
+  note_id          INTEGER NOT NULL REFERENCES bulletin_notes(id) ON DELETE CASCADE,
+  reader_ticket_id INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  shown_at         TEXT NOT NULL DEFAULT (datetime('now')),
   PRIMARY KEY (note_id, reader_ticket_id)
 );
 `;
@@ -292,9 +298,9 @@ export interface BulletinNoteView extends BulletinNote {
 }
 
 /**
- * The reader's relevance scope: its worktrees' repos plus the paths its own
- * notes already carry (its merged diffs). Paths are null while it has none, so
- * relevance falls back to repo-only matching.
+ * The reader's relevance scope: its worktrees' repos plus paths from its own
+ * merged notes; if absent, paths parsed from its stored code pointers. Paths
+ * remain null only when neither source provides a usable path.
  */
 export function ticketNoteScope(store: Store, ticketId: number): NoteScope {
   const repos = ticketRepos(store, ticketId);
@@ -303,7 +309,17 @@ export function ticketNoteScope(store: Store, ticketId: number): NoteScope {
     .all(ticketId) as Array<{ paths: string }>;
   const paths = new Set<string>();
   for (const r of rows) for (const p of parseStringArray(r.paths) ?? []) paths.add(p);
-  return { repos, paths: paths.size === 0 ? null : [...paths].sort() };
+  if (paths.size > 0) return { repos, paths: [...paths].sort() };
+  const row = store.db.prepare('SELECT code_pointers FROM tickets WHERE id = ?').get(ticketId) as
+    | { code_pointers: string | null }
+    | undefined;
+  const pointerPaths = new Set<string>();
+  for (const line of row?.code_pointers?.split('\n') ?? []) {
+    const match = line.trim().match(/^- (\S+?)(?::\d+)? — .+$/u);
+    if (match?.[1]) pointerPaths.add(match[1]);
+  }
+  const normalized = normalizeRepoPaths([...pointerPaths]);
+  return { repos, paths: normalized.length === 0 ? null : normalized };
 }
 
 export interface ListNotesInput {
@@ -388,6 +404,79 @@ export function unreadNoteIndex(store: Store, ticketId: number): NoteIndex {
     all: false,
   });
   return toIndex(notes);
+}
+
+/** Context-only index: host merge facts need known path overlap; agent notes retain normal relevance. */
+export interface ContextNoteIndex extends NoteIndex {
+  otherMerges: number;
+  otherMergesSince: string | null;
+  shownEarlier: number;
+}
+
+/**
+ * With `markShown`, the launch/context index remembers the note ids it exposed
+ * (only the launch seed opts in; `karst context` and other renders stay
+ * read-only so re-reading never hides notes) without marking them read. `karst notes` remains the sole owner of bulletin read semantics.
+ */
+export function contextNoteIndex(
+  store: Store,
+  ticketId: number,
+  opts: { markShown?: boolean } = {},
+): ContextNoteIndex {
+  const ticket = store.db.prepare('SELECT project_id FROM tickets WHERE id = ?').get(ticketId) as
+    | { project_id: number | null }
+    | undefined;
+  const scope = ticketNoteScope(store, ticketId);
+  const scoped = ticket?.project_id !== null && ticket?.project_id !== undefined;
+  const rows = store.db
+    .prepare(
+      `SELECT n.*, EXISTS (
+          SELECT 1 FROM bulletin_context_shown s
+           WHERE s.note_id = n.id AND s.reader_ticket_id = ?
+        ) AS was_shown,
+        EXISTS (
+          SELECT 1 FROM bulletin_reads r2
+           WHERE r2.note_id = n.id AND r2.reader_ticket_id = ?
+        ) AS was_read
+         FROM bulletin_notes n
+        WHERE n.from_ticket_id <> ?
+          ${scoped ? 'AND n.project_id = ?' : ''}
+        ORDER BY n.id`,
+    )
+    .all(ticketId, ticketId, ticketId, ...(scoped ? [ticket!.project_id] : [])) as Array<
+      NoteRow & { was_shown: number; was_read: number }
+    >;
+  const candidates = rows
+    .map((row) => ({
+      note: rowToNote(row),
+      wasShown: row.was_shown !== 0,
+      wasRead: row.was_read !== 0,
+    }))
+    .filter(({ note }) => note.repos.some((repo) => scope.repos.includes(repo)))
+    .filter(({ note }) => note.source === 'host' || noteMatchesScope(note, scope));
+  const hostOverlaps = (note: BulletinNote): boolean =>
+    note.source === 'host' &&
+    note.paths !== null && note.paths.length > 0 &&
+    scope.paths !== null && scope.paths.length > 0 &&
+    note.paths.some((path) => scope.paths!.some((readerPath) => pathsOverlap(path, readerPath)));
+  const newCandidates = candidates.filter(({ wasShown, wasRead }) => !wasShown && !wasRead);
+  const listed = newCandidates
+    .filter(({ note }) => note.source === 'agent' || hostOverlaps(note))
+    .map(({ note }) => note);
+  const collapsed = newCandidates.filter(({ note }) => note.source === 'host' && !hostOverlaps(note));
+  if (opts.markShown === true) {
+    const mark = store.db.prepare(
+      'INSERT OR IGNORE INTO bulletin_context_shown (note_id, reader_ticket_id) VALUES (?, ?)',
+    );
+    for (const { note } of newCandidates) mark.run(note.id, ticketId);
+  }
+  const index = toIndex(listed);
+  return {
+    ...index,
+    otherMerges: collapsed.length,
+    otherMergesSince: collapsed[0]?.note.createdAt ?? null,
+    shownEarlier: candidates.filter(({ wasShown }) => wasShown).length,
+  };
 }
 
 /** Per-ticket unread note count and newest unread note id, for the delivery sweep. */

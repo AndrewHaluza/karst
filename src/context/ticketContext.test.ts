@@ -5,7 +5,7 @@ import { createTicket, pauseTicket, setStageCurrent, updateTicketFields } from '
 import { addRelation } from '../store/ticketRelations.js';
 import { listInbox, markRead, postMessage } from '../store/ticketMessages.js';
 import { insertAttachment } from '../store/attachments.js';
-import { postAgentNote } from '../store/bulletinNotes.js';
+import { markNotesRead, postAgentNote, recordTicketMerged } from '../store/bulletinNotes.js';
 import { recordGateRun } from '../store/gateRuns.js';
 import { recordFindings } from '../store/reviewFindings.js';
 import { setStage } from '../store/stages.js';
@@ -1377,7 +1377,7 @@ describe('renderTicketContext', () => {
       const poster = ticketIn('PROJ-P1', 'frontend');
       postNote(poster, 'Auth tokens rotate', 'DISTINCTIVE-SECRET-BODY-XYZ');
       const ctx = buildTicketContext(store, undefined, reader);
-      expect(ctx.notes).toEqual({ unread: 1, titles: ['Auth tokens rotate'] });
+      expect(ctx.notes).toMatchObject({ unread: 1, titles: ['Auth tokens rotate'] });
       const md = renderTicketContext(ctx);
       expect(md).toContain('## Project notes');
       expect(md).toContain('1 unread project note');
@@ -1420,8 +1420,83 @@ describe('renderTicketContext', () => {
       const elsewhere = ticketIn('PROJ-P4', 'backend');
       postNote(elsewhere, 'Backend only');
       const ctx = buildTicketContext(store, undefined, reader);
-      expect(ctx.notes).toEqual({ unread: 0, titles: [] });
+      expect(ctx.notes).toMatchObject({ unread: 0, titles: [] });
       expect(renderTicketContext(ctx)).not.toContain('## Project notes');
+    });
+
+    it('uses code-pointer paths to collapse unrelated host merges but lists an overlapping merge', () => {
+      const reader = ticketIn('PROJ-R5', 'frontend');
+      updateTicketFields(store, reader, { codePointers: '- src/context/ticketContext.ts — shapes ticket context' });
+      const unrelated = ticketIn('PROJ-P5A', 'frontend');
+      const overlapping = ticketIn('PROJ-P5B', 'frontend');
+      recordTicketMerged(store, {
+        ticketId: unrelated,
+        repo: 'frontend',
+        mergeSha: 'unrelated',
+        changedPaths: ['src/ui/dashboard/state.ts'],
+      });
+      recordTicketMerged(store, {
+        ticketId: overlapping,
+        repo: 'frontend',
+        mergeSha: 'overlapping',
+        changedPaths: ['src/context/ticketContext.ts'],
+      });
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader));
+      expect(md).toContain('PROJ-P5B merged frontend');
+      expect(md).toContain('1 other merges since');
+      expect(md).toContain('(karst notes --all)');
+      expect(md).toContain('Read these before you start: unread notes may change your plan.');
+      expect(md).not.toContain('PROJ-P5A merged frontend');
+    });
+
+    it('shows only a collapsed merge count when no host path overlaps', () => {
+      const reader = ticketIn('PROJ-R5C', 'frontend');
+      updateTicketFields(store, reader, { codePointers: '- src/context/ticketContext.ts — shapes ticket context' });
+      const unrelated = ticketIn('PROJ-P5C', 'frontend');
+      recordTicketMerged(store, {
+        ticketId: unrelated,
+        repo: 'frontend',
+        mergeSha: 'unrelated-only',
+        changedPaths: ['src/ui/dashboard/state.ts'],
+      });
+
+      const md = renderTicketContext(buildTicketContext(store, undefined, reader));
+      expect(md).toContain('1 other merges since');
+      expect(md).toContain('(karst notes --all)');
+      expect(md).not.toContain('PROJ-P5C merged frontend');
+      expect(md).not.toContain('Read these before you start: unread notes may change your plan.');
+    });
+
+    it('does not repeat notes already shown in ticket context', () => {
+      const reader = ticketIn('PROJ-R6', 'frontend');
+      const poster = ticketIn('PROJ-P6', 'frontend');
+      postNote(poster, 'One-time learning');
+
+      const first = renderTicketContext(
+        buildTicketContext(store, undefined, reader, undefined, { markNotesShown: true }),
+      );
+      expect(first).toContain('One-time learning');
+      const noteId = (
+        store.db.prepare('SELECT id FROM bulletin_notes WHERE title = ?').get('One-time learning') as { id: number }
+      ).id;
+      expect(markNotesRead(store, reader, [noteId])).toBe(1);
+
+      const second = renderTicketContext(buildTicketContext(store, undefined, reader));
+      expect(second).toContain('1 notes shown earlier - karst notes');
+      expect(second).not.toContain('One-time learning');
+      expect(second).not.toContain('Read these before you start: unread notes may change your plan.');
+    });
+
+    it('keeps listing notes on read-only renders (karst context re-runs)', () => {
+      const reader = ticketIn('PROJ-R7', 'frontend');
+      const poster = ticketIn('PROJ-P7', 'frontend');
+      postNote(poster, 'Still visible');
+
+      renderTicketContext(buildTicketContext(store, undefined, reader));
+      const again = renderTicketContext(buildTicketContext(store, undefined, reader));
+      expect(again).toContain('Still visible');
+      expect(again).not.toContain('notes shown earlier');
     });
 
     it.each([

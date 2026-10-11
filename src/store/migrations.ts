@@ -2631,5 +2631,11 @@ function migrateLocked(db: Database): void {
     if (cols78.size > 0 && !cols78.has('code_pointers')) db.exec('ALTER TABLE tickets ADD COLUMN code_pointers TEXT');
   }
 
+  if (current < 79) {
+    // v79: launch/context exposure is a separate, non-reading ledger. No
+    // backfill: prior contexts cannot be reconstructed honestly.
+    db.exec(BULLETIN_DDL);
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

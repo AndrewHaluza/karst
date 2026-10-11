@@ -216,7 +216,7 @@ function testerSafe(ctx: TicketContext): TicketContext {
     subtaskParent: null,
     subtasks: [],
     blockers: [],
-    notes: { unread: 0, titles: [] },
+    notes: { unread: 0, titles: [], otherMerges: 0, otherMergesSince: null, shownEarlier: 0 },
     inbox: { unread: 0 },
   };
 }
