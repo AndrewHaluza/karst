@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, linkSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, symlinkSync, linkSync, existsSync, readFileSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -119,5 +119,36 @@ describe('artifact store', () => {
     expect(await store.purgeStale(90)).toEqual([]);
     expect(await store.purgeStale(30)).toEqual([2]);
     expect(await store.listArtifacts(2)).toEqual([]);
+  });
+
+  describe('materializeView', () => {
+    it('checks out the latest tree read-only and refreshes on demand', async () => {
+      put('plan.md', 'v1');
+      await store.commitRevision(rev('plan.md'));
+      const view = await store.materializeView(1);
+      expect(view).toBe(join(ticketStoreDir(join(root, 'artifacts'), 7, 1), 'view'));
+      expect(readFileSync(join(view!, 'app', 'plan.md'), 'utf8')).toBe('v1');
+      expect(statSync(join(view!, 'app', 'plan.md')).mode & 0o222).toBe(0);
+      put('plan.md', 'v2');
+      put('new.md', 'n');
+      await store.commitRevision(rev('plan.md'));
+      await store.commitRevision(rev('new.md'));
+      await store.materializeView(1);
+      expect(readFileSync(join(view!, 'app', 'plan.md'), 'utf8')).toBe('v2');
+      expect(existsSync(join(view!, 'app', 'new.md'))).toBe(true);
+      await store.purgeArtifacts(1); // unlocks the read-only dirs before removing them
+      expect(existsSync(view!)).toBe(false);
+    });
+
+    it('drops files deleted from the latest tree and returns null for an empty store', async () => {
+      expect(await store.materializeView(1)).toBeNull();
+      put('a.md', 'x');
+      await store.commitRevision(rev('a.md'));
+      const view = await store.materializeView(1);
+      await store.commitRevision({ ticketId: 1, repo: 'app', relPath: 'a.md', deleted: true });
+      await store.materializeView(1);
+      expect(existsSync(join(view!, 'app', 'a.md'))).toBe(false);
+      await store.purgeArtifacts(1);
+    });
   });
 });
