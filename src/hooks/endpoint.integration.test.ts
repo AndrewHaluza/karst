@@ -755,6 +755,44 @@ describe('POST /tickets', () => {
     expect(created).toEqual([expect.any(Number)]);
   });
 
+  it('rejects a request carrying an Origin header with 403 (browser cross-origin)', async () => {
+    const res = await fetch(ticketsUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+      body: JSON.stringify({ title: 'Evil' }),
+    });
+    expect(res.status).toBe(403);
+    expect(getTicketByKey(store, 'EVIL')).toBeUndefined();
+  });
+
+  it('rejects a text/plain body with 415 (CORS simple request)', async () => {
+    const res = await fetch(ticketsUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ title: 'Evil' }),
+    });
+    expect(res.status).toBe(415);
+    expect(getTicketByKey(store, 'EVIL')).toBeUndefined();
+  });
+
+  it('rejects a missing Content-Type with 415', async () => {
+    const res = await fetch(ticketsUrl(), {
+      method: 'POST',
+      headers: { 'content-type': '' },
+      body: '{"title":"Evil"}',
+    });
+    expect(res.status).toBe(415);
+  });
+
+  it('accepts application/json with parameters and mixed case', async () => {
+    const res = await fetch(ticketsUrl(), {
+      method: 'POST',
+      headers: { 'content-type': 'Application/JSON; charset=utf-8' },
+      body: JSON.stringify({ title: 'Fix login' }),
+    });
+    expect(res.status).toBe(201);
+  });
+
   it('derives the key from the title when none is given', async () => {
     const { json } = await postJson({ title: 'Fix login' });
     expect((json as { ticket: { key: string } }).ticket.key).toBe('FIX-LOGIN');
