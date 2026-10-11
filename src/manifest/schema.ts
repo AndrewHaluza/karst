@@ -1,5 +1,7 @@
+import { CHAIN_EDGES } from './types.js';
 import type {
   Manifest,
+  ChainEdge,
   RepositoryDef,
   ApproachDef,
   ApproachSource,
@@ -132,6 +134,15 @@ function validateApproaches(raw: unknown): ApproachDef[] {
     }
     if (a.outputs !== undefined) {
       approach.outputs = validateOutputs(a.outputs, `${where}.outputs`);
+    }
+    if (a.checks !== undefined) {
+      if (!Array.isArray(a.checks)) throw new ManifestError(`${where}.checks must be an array`);
+      approach.checks = a.checks.map((e, j) => {
+        if (typeof e !== 'string' || !(CHAIN_EDGES as readonly string[]).includes(e)) {
+          throw new ManifestError(`${where}.checks[${j}] must be one of ${CHAIN_EDGES.join(', ')}`);
+        }
+        return e as ChainEdge;
+      });
     }
     if (a.graph !== undefined) {
       assertNoHoistedGraphKeys(a, where);
