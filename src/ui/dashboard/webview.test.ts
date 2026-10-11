@@ -6236,3 +6236,9 @@ describe('INSIDE_ACTION_LABEL and INSIDE_ACTION_TITLE cover retry-ship-repo', ()
     expect(HTML).toMatch(/'retry-ship-repo'\s*:\s*'Re-run ship for this repository only'/);
   });
 });
+
+describe('content width cap (UI-R48)', () => {
+  it('stays uncapped', () => {
+    expect(HTML).not.toContain('--k-content-max');
+  });
+});
