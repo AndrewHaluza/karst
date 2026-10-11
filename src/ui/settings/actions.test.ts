@@ -210,6 +210,32 @@ describe('settings actions — save', () => {
   });
 });
 
+describe('settings actions — save while karst.yml is unreadable', () => {
+  const broken = (error = 'bad yaml') =>
+    harness({ loadState: () => ({ manifest: VALID, error }) });
+
+  it('refuses on a schema error too (the stale fallback applies to any load error)', async () => {
+    const { actions, posted, order } = broken('portRange min > max');
+    await actions.save({ ...VALID, host: '0.0.0.0' });
+    expect(order).toEqual([]);
+    expect(posted.filter((m) => m.type === 'error')).toHaveLength(1);
+  });
+
+  it.each([
+    ['whole-manifest', undefined],
+    ['section', 'general' as const],
+  ])('refuses a %s save: no write, error posted', async (_n, section) => {
+    const { actions, posted, order } = broken();
+    await actions.save({ ...VALID, host: '0.0.0.0' }, section);
+    expect(order).toEqual([]);
+    const e = posted.find((m) => m.type === 'error');
+    expect((e as any).message).toBe(
+      'karst.yml has errors on disk — fix them or reload before saving',
+    );
+    expect(posted.some((m) => m.type === 'saved')).toBe(false);
+  });
+});
+
 /** Capture what actually reached disk, not just that a write happened. */
 function writeSpy() {
   const writes: Manifest[] = [];
