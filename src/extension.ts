@@ -102,6 +102,7 @@ import {
   type SessionTerminalRecord,
   type TerminalIdentity,
 } from './ui/terminalIdentity.js';
+import { closeTerminalsOnTicketCompleted } from './extension/ops/completeTicketOps.js';
 import { closeDoneTerminalsOf, type DoneTerminalProbe } from './ui/doneTerminals.js';
 import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
@@ -967,14 +968,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (pid, ticketId) =>
       resourceMonitor?.registerPid({ pid, kind: 'session', ticketId, label: 'Session' }),
   );
-  // Setting-gated (manifest `closeDoneTerminalsWithTicket`, OFF by default):
-  // closing a ticket also closes its DONE terminals — the tabs whose process
-  // already exited (VS Code marks them "Done") and would otherwise sit dead in
-  // the terminal panel. Only EXITED terminals qualify, so a live agent session
-  // is never torn down by closing its ticket; identity comes from the same
-  // registry the adoption paths use, so a revived terminal still counts. The
-  // decision is the vscode-free `ui/doneTerminals.ts`; this is the binding.
-  const closeTicketDoneTerminals = (ticketId: number): number => {
+  // `closeDoneTerminalsWithTicket`: archive closes EXITED terminals; mode
+  // 'ticket-completed' (merge) also closes the live session (`ui/doneTerminals.ts`).
+  const closeTicketTerminals = (ticketId: number, mode?: 'ticket-completed'): number => {
     const probes: DoneTerminalProbe[] = [];
     for (const terminal of vscode.window.terminals) {
       const named = terminalIdentity.identify(terminal);
@@ -982,10 +978,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       probes.push({
         ticketId,
         exited: terminal.exitStatus !== undefined,
+        graph: named.graph === true,
         dispose: () => terminal.dispose(),
       });
     }
-    return closeDoneTerminalsOf(probes, ticketId);
+    return closeDoneTerminalsOf(probes, ticketId, mode);
   };
   flushSessionOwnership = async () => {
     await ownershipWriter.flush();
@@ -1231,7 +1228,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notify,
     log: { info: (m) => logger.info(m), error: logError },
     appendLine: (m) => channel.appendLine(m),
-    closeDoneTerminals: closeTicketDoneTerminals,
+    closeDoneTerminals: closeTicketTerminals,
     manifest: currentManifest,
     beforeRemove: artifactCapture.beforeRemove,
     refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); }, // an archived blocker unblocks children
@@ -2836,7 +2833,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         guardCapability,
         currentManifest,
         (ticketId) => prDescriptionProcess(ticketId),
-        () => pushDoneStatus(ticketId, true),
+        () => {
+          closeTerminalsOnTicketCompleted(currentManifest, (id) => closeTicketTerminals(id, 'ticket-completed'), logger, logError, ticketId);
+          return pushDoneStatus(ticketId, true);
+        },
         // Live Ship rides the generic inside-progress union (Finding 12): the
         // manager has no ship-specific progress channel any more.
         (event) => dashboard.postInsideProgress(ticketId, event),
@@ -5681,7 +5681,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if ((currentManifest() ?? emptyManifest()).closeDoneTerminalsWithTicket === true) {
         let closed = 0;
         try {
-          for (const id of archived) closed += closeTicketDoneTerminals(id);
+          for (const id of archived) closed += closeTicketTerminals(id);
         } catch (e) {
           logError('karst: closing done terminals failed', e);
         }

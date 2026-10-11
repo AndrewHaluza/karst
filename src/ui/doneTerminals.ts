@@ -16,6 +16,8 @@ export interface DoneTerminalProbe {
   readonly ticketId: number;
   /** True when the terminal's process has already exited. */
   readonly exited: boolean;
+  /** Graph planner/node terminal — closes only once exited, in every mode. */
+  readonly graph?: boolean;
   dispose(): void;
 }
 
@@ -27,10 +29,15 @@ export interface DoneTerminalProbe {
 export function closeDoneTerminalsOf(
   terminals: readonly DoneTerminalProbe[],
   ticketId: number,
+  mode: 'exited-only' | 'ticket-completed' = 'exited-only',
 ): number {
   let closed = 0;
   for (const terminal of terminals) {
-    if (terminal.ticketId !== ticketId || !terminal.exited) continue;
+    if (terminal.ticketId !== ticketId) continue;
+    // A completed ticket's own session tab goes even with an idle live agent;
+    // graph terminals and archive sweeps keep the exited-only rule.
+    const liveSessionOfCompleted = mode === 'ticket-completed' && !terminal.graph;
+    if (!terminal.exited && !liveSessionOfCompleted) continue;
     terminal.dispose();
     closed += 1;
   }
