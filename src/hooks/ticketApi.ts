@@ -176,6 +176,21 @@ export function serveCreateTicketRequest(
   res: ServerResponse,
   deps: ServeCreateTicketDeps,
 ): void {
+  // Browser guard: a web page can fire a CORS "simple" POST (text/plain, no
+  // preflight) at localhost. Browsers always attach Origin and cannot send
+  // application/json cross-origin without a preflight this server never
+  // answers, so these two checks keep browsers out; local processes are unaffected.
+  if (req.headers.origin !== undefined) {
+    respondJson(res, 403, { ok: false, error: 'browser cross-origin requests are not allowed' });
+    req.resume();
+    return;
+  }
+  const mediaType = (req.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase();
+  if (mediaType !== 'application/json') {
+    respondJson(res, 415, { ok: false, error: 'content-type must be application/json' });
+    req.resume();
+    return;
+  }
   readCreateBody(req, res, deps.maxBodyBytes, deps.requestTimeoutMs, (result) => {
     if (result.kind !== 'body') return; // response already written / aborted
 
