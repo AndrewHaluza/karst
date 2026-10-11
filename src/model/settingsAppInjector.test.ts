@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SETTINGS_APP_MARKER,
   injectSettingsApp,
+  settingsAppCss,
   settingsAppJs,
 } from './settingsAppInjector.js';
 
@@ -24,5 +25,11 @@ describe('injectSettingsApp (NDL-126 §1)', () => {
     const bundle = settingsAppJs();
     expect(bundle.length).toBeGreaterThan(1000);
     expect(bundle).toContain('data-karst-ready');
+  });
+
+  it('ships the shared sheet followed by the Agents page sheet', () => {
+    const css = settingsAppCss();
+    expect(css).toContain('.cap-value');
+    expect(css.indexOf('#section-agents')).toBeGreaterThan(css.indexOf('.cap-value'));
   });
 });

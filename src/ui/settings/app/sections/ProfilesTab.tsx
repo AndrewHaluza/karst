@@ -118,7 +118,7 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer }: ProfilesTab
 
   return (
     <div className={`agents-profiles${selected ? ' has-selection' : ''}`} onKeyDown={onKeyDown}>
-      <div className="agents-list">
+      <div className="agents-list" data-region="list">
         <Field
           label="Search profiles"
           hideLabel
@@ -145,7 +145,7 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer }: ProfilesTab
         ))}
       </div>
 
-      <div className="agents-detail">
+      <div className="agents-detail" data-region="detail">
         {selected === null ? (
           <div className="agents-empty">Select a profile to read its text.</div>
         ) : (
@@ -245,7 +245,7 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
           hideLabel
           control={{ kind: 'textarea', name: `agent-body-${entry.id}`, rows: 14, value: buffer ?? entry.text ?? '', onChange: onBuffer }}
         />
-        <div className="agents-text-foot">
+        <div className="agents-text-foot" data-region="toolbar">
           <span className="agents-muted">Editing .karst/agents/{entry.name}.md</span>
           <Button variant="ghost" size="sm" disabled={!dirty} onClick={onRevert}>
             Revert
@@ -261,7 +261,7 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
     return (
       <div className="agents-text">
         <pre className="agents-readonly" aria-label={`${entry.name} text`}>{entry.text ?? 'The text could not be read.'}</pre>
-        <div className="agents-text-foot">
+        <div className="agents-text-foot" data-region="toolbar">
           <span className="agents-muted">Provided by approach {entry.approachId} — manage in approach</span>
           <Button variant="text" size="sm" onClick={onManage}>
             manage in approach ↗
@@ -279,7 +279,7 @@ function ProfileText({ entry, buffer, dirty, saving, onBuffer, onSave, onRevert,
           This process keeps its built-in prompt; an agent profile changes identity only.
         </div>
       )}
-      <div className="agents-text-foot">
+      <div className="agents-text-foot" data-region="toolbar">
         <span className="agents-muted">built-in prompt</span>
         <Button variant="secondary" size="sm" disabled={!entry.promptBearing} onClick={onCustomize}>
           Customize…

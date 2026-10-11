@@ -81,6 +81,8 @@ export interface AgentPickerOptions {
   };
   readonly disabled?: boolean;
   readonly showEffort?: boolean;
+  /** Dense table-row form: captions screen-reader-only, core trigger shows the provider alone. */
+  readonly compact?: boolean;
   readonly onChange: (value: AgentPickerIdentity) => void;
 }
 

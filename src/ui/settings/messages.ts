@@ -1,4 +1,4 @@
-import type { Manifest } from '../../manifest/types.js';
+import type { Manifest, OutputDef } from '../../manifest/types.js';
 import type { SettingsState } from './state.js';
 import type { SettingsProcessAssignmentView } from './processAssignmentViews.js';
 import type { TicketList } from '../../integrations/ticketing.js';
@@ -24,6 +24,12 @@ export type SettingsWebviewMessage =
   | { type: 'validate-process-assignments'; manifest: Manifest }
   | { type: 'install-approach'; id: string }
   | { type: 'uninstall-approach'; id: string }
+  /**
+   * The user's decision on an approach's pending output suggestions: the
+   * accepted (possibly edited) entries. Anything not listed is rejected. Either
+   * way the pending list is cleared; only `accepted` reaches karst.yml.
+   */
+  | { type: 'resolve-pending-outputs'; id: string; accepted: OutputDef[] }
   | { type: 'set-token' }
   | { type: 'clear-token' }
   | { type: 'set-approach-enabled'; id: string; enabled: boolean }
@@ -158,6 +164,8 @@ export interface SettingsActions {
   validateProcessAssignments(manifest: Manifest): void | Promise<void>;
   installApproach(id: string): void | Promise<void>;
   uninstallApproach(id: string): void | Promise<void>;
+  /** Apply the user's accept/edit/reject of an approach's pending output suggestions. */
+  resolvePendingOutputs(id: string, accepted: OutputDef[]): void | Promise<void>;
   /** Prompt (host-side) for and store the ClickUp token. Token never crosses the webview. */
   setToken(): void | Promise<void>;
   /** Clear the stored ClickUp token. */
@@ -228,6 +236,10 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
       return str('id') ? { type: 'install-approach', id: raw.id as string } : null;
     case 'uninstall-approach':
       return str('id') ? { type: 'uninstall-approach', id: raw.id as string } : null;
+    case 'resolve-pending-outputs':
+      return str('id') && Array.isArray(raw.accepted)
+        ? { type: 'resolve-pending-outputs', id: raw.id as string, accepted: raw.accepted as OutputDef[] }
+        : null;
     case 'set-token':
       return { type: 'set-token' };
     case 'clear-token':
@@ -300,6 +312,8 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
       return actions.installApproach(msg.id);
     case 'uninstall-approach':
       return actions.uninstallApproach(msg.id);
+    case 'resolve-pending-outputs':
+      return actions.resolvePendingOutputs(msg.id, msg.accepted);
     case 'set-token':
       return actions.setToken();
     case 'clear-token':

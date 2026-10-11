@@ -48,6 +48,7 @@ const assets = [
   // webviewSend.ts directly), so only the app bundle ships for settings.
   'ui/settings/app.webview.js',
   'ui/settings/app.webview.css',
+  'ui/settings/agents.webview.css',
 ]; // sourced from src/
 // Sourced from the repo root. The setup runbook travels the same way the
 // manifest template does: it is written into the TARGET project at scaffold

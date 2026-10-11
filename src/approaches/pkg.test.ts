@@ -12,6 +12,7 @@ import {
   listInstalled,
   readPromptBody,
   uninstallApproach,
+  setPendingOutputs,
   type ApproachPackage,
   type ApproachArtifact,
 } from './pkg.js';
@@ -720,5 +721,40 @@ describe('outputs persistence', () => {
       [],
     );
     expect(() => readApproachPackage(base, 'bad')).toThrow(/outputs\[0\]\.kind/);
+  });
+});
+
+describe('pendingOutputs persistence', () => {
+  const pending = [{ glob: 'docs/plans/**', kind: 'plan' as const }];
+
+  it('round-trips through writeApproachArtifacts and writeApproachPackage', () => {
+    const base = makeBaseDir();
+    writeApproachArtifacts(base, { id: 'a', label: 'L', prompts: [], pendingOutputs: pending }, []);
+    writeApproachPackage(base, { id: 'b', label: 'L', prompts: [], pendingOutputs: pending }, []);
+    expect(readApproachPackage(base, 'a')?.pendingOutputs).toEqual(pending);
+    expect(readApproachPackage(base, 'b')?.pendingOutputs).toEqual(pending);
+  });
+
+  it('rejects an unsafe glob in approach.yml', () => {
+    const base = makeBaseDir();
+    writeApproachArtifacts(
+      base,
+      { id: 'bad', label: 'L', prompts: [], pendingOutputs: [{ glob: '../x/**', kind: 'plan' }] },
+      [],
+    );
+    expect(() => readApproachPackage(base, 'bad')).toThrow(ManifestError);
+  });
+
+  it('setPendingOutputs replaces, clears, keeps other fields, and ignores absent packages', () => {
+    const base = makeBaseDir();
+    writeApproachArtifacts(base, { id: 'p', label: 'L', prompts: ['x.md'], pendingOutputs: pending }, []);
+    const next = [{ glob: 'specs/**', kind: 'spec' as const }];
+    setPendingOutputs(base, 'p', next);
+    expect(readApproachPackage(base, 'p')).toMatchObject({ label: 'L', prompts: ['x.md'], pendingOutputs: next });
+    setPendingOutputs(base, 'p', []);
+    expect(readApproachPackage(base, 'p')?.pendingOutputs).toBeUndefined();
+    expect(readApproachPackage(base, 'p')?.prompts).toEqual(['x.md']);
+    expect(() => setPendingOutputs(base, 'missing', pending)).not.toThrow();
+    expect(readApproachPackage(base, 'missing')).toBeNull();
   });
 });

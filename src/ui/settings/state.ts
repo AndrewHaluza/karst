@@ -1,5 +1,6 @@
 import { buildBuiltInPrompts, type BuiltInPrompts } from './builtInPrompts.js';
-import type { AgentProvider, ApproachDef, Manifest } from '../../manifest/types.js';
+import type { AgentProvider, ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
+import { pendingOutputViews, type PendingOutputsView } from '../../approaches/pendingOutputs.js';
 import { sortAgentRowsByProvenance } from './agentGrouping.js';
 import {
   bundledModelCatalog,
@@ -111,6 +112,12 @@ export interface SettingsState {
   projectSlug: { value: string; derived: boolean };
   /** Extension version from package.json — displayed, never edited. */
   version: string;
+  /**
+   * Install-time output suggestions awaiting the user's accept/edit/reject, by
+   * approach id (only ids with something pending). Read from the installed
+   * package, never from karst.yml.
+   */
+  pendingOutputs: Record<string, PendingOutputsView>;
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */
@@ -128,6 +135,7 @@ export function buildSettingsState(
   version = '',
   packagedApproaches: ApproachDef[] = [],
   recentModels: Record<string, string[]> = {},
+  pendingOutputs: Readonly<Record<string, readonly OutputDef[]>> = {},
 ): SettingsState {
   return {
     manifest,
@@ -152,5 +160,6 @@ export function buildSettingsState(
     projectSlug,
     version,
     packagedApproaches,
+    pendingOutputs: pendingOutputViews(pendingOutputs),
   };
 }

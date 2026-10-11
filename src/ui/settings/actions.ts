@@ -1,4 +1,5 @@
-import type { ApproachDef, Manifest } from '../../manifest/types.js';
+import type { ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
+import { withAcceptedOutputs } from '../../approaches/pendingOutputs.js';
 import { validateManifest, ManifestError } from '../../manifest/schema.js';
 import { installCommandFor } from '../../approaches/fetch.js';
 import {
@@ -64,6 +65,10 @@ export interface SettingsActionsDeps {
   clearApproachFromTickets(id: string): number;
   /** Ids of approach packages currently present on disk. */
   listInstalledIds(): string[];
+  /** Pending (unconfirmed) install-time output suggestions, by installed approach id. */
+  readPendingOutputs(): Record<string, OutputDef[]>;
+  /** Drop an installed package's pending output suggestions (decision made). */
+  clearPendingOutputs(id: string): void;
   /**
    * Prompt (host-side) for and store the ClickUp token; resolves true if a token
    * was set, false if the user cancelled. The raw token never crosses back here.
@@ -246,6 +251,9 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           ctx.manifestPath,
           ctx.projectSlug,
           ctx.version,
+          undefined,
+          undefined,
+          deps.readPendingOutputs(),
         ),
       });
     }
@@ -447,6 +455,29 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
           deps.uninstallApproach(id);
           deps.clearApproachFromTickets(id);
           reconcileApproachEnabled(id);
+          await pushStateWithInstalled();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      /**
+       * The ONLY path from a scan suggestion to karst.yml: the user's accepted
+       * (possibly edited) entries are merged into the approach's `outputs:`.
+       * Rejected entries are simply not listed. The pending list is cleared only
+       * after the manifest write succeeded, so a failed write leaves the
+       * suggestions to be decided again.
+       */
+      async resolvePendingOutputs(id: string, accepted: OutputDef[]): Promise<void> {
+        try {
+          const loaded = deps.loadState();
+          if (loaded.error) throw new Error(loaded.error);
+          if (accepted.length > 0) {
+            writeManifestDelta(withAcceptedOutputs(loaded.manifest, id, accepted));
+            deps.reloadManifest();
+            deps.onChange();
+          }
+          deps.clearPendingOutputs(id);
           await pushStateWithInstalled();
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });

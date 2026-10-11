@@ -25,7 +25,8 @@ const REQUIRED_ARTIFACTS = [
 // Raised 350 → 354 KB for the multi-service Services editor (named `services:`
 // map per repository: per-service blocks, split/add/remove, repo/service
 // dependency targets), which added ~4 KB of genuine app code on a ~356 KB base.
-const APP_BUNDLE_BUDGET_BYTES = 354 * 1024;
+// Raised 354 → 356 KB for the pending-outputs panel on the Approaches card (~1.3 KB).
+const APP_BUNDLE_BUDGET_BYTES = 356 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

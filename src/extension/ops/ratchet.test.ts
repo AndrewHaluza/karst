@@ -27,7 +27,9 @@ import { join } from 'node:path';
 // Raised by 19 for the artifact-capture binding (`wireArtifactCapture` call, its
 // four hook bindings and the SessionEnd line); logic is in `src/artifacts/service.ts`
 // and `src/extension/artifactCaptureWiring.ts`.
-const MAX_EXTENSION_LINES = 8472;
+// Raised by 7 for the Settings pending-outputs bindings (`readPendingOutputs`,
+// `clearPendingOutputs` and the manager arg); logic is in `src/approaches/pendingOutputs.ts`.
+const MAX_EXTENSION_LINES = 8479;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
