@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AntigravityAdapter, type SpawnHeadless } from './antigravity.js';
@@ -722,5 +722,31 @@ describe('AntigravityAdapter', () => {
       expect(body).toContain('node "/ext/cli.js" conflict-brief');
     });
 
+  });
+});
+
+describe('AntigravityAdapter command files stay CLI-only', () => {
+  it('writes no MCP wording into any generated file', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'agy-cli-only-'));
+    try {
+      new AntigravityAdapter().materializeApproach({
+        pkg: { id: 'bare', label: 'Bare' },
+        baseDir: '/base',
+        sessionDir: dir,
+        cliContextPrefix: 'node "$KARST_CLI" context --db "$KARST_DB"',
+        cliGuidePrefix: 'node "$KARST_CLI" guide',
+        cliFixBriefPrefix: 'node "$KARST_CLI" fix-brief',
+        cliConflictBriefPrefix: 'node "$KARST_CLI" conflict-brief',
+      });
+      const files = readdirSync(dir, { recursive: true, withFileTypes: true }).filter((e) =>
+        e.isFile(),
+      );
+      expect(files.length).toBeGreaterThan(0);
+      for (const f of files) {
+        expect(readFileSync(join(f.parentPath, f.name), 'utf8'), f.name).not.toContain('MCP');
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

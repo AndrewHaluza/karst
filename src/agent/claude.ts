@@ -425,6 +425,7 @@ export class ClaudeAdapter implements AgentAdapter {
           ...(opts.cliStagePrefix ? { stageCommand: opts.cliStagePrefix } : {}),
           ...(opts.cliPhasePrefix ? { phaseCommand: opts.cliPhasePrefix } : {}),
           ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+          ...(opts.mcp ? { mcp: true } : {}),
         });
         writeGeneratedArtifact(
           join(karstDir, 'commands', `${orchestratorCommandBasename(opts.pkg.id)}.md`),
@@ -462,6 +463,7 @@ export class ClaudeAdapter implements AgentAdapter {
           body: renderStartTaskCommand({
             contextCommand: opts.cliContextPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+            ...(opts.mcp ? { mcp: true } : {}),
           }),
           description: START_TASK_DESCRIPTION,
           argumentHint: START_TASK_ARGUMENT_HINT,
@@ -471,6 +473,7 @@ export class ClaudeAdapter implements AgentAdapter {
           body: renderResumeCommand({
             contextCommand: opts.cliContextPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+            ...(opts.mcp ? { mcp: true } : {}),
           }),
           description: RESUME_DESCRIPTION,
           argumentHint: RESUME_ARGUMENT_HINT,
@@ -484,6 +487,7 @@ export class ClaudeAdapter implements AgentAdapter {
             contextCommand: opts.cliContextPrefix,
             fixBriefCommand: opts.cliFixBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+            ...(opts.mcp ? { mcp: true } : {}),
           }),
           description: FIX_DESCRIPTION,
           argumentHint: FIX_ARGUMENT_HINT,
@@ -497,6 +501,7 @@ export class ClaudeAdapter implements AgentAdapter {
             contextCommand: opts.cliContextPrefix,
             conflictBriefCommand: opts.cliConflictBriefPrefix,
             ...(opts.cliGuidePrefix ? { guideCommand: opts.cliGuidePrefix } : {}),
+            ...(opts.mcp ? { mcp: true } : {}),
           }),
           description: RESOLVE_CONFLICT_DESCRIPTION,
           argumentHint: RESOLVE_CONFLICT_ARGUMENT_HINT,

@@ -157,7 +157,7 @@ export function renderDoneMarkerInstruction(
     ' To keep a file outside the approach output folders (e.g. a dev script) in this ' +
     `ticket's artifacts, ` +
     (mcpStage
-      ? 'call the karst MCP tool `artifact` with { path: "<path>", kind: "<kind>" } ' +
+      ? ': call the karst MCP tool `artifact` with { path: "<path>", kind: "<kind>" } ' +
         `(or run \`${artifactCommand}\`)`
       : `run \`${artifactCommand}\``) +
     ` (kind: plan, research, spec, review, ` +
@@ -188,9 +188,11 @@ export function renderGateOnlyInstruction(): string {
  * share one copy of the context-pull, authoritative-output, re-run,
  * worktree-prohibition, and session-ending prose.
  */
-function renderCommandCore(contextCommand: string, guideCommand?: string): string {
+function renderCommandCore(contextCommand: string, guideCommand?: string, mcp = false): string {
   const lines: string[] = [
-    `Load the ticket's full context by running:`,
+    mcp
+      ? "Load the ticket's full context: call the karst MCP tool `context` with { key: \"<key>\", format: \"md\" }. If the tool is not available, run:"
+      : `Load the ticket's full context by running:`,
     '',
     '```bash',
     `${contextCommand} <key> --md`,
@@ -207,7 +209,12 @@ function renderCommandCore(contextCommand: string, guideCommand?: string): strin
     `A session ending does not advance the ticket — you must fire the marker explicitly. Do NOT fire it while you are waiting for the user to answer a question: a stage whose agent is waiting on the user is not complete, and the ${MARKER_REFUSED}.`,
   ];
   if (guideCommand) {
-    lines.push('', `${GUIDE_POINTER_INTRO}, run \`${guideCommand}\`.`);
+    lines.push(
+      '',
+      mcp
+        ? `${GUIDE_POINTER_INTRO}, call the karst MCP tool \`guide\` (if the tool is not available, run \`${guideCommand}\`).`
+        : `${GUIDE_POINTER_INTRO}, run \`${guideCommand}\`.`,
+    );
   }
   return lines.join('\n');
 }
@@ -224,11 +231,12 @@ function renderCommandCore(contextCommand: string, guideCommand?: string): strin
 export function renderStartTaskCommand(input: {
   contextCommand: string;
   guideCommand?: string;
+  mcp?: boolean;
 }): string {
-  const { contextCommand, guideCommand } = input;
+  const { contextCommand, guideCommand, mcp } = input;
   const grammarParagraph =
     `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id; everything after it is the brief the user wrote, and the brief is the work.`;
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
 }
 
 /**
@@ -239,12 +247,13 @@ export function renderStartTaskCommand(input: {
 export function renderResumeCommand(input: {
   contextCommand: string;
   guideCommand?: string;
+  mcp?: boolean;
 }): string {
-  const { contextCommand, guideCommand } = input;
+  const { contextCommand, guideCommand, mcp } = input;
   const grammarParagraph =
     `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. ` +
     'This session is resuming work already in progress — there is no brief.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
 }
 
 /**
@@ -256,13 +265,17 @@ export function renderFixCommand(input: {
   contextCommand: string;
   fixBriefCommand: string;
   guideCommand?: string;
+  mcp?: boolean;
 }): string {
-  const { contextCommand, fixBriefCommand, guideCommand } = input;
+  const { contextCommand, fixBriefCommand, guideCommand, mcp } = input;
   const grammarParagraph =
     `The first whitespace-delimited token in \`$ARGUMENTS\` is the ticket key or ${TICKET_ID} id. ` +
-    `Run \`${fixBriefCommand} <key>\` FIRST and treat its output as the work — the brief ` +
+    (mcp
+      ? `Call the karst MCP tool \`fix-brief\` with { key: "<key>" } FIRST (if the tool is not available, run \`${fixBriefCommand} <key>\`)`
+      : `Run \`${fixBriefCommand} <key>\` FIRST`) +
+    ' and treat its output as the work — the brief ' +
     'names the gate that failed and what it reported.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
 }
 
 /**
@@ -274,13 +287,17 @@ export function renderResolveConflictCommand(input: {
   contextCommand: string;
   conflictBriefCommand: string;
   guideCommand?: string;
+  mcp?: boolean;
 }): string {
-  const { contextCommand, conflictBriefCommand, guideCommand } = input;
+  const { contextCommand, conflictBriefCommand, guideCommand, mcp } = input;
   const grammarParagraph =
     'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` (a ticket key or `T<n>` id) and `<repo>`. ' +
-    `Run \`${conflictBriefCommand} <key> <repo>\` FIRST — resolving the named conflict is the ` +
+    (mcp
+      ? `Call the karst MCP tool \`conflict-brief\` with { key: "<key>", repo: "<repo>" } FIRST (if the tool is not available, run \`${conflictBriefCommand} <key> <repo>\`)`
+      : `Run \`${conflictBriefCommand} <key> <repo>\` FIRST`) +
+    ' — resolving the named conflict is the ' +
     'whole job and it must not drift into other work.';
-  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand);
+  return grammarParagraph + '\n\n' + renderCommandCore(contextCommand, guideCommand, mcp);
 }
 
 /**
@@ -304,7 +321,7 @@ export function renderWorkflowCommand(input: {
    * When given, a CLOSING marker step is appended: run `<stageCommand>
    * $ARGUMENTS` once the ticket's work is done to advance impl→uat (the explicit
    * §5.4 marker — a session ending is NOT a verdict, so the agent must fire this
-   * itself). The generated command is materialized once and only ever covers the
+   * itself). The generated command is written per launch and only ever covers the
    * impl boundary, so its `stageCommand` is always the `impl` one. Absent → no
    * marker step (the impl boundary stays manual).
    */
@@ -331,8 +348,13 @@ export function renderWorkflowCommand(input: {
    * pulled on demand, never embedded in the command body.
    */
   guideCommand?: string;
+  /**
+   * The launch has the karst MCP server: context/guide/phase/stage steps name the
+   * MCP tool first and keep the CLI line as fallback. Absent → CLI-only, byte-identical.
+   */
+  mcp?: boolean;
 }): string {
-  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand } = input;
+  const { id, label, phases, contextCommand, stageCommand, phaseCommand, guideCommand, mcp } = input;
   // Every CLI command this body inlines shares the same `node "<cli>"` head. Emit
   // that shared invocation ONCE as the `KARST` alias at the top of the body, then
   // write the informational steps (context load, guide, phase-enter markers) as
@@ -363,16 +385,22 @@ export function renderWorkflowCommand(input: {
         '',
       ]
     : [];
+  const loadStep = mcp
+    ? ': call the karst MCP tool `context` with { key: "$ARGUMENTS", format: "md" } ' +
+      `(if the tool is not available, run \`${contextCommand ? expand(contextCommand) : ''} $ARGUMENTS\`)`
+    : ` by running \`${contextCommand ? expand(contextCommand) : ''} $ARGUMENTS\``;
   const loadInstruction = contextCommand
     ? `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. ` +
-      `First, load the ticket's full context by running \`${expand(contextCommand)} $ARGUMENTS\` ` +
+      `First, load the ticket's full context${loadStep} ` +
       'and read the result — re-run it any time you need to refresh live worktree, ' +
       'branch, service, or PR state.'
     : `This command receives a ticket key or ${TICKET_ID} id as its argument, available in \`$ARGUMENTS\`. ` +
       'First, read and describe the ticket identified by `$ARGUMENTS` so you understand ' +
       'what is being asked before proceeding.';
   const guideClause = guideCommand
-    ? ` ${GUIDE_POINTER_INTRO}, run \`${expand(guideCommand)}\`.`
+    ? mcp
+      ? ` ${GUIDE_POINTER_INTRO}, call the karst MCP tool \`guide\` (if the tool is not available, run \`${expand(guideCommand)}\`).`
+      : ` ${GUIDE_POINTER_INTRO}, run \`${expand(guideCommand)}\`.`
     : '';
   const lines: string[] = [
     `# ${label}`,
@@ -406,7 +434,9 @@ export function renderWorkflowCommand(input: {
     // it was starting this phase, never that it completed one.
     if (phaseCommand) {
       parts.push(
-        `First run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\` to report entering it.`,
+        mcp
+          ? `First call the karst MCP tool \`phase\` with { name: "${phase.name}" } (if the tool is not available, run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\`) to report entering it.`
+          : `First run \`${expand(phaseCommand(phase.name))} $ARGUMENTS\` to report entering it.`,
       );
     }
     if (phase.command !== undefined) parts.push(`Run the \`${phase.command}\` slash command.`);
@@ -420,7 +450,7 @@ export function renderWorkflowCommand(input: {
   // marker is run in. The phase-enter markers above are informational and may use
   // `$KARST`; this closing instruction never does.
   if (stageCommand) {
-    lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS'));
+    lines.push('', renderDoneMarkerInstruction(stageCommand, '$ARGUMENTS', mcp ? 'impl' : undefined));
   }
   return lines.join('\n');
 }

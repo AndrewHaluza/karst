@@ -960,6 +960,64 @@ describe('ClaudeAdapter.materializeApproach', () => {
     const body = readFileSync(resolvePath, 'utf8');
     expect(body).toContain('node "/ext/cli.js" conflict-brief');
   });
+
+  it('(f) mcp launch: every written command file names the MCP tool first, no literal extension/storage path, test skill CLI-only', () => {
+    const baseDir = makeDir();
+    const sessionDir = makeDir();
+    const cli = 'node "$KARST_CLI"';
+    adapter.materializeApproach!({
+      baseDir,
+      sessionDir,
+      pkg: { id: 'rpi', label: 'RPI', workflow: [{ name: 'research', command: '/rpi:research' }] },
+      cliContextPrefix: `${cli} context --db "$KARST_DB"`,
+      cliStagePrefix: `${cli} stage impl pass --db "$KARST_DB" --ticket`,
+      cliPhasePrefix: (n) => `${cli} phase ${n} --db "$KARST_DB" --ticket`,
+      cliGuidePrefix: `${cli} guide`,
+      cliTestPrefix: `${cli} test --db "$KARST_DB"`,
+      cliFixBriefPrefix: `${cli} fix-brief`,
+      cliConflictBriefPrefix: `${cli} conflict-brief`,
+      mcp: true,
+    });
+    const root = join(sessionDir, '.karst-plugin', 'karst');
+    const tools: Record<string, string> = {
+      'start-task': '`context`',
+      resume: '`context`',
+      fix: '`fix-brief`',
+      'resolve-conflict': '`conflict-brief`',
+      rpi: '`phase`',
+    };
+    for (const [name, tool] of Object.entries(tools)) {
+      const body = readFileSync(join(root, 'commands', `${name}.md`), 'utf8');
+      expect(body, name).toContain(`karst MCP tool ${tool}`);
+      expect(body, name).toContain('$KARST_CLI');
+      expect(body, name).not.toMatch(/\/Users\/|globalStorage|\/ext\//);
+    }
+    const testSkill = readFileSync(join(root, 'skills', 'karst-test', 'SKILL.md'), 'utf8');
+    expect(testSkill).not.toContain('MCP tool');
+  });
+
+  it('(g) non-mcp launch: command files are byte-identical to the pre-MCP output', () => {
+    const run = (mcp: boolean | undefined): string[] => {
+      const baseDir = makeDir();
+      const sessionDir = makeDir();
+      adapter.materializeApproach!({
+        baseDir,
+        sessionDir,
+        pkg: { id: 'bare', label: 'Bare' },
+        cliContextPrefix: 'node "/ext/cli.js" context --db "/x.db"',
+        cliGuidePrefix: 'node "/ext/cli.js" guide',
+        cliFixBriefPrefix: 'node "/ext/cli.js" fix-brief',
+        cliConflictBriefPrefix: 'node "/ext/cli.js" conflict-brief',
+        ...(mcp === undefined ? {} : { mcp }),
+      });
+      return ['start-task', 'resume', 'fix', 'resolve-conflict'].map((n) =>
+        readFileSync(join(sessionDir, '.karst-plugin', 'karst', 'commands', `${n}.md`), 'utf8'),
+      );
+    };
+    const off = run(false);
+    expect(off).toEqual(run(undefined));
+    for (const b of off) expect(b).not.toContain('MCP');
+  });
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
