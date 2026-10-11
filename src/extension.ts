@@ -3672,6 +3672,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       return;
     }
     if (payload.hook_event_name === 'SessionEnd') artifactCapture.onSessionEnd(ticketId);
+    artifactCapture.onHookEvent(ticketId, payload);
     if (payload.hook_event_name === 'SessionStart') {
       recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
     }

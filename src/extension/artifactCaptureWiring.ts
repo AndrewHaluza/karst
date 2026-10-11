@@ -19,6 +19,11 @@ export interface ArtifactCaptureWiring {
   readonly beforeRemove: (target: ArchiveTarget) => Promise<void>;
   /** The agent session closed: capture what the debounce had not flushed yet. */
   readonly onSessionEnd: (ticketId: number) => void;
+  /** Claude PostToolUse hook payload: capture the notified edit path (no-op for any other event). */
+  readonly onHookEvent: (
+    ticketId: number,
+    payload: { hook_event_name?: string; cwd?: string; file_path?: string; session_id?: string },
+  ) => void;
   /** First reconcile. Separate from wiring: `deps` may close over bindings not initialised yet. */
   readonly start: () => void;
   readonly dispose: () => void;
@@ -39,6 +44,19 @@ export function wireArtifactCapture(
       void service.captureTicket(ticketId).catch((err: unknown) => {
         deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);
       });
+    },
+    onHookEvent: (ticketId, payload) => {
+      if (payload.hook_event_name !== 'PostToolUse' || !payload.file_path || !payload.cwd) return;
+      void service
+        .captureEdit({
+          ticketId,
+          cwd: payload.cwd,
+          filePath: payload.file_path,
+          ...(payload.session_id !== undefined ? { sessionId: payload.session_id } : {}),
+        })
+        .catch((err: unknown) => {
+          deps.debug(`[artifacts] hook edit capture failed for ticket ${ticketId}: ${String(err)}`);
+        });
     },
     dispose: () => {
       clearInterval(timer);

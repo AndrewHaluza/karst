@@ -12,6 +12,7 @@ import type { Manifest } from '../manifest/types.js';
 import type { Store } from '../store/db.js';
 import { listWorktreesByProject, listWorktreesByTicket } from '../store/dashboard.js';
 import { captureWorktree, type CaptureDeps, type CaptureTarget } from './capture.js';
+import { hookTrailers, locateHookEdit } from './hookEdit.js';
 import { mirrorGraphArtifacts } from './graphMirror.js';
 import { createArtifactStore, type ArtifactStore } from './store.js';
 import { createFinalSweep } from './sweep.js';
@@ -29,7 +30,19 @@ export interface ArtifactCaptureServiceDeps {
   debug: (message: string) => void;
 }
 
+export interface AgentEdit {
+  ticketId: number;
+  /** Hook `cwd` (the session worktree). */
+  cwd: string;
+  /** Agent-authored path; untrusted, only ever re-read by karst. */
+  filePath: string;
+  /** Provider session id from the hook payload. */
+  sessionId?: string;
+}
+
 export interface ArtifactCaptureService {
+  /** Agent post-edit hook: capture ONE notified path, tagged `agent-hook`. Never throws. */
+  captureEdit(edit: AgentEdit): Promise<void>;
   /** Reconcile the watchers to the project's live worktrees. */
   syncWatchers(): void;
   /** Final sweep of one worktree; call BEFORE removing it. Never throws. */
@@ -105,7 +118,29 @@ export function createArtifactCaptureService(deps: ArtifactCaptureServiceDeps): 
     }
   };
 
+  const captureEdit = async (edit: AgentEdit): Promise<void> => {
+    const projectId = deps.projectId();
+    if (projectId === undefined) return;
+    try {
+      const targets = listWorktreesByTicket(deps.store, edit.ticketId).map(targetOf);
+      const hit = locateHookEdit(targets, edit.cwd, edit.filePath);
+      if (hit === undefined) {
+        deps.debug(`[artifacts] hook edit rejected for ticket ${edit.ticketId}: outside every worktree`);
+        return;
+      }
+      const base = captureDeps(projectId);
+      await captureWorktree(
+        { ...base, trailers: (id, output) => hookTrailers(base.trailers(id, output), edit.sessionId) },
+        hit.target,
+        new Set([hit.relPath]),
+      );
+    } catch (err) {
+      deps.debug(`[artifacts] hook edit capture failed for ticket ${edit.ticketId}: ${String(err)}`);
+    }
+  };
+
   return {
+    captureEdit,
     syncWatchers() {
       const projectId = deps.projectId();
       if (projectId === undefined) return;

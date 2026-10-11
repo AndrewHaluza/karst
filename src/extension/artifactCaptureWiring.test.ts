@@ -107,4 +107,34 @@ describe('wireArtifactCapture', () => {
     w.dispose();
     expect(debug.mock.calls.flat().join('\n')).not.toContain('failed');
   });
+
+  it('onHookEvent ignores events that are not a PostToolUse with a path', () => {
+    addWorktree();
+    const calls: string[][] = [];
+    const w = wireArtifactCapture({
+      store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
+      manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
+      git: async (args, cwd) => { calls.push([cwd, ...args]); return { stdout: '', stderr: '', exitCode: 1 }; },
+      debug: () => {}, fsWatch,
+    });
+    w.onHookEvent(5, { hook_event_name: 'Stop', cwd: '/wt', file_path: '/wt/docs/superpowers/plans/a.md' });
+    w.onHookEvent(5, { hook_event_name: 'PostToolUse', cwd: '/wt' });
+    w.onHookEvent(5, { hook_event_name: 'PostToolUse', file_path: '/wt/a.md' });
+    expect(calls).toEqual([]);
+    w.dispose();
+  });
+
+  it('onHookEvent captures a PostToolUse edit inside the worktree (git runs there)', async () => {
+    addWorktree();
+    const cwds: string[] = [];
+    const w = wireArtifactCapture({
+      store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
+      manifest: () => ({ approaches: [{ id: 'superpowers' }] }) as never,
+      git: async (_a, cwd) => { cwds.push(cwd); return { stdout: '', stderr: '', exitCode: 1 }; },
+      debug: () => {}, fsWatch,
+    });
+    w.onHookEvent(5, { hook_event_name: 'PostToolUse', cwd: '/wt', file_path: '/wt/docs/superpowers/plans/a.md', session_id: 's' });
+    await vi.waitFor(() => expect(cwds).toContain('/wt'));
+    w.dispose();
+  });
 });
