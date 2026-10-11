@@ -22,6 +22,21 @@ export interface TypedTerminal {
   sendText(text: string, addNewLine?: boolean): void;
 }
 
+/**
+ * Outcome hooks for one queued line. `onTyped` fires once the line has been
+ * typed AND submitted; `onDropped` fires instead when the queue closes first (the
+ * terminal went away), so a caller that claimed "in flight" can free the claim.
+ */
+export interface NudgeHooks {
+  onTyped?: () => void;
+  onDropped?: () => void;
+}
+
+interface PendingLine {
+  text: string;
+  hooks: NudgeHooks;
+}
+
 /** The submit keystroke. `\r` submits in a raw TUI where `\n` does not. */
 const SUBMIT_KEY = '\r';
 
@@ -35,7 +50,8 @@ function wait(ms: number): Promise<void> {
  * previous terminal's pending line.
  */
 export class NudgeQueue {
-  private readonly pending: string[] = [];
+  private readonly pending: PendingLine[] = [];
+  private inFlight: PendingLine | undefined;
   private draining = false;
   private closed = false;
 
@@ -48,9 +64,12 @@ export class NudgeQueue {
    * Queue one already-single-lined prompt. Returns immediately; the queue
    * types it now if idle, else after every line ahead of it has submitted.
    */
-  enqueue(text: string): void {
-    if (this.closed) return;
-    this.pending.push(text);
+  enqueue(text: string, hooks: NudgeHooks = {}): void {
+    if (this.closed) {
+      hooks.onDropped?.();
+      return;
+    }
+    this.pending.push({ text, hooks });
     if (!this.draining) void this.drain();
   }
 
@@ -60,19 +79,25 @@ export class NudgeQueue {
    */
   close(): void {
     this.closed = true;
+    const dropped = [...(this.inFlight ? [this.inFlight] : []), ...this.pending];
+    this.inFlight = undefined;
     this.pending.length = 0;
+    for (const line of dropped) line.hooks.onDropped?.();
   }
 
   private async drain(): Promise<void> {
     this.draining = true;
     try {
       while (!this.closed) {
-        const text = this.pending.shift();
-        if (text === undefined) return;
-        this.terminal.sendText(text, false);
+        const line = this.pending.shift();
+        if (line === undefined) return;
+        this.inFlight = line;
+        this.terminal.sendText(line.text, false);
         await wait(this.submitDelayMs);
         if (this.closed) return;
         this.terminal.sendText(SUBMIT_KEY, false);
+        this.inFlight = undefined;
+        line.hooks.onTyped?.();
       }
     } finally {
       this.draining = false;

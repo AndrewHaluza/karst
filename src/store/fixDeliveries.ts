@@ -201,6 +201,18 @@ export function currentFixDelivery(store: Store, ticketId: number): FixDelivery 
   return row === undefined ? null : rowToDelivery(row);
 }
 
+/** Every open (unread, un-superseded) delivery of a project: the sweep's worklist. */
+export function listOpenFixDeliveries(store: Store, projectId: number): FixDelivery[] {
+  const rows = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE project_id = ? AND read_at IS NULL AND superseded_at IS NULL
+        ORDER BY id`,
+    )
+    .all(projectId) as FixDeliveryRow[];
+  return rows.map(rowToDelivery);
+}
+
 /** Stamp one row superseded (an interrupted round is never pointed at). */
 export function supersedeFixDelivery(store: Store, id: number, at: string): boolean {
   const info = store.db

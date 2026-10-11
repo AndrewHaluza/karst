@@ -27,6 +27,7 @@ import { runBootSweeps } from './extension/ops/bootSweeps.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
 import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
+import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
@@ -1143,18 +1144,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // recorded and the session runs untracked.
           const gate = lastFailedGate(ticket.stages);
           const round = gate === null ? null : recoveryDecision(localStore, ticketId, gate);
-          if (round === null || round.status !== 'pending') return;
-          recordFixLaunchIntent(localStore, {
-            ticketId,
-            launchId,
-            provider,
-            model: model ?? null,
-            agentName: assignment?.agentName ?? null,
-            reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
-            sessionOrigin: resume ? 'resume' : 'new',
-            recoveryRoundId: round.roundId,
-            at: nowIso(),
-          });
+          if (round === null || round.status !== 'pending') {
+            // The seed carries the newer brief: an older unread row must not be re-armed into this session.
+            fixDelivery.supersedeUnread(ticketId);
+            return;
+          }
+          // One transaction: the intent and its brief snapshot commit together (@arch:V77).
+          localStore.db.transaction(() => {
+            recordFixLaunchIntent(localStore, {
+              ticketId,
+              launchId,
+              provider,
+              model: model ?? null,
+              agentName: assignment?.agentName ?? null,
+              reason: switchLaunch ? 'switch' : resume ? 'resume' : 'initial',
+              sessionOrigin: resume ? 'resume' : 'new',
+              recoveryRoundId: round.roundId,
+              at: nowIso(),
+            });
+            fixDelivery.recordSeed(ticketId, round.roundId, launchId);
+          })();
           return;
         }
         recordSessionLaunchIntent(localStore, {
@@ -1990,6 +1999,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     },
   });
   void subtaskAutostart.sweep();
+  // Fix-brief delivery (@arch:V77): the stored snapshot + a pointer through the mailbox's per-core route.
+  const fixDelivery = makeFixDeliveryWiring({
+    store: localStore,
+    projectId: () => currentProject()?.id,
+    isLive: (id) => sessions.isLive(id),
+    isGraphTicket: (id) => nudgeSurface(localStore.db, id) === 'no-op',
+    sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
+    currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
+    nudge: (id, line, hooks) => sessions.nudge(id, line, hooks),
+    sessionCliEnv: (id) => sessions.sessionCliEnv(id),
+    literal: () => cliLiteral(context, dbPath),
+    agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
+    debug: (message) => logger.debug(message),
+  });
+  const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
+  context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
     store: localStore,
@@ -2017,6 +2042,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     literal: () => cliLiteral(context, dbPath),
     isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
+    fixEligible: fixDelivery.eligible,
+    claimFixPointed: fixDelivery.claimPointed,
   });
   const deliveryTimer = setInterval(() => mailbox.sweep.sweep(), MESSAGE_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({
@@ -3555,16 +3582,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       parkUnavailable('the configured Fix process is disabled');
       return;
     }
-    const t = getTicket(localStore, ticketId);
-    const label = formatTicketRef(ticketId, t.key);
-    const brief =
-      fixBriefForTicket(localStore, ticketId, label) ??
-      `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
-    const marker = renderDoneMarkerInstruction(
-      // Delivered INTO a live session: env refs only if THAT session exported them.
-      buildCliStagePrefix(cliTokensFor(sessions.sessionCliEnv(ticketId), cliLiteral(context, dbPath)), 'fix'),
-      t.key || String(ticketId),
-    );
     // Task 3: the Fix execution carries the CONFIGURED identity — the bundle's
     // assignment snapshot resolved once at the driver boundary — never the
     // live session's recorded identity and never a fresh resolution.
@@ -3583,7 +3600,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       roundId,
       configuredIdentity: configured,
       startedAt: new Date().toISOString(),
-      prompt: `${brief}\n\n${marker}`,
       isLive: () => sessions.isLive(ticketId),
       sessionIdentity: () => sessions.sessionIdentity(ticketId),
       // A matching live core is already ready and is nudged without probing.
@@ -3591,7 +3607,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // immediately before any disposal or replacement launch.
       providerReady: () =>
         guardProviderCapability('sessions', process.assignment.provider),
-      nudge: (prompt) => sessions.nudge(ticketId, prompt),
+      // @arch:V77: the brief is stored and the agent is pointed at it, never typed.
+      deliverFix: () => fixDelivery.deliver(ticketId, roundId),
       dispose: () => sessions.disposeSession(ticketId),
       open: (replacement) => {
         void vscode.commands.executeCommand('karst.openSession', ticketId, {

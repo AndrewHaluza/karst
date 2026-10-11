@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
+import { upsertProject } from './projects.js';
 import {
   MAX_FIX_BODY,
   capFixBody,
@@ -13,6 +14,7 @@ import {
   clearEnqueued,
   currentFixDelivery,
   getFixDelivery,
+  listOpenFixDeliveries,
   markSeedRead,
   rearmFixDelivery,
   supersedeFixDeliveries,
@@ -234,5 +236,17 @@ describe('fixDeliveries', () => {
       const id = upsert({ body: 'x'.repeat(MAX_FIX_BODY + 1), truncatedFooter: 'FOOT' });
       expect(getFixDelivery(store, id)).toMatchObject({ truncated: true });
     });
+  });
+
+  it('listOpenFixDeliveries lists unread, live rows of one project only', () => {
+    const project = upsertProject(store, { slug: 'p' });
+    const other = upsertProject(store, { slug: 'q' });
+    const inP = createTicket(store, { key: 'P-1', title: 't', projectId: project.id }).id;
+    const inQ = createTicket(store, { key: 'Q-1', title: 't', projectId: other.id }).id;
+    const a = upsert({ ticketId: inP });
+    upsert({ ticketId: inQ });
+    expect(listOpenFixDeliveries(store, project.id).map((r) => r.id)).toEqual([a]);
+    claimRead(store, a, 'pointer', T0);
+    expect(listOpenFixDeliveries(store, project.id)).toEqual([]);
   });
 });
