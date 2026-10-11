@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute, basename, relative } from 'node:path';
-import type { ApproachDef } from '../manifest/types.js';
+import type { ApproachDef, OutputDef } from '../manifest/types.js';
 import {
   writeApproachArtifacts,
   type ApproachArtifact,
@@ -9,6 +9,8 @@ import {
 } from './pkg.js';
 import { classifyPath } from './classify.js';
 import { sanitizeFrontmatter } from './sanitize.js';
+import { DEFAULT_OUTPUTS } from './outputs.js';
+import { scanOutputSuggestions } from './outputScan.js';
 import { OUTPUT_TRUNCATION_MARKER } from '../runtime/boundedOutput.js';
 
 /**
@@ -556,8 +558,26 @@ function assembleAndWrite(
     ...files.map((f) => ({ relPath: f.relPath, body: sanitizeFrontmatter(f.body) })),
     ...prompts.map((p) => ({ relPath: `prompts/${p.name}`, body: sanitizeFrontmatter(p.body) })),
   ];
-  writeApproachArtifacts(baseDir, pkg, writeFiles);
-  return pkg;
+  const pendingOutputs = pendingOutputSuggestions(def, writeFiles);
+  const written: ApproachPackage = pendingOutputs.length > 0 ? { ...pkg, pendingOutputs } : pkg;
+  writeApproachArtifacts(baseDir, written, writeFiles);
+  return written;
+}
+
+/**
+ * Output locations the fetched prompt bodies suggest, minus those already
+ * covered (declared on `def` or in the built-in defaults). Kept on the package
+ * as PENDING; karst.yml is only written when the user accepts in Settings.
+ */
+function pendingOutputSuggestions(
+  def: ApproachDef,
+  files: readonly { relPath: string; body: string }[],
+): OutputDef[] {
+  const known = new Set(
+    [...(def.outputs ?? []), ...(DEFAULT_OUTPUTS[def.id] ?? [])].map((o) => o.glob),
+  );
+  const bodies = files.filter((f) => f.relPath.endsWith('.md')).map((f) => f.body);
+  return scanOutputSuggestions(bodies).filter((s) => !known.has(s.glob));
 }
 
 /**

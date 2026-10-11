@@ -58,6 +58,7 @@ import { useSettingsApp } from '../SettingsAppContext.js';
 import { useHostMutation } from '../useHostMutation.js';
 import type { AgentPickerIdentity } from '../hostBridge.js';
 import { Field } from '../primitives/Field.js';
+import { PendingOutputs } from './PendingOutputs.js';
 import { Button } from '../primitives/Button.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { IconButton } from '../primitives/IconButton.js';
@@ -535,6 +536,7 @@ function ApproachCard({
 }) {
   const { state, send } = useSettingsApp();
   const stateClass = installed ? 'installed' : (approach.source ? 'available' : 'builtin');
+  const pendingView = state.host?.pendingOutputs?.[approach.id];
   const graph = approach.graph;
   const profiles = graph?.profiles ?? {};
   const limits: GraphLimits | undefined = graph?.limits;
@@ -608,6 +610,9 @@ function ApproachCard({
               ? `npm ${approach.source.package}`
               : `${approach.source.repo}${approach.source.ref ? `@${approach.source.ref}` : ''}`}
           </div>
+        ) : null}
+        {pendingView !== undefined ? (
+          <PendingOutputs approachId={approach.id} view={pendingView} />
         ) : null}
         {graph ? (
           <div className="graph-config" data-graph-config={approach.id}>

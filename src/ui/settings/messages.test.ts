@@ -159,6 +159,7 @@ describe('routeSettingsAction', () => {
       requestState: [],
       installApproach: [],
       uninstallApproach: [],
+      resolvePendingOutputs: [],
       setToken: [],
       clearToken: [],
       setApproachEnabled: [],
@@ -179,6 +180,7 @@ describe('routeSettingsAction', () => {
       requestState: () => { calls['requestState']!.push(true); },
       installApproach: (id) => { calls['installApproach']!.push(id); },
       uninstallApproach: (id) => { calls['uninstallApproach']!.push(id); },
+      resolvePendingOutputs: (id, accepted) => { calls['resolvePendingOutputs']!.push({ id, accepted }); },
       setToken: () => { calls['setToken']!.push(true); },
       clearToken: () => { calls['clearToken']!.push(true); },
       setApproachEnabled: (id, enabled) => { calls['setApproachEnabled']!.push({ id, enabled }); },
@@ -194,6 +196,22 @@ describe('routeSettingsAction', () => {
       openManifest: () => { calls['openManifest']!.push(true); },
     };
   }
+
+  it('routes resolve-pending-outputs with the accepted entries', () => {
+    const a = spies();
+    const accepted = [{ glob: 'docs/x/**', kind: 'plan' }];
+    routeSettingsAction({ type: 'resolve-pending-outputs', id: 'g', accepted }, a);
+    expect(a.calls.resolvePendingOutputs).toEqual([{ id: 'g', accepted }]);
+  });
+
+  it('parses resolve-pending-outputs only with a string id and an array', () => {
+    expect(parseSettingsMessage({ type: 'resolve-pending-outputs', id: 'g', accepted: [] })).toEqual({
+      type: 'resolve-pending-outputs', id: 'g', accepted: [],
+    });
+    expect(parseSettingsMessage({ type: 'resolve-pending-outputs', id: '', accepted: [] })).toBeNull();
+    expect(parseSettingsMessage({ type: 'resolve-pending-outputs', id: 'g' })).toBeNull();
+    expect(parseSettingsMessage({ type: 'resolve-pending-outputs', id: 'g', accepted: 'x' })).toBeNull();
+  });
 
   it('routes a section-scoped save with its section', () => {
     const a = spies();

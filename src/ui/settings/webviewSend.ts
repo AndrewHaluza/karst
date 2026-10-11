@@ -53,6 +53,11 @@ export function createSender(api: WebviewApi) {
       send({ type: 'install-approach', id }, requestId),
     uninstallApproach: (id: Msg<'uninstall-approach'>['id'], requestId?: string) =>
       send({ type: 'uninstall-approach', id }, requestId),
+    resolvePendingOutputs: (
+      id: Msg<'resolve-pending-outputs'>['id'],
+      accepted: Msg<'resolve-pending-outputs'>['accepted'],
+      requestId?: string,
+    ) => send({ type: 'resolve-pending-outputs', id, accepted }, requestId),
     setToken: (requestId?: string) => send({ type: 'set-token' }, requestId),
     clearToken: (requestId?: string) => send({ type: 'clear-token' }, requestId),
     setApproachEnabled: (

@@ -1,4 +1,4 @@
-import type { Manifest, ApproachDef } from '../../manifest/types.js';
+import type { Manifest, ApproachDef, OutputDef } from '../../manifest/types.js';
 import {
   parseSettingsMessage,
   routeSettingsAction,
@@ -75,6 +75,8 @@ export class SettingsManager {
      * (`store/tokenUsage.ts` `listRecentlyUsedModels`).
      */
     private readonly recentModels: () => Record<string, string[]> = () => ({}),
+    /** Pending install-time output suggestions by approach id (§ state.ts `pendingOutputs`). */
+    private readonly pendingOutputs: () => Record<string, OutputDef[]> = () => ({}),
   ) {}
 
   async open(): Promise<void> {
@@ -159,6 +161,7 @@ export class SettingsManager {
         this.version(),
         this.packagedApproaches(),
         this.recentModels(),
+        this.pendingOutputs(),
       ),
     });
   }
