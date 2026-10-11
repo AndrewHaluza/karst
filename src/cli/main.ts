@@ -10,6 +10,8 @@ import { parseFixBriefArgs, runFixBriefCommand } from './fixBriefCommand.js';
 import { parseConflictBriefArgs, runConflictBriefCommand } from './conflictBriefCommand.js';
 import { parseStatsArgs, runStatsCommand } from './stats.js';
 import { runStageCommand } from './stage.js';
+import { assertTicketHasChanges } from '../workflow/emptyWorkGuard.js';
+import { defaultGitRunner } from '../integrations/git.js';
 import { runPhaseCommand } from './phase.js';
 import { runArtifactAddCommand } from './artifactAdd.js';
 import { runGraphCommand } from './graph.js';
@@ -593,6 +595,34 @@ export function runCli(
   );
 }
 
+async function assertMarkerHasWork(
+  db: string,
+  manifestPath: string,
+  ticket: string,
+  verbose: boolean,
+): Promise<void> {
+  let manifest: Manifest;
+  try {
+    manifest = loadManifestWithDiagnostics(manifestPath).manifest;
+  } catch {
+    return; // a marker must still fire without a loadable manifest
+  }
+  const store = openWritableStore(db);
+  try {
+    const found = resolveTicketByKey(store, ticket, manifest.id);
+    if (!found) return; // runCli reports the unknown ticket
+    await assertTicketHasChanges(
+      store,
+      found.id,
+      manifest,
+      defaultGitRunner,
+      verbose ? (m: string) => process.stderr.write(`${m}\n`) : undefined,
+    );
+  } finally {
+    store.close();
+  }
+}
+
 /**
  * The ASYNC CLI entry. `runCli` is synchronous and every existing verb and
  * test depends on that, but `servers` drives `spinTicket`/`stopTicketServers`,
@@ -657,6 +687,12 @@ export async function runCliAsync(
     } finally {
       store.close();
     }
+  }
+  // The impl/fix done marker is refused when no repository differs from its
+  // base. The probe is async, the marker itself is not: check first, then hand
+  // the unchanged argv to the synchronous path.
+  if (rest[0] === 'stage' && (rest[1] === 'impl' || rest[1] === 'fix') && db && ticket && manifestPath) {
+    await assertMarkerHasWork(db, manifestPath, ticket, verbose === true);
   }
   if (rest[0] === 'base') {
     if (!db) throw new Error('missing --db <path>');

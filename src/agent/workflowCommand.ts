@@ -140,7 +140,9 @@ export function renderDoneMarkerInstruction(
     `advance the ticket to its next stage.${mcpFallback} A session ending does not advance the ticket ` +
     `on its own — you must fire this marker explicitly. Do NOT fire it while you are ` +
     'waiting for the user to answer a question: a stage whose agent is waiting on the ' +
-    `user is not complete, and the ${MARKER_REFUSED}.` +
+    `user is not complete, and the ${MARKER_REFUSED}. The marker is also refused when no ` +
+    'repository has changes from its base branch — at least one target must differ, so commit your ' +
+    'work to the ticket branch first.' +
     sandboxTail;
   const marker = ' stage impl pass ';
   if (!stageCommand.includes(marker)) return base;
