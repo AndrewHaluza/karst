@@ -145,7 +145,7 @@ core's canonical mark, for example):
    sidebar's `ic.mark` (215-viewBox silhouette), the dashboard artifact-origin
    chip's `KARST_MARK` (24-viewBox line version), the settings/gettingStarted
    footers, and the status-bar/session `karst-<glyph>` icons written by
-   `src/ui/glyphIcon.ts`.
+   `src/ui/glyphIcon.ts`, and the Settings Roles table's default marks (`src/ui/settings/app/primitives/KarstMark.tsx`).
 2. **Agent-core logos** — `src/model/agentIdentity.ts` (`AGENT_ICONS`,
    `AGENT_LINE_ICONS`): Claude Code, Codex, OpenCode, Antigravity marks.
 3. **Ticketing-provider logos** — `src/model/providerIdentity.ts` (ClickUp).
