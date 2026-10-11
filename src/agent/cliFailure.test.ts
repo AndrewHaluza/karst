@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeHeadlessFailure, isUsageLimitFailure } from './cliFailure.js';
+import { describeHeadlessFailure, describePermissionDenial, isUsageLimitFailure } from './cliFailure.js';
 
 /** Verbatim `claude -p --output-format json` envelope for a 429 (from 869ea499g). */
 const CLAUDE_429 = JSON.stringify({
@@ -200,5 +200,32 @@ describe('isUsageLimitFailure', () => {
         stderr: 'parse error at src/foo.ts:429:12',
       }),
     ).toBe(false);
+  });
+});
+
+const AGY_DENIAL =
+  'jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)). Alternatively, re-run with --dangerously-skip-permissions to auto-approve all tools.';
+
+describe('describePermissionDenial', () => {
+  it('names the denied permission and the allow-rule fix', () => {
+    const message = describePermissionDenial('Antigravity', AGY_DENIAL);
+    expect(message).toContain('Antigravity');
+    expect(message).toContain('"command"');
+    expect(message).toContain('permissions.allow');
+    expect(message).toContain('~/.gemini/antigravity-cli/settings.json');
+  });
+
+  it('is null for ordinary prose, even prose that mentions headless mode', () => {
+    expect(describePermissionDenial('Antigravity', '[]')).toBeNull();
+    expect(describePermissionDenial('Antigravity', 'headless mode is fine')).toBeNull();
+    expect(describePermissionDenial('Antigravity', '')).toBeNull();
+  });
+
+  it('falls back to a generic permission name when none is quoted', () => {
+    const message = describePermissionDenial(
+      'Antigravity',
+      'tool(s) required approval that headless mode cannot prompt for, so they were auto-denied.',
+    );
+    expect(message).toContain('a tool permission');
   });
 });

@@ -207,6 +207,21 @@ describe('AntigravityAdapter', () => {
       ).rejects.toThrow(/Antigravity failed \(exit 1\): boom/);
     });
 
+    it('turns an exit-0 headless auto-denial into a named failure, not an answer', async () => {
+      const denial =
+        'jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)).';
+      const spawner = vi.fn(fakeSpawn({ stdout: denial, stderr: '', exitCode: 0 }));
+      await expect(
+        new AntigravityAdapter(spawner).runHeadless({ prompt: 'do', cwd: '/test' }),
+      ).rejects.toThrow(/Antigravity .*"command" permission.*permissions\.allow/);
+    });
+
+    it('still returns normal exit-0 prose', async () => {
+      const spawner = vi.fn(fakeSpawn({ stdout: '[]', stderr: '', exitCode: 0 }));
+      const r = await new AntigravityAdapter(spawner).runHeadless({ prompt: 'do', cwd: '/test' });
+      expect(r.raw).toBe('[]');
+    });
+
     it('names a usage limit instead of echoing the CLI failure', async () => {
       const spawner = vi.fn(
         fakeSpawn({

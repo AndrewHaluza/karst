@@ -55,6 +55,8 @@ END_DOC_BLOCK: [@arch:AC-05]
 ## [@arch:AC-06] A failed headless CLI run is described in ONE place for every agent core
 
 `agent/cliFailure.ts` (`describeHeadlessFailure`/`isUsageLimitFailure`) is what each adapter's `runHeadless` throws. It unwraps whole-document JSON AND JSONL (the interesting codex event is never line 1), names a usage limit from a 429 status / limit phrasing, and keeps raw text ONLY when nothing structured parsed — an unrecognized failure must stay debuggable. Every diagnostic is untrusted CLI prose (it can be model output), so it is collapsed to one line and capped before reaching a verdict, a log, or a toast. The bare-429 match uses lookarounds on purpose: `src/foo.ts:429:12` must not send the user to a billing page.
+Antigravity has one failure that is NOT a non-zero exit: headless `agy -p` cannot prompt, so a tool needing approval is auto-denied and the run exits 0 with only a `jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt for…` notice. `describePermissionDenial` recognizes it and `runHeadless` throws it, so the review findings lane and UAT tester report the named permission and the fix instead of "unreadable output". Only agy needs this (codex `exec` has a read-only sandbox, claude keeps Read/Grep — AC-08 declared reason). agy's allow-rules live ONLY in the user's global `~/.gemini/antigravity-cli/settings.json`, which karst never writes (AC-17); `karst doctor` (`tools.agy-permissions`) reports which read-only commands are missing and the lines to add.
+
 END_DOC_BLOCK: [@arch:AC-06]
 
 ## [@arch:AC-07] A SILENT run is an empty answer, never a failure

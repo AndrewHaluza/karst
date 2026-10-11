@@ -1,3 +1,4 @@
+import { AntigravityAdapter } from '../../agent/antigravity.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
@@ -77,6 +78,9 @@ const rawAdapter = (raw: string) => fakeAdapter(async () => ({ sessionId: '', ve
  * deterministic `uat.testerVerifier` boundary (the stage's job) is a
  * Tester-specific verdict source.
  */
+const AGY_DENIAL =
+  'jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)).';
+
 describe('runUatTester', () => {
   let store: Store;
   let ticketId: number;
@@ -327,6 +331,15 @@ describe('runUatTester', () => {
     const { adapter } = rawAdapter('[]');
     const res = await runUatTester(store, opts({ adapter }), { now });
     expect(res).toEqual({ kind: 'observed', findingIds: [], blocking: 0 });
+  });
+
+  it('an agy headless auto-denial is execution-failed with the denied permission named', async () => {
+    const agy = new AntigravityAdapter(async () => ({ stdout: AGY_DENIAL, stderr: '', exitCode: 0 }));
+    const res = await runUatTester(store, opts({ adapter: agy }), { now });
+    expect(res.kind).toBe('execution-failed');
+    expect(res.kind === 'execution-failed' && res.message).toMatch(
+      /auto-denied the "command" permission/,
+    );
   });
 
   it('an adapter crash is execution-failed, finished failed, and never transitions anything', async () => {

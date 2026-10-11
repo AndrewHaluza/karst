@@ -44,7 +44,7 @@ import {
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
-import { describeHeadlessFailure } from './cliFailure.js';
+import { describeHeadlessFailure, describePermissionDenial } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -503,6 +503,14 @@ export class AntigravityAdapter implements AgentAdapter {
         ),
         extractTokenUsage(r.stdout),
       );
+    }
+
+    // Exit 0 with only the auto-denial notice is a refused run, not an answer:
+    // name it so the caller does not report it as unreadable output.
+    const denial = describePermissionDenial('Antigravity', `${r.stdout}\n${r.stderr}`);
+    if (denial !== null) {
+      opts.debug?.(`[agent:antigravity] headless permission auto-denied — ${headlessPreview(r.stdout)}`);
+      throw attachUsage(new Error(denial), extractTokenUsage(r.stdout));
     }
 
     // `agy -p` prints bare prose, so this is usually null and the instrumented

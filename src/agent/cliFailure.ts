@@ -197,3 +197,30 @@ export function describeHeadlessFailure(failure: HeadlessFailure): string {
   const said = detail ? cap(oneLine(detail), MAX_DIAGNOSTIC_CHARS) : '';
   return `${failure.tool} failed (exit ${failure.exitCode}): ${said || (raw ? cap(oneLine(raw), MAX_DIAGNOSTIC_CHARS) : 'no output.')}`;
 }
+
+/** agy's global settings file — the only place its permission allow-rules live. */
+const AGY_SETTINGS_HINT = '~/.gemini/antigravity-cli/settings.json';
+
+/**
+ * Headless agy cannot prompt, so it auto-denies a tool that needs approval and
+ * still exits 0 with only that notice — which a caller would read as an
+ * unreadable answer. Both phrases must be present so a model that merely
+ * mentions headless mode is not mistaken for a denial.
+ */
+const HEADLESS_DENIAL = /headless mode cannot prompt for[\s\S]*auto-denied/i;
+const DENIED_PERMISSION = /required the "([^"]{1,40})" permission/i;
+
+/**
+ * The failure sentence for a headless run that was auto-denied a permission, or
+ * null when `output` is not that notice. Names the permission and the fix.
+ */
+export function describePermissionDenial(tool: string, output: string): string | null {
+  if (!HEADLESS_DENIAL.test(output)) return null;
+  const permission = DENIED_PERMISSION.exec(output)?.[1];
+  const named = permission ? `the "${permission}" permission` : 'a tool permission';
+  return (
+    `${tool} headless run was auto-denied ${named} (headless mode cannot prompt). ` +
+    `Add an allow-rule under permissions.allow in ${AGY_SETTINGS_HINT} (e.g. command(git diff)), ` +
+    `or run review/UAT on another agent core.`
+  );
+}
