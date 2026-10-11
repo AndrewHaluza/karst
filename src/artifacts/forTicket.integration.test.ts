@@ -38,7 +38,9 @@ describe('addArtifactForTicket', () => {
     const added = await addArtifactForTicket(registry, join(tmp, 'artifacts'), ticket.id, 'scripts/dev.sh', 'script');
 
     expect(added).toMatchObject({ repo: 'app', relPath: 'scripts/dev.sh' });
-    const listed = await createArtifactStore({ artifactsRoot: join(tmp, 'artifacts'), projectId: 4 }).listArtifacts(ticket.id);
+    const artifacts = createArtifactStore({ artifactsRoot: join(tmp, 'artifacts'), projectId: 4 });
+    const listed = await artifacts.listArtifacts(ticket.id);
     expect(listed.map((a) => a.path)).toEqual(['app/scripts/dev.sh']);
+    expect(await artifacts.listSkips(ticket.id)).toEqual([]);
   });
 });
