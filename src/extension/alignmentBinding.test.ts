@@ -66,12 +66,15 @@ function setup(opts: { own?: boolean; fallback?: boolean; approaches?: unknown[]
       };
     },
   });
-  /** Fire the debounce, then let the real-I/O tail settle (until `done` or a short deadline). */
-  const fire = async (done: () => boolean = () => commits.length > 0) => {
+  /** Fire the debounce, then wait (real clock, 5 s cap) for the real-I/O tail: the report commit and its message. */
+  const fire = async (done: () => boolean = () =>
+    commits.length > 0 && (opts.raw === '[]' || listInbox(registry, id, { unreadOnly: false }).length > 0)) => {
     trigger.onRevision({ ticketId: id, kind: 'plan' });
     await vi.advanceTimersByTimeAsync(ALIGNMENT_DEBOUNCE_MS);
-    for (let i = 0; i < 200 && !done(); i++) await new Promise((r) => setImmediate(r));
-    for (let i = 0; i < 100; i++) await new Promise((r) => setImmediate(r));
+    const deadline = Date.now() + 5000;
+    while (!done() && Date.now() < deadline) await new Promise((r) => setImmediate(r));
+    // Negative cases (nothing is expected) settle on a short fixed tail.
+    for (let i = 0; i < 50; i++) await new Promise((r) => setImmediate(r));
   };
   return { registry, id, own, other, trigger, commits, opened, runs, debug, fire };
 }
@@ -102,7 +105,7 @@ describe('makeAlignmentTrigger', () => {
   });
   it('no project anywhere → nothing runs, the failure is logged', async () => {
     const t = setup();
-    await t.fire();
+    await t.fire(() => true);
     expect(t.runs).toEqual([]);
     expect(t.commits).toEqual([]);
     expect(t.debug.join('\n')).toMatch(/no project/);
@@ -110,7 +113,7 @@ describe('makeAlignmentTrigger', () => {
   });
   it('a disabled review process skips the check and records nothing', async () => {
     const t = setup({ own: true, process: 'off' });
-    await t.fire();
+    await t.fire(() => true);
     expect(t.runs).toEqual([]);
     expect(t.commits).toEqual([]);
     expect(listInbox(t.registry, t.id, { unreadOnly: false })).toEqual([]);
@@ -119,7 +122,7 @@ describe('makeAlignmentTrigger', () => {
   });
   it('an edge the ticket approach checks itself is skipped', async () => {
     const t = setup({ own: true, approaches: [{ id: 'mine', label: 'M', checks: ['intent-plan'] }] });
-    await t.fire();
+    await t.fire(() => true);
     expect(t.runs).toEqual([]);
     t.trigger.dispose();
   });
