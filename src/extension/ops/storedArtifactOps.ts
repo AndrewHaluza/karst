@@ -2,7 +2,10 @@ import { existsSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 
 import { isSafeTreePath } from '../../artifacts/skipRules.js';
-import type { ArtifactStore } from '../../artifacts/store.js';
+import { createArtifactStore, type ArtifactStore } from '../../artifacts/store.js';
+import type { Store } from '../../store/db.js';
+import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { findTicketById } from '../../store/tickets.js';
 import type { Notify } from './notify.js';
 
 /**
@@ -112,4 +115,24 @@ export function makeStoredArtifactActions(deps: StoredArtifactDeps): StoredArtif
       deps.refresh();
     },
   };
+}
+
+/** Bind the actions to the registry: the ticket's own project picks the store, its worktrees the live files. */
+export function makeStoredArtifactActionsForTicket(
+  deps: Pick<StoredArtifactDeps, 'ticketId' | 'ui' | 'notify' | 'refresh'> & {
+    registry: Store;
+    artifactsRoot: string;
+    /** Used only when the ticket row carries no project. */
+    fallbackProjectId: number | undefined;
+  },
+): StoredArtifactActions {
+  const { registry, artifactsRoot, fallbackProjectId, ...rest } = deps;
+  return makeStoredArtifactActions({
+    ...rest,
+    store: createArtifactStore({
+      artifactsRoot,
+      projectId: findTicketById(registry, deps.ticketId)?.projectId ?? fallbackProjectId ?? 0,
+    }),
+    worktrees: () => listWorktreesByTicket(registry, deps.ticketId).map((w) => ({ repo: w.repo, path: w.path })),
+  });
 }

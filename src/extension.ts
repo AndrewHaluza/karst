@@ -53,6 +53,7 @@ import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
+import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
@@ -2818,6 +2819,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   );
   context.subscriptions.push(serverLogsManager);
 
+  const storedArtifacts = createStoredArtifactBinding({
+    registry: localStore, notify: vscodeNotify, artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
+    fallbackProjectId: () => currentProject()?.id,
+  });
+  context.subscriptions.push(storedArtifacts);
   const dashboard = new DashboardManager(
     localStore,
     makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
@@ -2901,6 +2907,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => dashboard.requestServerLogs(ticketId),
         () => dashboard.closeServerLogs(ticketId),
         (message) => logger.debug(message),
+        storedArtifacts.forTicket(ticketId, () => dashboard.pushState(ticketId)),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -7867,6 +7874,7 @@ function makeDashboardActions(
   // Verbose decision-point logging for the recovery action (`sendBackToImplement`),
   // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
   debug: (message: string) => void,
+  storedArtifacts: StoredArtifactActions,
 ): DashboardActions {
   const worktreeActions = makeWorktreeActions(
     {
@@ -8199,6 +8207,7 @@ function makeDashboardActions(
     // "no longer available" refusal, and no webview-supplied path ever reaches
     // `Uri.file`. Mirrors openStageLog's failure copy: a missing file is
     // "cannot open", never a domain verdict about the artifact's result.
+    ...storedArtifacts,
     openArtifactResource: (artifactId, index) => {
       void (async () => {
         const artifact = buildTicketArtifacts(store, ticketId).find((a) => a.id === artifactId);

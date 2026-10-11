@@ -1,4 +1,5 @@
 import type { DashboardState } from './state.js';
+import { isSafeTreePath } from '../../artifacts/skipRules.js';
 import { isHttpUrl } from '../shared/url.js';
 import type { WorktreeStats } from './worktreeStats.js';
 import type { GateOptions } from './gateOptions.js';
@@ -173,6 +174,16 @@ export type WebviewMessage =
    * index a non-negative integer; anything else drops the whole message.
    */
   | { type: 'artifact-open-resource'; artifactId: string; index: number }
+  /**
+   * The Artifacts view's actions on the T2 store. They carry a store PATH
+   * (`<repo>/<relPath>`) and revision SHAS — never a filesystem path: the host
+   * re-resolves both against what the store holds (ops/storedArtifactOps.ts).
+   */
+  | { type: 'stored-artifact-open'; path: string; sha: string }
+  | { type: 'stored-artifact-diff'; path: string; from: string; to: string }
+  | { type: 'stored-artifact-live'; path: string }
+  | { type: 'stored-artifact-reveal' }
+  | { type: 'stored-artifact-purge' }
   /**
    * Approve changed baseline entries of the UAT report (@arch:BASELINE-REVIEW).
    * Carries the block id (`baseline-review`) and ENTRY INDICES — never a path or a hash: the
@@ -493,6 +504,12 @@ export interface DashboardActions {
    * cannot name an arbitrary file to open.
    */
   openArtifactResource: (artifactId: string, index: number) => void | Promise<void>;
+  /** Stored-artifact actions; the host re-validates every path and sha against the store. */
+  openStoredRevision: (path: string, sha: string) => void | Promise<void>;
+  diffStoredRevisions: (path: string, from: string, to: string) => void | Promise<void>;
+  openStoredLive: (path: string) => void | Promise<void>;
+  revealStoredFolder: () => void | Promise<void>;
+  purgeStoredArtifacts: () => void | Promise<void>;
   /** Approve changed baselines by entry index; the host re-derives and validates (see the message). */
   baselineApprove: (blockId: string, indices: number[]) => void | Promise<void>;
   /** Reject one changed baseline with a reason; the host re-derives and validates. */
@@ -731,6 +748,25 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       if (!Number.isInteger(m.index) || (m.index as number) < 0) return null;
       return { type: 'artifact-open-resource', artifactId, index: m.index as number };
     }
+    case 'stored-artifact-open': {
+      const path = storedPath(m.path);
+      const sha = storedSha(m.sha);
+      return path && sha ? { type: 'stored-artifact-open', path, sha } : null;
+    }
+    case 'stored-artifact-diff': {
+      const path = storedPath(m.path);
+      const from = storedSha(m.from);
+      const to = storedSha(m.to);
+      return path && from && to ? { type: 'stored-artifact-diff', path, from, to } : null;
+    }
+    case 'stored-artifact-live': {
+      const path = storedPath(m.path);
+      return path ? { type: 'stored-artifact-live', path } : null;
+    }
+    case 'stored-artifact-reveal':
+      return { type: 'stored-artifact-reveal' };
+    case 'stored-artifact-purge':
+      return { type: 'stored-artifact-purge' };
     case 'baseline-approve': {
       if (m.blockId !== BASELINE_BLOCK_ID) return null;
       const indices = m.indices;
@@ -848,6 +884,18 @@ export const MAX_ACTION_ID_CHARS = 96;
 
 /** Longest artifact id accepted from a webview. Ids are kind ids (`uat-report`). */
 export const MAX_ARTIFACT_ID_CHARS = 64;
+const MAX_STORED_PATH_CHARS = 512;
+
+/** A store tree path: bounded, relative, no `..`/empty segments. Null drops the message. */
+function storedPath(v: unknown): string | null {
+  if (typeof v !== 'string' || v.length === 0 || v.length > MAX_STORED_PATH_CHARS) return null;
+  return isSafeTreePath(v) ? v : null;
+}
+
+/** A full git object id. Null drops the message. */
+function storedSha(v: unknown): string | null {
+  return typeof v === 'string' && /^[0-9a-f]{40,64}$/.test(v) ? v : null;
+}
 /** More changed baselines than this in one approve is not a real report. */
 const MAX_BASELINE_INDICES = 500;
 /** The one block the baseline decisions answer: the `BlockerKind` itself. */
@@ -973,6 +1021,16 @@ export function routeAction(
       return actions.insideAction(msg.actionId);
     case 'artifact-open-resource':
       return actions.openArtifactResource(msg.artifactId, msg.index);
+    case 'stored-artifact-open':
+      return actions.openStoredRevision(msg.path, msg.sha);
+    case 'stored-artifact-diff':
+      return actions.diffStoredRevisions(msg.path, msg.from, msg.to);
+    case 'stored-artifact-live':
+      return actions.openStoredLive(msg.path);
+    case 'stored-artifact-reveal':
+      return actions.revealStoredFolder();
+    case 'stored-artifact-purge':
+      return actions.purgeStoredArtifacts();
     case 'baseline-approve':
       return actions.baselineApprove(msg.blockId, msg.indices);
     case 'baseline-reject':

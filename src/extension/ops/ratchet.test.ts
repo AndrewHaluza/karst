@@ -29,7 +29,10 @@ import { join } from 'node:path';
 // and `src/extension/artifactCaptureWiring.ts`.
 // Raised by 7 for the Settings pending-outputs bindings (`readPendingOutputs`,
 // `clearPendingOutputs` and the manager arg); logic is in `src/approaches/pendingOutputs.ts`.
-const MAX_EXTENSION_LINES = 8479;
+// Raised by 9 for the dashboard Artifacts binding (`createStoredArtifactBinding`
+// call, its disposal, the `forTicket` arg and the action spread); logic is in
+// `src/extension/ops/storedArtifactOps.ts`, the vscode half in `storedArtifactBinding.ts`.
+const MAX_EXTENSION_LINES = 8488;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
