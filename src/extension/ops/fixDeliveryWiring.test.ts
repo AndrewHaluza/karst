@@ -194,4 +194,36 @@ describe('fixDeliveryWiring', () => {
       expect(w.pointAtLaunch(ticketId, 'LZ')).toBe('unsendable');
     });
   });
+
+  describe('snapshot details', () => {
+    it('falls back to a generic brief when no gate evidence exists', () => {
+      const bare = createTicket(store, { key: 'K-9', title: 'bare', projectId }).id;
+      const { body } = composeFixSnapshot(store, bare, LITERAL);
+      expect(body).toContain('A gate failed for ticket');
+      expect(body).toContain('Re-run the checks, fix what they report');
+    });
+
+    it('addresses the marker and footer by ticket key, else by id', () => {
+      expect(composeFixSnapshot(store, ticketId, LITERAL).body).toContain('K-1');
+      const keyless = createTicket(store, { key: '', title: 'k', projectId }).id;
+      const snap = composeFixSnapshot(store, keyless, LITERAL);
+      expect(snap.footer.endsWith(`--ticket ${keyless}`)).toBe(true);
+      expect(snap.body).toContain(String(keyless));
+    });
+
+    it('a vanished terminal or graph-owned ticket cannot be pointed at', () => {
+      state.provider = 'opencode2';
+      state.live = false;
+      const w = make();
+      state.live = true;
+      expect(w.deliver(ticketId, null)).toBe(true); // typed send reached nudge
+      state.live = false;
+      const row = currentFixDelivery(store, ticketId)!;
+      store.db.prepare("UPDATE fix_deliveries SET launch_id = 'LZ' WHERE id = ?").run(row.id);
+      expect(w.pointAtLaunch(ticketId, 'LZ')).toBe('unsendable');
+      state.live = true;
+      const g = make({ isGraphTicket: () => true });
+      expect(g.pointAtLaunch(ticketId, 'LZ')).toBe('unsendable');
+    });
+  });
 });
