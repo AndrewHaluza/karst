@@ -213,10 +213,10 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
     if (wantKey === haveKey || deps.offerRestart === undefined || declined.get(session.id) === wantKey) {
       return session;
     }
-    const restart = `Restart with ${wantKey}`;
-    const keep = `Keep ${haveKey}`;
+    const restart = 'Restart';
+    const keep = 'Keep';
     const choice = await deps.offerRestart(
-      `This session runs on ${haveKey}, but Planner is now ${wantKey}.`,
+      `Planning ${formatId('plan', session.id)} runs on ${haveKey}. Planner is now ${wantKey}. Restart starts a fresh session on the new agent (the conversation does not carry over). Keep reopens it on the current agent.`,
       { restart, keep },
     );
     debug(`open ${session.id}: ${haveKey} vs planner ${wantKey} — ${choice ?? 'dismissed'}`);

@@ -785,11 +785,11 @@ describe('planning ops: reopen offers a restart when the planner config moved on
     answer = 'restart';
     await o.open(session.id);
     expect(offers[0]!.message).toBe(
-      'This session runs on claude · opus, but Planner is now antigravity · gemini-3.8-flash-medium.',
+      `Planning P${session.id} runs on claude · opus. Planner is now antigravity · gemini-3.8-flash-medium. Restart starts a fresh session on the new agent (the conversation does not carry over). Keep reopens it on the current agent.`,
     );
     expect(offers[0]!.labels).toEqual({
-      restart: 'Restart with antigravity · gemini-3.8-flash-medium',
-      keep: 'Keep claude · opus',
+      restart: 'Restart',
+      keep: 'Keep',
     });
     expect(getPlanningSession(store, session.id)).toMatchObject({ core: 'antigravity', model: 'gemini-3.8-flash-medium' });
     expect(created.at(-1)!.opts.shellPath).not.toContain('claude');
