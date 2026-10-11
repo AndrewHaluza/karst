@@ -61,8 +61,12 @@
   color: var(--vscode-descriptionForeground);
 }
 
-/* Roles table: one grid per row so the header and rows line up. */
+/* Roles table: ONE track template shared by header and rows (UI-R41). Tracks:
+   switch | role | profile | core | model | effort | source | actions.
+   The picker cell, its island and .ap-compact are display: contents, so the three
+   compact .ap-field cells (role=cell) sit in the core/model/effort tracks themselves. */
 #section-agents .agents-table {
+  --agents-cols: 40px minmax(120px, 1.1fr) minmax(150px, 1fr) 150px minmax(170px, 1.3fr) 120px 92px 72px;
   display: flex;
   flex-direction: column;
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
@@ -71,20 +75,41 @@
 
 #section-agents .agents-row {
   display: grid;
-  grid-template-columns: minmax(100px, 1.1fr) minmax(120px, 1fr) minmax(0, 2.4fr) 100px 150px;
-  gap: var(--k-space-2);
+  grid-template-columns: var(--agents-cols);
+  column-gap: var(--k-space-2);
   align-items: center;
-  padding: var(--k-space-2) var(--k-space-3);
+  min-height: 44px;
+  padding: 0 var(--k-space-3);
   border-left: 3px solid transparent;
   border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
 }
 
 #section-agents .agents-compare-row,
 #section-agents .agents-table .agents-head:has(+ .agents-compare-row) {
-  grid-template-columns: minmax(100px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 150px;
+  grid-template-columns: 40px minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 150px;
 }
 
-#section-agents .agents-cell { min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-1) var(--k-space-2); }
+#section-agents .agents-cell.agents-cell-picker,
+#section-agents .agents-cell-picker > .agent-picker-island,
+#section-agents .agents-cell-picker .ap-compact { display: contents; }
+/* Cells fill their row height so an empty cell (no switch) and the sr-only "Enabled" heading still have a box. */
+#section-agents .agents-row > [role="cell"],
+#section-agents .agents-row > [role="columnheader"],
+#section-agents .agents-cell-picker .ap-field { align-self: stretch; min-width: 0; }
+#section-agents .agents-row > [role="columnheader"] { display: flex; align-items: center; }
+#section-agents .agents-cell-picker .ap-field { justify-content: center; }
+#section-agents .agents-cell-picker .ap-effort,
+#section-agents .agents-cell-picker .ap-effort-placeholder { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+#section-agents .agents-cell-picker .ap-shell { width: 100%; }
+#section-agents .agents-cell-picker .ap-trigger { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#section-agents .agents-cell-source { justify-content: flex-start; }
+#section-agents .agents-cell-actions { display: flex; justify-content: flex-end; gap: var(--k-space-1); }
+#section-agents .agents-pin-slot { display: inline-block; width: var(--k-hit-min); height: var(--k-hit-min); flex: none; visibility: hidden; }
+#section-agents .agents-field-label { display: none; font-size: var(--k-text-xs); color: var(--vscode-descriptionForeground); }
+#section-agents .agents-cell-switch { justify-content: center; }
+#section-agents .agents-role-name { font-weight: 500; overflow-wrap: break-word; }
+
+#section-agents .agents-cell { min-width: 0; display: flex; align-items: center; gap: var(--k-space-1) var(--k-space-2); }
 #section-agents .agents-head {
   border-top: 0;
   font-weight: 600;
@@ -99,7 +124,7 @@
   background: var(--k-surface-hover);
 }
 
-#section-agents .agents-row.is-inherited .agents-cell-picker {
+#section-agents .agents-row.is-inherited .agents-cell-picker .ap-field {
   opacity: 0.65;
 }
 
@@ -142,10 +167,16 @@
   margin-right: 6px;
 }
 
-#section-agents .agents-cell-actions { display: flex; gap: var(--k-space-1); }
-#section-agents .agents-profile-cell { display: flex; align-items: center; gap: var(--k-space-1); width: 100%; }
-#section-agents .agents-profile-cell select { min-height: var(--k-control-h-lg); min-width: 0; flex: 1 1 auto; }
-#section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); flex-wrap: wrap; }
+#section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); }
+#section-agents .agents-profile-cell { display: flex; flex-direction: column; gap: 2px; width: 100%; min-width: 0; }
+#section-agents .agents-profile-fields { display: flex; align-items: center; gap: var(--k-space-1); min-width: 0; }
+#section-agents .agents-profile-select { position: relative; flex: 1 1 auto; min-width: 0; }
+#section-agents .agents-profile-select select { width: 100%; min-height: var(--k-control-h-lg); min-width: 0; text-overflow: ellipsis; }
+#section-agents .agents-profile-select.has-mark select { padding-inline-start: calc(var(--k-space-3) + 14px + var(--k-space-1)); }
+#section-agents .agents-profile-select.has-mark .k-karst-mark {
+  position: absolute; inset-inline-start: var(--k-space-3); top: 50%; transform: translateY(-50%); pointer-events: none; color: var(--k-link);
+}
+#section-agents .k-karst-mark { flex: none; }
 
 #section-agents .agents-default {
   margin-top: var(--k-space-4);
@@ -210,32 +241,62 @@
 #section-agents .k-iconbtn .icon-island { display: inline-flex; line-height: 0; }
 
 /* Targets and truncation (UI-R41, UI-R44): controls reach the hit minimum and
-   text wraps instead of clipping. */
+   identifiers truncate on one line, never mid-word. */
 #section-agents .agents-item,
 #section-agents .agents-tab,
 #section-agents .k-btn--link,
 #section-agents .k-switch { min-height: var(--k-hit-min); }
 #section-agents .k-switch { min-width: var(--k-hit-min); }
-#section-agents .ap-trigger-label,
-#section-agents .agent-identity { flex-wrap: wrap; }
-#section-agents .agent-identity-name { white-space: normal; overflow-wrap: anywhere; }
-#section-agents .ap-trigger-label,
-#section-agents .agent-identity-model { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
-#section-agents .k-chip { max-width: 100%; white-space: normal; }
-#section-agents .agents-muted { min-width: 0; overflow-wrap: anywhere; }
+/* Identifiers truncate on one line; the full id is in the trigger's title / accessible name (UI-R44). */
+#section-agents .agents-cell-picker .ap-trigger-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+#section-agents .agents-cell-picker .agent-identity { flex-wrap: nowrap; }
+#section-agents .agents-cell-picker .agent-identity-icon { flex: none; }
+#section-agents .agents-cell-picker .agent-identity-name { white-space: nowrap; }
+#section-agents .agents-cell-picker .agent-identity-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#section-agents .agents-muted { min-width: 0; }
 
-/* The picker (compact) is one aligned Core | Model | Effort run per row (UI-R39: prototype order). */
-#section-agents .agents-cell-picker > .agent-picker-island { flex: 1 1 100%; min-width: 0; }
-
-/* Tiers: wide >= 1000, mid 700-999, narrow <= 699 (src/ui/layout/layoutBreakpoints.ts). */
+/* Tiers: wide >= 1000, mid 700-999 (labelled cards), narrow <= 699 (src/ui/layout/layoutBreakpoints.ts). */
+@media (max-width: 999px) {
+  #section-agents .agents-head { display: none; }
+  /* Card: top line = switch | name | source | actions, then Profile + Core/Model/Effort as 4 equal columns. */
+  #section-agents .agents-row {
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    row-gap: var(--k-space-2);
+    padding: var(--k-space-3);
+  }
+  #section-agents .agents-cell-switch  { grid-column: span 1; }
+  #section-agents .agents-cell-role    { grid-column: span 5; }
+  #section-agents .agents-cell-source  { grid-column: span 3; }
+  #section-agents .agents-cell-actions { grid-column: span 3; }
+  #section-agents .agents-cell-profile { grid-column: span 3; }
+  #section-agents .agents-cell-picker .ap-field { grid-column: span 3; }
+  /* Room on cards: the core name wraps between words (never mid-word) instead of clipping. */
+  #section-agents .agents-cell-picker [data-ap-trigger="core"] .ap-trigger-label,
+  #section-agents .agents-cell-picker [data-ap-trigger="core"] .agent-identity-name { white-space: normal; }
+  #section-agents .agents-cell-picker [data-ap-trigger="core"] .agent-identity { flex-wrap: wrap; }
+  #section-agents .agents-field-label { display: block; }
+  #section-agents .agents-cell-picker .ap-compact .ap-label {
+    position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal;
+  }
+  #section-agents .agents-cell-source { flex-direction: row; }
+  #section-agents .agents-cell-source .agents-field-label { display: none; }
+  /* compare rows: switch | name, then A and B side by side, actions last */
+  #section-agents .agents-compare-row .agents-cell-role { grid-column: span 11; }
+  #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) { grid-column: span 6; flex-direction: column; align-items: flex-start; }
+  #section-agents .agents-compare-row .agents-cell-actions { grid-column: 1 / -1; justify-content: flex-start; }
+}
 @media (max-width: 699px) {
-  #section-agents .ap-compact { grid-template-columns: minmax(0, 1fr); }
+  #section-agents .agents-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+  #section-agents .agents-cell-switch { grid-column: 1; }
+  #section-agents .agents-cell-role { grid-column: 2; }
+  #section-agents .agents-cell-source { grid-column: 3; }
+  #section-agents .agents-cell-actions { grid-column: 4; }
+  #section-agents .agents-cell-profile,
+  #section-agents .agents-cell-picker .ap-field { grid-column: 1 / -1; }
+  #section-agents .agents-compare-row .agents-cell-role { grid-column: 2 / -1; }
+  #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) { grid-column: 1 / -1; }
   #section-agents .agents-profiles { grid-template-columns: minmax(0, 1fr); }
   #section-agents .agents-profiles.has-selection .agents-list { display: none; }
   #section-agents .agents-profiles:not(.has-selection) .agents-detail { display: none; }
   #section-agents .agents-back { display: inline-flex; }
-}
-@media (max-width: 999px) {
-  #section-agents .agents-row { grid-template-columns: minmax(0, 1fr); }
-  #section-agents .agents-head { display: none; }
 }

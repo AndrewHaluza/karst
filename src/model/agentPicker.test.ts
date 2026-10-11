@@ -28,6 +28,8 @@ function load(): Record<string, unknown> {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
     apTags, apModelTagsHtml, apInheritLabels, apEffortMode, apModelTriggerName,
+    apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
+    apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
   };`)();
 }
 
@@ -453,5 +455,29 @@ describe('compact effort placeholder', () => {
     expect(js).toContain('data-ap-effort-placeholder');
     expect(js).toContain('Effort is not available for this model');
     expect(agentPickerCss()).toContain('.ap-effort-placeholder');
+  });
+});
+
+describe('truncated trigger text stays reachable (UI-R44)', () => {
+  const fns = load() as {
+    apTriggerLabelHtml?: (inner: string, triggerId: string) => string;
+    apCoreTriggerName?: (caption: string, coreName: string) => string;
+  };
+  it('describes the clipping label by its trigger, whose name carries the full text', () => {
+    expect(fns.apTriggerLabelHtml!('Claude Code', 'ap-3-core'))
+      .toBe('<span class="ap-trigger-label" aria-describedby="ap-3-core">Claude Code</span>');
+  });
+  it('names the compact core trigger with the full core label', () => {
+    expect(fns.apCoreTriggerName!('Core', 'Claude Code')).toBe('Core: Claude Code');
+    expect(fns.apCoreTriggerName!('Core', '')).toBe('Core');
+  });
+  it('compact fields are table cells (the row owns Core | Model | Effort)', () => {
+    expect(js).toContain("var cellRole = compact ? ' role=\"cell\"' : '';");
+    expect(js.match(/'<div class="ap-field[^']*"' \+ cellRole/g)).toHaveLength(3);
+  });
+  it('gives each trigger a unique id and wires the labels to it', () => {
+    expect(js).toContain("id=\"' + apId + '-core\"");
+    expect(js).toContain("id=\"' + apId + '-model\"");
+    expect(js).toContain("apTriggerLabelHtml(");
   });
 });

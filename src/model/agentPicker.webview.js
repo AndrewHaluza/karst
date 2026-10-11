@@ -171,6 +171,18 @@ function apModelItemHtml(m, saved, tags) {
 }
 
 /** The identity the core trigger shows: full pattern when a model is set. */
+/** A clipping trigger label points at its trigger, whose accessible name holds the full text (UI-R44). */
+function apTriggerLabelHtml(inner, triggerId) {
+  return '<span class="ap-trigger-label" aria-describedby="' + apEsc(triggerId) + '">' + inner + '</span>';
+}
+
+/** Compact core trigger name: caption plus the full core label. */
+function apCoreTriggerName(caption, coreName) {
+  return coreName ? caption + ': ' + coreName : caption;
+}
+
+var AP_SEQ = 0;
+
 function apCoreTriggerLabel(provider, modelLabel) {
   if (typeof agentIdentityHtml === 'function') {
     return agentIdentityHtml(provider, modelLabel, true);
@@ -255,22 +267,24 @@ function mountAgentPicker(root, opts) {
   var labelModel = o.labels && o.labels.model ? o.labels.model : 'Model';
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
 
+  var apId = 'ap-' + (++AP_SEQ);
+  var cellRole = compact ? ' role="cell"' : '';
   root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
-    + '<div class="ap-field">'
+    + '<div class="ap-field"' + cellRole + '>'
     + '<label class="ap-label">' + (o.labels && o.labels.core ? apEsc(o.labels.core) : 'Agent core') + '</label>'
     + '<div class="ap-shell" data-ap-shell="core">'
-    + '<button type="button" class="ap-trigger" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
+    + '<button type="button" class="ap-trigger" id="' + apId + '-core" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="core" role="listbox" hidden></div>'
     + '</div></div>'
-    + '<div class="ap-field">'
+    + '<div class="ap-field"' + cellRole + '>'
     + '<label class="ap-label">' + apEsc(labelModel) + '</label>'
     + '<div class="ap-shell" data-ap-shell="model">'
-    + '<button type="button" class="ap-trigger" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
+    + '<button type="button" class="ap-trigger" id="' + apId + '-model" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="model" role="listbox" hidden>'
     + '<div class="ap-search"><input type="text" placeholder="Search models…" aria-label="Search models" data-ap-search /></div>'
     + '<div class="ap-scroll" data-ap-list="model"></div>'
     + '</div></div></div>'
-    + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
+    + '<div class="ap-field ap-effort-field"' + cellRole + ' data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
     + '<select class="ap-effort" data-ap-effort aria-label="' + apEsc(labelEffort) + '"></select>'
     + '<div class="ap-effort-placeholder" data-ap-effort-placeholder hidden role="group" aria-disabled="true"'
@@ -307,13 +321,16 @@ function mountAgentPicker(root, opts) {
       catalog, state.core, state.model, labels().model, recent[state.core],
     );
     var coreLabel = modelLabel();
-    $('[data-ap-trigger="core"]').innerHTML =
-      '<span class="ap-trigger-label">' + apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || '')) + '</span>'
+    var coreTrigger = $('[data-ap-trigger="core"]');
+    coreTrigger.innerHTML =
+      apTriggerLabelHtml(apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || '')), apId + '-core')
       + '<span class="chev" aria-hidden="true"></span>';
-    modelTrigger.innerHTML = coreLabel
-      ? '<span class="ap-trigger-label">' + apEsc(coreLabel) + '</span><span class="chev" aria-hidden="true"></span>'
-      : '<span class="ap-trigger-label">' + apEsc(labels().model || 'No model (agent picks)') + '</span>'
-        + '<span class="chev" aria-hidden="true"></span>';
+    if (compact) {
+      coreTrigger.setAttribute('aria-label', apCoreTriggerName(
+        o.labels && o.labels.core ? o.labels.core : 'Agent core', (coreTrigger.textContent || '').trim()));
+    }
+    modelTrigger.innerHTML = apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
+      + '<span class="chev" aria-hidden="true"></span>';
     var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
     modelTrigger.title = triggerName;
     if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);

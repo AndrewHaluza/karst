@@ -143,7 +143,7 @@ export function RoleRow(props: RoleRowProps) {
       <div className="agents-cell agents-cell-profile" role="cell">
         <ProfileCell {...props} />
       </div>
-      <div className="agents-cell agents-cell-picker" role="cell">
+      <div className="agents-cell agents-cell-picker">
         <AgentPickerIsland
           cores={cores}
           catalog={catalog}

@@ -266,6 +266,15 @@ describe('Agents page — roles table layout markup', () => {
     }
   });
 
+  it('Core, Model and Effort are the row\'s own cells so they map 1:1 to the eight headings', () => {
+    mount();
+    const r = document.querySelector('.agents-row[data-role]:not(.agents-compare-row)')!;
+    expect(r.querySelector('.agents-cell-picker')!.getAttribute('role')).toBeNull();
+    // The compact picker's three .ap-field elements carry role="cell" (pinned in agentPicker.test.ts),
+    // so the row has 5 own cells + 3 picker cells = the 8 headings.
+    expect(Array.from(r.children).filter((c) => c.getAttribute('role') === 'cell')).toHaveLength(5);
+  });
+
   it('a non-pinnable role has an empty switch cell and a hidden pin slot beside Clear', () => {
     mount();
     const r = Array.from(document.querySelectorAll('.agents-row[data-role]')).find(
