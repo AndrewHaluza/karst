@@ -8,7 +8,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 -->
 # Debug logging
 
-Binding reference for `logger.debug()` and the injected `debug` callbacks. `CLAUDE.md` carries the rule; this file carries the inventory.
+Binding reference for `logger.debug()` and the injected `debug` callbacks. `CLAUDE.md` points here; this file carries the rules and the inventory.
 
 ## [@arch:DBG-01] Injected callbacks
 
@@ -31,3 +31,11 @@ END_DOC_BLOCK: [@arch:DBG-01]
 
 `logger.debug()` (`src/logging/logger.ts`) is a NO-OP unless `setDebugEnabled(true)` was called. The manifest's `debug: true` drives it, toggleable from Settings → General and re-applied on every manifest (re)load by `extension.ts`'s `applyManifestDebug`. When off, a `debug()` call is a boolean check and a return. When on, entries go to the Karst output channel AND the diagnostic buffer, through the same sanitize/redaction pipeline as info/warn/error, so reports capture them. Debug mode also raises the buffer's retention to 2000 entries / 1 MB via `setDebugRetention`.
 END_DOC_BLOCK: [@arch:DBG-02]
+
+## [@arch:DBG-03] Authoring rules
+
+- **Every new stage runner, gate, or agent adapter MUST emit `debug(...)` via the injected callback at** entry (what is attempted), each decision branch (which path), and exit (the outcome).
+- **Prefixes are load-bearing for filtering**: `[driver]` (stage driver), `[gate]` (gate run/runList + uat/review stages), `[agent:<name>]` (claude/codex/opencode/antigravity adapters), `[runtime]` (spin/supervisor/worktreeServers), `[merge]` (mergeGate), `[process]` (process-assignment seam: profile body overlaid as a process's instructions). Not exhaustive (e.g. `[dashboard]`); reuse an existing prefix before adding one.
+- **Never log** secrets, tokens, full prompts (redact to `<prompt:<n> chars>`), or repository contents. Bound untrusted agent stdout/stderr first (`headlessPreview`, 500 chars; gate output: length only).
+- **A new `catch {}` in workflow/runtime** that is a decision point MUST be preceded by a `debug` line; blocks and parks name their `blocker`/`reason`.
+END_DOC_BLOCK: [@arch:DBG-03]
