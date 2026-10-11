@@ -48,7 +48,7 @@ describe('buildScopeBlock', () => {
   // When openChanges: true (the test lane default), the empty-diff guard still
   // tells the agent to verify with git status.
   it('treats a wrong checkout as a hard stop when the branch is known', () => {
-    const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x', openChanges: true }).join('\n');
+    const text = buildScopeBlock('review', { baseRef: 'develop', branch: 'karst/x', openChanges: true }).join('\n');
     expect(text).toContain('MUST print `karst/x`');
     expect(text).toContain('Wrong checkout → STOP');
     expect(text).toContain('severity "critical"');
@@ -66,7 +66,7 @@ describe('buildScopeBlock', () => {
   // Naming the worktree path gives the agent the one recovery it can perform
   // itself, and keeps the stop for the case where even that fails.
   it('names the worktree path as the recovery before the wrong-checkout stop', () => {
-    const text = buildScopeBlock('test', {
+    const text = buildScopeBlock('review', {
       baseRef: 'develop',
       branch: 'karst/x',
       worktreePath: '/repo/.karst/worktrees/x',
@@ -81,7 +81,7 @@ describe('buildScopeBlock', () => {
     // The hard stop survives — it is now the answer for a checkout that is
     // still wrong AFTER the agent moved into the worktree.
     expect(text).toContain('severity "critical"');
-    for (const line of buildScopeBlock('test', {
+    for (const line of buildScopeBlock('review', {
       baseRef: 'develop',
       branch: 'karst/x',
       worktreePath: '/repo/.karst/worktrees/x',
@@ -91,7 +91,7 @@ describe('buildScopeBlock', () => {
   });
 
   it('keeps the plain wrong-checkout stop when no worktree path is known', () => {
-    const text = buildScopeBlock('test', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
+    const text = buildScopeBlock('review', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
     expect(text).toContain('Check: `git rev-parse --abbrev-ref HEAD`');
     expect(text).toContain('Wrong checkout → STOP');
   });
@@ -121,7 +121,7 @@ describe('buildScopeBlock', () => {
   });
 
   it('snapshotRef states uncommitted work is already included', () => {
-    const text = buildScopeBlock('test', {
+    const text = buildScopeBlock('review', {
       baseRef: 'develop',
       snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
     }).join('\n');
@@ -147,7 +147,7 @@ describe('buildScopeBlock', () => {
   });
 
   it('snapshotRef swaps the empty-diff guard', () => {
-    const text = buildScopeBlock('test', {
+    const text = buildScopeBlock('review', {
       baseRef: 'develop',
       branch: 'karst/x',
       snapshotRef: 'refs/karst/snapshot/7/abc123abc123abcd',
@@ -177,7 +177,7 @@ describe('buildScopeBlock', () => {
   });
 
   it('never interpolates a missing base ref', () => {
-    const text = buildScopeBlock('test').join('\n');
+    const text = buildScopeBlock('review').join('\n');
     expect(text).not.toContain('undefined');
     expect(text).not.toContain('origin/null');
   });
@@ -222,20 +222,20 @@ describe('buildScopeBlock', () => {
   });
 
   it('grants the ban exception only when a composed context command is present', () => {
-    const withCmd = buildScopeBlock('test', {
+    const withCmd = buildScopeBlock('review', {
       baseRef: 'main',
       contextCommand: 'karst context PROMPT-17 --md',
     }).join('\n');
     expect(withCmd).toContain('The one exception is the command named above');
     expect(withCmd).not.toContain('No querying the orchestration tool that launched you');
 
-    const withoutCmd = buildScopeBlock('test', { baseRef: 'main' }).join('\n');
+    const withoutCmd = buildScopeBlock('review', { baseRef: 'main' }).join('\n');
     expect(withoutCmd).toContain('No querying the orchestration tool that launched you');
     expect(withoutCmd).not.toContain('The one exception is the command named above');
   });
 
   it('names the gates that already passed so the agent does not re-run them', () => {
-    const text = buildScopeBlock('test', {
+    const text = buildScopeBlock('review', {
       baseRef: 'main',
       gatesPassed: ['test:unit (extention)', 'test:e2e (extention)'],
     }).join('\n');
@@ -244,7 +244,26 @@ describe('buildScopeBlock', () => {
   });
 
   it('omits the gate line entirely when no gate is named', () => {
-    const text = buildScopeBlock('test', { baseRef: 'main' }).join('\n');
+    const text = buildScopeBlock('review', { baseRef: 'main' }).join('\n');
     expect(text).not.toContain('already ran and PASSED');
+  });
+});
+
+describe('buildScopeBlock — test lane is neutral', () => {
+  const opts = { baseRef: 'develop', branch: 'karst/x', worktreePath: '/wt/x', contextCommand: 'karst context T-1 --for tester --md' };
+
+  it('keeps branch/worktree facts and the recon ban but names no diff', () => {
+    const text = buildScopeBlock('test', { ...opts, gatesPassed: ['unit'] }).join('\n');
+    expect(text).toContain('`karst/x`');
+    expect(text).toContain('/wt/x');
+    expect(text).toContain('Do NOT run repository-wide reconnaissance');
+    expect(text).toContain('The one exception is the command named above');
+    expect(text).not.toMatch(/git diff|Start by reading that diff|PASSED/);
+  });
+
+  it('review lane output is unchanged by the test-lane split', () => {
+    const text = buildScopeBlock('review', opts).join('\n');
+    expect(text).toContain('Start by reading that diff');
+    expect(text).toContain('git diff origin/develop...origin/karst/x');
   });
 });

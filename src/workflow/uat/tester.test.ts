@@ -15,6 +15,7 @@ import * as reviewSnapshot from '../reviewSnapshot.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
+import { SEED_BUDGETS } from '../../agent/seedBudget.js';
 
 const now = () => '2026-08-08T10:00:00.000Z';
 
@@ -594,7 +595,7 @@ describe('runUatTester', () => {
     expect(events).toEqual([{ repo: '/web', status: 'completed', detail: 'wrong checkout — skipped' }]);
   });
 
-  it('the prompt carries the snapshot range when a snapshot succeeds', async () => {
+  it('the prompt never names the snapshot range (black-box tester) when a snapshot succeeds', async () => {
     const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(
       'refs/karst/snapshot/1/abc123abc123abcd',
     );
@@ -609,15 +610,15 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(headlessCalls[0]!.prompt).toContain('refs/karst/snapshot/');
-    expect(headlessCalls[0]!.prompt).not.toContain('committed changes only');
+    expect(headlessCalls[0]!.prompt).not.toContain('refs/karst/snapshot/');
+    expect(headlessCalls[0]!.prompt).not.toContain('git diff');
     expect(create).toHaveBeenCalled();
     expect(cleanup).toHaveBeenCalled();
     create.mockRestore();
     cleanup.mockRestore();
   });
 
-  it('a snapshot failure falls back to the branch range and still runs the target', async () => {
+  it('a snapshot failure still runs the target, with no diff range in the prompt', async () => {
     const create = vi.spyOn(reviewSnapshot, 'createReviewSnapshot').mockResolvedValue(null);
     const cleanup = vi.spyOn(reviewSnapshot, 'deleteReviewSnapshot').mockResolvedValue();
     const { adapter, calls: headlessCalls } = rawAdapter('[]');
@@ -631,7 +632,7 @@ describe('runUatTester', () => {
       { now },
     );
     expect(headlessCalls).toHaveLength(1);
-    expect(headlessCalls[0]!.prompt).toContain('git diff origin/develop...origin/karst/x');
+    expect(headlessCalls[0]!.prompt).not.toContain('git diff');
     expect(create).toHaveBeenCalled();
     expect(cleanup).not.toHaveBeenCalled();
     create.mockRestore();
@@ -683,7 +684,7 @@ describe('runUatTester', () => {
     cleanup.mockRestore();
   });
 
-  it('opts.git absent means no snapshot calls and the prompt stays branch-based', async () => {
+  it('opts.git absent means no snapshot calls and the prompt names the branch only', async () => {
     const { adapter, calls: headlessCalls } = rawAdapter('[]');
     await runUatTester(
       store,
@@ -694,7 +695,7 @@ describe('runUatTester', () => {
       }),
       { now },
     );
-    expect(headlessCalls[0]!.prompt).toContain('git diff origin/develop...origin/karst/x');
+    expect(headlessCalls[0]!.prompt).not.toContain('git diff');
     expect(headlessCalls[0]!.prompt).not.toContain('refs/karst/snapshot/');
   });
 
@@ -998,8 +999,7 @@ describe('buildTesterPrompt', () => {
   // `origin/<branch>` so a stale local ref never produces an empty diff.
   it('names the ticket branch in the scope block when one is known', () => {
     const prompt = buildTesterPrompt({ ...TARGETS[0]!, branch: 'karst/feat/x' });
-    expect(prompt).toContain('git diff origin/develop...origin/karst/feat/x');
-    expect(prompt).not.toContain('...HEAD');
+    expect(prompt).not.toContain('git diff');
     expect(prompt).toContain('This ticket\'s branch is `karst/feat/x`');
   });
 
@@ -1016,7 +1016,7 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('develop');
     expect(prompt).toContain('npm run dev');
     // The default role/strategy lines are replaced...
-    expect(prompt).not.toContain('Act as the UAT tester');
+    expect(prompt).not.toContain('black-box UAT tester');
     expect(prompt).not.toContain('Try to BREAK');
     // ...but the structured-output contract is non-negotiable.
     expect(prompt).toContain('Output rules (strict):');
@@ -1042,7 +1042,6 @@ describe('buildTesterPrompt', () => {
       TARGETS[0]!,
       'You are a documentation-improver. Rewrite using the project glossary.',
       undefined,
-      undefined,
       { criteria: 'The button opens the modal.', ticketKey: 'T-1', contextCommand: 'karst context' },
     );
     // The floor: contract members that a profile override cannot displace.
@@ -1061,16 +1060,16 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('Done-when criteria for this ticket (authoritative');
     expect(prompt).toContain('The button opens the modal.');
     // The strategy is replaced but all floor members are present.
-    expect(prompt).not.toContain('Act as the UAT tester');
+    expect(prompt).not.toContain('black-box UAT tester');
     expect(prompt).toContain('documentation-improver');
   });
 
   it('carries the scope block so the Tester does not survey the repo first', () => {
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, ['test:unit (web)']);
+    const prompt = buildTesterPrompt(TARGETS[0]!);
     expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
     expect(prompt).toContain('git worktree list');
-    expect(prompt).toContain('test:unit (web)');
-    expect(prompt).toContain('Do NOT re-run them');
+    expect(prompt).not.toContain('PASSED');
+    expect(prompt).not.toContain('Do NOT re-run them');
   });
 
   it('keeps the scope block even when user instructions replace the strategy', () => {
@@ -1078,25 +1077,14 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain('Do NOT run repository-wide reconnaissance');
   });
 
-  it('uses the snapshot range when a snapshot ref is present', () => {
-    const prompt = buildTesterPrompt(
-      TARGETS[0]!,
-      undefined,
-      undefined,
-      'refs/karst/snapshot/7/abc123abc123abcd',
-    );
-    expect(prompt).toContain('refs/karst/snapshot/7/abc123abc123abcd');
-    expect(prompt).not.toContain('committed changes only');
-  });
-
   it('treats blank or whitespace instructions as absent', () => {
     const blank = buildTesterPrompt(TARGETS[0]!, '   ');
-    expect(blank).toContain('Act as the UAT tester');
-    expect(blank).toContain('Try to BREAK');
+    expect(blank).toContain('black-box UAT tester');
+    expect(blank).toContain('Try to break it');
   });
 
   it('carries the ticket criteria as an authoritative block between the strategy and the scope block', () => {
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       criteria: 'The button must open the modal.',
     });
     expect(prompt).toContain('Done-when criteria for this ticket (authoritative');
@@ -1110,14 +1098,14 @@ describe('buildTesterPrompt', () => {
   it('omits the criteria block when absent or blank', () => {
     const absent = buildTesterPrompt(TARGETS[0]!);
     expect(absent).not.toContain('Done-when criteria');
-    const blank = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const blank = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       criteria: '   ',
     });
     expect(blank).not.toContain('Done-when criteria');
   });
 
   it('a profile override (instructions) cannot displace the criteria block', () => {
-    const prompt = buildTesterPrompt(TARGETS[0]!, 'Focus on API endpoint behavior.', undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, 'Focus on API endpoint behavior.', undefined, {
       criteria: 'The button must open the modal.',
     });
     expect(prompt).toContain('The button must open the modal.');
@@ -1128,7 +1116,7 @@ describe('buildTesterPrompt', () => {
   // the agent must know criteria are missing and be told how to recover them.
   it('yields a stated truncation pointer when the criteria exceed the budget', () => {
     const overCap = 'x'.repeat(9_000);
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       criteria: overCap,
       ticketKey: 'PROMPT-21',
       contextCommand: 'node "cli.js" context --db "db"',
@@ -1140,7 +1128,7 @@ describe('buildTesterPrompt', () => {
 
   it('leaves an under-cap criteria block unchanged', () => {
     const underCap = 'The button must open the modal.';
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       criteria: underCap,
       ticketKey: 'PROMPT-21',
       contextCommand: 'node "cli.js" context --db "db"',
@@ -1151,7 +1139,7 @@ describe('buildTesterPrompt', () => {
 
   it('never points at a karst context command it cannot name when the ticket key is missing', () => {
     const overCap = 'c'.repeat(9_000);
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       criteria: overCap,
     });
     expect(prompt).toContain('truncated');
@@ -1159,12 +1147,12 @@ describe('buildTesterPrompt', () => {
   });
 
   it('names one command for pulling the rest of the ticket context, and only that command is permitted past the recon ban', () => {
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       ticketKey: 'PROMPT-17',
       contextCommand: 'node "cli.js" context --db "db"',
     });
     expect(prompt).toContain(
-      'Run exactly: node "cli.js" context --db "db" PROMPT-17 --md',
+      'Run exactly: node "cli.js" context --db "db" PROMPT-17 --for tester --md',
     );
     expect(prompt).toContain('Nothing else about the orchestrator is in scope.');
     expect(prompt).toContain('The one exception is the command named above');
@@ -1181,7 +1169,7 @@ describe('buildTesterPrompt', () => {
   it('keeps the ban unqualified when contextCommand is set but ticketKey is absent', () => {
     // The scope block must not grant an exception for "the command named above"
     // when no command was named — the dangling-reference defect (fu1).
-    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, undefined, {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
       contextCommand: 'node "cli.js" context --db "db"',
     });
     expect(prompt).not.toContain('Run exactly:');
@@ -1228,5 +1216,66 @@ describe('runUatTester — silence-nudge telemetry (v57)', () => {
     await runUatTester(store, opts(), { now });
     const run = listProcessRuns(store, ticketId)[0]!;
     expect(run.promptTelemetry).toMatchObject({ silenceNudges: 0 });
+  });
+});
+
+describe('buildTesterPrompt — intent-driven black-box role', () => {
+  it('built-in role is black-box: no source, no diff, no test suites', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!);
+    expect(prompt).toContain('black-box UAT tester');
+    expect(prompt).toContain('Do NOT read source code, the diff, implementation plans, review findings or code pointers');
+    expect(prompt).toContain("Do not run the project's test suites");
+  });
+
+  it('custom instructions replace the role but the intent block and output rules remain', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, 'Custom role.', undefined, {
+      intent: '## Goal\nShip it.',
+      ticketKey: 'T-1',
+    });
+    expect(prompt).not.toContain('black-box UAT tester');
+    expect(prompt).toContain('Custom role.');
+    expect(prompt).toContain('Intent for this ticket (authoritative — exercise every scenario against the running app):');
+    expect(prompt).toContain('Output rules (strict):');
+  });
+
+  it('renders intent before the secondary done-when criteria', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
+      intent: 'INTENT-BODY',
+      criteria: 'CRITERIA-BODY',
+      ticketKey: 'T-1',
+    });
+    expect(prompt.indexOf('INTENT-BODY')).toBeGreaterThan(-1);
+    expect(prompt.indexOf('CRITERIA-BODY')).toBeGreaterThan(prompt.indexOf('INTENT-BODY'));
+  });
+
+  it('null intent → criteria only, with a debug line', () => {
+    const debug: string[] = [];
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
+      intent: null,
+      criteria: 'CRITERIA-BODY',
+      ticketKey: 'T-1',
+      debug: (m) => debug.push(m),
+    });
+    expect(prompt).not.toContain('Intent for this ticket');
+    expect(prompt).toContain('CRITERIA-BODY');
+    expect(debug).toContain('[gate] tester: no intent, criteria only');
+  });
+
+  it('bounds an over-budget intent with a truncation pointer', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
+      intent: 'x'.repeat(SEED_BUDGETS.intent + 500),
+      ticketKey: 'T-1',
+    });
+    expect(prompt).not.toContain('x'.repeat(SEED_BUDGETS.intent + 500));
+    expect(prompt).toContain('T-1');
+  });
+
+  it('pointer line and scope-ban exception both name the tester-safe command', () => {
+    const prompt = buildTesterPrompt(TARGETS[0]!, undefined, undefined, {
+      ticketKey: 'T-1',
+      contextCommand: 'karst context',
+    });
+    expect(prompt).toContain('Run exactly: karst context T-1 --for tester --md');
+    expect(prompt).not.toContain('git diff');
   });
 });

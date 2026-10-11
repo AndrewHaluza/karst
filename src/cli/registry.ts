@@ -114,12 +114,16 @@ export const COMMAND_SPECS: readonly CommandSpec[] = [
   {
     name: 'context',
     summary: 'Read a ticket\'s live state (prompt, branches, PRs, gates).',
-    input: obj({ key: str, format: { type: 'string', enum: ['json', 'md'] } }, ['key']),
+    input: obj(
+      { key: str, format: { type: 'string', enum: ['json', 'md'] }, for: { type: 'string', enum: ['tester'] } },
+      ['key'],
+    ),
     globals: { db: true, manifest: true },
     toArgv: (input) => {
       const argv = ['context', requireString(input, 'key')];
       pushFlag(argv, '--md', input.format === 'md');
       pushFlag(argv, '--json', input.format === 'json');
+      if (input.for === 'tester') argv.push('--for', 'tester');
       return argv;
     },
   },

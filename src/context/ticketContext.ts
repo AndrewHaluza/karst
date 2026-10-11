@@ -663,6 +663,9 @@ function renderNotesSection(ctx: TicketContext): string {
   return lines.join('\n');
 }
 
+export type ContextAudience = 'tester';
+export const CONTEXT_AUDIENCES: readonly ContextAudience[] = ['tester'];
+
 export function renderTicketContext(
   ctx: TicketContext,
   debug?: (msg: string) => void,
@@ -672,8 +675,16 @@ export function renderTicketContext(
     stageEnding?: string;
     /** Keep the T-id in the heading. Default: only for `all`; set it on a narrative render when no facts layer (which states the id) is delivered. */
     headingId?: boolean;
+    /**
+     * `tester` → the black-box UAT view: intent, done-when criteria, brief,
+     * attachments, repositories/servers, worktree paths and the UAT stage's own
+     * run. Omits code pointers, review findings, gate output, PRs, notes,
+     * blockers and family sections. Default: the full view.
+     */
+    audience?: ContextAudience;
   },
 ): string {
+  if (opts?.audience === 'tester') return renderTesterContext(ctx, opts);
   const bounded = opts?.bounded ?? true;
   const sections = opts?.sections ?? 'all';
   // The two halves the launch seed routes independently: authored text rides the
@@ -925,9 +936,6 @@ export function renderTicketContext(
   if (intentRaw) {
     parts.push(`## Intent\n${bound(intentRaw, SEED_BUDGETS.intent, 'ticket intent').replace(/^## /gm, '### ')}`);
   }
-  // Known gap, deliberate: `karst context` is also what the UAT tester's pointer
-  // line runs, so until T-B adds `--for tester` the tester CAN pull code pointers
-  // through it. T-B's tester-safe view removes them.
   const pointersRaw = authored ? ctx.codePointers?.trim() : undefined;
   if (pointersRaw) {
     parts.push(
@@ -1031,3 +1039,54 @@ export function renderTicketContext(
 }
 
 
+
+/** Section subset of the tester-safe view; see `renderTicketContext`'s `audience`. */
+function renderTesterContext(
+  ctx: TicketContext,
+  opts: { bounded?: boolean; stageEnding?: string },
+): string {
+  const bounded = opts.bounded ?? true;
+  const key = ctx.key?.trim() || String(ctx.id);
+  const bound = (raw: string, budget: number): string =>
+    bounded ? truncateToBudget(raw, budget, key).text : raw;
+  const parts: string[] = [`# Ticket: ${ticketHeading(ctx, true)}`];
+  const s = ctx.stage;
+  if (s && s.stageKey === 'uat') {
+    const lines = [`- stage: ${s.stageKey} (${s.status})`];
+    if (s.verdict) lines.push(`- verdict: ${s.verdict}`);
+    if (s.run) lines.push(`- run: ${s.run.status} (attempt ${s.run.attempt}, started ${s.run.startedAt})`);
+    if (s.findings.length > 0) {
+      lines.push('- your prior observations:');
+      for (const f of s.findings) lines.push(`  - [${f.severity}] ${f.title}`);
+    }
+    parts.push(`## Current stage\n${lines.join('\n')}`);
+  }
+  const intent = ctx.intent?.trim();
+  if (intent) parts.push(`## Intent\n${bound(intent, SEED_BUDGETS.intent).replace(/^## /gm, '### ')}`);
+  const criteria = ctx.prompt?.trim();
+  if (criteria) parts.push(`## Done-when criteria\n${bound(criteria, SEED_BUDGETS.testerCriteria)}`);
+  const brief = ctx.brief?.trim();
+  if (brief && brief !== criteria) parts.push(`## Context brief\n${bound(brief, SEED_BUDGETS.brief)}`);
+  if (ctx.attachments.length > 0) {
+    const rows = ctx.attachments.map((a) => `- ${a.kind}: ${a.path} — "${a.name}"`).join('\n');
+    parts.push(`## Attachments\n${bound(rows, SEED_BUDGETS.attachments)}`);
+  }
+  if (ctx.repos.length > 0) {
+    const rows = ctx.repos.map((r) => {
+      if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
+      if (!r.start) return `- ${r.name}: ${r.repoPath} (no service — not runnable)`;
+      const cwd = r.cwd !== undefined ? `, cwd: ${r.cwd}` : '';
+      const health = r.health ? `, health: ${r.health}` : '';
+      return `- ${r.name}: ${r.repoPath} (start: \`${r.start}\`${cwd}${health})`;
+    });
+    parts.push(`## Repositories in scope\n${rows.join('\n')}`);
+  }
+  if (ctx.worktrees.length > 0) {
+    parts.push(`## Worktrees\n${ctx.worktrees.map((w) => `- ${w.repo}: ${w.path}`).join('\n')}`);
+  }
+  if (ctx.servers.length > 0) {
+    const rows = ctx.servers.map((v) => `- ${v.service}: ${v.host ?? '?'}:${v.port ?? '?'} (${v.status})`);
+    parts.push(`## Running servers\n${rows.join('\n')}`);
+  }
+  return parts.join('\n\n');
+}

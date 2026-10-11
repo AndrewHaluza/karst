@@ -31,6 +31,19 @@ describe('parseContextArgs', () => {
     expect(parseContextArgs(['context', 'PROJ-9', '--json']).format).toBe('json');
   });
 
+  it('parses --for tester, combinable with --md', () => {
+    expect(parseContextArgs(['context', 'PROJ-9', '--for', 'tester', '--md'])).toEqual({
+      key: 'PROJ-9',
+      format: 'md',
+      audience: 'tester',
+    });
+  });
+
+  it('rejects an unknown or missing audience', () => {
+    expect(() => parseContextArgs(['context', 'PROJ-9', '--for', 'qa'])).toThrow(/unknown audience 'qa'/);
+    expect(() => parseContextArgs(['context', 'PROJ-9', '--for'])).toThrow(/unknown audience/);
+  });
+
   it('throws on the wrong command', () => {
     expect(() => parseContextArgs(['stage', 'PROJ-9'])).toThrow(/context/);
   });
@@ -453,5 +466,22 @@ describe('runContextCommand — stage ending', () => {
     expect(json.subtasks[0].prs).toEqual([
       { repo: 'frontend', number: 21, url: 'https://x/21', status: 'open', baseRef: 'feat/p' },
     ]);
+  });
+});
+
+describe('runContextCommand --for tester', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  it('md output has intent but no code pointers; json drops them too', () => {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'T' });
+    updateTicketFields(store, t.id, { description: 'P', intent: '## Goal\ng', codePointers: '- a.ts — x' });
+    const md = runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'md', audience: 'tester' });
+    expect(md).toContain('## Intent');
+    expect(md).not.toContain('## Code pointers');
+    const json = JSON.parse(runContextCommand(store, MANIFEST, { key: 'PROJ-9', format: 'json', audience: 'tester' }));
+    expect(json.codePointers).toBeNull();
+    expect(json.intent).toContain('Goal');
   });
 });

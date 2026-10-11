@@ -1690,7 +1690,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(runHeadless).toHaveBeenCalledTimes(1);
     expect(capturedPrompt).toContain('karst/x');
-    expect(capturedPrompt).toContain('origin/develop...origin/karst/x');
+    expect(capturedPrompt).not.toContain('git diff');
   });
 
   // Prompt 17: the stage reads the ticket's `description` as its done-when
@@ -1731,7 +1731,7 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(capturedPrompt).toContain('The button must open the modal.');
-    expect(capturedPrompt).toContain('Run exactly: node "cli.js" context --db "db" T-CRIT --md');
+    expect(capturedPrompt).toContain('Run exactly: node "cli.js" context --db "db" T-CRIT --for tester --md');
   });
 
   // 869ej1nfb: "UAT tester xterm console shows no diffs if they're there". The
