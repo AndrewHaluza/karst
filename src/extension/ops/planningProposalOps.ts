@@ -116,7 +116,7 @@ export function createPlanningProposalOps(deps: PlanningProposalOpsDeps): Planni
         onCreated: (ticketId) =>
           void guarded('link', id, () => {
             const current = getProposal(deps.store, id);
-            markProposalAccepted(deps.store, id, ticketId);
+            markProposalAccepted(deps.store, id, ticketId, reviewed);
             // The form's ticket is what the human saw and saved, so it is
             // linked regardless; but if the agent revised the draft while the
             // form was open, say so rather than dropping it silently.

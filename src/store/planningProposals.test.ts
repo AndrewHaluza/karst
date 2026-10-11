@@ -91,6 +91,21 @@ describe('planning proposals', () => {
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
   });
 
+  it('markProposalAccepted with a reviewed payload seeds brief and blocked-by from it, not the newer revision', () => {
+    const depA = insertProposal(store, sessionId, { ...payload, title: 'A' });
+    const depB = insertProposal(store, sessionId, { ...payload, title: 'B' });
+    const reviewed: ProposalPayload = { ...payload, summary: 'reviewed summary', dependsOn: [depA] };
+    const id = insertProposal(store, sessionId, reviewed);
+    const t = createTicket(store, { key: 'K', title: 'Fix auth', projectId });
+    const ta = createTicket(store, { key: 'KA', title: 'A', projectId });
+    markProposalAccepted(store, depA, ta.id);
+    updateProposalPayload(store, id, { ...reviewed, summary: 'unreviewed agent text', dependsOn: [depB] });
+    markProposalAccepted(store, id, t.id, reviewed);
+    expect(getTicket(store, t.id).brief).toContain('reviewed summary');
+    expect(getTicket(store, t.id).brief).not.toContain('unreviewed');
+    expect(listRelations(store, t.id).map((r) => r.targetTicketId)).toEqual([ta.id]);
+  });
+
   it('proposalPayloadEquals compares content, not identity or key order', () => {
     expect(proposalPayloadEquals(payload, { ...payload })).toBe(true);
     expect(proposalPayloadEquals(payload, { ...payload, repos: ['api', 'web'] })).toBe(false);
