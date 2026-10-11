@@ -34,7 +34,10 @@ import { join } from 'node:path';
 // `src/extension/ops/storedArtifactOps.ts`, the vscode half in `storedArtifactBinding.ts`.
 // Raised by 5 more for the sidebar artifact-count badge (`makeSidebarArtifactCounts`
 // call and the `artifactCount` arg); logic is in `src/artifacts/countCache.ts`.
-const MAX_EXTENSION_LINES = 8494;
+// Raised by 19 for the fix-delivery bindings (@arch:V77): the `fixDelivery` wiring
+// object + its sweep timer, the seed path's one-transaction snapshot write, the two
+// mailbox deps, and the `deliverFix` seam; logic is in `ops/fixDelivery*.ts`.
+const MAX_EXTENSION_LINES = 8513;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

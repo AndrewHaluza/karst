@@ -706,6 +706,10 @@ uat:
 # never retitled or rewritten. branchName applies only to worktrees created after
 # it is set — an existing worktree keeps the branch recorded on its row.
 
+# Ticket-analysis passes (form Analyze button). Optional; omit for defaults.
+# analysis:
+#   codePointers: false   # opt-in: extra pass that lists unverified code hints for the implementer
+
 # Ticketing integration (optional; default { provider: manual }). `manual` is
 # local-only. `clickup` fetches ticket context; set `teamId` (ClickUp workspace
 # id, for custom task ids) and `listId` — the list the Add/Edit ticket page's

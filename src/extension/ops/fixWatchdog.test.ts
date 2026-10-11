@@ -365,6 +365,51 @@ describe('fixWatchdog', () => {
     expect(getSessionLaunchIntent(store, 'FIX-1')!.redeliveredAt).not.toBeNull();
   });
 
+  describe('fix pointer re-delivery (@arch:V77)', () => {
+    function pendingFixIntent(): void {
+      toFix(ticketId);
+      const roundId = pendingRound(ticketId);
+      recordFixLaunchIntent(store, {
+        ticketId, launchId: 'FIX-1', provider: 'claude', reason: 'resume',
+        sessionOrigin: 'resume', recoveryRoundId: roundId, at: T0,
+      });
+    }
+
+    it('points at the stored brief instead of re-typing it, once', () => {
+      pendingFixIntent();
+      const nudge = vi.fn(() => true);
+      const pointAtFix = vi.fn(() => 'sent' as const);
+      runFixWatchdog(deps({ nudge, pointAtFix, now: () => AFTER_DELIVERY }));
+      expect(pointAtFix).toHaveBeenCalledWith(ticketId, 'FIX-1');
+      expect(nudge).not.toHaveBeenCalled();
+      expect(getSessionLaunchIntent(store, 'FIX-1')!.redeliveredAt).not.toBeNull();
+      runFixWatchdog(deps({ nudge, pointAtFix, now: () => NEXT_TICK }));
+      expect(pointAtFix).toHaveBeenCalledTimes(1);
+    });
+
+    it('falls back to the full re-type when the launch has no stored brief (untracked)', () => {
+      pendingFixIntent();
+      const nudge = vi.fn(() => true);
+      runFixWatchdog(deps({ nudge, pointAtFix: () => 'no-row', now: () => AFTER_DELIVERY }));
+      expect(nudge).toHaveBeenCalledTimes(1);
+    });
+
+    it('marks needs-you when the pointer could not be sent, stamping nothing', () => {
+      pendingFixIntent();
+      const nudge = vi.fn(() => true);
+      runFixWatchdog(deps({ nudge, pointAtFix: () => 'unsendable', now: () => AFTER_DELIVERY }));
+      expect(nudge).not.toHaveBeenCalled();
+      expect(getTicket(store, ticketId).agentState).toBe('not-started');
+    });
+
+    it('never points for a non-fix intent', () => {
+      implIntent(ticketId);
+      const pointAtFix = vi.fn(() => 'sent' as const);
+      runFixWatchdog(deps({ pointAtFix, now: () => AFTER_DELIVERY }));
+      expect(pointAtFix).not.toHaveBeenCalled();
+    });
+  });
+
   it('does nothing for a confirmed intent', () => {
     const launchId = implIntent(ticketId);
     confirmSessionLaunchIntent(store, launchId, {

@@ -1207,3 +1207,12 @@ describe('agent identity row layout', () => {
     expect(HTML).toMatch(/#agentIdentityPicker \.ap\{[^}]*auto-fit/);
   });
 });
+
+const bodyRules = [...HTML.matchAll(/(?<![\w#.\-])body\s*\{([^}]*)\}/g)].map((m) => m[1] ?? '');
+const bodyHas = (...res: RegExp[]) => bodyRules.some((r) => res.every((re) => re.test(r)));
+
+describe('content width cap (UI-R48)', () => {
+  it('caps and centers body', () => {
+    expect(bodyHas(/max-width\s*:\s*var\(--k-content-max\)/, /margin-inline\s*:\s*auto/)).toBe(true);
+  });
+});

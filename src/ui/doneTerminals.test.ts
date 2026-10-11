@@ -5,8 +5,9 @@ function probe(
   ticketId: number,
   exited: boolean,
   dispose: () => void = vi.fn(),
+  graph = false,
 ): DoneTerminalProbe {
-  return { ticketId, exited, dispose };
+  return { ticketId, exited, dispose, graph };
 }
 
 describe('closeDoneTerminalsOf', () => {
@@ -42,5 +43,34 @@ describe('closeDoneTerminalsOf', () => {
   it('is a no-op when the ticket has no terminals at all', () => {
     expect(closeDoneTerminalsOf([], 1)).toBe(0);
     expect(closeDoneTerminalsOf([probe(2, true)], 1)).toBe(0);
+  });
+});
+
+describe('closeDoneTerminalsOf ticket-completed mode', () => {
+  it('closes a live session terminal of the ticket', () => {
+    const d = vi.fn();
+    expect(closeDoneTerminalsOf([probe(1, false, d)], 1, 'ticket-completed')).toBe(1);
+    expect(d).toHaveBeenCalledTimes(1);
+  });
+  it('keeps a live graph terminal but closes an exited one', () => {
+    const live = vi.fn();
+    const dead = vi.fn();
+    const n = closeDoneTerminalsOf(
+      [probe(1, false, live, true), probe(1, true, dead, true)],
+      1,
+      'ticket-completed',
+    );
+    expect(n).toBe(1);
+    expect(live).not.toHaveBeenCalled();
+    expect(dead).toHaveBeenCalledTimes(1);
+  });
+  it('leaves other tickets untouched', () => {
+    const d = vi.fn();
+    expect(closeDoneTerminalsOf([probe(2, false, d)], 1, 'ticket-completed')).toBe(0);
+    expect(d).not.toHaveBeenCalled();
+  });
+  it('default mode still skips live sessions', () => {
+    const d = vi.fn();
+    expect(closeDoneTerminalsOf([probe(1, false, d)], 1)).toBe(0);
   });
 });

@@ -114,9 +114,10 @@ function loadProjectSlug(
  *   guide:    `… guide`
  *             the agent-facing manual (how Karst works, the flow, the verbs,
  *             the marker rules) — no flags, no ticket, no DB (see guide.ts).
- *   fix-brief: `… fix-brief <key> --db <db>`
+ *   fix-brief: `… fix-brief <key>|--ticket <key> [--ack] --db <db>`
  *             human-readable summary of the failing gate a fix session must
- *             address — read-only, node:sqlite (see fixBriefCommand.ts).
+ *             address — read-only, node:sqlite; `--ack` serves the stored
+ *             snapshot and marks it read (see fixBriefCommand.ts).
  *   conflict-brief: `… conflict-brief <key> <repo> --db <db>`
  *             human-readable summary of the merge conflict a session must
  *             resolve — read-only, node:sqlite (see conflictBriefCommand.ts).
@@ -540,10 +541,15 @@ export function runCli(
 
   if (subcommand === 'fix-brief') {
     if (!db) throw new Error('missing --db <path>');
-    const parsed = parseFixBriefArgs(effectiveRest);
-    const store = openReadonlyStore(db);
+    const parsed = parseFixBriefArgs(effectiveRest, ticket);
+    // Only the `--ack` receipt writes (it claims the delivery read); the default
+    // read stays on the read-only handle.
+    const store = parsed.ack ? openWritableStore(db) : openReadonlyStore(db);
     try {
-      return runFixBriefCommand(store, parsed);
+      return runFixBriefCommand(store, parsed, {
+        sessionTicketKey: env.KARST_TICKET,
+        projectSlug: parsed.ack ? loadProjectSlug(manifestPath, verbose) : undefined,
+      });
     } finally {
       store.close();
     }

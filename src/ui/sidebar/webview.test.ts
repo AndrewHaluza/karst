@@ -174,3 +174,9 @@ describe('sidebar webview.html', () => {
     expect(HTML).toContain("document.documentElement.removeAttribute('data-edge')");
   });
 });
+
+describe('content width cap (UI-R48)', () => {
+  it('stays uncapped', () => {
+    expect(HTML).not.toContain('--k-content-max');
+  });
+});

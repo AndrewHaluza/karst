@@ -298,4 +298,44 @@ describe('makeMailDeliveryWiring', () => {
     expect(nudge).toHaveBeenCalledWith(recipient, expect.stringContaining('karst: 1 new message(s)'));
     expect(mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' })).toBeNull();
   });
+
+  describe('fix channel (@arch:V77)', () => {
+    const fixDeps = (): Partial<MailDeliveryWiringDeps> => {
+      const claimed: number[] = [];
+      return {
+        fixEligible: () => 9,
+        claimFixPointed: (_t, id) => {
+          claimed.push(id);
+          return true;
+        },
+      };
+    };
+
+    it('replies with the fix pointer first, then mail on the next fresh turn end', () => {
+      send();
+      const mailbox = makeMailDeliveryWiring(deps(fixDeps()));
+      mailbox.sweep.sweep();
+      const first = mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' });
+      expect(first).toMatchObject({ reason: expect.stringContaining('fix brief #9 ready') });
+      const second = mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' });
+      expect(second).toMatchObject({ reason: expect.stringContaining('1 new message(s)') });
+    });
+
+    it('a delivered fix reply never confirms a mail batch', () => {
+      send();
+      const nudge = vi.fn(() => true);
+      const mailbox = makeMailDeliveryWiring(deps({ ...fixDeps(), nudge }));
+      mailbox.sweep.sweep();
+      mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' }); // the fix pointer
+      mailbox.onReplyDelivered(recipient);
+      // Mail was never answered: the sweep's typed fallback must still be live.
+      setAgentState(store, recipient, 'idle');
+      expect(mailbox.sweep.sweep().delivered).toEqual([recipient]);
+    });
+
+    it('is inert without fix deps', () => {
+      const mailbox = makeMailDeliveryWiring(deps());
+      expect(mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' })).toBeNull();
+    });
+  });
 });

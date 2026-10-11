@@ -58,7 +58,7 @@ END_DOC_BLOCK: [@ui:RULE-COUNTS]
 | UI-R45 | No overlap, no escape, one scroll region per pane | VISUAL | **covered** | Layout gate checks (b), (c), (c2) |
 | UI-R46 | Empty/loading states keep the layout | RUNTIME+VISUAL | **partial** | `empty` corpus compares region boxes; the action's presence is a RUNTIME check |
 | UI-R47 | Selection survives resize and Back | VISUAL | **covered** | Layout gate check (i) |
-| UI-R48 | Settings content capped at the content-width token | STATIC+VISUAL | **covered** | Token grep + content width ≤ token at the ≥1000 tier |
+| UI-R48 | Page content capped at the content-width tokens | STATIC+VISUAL | **covered** | Token grep on the 4 token-capped bodies + `58ch`/`margin-inline:auto` check on gettingStarted + content width ≤ cap and centered at 1280 (settings) and 2560 (5 views) |
 | UI-R19 / UI-R36 | Settings layout geometry holds on every route (overlap, clipping, overflow, containment, scrollers, column alignment, spacing, state across resize) | VISUAL | **covered** | Geometry assertions, no baselines: `ui:LAYOUT-SANITY` (`npm run test:layout`) |
 
 **Still manual after this ticket: UI-R22 only.**

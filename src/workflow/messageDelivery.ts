@@ -36,7 +36,10 @@ export type DeliveryResult = 'delivered' | 'armed' | 'deferred';
  * bulletin (`notes`). The host writes the pointer text, so the recipient's agent
  * never receives an agent-authored body through this channel.
  */
-export type MessagePointer = { kind: 'mail'; unread: number } | { kind: 'notes'; unread: number };
+export type MessagePointer =
+  | { kind: 'mail'; unread: number }
+  | { kind: 'notes'; unread: number }
+  | { kind: 'fix'; deliveryId: number };
 
 /** The mail pointer; a helper so callers never spell the kind. */
 export function mailPointer(unread: number): MessagePointer {
@@ -46,6 +49,11 @@ export function mailPointer(unread: number): MessagePointer {
 /** The project-notes pointer; the host writes its text, never a note body. */
 export function notesPointer(unread: number): MessagePointer {
   return { kind: 'notes', unread };
+}
+
+/** The fix-brief pointer (@arch:V77): names the stored snapshot by its row id, never a body. */
+export function fixPointer(deliveryId: number): MessagePointer {
+  return { kind: 'fix', deliveryId };
 }
 
 export interface MessageDelivery {
@@ -80,11 +88,26 @@ function assertPositiveInt(n: number, what: string): void {
 /** Characters a literal path may not carry into a typed line. */
 const SHELL_META = /["$`\\']/;
 
-/** Fixed wording and the CLI command per pointer kind. */
+/** Fixed wording, the CLI command and its extra flags per pointer kind. */
 const POINTER_TEXT = {
-  mail: { noun: 'message(s)', command: 'inbox' },
-  notes: { noun: 'project note(s)', command: 'notes' },
+  mail: { lead: (p: { unread: number }) => `${p.unread} new message(s)`, command: 'inbox', extraArgs: [] },
+  notes: { lead: (p: { unread: number }) => `${p.unread} new project note(s)`, command: 'notes', extraArgs: [] },
+  fix: { lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`, command: 'fix-brief', extraArgs: ['--ack'] },
 } as const;
+
+function pointerLead(pointer: MessagePointer): string {
+  switch (pointer.kind) {
+    case 'mail':
+      assertPositiveInt(pointer.unread, 'unread count');
+      return POINTER_TEXT.mail.lead(pointer);
+    case 'notes':
+      assertPositiveInt(pointer.unread, 'unread count');
+      return POINTER_TEXT.notes.lead(pointer);
+    case 'fix':
+      assertPositiveInt(pointer.deliveryId, 'delivery id');
+      return POINTER_TEXT.fix.lead(pointer);
+  }
+}
 
 /**
  * The pointer line: fixed text, the unread count, and the kind's CLI command
@@ -98,8 +121,8 @@ export function messagePointer(
   exported: ExportedCliEnv | undefined,
   literal: CliTokens,
 ): string | null {
-  const { noun, command } = POINTER_TEXT[pointer.kind];
-  assertPositiveInt(pointer.unread, 'unread count');
+  const { command, extraArgs } = POINTER_TEXT[pointer.kind];
+  const lead = pointerLead(pointer);
   assertPositiveInt(toTicketId, 'ticket id');
   const tok = cliTokensFor(exported, { ...literal, ticket: String(toTicketId) });
   const literals = [tok.cli, tok.db, tok.manifest].filter(
@@ -113,13 +136,14 @@ export function messagePointer(
     'node',
     arg(tok.cli),
     command,
+    ...extraArgs,
     '--db',
     arg(tok.db),
     ...(tok.manifest ? ['--manifest', arg(tok.manifest)] : []),
     '--ticket',
     ticket,
   ];
-  return printable(`karst: ${pointer.unread} new ${noun} - run ${parts.join(' ')}`);
+  return printable(`karst: ${lead} - run ${parts.join(' ')}`);
 }
 
 export interface TerminalDeliveryDeps {

@@ -1,3 +1,4 @@
+import { markSeedRead } from './fixDeliveries.js';
 import type { Store } from './db.js';
 import { openProcessRun, finishProcessRun, type ProcessRun } from './processRuns.js';
 import {
@@ -456,6 +457,9 @@ export function confirmFixLaunch(
       markFixStageLive(store, round.ticketId);
     }
     confirmLaunchIntentRow(store, intent.id, input.providerSessionId, input.at);
+    // The seed carried the brief (@arch:V77): mark its stored snapshot read, in
+    // the same transaction. Delivered-in-the-seed, not proof of reading.
+    markSeedRead(store, launchId, input.at);
   });
   apply();
   return result;

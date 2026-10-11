@@ -1107,3 +1107,9 @@ describe('diffs webview design-system conformance', () => {
     expect(styleBlock()).not.toMatch(/pointer-events\s*:\s*none/);
   });
 });
+
+describe('content width cap (UI-R48)', () => {
+  it('stays uncapped', () => {
+    expect(HTML).not.toContain('--k-content-max');
+  });
+});

@@ -143,10 +143,10 @@ describe('extension activation', () => {
     const archiveOpsSource = readFileSync(join(process.cwd(), 'src', 'extension', 'ops', 'archiveOps.ts'), 'utf8');
     expect(archiveOpsSource).toContain('closeDoneTerminalsWithTicket === true');
     expect(archiveOpsSource).toContain('deps.closeDoneTerminals(ticketId)');
-    expect(source).toContain('closeDoneTerminals: closeTicketDoneTerminals');
+    expect(source).toContain('closeDoneTerminals: closeTicketTerminals');
     // Only exited terminals qualify — the helper is what the binding feeds.
     expect(source).toContain('exited: terminal.exitStatus !== undefined');
-    expect(source).toContain('closeDoneTerminalsOf(probes, ticketId)');
+    expect(source).toContain('closeDoneTerminalsOf(probes, ticketId, mode)');
   });
 
   // `removeWorktree` reaps the servers it removes a tree out from under, but it

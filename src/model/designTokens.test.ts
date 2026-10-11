@@ -140,3 +140,10 @@ describe('design tokens', () => {
     }
   });
 });
+
+describe('content max tokens', () => {
+  it('defines content max tokens', () => {
+    expect(DESIGN_TOKENS['--k-content-max']).toBe('1200px');
+    expect(DESIGN_TOKENS['--k-content-max-wide']).toBe('1600px');
+  });
+});

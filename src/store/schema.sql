@@ -1345,3 +1345,28 @@ CREATE TABLE IF NOT EXISTS uat_gate_passes (
 );
 CREATE INDEX IF NOT EXISTS idx_uat_gate_passes_ticket
   ON uat_gate_passes(ticket_id, attempt, fingerprint);
+
+-- v77 fix-brief delivery snapshots (kept in sync with FIX_DELIVERIES_DDL in fixDeliveries.ts;
+-- @arch:V77). A fix round stores its brief here and points the live agent at it.
+CREATE TABLE IF NOT EXISTS fix_deliveries (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT, -- the user-facing "fix brief #<id>"
+  project_id        INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+  ticket_id         INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  recovery_round_id INTEGER REFERENCES recovery_rounds(id) ON DELETE SET NULL,
+  launch_id         TEXT,    -- the session generation this delivery is armed for
+  body              TEXT NOT NULL,
+  truncated         INTEGER NOT NULL DEFAULT 0,
+  created_at        TEXT NOT NULL,
+  armed_at          TEXT,    -- push route: the hook may point at it
+  enqueued_at       TEXT,    -- typed route: a pointer line is in flight
+  pointed_at        TEXT,    -- the pointer reached the agent
+  repointed_at      TEXT,    -- the typed re-send went out
+  pointer_failed_at TEXT,    -- the pointer could not be built (needs-you, once)
+  read_at           TEXT,    -- the receipt
+  delivered_via     TEXT CHECK (delivered_via IN ('seed', 'pointer')),
+  superseded_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_fix_deliveries_ticket
+  ON fix_deliveries(ticket_id, superseded_at, read_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_deliveries_round
+  ON fix_deliveries(ticket_id, recovery_round_id) WHERE recovery_round_id IS NOT NULL;

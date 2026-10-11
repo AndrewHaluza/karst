@@ -901,7 +901,7 @@ Layout (UI-RULES group L):
 - [ ] Layout holds at all three width tiers; no page horizontal scroll (R43)
 - [ ] Overflow wraps or has a reachable full text; no overlap; one scroll region per pane (R44, R45)
 - [ ] Empty/loading keep layout; selection survives resize and Back (R46, R47)
-- [ ] Settings content capped at the content-width token (R48)
+- [ ] Page content capped at the content-width tokens (R48)
 - [ ] `npm run test:layout` run (advisory); final check via `npm run test:layout:docker`
 - [ ] Screenshot changes approved by the user; no baseline or ledger edit to pass a gate
 END_DOC_BLOCK: [@ui:SG-25]

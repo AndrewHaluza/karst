@@ -163,6 +163,17 @@ repositories:
     return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
   }
 
+  it('round-trips the analysis block', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      writeManifest(path, { ...loaded, analysis: { codePointers: true } });
+      expect(loadManifest(path).analysis).toEqual({ codePointers: true });
+    } finally {
+      cleanup();
+    }
+  });
+
   it('emits per-capability preset slots shape and round-trips', () => {
     const { path, cleanup } = manifestFixture();
     try {

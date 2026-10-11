@@ -19,6 +19,11 @@ export interface ArtifactCaptureWiring {
   readonly beforeRemove: (target: ArchiveTarget) => Promise<void>;
   /** The agent session closed: capture what the debounce had not flushed yet. */
   readonly onSessionEnd: (ticketId: number) => void;
+  /** Hook payload fan-in: SessionEnd runs the final capture; PostToolUse captures the notified edit path. */
+  readonly onHookEvent: (
+    ticketId: number,
+    payload: { hook_event_name?: string; cwd?: string; file_path?: string; session_id?: string },
+  ) => void;
   /** First reconcile. Separate from wiring: `deps` may close over bindings not initialised yet. */
   readonly start: () => void;
   readonly dispose: () => void;
@@ -28,6 +33,11 @@ export function wireArtifactCapture(
   deps: Omit<ArtifactCaptureServiceDeps, 'watch'> & { fsWatch: typeof nodeWatch },
 ): ArtifactCaptureWiring {
   const service = createArtifactCaptureService({ ...deps, watch: nodeFsWatch(deps.fsWatch) });
+  const onSessionEnd = (ticketId: number): void => {
+    void service.captureTicket(ticketId).catch((err: unknown) => {
+      deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);
+    });
+  };
   const timer = setInterval(() => service.syncWatchers(), WATCHER_SYNC_MS);
   timer.unref();
   return {
@@ -35,10 +45,23 @@ export function wireArtifactCapture(
     start: () => service.syncWatchers(),
     beforeRemove: (t) =>
       service.sweepWorktree({ ticketId: t.ticketId, repoPath: t.repoPath, worktreePath: t.path, baseRef: t.baseRef }),
-    onSessionEnd: (ticketId) => {
-      void service.captureTicket(ticketId).catch((err: unknown) => {
-        deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);
-      });
+    onSessionEnd,
+    onHookEvent: (ticketId, payload) => {
+      if (payload.hook_event_name === 'SessionEnd') {
+        onSessionEnd(ticketId);
+        return;
+      }
+      if (payload.hook_event_name !== 'PostToolUse' || !payload.file_path || !payload.cwd) return;
+      void service
+        .captureEdit({
+          ticketId,
+          cwd: payload.cwd,
+          filePath: payload.file_path,
+          ...(payload.session_id !== undefined ? { sessionId: payload.session_id } : {}),
+        })
+        .catch((err: unknown) => {
+          deps.debug(`[artifacts] hook edit capture failed for ticket ${ticketId}: ${String(err)}`);
+        });
     },
     dispose: () => {
       clearInterval(timer);

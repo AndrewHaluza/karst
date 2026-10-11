@@ -14,7 +14,6 @@
   "general|700|degenerate-control|div#section-general > div.section-block:nth-child(3) > div.k-field.template-form-row:nth-child(3) > div.template-meta:nth-child(3) > button.template-help-link:nth-child(2)",
   "general|900|degenerate-control|div#section-general > div.section-block:nth-child(3) > div.k-field.template-form-row:nth-child(2) > div.template-meta:nth-child(3) > button.template-help-link:nth-child(2)",
   "general|900|degenerate-control|div#section-general > div.section-block:nth-child(3) > div.k-field.template-form-row:nth-child(3) > div.template-meta:nth-child(3) > button.template-help-link:nth-child(2)",
-  "git|1280|containment|div#section-git > div.section-block:nth-child(2) > div.form-grid:nth-child(2) > div.k-field:nth-child(6) > div.template-meta:nth-child(3) > div.template-preview:nth-child(1) > span.lp-val:nth-child(1)",
   "git|1280|degenerate-control|div#section-git > div.section-block:nth-child(2) > div.form-grid:nth-child(2) > div.k-field:nth-child(6) > div.template-meta:nth-child(3) > button.template-reset-link:nth-child(4)",
   "git|1280|scroller|textarea#_r_h_",
   "git|480|containment|div#section-git > div.section-block:nth-child(2) > div.form-grid:nth-child(2) > div.k-field:nth-child(2) > label:nth-child(1)",

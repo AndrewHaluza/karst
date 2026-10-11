@@ -967,6 +967,29 @@ describe('dispatchHook — UsageUpdate', () => {
   });
 });
 
+describe('parseHookPayload file_path (T4)', () => {
+  const post = (tool_name: string, tool_input: unknown) =>
+    parseHookPayload({ hook_event_name: 'PostToolUse', tool_name, tool_input, cwd: '/w' });
+
+  it.each(['Write', 'Edit', 'MultiEdit'])('extracts tool_input.file_path for %s', (tool) => {
+    expect(post(tool, { file_path: '/w/a.md', content: 'secret body' })?.file_path).toBe('/w/a.md');
+  });
+
+  it('never carries edit content', () => {
+    expect(JSON.stringify(post('Write', { file_path: '/w/a.md', content: 'secret body' }))).not.toContain('secret body');
+  });
+
+  it.each([
+    ['Bash', { file_path: '/w/a.md' }],
+    ['Write', { file_path: 42 }],
+    ['Write', 'nope'],
+    ['Write', null],
+    ['Write', {}],
+  ])('omits file_path for %s %j', (tool, input) => {
+    expect(post(tool, input)).not.toHaveProperty('file_path');
+  });
+});
+
 describe('parseHookPayload', () => {
   it('accepts a well-formed payload of optional strings', () => {
     expect(

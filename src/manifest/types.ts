@@ -488,6 +488,12 @@ export interface UatRepositoryOverride {
  */
 export const DEFAULT_FIX_STALL_TIMEOUT_MINUTES = 60;
 
+/** Optional ticket-analysis passes (`analysis:` in karst.yml). */
+export interface AnalysisConfig {
+  /** Opt-in extra pass listing unverified code hints for the implementer. Default false. */
+  codePointers: boolean;
+}
+
 export interface UatConfig {
   testDir?: string;
   maxFixAttempts: number;
@@ -859,6 +865,8 @@ export interface Manifest {
    * them early is harmless.
    */
   uat?: UatConfig;
+  /** Ticket-analysis passes. Absent = defaults (code pointers off). */
+  analysis?: AnalysisConfig;
   /**
    * Review gates. Absent yields the default pipeline: karst probes
    * package.json for `REVIEW_PROBE_SCRIPTS` (`workflow/gates/scripts.ts`).

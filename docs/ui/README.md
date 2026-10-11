@@ -64,5 +64,4 @@ END_DOC_BLOCK: [@ui:README-VOCAB]
 - Existing settings CSS breakpoints (1024/768/800/700px) predate the tiers and
   migrate over time via `BREAKPOINT_PINNED_FILES`.
 - The legacy settings `webview.html` still has `em` media queries.
-- No settings content-width cap exists in CSS yet (`ui:UI-R48`).
 END_DOC_BLOCK: [@ui:README-GAPS]

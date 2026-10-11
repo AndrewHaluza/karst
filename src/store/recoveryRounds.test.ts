@@ -1,3 +1,4 @@
+import { upsertFixDelivery, getFixDelivery } from './fixDeliveries.js';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
@@ -265,6 +266,43 @@ describe('recovery rounds — store', () => {
     const after = listRecoveryRounds(store, ticketId)[0]!;
     expect(after.fixProcessRunId).toBe(run.id);
     expect(after.status).toBe('fixing');
+  });
+
+  it('a confirmed fix launch marks its stored brief snapshot read via the seed (@arch:V77)', () => {
+    const r = round();
+    recordFixLaunchIntent(store, {
+      ticketId, launchId: 'launch-fix', provider: 'claude',
+      reason: 'resume', sessionOrigin: 'resume', recoveryRoundId: r.id, at: T1,
+    });
+    const deliveryId = upsertFixDelivery(store, {
+      ticketId, recoveryRoundId: r.id, launchId: 'launch-fix', body: 'brief', at: T1,
+    });
+    expect(confirmFixLaunch(store, 'launch-fix', {
+      ticketId, provider: 'claude', providerSessionId: 's', at: T2,
+    })).toBe('confirmed');
+    expect(getFixDelivery(store, deliveryId)).toMatchObject({ readAt: T2, deliveredVia: 'seed' });
+  });
+
+  it('a refused confirmation leaves the stored brief snapshot unread', () => {
+    const otherId = createTicketFlow(store, { key: 'T-3', title: 'other' }).id;
+    const otherRound = round({ ticketId: otherId });
+    store.db
+      .prepare(
+        `INSERT INTO session_launch_intents
+           (ticket_id, launch_id, purpose, implementation_run_id, process_run_id,
+            recovery_round_id, provider, model, reason, session_origin,
+            provider_session_id, status, created_at, resolved_at)
+         VALUES (?, ?, 'fix', NULL, NULL, ?, 'claude', NULL, 'resume', 'resume',
+                 NULL, 'pending', ?, NULL)`,
+      )
+      .run(ticketId, 'launch-x', otherRound.id, T1);
+    const deliveryId = upsertFixDelivery(store, {
+      ticketId, recoveryRoundId: null, launchId: 'launch-x', body: 'brief', at: T1,
+    });
+    expect(confirmFixLaunch(store, 'launch-x', {
+      ticketId, provider: 'claude', providerSessionId: 's', at: T2,
+    })).toBe('round-mismatch');
+    expect(getFixDelivery(store, deliveryId)!.readAt).toBeNull();
   });
 
   it('a stale or mismatched start resolves the intent without creating a process run', () => {

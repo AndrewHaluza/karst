@@ -24,6 +24,7 @@ import type {
   HookChannelRecorder,
   HookDispatchOutcome,
 } from '../diagnostics/hookChannel.js';
+import { HOOK_EDIT_TOOLS } from '../artifacts/hookEdit.js';
 import { setProcessRunPromptTelemetry } from '../store/processRuns.js';
 
 /**
@@ -57,6 +58,12 @@ export interface HookPayload {
    * megabyte). A count of tool uses per turn, not the content.
    */
   tool_name?: string;
+  /**
+   * T4: the edited path of a Write/Edit/MultiEdit `PostToolUse` (from
+   * `tool_input.file_path`). Agent-authored and untrusted: it only names a
+   * file for karst to re-read itself; the edit content is never carried.
+   */
+  file_path?: string;
   /**
    * Claude's `Stop` re-entry flag, forwarded by the shared bridge. True means
    * the agent is CONTINUING from a prior block, so the mail reply must not fire
@@ -128,6 +135,15 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
   if (o.stop_hook_active !== undefined && typeof o.stop_hook_active !== 'boolean') {
     return null;
   }
+  const toolInput = o.tool_input;
+  const filePath =
+    typeof o.tool_name === 'string' &&
+    HOOK_EDIT_TOOLS.has(o.tool_name) &&
+    typeof toolInput === 'object' &&
+    toolInput !== null &&
+    typeof (toolInput as Record<string, unknown>).file_path === 'string'
+      ? ((toolInput as Record<string, unknown>).file_path as string)
+      : undefined;
   return {
     hook_event_name: o.hook_event_name as string | undefined,
     cwd: o.cwd as string | undefined,
@@ -136,6 +152,7 @@ export function parseHookPayload(raw: unknown): HookPayload | null {
     notification_type: o.notification_type as string | undefined,
     ...(usage !== undefined ? { usage } : {}),
     ...(o.tool_name !== undefined ? { tool_name: o.tool_name as string } : {}),
+    ...(filePath !== undefined ? { file_path: filePath } : {}),
     ...(o.stop_hook_active !== undefined ? { stop_hook_active: o.stop_hook_active as boolean } : {}),
   };
 }

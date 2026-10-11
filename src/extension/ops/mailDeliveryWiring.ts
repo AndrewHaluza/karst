@@ -3,7 +3,7 @@ import { getTicket } from '../../store/tickets.js';
 import type { ExportedCliEnv, CliTokens } from '../../agent/cliEnv.js';
 import type { HookReplyFor } from '../../hooks/endpoint.js';
 import { createUnreadCache } from '../../hooks/unreadCache.js';
-import { makeHookReply, type BlockedAt } from '../../hooks/mailReply.js';
+import { makeHookReply, type BlockedAt, type BlockedAtFix } from '../../hooks/mailReply.js';
 import {
   makeRoutedDelivery,
   makeTerminalDelivery,
@@ -27,7 +27,7 @@ import {
  * requested continuation without a prompt; ignoring the block"). `reason` is
  * the continuation prompt. Verified `true`.
  */
-const CODEX_STOP_BLOCK_SUPPORTED = true;
+export const CODEX_STOP_BLOCK_SUPPORTED = true;
 
 /**
  * The extension-host wiring for mailbox delivery: the per-core routed sweep,
@@ -62,6 +62,12 @@ export interface MailDeliveryWiringDeps {
   literal: () => CliTokens;
   /** The generation barrier for the reply channel. */
   isCurrentHook: (ticketId: number, launchId: string | undefined) => boolean;
+  /**
+   * The fix-brief channel (@arch:V77): the delivery id the turn-end hook may
+   * point at, and the conditional `pointed_at` claim. Absent → mail only.
+   */
+  fixEligible?: (ticketId: number) => number | null;
+  claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
 }
 
 export interface MailDeliveryWiring {
@@ -153,7 +159,11 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     warn: deps.warn,
   });
 
-  const hookReply = makeHookReply({
+  // Tickets whose LATEST reply was a fix pointer: that reply is not mail, so its
+  // delivery ack must not confirm a mail batch.
+  const fixBlocked = new Set<number>();
+  const blockedAtFix = new Map<number, BlockedAtFix>();
+  const replyInner = makeHookReply({
     unread: (ticketId) => unreadCache.get(ticketId),
     unreadWatermark: (ticketId) => unreadCache.watermark(ticketId),
     isCurrent: deps.isCurrentHook,
@@ -161,13 +171,29 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     sessionCliEnv: deps.sessionCliEnv,
     literal: deps.literal,
     blockedAt,
+    ...(deps.fixEligible !== undefined && deps.claimFixPointed !== undefined
+      ? {
+          fixEligible: deps.fixEligible,
+          claimFixPointed: (ticketId: number, deliveryId: number) => {
+            const claimed = deps.claimFixPointed!(ticketId, deliveryId);
+            if (claimed) fixBlocked.add(ticketId);
+            return claimed;
+          },
+          blockedAtFix,
+        }
+      : {}),
     debug: deps.debug,
   });
+  const hookReply: HookReplyFor = (input) => {
+    fixBlocked.delete(input.ticketId);
+    return replyInner(input);
+  };
 
   // The endpoint calls this only after the block response reached the bridge.
   // The watermark comes from the reply's own blocked record (the batch it just
   // answered); the ticket's latest block is that batch.
   const onReplyDelivered = (ticketId: number): void => {
+    if (fixBlocked.has(ticketId)) return;
     const prev = blockedAt.get(ticketId);
     if (prev !== undefined) confirmed.set(ticketId, prev.watermark);
   };

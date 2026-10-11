@@ -29,6 +29,8 @@ import { listProcessRuns } from '../../store/processRuns.js';
 import { listStageRuns } from '../../store/stageRuns.js';
 import { currentAttemptFor } from '../../model/inside/currentAttempt.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
+import { listFixDeliveriesByRound } from '../../store/fixDeliveries.js';
+import type { RoundWithDelivery } from '../../model/inside/recovery.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { listShipEvidence, countShipRuns } from '../../store/shipRuns.js';
 import {
@@ -274,7 +276,12 @@ export function buildDashboardState(
       autostart: subtaskAutostartPhase(child),
     };
   });
-  const rounds = listRecoveryRounds(store, ticketId);
+  // Each round carries the receipt state of its stored fix brief (@arch:V77).
+  const deliveries = listFixDeliveriesByRound(store, ticketId);
+  const rounds = listRecoveryRounds(store, ticketId).map((round): RoundWithDelivery => {
+    const delivery = deliveries.get(round.id);
+    return delivery === undefined ? round : { ...round, fixDelivery: delivery };
+  });
   const { agentSession, agentSwitch } = buildAgentState({
     ticket,
     fixExecutionActive: rounds.some((round) => round.status === 'fixing'),
