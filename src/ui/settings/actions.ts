@@ -373,8 +373,19 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
        * validity is judged on exactly what would reach the file.
        */
       async save(manifest: Manifest, section?: SettingsSection): Promise<void> {
+        // On a parse failure `loadState` returns the last good in-memory copy,
+        // not the file. Merging onto it and writing would silently discard the
+        // user's hand edits, so refuse (same as `syncApproachEnabled`).
+        const loaded = deps.loadState();
+        if (loaded.error) {
+          ctx.post({
+            type: 'error',
+            message: 'karst.yml has errors on disk — fix them or reload before saving',
+          });
+          return;
+        }
         const next = section
-          ? mergeSection(deps.loadState().manifest, manifest, section)
+          ? mergeSection(loaded.manifest, manifest, section)
           : manifest;
         // Settings Save serializes only the DELTA against the packaged built-in
         // definition — never the merged effective object. The webview draft is
