@@ -121,6 +121,17 @@ describe('artifact store', () => {
     expect(await store.listArtifacts(2)).toEqual([]);
   });
 
+  it('counts files in the latest tree (deleted files drop out, empty store is 0)', async () => {
+    expect(await store.countArtifacts(1)).toBe(0);
+    put('a.md', 'x');
+    put('b.md', 'y');
+    await store.commitRevision(rev('a.md'));
+    await store.commitRevision(rev('b.md'));
+    expect(await store.countArtifacts(1)).toBe(2);
+    await store.commitRevision({ ticketId: 1, repo: 'app', relPath: 'a.md', deleted: true });
+    expect(await store.countArtifacts(1)).toBe(1);
+  });
+
   describe('materializeView', () => {
     it('checks out the latest tree read-only and refreshes on demand', async () => {
       put('plan.md', 'v1');

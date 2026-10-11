@@ -36,6 +36,19 @@ describe('buildSidebarState', () => {
     expect(state.sections.olderDone).toEqual([]);
   });
 
+  it('carries the cached captured-file count per ticket, 0 when no counter is bound', () => {
+    const a = createTicket(store, { key: 'A-1', title: 'a' });
+    const b = createTicket(store, { key: 'B-1', title: 'b' });
+    const withCount = buildSidebarState(store, {
+      facets: ['all'], filter: '', artifactCount: (id) => (id === a.id ? 4 : 0),
+    });
+    const byLabel = Object.fromEntries(withCount.sections.current.map((r) => [r.label, r.artifacts]));
+    expect(byLabel).toEqual({ 'A-1 — a': 4, 'B-1 — b': 0 });
+    expect(b.id).not.toBe(a.id);
+    const without = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(without.sections.current.every((r) => r.artifacts === 0)).toBe(true);
+  });
+
   it('shows only the bound project when one is given', () => {
     createTicket(store, { key: 'A-1', title: 'mine', projectId: 1 });
     createTicket(store, { key: 'B-1', title: 'theirs', projectId: 2 });

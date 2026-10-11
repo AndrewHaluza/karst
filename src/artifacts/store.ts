@@ -57,6 +57,8 @@ export interface ArtifactStore {
   /** Commit sha, or null when skipped / unchanged. */
   commitRevision(input: RevisionInput): Promise<string | null>;
   listArtifacts(ticketId: number): Promise<ArtifactSummary[]>;
+  /** Files in the latest tree — one git call, cheap enough for a sidebar badge. */
+  countArtifacts(ticketId: number): Promise<number>;
   history(ticketId: number, path: string): Promise<RevisionInfo[]>;
   show(ticketId: number, sha: string, path: string): Promise<Buffer>;
   diff(ticketId: number, a: string, b: string, path: string): Promise<string>;
@@ -250,6 +252,12 @@ export function createArtifactStore(opts: ArtifactStoreOptions): ArtifactStore {
         out.push({ path, revisions: Number(count.trim()), latestSha: latest });
       }
       return out;
+    },
+
+    async countArtifacts(ticketId) {
+      const gitDir = await readableRepo(ticketId);
+      if (!gitDir) return 0;
+      return (await readTree(gitDir, await headSha(gitDir))).size;
     },
 
     async history(ticketId, path) {

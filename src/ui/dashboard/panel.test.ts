@@ -281,7 +281,9 @@ describe('DashboardManager', () => {
     const loadStored = vi.fn(async () => view);
     const mgr = new DashboardManager(
       store, host, () => ({}) as never,
-      ...Array<undefined>(25).fill(undefined), loadStored,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, loadStored,
     );
     mgr.openDashboard(t.id);
     await vi.waitFor(() => {

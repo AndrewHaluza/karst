@@ -32,7 +32,9 @@ import { join } from 'node:path';
 // Raised by 10 for the dashboard Artifacts binding (`createStoredArtifactBinding`
 // call, its disposal, the `forTicket` arg and the action spread); logic is in
 // `src/extension/ops/storedArtifactOps.ts`, the vscode half in `storedArtifactBinding.ts`.
-const MAX_EXTENSION_LINES = 8489;
+// Raised by 5 more for the sidebar artifact-count badge (`makeSidebarArtifactCounts`
+// call and the `artifactCount` arg); logic is in `src/artifacts/countCache.ts`.
+const MAX_EXTENSION_LINES = 8494;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

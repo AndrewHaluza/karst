@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { basename, join, relative, resolve } from 'node:path';
 
 import { isSafeTreePath } from '../../artifacts/skipRules.js';
+import { createArtifactCountCache, type ArtifactCountCache } from '../../artifacts/countCache.js';
 import { createArtifactStore, type ArtifactStore } from '../../artifacts/store.js';
 import { effectiveOutputs } from '../../approaches/outputs.js';
 import type { Manifest } from '../../manifest/types.js';
@@ -157,5 +158,24 @@ export function makeStoredArtifactActionsForTicket(
       projectId: findTicketById(registry, deps.ticketId)?.projectId ?? fallbackProjectId ?? 0,
     }),
     worktrees: () => listWorktreesByTicket(registry, deps.ticketId).map((w) => ({ repo: w.repo, path: w.path })),
+  });
+}
+
+/** Sidebar badge counts: the ticket's own project picks the store; failures degrade to the last count. */
+export function makeSidebarArtifactCounts(deps: {
+  registry: Store;
+  artifactsRoot: string;
+  onChange: () => void;
+  onError?: (error: unknown) => void;
+}): ArtifactCountCache {
+  return createArtifactCountCache({
+    count: (ticketId) => {
+      const projectId = findTicketById(deps.registry, ticketId)?.projectId;
+      return projectId == null
+        ? Promise.resolve(0)
+        : createArtifactStore({ artifactsRoot: deps.artifactsRoot, projectId }).countArtifacts(ticketId);
+    },
+    onChange: deps.onChange,
+    ...(deps.onError ? { onError: deps.onError } : {}),
   });
 }

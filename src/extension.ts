@@ -53,6 +53,7 @@ import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
+import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
@@ -805,6 +806,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logError,
     debug: (m) => logger.debug(m),
   });
+  const artifactCounts = makeSidebarArtifactCounts({
+    registry: localStore, artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'), onChange: () => provider.refresh(),
+  });
   const provider = new SidebarViewManager(localStore, (mgr) => ({
     toggleFacet: (facet) => mgr.toggleFacet(facet),
     setFilter: (query) => mgr.setFilter(query),
@@ -866,7 +870,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => currentManifest()?.agentProvider,
     () => activeTicket.get(),
     () => currentManifest(),
-    (id) => planning.isLive(id));
+    (id) => planning.isLive(id),
+    (id) => artifactCounts.get(id));
   const { host: sidebarHost, provider: sidebarProvider, badge: sidebarBadge } =
     makeSidebarViewHost(context);
   provider.bind(sidebarHost);
