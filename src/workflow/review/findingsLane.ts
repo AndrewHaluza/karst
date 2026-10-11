@@ -29,7 +29,14 @@ import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
-import { buildScopeBlock } from '../agentScope.js';
+import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
+import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
+import {
+  isEmptyDiffObservation,
+  isRequirementFinding,
+  reconcileRequirementFindings,
+  targetHasChanges,
+} from './requirements.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, reviewBlockingSeverityRule } from '../../agent/promptText.js';
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
@@ -116,6 +123,8 @@ export interface RunFindingsLaneOpts {
    * pure collector, exactly like a pre-durability caller.
    */
   persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
+  /** Intent / spec / plan the reviewer judges the change against (merged pass). */
+  artifacts?: ReviewArtifacts;
   /**
    * Live-output hook, forwarded verbatim to every `adapter.runHeadless` call
    * (each target asks its own call). RAW untrusted CLI prose — the caller
@@ -196,7 +205,10 @@ export function buildFindingsPrompt(
    *  tail so the agent knows what it is spending when it picks a severity.
    *  Omitted (rule not rendered) only when a caller does not know it. */
   blockingSeverity?: Severity,
+  /** The ticket's intent / spec / plan; absent or empty → the prompt is unchanged. */
+  artifacts?: ReviewArtifacts,
 ): string {
+  const conformance = artifacts ? buildConformanceBlock(artifacts, repo) : [];
   const baseClause = baseRef
     ? `against its base branch, \`${baseRef}\` (compare against \`origin/${baseRef}\` when available, otherwise the local \`${baseRef}\`).`
     : `against its base branch.`;
@@ -221,7 +233,9 @@ export function buildFindingsPrompt(
       ? [instructionsText, `Repository: ${repo} ${baseClause}`, '']
       : [
           `Review the ${changesPhrase} in this worktree (repository: ${repo}) ${baseClause}`,
-          `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
+          conformance.length > 0
+            ? `Report findings about the DIFF and about what the ticket requires that the diff fails to deliver.`
+            : `Report findings about the DIFF ONLY — code you did not touch is out of scope, however wrong it looks.`,
           ``,
         ];
   return [
@@ -229,6 +243,8 @@ export function buildFindingsPrompt(
     // Never replaced by `instructions`: an author overriding the strategy is
     // choosing WHAT to look for, not licensing a repo-wide sweep before it.
     ...buildScopeBlock('review', { baseRef, branch, openChanges, snapshotRef, worktreePath }),
+    // Never replaced by `instructions`, like the scope block above.
+    ...conformance,
     ``,
     OUTPUT_RULES_HEADING,
     ...OUTPUT_RULES_BASE,
@@ -312,6 +328,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   };
 
   const findings: FindingInput[] = [];
+  // File-less `requirement` findings are held until every target has answered,
+  // then reconciled across repos. Only a target the HOST confirms reviewed a
+  // non-empty range and answered readably is a voter (see requirements.ts).
+  const pendingRequirements = new Map(opts.targets.map((t) => [t.repo, [] as FindingInput[]]));
+  const voterCandidates: { repo: string; worktreePath: string; range: string | null }[] = [];
   // One collapsed one-line diagnostic per target whose call THREW — the
   // "the agent looked and found nothing" vs "the agent could not be asked"
   // distinction (Task 8). Never the raw message: it is untrusted CLI prose.
@@ -359,6 +380,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             snapshotRef,
             target.worktreePath,
             opts.config.blockingSeverity === 'none' ? undefined : opts.config.blockingSeverity,
+            opts.artifacts,
           ),
           cwd: target.worktreePath,
           model: opts.process?.assignment.model,
@@ -410,7 +432,21 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             warn: opts.warn,
           });
         }
-        if (parsed.length > 0) opts.persistFindings?.(parsed, processRun?.id ?? null);
+        const deferred = parsed.filter(isRequirementFinding);
+        const immediate = parsed.filter((f) => !isRequirementFinding(f));
+        for (const f of deferred) pendingRequirements.get(target.repo)?.push(f);
+        if (immediate.length > 0) opts.persistFindings?.(immediate, processRun?.id ?? null);
+        if (
+          shape !== 'unreadable' &&
+          !parsed.some(isWrongCheckoutClaim) &&
+          !parsed.some(isEmptyDiffObservation)
+        ) {
+          voterCandidates.push({
+            repo: target.repo,
+            worktreePath: target.worktreePath,
+            range: scopeDiffRange(target.baseRef, target.branch, snapshotRef),
+          });
+        }
         debug?.(
           `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} returned ` +
             `${parsed.length} finding(s)`,
@@ -420,7 +456,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           status: 'completed',
           detail: `${parsed.length} finding${parsed.length === 1 ? '' : 's'}`,
         });
-        findings.push(...parsed);
+        findings.push(...immediate);
       } catch (error) {
         if (opts.signal?.aborted) {
           debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
@@ -439,6 +475,25 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
     if (opts.signal?.aborted) {
       debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped after the last target`);
       return stopped();
+    }
+
+    // The host probes each candidate's range ONLY when a requirement finding is
+    // pending (the snapshot refs still exist here), so the common path pays no git call.
+    const perTarget = opts.targets.map((t) => ({
+      repo: t.repo,
+      findings: pendingRequirements.get(t.repo) ?? [],
+    }));
+    if (perTarget.some((t) => t.findings.length > 0)) {
+      const probed = await Promise.all(
+        voterCandidates.map(async (c) => ({
+          repo: c.repo,
+          changes: await targetHasChanges(opts.git, c.worktreePath, c.range),
+        })),
+      );
+      const voters = probed.filter((p) => p.changes === true).map((p) => p.repo);
+      const reconciled = reconcileRequirementFindings(perTarget, voters);
+      if (reconciled.length > 0) opts.persistFindings?.(reconciled, processRun?.id ?? null);
+      findings.push(...reconciled);
     }
 
     debug?.(
@@ -497,6 +552,8 @@ export interface PlanAndRunFindingsLaneOpts {
   process?: FindingsProcessInput;
   /** Persist each target's findings as its call lands (see `RunFindingsLaneOpts`). */
   persistFindings?: (findings: readonly FindingInput[], processRunId?: number | null) => void;
+  /** Intent / spec / plan — see `RunFindingsLaneOpts.artifacts`. */
+  artifacts?: ReviewArtifacts;
   /** Live-output hook — see `RunFindingsLaneOpts.onOutput`; threaded into the lane it runs. */
   onOutput?: (chunk: HeadlessOutputChunk) => void;
   /** Per-target progress — see `RunFindingsLaneOpts.onTargetProgress`; threaded into the lane it runs. */
@@ -548,6 +605,7 @@ export async function planAndRunFindingsLane(
           store: opts.store,
           process: opts.process,
           persistFindings: opts.persistFindings,
+          artifacts: opts.artifacts,
           onOutput: opts.onOutput,
           onTargetProgress: opts.onTargetProgress,
           debug: opts.debug,

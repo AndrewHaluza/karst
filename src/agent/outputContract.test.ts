@@ -67,7 +67,8 @@ describe('outputContract — prose and schema agree on the element shape', () =>
       'line',
     ]);
     const el = baseElement(REVIEW_OUTPUT_SCHEMA);
-    const schemaFields = Object.keys(el.properties ?? {});
+    // `requirement` is the review lane's schema-only conformance key (like `criterion`).
+    const schemaFields = Object.keys(el.properties ?? {}).filter((k) => k !== 'requirement');
     expect(schemaFields.sort()).toEqual(proseFields.sort());
     // `file`/`line` are optional in the prose (`file?`/`line?`) and therefore
     // not required in the schema either; severity/title/detail are required.
@@ -82,7 +83,9 @@ describe('outputContract — prose and schema agree on the element shape', () =>
     // parse the same way.
     const { criterion: _criterion, ...testerBaseProps } = tester.properties ?? {};
     expect(Object.keys(testerBaseProps).sort()).toEqual(
-      Object.keys(review.properties ?? {}).sort(),
+      Object.keys(review.properties ?? {})
+        .filter((k) => k !== 'requirement')
+        .sort(),
     );
     expect(tester.required).toEqual(review.required);
   });
@@ -110,6 +113,13 @@ describe('outputContract — prose and schema agree on the element shape', () =>
   });
 
   it('is what findingElementSchema builds, so a caller gets the canonical element', () => {
-    expect(findingsArray(REVIEW_OUTPUT_SCHEMA).items).toEqual(findingElementSchema());
+    expect(findingsArray(REVIEW_OUTPUT_SCHEMA).items).toEqual(findingElementSchema({ requirement: true }));
+  });
+});
+describe('REVIEW_OUTPUT_SCHEMA requirement key', () => {
+  it('allows an optional requirement string, and the tester schema does not', () => {
+    expect(baseElement(REVIEW_OUTPUT_SCHEMA).properties?.['requirement']).toEqual({ type: 'string' });
+    expect(baseElement(REVIEW_OUTPUT_SCHEMA).required).not.toContain('requirement');
+    expect(baseElement(TESTER_OUTPUT_SCHEMA).properties?.['requirement']).toBeUndefined();
   });
 });
