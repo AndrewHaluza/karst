@@ -1,3 +1,4 @@
+import { AntigravityAdapter } from '../../agent/antigravity.js';
 import { describe, it, expect, vi } from 'vitest';
 import { openStore } from '../../store/db.js';
 import { createTicketFlow } from '../stages/create.js';
@@ -56,6 +57,9 @@ function entry(exitCode: number | null): AggregateEntry {
     identity: { repo: '/web', command: 'npm', args: ['run', 'lint'] },
   };
 }
+
+const AGY_DENIAL =
+  'jetski: no output produced — a tool required the "command" permission that headless mode cannot prompt for, so it was auto-denied. Add an allow-rule under permissions.allow in settings.json (e.g. command(<target>)).';
 
 describe('runFindingsLane', () => {
   it('reports not-run when the config is disabled, without calling the adapter', async () => {
@@ -251,6 +255,19 @@ describe('runFindingsLane', () => {
     } finally {
       store.close();
     }
+  });
+
+  it('an agy headless auto-denial is a named crash, not unreadable output', async () => {
+    const agy = new AntigravityAdapter(async () => ({ stdout: AGY_DENIAL, stderr: '', exitCode: 0 }));
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: agy,
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    if (outcome.kind !== 'ran') throw new Error('unreachable');
+    expect(outcome.unreadable ?? []).toEqual([]);
+    expect(outcome.crashes?.[0]).toMatch(/auto-denied the "command" permission/);
   });
 
   it('a failed call contributes no findings for that target but does not throw', async () => {

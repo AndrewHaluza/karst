@@ -1,11 +1,14 @@
 import { execFileSync } from 'node:child_process';
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import { loadManifestWithDiagnostics } from '../manifest/load.js';
 import { dependencyRegistry, binaryExists, commandSucceeds, readCommandOutput } from '../runtime/deps.js';
 import { SCHEMA_VERSION } from '../store/schemaVersion.js';
 import { checkTools } from '../doctor/toolsChecks.js';
+import { checkAgyPermissions } from '../doctor/agyPermissionChecks.js';
 import { checkManifest } from '../doctor/manifestChecks.js';
 import { checkState } from '../doctor/stateChecks.js';
 import { checkStuckTickets } from '../doctor/stuckCheck.js';
@@ -14,6 +17,17 @@ import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
 import { parseDbTimeMs, type FixEffects } from '../doctor/applyFixes.js';
 import * as probes from '../doctor/probes.js';
 import type { DoctorArea, DoctorCheck } from '../doctor/types.js';
+
+/** agy's global settings — the only place its headless allow-rules live. */
+function readAgyAllowRules(settingsPath: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, 'utf8')) as { permissions?: { allow?: unknown } };
+    const allow = parsed.permissions?.allow;
+    return Array.isArray(allow) ? allow.filter((r): r is string => typeof r === 'string') : [];
+  } catch {
+    return undefined;
+  }
+}
 
 /** Defaults until a manifest field exists for them. */
 export const DOCTOR_STUCK_MINUTES = 120;
@@ -121,6 +135,11 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
         registry: dependencyRegistry('claude'), // the CLI has no host settings; claude is the default core
         probe: binaryExists, ready: commandSucceeds, readOutput: readCommandOutput, version: probes.toolVersion,
       }));
+      // Only when agy is installed: its headless review/UAT lanes need allow-rules karst cannot own.
+      if (binaryExists('agy')) {
+        const settingsPath = join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');
+        out.push(...checkAgyPermissions({ settingsPath, allow: readAgyAllowRules(settingsPath) }));
+      }
     }
     if (areas.includes('manifest')) {
       const live = new Set((store.db.prepare("SELECT pid FROM servers WHERE status = 'running' AND pid IS NOT NULL").all() as { pid: number }[]).map((r) => r.pid));
