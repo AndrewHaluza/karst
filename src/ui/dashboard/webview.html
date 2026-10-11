@@ -4544,7 +4544,7 @@
     }).join('');
     return `<li class="sa-row"><div class="sa-main"><span class="sa-path">${esc(r.repo)} / ${esc(r.relPath)}</span>`
       + `<span class="sa-chip">${esc(r.approach)}</span><span class="sa-chip">${esc(r.source)}</span>`
-      + `<span class="sa-meta">${r.revisions} revision${r.revisions === 1 ? '' : 's'} · ${esc(storedWhen(r.lastAt))}</span></div>`
+      + `<span class="sa-meta">${Number(r.revisions)} revision${Number(r.revisions) === 1 ? '' : 's'} · ${esc(storedWhen(r.lastAt))}</span></div>`
       + `<div class="sa-main">${btn('stored-artifact-open', 'Open latest', ` data-sha="${esc(r.latestSha)}"`, 'Open the latest revision read-only')}`
       + `${btn('stored-artifact-live', 'Open live file', '', 'Open the worktree file, if it still exists')}</div>`
       + `<details class="sa-hist"><summary>History</summary><ul class="artrows">${revs}</ul></details></li>`;
@@ -4555,7 +4555,7 @@
     const header = state.key ? `${esc(state.key)} · ${esc(state.title || '')}` : esc(state.title || '');
     const head = `<div class="arthead">`
       + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="back" title="Return to the ticket dashboard">← Ticket</button>`
-      + `<h2>${header}</h2><span class="artsub">Artifacts · ${v ? v.total : 0}</span>`
+      + `<h2>${header}</h2><span class="artsub">Artifacts · ${v ? Number(v.total) : 0}</span>`
       + `<span class="sa-bar"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder">Reveal folder</button>`
       + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="stored-artifact-purge" title="Delete every stored revision for this ticket">Purge artifacts</button></span></div>`;
     if (!v) return head + `<p class="sa-empty">Loading…</p>`;
