@@ -1,3 +1,5 @@
+import { basename } from 'node:path';
+
 import type { Store } from '../store/db.js';
 import type { OutputKind } from '../manifest/types.js';
 import { listWorktreesByTicket } from '../store/dashboard.js';
@@ -26,7 +28,8 @@ export function addArtifactForTicket(
     artifactsRoot,
     projectId: ticket.projectId,
     ticketId,
-    worktrees: listWorktreesByTicket(store, ticketId).map((w) => ({ repo: w.repo, path: w.path })),
+    // `worktrees.repo` holds the repo PATH; the store keys files by its basename (capture.ts).
+    worktrees: listWorktreesByTicket(store, ticketId).map((w) => ({ repo: basename(w.repo), path: w.path })),
     path,
     kind,
   });

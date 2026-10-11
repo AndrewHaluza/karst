@@ -2640,6 +2640,9 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     'artTotal',
     'artViewAll',
     'artifacts',
+    'storedPanel',
+    'storedTotal',
+    'storedSummary',
     'artView',
     'termView',
     'termHost',
@@ -5475,6 +5478,80 @@ describe('artifacts render round trip (executed in a VM)', () => {
     // The plan is produced during impl, so the index labels it Implement.
     h.key('Escape');
     expect(h.htmlOf('artView')).toMatch(/Implement[\s\S]*data-art-open="plan"/);
+  });
+
+  describe('stored artifacts view', () => {
+    const SHA1 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const SHA2 = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
+    const view = {
+      total: 1,
+      globs: ['plans/**'],
+      skips: [{ path: 'app/.env', reason: 'secret-pattern' }],
+      groups: [{
+        kind: 'plan',
+        approaches: [{
+          approach: 'gsd',
+          rows: [{
+            path: 'app/plans/a.md', repo: 'app', relPath: 'plans/a.md', kind: 'plan', approach: 'gsd',
+            source: 'watcher', revisions: 2, lastAt: '2026-01-02T00:00:00Z', latestSha: SHA2,
+            history: [
+              { sha: SHA2, at: '2026-01-02T00:00:00Z', source: 'watcher' },
+              { sha: SHA1, at: '2026-01-01T00:00:00Z', source: 'hook' },
+            ],
+          }],
+        }],
+      }],
+    };
+
+    it('shows the panel only once the host answered, with the count on its button', () => {
+      const h = bootPreviewHarness();
+      h.receive({ type: 'state', state: stateWithArtifacts() });
+      expect(h.classesOf('storedPanel')).toContain('hidden');
+      h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: view } });
+      expect(h.classesOf('storedPanel')).not.toContain('hidden');
+      expect(h.htmlOf('storedSummary')).toContain('plan 1');
+    });
+
+    it('groups kind then approach, lists rows, history and skipped files', () => {
+      const h = bootPreviewHarness();
+      h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: view } });
+      h.click('[data-art]', { art: 'stored' });
+      const html = h.htmlOf('artView');
+      expect(html).toMatch(/artgroup-title">plan[\s\S]*gsd[\s\S]*app \/ plans\/a\.md/);
+      expect(html).toContain('2 revisions');
+      expect(html).toContain('Reveal folder');
+      expect(html).toContain('Purge artifacts');
+      expect(html).toMatch(/Skipped files[\s\S]*app\/\.env — secret-pattern/);
+      // Diff pairs each revision with the previous one; the oldest has none.
+      expect(html.match(/Diff vs previous/g)).toHaveLength(1);
+    });
+
+    it('names the active outputs globs in the empty state', () => {
+      const h = bootPreviewHarness();
+      const empty = { total: 0, groups: [], skips: [], globs: ['plans/**', 'docs/spec/*.md'] };
+      h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: empty } });
+      h.click('[data-art]', { art: 'stored' });
+      expect(h.htmlOf('artView')).toMatch(/No artifacts captured yet\. Watching: <code>plans\/\*\*<\/code>, <code>docs\/spec\/\*\.md<\/code>/);
+    });
+
+    it('posts store paths and shas only, and Back returns to the ticket', () => {
+      const h = bootPreviewHarness();
+      h.receive({ type: 'state', state: { ...stateWithArtifacts(), storedArtifacts: view } });
+      h.click('[data-art]', { art: 'stored' });
+      h.click('[data-act]', { act: 'stored-artifact-open', path: 'app/plans/a.md', sha: SHA2 });
+      h.click('[data-act]', { act: 'stored-artifact-diff', path: 'app/plans/a.md', from: SHA1, to: SHA2 });
+      h.click('[data-act]', { act: 'stored-artifact-live', path: 'app/plans/a.md' });
+      h.click('[data-act]', { act: 'stored-artifact-reveal' });
+      h.click('[data-act]', { act: 'stored-artifact-purge' });
+      const types = h.posted.map((m) => (m as { type?: string }).type);
+      expect(types).toEqual(expect.arrayContaining([
+        'stored-artifact-open', 'stored-artifact-diff', 'stored-artifact-live', 'stored-artifact-reveal', 'stored-artifact-purge',
+      ]));
+      expect(h.posted.find((m) => (m as { type?: string }).type === 'stored-artifact-diff'))
+        .toMatchObject({ path: 'app/plans/a.md', from: SHA1, to: SHA2 });
+      h.click('[data-art]', { art: 'back' });
+      expect(h.bodyClasses).not.toContain('art-nav');
+    });
   });
 
   it('a detail opened from the shelf returns to the TICKET, and its editor escape posts id + index only', () => {

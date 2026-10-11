@@ -55,6 +55,11 @@ function actions(): DashboardActions {
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
     baselineApprove: vi.fn(),
+    openStoredRevision: vi.fn(),
+    diffStoredRevisions: vi.fn(),
+    openStoredLive: vi.fn(),
+    revealStoredFolder: vi.fn(),
+    purgeStoredArtifacts: vi.fn(),
     baselineReject: vi.fn(),
     requestStageLog: vi.fn(),
     requestAgentLog: vi.fn(),
@@ -682,6 +687,39 @@ describe('inside-action', () => {
     const a = actions();
     routeAction({ type: 'artifact-open-resource', artifactId: 'uat-report', index: 0 }, a);
     expect(a.openArtifactResource).toHaveBeenCalledWith('uat-report', 0);
+  });
+
+  it('routes valid stored-artifact messages to their actions', () => {
+    const a = actions();
+    const sha = 'a'.repeat(40);
+    const sha2 = 'b'.repeat(64);
+    routeAction({ type: 'stored-artifact-open', path: 'app/plans/a.md', sha }, a);
+    routeAction({ type: 'stored-artifact-diff', path: 'app/plans/a.md', from: sha, to: sha2 }, a);
+    routeAction({ type: 'stored-artifact-live', path: 'app/plans/a.md' }, a);
+    routeAction({ type: 'stored-artifact-reveal' }, a);
+    routeAction({ type: 'stored-artifact-purge' }, a);
+    expect(a.openStoredRevision).toHaveBeenCalledWith('app/plans/a.md', sha);
+    expect(a.diffStoredRevisions).toHaveBeenCalledWith('app/plans/a.md', sha, sha2);
+    expect(a.openStoredLive).toHaveBeenCalledWith('app/plans/a.md');
+    expect(a.revealStoredFolder).toHaveBeenCalledTimes(1);
+    expect(a.purgeStoredArtifacts).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops stored-artifact messages with unsafe paths or non-sha revisions', () => {
+    const a = actions();
+    const sha = 'a'.repeat(40);
+    const bad = ['/etc/passwd', 'app/../x', '', 'a\\b', `${'x/'.repeat(300)}y`, 7 as unknown as string];
+    for (const path of bad) {
+      routeAction({ type: 'stored-artifact-open', path, sha }, a);
+      routeAction({ type: 'stored-artifact-live', path }, a);
+    }
+    for (const s of ['HEAD', 'abc', `${sha}; rm`, 'A'.repeat(40), undefined as unknown as string]) {
+      routeAction({ type: 'stored-artifact-open', path: 'app/x.md', sha: s }, a);
+      routeAction({ type: 'stored-artifact-diff', path: 'app/x.md', from: sha, to: s }, a);
+    }
+    expect(a.openStoredRevision).not.toHaveBeenCalled();
+    expect(a.openStoredLive).not.toHaveBeenCalled();
+    expect(a.diffStoredRevisions).not.toHaveBeenCalled();
   });
 
   it('routes valid baseline-approve and baseline-reject messages', () => {

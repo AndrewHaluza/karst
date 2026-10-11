@@ -135,6 +135,18 @@ export function createSender(api: WebviewApi) {
       index: Msg<'artifact-open-resource'>['index'],
       requestId?: string,
     ) => send({ type: 'artifact-open-resource', artifactId, index }, requestId),
+    storedArtifactOpen: (path: Msg<'stored-artifact-open'>['path'], sha: Msg<'stored-artifact-open'>['sha'], requestId?: string) =>
+      send({ type: 'stored-artifact-open', path, sha }, requestId),
+    storedArtifactDiff: (
+      path: Msg<'stored-artifact-diff'>['path'],
+      from: Msg<'stored-artifact-diff'>['from'],
+      to: Msg<'stored-artifact-diff'>['to'],
+      requestId?: string,
+    ) => send({ type: 'stored-artifact-diff', path, from, to }, requestId),
+    storedArtifactLive: (path: Msg<'stored-artifact-live'>['path'], requestId?: string) =>
+      send({ type: 'stored-artifact-live', path }, requestId),
+    storedArtifactReveal: (requestId?: string) => send({ type: 'stored-artifact-reveal' }, requestId),
+    storedArtifactPurge: (requestId?: string) => send({ type: 'stored-artifact-purge' }, requestId),
     baselineApprove: (
       blockId: Msg<'baseline-approve'>['blockId'],
       indices: Msg<'baseline-approve'>['indices'],

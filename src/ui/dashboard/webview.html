@@ -1705,6 +1705,19 @@
   .artrow-title{font-size:var(--k-text-md);font-weight:var(--k-weight-medium);color:var(--k-text)}
   .artrow-summary{font-size:var(--k-text-sm);color:var(--k-text-dim);margin-top:var(--k-space-1)}
   .artrow .arw{margin-left:auto;color:var(--k-text-faint);flex:none}
+  .sa-bar{display:flex;gap:var(--k-space-3);margin-left:auto;flex-wrap:wrap}
+  .sa-row{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface);
+    padding:var(--k-space-4) var(--k-space-5)}
+  .sa-main{display:flex;align-items:center;gap:var(--k-space-4);flex-wrap:wrap}
+  .sa-path{min-width:0;flex:1;font-family:var(--k-font-mono);font-size:var(--k-text-sm);overflow-wrap:anywhere}
+  .sa-meta{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .sa-chip{font-size:var(--k-text-2xs);padding:0 var(--k-space-3);border:var(--k-border-w) solid var(--k-border);
+    border-radius:var(--k-radius-pill);color:var(--k-text-dim)}
+  .sa-hist{margin-top:var(--k-space-3)}
+  .sa-hist summary{cursor:pointer;font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .sa-rev{display:flex;align-items:center;gap:var(--k-space-3);flex-wrap:wrap;padding:var(--k-space-2) 0;font-size:var(--k-text-sm)}
+  .sa-skip{font-family:var(--k-font-mono);font-size:var(--k-text-sm);color:var(--k-text-dim);padding:var(--k-space-1) 0}
+  .sa-empty{color:var(--k-text-dim);font-size:var(--k-text-sm)}
   .artdetail .artsection{margin-bottom:var(--k-space-7)}
   /* The section heading is a flex row so the console entry (the xterm view of
      a gate stage's log) can sit at its right edge without a second line. */
@@ -2081,6 +2094,10 @@
        `.count` of its own — the "View all N" button IS the counter (the two
        repeated the same number twice in one header). -->
   <div class="panel span hidden" id="artPanel"><div class="phead">Artifacts<button id="artViewAll" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="index" title="Show every artifact this ticket has produced">View all <span id="artTotal"></span> ›</button></div><div class="pbody" id="artifacts"></div></div>
+  <!-- Stored artifacts (T2 store): the captured outputs of every approach. The
+       panel shows once the host's first load answers; "Open" swaps in the
+       Artifacts view (artView === 'stored'). -->
+  <div class="panel span hidden" id="storedPanel"><div class="phead">Captured artifacts<button id="storedOpen" type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="stored" title="Browse captured output files and their revision history">Open <span id="storedTotal"></span> ›</button></div><div class="pbody" id="storedSummary"></div></div>
 </div>
 
 <!-- The ticket-data preview: a slide-over drawer over the dashboard, mirroring
@@ -4507,6 +4524,72 @@
         + `<ul class="artrows">${rows(g)}</ul></section>`).join('');
   }
 
+  // ---- Stored artifacts (T2 store) ---------------------------------------
+  // Grouped kind → approach. Every action carries the STORE path and revision
+  // shas only; the host re-resolves both (ops/storedArtifactOps.ts).
+  function storedWhen(iso) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString();
+  }
+
+  function storedRowHtml(r) {
+    const btn = (act, label, extra, title) =>
+      `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="${act}" data-path="${esc(r.path)}"${extra || ''} title="${esc(title)}">${label}</button>`;
+    const revs = r.history.map((h, i) => {
+      const older = r.history[i + 1];
+      return `<li class="sa-rev"><span class="sa-meta">${esc(storedWhen(h.at))}</span><span class="sa-chip">${esc(h.source)}</span>`
+        + btn('stored-artifact-open', 'Open', ` data-sha="${esc(h.sha)}"`, 'Open this revision read-only')
+        + (older ? btn('stored-artifact-diff', 'Diff vs previous', ` data-from="${esc(older.sha)}" data-to="${esc(h.sha)}"`, 'Show changes since the previous revision') : '')
+        + `</li>`;
+    }).join('');
+    return `<li class="sa-row"><div class="sa-main"><span class="sa-path">${esc(r.repo)} / ${esc(r.relPath)}</span>`
+      + `<span class="sa-chip">${esc(r.approach)}</span><span class="sa-chip">${esc(r.source)}</span>`
+      + `<span class="sa-meta">${Number(r.revisions)} revision${Number(r.revisions) === 1 ? '' : 's'} · ${esc(storedWhen(r.lastAt))}</span></div>`
+      + `<div class="sa-main">${btn('stored-artifact-open', 'Open latest', ` data-sha="${esc(r.latestSha)}"`, 'Open the latest revision read-only')}`
+      + `${btn('stored-artifact-live', 'Open live file', '', 'Open the worktree file, if it still exists')}</div>`
+      + `<details class="sa-hist"><summary>History</summary><ul class="artrows">${revs}</ul></details></li>`;
+  }
+
+  function renderStoredView(state) {
+    const v = state.storedArtifacts;
+    const header = state.key ? `${esc(state.key)} · ${esc(state.title || '')}` : esc(state.title || '');
+    const head = `<div class="arthead">`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-art="back" title="Return to the ticket dashboard">← Ticket</button>`
+      + `<h2>${header}</h2><span class="artsub">Artifacts · ${v ? Number(v.total) : 0}</span>`
+      + `<span class="sa-bar"><button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="stored-artifact-reveal" title="Check out the latest files read-only and show the folder">Reveal folder</button>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="stored-artifact-purge" title="Delete every stored revision for this ticket">Purge artifacts</button></span></div>`;
+    if (!v) return head + `<p class="sa-empty">Loading…</p>`;
+    const globs = v.globs.length
+      ? `Watching: ${v.globs.map((g) => `<code>${esc(g)}</code>`).join(', ')}.`
+      : 'No outputs globs are configured for the enabled approaches.';
+    const groups = v.total === 0
+      ? `<p class="sa-empty">No artifacts captured yet. ${globs}</p>`
+      : v.groups.map((g) =>
+        `<section class="artgroup" aria-label="${esc(g.kind)} artifacts"><div class="artgroup-title">${esc(g.kind)}</div>`
+        + g.approaches.map((a) =>
+          `<div class="sa-meta">${esc(a.approach)}</div><ul class="artrows">${a.rows.map(storedRowHtml).join('')}</ul>`).join('')
+        + `</section>`).join('');
+    const skips = v.skips.length
+      ? `<section class="artgroup" aria-label="Skipped files"><div class="artgroup-title">Skipped files</div>`
+        + v.skips.map((k) => `<div class="sa-skip">${esc(k.path)} — ${esc(k.reason)}</div>`).join('') + `</section>`
+      : '';
+    return head + groups + skips;
+  }
+
+  function renderStoredPanel(state) {
+    const panel = el('storedPanel');
+    const body = el('storedSummary');
+    if (!panel || !body) return;
+    const v = state.storedArtifacts;
+    panel.classList.toggle('hidden', !v);
+    if (!v) { body.innerHTML = ''; return; }
+    const total = el('storedTotal');
+    if (total) total.textContent = String(v.total);
+    body.innerHTML = v.total === 0
+      ? `<span class="sa-empty">Nothing captured yet.</span>`
+      : `<span class="sa-meta">${v.groups.map((g) => `${esc(g.kind)} ${g.approaches.reduce((n, a) => n + a.rows.length, 0)}`).join(' · ')}</span>`;
+  }
+
   const ART_STAGE_LABEL = { impl: 'Implement', uat: 'UAT', review: 'Review', ship: 'Ship' };
 
   function artifactMetricsHtml(a) {
@@ -4848,7 +4931,9 @@
     }
     box.classList.remove('hidden');
     document.body.classList.add('art-nav');
-    if (artView === 'index') {
+    if (artView === 'stored') {
+      box.innerHTML = renderStoredView(lastState);
+    } else if (artView === 'index') {
       box.innerHTML = renderArtIndex(lastState);
     } else {
       const a = (lastState.artifacts || []).find((x) => x.id === artView.id);
@@ -5151,13 +5236,13 @@
 
   function artSaveScroll() {
     if (!artView) artScrolls.ticket = artScrollTop();
-    else if (artView === 'index') artScrolls.index = artScrollTop();
+    else if (artView === 'index' || artView === 'stored') artScrolls.index = artScrollTop();
     else artScrolls.detail[artView.id] = artScrollTop();
   }
 
   function artRestoreScroll() {
-    const key = !artView ? 'ticket' : artView === 'index' ? 'index' : 'detail';
-    const target = key === 'detail' && artView !== 'index' ? (artScrolls.detail[artView.id] || 0) : artScrolls[key] || 0;
+    const key = !artView ? 'ticket' : (artView === 'index' || artView === 'stored') ? 'index' : 'detail';
+    const target = key === 'detail' ? (artScrolls.detail[artView.id] || 0) : artScrolls[key] || 0;
     const root = document.documentElement || document.body;
     root.scrollTop = target;
   }
@@ -5167,6 +5252,14 @@
     artView = 'index';
     renderArtView();
     renderEnvView();
+    artRestoreScroll();
+    persist();
+  }
+
+  function openStoredArtifacts() {
+    artSaveScroll();
+    artView = 'stored';
+    renderArtView();
     artRestoreScroll();
     persist();
   }
@@ -5183,7 +5276,7 @@
   function artifactBack() {
     artSaveScroll();
     if (!artView) return;
-    artView = artView === 'index' ? null : (artView.from === 'index' ? 'index' : null);
+    artView = artView === 'index' || artView === 'stored' ? null : (artView.from === 'index' ? 'index' : null);
     renderArtView();
     artRestoreScroll();
     persist();
@@ -5285,6 +5378,7 @@
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
     renderArtifacts(state);
+    renderStoredPanel(state);
     renderArtView();
     renderFollowUp(state);
     renderPause(state);
@@ -5414,6 +5508,7 @@
     if (artNav) {
       if (artNav.dataset.art === 'back') { artifactBack(); return; }
       if (artNav.dataset.art === 'index') { openArtifactIndex(); return; }
+      if (artNav.dataset.art === 'stored') { openStoredArtifacts(); return; }
     }
     const artOpen = e.target.closest('[data-art-open]');
     if (artOpen) {
@@ -5630,6 +5725,11 @@
     'inside-action': (btn, requestId) => karstSend.insideAction(btn.dataset.actionId, requestId),
     'baseline-approve': (btn, requestId) => karstSend.baselineApprove(btn.dataset.blockId, btn.dataset.indices.split(',').map(Number), requestId),
     'baseline-reject': (btn, requestId) => karstSend.baselineReject(btn.dataset.blockId, Number(btn.dataset.index), (baselineReasons[btn.dataset.index] || '').trim(), requestId),
+    'stored-artifact-open': (btn, requestId) => karstSend.storedArtifactOpen(btn.dataset.path, btn.dataset.sha, requestId),
+    'stored-artifact-diff': (btn, requestId) => karstSend.storedArtifactDiff(btn.dataset.path, btn.dataset.from, btn.dataset.to, requestId),
+    'stored-artifact-live': (btn, requestId) => karstSend.storedArtifactLive(btn.dataset.path, requestId),
+    'stored-artifact-reveal': (btn, requestId) => karstSend.storedArtifactReveal(requestId),
+    'stored-artifact-purge': (btn, requestId) => karstSend.storedArtifactPurge(requestId),
     'artifact-open-resource': (btn, requestId) => karstSend.artifactOpenResource(btn.dataset.artifactId, Number(btn.dataset.index), requestId),
   };
 

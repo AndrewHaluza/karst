@@ -67,9 +67,17 @@ const FOCUS_CAP = 12;
  * draft's Review (eye) action lowered this ratchet, but it did not reduce the
  * SIDEBAR corpus count — the rendered sidebar still exposes 69 focusables (the
  * sweep measures 69), so the lowering never held. Back at its true value.
+ *
+ * Updated an eighth time by the dashboard Artifacts view (T7, arch:APP-11):
+ * `dashboard` +1 — `#storedOpen`, the "Open N ›" button of the Captured
+ * artifacts panel. The sweep counts every `button` in the DOM whether or not
+ * its panel is hidden, and the control cannot fold into `#artViewAll`: that one
+ * opens the semantic artifact index, this one the T2 store's file history. The
+ * Artifacts view's own controls (rows, Reveal, Purge) render only inside
+ * `#artView`, which the sweep never opens, so they add nothing.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
-  dashboard: 46,
+  dashboard: 47,
   usage: 11,
   resources: 17,
   serverLogs: 11,

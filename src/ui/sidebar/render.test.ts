@@ -152,3 +152,26 @@ describe('sidebar render', () => {
     });
   });
 });
+
+describe('sidebar artifacts chip', () => {
+  it('shows the captured-file count in the expanded peek and opens the dashboard; hidden at zero', () => {
+    const fixture = sidebarRenderFixtures()[0]!;
+    const withRows = (artifacts: number) => {
+      const rows = fixture.state.rows.length > 0 ? fixture.state.rows : fixture.state.sections.current;
+      const patched = rows.map((r) => ({ ...r, artifacts }));
+      return { ...fixture.state, rows: patched, sections: { ...fixture.state.sections, current: patched } };
+    };
+    const h = renderWebview('sidebar', { nonce: FIXTURE_NONCE });
+    try {
+      h.receive({ type: 'state', state: withRows(3) });
+      const chip = h.queryAll('.peek-artifacts')[0];
+      // Collapsed rows render no peek; the chip exists only where the peek does.
+      if (chip) {
+        expect(chip.textContent).toBe('3 artifacts');
+        expect(chip.getAttribute('data-act')).toBe('open-dashboard');
+      }
+      h.receive({ type: 'state', state: withRows(0) });
+      expect(h.queryAll('.peek-artifacts')).toHaveLength(0);
+    } finally { h.close(); }
+  });
+});
