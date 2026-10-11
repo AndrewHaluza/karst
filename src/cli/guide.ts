@@ -257,6 +257,9 @@ the \`test\` verb is never a tool), and each tool's input schema is the same one
    verb; mutates git refs and the archive registry.
  - \`fix-brief <key>\` — **read** a human-readable summary of the failing gates
    for a ticket in \`fix\` stage. Print-only; it mutates nothing.
+   \`fix-brief --ack --ticket <key>\` is the receipt: when the host points you at
+   "fix brief #<id>", run exactly the command it gives — it prints that stored
+   brief and marks it read. It refuses unless \`KARST_TICKET\` is your own ticket.
  - \`conflict-brief <key> <repo>\` — **read** a human-readable summary of the
    merge conflict for a ticket whose PR has a conflict. Print-only; it
    mutates nothing.

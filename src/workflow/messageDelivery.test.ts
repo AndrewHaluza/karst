@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   mailPointer,
   notesPointer,
+  fixPointer,
   makeRoutedDelivery,
   makeTerminalDelivery,
   messagePointer,
@@ -135,5 +136,29 @@ describe('messagePointer — notes kind', () => {
     });
     expect(d.deliver(5, notesPointer(2))).toBe('delivered');
     expect(nudge).toHaveBeenCalledWith(5, messagePointer(notesPointer(2), 5, undefined, LITERAL));
+  });
+});
+
+describe('messagePointer — fix kind', () => {
+  it('renders the fix pointer with --ack and env refs', () => {
+    const p = messagePointer(fixPointer(12), 42, { cli: true, manifest: true, ticket: true }, LITERAL);
+    expect(p).toBe(
+      'karst: fix brief #12 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket "$KARST_TICKET"',
+    );
+  });
+
+  it('falls back to literal paths and the numeric ticket id', () => {
+    expect(messagePointer(fixPointer(3), 42, undefined, LITERAL)).toBe(
+      'karst: fix brief #3 ready - run node "/ext/dist/cli.js" fix-brief --ack --db "/g/karst.db" --manifest "/w/karst.yml" --ticket 42',
+    );
+  });
+
+  it('is null on a shell metacharacter in a literal path', () => {
+    expect(messagePointer(fixPointer(1), 7, undefined, { ...LITERAL, db: '/x$y' })).toBeNull();
+  });
+
+  it('rejects a non-positive delivery id', () => {
+    expect(() => messagePointer(fixPointer(0), 7, undefined, LITERAL)).toThrow(/delivery id/);
+    expect(() => messagePointer(fixPointer(1.5), 7, undefined, LITERAL)).toThrow();
   });
 });

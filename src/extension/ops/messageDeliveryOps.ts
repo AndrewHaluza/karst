@@ -143,6 +143,9 @@ function sqliteUtcMs(text: string): number {
   return Date.parse(`${text.replace(' ', 'T')}Z`);
 }
 
+/** The mailbox pointer kinds; the fix pointer has its own sweep (fixDeliverySweep). */
+type MailboxKind = Exclude<MessagePointer['kind'], 'fix'>;
+
 /** One recipient's unread batch for a pointer kind. */
 export interface PointerRow {
   toTicketId: number;
@@ -152,11 +155,11 @@ export interface PointerRow {
 
 export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeliverySweep {
   // Per-kind state: a mail delivery never suppresses a notes pointer, nor the reverse.
-  const watermark: Record<MessagePointer['kind'], Map<number, number>> = {
+  const watermark: Record<MailboxKind, Map<number, number>> = {
     mail: new Map(),
     notes: new Map(),
   };
-  const lastPointerAt: Record<MessagePointer['kind'], Map<number, number>> = {
+  const lastPointerAt: Record<MailboxKind, Map<number, number>> = {
     mail: new Map(),
     notes: new Map(),
   };
@@ -169,12 +172,12 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
   let running = false;
   let disposed = false;
 
-  function prune(kind: MessagePointer['kind'], present: ReadonlySet<number>): void {
+  function prune(kind: MailboxKind, present: ReadonlySet<number>): void {
     for (const id of [...watermark[kind].keys()]) if (!present.has(id)) watermark[kind].delete(id);
     for (const id of [...lastPointerAt[kind].keys()]) if (!present.has(id)) lastPointerAt[kind].delete(id);
   }
 
-  function deliverRows(kind: MessagePointer['kind'], rows: readonly PointerRow[], out: number[]): void {
+  function deliverRows(kind: MailboxKind, rows: readonly PointerRow[], out: number[]): void {
     const tag = kind === 'notes' ? 'notes ' : '';
     for (const r of rows) {
       if (disposed) return;

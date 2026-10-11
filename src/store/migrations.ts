@@ -8,6 +8,7 @@ import { PLANNING_SESSIONS_DDL } from './planningSessions.js';
 import { BULLETIN_DDL } from './bulletinNotes.js';
 import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
 import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
+import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2611,6 +2612,12 @@ function migrateLocked(db: Database): void {
     // v76: `uat_gate_passes` — fingerprints of working trees whose UAT gate list
     // passed (@arch:BASELINE-REVIEW). A whole new table, nothing backfilled.
     db.exec(UAT_GATE_PASSES_DDL);
+  }
+
+  if (current < 77) {
+    // v77: `fix_deliveries` — the stored fix-brief snapshots a live fix round
+    // points the agent at (@arch:V77). A whole new table, nothing backfilled.
+    db.exec(FIX_DELIVERIES_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
