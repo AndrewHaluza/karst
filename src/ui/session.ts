@@ -13,7 +13,7 @@ import {
 import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
 import type { SessionInstructions } from '../agent/instructions.js';
 import { submitDelayFor } from '../agent/registry.js';
-import { NudgeQueue } from './nudgeQueue.js';
+import { NudgeQueue, type NudgeHooks } from './nudgeQueue.js';
 import { formatId } from '../model/entityId.js';
 
 /**
@@ -738,7 +738,7 @@ export class SessionManager {
    * live terminal take it?", which is all the callers need to choose between
    * nudging and launching; the queue owns the per-core submit timing.
    */
-  nudge(ticketId: number, prompt: string): boolean {
+  nudge(ticketId: number, prompt: string, hooks?: NudgeHooks): boolean {
     const tracked = this.terminals.get(ticketId) ?? this.adoptRevivedSession(ticketId);
     if (!tracked) return false;
     const delay =
@@ -752,7 +752,7 @@ export class SessionManager {
     // contract is unchanged (a live terminal accepted it), while the queue
     // guarantees each nudge types, waits its core's window, and submits on its
     // own `\r` before the next line starts.
-    queue.enqueue(toSingleLine(prompt));
+    queue.enqueue(toSingleLine(prompt), hooks);
     return true;
   }
 

@@ -117,3 +117,57 @@ describe('NudgeQueue', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('NudgeQueue — delivery callbacks', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('calls onTyped only after the submit CR is sent', async () => {
+    const { terminal } = recorder();
+    const queue = new NudgeQueue(terminal, 100);
+    const onTyped = vi.fn();
+    queue.enqueue('line', { onTyped });
+    await vi.advanceTimersByTimeAsync(99);
+    expect(onTyped).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(onTyped).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls onDropped, never onTyped, for every pending line when the queue closes', async () => {
+    const { terminal } = recorder();
+    const queue = new NudgeQueue(terminal, 100);
+    const first = { onTyped: vi.fn(), onDropped: vi.fn() };
+    const second = { onTyped: vi.fn(), onDropped: vi.fn() };
+    queue.enqueue('a', first);
+    queue.enqueue('b', second);
+    queue.close();
+    await vi.advanceTimersByTimeAsync(500);
+    expect(first.onTyped).not.toHaveBeenCalled();
+    expect(second.onTyped).not.toHaveBeenCalled();
+    // The in-flight line was typed but never submitted: it is dropped too.
+    expect(first.onDropped).toHaveBeenCalledTimes(1);
+    expect(second.onDropped).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops a line enqueued after close', () => {
+    const { terminal, calls } = recorder();
+    const queue = new NudgeQueue(terminal, 100);
+    queue.close();
+    const onDropped = vi.fn();
+    queue.enqueue('late', { onDropped });
+    expect(onDropped).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual([]);
+  });
+
+  it('keeps lines without callbacks working', async () => {
+    const { terminal, calls } = recorder();
+    const queue = new NudgeQueue(terminal, 10);
+    queue.enqueue('plain');
+    await vi.advanceTimersByTimeAsync(10);
+    expect(calls).toHaveLength(2);
+  });
+});

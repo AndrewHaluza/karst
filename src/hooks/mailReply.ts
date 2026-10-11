@@ -1,5 +1,5 @@
 import type { ExportedCliEnv, CliTokens } from '../agent/cliEnv.js';
-import { mailPointer, messagePointer } from '../workflow/messageDelivery.js';
+import { fixPointer, mailPointer, messagePointer } from '../workflow/messageDelivery.js';
 import type { HookReply, HookReplyFor } from './endpoint.js';
 import { formatId } from '../model/entityId.js';
 
@@ -32,6 +32,12 @@ export interface BlockedAt {
   watermark: number;
 }
 
+/** The fix delivery a Stop was already blocked for, per ticket (one pointer per delivery). */
+export interface BlockedAtFix {
+  launchId: string | undefined;
+  deliveryId: number;
+}
+
 export interface MailReplyDeps {
   /** The in-memory unread count for a ticket. */
   unread: (ticketId: number) => number;
@@ -58,7 +64,38 @@ export interface MailReplyDeps {
    * mail is read or the generation goes stale.
    */
   blockedAt: Map<number, BlockedAt>;
+  /**
+   * The fix-brief channel (@arch:V77), rides the same Stop reply. `fixEligible`
+   * returns the delivery id the hook may point at (armed, unpointed, unread,
+   * current generation — decided by the store, never by `agent_state`);
+   * `claimFixPointed` is the conditional `pointed_at` claim, so only ONE window's
+   * hook answers. Fix goes before mail: one block per Stop chain, and mail waits
+   * for the next fresh turn end. `blockedAtFix` is separate from `blockedAt`.
+   */
+  fixEligible?: (ticketId: number) => number | null;
+  claimFixPointed?: (ticketId: number, deliveryId: number) => boolean;
+  blockedAtFix?: Map<number, BlockedAtFix>;
   debug?: (message: string) => void;
+}
+
+/** A fix pointer for this turn end, or null (nothing eligible, already blocked, lost the claim). */
+function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | undefined): HookReply | null {
+  if (deps.fixEligible === undefined || deps.claimFixPointed === undefined || deps.blockedAtFix === undefined) {
+    return null;
+  }
+  const deliveryId = deps.fixEligible(ticketId);
+  if (deliveryId === null) {
+    deps.blockedAtFix.delete(ticketId);
+    return null;
+  }
+  const prev = deps.blockedAtFix.get(ticketId);
+  if (prev !== undefined && prev.launchId === launchId && prev.deliveryId === deliveryId) return null;
+  const line = messagePointer(fixPointer(deliveryId), ticketId, deps.sessionCliEnv(ticketId), deps.literal());
+  if (line === null) return null;
+  if (!deps.claimFixPointed(ticketId, deliveryId)) return null;
+  deps.blockedAtFix.set(ticketId, { launchId, deliveryId });
+  deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: fix pointer #${deliveryId}`);
+  return { decision: 'block', reason: line };
 }
 
 export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
@@ -73,9 +110,12 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
       // A retired generation can never claim delivery; drop its record so the
       // map stays bounded by the tickets with unread mail.
       deps.blockedAt.delete(ticketId);
+      deps.blockedAtFix?.delete(ticketId);
       return null;
     }
     if (deps.shouldReply !== undefined && !deps.shouldReply(ticketId)) return null;
+    const fix = fixReply(deps, ticketId, launchId);
+    if (fix !== null) return fix;
     const unread = deps.unread(ticketId);
     if (unread < 1) {
       // The batch was read (or cleared): forget the block so the NEXT batch can

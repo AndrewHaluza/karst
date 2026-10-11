@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { makeHookReply, type BlockedAt, type MailReplyDeps } from './mailReply.js';
+import { makeHookReply, type BlockedAt, type BlockedAtFix, type MailReplyDeps } from './mailReply.js';
 
 const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
 
@@ -135,5 +135,105 @@ describe('makeHookReply', () => {
         launchId: 'L1',
       }),
     ).toBeNull();
+  });
+});
+
+describe('makeHookReply — fix delivery', () => {
+  const FIX_LINE =
+    'karst: fix brief #9 ready - run node "/ext/dist/cli.js" fix-brief --ack --db "/g/karst.db" --manifest "/w/karst.yml" --ticket 42';
+  function fixDeps(over: Partial<MailReplyDeps> = {}): MailReplyDeps & { claimed: number[] } {
+    const claimed: number[] = [];
+    return {
+      ...deps({ unread: () => 0, unreadWatermark: () => 0 }),
+      fixEligible: () => 9,
+      claimFixPointed: (_t, id) => {
+        claimed.push(id);
+        return true;
+      },
+      blockedAtFix: new Map<number, BlockedAtFix>(),
+      claimed,
+      ...over,
+    };
+  }
+
+  it('blocks with the fix pointer and claims pointed_at', () => {
+    const d = fixDeps();
+    expect(makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toEqual({
+      decision: 'block',
+      reason: FIX_LINE,
+    });
+    expect(d.claimed).toEqual([9]);
+    expect(d.blockedAtFix!.get(42)).toEqual({ launchId: 'L1', deliveryId: 9 });
+  });
+
+  it('blocks once per delivery: the same key does not block again', () => {
+    const reply = makeHookReply(fixDeps());
+    expect(reply({ ticketId: 42, event: 'Stop', launchId: 'L1' })).not.toBeNull();
+    expect(reply({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
+  });
+
+  it('a different delivery id blocks again', () => {
+    let id = 9;
+    const reply = makeHookReply(fixDeps({ fixEligible: () => id }));
+    reply({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    id = 10;
+    expect(reply({ ticketId: 42, event: 'Stop', launchId: 'L1' })).not.toBeNull();
+  });
+
+  it('declines when another window already claimed pointed_at', () => {
+    const d = fixDeps({ claimFixPointed: () => false });
+    expect(makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
+  });
+
+  it('declines on stop_hook_active and for a stale generation', () => {
+    const d = fixDeps();
+    expect(makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1', stopHookActive: true })).toBeNull();
+    expect(d.claimed).toEqual([]);
+    const stale = fixDeps({ isCurrent: () => false });
+    stale.blockedAtFix!.set(42, { launchId: 'L1', deliveryId: 9 });
+    stale.blockedAt.set(42, { launchId: 'L1', watermark: 1 });
+    expect(makeHookReply(stale)({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
+    // A retired generation clears BOTH budgets.
+    expect(stale.blockedAtFix!.size).toBe(0);
+    expect(stale.blockedAt.size).toBe(0);
+  });
+
+  it('respects shouldReply (typed-route cores never take the hook pointer)', () => {
+    const d = fixDeps({ shouldReply: () => false });
+    expect(makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
+    expect(d.claimed).toEqual([]);
+  });
+
+  it('answers session.idle too', () => {
+    expect(makeHookReply(fixDeps())({ ticketId: 42, event: 'session.idle', launchId: 'L1' })).not.toBeNull();
+  });
+
+  it('fix goes first; mail follows on the next fresh turn end', () => {
+    const d = fixDeps({ unread: () => 2, unreadWatermark: () => 5 });
+    const reply = makeHookReply(d);
+    const first = reply({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    expect(first).toMatchObject({ reason: expect.stringContaining('fix brief #9') });
+    const second = reply({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    expect(second).toMatchObject({ reason: expect.stringContaining('2 new message(s)') });
+  });
+
+  it('a fix that is no longer eligible forgets its budget so a later delivery can block', () => {
+    let eligible: number | null = 9;
+    const d = fixDeps({ fixEligible: () => eligible });
+    const reply = makeHookReply(d);
+    reply({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    eligible = null;
+    reply({ ticketId: 42, event: 'Stop', launchId: 'L1' });
+    expect(d.blockedAtFix!.size).toBe(0);
+  });
+
+  it('a null pointer (unbuildable literal) blocks nothing and claims nothing', () => {
+    const d = fixDeps({ literal: () => ({ cli: '/x$y', db: '/g/karst.db' }) });
+    expect(makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
+    expect(d.claimed).toEqual([]);
+  });
+
+  it('is inert when no fix deps are wired', () => {
+    expect(makeHookReply(deps({ unread: () => 0 }))({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
   });
 });

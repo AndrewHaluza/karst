@@ -77,3 +77,10 @@ function finish(kind: EntityKind, digits: string, fail: () => never): { kind: En
 export function ticketRefOrUnknown(id: number): string {
   return Number.isSafeInteger(id) && id >= 1 ? formatId('ticket', id) : 'unknown ticket';
 }
+
+const FIX_BRIEF_PREFIX = '\u0023';
+
+/** The user-facing number of a stored fix brief (@arch:V77): `#<fix_deliveries.id>`. */
+export function formatFixBriefNumber(id: number): string {
+  return `${FIX_BRIEF_PREFIX}${id}`;
+}

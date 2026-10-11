@@ -3,6 +3,7 @@ import type { RecoveryRound } from '../../store/recoveryRounds.js';
 import { collapseDiagnostic } from '../diagnosticText.js';
 import { executionView, type SessionConfiguredInput } from './agent.js';
 import { bounded } from './bounds.js';
+import { fixDeliveryNote, type FixDeliveryFacts } from './fixDeliveryNote.js';
 import {
   formatDuration,
   formatExactDuration,
@@ -27,6 +28,9 @@ import {
  * One fix row whatever the history holds — exhaustion is stated inside the
  * row's evidence, never as a second fix process.
  */
+
+/** A round plus the receipt state of its stored fix brief (@arch:V77), when it has one. */
+export type RoundWithDelivery = RecoveryRound & { fixDelivery?: FixDeliveryFacts };
 
 /** Cap on recovery rows before the remainder row takes over. */
 const RECOVERY_ROWS_LIMIT = 8;
@@ -85,7 +89,13 @@ function triggerProse(round: RecoveryRound): string {
  * keep the recorded trigger detail — §11 has no templates for those states,
  * and the failed row's factual cause ("what failed") must not vanish.
  */
-function roundDetail(round: RecoveryRound): string {
+function roundDetail(round: RoundWithDelivery): string {
+  const note = fixDeliveryNote(round.fixDelivery);
+  const base = roundBaseDetail(round);
+  return note === undefined ? base : `${base} · ${note}`;
+}
+
+function roundBaseDetail(round: RecoveryRound): string {
   switch (round.status) {
     case 'pending':
     case 'fixing':
@@ -112,7 +122,7 @@ export interface RecoveryProcessView {
 }
 
 export function recoveryProcess(
-  rounds: readonly RecoveryRound[],
+  rounds: readonly RoundWithDelivery[],
   processRuns: readonly ProcessRun[],
   now: string,
   configured?: SessionConfiguredInput | null,

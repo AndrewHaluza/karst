@@ -154,9 +154,8 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
       roundId: r,
       identity: { provider: 'claude', model: 'opus' },
       startedAt: T1,
-      prompt: 'fix it',
       isLive: () => true,
-      nudge: (prompt) => {
+      deliverFix: () => {
         // Proof of ordering: at delivery time the run already exists and is attached.
         const runs = listProcessRuns(store, id);
         if (runs.length !== 1) sequence.push('missing-run');
@@ -164,7 +163,7 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
         const round = listRecoveryRounds(store, id)[0]!;
         if (round.status !== 'fixing') sequence.push('not-fixing');
         if (round.fixProcessRunId !== runs[0]?.id) sequence.push('not-attached');
-        delivered = prompt;
+        delivered = 'fix it';
         return true;
       },
       open: () => {
@@ -191,9 +190,8 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
         roundId: r,
         identity: { provider: 'claude', model: 'opus' },
         startedAt: T1,
-        prompt: 'fix it',
-        isLive: () => true,
-        nudge: () => false,
+          isLive: () => true,
+        deliverFix: () => false,
         open: () => {
           throw new Error('must not open a second session');
         },
@@ -214,9 +212,8 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
         roundId: r,
         identity: null,
         startedAt: T1,
-        prompt: 'fix it',
-        isLive: () => true,
-        nudge: () => {
+          isLive: () => true,
+        deliverFix: () => {
           throw new Error('terminal vanished');
         },
         open: () => {},
@@ -237,9 +234,8 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
       roundId: r,
       identity: { provider: 'claude', model: 'opus' },
       startedAt: T1,
-      prompt: 'fix it',
       isLive: () => false,
-      nudge: () => {
+      deliverFix: () => {
         throw new Error('must not nudge a closed session');
       },
       open: () => {
@@ -261,10 +257,9 @@ describe('resumeFixExecution — driver -> agent handoff', () => {
       roundId: null,
       identity: null,
       startedAt: T1,
-      prompt: 'fix it',
       isLive: () => true,
-      nudge: (prompt) => {
-        nudges.push(prompt);
+      deliverFix: () => {
+        nudges.push('fix it');
         return true;
       },
       open: () => {},
@@ -300,11 +295,10 @@ describe('configured Fix session compatibility and readiness', () => {
       roundId: pendingRound(),
       configuredIdentity: { provider: 'codex', model: 'sol', agentName: 'UAT Fix' },
       startedAt: T1,
-      prompt: 'fix it',
       isLive: () => true,
       sessionIdentity: () => ({ provider: 'codex', model: 'sol' }),
       providerReady: () => true,
-      nudge: () => true,
+      deliverFix: () => true,
       dispose: () => {},
       open: () => {},
       ...overrides,
@@ -319,7 +313,7 @@ describe('configured Fix session compatibility and readiness', () => {
       providerReady: () => {
         throw new Error('a matching live core needs no readiness probe');
       },
-      nudge: () => (events.push('nudge'), true),
+      deliverFix: () => (events.push('nudge'), true),
       dispose: () => events.push('dispose'),
       open: () => events.push('open'),
     }));
@@ -335,7 +329,7 @@ describe('configured Fix session compatibility and readiness', () => {
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), null),
       providerReady: () => (events.push('ready'), false),
-      nudge: () => (events.push('nudge'), true),
+      deliverFix: () => (events.push('nudge'), true),
       dispose: () => events.push('dispose'),
       open: () => events.push('open'),
     }));
@@ -352,7 +346,7 @@ describe('configured Fix session compatibility and readiness', () => {
       isLive: () => (events.push('live'), true),
       sessionIdentity: () => (events.push('identity'), { provider: 'claude', model: 'opus' }),
       providerReady: () => (events.push('ready'), true),
-      nudge: () => (events.push('nudge'), false),
+      deliverFix: () => (events.push('nudge'), false),
       dispose: () => events.push('dispose'),
       open: () => events.push('open'),
     }));

@@ -71,10 +71,14 @@ export interface ResumeFixExecutionOpts {
    */
   identity: { provider: string | null; model: string | null; agentName?: string | null } | null;
   startedAt: string;
-  prompt: string;
   /** True when the ticket's session terminal is live (open, or a revived handle). */
   isLive: () => boolean;
-  nudge: (prompt: string) => boolean;
+  /**
+   * Deliver the round to the LIVE session: store the brief snapshot and point the
+   * agent at it (@arch:V77) — the brief itself is never typed. False = nothing
+   * could deliver it.
+   */
+  deliverFix: () => boolean;
   open: (replacement?: boolean) => void;
 }
 
@@ -90,9 +94,9 @@ export interface ResumeFixExecutionOpts {
  *    matching SessionStart is accepted.
  */
 export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): ResumeFixOutcome {
-  const { ticketId, roundId, identity, startedAt, prompt, isLive, nudge, open } = opts;
+  const { ticketId, roundId, identity, startedAt, isLive, deliverFix, open } = opts;
   if (roundId === null) {
-    if (isLive() && nudge(prompt)) return 'nudged';
+    if (isLive() && deliverFix()) return 'nudged';
     open();
     return 'launched';
   }
@@ -106,7 +110,7 @@ export function resumeFixExecution(store: Store, opts: ResumeFixExecutionOpts): 
       startedAt,
     });
     try {
-      if (!nudge(prompt)) throw new Error('live Fix brief was not delivered');
+      if (!deliverFix()) throw new Error('live Fix brief was not delivered');
     } catch (error) {
       interruptFixExecution(store, roundId, startedAt);
       throw error;
