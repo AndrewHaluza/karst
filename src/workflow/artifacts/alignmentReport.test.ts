@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { alignmentReportPath, readLastAlignmentReport } from './alignmentReport.js';
 
 const store = (trailers?: Record<string, string>) => ({
-  history: async () => (trailers ? [{ sha: 's', at: '', trailers: { specfp: 'old', intentfp: 'old', mediumplus: '9' } }, { sha: 't', at: '', trailers }] : []),
+  history: async () => (trailers ? [{ sha: 't', at: '', trailers }, { sha: 's', at: '', trailers: { specfp: 'old', intentfp: 'old', mediumplus: '9' } }] : []),
 });
 
 describe('readLastAlignmentReport', () => {

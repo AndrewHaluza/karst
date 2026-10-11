@@ -37,7 +37,10 @@ import { join } from 'node:path';
 // Raised by 19 for the fix-delivery bindings (@arch:V77): the `fixDelivery` wiring
 // object + its sweep timer, the seed path's one-transaction snapshot write, the two
 // mailbox deps, and the `deliverFix` seam; logic is in `ops/fixDelivery*.ts`.
-const MAX_EXTENSION_LINES = 8513;
+// Raised by 18 for the reviewer-conformance bindings (`makeReviewArtifactsBinding` arg,
+// the `onRevision` feed and the `makeAlignmentTrigger` call + disposal); logic is in
+// `src/extension/reviewArtifactsBinding.ts` and `src/extension/alignmentBinding.ts`.
+const MAX_EXTENSION_LINES = 8531;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

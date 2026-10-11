@@ -26,6 +26,8 @@ export const AI_CALL_SITES = [
   'ticket-code-pointers',
   /** The ticket form's per-repository signal-word suggestion. */
   'signal-suggestion',
+  /** Warn-only check that a spec/plan still matches its parent artifact in the chain. */
+  'artifact-alignment',
   /** The ship stage asking for a PR body. */
   'pr-description',
   /**
@@ -76,6 +78,7 @@ const LABELS: Record<AiCallSite, string> = {
   'ticket-intent': 'Ticket intent',
   'ticket-code-pointers': 'Ticket code pointers',
   'signal-suggestion': 'Signal suggestion',
+  'artifact-alignment': 'Artifact alignment',
   'pr-description': 'PR description',
   'fix-resume': 'Fix resume',
   'review-findings': 'Review findings',

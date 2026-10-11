@@ -19,7 +19,7 @@ export function alignmentReportPath(edge: ChainEdge): string {
  */
 
 /**
- * The last alignment report's fingerprints, from the report revision's commit
+ * The newest (`history` is newest-first) alignment report's fingerprints, from the report revision's commit
  * trailers (durable across reloads). Null when no report exists or its trailers
  * are incomplete — "not verified", the safe direction; never throws.
  */
@@ -29,7 +29,7 @@ export async function readLastAlignmentReport(
   edge: ChainEdge,
 ): Promise<AlignmentReport | null> {
   const revisions = await store.history(ticketId, alignmentReportPath(edge));
-  const t = revisions.at(-1)?.trailers;
+  const t = revisions[0]?.trailers;
   const mediumPlus = Number(t?.['mediumplus']);
   if (!t || !t['specfp'] || !t['intentfp'] || !Number.isInteger(mediumPlus)) return null;
   return { specFp: t['specfp'], intentFp: t['intentfp'], mediumPlus };

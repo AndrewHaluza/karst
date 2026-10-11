@@ -64,4 +64,21 @@ describe('captureWorktree', () => {
     await captureWorktree({ ...deps, outputs: () => [] }, target);
     expect(commits).toEqual([]);
   });
+
+  it('notifies onRevision per committed revision; a throwing listener never fails the capture', async () => {
+    const { deps, target } = setup('M\0docs/plans/a.md\0');
+    const events: unknown[] = [];
+    expect(await captureWorktree({ ...deps, onRevision: (e) => events.push(e) }, target)).toBe(1);
+    expect(events).toEqual([{ ticketId: 4, kind: 'plan', sha: 'sha', path: 'app/docs/plans/a.md' }]);
+    const throwing = { ...deps, onRevision: () => { throw new Error('listener'); } };
+    expect(await captureWorktree(throwing, target)).toBe(1);
+    expect(throwing.debug).toHaveBeenCalledWith(expect.stringContaining('revision listener failed'));
+  });
+
+  it('does not notify for a skipped (null) commit', async () => {
+    const { deps, target } = setup('M\0docs/plans/a.md\0');
+    const events: unknown[] = [];
+    await captureWorktree({ ...deps, store: { commitRevision: async () => null }, onRevision: (e) => events.push(e) }, target);
+    expect(events).toEqual([]);
+  });
 });

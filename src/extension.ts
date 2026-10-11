@@ -1,3 +1,4 @@
+import { makeAlignmentTrigger } from './extension/alignmentBinding.js';
 import { makeReviewArtifactsBinding } from './extension/reviewArtifactsBinding.js';
 import * as vscode from 'vscode';
 import { registerDoctorCommand } from './ui/doctor/host.js';
@@ -1228,6 +1229,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
+  let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
     globalStorageRoot: context.globalStorageUri.fsPath,
@@ -1235,6 +1237,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     manifest: () => currentManifest(),
     git: defaultGitRunner,
     debug: (m) => logger.debug(m),
+    onRevision: (e) => alignmentTrigger?.onRevision(e),
     fsWatch,
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
@@ -1413,6 +1416,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       adapter: instrument(resolveAdapter(assignment.provider), assignment.provider),
     };
   };
+
+  alignmentTrigger = makeAlignmentTrigger({
+    registry: localStore,
+    artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
+    manifest: currentManifest,
+    fallbackProjectId: () => currentProject()?.id,
+    reviewProcess: (id) => processFor(id, 'review'),
+    debug: (m) => logger.debug(m),
+  });
+  context.subscriptions.push({ dispose: () => alignmentTrigger?.dispose() });
 
   /**
    * Task 3: the configured Fix process for the gate that failed — `uat` →
