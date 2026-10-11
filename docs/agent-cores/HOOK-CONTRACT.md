@@ -181,6 +181,7 @@ requested continuation without a prompt; ignoring the block"), and `reason` is
 the continuation prompt. codex therefore takes the `hook-block` route
 (`CODEX_STOP_BLOCK_SUPPORTED = true` in `extension.ts`). The route flag only
 selects the channel — the shared bridge implements the protocol for both cores.
+**Fix-brief pointer (@arch:V77).** The same reply channel carries the fix-brief pointer (`karst: fix brief #<id> ready - run … fix-brief --ack …`), built by `messagePointer` with a `{kind:'fix'}` pointer and answered before mail. `makeHookReply` calls `fixEligible` (armed, unpointed, unread, current generation, no pending fix launch intent) and claims `pointed_at` before returning the block; a delivered fix reply never confirms a mail batch. Cores without a push route (opencode2, agy, codex with the Stop block disabled) get the pointer typed by `fixDeliverySweep` instead.
 END_DOC_BLOCK: [@core:HOOK-03]
 
 ## [@core:HOOK-04] Rules for a new core

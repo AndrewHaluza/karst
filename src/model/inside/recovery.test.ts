@@ -389,3 +389,30 @@ describe('insertCausalFix', () => {
     ]);
   });
 });
+
+describe('recoveryProcess — stored fix brief receipt (@arch:V77)', () => {
+  const facts = {
+    id: 12,
+    pointedAt: 't',
+    repointedAt: null,
+    pointerFailedAt: null,
+    readAt: null,
+    deliveredVia: null,
+    supersededAt: null,
+  };
+
+  it('appends the receipt state to the round row', () => {
+    const view = recoveryProcess([{ ...round(), fixDelivery: facts }], [], NOW)!;
+    const ev = view.process.evidence;
+    expect(ev?.kind).toBe('recovery');
+    const rows = ev && ev.kind === 'recovery' ? ev.rows : [];
+    expect(rows[0]!.detail).toMatch(/ · fix brief #12 pointed at, not read yet$/);
+  });
+
+  it('leaves a round without a delivery unchanged', () => {
+    const view = recoveryProcess([round()], [], NOW)!;
+    const ev = view.process.evidence;
+    const rows = ev && ev.kind === 'recovery' ? ev.rows : [];
+    expect(rows[0]!.detail).not.toContain('fix brief');
+  });
+});

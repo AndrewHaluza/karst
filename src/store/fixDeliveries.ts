@@ -201,6 +201,26 @@ export function currentFixDelivery(store: Store, ticketId: number): FixDelivery 
   return row === undefined ? null : rowToDelivery(row);
 }
 
+/** A ticket's tracked deliveries keyed by recovery round id (the dashboard's per-round receipt). */
+export function listFixDeliveriesByRound(store: Store, ticketId: number): Map<number, FixDelivery> {
+  const rows = store.db
+    .prepare('SELECT * FROM fix_deliveries WHERE ticket_id = ? AND recovery_round_id IS NOT NULL ORDER BY id')
+    .all(ticketId) as FixDeliveryRow[];
+  return new Map(rows.map((r) => [r.recovery_round_id!, rowToDelivery(r)]));
+}
+
+/** The unread, un-superseded delivery bound to a launch generation, or null. */
+export function openFixDeliveryForLaunch(store: Store, launchId: string): FixDelivery | null {
+  const row = store.db
+    .prepare(
+      `SELECT * FROM fix_deliveries
+        WHERE launch_id = ? AND read_at IS NULL AND superseded_at IS NULL
+        ORDER BY id DESC LIMIT 1`,
+    )
+    .get(launchId) as FixDeliveryRow | undefined;
+  return row === undefined ? null : rowToDelivery(row);
+}
+
 /** Every open (unread, un-superseded) delivery of a project: the sweep's worklist. */
 export function listOpenFixDeliveries(store: Store, projectId: number): FixDelivery[] {
   const rows = store.db

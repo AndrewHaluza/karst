@@ -5,6 +5,7 @@ import { fixPointer, messagePointer } from '../../workflow/messageDelivery.js';
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import {
   claimPointed,
+  openFixDeliveryForLaunch,
   supersedeFixDeliveries,
   upsertFixDelivery,
 } from '../../store/fixDeliveries.js';
@@ -79,6 +80,8 @@ export interface FixDeliveryWiring {
   recordSeed: (ticketId: number, roundId: number, launchId: string) => void;
   /** Seed path, untracked round: the seed carries the newer brief, so older unread rows go stale. */
   supersedeUnread: (ticketId: number) => void;
+  /** Delivery guard: type the pointer for the snapshot bound to an unconfirmed seed launch. */
+  pointAtLaunch: (ticketId: number, launchId: string) => 'sent' | 'unsendable' | 'no-row';
   /** Hook channel: the delivery id the turn-end reply may point at, if any. */
   eligible: (ticketId: number) => number | null;
   claimPointed: (ticketId: number, deliveryId: number) => boolean;
@@ -130,6 +133,14 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     },
     supersedeUnread: (ticketId) => {
       supersedeFixDeliveries(deps.store, ticketId, now());
+    },
+    pointAtLaunch: (ticketId, launchId) => {
+      const row = openFixDeliveryForLaunch(deps.store, launchId);
+      if (row === null) return 'no-row';
+      const result = host.sendPointer(ticketId, row.id, {
+        onTyped: () => void claimPointed(deps.store, row.id, now()),
+      });
+      return result === 'queued' ? 'sent' : 'unsendable';
     },
     eligible: (ticketId) => eligibleFixDelivery(host, ticketId)?.id ?? null,
     claimPointed: (ticketId, deliveryId) => {

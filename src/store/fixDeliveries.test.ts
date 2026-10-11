@@ -14,7 +14,9 @@ import {
   clearEnqueued,
   currentFixDelivery,
   getFixDelivery,
+  listFixDeliveriesByRound,
   listOpenFixDeliveries,
+  openFixDeliveryForLaunch,
   markSeedRead,
   rearmFixDelivery,
   supersedeFixDeliveries,
@@ -248,5 +250,22 @@ describe('fixDeliveries', () => {
     expect(listOpenFixDeliveries(store, project.id).map((r) => r.id)).toEqual([a]);
     claimRead(store, a, 'pointer', T0);
     expect(listOpenFixDeliveries(store, project.id)).toEqual([]);
+  });
+
+  it('openFixDeliveryForLaunch finds only the unread live row of that generation', () => {
+    const a = upsert({ launchId: 'LA' });
+    expect(openFixDeliveryForLaunch(store, 'LA')!.id).toBe(a);
+    expect(openFixDeliveryForLaunch(store, 'other')).toBeNull();
+    claimRead(store, a, 'seed', T0);
+    expect(openFixDeliveryForLaunch(store, 'LA')).toBeNull();
+  });
+
+  it('listFixDeliveriesByRound keys tracked rows by round and skips untracked ones', () => {
+    store.db.pragma('foreign_keys = OFF');
+    const tracked = upsert({ recoveryRoundId: 4 });
+    upsert({ at: T1 });
+    const map = listFixDeliveriesByRound(store, ticketId);
+    expect([...map.keys()]).toEqual([4]);
+    expect(map.get(4)!.id).toBe(tracked);
   });
 });

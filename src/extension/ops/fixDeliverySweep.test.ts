@@ -205,6 +205,22 @@ describe('fixDeliverySweep', () => {
     });
   });
 
+  describe('an un-armed row on a push route', () => {
+    it('is armed by the sweep, then falls through the normal ladder', () => {
+      h.state.route = 'typed';
+      h.state.running = true;
+      const id = deliver();
+      h.state.route = 'hook-block';
+      sweep();
+      expect(row(id).armedAt).toBe(new Date(h.clock.ms).toISOString());
+      expect(h.sent).toEqual([]);
+      h.state.running = false;
+      h.advance(ARMED_FIX_TIMEOUT_MS);
+      sweep();
+      expect(h.sent).toHaveLength(1);
+    });
+  });
+
   describe('rule 3: armed fallback (idle push-route agent)', () => {
     it('types one pointer after 60 s, never before', () => {
       const id = deliver();

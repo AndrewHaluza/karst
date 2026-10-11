@@ -164,4 +164,34 @@ describe('fixDeliveryWiring', () => {
     expect(w.claimPointed(ticketId, id)).toBe(true);
     expect(w.claimPointed(ticketId, id)).toBe(false);
   });
+
+  describe('pointAtLaunch (delivery guard)', () => {
+    it('no-row for a launch without a snapshot', () => {
+      expect(make().pointAtLaunch(ticketId, 'nope')).toBe('no-row');
+    });
+
+    it('types the pointer for the launch-bound snapshot and claims pointed on typing', () => {
+      const w = make();
+      const roundId = openRecoveryRound(store, {
+        ticketId, sourceStage: 'uat', sourceProcessId: 'gates', sourceStageRunId: null,
+        sourceProcessRunId: null, triggerKind: 'gate-failure', triggerDetail: 'x',
+        maxRounds: 3, startedAt: '2026-01-01T00:00:00Z',
+      }).id;
+      w.recordSeed(ticketId, roundId, 'LS');
+      const id = currentFixDelivery(store, ticketId)!.id;
+      expect(w.pointAtLaunch(ticketId, 'LS')).toBe('sent');
+      expect(nudge.mock.calls[0]![1]).toContain(`fix brief #${id} ready`);
+      expect(getFixDelivery(store, id)!.pointedAt).toBeNull();
+      nudge.mock.calls[0]![2].onTyped!();
+      expect(getFixDelivery(store, id)!.pointedAt).not.toBeNull();
+    });
+
+    it('unsendable when no terminal takes the line', () => {
+      const w = make();
+      w.deliver(ticketId, null);
+      store.db.prepare("UPDATE fix_deliveries SET launch_id = 'LZ'").run();
+      nudge.mockReturnValueOnce(false);
+      expect(w.pointAtLaunch(ticketId, 'LZ')).toBe('unsendable');
+    });
+  });
 });

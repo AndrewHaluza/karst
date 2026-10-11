@@ -1,4 +1,5 @@
 import {
+  claimArmed,
   clearEnqueued,
   listOpenFixDeliveries,
   rearmFixDelivery,
@@ -91,6 +92,12 @@ export function makeFixDeliverySweep(deps: FixDeliverySweepDeps): FixDeliverySwe
     // Rule 0 — the typed route's first send (also after a re-arm or a drop).
     if (!push && row.enqueuedAt === null && row.pointedAt === null) {
       if (!running) sendFirst(row);
+      return;
+    }
+    // A push route that was never armed (the row was written while the core was
+    // unknown and typed): arm it now so the hook, then rule 3, can deliver it.
+    if (push && row.armedAt === null && row.enqueuedAt === null && row.pointedAt === null) {
+      claimArmed(store, row.id, deps.now());
       return;
     }
     // Rule 3 — a push-route delivery the hook never pointed at (idle agent).

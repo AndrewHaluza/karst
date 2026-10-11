@@ -56,6 +56,13 @@ export interface FixWatchdogDeps {
    * ticket is never nudged by the guard (the coordinator owns continuation).
    */
   isGraphTicket: (ticketId: number) => boolean;
+  /**
+   * Fix launches with a stored brief snapshot (@arch:V77): type the fix POINTER
+   * for the row bound to `launchId` instead of re-typing the whole brief.
+   * `no-row` = the launch has no snapshot (an untracked round) → the full
+   * re-type below stays the fallback.
+   */
+  pointAtFix?: (ticketId: number, launchId: string) => 'sent' | 'unsendable' | 'no-row';
 }
 
 /**
@@ -252,7 +259,15 @@ function deliverForTicket(
   // since the select must not receive a second brief.
   const intent = getSessionLaunchIntent(deps.store, fresh.launchId);
   if (intent === undefined || intent.status !== 'pending') return;
-  if (!deps.nudge(ticketId, redeliveryPrompt(deps.store, ticketId))) {
+  const pointed =
+    fresh.purpose === 'fix' && deps.pointAtFix !== undefined
+      ? deps.pointAtFix(ticketId, fresh.launchId)
+      : 'no-row';
+  if (pointed === 'unsendable') {
+    markNotStarted(deps, ticketId);
+    return;
+  }
+  if (pointed === 'no-row' && !deps.nudge(ticketId, redeliveryPrompt(deps.store, ticketId))) {
     // The nudge did not reach a live session (a race, or the terminal died
     // between the liveness check and the send).
     markNotStarted(deps, ticketId);
@@ -332,7 +347,7 @@ export function startFixWatchdog(
   projectId: () => number | null,
   log: (message: string) => void,
   onError: ((message: string, err: unknown) => void) | undefined,
-  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket'>,
+  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix'>,
 ): { dispose(): void } {
   const deps: FixWatchdogDeps = {
     store,
@@ -343,6 +358,7 @@ export function startFixWatchdog(
     isLive: delivery.isLive,
     nudge: delivery.nudge,
     isGraphTicket: delivery.isGraphTicket,
+    ...(delivery.pointAtFix !== undefined ? { pointAtFix: delivery.pointAtFix } : {}),
   };
   const tick = (): void => {
     try {
