@@ -99,6 +99,8 @@ describe('truncateToBudget', () => {
       attachments: 1500,
       approachMethod: 8000,
       testerCriteria: 8_000,
+      intent: 3000,
+      codePointers: 1200,
     });
   });
 });

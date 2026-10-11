@@ -294,6 +294,10 @@ export interface TicketContext {
   /** The user's authored instruction (the `description` column). */
   prompt: string | null;
   brief: string | null;
+  /** Canonical black-box intent charter (the `intent` column). */
+  intent: string | null;
+  /** Opt-in unverified implementer hints (the `code_pointers` column). */
+  codePointers: string | null;
   approach: string | null;
   agent: string | null;
   selectedRepos: string[];
@@ -549,6 +553,8 @@ export function buildTicketContext(
     key: t.key,
     title: t.title,
     prompt: t.description,
+    intent: t.intent,
+    codePointers: t.codePointers,
     brief: t.brief,
     approach: t.approach,
     agent: t.agent,
@@ -907,6 +913,26 @@ export function renderTicketContext(
         })()
       : promptRaw;
     parts.push(`## Prompt\n${prompt}`);
+  }
+
+  const bound = (raw: string, budget: number, label: string): string => {
+    if (!bounded) return raw;
+    const { text, truncated } = truncateToBudget(raw, budget, key);
+    if (truncated) debug?.(`[seed] truncated ${label} to ${budget} chars`);
+    return text;
+  };
+  const intentRaw = authored ? ctx.intent?.trim() : undefined;
+  if (intentRaw) {
+    parts.push(`## Intent\n${bound(intentRaw, SEED_BUDGETS.intent, 'ticket intent').replace(/^## /gm, '### ')}`);
+  }
+  // Known gap, deliberate: `karst context` is also what the UAT tester's pointer
+  // line runs, so until T-B adds `--for tester` the tester CAN pull code pointers
+  // through it. T-B's tester-safe view removes them.
+  const pointersRaw = authored ? ctx.codePointers?.trim() : undefined;
+  if (pointersRaw) {
+    parts.push(
+      `## Code pointers (unverified hints)\nVerify before relying on them.\n${bound(pointersRaw, SEED_BUDGETS.codePointers, 'code pointers')}`,
+    );
   }
 
   const briefRaw = authored ? ctx.brief?.trim() : undefined;
