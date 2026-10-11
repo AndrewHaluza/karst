@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
 import { makeHookReply, type BlockedAt, type BlockedAtFix, type MailReplyDeps } from './mailReply.js';
 
-const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
 
 function deps(over: Partial<MailReplyDeps> = {}): MailReplyDeps {
   return {
     unread: () => 2,
     unreadWatermark: () => 2,
     isCurrent: () => true,
-    sessionCliEnv: () => undefined,
-    literal: () => LITERAL,
+    sessionChannel: () => 'cli-env',
     blockedAt: new Map(),
     debug: vi.fn(),
     ...over,
@@ -21,14 +19,13 @@ function blockedMap(): Map<number, BlockedAt> {
 }
 
 describe('makeHookReply', () => {
-  it('blocks a current-generation Stop with unread mail, using the recipient env', () => {
+  it('blocks a current-generation Stop with unread mail, using the recipient channel', () => {
     const reply = makeHookReply(
-      deps({ sessionCliEnv: () => ({ cli: true, manifest: true, ticket: true }) }),
+      deps({ sessionChannel: () => 'mcp' }),
     )({ ticketId: 42, event: 'Stop', launchId: 'L1' });
     expect(reply).toEqual({
       decision: 'block',
-      reason:
-        'karst: 2 new message(s) - run node "$KARST_CLI" inbox --db "$KARST_DB" --manifest "$KARST_MANIFEST" --ticket "$KARST_TICKET"',
+      reason: 'karst: 2 new message(s) - call the karst MCP tool "inbox"',
     });
   });
 
@@ -121,26 +118,17 @@ describe('makeHookReply', () => {
     expect(blockedAt.size).toBe(0);
   });
 
-  it('uses literal paths when the session exported no env', () => {
+  it('falls back to the "$KARST_*" CLI line when the session has no MCP', () => {
     const reply = makeHookReply(deps())({ ticketId: 7, event: 'Stop', launchId: 'L1' });
-    expect(reply?.reason).toContain('"/ext/dist/cli.js"');
-    expect(reply?.reason).toContain('--ticket 7');
-  });
-
-  it('declines when a literal path carries a shell metacharacter', () => {
-    expect(
-      makeHookReply(deps({ literal: () => ({ ...LITERAL, db: '/g/$(rm)/k.db' }) }))({
-        ticketId: 42,
-        event: 'Stop',
-        launchId: 'L1',
-      }),
-    ).toBeNull();
+    expect(reply?.reason).toBe(
+      'karst: 2 new message(s) - run node "$KARST_CLI" inbox --db "$KARST_DB" --ticket "$KARST_TICKET_ID"',
+    );
   });
 });
 
 describe('makeHookReply — fix delivery', () => {
   const FIX_LINE =
-    'karst: fix brief #9 ready - run node "/ext/dist/cli.js" fix-brief --ack --db "/g/karst.db" --manifest "/w/karst.yml" --ticket 42';
+    'karst: fix brief #9 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"';
   function fixDeps(over: Partial<MailReplyDeps> = {}): MailReplyDeps & { claimed: number[] } {
     const claimed: number[] = [];
     return {
@@ -225,12 +213,6 @@ describe('makeHookReply — fix delivery', () => {
     eligible = null;
     reply({ ticketId: 42, event: 'Stop', launchId: 'L1' });
     expect(d.blockedAtFix!.size).toBe(0);
-  });
-
-  it('a null pointer (unbuildable literal) blocks nothing and claims nothing', () => {
-    const d = fixDeps({ literal: () => ({ cli: '/x$y', db: '/g/karst.db' }) });
-    expect(makeHookReply(d)({ ticketId: 42, event: 'Stop', launchId: 'L1' })).toBeNull();
-    expect(d.claimed).toEqual([]);
   });
 
   it('is inert when no fix deps are wired', () => {

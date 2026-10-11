@@ -1,3 +1,4 @@
+import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   classifyRestoredSession,
@@ -12,7 +13,6 @@ import {
 } from './sessionRecovery.js';
 import {
   deferSessionRetry,
-  SessionManager,
   type FakeTerminal,
 } from './session.js';
 import type { AgentAdapter } from '../agent/adapter.js';
@@ -311,7 +311,7 @@ describe('recovery lifecycle ordering', () => {
         requiredBinary: 'agent',
         capabilities: { lifecycleEvents: true, resume: true },
       };
-      const sessions = new SessionManager(
+      const sessions = new DefaultedSessionManager(
         { createTerminal: () => terminal },
         () => ({ endpointUrl: 'http://127.0.0.1:1/hooks', configDir: '/tmp' }),
         undefined,

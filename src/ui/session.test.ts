@@ -1,3 +1,4 @@
+import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, it, expect, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -179,7 +180,7 @@ describe('SessionManager', () => {
   it('tags a new terminal with provider-neutral ticket and launch identity', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(
       adapter,
@@ -193,6 +194,8 @@ describe('SessionManager', () => {
     );
 
     expect(terminals[0]!.env).toEqual({
+      KARST_CLI: '/ext/dist/cli/main.js',
+      KARST_DB: '/g/karst.db',
       [KARST_TICKET_ENV]: '7',
       [KARST_LAUNCH_ENV]: launchId,
     });
@@ -203,7 +206,7 @@ describe('SessionManager', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-session-mcp-'));
     try {
       const { host, terminals } = fakeHost();
-      const mgr = new SessionManager(host, () => ({
+      const mgr = new DefaultedSessionManager(host, () => ({
         endpointUrl: 'http://127.0.0.1:4567/hooks',
         configDir: dir,
         launchId,
@@ -248,7 +251,7 @@ describe('SessionManager', () => {
     let manager: SessionManager;
 
     for (let cycle = 1; cycle <= 3; cycle++) {
-      manager = new SessionManager(host, channelFor);
+      manager = new DefaultedSessionManager(host, channelFor);
       expect(manager.reconcileRestoredSessions(() => 'resume')).toEqual({
         resume: [7],
         idle: [],
@@ -269,7 +272,7 @@ describe('SessionManager', () => {
     const restored = fakeRestored(7);
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([restored]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions(() => 'resume')).toEqual({
       resume: [7],
@@ -285,7 +288,7 @@ describe('SessionManager', () => {
   it('adopts an inactive restored terminal and keeps it responsive', () => {
     const restored = fakeRestored(8);
     const { host } = fakeHost([restored]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions(() => 'idle')).toEqual({
       resume: [],
@@ -300,7 +303,7 @@ describe('SessionManager', () => {
     const restored = [fakeRestored(7), fakeRestored(7)];
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost(restored);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions((id) => (id === 7 ? 'resume' : 'ignore'))).toEqual({
       resume: [7],
@@ -315,7 +318,7 @@ describe('SessionManager', () => {
   it('keeps a tagged non-resumable terminal in recoverable idle state', () => {
     const restored = [fakeRestored(8)];
     const { host } = fakeHost(restored);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions(() => 'idle')).toEqual({
       resume: [],
@@ -327,7 +330,7 @@ describe('SessionManager', () => {
   it('ignores untagged terminals', () => {
     const unrelated = fakeRestored(9).terminal;
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions(() => 'resume')).toEqual({ resume: [], idle: [] });
     expect(unrelated.disposed).toBe(false);
@@ -336,7 +339,7 @@ describe('SessionManager', () => {
   it('ignores foreign restored terminals without disposing them', () => {
     const foreign = fakeRestored(8);
     const { host } = fakeHost([foreign]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions(() => 'ignore')).toEqual({ resume: [], idle: [] });
     expect(foreign.terminal.disposed).toBe(false);
@@ -345,7 +348,7 @@ describe('SessionManager', () => {
   it('ignores restored terminals when this window has no current project', () => {
     const restored = fakeRestored(8);
     const { host } = fakeHost([restored]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.reconcileRestoredSessions(() => 'ignore')).toEqual({ resume: [], idle: [] });
     expect(restored.terminal.disposed).toBe(false);
@@ -354,7 +357,7 @@ describe('SessionManager', () => {
   it('openSession creates a terminal in the worktree cwd', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a');
     expect(terminals).toHaveLength(1);
@@ -365,7 +368,7 @@ describe('SessionManager', () => {
   it('names the terminal by ticket key with the title as description', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a', { key: 'PROJ-42', title: 'Fix login' });
     expect(terminals[0]!.name).toBe('Karst: PROJ-42');
@@ -375,7 +378,7 @@ describe('SessionManager', () => {
   it('uses the naming bag for terminal name, icon and color when provided', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(
       adapter,
@@ -402,7 +405,7 @@ describe('SessionManager', () => {
   it('launches the agent under the terminal display name, so both read alike', () => {
     const { adapter, calls } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(
       adapter,
@@ -422,7 +425,7 @@ describe('SessionManager', () => {
   it('names the agent session from the fallback terminal name when no naming bag is given', () => {
     const { adapter, calls } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a', { key: 'PROJ-42', title: 'Fix login' });
     expect(calls[0]!.sessionName).toBe(terminals[0]!.name);
@@ -431,7 +434,7 @@ describe('SessionManager', () => {
   it('falls back to T<id> in the name when no key is given', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
     expect(terminals[0]!.name).toBe('Karst: T7');
@@ -440,7 +443,7 @@ describe('SessionManager', () => {
   it('passes a provider-neutral hook channel to the selected adapter', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a');
     expect(calls[0]!.hookChannel).toEqual(channel);
@@ -450,7 +453,7 @@ describe('SessionManager', () => {
     const a = fakeAdapter('claude');
     const b = fakeAdapter('codex');
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(a.adapter, 1, '/wt/a');
     mgr.openSession(b.adapter, 2, '/wt/b');
@@ -464,7 +467,7 @@ describe('SessionManager', () => {
   it('launches the opencode binary when the opencode adapter is selected', () => {
     const { adapter } = fakeAdapter('opencode');
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a');
 
@@ -475,7 +478,7 @@ describe('SessionManager', () => {
     const first = fakeAdapter('codex');
     const second = fakeAdapter('claude');
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(first.adapter, 1, '/wt/a');
     mgr.openSession(second.adapter, 1, '/wt/a');
@@ -487,7 +490,7 @@ describe('SessionManager', () => {
   it('the adapter cwd matches the terminal cwd (interactive scoped to worktree)', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 2, '/wt/b');
     expect((calls[0] as { cwd: string }).cwd).toBe('/wt/b');
   });
@@ -495,7 +498,7 @@ describe('SessionManager', () => {
   it('re-opening the same ticket focuses the existing terminal (no duplicate)', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a');
     mgr.openSession(adapter, 1, '/wt/a');
@@ -506,7 +509,7 @@ describe('SessionManager', () => {
   it('separate tickets get separate terminals', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
     mgr.openSession(adapter, 2, '/wt/b');
     expect(terminals).toHaveLength(2);
@@ -515,7 +518,7 @@ describe('SessionManager', () => {
   it('focusSession reveals an open terminal', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
     const before = terminals[0]!.shown;
     mgr.focusSession(1);
@@ -528,7 +531,7 @@ describe('SessionManager', () => {
     // put the two bound surfaces into a focus ping-pong.
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
     mgr.focusSession(1, true);
     expect(terminals[0]!.shownPreserveFocus.at(-1)).toBe(true);
@@ -540,7 +543,7 @@ describe('SessionManager', () => {
     // only focus the terminal and drop the brief on the floor.
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
     const before = terminals[0]!.shown;
 
@@ -552,7 +555,7 @@ describe('SessionManager', () => {
   it('can launch an automated continuation without revealing the IDE terminal', () => {
     const { adapter } = fakeAdapter('codex');
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(
       adapter,
@@ -576,7 +579,7 @@ describe('SessionManager', () => {
   it('keeps an automated re-open of an existing terminal in the background', () => {
     const { adapter } = fakeAdapter('codex');
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
 
     mgr.openSession(
@@ -620,7 +623,7 @@ describe('SessionManager', () => {
     const revived = fakeRestored(7);
     const { host } = fakeHost([revived]);
     const adopted: Array<[number, string | undefined]> = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -640,7 +643,7 @@ describe('SessionManager', () => {
   it('does not nudge a revived terminal whose agent already exited', () => {
     const revived = { ...fakeRestored(7), exited: true };
     const { host } = fakeHost([revived]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.nudge(7, 'the uat gate failed')).toBe(false);
     expect(revived.terminal.sent).toEqual([]);
@@ -652,7 +655,7 @@ describe('SessionManager', () => {
     try {
       const { adapter } = fakeAdapter();
       const { host, terminals } = fakeHost();
-      const mgr = new SessionManager(host, channelFor);
+      const mgr = new DefaultedSessionManager(host, channelFor);
       mgr.openSession(adapter, 1, '/wt/a');
 
       mgr.nudge(1, 'The review gate failed.\n\nIt reported: gates failed: test\n\nThen: fire the marker');
@@ -667,7 +670,7 @@ describe('SessionManager', () => {
   it('nudge reports no live session rather than silently dropping the prompt', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     expect(mgr.nudge(99, 'anything')).toBe(false);
   });
 
@@ -682,7 +685,7 @@ describe('SessionManager', () => {
       try {
         const { adapter } = fakeAdapter('claude', 42);
         const { host, terminals } = fakeHost();
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
         mgr.openSession(adapter, 1, '/wt/a');
 
         expect(mgr.nudge(1, 'review failed: lint')).toBe(true);
@@ -705,7 +708,7 @@ describe('SessionManager', () => {
       try {
         const { adapter } = fakeAdapter('codex', 60);
         const { host, terminals } = fakeHost();
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
         mgr.openSession(adapter, 1, '/wt/a');
 
         mgr.nudge(1, 'first');
@@ -727,7 +730,7 @@ describe('SessionManager', () => {
       try {
         const { adapter } = fakeAdapter('opencode', 50);
         const { host, terminals } = fakeHost();
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
         mgr.openSession(adapter, 1, '/wt/a');
 
         mgr.nudge(1, 'a');
@@ -746,7 +749,7 @@ describe('SessionManager', () => {
       try {
         const { adapter } = fakeAdapter('claude', 120);
         const { host, terminals } = fakeHost();
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
         mgr.openSession(adapter, 1, '/wt/a');
         const brief = `UAT gate failed.\n\n${'detail '.repeat(800)}`;
 
@@ -766,7 +769,7 @@ describe('SessionManager', () => {
       try {
         const { adapter } = fakeAdapter('claude', 120);
         const { host, terminals } = fakeHost();
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
         mgr.openSession(adapter, 1, '/wt/a');
 
         mgr.nudge(1, 'first');
@@ -794,7 +797,7 @@ describe('SessionManager', () => {
         try {
           const { adapter } = fakeAdapter(core, delay);
           const { host, terminals } = fakeHost();
-          const mgr = new SessionManager(host, channelFor);
+          const mgr = new DefaultedSessionManager(host, channelFor);
           mgr.openSession(adapter, 1, '/wt/a');
 
           mgr.nudge(1, `pointer for ${core}`);
@@ -819,7 +822,7 @@ describe('SessionManager', () => {
         const first = fakeAdapter('claude', 120);
         const second = fakeAdapter('codex', 60);
         const { host, terminals } = fakeHost();
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
 
         mgr.openSession(first.adapter, 7, '/wt/a');
         mgr.nudge(7, 'old core line');
@@ -844,7 +847,7 @@ describe('SessionManager', () => {
       try {
         const revived = fakeRestored(7);
         const { host } = fakeHost([revived]);
-        const mgr = new SessionManager(host, channelFor);
+        const mgr = new DefaultedSessionManager(host, channelFor);
 
         // Adopted, never launched here: the nudge types immediately (no
         // leftover line from any earlier terminal instance).
@@ -859,7 +862,7 @@ describe('SessionManager', () => {
   it('revealSession reveals an open terminal, like focusSession', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
     const before = terminals[0]!.shown;
     expect(mgr.revealSession(1)).toBe(true);
@@ -873,7 +876,7 @@ describe('SessionManager', () => {
   it('revealSession adopts a revived terminal this host has not tracked yet', () => {
     const revived = fakeRestored(7);
     const { host } = fakeHost([revived]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.revealSession(7)).toBe(true);
     expect(revived.terminal.shown).toBe(1);
@@ -882,21 +885,21 @@ describe('SessionManager', () => {
 
   it('revealSession on a ticket with no live or revivable session is a no-op', () => {
     const { host } = fakeHost([]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     expect(mgr.revealSession(99)).toBe(false);
   });
 
   it('focusSession on an unopened ticket is a no-op', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     expect(() => mgr.focusSession(99)).not.toThrow();
   });
 
   it('a closed terminal is dropped so re-open creates a new one', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
     mgr.openSession(adapter, 1, '/wt/a');
     terminals[0]!.dispose();
     mgr.openSession(adapter, 1, '/wt/a');
@@ -906,7 +909,7 @@ describe('SessionManager', () => {
   it('passes initialPrompt to buildInteractiveCommand on a fresh launch', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt', { key: 'K-1', title: 't' }, 'seed prompt');
 
@@ -919,7 +922,7 @@ describe('SessionManager', () => {
   it('threads extraArgs (materialized approach) to buildInteractiveCommand', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt', { key: 'K-1', title: 't' }, 'seed', ['--plugin-dir', '/p']);
 
@@ -932,7 +935,7 @@ describe('SessionManager', () => {
   it('forwards resume to buildInteractiveCommand', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt', { key: 'K-1' }, 'seed', undefined, undefined, 'sess-7');
 
@@ -943,7 +946,7 @@ describe('SessionManager', () => {
   it('does not re-seed on re-open (focus path skips buildInteractiveCommand)', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt', undefined, 'seed prompt');
     mgr.openSession(adapter, 1, '/wt', undefined, 'seed prompt');
@@ -954,7 +957,7 @@ describe('SessionManager', () => {
   it('isOpen reports true only for a ticket with a live terminal', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a');
 
@@ -965,7 +968,7 @@ describe('SessionManager', () => {
   it('isOpen goes false again once the terminal closes', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 1, '/wt/a');
     terminals[0]!.dispose();
@@ -977,7 +980,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([], true);
     const observedCloses: number[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -1005,7 +1008,7 @@ describe('SessionManager', () => {
     // "Terminal has already been disposed").
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([], true);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
     expect(terminals).toHaveLength(1);
@@ -1033,7 +1036,7 @@ describe('SessionManager', () => {
     // disposed".
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([], true);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
     mgr.disposeSession(7);
@@ -1057,7 +1060,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost([], true);
     const cleanup = vi.fn();
-    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+    const mgr = new DefaultedSessionManager(host, channelFor, undefined, cleanup);
 
     mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
       '/wt/a/.codex/karst/retired',
@@ -1075,7 +1078,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([], true);
     const cleanup = vi.fn();
-    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+    const mgr = new DefaultedSessionManager(host, channelFor, undefined, cleanup);
 
     mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
       '/wt/a/.codex/karst/retired',
@@ -1107,7 +1110,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost([], true);
     const cleanup = vi.fn();
-    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+    const mgr = new DefaultedSessionManager(host, channelFor, undefined, cleanup);
 
     mgr.openSession(adapter, 1, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, [
       '/wt/a/.codex/active',
@@ -1134,7 +1137,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const closed: number[] = [];
-    const mgr = new SessionManager(host, channelFor, (id) => {
+    const mgr = new DefaultedSessionManager(host, channelFor, (id) => {
       // the map entry must be gone before the callback runs, so a sweep sees no live session
       expect(mgr.isOpen(id)).toBe(false);
       closed.push(id);
@@ -1151,7 +1154,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const cleanup = vi.fn();
-    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+    const mgr = new DefaultedSessionManager(host, channelFor, undefined, cleanup);
 
     mgr.openSession(
       adapter,
@@ -1176,7 +1179,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const failedResumes: number[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -1196,7 +1199,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const events: string[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       () => events.push('session-closed'),
@@ -1221,7 +1224,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const failures: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -1246,14 +1249,14 @@ describe('SessionManager', () => {
     );
     closeWithExitCode(terminals[0]!, 1);
 
-    expect(failures).toEqual([{ reveal: false, recovery: true }]);
+    expect(failures).toEqual([expect.objectContaining({ reveal: false, recovery: true })]);
   });
 
   it('does not report a resume failure when the resumed session exits cleanly', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const failedResumes: number[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -1273,7 +1276,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
     const failedResumes: number[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -1293,7 +1296,7 @@ describe('SessionManager', () => {
     const restored = fakeRestored(7);
     const { host } = fakeHost([restored]);
     const failedResumes: number[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host,
       channelFor,
       undefined,
@@ -1319,7 +1322,7 @@ describe('SessionManager', () => {
     });
     const { host, terminals } = fakeHost();
     const cleanup = vi.fn();
-    const mgr = new SessionManager(host, channelFor, undefined, cleanup);
+    const mgr = new DefaultedSessionManager(host, channelFor, undefined, cleanup);
 
     mgr.openSession(adapter, 1, '/wt/a');
     terminals[0]!.dispose();
@@ -1331,7 +1334,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1345,7 +1348,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1359,7 +1362,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1374,7 +1377,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1392,7 +1395,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1414,7 +1417,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1431,7 +1434,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: LaunchPreparedInfo[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1451,7 +1454,7 @@ describe('SessionManager', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
     const prepared: LaunchPreparedInfo[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1465,7 +1468,7 @@ describe('SessionManager', () => {
   it('exports KARST_INSTRUCTIONS only when an instruction layer rides the launch', () => {
     const { adapter } = fakeAdapter();
     const { host, terminals } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
     expect(terminals[0]!.env).not.toHaveProperty(KARST_INSTRUCTIONS_ENV);
@@ -1482,7 +1485,7 @@ describe('SessionManager', () => {
   it('records the session identity snapshot and returns it on demand', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(
       adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
@@ -1496,7 +1499,7 @@ describe('SessionManager', () => {
   it('carries the configured agent name in the recorded identity snapshot', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(
       adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined,
@@ -1513,7 +1516,7 @@ describe('SessionManager', () => {
   it('no identity is recorded when none was supplied at launch', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     mgr.openSession(adapter, 7, '/wt/a');
 
@@ -1523,7 +1526,7 @@ describe('SessionManager', () => {
   it('reports a ticket live only while its terminal is open', () => {
     const { adapter } = fakeAdapter();
     const { host } = fakeHost();
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.isLive(7)).toBe(false);
     mgr.openSession(adapter, 7, '/wt/a');
@@ -1533,7 +1536,7 @@ describe('SessionManager', () => {
   it('reports a revived handle live, adopting it without revealing it', () => {
     const restored = fakeRestored(7);
     const { host } = fakeHost([restored]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.isLive(7)).toBe(true);
     expect(mgr.isOpen(7)).toBe(true);
@@ -1548,7 +1551,7 @@ describe('SessionManager', () => {
       identity: { provider: 'codex', model: 'sol' },
     });
     const { host } = fakeHost([restored]);
-    const mgr = new SessionManager(host, channelFor);
+    const mgr = new DefaultedSessionManager(host, channelFor);
 
     expect(mgr.isLive(7)).toBe(true);
     expect(mgr.sessionIdentity(7)).toEqual({ provider: 'codex', model: 'sol' });
@@ -1558,7 +1561,7 @@ describe('SessionManager', () => {
     const restored = fakeRestored(7);
     const { host } = fakeHost([restored]);
     const prepared: unknown[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       host, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
     );
@@ -1578,7 +1581,7 @@ describe('SessionManager', () => {
     };
     const prepared: unknown[] = [];
     const failed: string[] = [];
-    const mgr = new SessionManager(
+    const mgr = new DefaultedSessionManager(
       failingHost, channelFor, undefined, undefined, undefined, undefined, undefined,
       (info) => prepared.push(info),
       (launchId) => failed.push(launchId),

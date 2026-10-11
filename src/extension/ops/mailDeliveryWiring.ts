@@ -1,12 +1,12 @@
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
-import type { ExportedCliEnv, CliTokens } from '../../agent/cliEnv.js';
 import type { HookReplyFor } from '../../hooks/endpoint.js';
 import { createUnreadCache } from '../../hooks/unreadCache.js';
 import { makeHookReply, type BlockedAt, type BlockedAtFix } from '../../hooks/mailReply.js';
 import {
   makeRoutedDelivery,
   makeTerminalDelivery,
+  type DeliveryChannel,
   type MessageRoute,
 } from '../../workflow/messageDelivery.js';
 import {
@@ -50,8 +50,8 @@ export interface MailDeliveryWiringDeps {
   /** The recipient's agy session has not reported idle (typed route only). */
   agyBusy: (ticketId: number) => boolean;
   nudge: (ticketId: number, line: string) => boolean;
-  /** The RECIPIENT session's exported CLI refs. */
-  sessionCliEnv: (ticketId: number) => ExportedCliEnv | undefined;
+  /** How the RECIPIENT session reaches karst (`cli-env` when unknown). */
+  sessionChannel: (ticketId: number) => DeliveryChannel;
   /**
    * The RECIPIENT's current live core, from IN-MEMORY session identity only.
    * Deliberately not the configured provider: this same closure backs the
@@ -59,7 +59,6 @@ export interface MailDeliveryWiringDeps {
    * path. A session with no recorded identity falls to the typed route.
    */
   sessionProvider: (ticketId: number) => string | null | undefined;
-  literal: () => CliTokens;
   /** The generation barrier for the reply channel. */
   isCurrentHook: (ticketId: number, launchId: string | undefined) => boolean;
   /**
@@ -110,8 +109,7 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     graphOwned: deps.graphOwned,
     agyBusy: deps.agyBusy,
     nudge: deps.nudge,
-    sessionCliEnv: deps.sessionCliEnv,
-    literal: deps.literal,
+    sessionChannel: deps.sessionChannel,
   });
   const routeFor = (ticketId: number): MessageRoute =>
     messageRouteFor(deps.sessionProvider(ticketId), CODEX_STOP_BLOCK_SUPPORTED);
@@ -168,8 +166,7 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     unreadWatermark: (ticketId) => unreadCache.watermark(ticketId),
     isCurrent: deps.isCurrentHook,
     shouldReply: (ticketId) => replyEligible.has(ticketId),
-    sessionCliEnv: deps.sessionCliEnv,
-    literal: deps.literal,
+    sessionChannel: deps.sessionChannel,
     blockedAt,
     ...(deps.fixEligible !== undefined && deps.claimFixPointed !== undefined
       ? {

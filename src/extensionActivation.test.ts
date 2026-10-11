@@ -411,7 +411,7 @@ describe('extension activation', () => {
     // creation is the only surviving terminal→ticket link. Capture it, and
     // resolve every revived terminal's pid BEFORE the adoption scan runs —
     // otherwise the scan sees nothing and recovery launches a second agent.
-    expect(source).toContain('identity.remember(terminal, opts.env, opts.identity)');
+    expect(source).toContain('identity.remember(terminal, opts.env, opts.identity, opts.mcp)');
     expect(source).toContain(
       'vscode.window.terminals.map((terminal) => terminalIdentity.resolve(terminal))',
     );

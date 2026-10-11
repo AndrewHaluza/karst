@@ -10,6 +10,8 @@ export const KARST_DB_ENV = 'KARST_DB';
 export const KARST_PROJECT_ENV = 'KARST_PROJECT';
 /** Env key carrying the workspace manifest path, for `--manifest "$KARST_MANIFEST"`. */
 export const KARST_MANIFEST_ENV = 'KARST_MANIFEST';
+/** Env key carrying the numeric ticket id; exported on EVERY ticket terminal (unlike the key). */
+export const KARST_TICKET_ID_ENV = 'KARST_TICKET_ID';
 /** Env key carrying the ticket KEY (e.g. `NDL-7`); distinct from the numeric `KARST_TICKET_ID`. */
 export const KARST_TICKET_KEY_ENV = 'KARST_TICKET';
 /**

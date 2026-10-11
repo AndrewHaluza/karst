@@ -1,4 +1,4 @@
-import { cliTokensFor, quoteArg, type CliTokens, type ExportedCliEnv } from '../agent/cliEnv.js';
+import { envRef, karstCliRefs, KARST_TICKET_ID_ENV } from '../agent/cliEnv.js';
 
 /**
  * Mailbox delivery seam (vscode-free). The sweep decides WHEN a recipient is
@@ -85,14 +85,17 @@ function assertPositiveInt(n: number, what: string): void {
   if (!Number.isSafeInteger(n) || n < 1) throw new Error(`message pointer: ${what} must be a positive integer`);
 }
 
-/** Characters a literal path may not carry into a typed line. */
-const SHELL_META = /["$`\\']/;
+/**
+ * How a recipient session reaches karst: its registered MCP server (`mcp`) or
+ * the `"$KARST_*"` env refs every ticket terminal exports (`cli-env`).
+ */
+export type DeliveryChannel = 'mcp' | 'cli-env';
 
-/** Fixed wording, the CLI command and its extra flags per pointer kind. */
+/** Fixed wording, the CLI command and MCP tool (same name) per pointer kind. */
 const POINTER_TEXT = {
-  mail: { lead: (p: { unread: number }) => `${p.unread} new message(s)`, command: 'inbox', extraArgs: [] },
-  notes: { lead: (p: { unread: number }) => `${p.unread} new project note(s)`, command: 'notes', extraArgs: [] },
-  fix: { lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`, command: 'fix-brief', extraArgs: ['--ack'] },
+  mail: { lead: (p: { unread: number }) => `${p.unread} new message(s)`, command: 'inbox', ack: false },
+  notes: { lead: (p: { unread: number }) => `${p.unread} new project note(s)`, command: 'notes', ack: false },
+  fix: { lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`, command: 'fix-brief', ack: true },
 } as const;
 
 function pointerLead(pointer: MessagePointer): string {
@@ -110,39 +113,19 @@ function pointerLead(pointer: MessagePointer): string {
 }
 
 /**
- * The pointer line: fixed text, the unread count, and the kind's CLI command
- * (`inbox` or `notes`) in the recipient session's env (refs when it exported
- * them, literal host paths and the numeric id otherwise). `null` when a literal
- * path carries a shell metacharacter — nothing is typed then.
+ * The pointer line: fixed text, the unread count, and how to fetch the body —
+ * the karst MCP tool when the session registered it, otherwise the CLI command
+ * through the session's `"$KARST_*"` env refs. Never a host path.
  */
-export function messagePointer(
-  pointer: MessagePointer,
-  toTicketId: number,
-  exported: ExportedCliEnv | undefined,
-  literal: CliTokens,
-): string | null {
-  const { command, extraArgs } = POINTER_TEXT[pointer.kind];
+export function messagePointer(pointer: MessagePointer, channel: DeliveryChannel): string {
+  const { command, ack } = POINTER_TEXT[pointer.kind];
   const lead = pointerLead(pointer);
-  assertPositiveInt(toTicketId, 'ticket id');
-  const tok = cliTokensFor(exported, { ...literal, ticket: String(toTicketId) });
-  const literals = [tok.cli, tok.db, tok.manifest].filter(
-    (t): t is string => t !== undefined && (t === literal.cli || t === literal.db || t === literal.manifest),
-  );
-  // A literal is typed into a shell as-is: refuse rather than escape.
-  if (literals.some((t) => SHELL_META.test(t))) return null;
-  const arg = (t: string): string => quoteArg(printable(t));
-  const ticket = tok.ticket === String(toTicketId) ? String(toTicketId) : arg(tok.ticket ?? '');
-  const parts = [
-    'node',
-    arg(tok.cli),
-    command,
-    ...extraArgs,
-    '--db',
-    arg(tok.db),
-    ...(tok.manifest ? ['--manifest', arg(tok.manifest)] : []),
-    '--ticket',
-    ticket,
-  ];
+  if (channel === 'mcp') {
+    return printable(`karst: ${lead} - call the karst MCP tool "${command}"${ack ? ' with ack: true' : ''}`);
+  }
+  // Only refs every ticket terminal exports: the key and manifest are optional at launch.
+  const refs = karstCliRefs();
+  const parts = ['node', refs.cli, command, ...(ack ? ['--ack'] : []), '--db', refs.db, '--ticket', envRef(KARST_TICKET_ID_ENV)];
   return printable(`karst: ${lead} - run ${parts.join(' ')}`);
 }
 
@@ -160,8 +143,8 @@ export interface TerminalDeliveryDeps {
    */
   agyBusy?: (ticketId: number) => boolean;
   nudge: (ticketId: number, line: string) => boolean;
-  sessionCliEnv: (ticketId: number) => ExportedCliEnv | undefined;
-  literal: () => CliTokens;
+  /** How the recipient's live session reaches karst (`cli-env` when unknown). */
+  sessionChannel: (ticketId: number) => DeliveryChannel;
 }
 
 /** v1: nudge the recipient's live terminal with the pointer line. */
@@ -171,8 +154,7 @@ export function makeTerminalDelivery(deps: TerminalDeliveryDeps): MessageDeliver
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
       // agy only: hold the pointer until the turn ends, then the sweep retries.
       if (deps.agyBusy?.(toTicketId)) return 'deferred';
-      const line = messagePointer(pointer, toTicketId, deps.sessionCliEnv(toTicketId), deps.literal());
-      if (line === null) return 'deferred';
+      const line = messagePointer(pointer, deps.sessionChannel(toTicketId));
       return deps.nudge(toTicketId, line) ? 'delivered' : 'deferred';
     },
   };

@@ -6,15 +6,14 @@ import { mcpServersConfig, type McpConnection } from '../agent/mcpConfig.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import {
   KARST_DB_ENV,
-  exportedCliEnv,
   sessionCliEnv,
-  type ExportedCliEnv,
 } from '../agent/cliEnv.js';
 import { measureSeed, type SeedTelemetry } from '../agent/seed.js';
 import type { SessionInstructions } from '../agent/instructions.js';
 import { submitDelayFor } from '../agent/registry.js';
 import { NudgeQueue, type NudgeHooks } from './nudgeQueue.js';
 import { formatId } from '../model/entityId.js';
+import type { DeliveryChannel } from '../workflow/messageDelivery.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -80,6 +79,8 @@ export interface RestoredSession {
   launchId?: string;
   /** Provider/model snapshot recovered from the terminal's durable pid record. */
   identity?: SessionIdentity;
+  /** The terminal's launch registered the karst MCP server (durable pid record). */
+  mcp?: boolean;
   /**
    * The terminal's process has already exited (real: `Terminal.exitStatus`).
    * A dead tab still sits in the terminal list, so adopting one would hand the
@@ -187,6 +188,8 @@ export interface CreateTerminalOpts {
   env: Record<string, string>;
   /** Host-only identity persisted beside the terminal pid, never put in env. */
   identity?: SessionIdentity;
+  /** The session registered the karst MCP server; persisted beside the pid. */
+  mcp?: boolean;
   /** Keep automated continuations out of the visible terminal UI. */
   hideFromUser?: boolean;
   /** File path to a tinted icon SVG (real: mapped to `vscode.Uri.file`). */
@@ -308,11 +311,11 @@ interface TrackedSession {
   /** The recorded active provider/model snapshot of this session's launch. */
   identity?: SessionIdentity;
   /**
-   * Which karst CLI refs this session's env exported at launch. Absent for a
-   * session this window did not launch (revived/adopted): text sent into it
-   * must use literal paths.
+   * The session registered the karst MCP server at launch. Persisted beside
+   * the terminal pid, so a revived/adopted session restores it; absent means
+   * "no MCP" and pointers fall back to the `"$KARST_*"` CLI line.
    */
-  cliEnv?: ExportedCliEnv;
+  mcp?: boolean;
   /**
    * The launching adapter's measured typed-submit delay. Absent for a revived
    * or adopted handle this window did not launch — `nudge` then resolves it
@@ -409,7 +412,7 @@ export class SessionManager {
     wasResume = false,
     options: OpenSessionOptions = {},
     identity?: SessionIdentity,
-    cliEnv?: ExportedCliEnv,
+    mcp?: boolean,
     submitDelayMs?: number,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
@@ -417,7 +420,7 @@ export class SessionManager {
       terminal,
       ...(launchId ? { launchId } : {}),
       ...(identity ? { identity } : {}),
-      ...(cliEnv ? { cliEnv } : {}),
+      ...(mcp ? { mcp: true } : {}),
       ...(submitDelayMs !== undefined ? { submitDelayMs } : {}),
     });
     terminal.onDidClose((exitCode) => {
@@ -528,6 +531,13 @@ export class SessionManager {
       return;
     }
 
+    // Every ticket terminal exports KARST_CLI + KARST_DB: pointers delivered
+    // into it name `"$KARST_*"` refs, never host paths. No entry, no launch.
+    if (!options.cliEntry || !options.dbPath) {
+      throw new Error(
+        `Cannot open a session for ${formatId('ticket', ticketId)}: the karst CLI entry or database path is unavailable.`,
+      );
+    }
     // Resolved ONCE and used for both the terminal tab and the agent's own
     // session name: a session found later in the agent's resume picker must
     // read exactly like the terminal it ran in, or it can't be matched back to
@@ -598,6 +608,7 @@ export class SessionManager {
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
         ...(identity ? { identity } : {}),
+        ...(mcpConfigPath ? { mcp: true } : {}),
         ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
         ...(naming?.color ? { color: naming.color } : {}),
       });
@@ -619,7 +630,7 @@ export class SessionManager {
       Boolean(resume),
       options,
       identity,
-      exportedCliEnv(cliEnv),
+      Boolean(mcpConfigPath),
       adapter.capabilities.submitDelayMs,
     );
     if (options.reveal !== false) terminal.show();
@@ -683,7 +694,7 @@ export class SessionManager {
     if (session.exited) return { kind: 'ignored' };
     const disposition = classify(ticketId);
     if (disposition === 'ignore') return { kind: 'ignored' };
-    this.trackTerminal(ticketId, terminal, launchId, undefined, false, {}, session.identity);
+    this.trackTerminal(ticketId, terminal, launchId, undefined, false, {}, session.identity, session.mcp);
     this.onDidAdoptTerminal?.(ticketId, launchId);
     return { kind: 'adopted', disposition };
   }
@@ -709,6 +720,7 @@ export class SessionManager {
         false,
         {},
         session.identity,
+        session.mcp,
       );
       this.onDidAdoptTerminal?.(ticketId, session.launchId);
       return this.terminals.get(ticketId);
@@ -823,13 +835,13 @@ export class SessionManager {
   }
 
   /**
-   * Which karst CLI refs the ticket's live session exported at launch, or
-   * `undefined` when there is no session or this window did not launch it
-   * (revived/adopted) — the caller then composes literal paths
-   * (`cliTokensFor`). Text nudged into a session must resolve in ITS env.
+   * How the ticket's live session reaches karst, for pointer text nudged into
+   * it: `mcp` when it registered the MCP server at launch (persisted, so a
+   * revived terminal keeps it), otherwise `cli-env` — also the answer for no
+   * session or a terminal recorded by an older build.
    */
-  sessionCliEnv(ticketId: number): ExportedCliEnv | undefined {
-    return this.terminals.get(ticketId)?.cliEnv;
+  sessionChannel(ticketId: number): DeliveryChannel {
+    return this.terminals.get(ticketId)?.mcp ? 'mcp' : 'cli-env';
   }
 
   /**

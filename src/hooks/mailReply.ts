@@ -1,5 +1,4 @@
-import type { ExportedCliEnv, CliTokens } from '../agent/cliEnv.js';
-import { fixPointer, mailPointer, messagePointer } from '../workflow/messageDelivery.js';
+import { fixPointer, mailPointer, messagePointer, type DeliveryChannel } from '../workflow/messageDelivery.js';
 import type { HookReply, HookReplyFor } from './endpoint.js';
 import { formatId } from '../model/entityId.js';
 
@@ -53,10 +52,8 @@ export interface MailReplyDeps {
    * Defaults to true.
    */
   shouldReply?: (ticketId: number) => boolean;
-  /** The RECIPIENT session's exported CLI refs, or `undefined` for literals. */
-  sessionCliEnv: (ticketId: number) => ExportedCliEnv | undefined;
-  /** Literal CLI tokens for a session that exported none. */
-  literal: () => CliTokens;
+  /** How the RECIPIENT session reaches karst (`cli-env` when unknown). */
+  sessionChannel: (ticketId: number) => DeliveryChannel;
   /**
    * Per-TICKET record of the launch and unread watermark already blocked for.
    * Keyed by ticket, not launch, so a core switch overwrites the entry instead
@@ -90,8 +87,7 @@ function fixReply(deps: MailReplyDeps, ticketId: number, launchId: string | unde
   }
   const prev = deps.blockedAtFix.get(ticketId);
   if (prev !== undefined && prev.launchId === launchId && prev.deliveryId === deliveryId) return null;
-  const line = messagePointer(fixPointer(deliveryId), ticketId, deps.sessionCliEnv(ticketId), deps.literal());
-  if (line === null) return null;
+  const line = messagePointer(fixPointer(deliveryId), deps.sessionChannel(ticketId));
   if (!deps.claimFixPointed(ticketId, deliveryId)) return null;
   deps.blockedAtFix.set(ticketId, { launchId, deliveryId });
   deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: fix pointer #${deliveryId}`);
@@ -127,8 +123,7 @@ export function makeHookReply(deps: MailReplyDeps): HookReplyFor {
     const watermark = deps.unreadWatermark(ticketId);
     const prev = deps.blockedAt.get(ticketId);
     if (prev !== undefined && prev.launchId === launchId && prev.watermark === watermark) return null;
-    const line = messagePointer(mailPointer(unread), ticketId, deps.sessionCliEnv(ticketId), deps.literal());
-    if (line === null) return null;
+    const line = messagePointer(mailPointer(unread), deps.sessionChannel(ticketId));
     deps.blockedAt.set(ticketId, { launchId, watermark });
     deps.debug?.(`[driver] delivery reply ${formatId('ticket', ticketId)}: block (${unread} unread)`);
     const reply: HookReply = { decision: 'block', reason: line };

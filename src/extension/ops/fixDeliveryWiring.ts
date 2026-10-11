@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
-import type { ExportedCliEnv, CliTokens } from '../../agent/cliEnv.js';
+import type { CliTokens } from '../../agent/cliEnv.js';
 import type { NudgeHooks } from '../../ui/nudgeQueue.js';
-import { fixPointer, messagePointer } from '../../workflow/messageDelivery.js';
+import { fixPointer, messagePointer, type DeliveryChannel } from '../../workflow/messageDelivery.js';
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import {
   claimPointed,
@@ -65,7 +65,7 @@ export interface FixDeliveryWiringDeps {
   currentLaunchId: (ticketId: number) => string | undefined;
   /** Queue one typed line into the live terminal; false when none took it. */
   nudge: (ticketId: number, line: string, hooks: NudgeHooks) => boolean;
-  sessionCliEnv: (ticketId: number) => ExportedCliEnv | undefined;
+  sessionChannel: (ticketId: number) => DeliveryChannel;
   literal: () => CliTokens;
   /** agy has not reported idle (its TUI swallows a line typed mid-turn). */
   agyBusy: (ticketId: number) => boolean;
@@ -101,8 +101,7 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     sendPointer: (id, deliveryId, hooks): TypedSendResult => {
       if (!deps.isLive(id) || deps.isGraphTicket(id)) return 'unavailable';
       if (deps.agyBusy(id)) return 'held';
-      const line = messagePointer(fixPointer(deliveryId), id, deps.sessionCliEnv(id), deps.literal());
-      if (line === null) return 'pointer-null';
+      const line = messagePointer(fixPointer(deliveryId), deps.sessionChannel(id));
       return deps.nudge(id, line, hooks) ? 'queued' : 'unavailable';
     },
     needsYou: (id, reason) => {

@@ -632,9 +632,8 @@ describe('mail reply channel', () => {
         nudges.push(line);
         return true;
       },
-      sessionCliEnv: () => undefined,
+      sessionChannel: () => 'cli-env',
       sessionProvider: () => 'claude',
-      literal: () => ({ cli: '/c.js', db: '/d.db' }),
       isCurrentHook: () => true,
     });
     postMessage(store, { projectId, fromTicketId: null, toTicketId: id, kind: 'message', body: 'hi' });

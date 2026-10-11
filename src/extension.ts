@@ -2009,7 +2009,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
     nudge: (id, line, hooks) => sessions.nudge(id, line, hooks),
-    sessionCliEnv: (id) => sessions.sessionCliEnv(id),
+    sessionChannel: (id) => sessions.sessionChannel(id),
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
@@ -2041,9 +2041,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     nudge: (id, line) => sessions.nudge(id, line),
-    sessionCliEnv: (id) => sessions.sessionCliEnv(id),
+    sessionChannel: (id) => sessions.sessionChannel(id),
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
-    literal: () => cliLiteral(context, dbPath),
     isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
     fixEligible: fixDelivery.eligible,
     claimFixPointed: fixDelivery.claimPointed,
@@ -7332,6 +7331,7 @@ interface TerminalIdentityRegistry {
     terminal: vscode.Terminal,
     env: Record<string, string>,
     identity?: SessionIdentity,
+    mcp?: boolean,
   ): void;
   /** Release a ticket's record — its terminal closed, freeing the pid. */
   forget(ticketId: number): void;
@@ -7399,7 +7399,7 @@ function makeTerminalIdentityRegistry(
         records,
         lookupIdentity,
       ),
-    remember: (terminal, env, sessionIdentity) => {
+    remember: (terminal, env, sessionIdentity, mcp) => {
       const ticketId = ticketIdFromTerminalEnv(env);
       if (ticketId === undefined) return;
       const launchId = env[KARST_LAUNCH_ENV];
@@ -7417,6 +7417,7 @@ function makeTerminalIdentityRegistry(
             ...(launchId ? { launchId } : {}),
             ...(sessionIdentity ? { identity: sessionIdentity } : {}),
             ...(graph ? { graph: true as const } : {}),
+            ...(mcp ? { mcp: true as const } : {}),
           }),
         );
         // The live-pid registry (the resource monitor) is keyed by ticket and a
@@ -7472,6 +7473,7 @@ function restoredSessionOf(
     ticketId: named.ticketId,
     ...(named.launchId ? { launchId: named.launchId } : {}),
     ...(named.identity ? { identity: named.identity } : {}),
+    ...(named.mcp ? { mcp: true } : {}),
     ...(terminal.exitStatus !== undefined ? { exited: true } : {}),
     terminal: wrapTerminal(terminal),
   };
@@ -7549,7 +7551,7 @@ function makeTerminalHost(identity: TerminalIdentityRegistry): TerminalHost {
       });
       // Capture the launch pid NOW: it is what re-identifies this terminal
       // after a reload strips the env that carries the ticket today.
-      identity.remember(terminal, opts.env, opts.identity);
+      identity.remember(terminal, opts.env, opts.identity, opts.mcp);
       return wrapTerminal(terminal);
     },
     restoredSessions: () =>

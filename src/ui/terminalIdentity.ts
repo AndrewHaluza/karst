@@ -37,6 +37,8 @@ export interface SessionTerminalRecord {
   readonly pid: number;
   /** The exact provider/model snapshot supplied to the terminal launch. */
   readonly identity?: SessionIdentity;
+  /** The launch registered the karst MCP server (pointers then name the tool). */
+  readonly mcp?: true;
   /**
    * A GRAPH-owned terminal (a node or planner session), not a ticket session.
    * The graph transport keys its sessions by run id and a graphing ticket has
@@ -52,6 +54,8 @@ export interface TerminalIdentity {
   readonly ticketId: number;
   readonly launchId?: string;
   readonly identity?: SessionIdentity;
+  /** The launch registered the karst MCP server (see `SessionTerminalRecord.mcp`). */
+  readonly mcp?: true;
   /** Graph-owned (see `SessionTerminalRecord.graph`). */
   readonly graph?: true;
 }
@@ -93,12 +97,14 @@ function identity(
   launchId?: string,
   sessionIdentity?: SessionIdentity,
   graph?: boolean,
+  mcp?: boolean,
 ): TerminalIdentity {
   return {
     ticketId,
     ...(launchId ? { launchId } : {}),
     ...(sessionIdentity ? { identity: sessionIdentity } : {}),
     ...(graph ? { graph: true as const } : {}),
+    ...(mcp ? { mcp: true as const } : {}),
   };
 }
 
@@ -128,6 +134,7 @@ export function identifyTerminal(
         ? record.identity
         : durableIdentity(fromEnv, launchId, lookupIdentity),
       graph,
+      record?.ticketId === fromEnv && record.mcp === true,
     );
   }
   if (probe.pid === undefined) return undefined;
@@ -137,6 +144,7 @@ export function identifyTerminal(
         record.launchId,
         record.identity ?? durableIdentity(record.ticketId, record.launchId, lookupIdentity),
         record.graph,
+        record.mcp === true,
       )
     : undefined;
 }
@@ -240,6 +248,7 @@ export function parseSessionTerminalRecords(raw: unknown): SessionTerminalRecord
       launchId,
       identity: rawIdentity,
       graph,
+      mcp,
     } = entry as Record<string, unknown>;
     if (!isPositiveInt(ticketId) || !isPositiveInt(pid)) continue;
     if (launchId !== undefined && typeof launchId !== 'string') continue;
@@ -252,6 +261,7 @@ export function parseSessionTerminalRecords(raw: unknown): SessionTerminalRecord
       // Anything but a literal `true` is not a graph record: a coerced value
       // would exempt a plain session terminal from the per-ticket rules.
       ...(graph === true ? { graph: true as const } : {}),
+      ...(mcp === true ? { mcp: true as const } : {}),
     });
   }
   return out;

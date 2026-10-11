@@ -199,8 +199,7 @@ describe('sub-task autostart + mailbox (e2e)', () => {
             nudges.push({ id, line });
             return true;
           },
-          sessionCliEnv: () => undefined,
-          literal: () => ({ cli: '/opt/karst/cli.js', db: dbPath }),
+          sessionChannel: () => 'cli-env',
         }),
         isLive: () => false,
         isGraphTicket: () => false,
@@ -239,7 +238,7 @@ describe('sub-task autostart + mailbox (e2e)', () => {
       expect(nudges[0]!.id).toBe(parentId);
       expect(nudges[0]!.line).toContain('inbox');
       expect(nudges[0]!.line).not.toContain('first');
-      expect(nudges[0]!.line).toContain('/opt/karst/cli.js');
+      expect(nudges[0]!.line).toContain('"$KARST_CLI"');
 
       cli(kidKey, kidKey, 'message', 'send', '--to', 'parent', '--body', 'second');
       sweep.sweep();
