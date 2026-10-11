@@ -28,6 +28,10 @@ export const SEED_BUDGETS = {
    *  prompt-metrics baseline as the other budgets — see
    *  docs/superpowers/plans/2026-09-07-seed-budget.md. */
   testerCriteria: 8_000,
+  /** Canonical black-box intent charter (Goal / Scenarios / Not in scope). */
+  intent: 3000,
+  /** Opt-in unverified code pointers — a short hint list, implementer only. */
+  codePointers: 1200,
 } as const;
 
 /**

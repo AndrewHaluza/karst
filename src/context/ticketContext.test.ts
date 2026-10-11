@@ -1665,3 +1665,61 @@ describe('sub-task PRs', () => {
     expect(md).not.toContain('#12');
   });
 });
+
+describe('ticket context — intent and code pointers', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  const INTENT = '## Goal\ng\n\n## Scenarios\n- Given a, when b, then c';
+
+  function contextWith(fields: { intent?: string; codePointers?: string }) {
+    const t = createTicket(store, { key: 'PROJ-9', title: 'Do research' });
+    updateTicketFields(store, t.id, { description: 'P', ...fields });
+    return buildTicketContext(store, undefined, t.id);
+  }
+
+  it('buildTicketContext carries intent and codePointers, null when unset', () => {
+    expect(contextWith({ intent: INTENT, codePointers: '- a.ts — x' })).toMatchObject({
+      intent: INTENT,
+      codePointers: '- a.ts — x',
+    });
+    expect(contextWith({})).toMatchObject({ intent: null, codePointers: null });
+  });
+
+  it('renders code pointers labelled as unverified hints directly after the prompt', () => {
+    const md = renderTicketContext(contextWith({ codePointers: '- a.ts — x' }));
+    expect(md).toContain(
+      '## Prompt\nP\n\n## Code pointers (unverified hints)\nVerify before relying on them.\n- a.ts — x',
+    );
+  });
+
+  it('renders intent under ## Intent with nested headings demoted to ###', () => {
+    const md = renderTicketContext(contextWith({ intent: INTENT }));
+    expect(md).toContain('## Intent\n### Goal\ng\n\n### Scenarios\n- Given a, when b, then c');
+    expect(md).not.toMatch(/^## Goal/m);
+  });
+
+  it('omits both sections when null', () => {
+    const md = renderTicketContext(contextWith({}));
+    expect(md).not.toContain('Code pointers');
+    expect(md).not.toContain('## Intent');
+  });
+
+  it('omits both from the facts-only half (they are authored text)', () => {
+    const md = renderTicketContext(contextWith({ intent: INTENT, codePointers: '- a.ts — x' }), undefined, {
+      sections: 'facts',
+    });
+    expect(md).not.toContain('Code pointers');
+    expect(md).not.toContain('## Intent');
+  });
+
+  it('bounds both to their seed budgets, but not when unbounded', () => {
+    const longPointers = '- a.ts — ' + 'x'.repeat(SEED_BUDGETS.codePointers + 500);
+    const ctx = contextWith({ codePointers: longPointers });
+    const bounded = renderTicketContext(ctx);
+    expect(bounded).toContain(truncateToBudget(longPointers.trim(), SEED_BUDGETS.codePointers, 'PROJ-9').text);
+    expect(bounded).not.toContain(longPointers);
+    expect(renderTicketContext(ctx, undefined, { bounded: false })).toContain(longPointers);
+  });
+});
