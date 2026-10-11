@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, join } from 'node:path';
 
 import { isSafeTreePath } from '../../artifacts/skipRules.js';
 import { createArtifactCountCache, type ArtifactCountCache } from '../../artifacts/countCache.js';
@@ -85,16 +85,16 @@ export function makeStoredArtifactActions(deps: StoredArtifactDeps): StoredArtif
     },
 
     async openStoredLive(path) {
-      if (!(await known(path)) || !isSafeTreePath(path)) {
+      if (!isSafeTreePath(path) || !path.includes('/') || !(await known(path))) {
         notify.warn(GONE);
         return;
       }
+      // `isSafeTreePath` already ruled out `..`, absolute and empty segments, so a
+      // join under the worktree cannot leave it.
       const slash = path.indexOf('/');
-      const repo = path.slice(0, slash);
-      const wt = deps.worktrees().find((w) => w.repo === repo);
-      const abs = wt ? resolve(join(wt.path, path.slice(slash + 1))) : '';
-      const rel = wt ? relative(resolve(wt.path), abs) : '';
-      if (!wt || rel === '' || rel.startsWith('..') || !existsSync(abs)) {
+      const wt = deps.worktrees().find((w) => w.repo === path.slice(0, slash));
+      const abs = wt ? join(wt.path, path.slice(slash + 1)) : '';
+      if (!wt || !existsSync(abs)) {
         notify.warn('The live file is gone from the worktree — only stored revisions remain.');
         return;
       }
@@ -157,7 +157,8 @@ export function makeStoredArtifactActionsForTicket(
       artifactsRoot,
       projectId: findTicketById(registry, deps.ticketId)?.projectId ?? fallbackProjectId ?? 0,
     }),
-    worktrees: () => listWorktreesByTicket(registry, deps.ticketId).map((w) => ({ repo: w.repo, path: w.path })),
+    // `worktrees.repo` holds the repo PATH; the store keys files by its basename (capture.ts).
+    worktrees: () => listWorktreesByTicket(registry, deps.ticketId).map((w) => ({ repo: basename(w.repo), path: w.path })),
   });
 }
 
