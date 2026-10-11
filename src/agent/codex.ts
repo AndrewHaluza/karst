@@ -17,6 +17,7 @@ import {
   join,
 } from 'node:path';
 import { tmpdir } from 'node:os';
+import { toStrictSchema } from './strictSchema.js';
 import type {
   AgentAdapter,
   AgentCapabilities,
@@ -699,7 +700,7 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.outputSchema) {
       const dir = mkdtempSync(join(tmpdir(), 'karst-schema-'));
       schemaFile = join(dir, 'output-schema.json');
-      writeFileSync(schemaFile, JSON.stringify(opts.outputSchema));
+      writeFileSync(schemaFile, JSON.stringify(toStrictSchema(opts.outputSchema)));
       args.push('--output-schema', schemaFile);
       opts.debug?.(
         `[agent:codex] structured output: enforcing --output-schema ${schemaFile} on the final response`,
