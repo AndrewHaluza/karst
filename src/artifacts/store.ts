@@ -15,6 +15,8 @@ export interface RevisionTrailers {
   phase?: string;
   kind?: string;
   source?: string;
+  /** Extra trailers (e.g. the alignment report's fingerprints), written verbatim. */
+  [extra: string]: string | undefined;
 }
 
 export type RevisionInput = {

@@ -338,6 +338,10 @@ export interface OutputDef {
  * (at most one). `source` is absent for hand-authored/custom approaches (no fetch).
  * Extensible: custom approaches are just more entries.
  */
+/** One edge of the artifact chain intent → spec → plan (reviewer conformance). */
+export type ChainEdge = 'intent-spec' | 'spec-plan' | 'intent-plan';
+export const CHAIN_EDGES: readonly ChainEdge[] = ['intent-spec', 'spec-plan', 'intent-plan'];
+
 export interface ApproachDef {
   id: string;
   label: string;
@@ -348,6 +352,8 @@ export interface ApproachDef {
   workflow?: WorkflowPhase[];
   /** Where this approach writes artifacts; absent = built-in defaults (`effectiveOutputs`). */
   outputs?: OutputDef[];
+  /** Chain edges this approach verifies itself; karst skips them. Absent = built-in table. */
+  checks?: ChainEdge[];
   enabled?: boolean; // default true
   /** Nested graph-runtime configuration; present only on graph approaches. */
   graph?: GraphApproachConfig;

@@ -320,3 +320,28 @@ describe('approach outputs round-trip', () => {
     }
   });
 });
+
+describe('approach checks round-trip', () => {
+  it('survives load → writeManifest → load, and unknown edges fail at load', () => {
+    const { path, cleanup } = fixture();
+    try {
+      writeFileSync(
+        path,
+        VALID + 'approaches:\n  - id: custom\n    label: Custom\n    checks: [intent-spec, spec-plan]\n',
+      );
+      const loaded = loadManifest(path);
+      expect(loaded.approaches![0]!.checks).toEqual(['intent-spec', 'spec-plan']);
+      writeManifest(path, loaded);
+      expect(loadManifest(path).approaches![0]!.checks).toEqual(['intent-spec', 'spec-plan']);
+
+      writeFileSync(path, VALID + 'approaches:\n  - id: custom\n    label: Custom\n    checks: [plan-code]\n');
+      expect(() => loadManifest(path)).toThrow(
+        /approaches\[0\]\.checks\[0\] must be one of intent-spec, spec-plan, intent-plan/,
+      );
+      writeFileSync(path, VALID + 'approaches:\n  - id: custom\n    label: Custom\n    checks: nope\n');
+      expect(() => loadManifest(path)).toThrow(/checks must be an array/);
+    } finally {
+      cleanup();
+    }
+  });
+});

@@ -43,7 +43,7 @@ export const FINDING_SEVERITIES: readonly Severity[] = [
  * criterion it exercised; it is schema-only for now (dropped at parse — the
  * shared `uat_findings` row has no such column), not persisted.
  */
-export function findingElementSchema(opts: { criterion?: boolean } = {}): JsonSchemaDocument {
+export function findingElementSchema(opts: { criterion?: boolean; requirement?: boolean } = {}): JsonSchemaDocument {
   return {
     type: 'object',
     additionalProperties: false,
@@ -55,6 +55,7 @@ export function findingElementSchema(opts: { criterion?: boolean } = {}): JsonSc
       file: { type: 'string' },
       line: { type: 'integer', minimum: 1 },
       ...(opts.criterion ? { criterion: { type: 'string' } } : {}),
+      ...(opts.requirement ? { requirement: { type: 'string' } } : {}),
     },
   };
 }
@@ -94,7 +95,7 @@ function findingsContainerSchema(element: JsonSchemaDocument): JsonSchemaDocumen
  *  array of the base element — the container form of the `OUTPUT_RULES_BASE`
  *  element line (see `findingsContainerSchema` for why it is not a bare array). */
 export const REVIEW_OUTPUT_SCHEMA: JsonSchemaDocument = findingsContainerSchema(
-  findingElementSchema(),
+  findingElementSchema({ requirement: true }),
 );
 
 /** The UAT Tester's output schema: the same `findings` container, whose element

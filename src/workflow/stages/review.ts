@@ -31,6 +31,7 @@ import {
   type AggregateEntry,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
+import type { ReviewArtifacts } from '../review/conformance.js';
 import type { WarnFn } from '../review/findings.js';
 
 /**
@@ -157,6 +158,11 @@ export interface ReviewDeps {
    * one bound to `Logger.warn` so these reach karst's output channel instead.
    */
   warn?: WarnFn;
+  /**
+   * The ticket's intent / spec / plan for the findings lane (merged conformance
+   * pass). Absent, or a rejection, runs the review exactly as before.
+   */
+  loadArtifacts?: () => Promise<ReviewArtifacts | undefined>;
 }
 
 export async function runReview(
@@ -541,6 +547,15 @@ export async function runReview(
   // the base branch no longer reads as "no changes" (fu1).
   const branchByRepo = new Map(worktrees.map((w) => [w.repo, w.branch]));
 
+  let artifacts: ReviewArtifacts | undefined;
+  try {
+    const loaded = await deps.loadArtifacts?.();
+    artifacts = loaded ? { ...loaded, targets: targets.map((t) => t.repo) } : undefined;
+  } catch (err) {
+    // Never fail the stage over the artifacts: review runs as it always did.
+    opts.debug?.(`[gate] review ticket ${opts.ticketId}: artifacts unavailable (${String(err)})`);
+  }
+
   // Resolves the config default, and (spec §8.14) skips the AI call entirely
   // when R3/R4/R5 already decided the run — see `planAndRunFindingsLane`.
   const { outcome: findingsLane, blockingSeverity } = await planAndRunFindingsLane({
@@ -552,6 +567,7 @@ export async function runReview(
       branch: branchByRepo.get(t.repo) ?? null,
     })),
     findingsConfig: opts.manifest?.review?.findings,
+    artifacts,
     adapter: findingsAdapter,
     ticketId: opts.ticketId,
     signal: opts.signal,

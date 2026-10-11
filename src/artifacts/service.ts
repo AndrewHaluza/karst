@@ -11,7 +11,7 @@ import type { GitRunner } from '../integrations/git.js';
 import type { Manifest } from '../manifest/types.js';
 import type { Store } from '../store/db.js';
 import { listWorktreesByProject, listWorktreesByTicket } from '../store/dashboard.js';
-import { captureWorktree, type CaptureDeps, type CaptureTarget } from './capture.js';
+import { captureWorktree, type CaptureDeps, type CaptureTarget, type RevisionEvent } from './capture.js';
 import { hookTrailers, locateHookEdit } from './hookEdit.js';
 import { mirrorGraphArtifacts } from './graphMirror.js';
 import { createArtifactStore, type ArtifactStore } from './store.js';
@@ -28,6 +28,8 @@ export interface ArtifactCaptureServiceDeps {
   git: GitRunner;
   watch: FsWatch;
   debug: (message: string) => void;
+  /** Notified after every captured revision (e.g. the artifact alignment trigger). */
+  onRevision?: (event: RevisionEvent) => void;
 }
 
 export interface AgentEdit {
@@ -77,6 +79,7 @@ export function createArtifactCaptureService(deps: ArtifactCaptureServiceDeps): 
     },
     trailers: (ticketId, output) => resolveTrailers(deps.store, ticketId, output),
     debug: deps.debug,
+    ...(deps.onRevision ? { onRevision: deps.onRevision } : {}),
   });
 
   const watcher = createWorktreeWatcher({

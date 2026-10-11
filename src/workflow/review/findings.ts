@@ -541,6 +541,9 @@ function parseOneFinding(
 
   const fileResolution = resolveFileField(item['file'], ctx);
   const line = fileResolution.file === null ? null : parseLine(item['line']);
+  const rawReq = item['requirement'];
+  const requirement =
+    typeof rawReq === 'string' && rawReq.trim() !== '' ? collapseDiagnostic(rawReq.trim(), 120) : null;
 
   return {
     finding: {
@@ -551,6 +554,7 @@ function parseOneFinding(
       title: collapseDiagnostic(title, TITLE_MAX),
       detail: collapseDiagnostic(detail, DETAIL_MAX),
       source: AGENT_SOURCE,
+      ...(requirement !== null ? { requirement } : {}),
     },
     fileRejection: fileResolution.rejection,
   };

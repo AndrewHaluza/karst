@@ -50,6 +50,12 @@ export interface FindingInput {
   title: string;
   detail: string;
   source: FindingSource;
+  /**
+   * The intent scenario / spec requirement a conformance finding is about.
+   * NOT persisted (the insert maps named columns): it only keys the lane's
+   * cross-repo reconcile, like the tester's `criterion`.
+   */
+  requirement?: string | null;
 }
 
 export interface FindingBatch {

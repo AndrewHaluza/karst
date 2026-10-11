@@ -127,6 +127,26 @@ export interface ScopeBlockOpts {
 }
 
 /**
+ * The primary diff-range expression the scope block renders (no backticks, no
+ * prose): `origin/<base>...origin/<branch>` (or `...HEAD`), or
+ * `origin/<base>...<snapshot>` with a snapshot ref. Null when no base ref is
+ * known — the block then renders the `<base-branch>` placeholder, which is not
+ * a probeable range. Shared with the review lane's non-empty-range probe.
+ */
+export function scopeDiffRange(
+  baseRef?: string | null,
+  branch?: string | null,
+  snapshotRef?: string | null,
+): string | null {
+  const base = baseRef?.trim() || null;
+  if (base === null) return null;
+  const snapshot = snapshotRef?.trim() || null;
+  if (snapshot !== null) return `origin/${base}...${snapshot}`;
+  const head = branch && branch.trim() !== '' ? `origin/${branch}` : 'HEAD';
+  return `origin/${base}...${head}`;
+}
+
+/**
  * The diff line the agent should start from — the exact range, never a guess.
  * Returned as a whole line rather than a bare command because the fallback ref
  * needs its own code span: nesting one backtick pair inside another produced a

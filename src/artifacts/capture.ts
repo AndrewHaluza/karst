@@ -21,6 +21,16 @@ export interface CaptureDeps {
   outputs: () => readonly TaggedOutput[];
   trailers: (ticketId: number, output: TaggedOutput) => RevisionTrailers;
   debug: (message: string) => void;
+  /** Fired after each committed revision; a throwing listener never fails the capture. */
+  onRevision?: (event: RevisionEvent) => void;
+}
+
+export interface RevisionEvent {
+  ticketId: number;
+  kind: string;
+  sha: string;
+  /** Tree path: `<repo>/<relPath>`. */
+  path: string;
 }
 
 export interface CaptureTarget {
@@ -54,18 +64,21 @@ export async function captureWorktree(
       if (only !== undefined && !only.has(change.relPath)) continue;
       const output = matchOutput(outputs, change.relPath);
       if (output === undefined) continue;
-      const input = {
-        ticketId: target.ticketId,
-        repo,
-        relPath: change.relPath,
-        trailers: deps.trailers(target.ticketId, output),
-      };
+      const trailers = deps.trailers(target.ticketId, output);
+      const input = { ticketId: target.ticketId, repo, relPath: change.relPath, trailers };
       const sha = await deps.store.commitRevision(
         change.kind === 'deleted'
           ? { ...input, deleted: true }
           : { ...input, sourcePath: join(target.worktreePath, change.relPath) },
       );
-      if (sha !== null) committed += 1;
+      if (sha !== null) {
+        committed += 1;
+        try {
+          deps.onRevision?.({ ticketId: target.ticketId, kind: trailers.kind ?? output.kind, sha, path: `${repo}/${change.relPath}` });
+        } catch (err) {
+          debug(`[artifacts] revision listener failed: ${String(err)}`);
+        }
+      }
     }
     debug(`[artifacts] captured ${committed} revision(s) from ${repo}`);
     return committed;

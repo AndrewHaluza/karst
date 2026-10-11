@@ -1077,3 +1077,100 @@ describe('runFindingsLane — disproven wrong-checkout claims', () => {
     expect(kept.map((f) => f.title)).toEqual(['unbounded loop']);
   });
 });
+
+describe('artifacts block in the findings prompt', () => {
+  it('survives custom instructions', () => {
+    const p = buildFindingsPrompt('api', 'main', 'b', 'MY CUSTOM STRATEGY', false, null, '/w', 'high', {
+      intent: '## Goal\ng',
+      spec: null,
+      plan: 'step',
+    });
+    expect(p).toContain('MY CUSTOM STRATEGY');
+    expect(p).toContain('## Goal\ng');
+    expect(p).toMatch(/ALWAYS "high"/);
+  });
+  it('no artifacts → byte-identical to the no-arg form', () => {
+    expect(
+      buildFindingsPrompt('api', 'main', 'b', undefined, false, null, '/w', 'high', { intent: null, spec: null, plan: null }),
+    ).toBe(buildFindingsPrompt('api', 'main', 'b', undefined, false, null, '/w', 'high'));
+  });
+  it('default strategy drops DIFF ONLY only when artifacts are present', () => {
+    const withA = buildFindingsPrompt('api', 'main', 'b', undefined, false, null, '/w', 'high', { intent: 'I', spec: null, plan: null });
+    expect(withA).not.toMatch(/DIFF ONLY/);
+    expect(withA).toMatch(/what the ticket requires that the diff fails to deliver/);
+    expect(buildFindingsPrompt('api', 'main', 'b')).toMatch(/DIFF ONLY/);
+  });
+});
+
+describe('cross-repo requirement reconcile (lane level)', () => {
+  const laneAdapter = (byCwd: Record<string, string | (() => never)>): AgentAdapter => ({
+    requiredBinary: 'fake',
+    capabilities: { lifecycleEvents: false, resume: false },
+    buildInteractiveCommand: () => {
+      throw new Error('not used');
+    },
+    runHeadless: async (opts) => {
+      const a = byCwd[opts.cwd]!;
+      if (typeof a !== 'string') a();
+      return { sessionId: '', verdict: null, raw: a as string };
+    },
+  });
+  /** No HEAD → branch range; the `diff --quiet` probe answers per cwd: 1 changes, 0 empty, 'error' unknown. */
+  const laneGit = (probe: Record<string, 1 | 0 | 'error'>): GitRunner => async (args, cwd) => {
+    if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: '', stderr: '', exitCode: 1 };
+    if (args[0] === 'diff' && args[1] === '--quiet') {
+      const v = probe[cwd] ?? 'error';
+      return v === 'error' ? { stdout: '', stderr: 'x', exitCode: 128 } : { stdout: '', stderr: '', exitCode: v };
+    }
+    return { stdout: '', stderr: '', exitCode: 1 };
+  };
+  const TWO = [
+    { repo: 'api', worktreePath: '/wt/api', baseRef: 'main', branch: 'karst/api' },
+    { repo: 'web', worktreePath: '/wt/web', baseRef: 'main', branch: 'karst/web' },
+  ];
+  const S1 = JSON.stringify([{ severity: 'high', title: 'S1 missing', detail: '', requirement: 'S1' }]);
+  async function run(
+    raws: Record<string, string | (() => never)>,
+    probe: Record<string, 1 | 0 | 'error'>,
+  ): Promise<string[]> {
+    const persisted: { requirement?: string | null }[] = [];
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: laneAdapter(raws),
+      git: laneGit(probe),
+      targets: TWO,
+      ticketId: 1,
+      persistFindings: (f) => persisted.push(...f),
+    });
+    return persisted.filter((f) => f.requirement).map((f) => f.requirement!);
+  }
+  const both = { '/wt/api': 1, '/wt/web': 1 } as const;
+
+  it('a crashed sibling does not cancel the gap', async () => {
+    expect(await run({ '/wt/api': S1, '/wt/web': () => { throw new Error('boom'); } }, both)).toEqual(['S1']);
+  });
+  it('an unreadable sibling does not cancel it', async () => {
+    expect(await run({ '/wt/api': S1, '/wt/web': 'pure prose, no findings array' }, both)).toEqual(['S1']);
+  });
+  it('an empty-range sibling (probe says no changes) does not cancel it', async () => {
+    expect(await run({ '/wt/api': S1, '/wt/web': '[]' }, { '/wt/api': 1, '/wt/web': 0 })).toEqual(['S1']);
+  });
+  it('a probe that cannot answer is a non-voter', async () => {
+    expect(await run({ '/wt/api': S1, '/wt/web': '[]' }, { '/wt/api': 1, '/wt/web': 'error' })).toEqual(['S1']);
+  });
+  it('an empty-diff observation on a non-empty range is still excluded', async () => {
+    const obs = JSON.stringify([{ severity: 'info', title: 'no changes to review', detail: '' }]);
+    expect(await run({ '/wt/api': S1, '/wt/web': obs }, both)).toEqual(['S1']);
+  });
+  it('a wrong-checkout claim makes the sibling a non-voter', async () => {
+    const claim = JSON.stringify([{ severity: 'critical', title: 'wrong checkout', detail: '' }]);
+    expect(await run({ '/wt/api': S1, '/wt/web': claim }, both)).toEqual(['S1']);
+  });
+  it('two readable voters, only one reports it → dropped', async () => {
+    const other = JSON.stringify([{ severity: 'low', title: 'style', detail: '' }]);
+    expect(await run({ '/wt/api': S1, '/wt/web': other }, both)).toEqual([]);
+  });
+  it('two readable voters both report it → persisted once', async () => {
+    expect(await run({ '/wt/api': S1, '/wt/web': S1 }, both)).toEqual(['S1']);
+  });
+});

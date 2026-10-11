@@ -19,6 +19,7 @@ import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.j
 import type { IntegrateOutcome } from './subtaskIntegration.js';
 import { runUat } from './stages/uat.js';
 import { runReview, type OpenDiff } from './stages/review.js';
+import type { ReviewArtifacts } from './review/conformance.js';
 import {
   parkFixStage,
   FIX_PARKED_EXHAUSTED,
@@ -127,6 +128,8 @@ export interface DriveTicketDeps {
    * and opens no process run.
    */
   reviewProcess?: (ticketId: number) => DriveProcessBundle | null;
+  /** Intent / spec / plan the review judges the change against; absent → review as before. */
+  reviewArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
   /**
    * The configured Fix process (Task 3): the `uat-fix` / `review-fix` role's
    * assignment and instrumented adapter, resolved by the gate that failed
@@ -442,6 +445,7 @@ export async function driveTicket(
               findingsAdapter: reviewProcess?.adapter,
               reviewProcess,
               warn: deps.warn,
+              loadArtifacts: deps.reviewArtifacts ? () => deps.reviewArtifacts!(id) : undefined,
             },
           );
         },
