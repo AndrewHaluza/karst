@@ -4,7 +4,10 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ArtifactStore } from '../../artifacts/store.js';
-import { makeStoredArtifactActions, type StoredArtifactDeps } from './storedArtifactOps.js';
+import type { Manifest } from '../../manifest/types.js';
+import { openStore } from '../../store/db.js';
+import { createTicket } from '../../store/tickets.js';
+import { makeStoredArtifactActions, makeStoredArtifactsLoader, type StoredArtifactDeps } from './storedArtifactOps.js';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);
@@ -112,5 +115,24 @@ describe('storedArtifactOps', () => {
     await actions.purgeStoredArtifacts();
     expect(store.purgeArtifacts).toHaveBeenCalledWith(1);
     expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('makeStoredArtifactsLoader', () => {
+  it('names the active outputs globs for a ticket with nothing stored', async () => {
+    const registry = openStore(':memory:');
+    const ticketId = createTicket(registry, { key: 'T-1', title: 't' }).id;
+    const manifest = {
+      approaches: [{ id: 'x', name: 'x', outputs: [{ glob: 'plans/**', kind: 'plan' }, { glob: 'plans/**', kind: 'spec' }] }],
+    } as unknown as Manifest;
+    const load = makeStoredArtifactsLoader({
+      registry, artifactsRoot: join(wt, 'artifacts'), manifest: () => manifest, fallbackProjectId: () => 3,
+    });
+    expect(await load(ticketId)).toEqual({ total: 0, groups: [], skips: [], globs: ['plans/**'] });
+    const none = makeStoredArtifactsLoader({
+      registry, artifactsRoot: join(wt, 'artifacts'), manifest: () => undefined, fallbackProjectId: () => undefined,
+    });
+    expect((await none(ticketId)).globs).toEqual([]);
+    registry.close();
   });
 });

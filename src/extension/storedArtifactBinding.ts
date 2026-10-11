@@ -1,9 +1,12 @@
 import * as vscode from 'vscode';
 
+import type { Manifest } from '../manifest/types.js';
+import type { StoredArtifactsView } from '../ui/dashboard/storedArtifacts.js';
 import type { Store } from '../store/db.js';
 import type { Notify } from './ops/notify.js';
 import {
   makeStoredArtifactActionsForTicket,
+  makeStoredArtifactsLoader,
   type StoredArtifactActions,
   type StoredArtifactUi,
 } from './ops/storedArtifactOps.js';
@@ -15,6 +18,7 @@ export interface StoredArtifactBindingDeps {
   notify: Notify;
   artifactsRoot: string;
   fallbackProjectId: () => number | undefined;
+  manifest: () => Manifest | undefined;
 }
 
 /**
@@ -29,6 +33,8 @@ const SCHEME = 'karst-artifact';
 /** Register the read-only scheme; `forTicket` binds one dashboard's actions to it. */
 export function createStoredArtifactBinding(deps: StoredArtifactBindingDeps): {
   forTicket: (ticketId: number, refresh: () => void) => StoredArtifactActions;
+  /** The dashboard loader: stored files + active outputs globs. */
+  load: (ticketId: number) => Promise<StoredArtifactsView>;
   dispose: () => void;
 } {
   const docs = new Map<string, string>();
@@ -70,6 +76,7 @@ export function createStoredArtifactBinding(deps: StoredArtifactBindingDeps): {
         ui,
         refresh,
       }),
+    load: makeStoredArtifactsLoader(deps),
     dispose: () => disposable.dispose(),
   };
 }

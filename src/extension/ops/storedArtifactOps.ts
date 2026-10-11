@@ -3,6 +3,9 @@ import { basename, join, relative, resolve } from 'node:path';
 
 import { isSafeTreePath } from '../../artifacts/skipRules.js';
 import { createArtifactStore, type ArtifactStore } from '../../artifacts/store.js';
+import { effectiveOutputs } from '../../approaches/outputs.js';
+import type { Manifest } from '../../manifest/types.js';
+import { buildStoredArtifacts, type StoredArtifactsView } from '../../ui/dashboard/storedArtifacts.js';
 import type { Store } from '../../store/db.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { findTicketById } from '../../store/tickets.js';
@@ -114,6 +117,26 @@ export function makeStoredArtifactActions(deps: StoredArtifactDeps): StoredArtif
       await store.purgeArtifacts(ticketId);
       deps.refresh();
     },
+  };
+}
+
+export interface StoredArtifactsLoaderDeps {
+  registry: Store;
+  artifactsRoot: string;
+  manifest: () => Manifest | undefined;
+  /** Used only when the ticket row carries no project. */
+  fallbackProjectId: () => number | undefined;
+}
+
+/** The dashboard's Artifacts view data for one ticket: its stored files plus the active outputs globs. */
+export function makeStoredArtifactsLoader(
+  deps: StoredArtifactsLoaderDeps,
+): (ticketId: number) => Promise<StoredArtifactsView> {
+  return (ticketId) => {
+    const manifest = deps.manifest();
+    const projectId = findTicketById(deps.registry, ticketId)?.projectId ?? deps.fallbackProjectId() ?? 0;
+    const globs = manifest ? [...new Set(effectiveOutputs(manifest).map((o) => o.glob))] : [];
+    return buildStoredArtifacts(createArtifactStore({ artifactsRoot: deps.artifactsRoot, projectId }), ticketId, globs);
   };
 }
 

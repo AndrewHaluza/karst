@@ -2821,7 +2821,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const storedArtifacts = createStoredArtifactBinding({
     registry: localStore, notify: vscodeNotify, artifactsRoot: join(context.globalStorageUri.fsPath, 'artifacts'),
-    fallbackProjectId: () => currentProject()?.id,
+    fallbackProjectId: () => currentProject()?.id, manifest: currentManifest,
   });
   context.subscriptions.push(storedArtifacts);
   const dashboard = new DashboardManager(
@@ -3134,6 +3134,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (ticketId) => serverLogsManager.open(ticketId),
     logger,
     buildBaselineRowsLoader({ store: localStore, manifest: currentManifest, storageRoot: baselineReviewRoot(context.globalStorageUri.fsPath) }),
+    storedArtifacts.load,
   );
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),
