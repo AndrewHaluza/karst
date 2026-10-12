@@ -39,6 +39,7 @@
  */
 
 import {
+  chmodSync,
   existsSync,
   linkSync,
   mkdirSync,
@@ -46,6 +47,7 @@ import {
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
@@ -128,6 +130,30 @@ function defaultHome(): string {
   return fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : homedir();
 }
 
+/** A non-empty environment variable, or `undefined`. */
+function envDir(value: string | undefined): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+/**
+ * Claude Code's global config file. It honors `CLAUDE_CONFIG_DIR` (the official
+ * override — the repo already reads it in `claudeTranscriptWatch.ts`), so the
+ * record must land at `$CLAUDE_CONFIG_DIR/.claude.json` or the CLI reads a
+ * different file than karst wrote. `opts.home` (tests) wins outright.
+ */
+function claudeConfigPath(opts: TrustOptions): string {
+  const base = opts.home ?? envDir(process.env.CLAUDE_CONFIG_DIR) ?? defaultHome();
+  return join(base, '.claude.json');
+}
+
+/** Codex's config: `$CODEX_HOME/config.toml` (the official override) or `~/.codex/config.toml`. */
+function codexConfigPath(opts: TrustOptions): string {
+  const dir = opts.home
+    ? join(opts.home, '.codex')
+    : (envDir(process.env.CODEX_HOME) ?? join(defaultHome(), '.codex'));
+  return join(dir, 'config.toml');
+}
+
 /**
  * The absolute, symlink-resolved path a core records for a launch directory.
  * macOS `/tmp` is a symlink to `/private/tmp` and the extension's globalStorage
@@ -175,58 +201,180 @@ export function codexProjectHeader(cwd: string): string {
   return `[projects.${JSON.stringify(trustKeyFor(cwd))}]`;
 }
 
+/** A TOML key: bare, or a basic/literal quoted string. */
+const TOML_KEY = String.raw`(?:[A-Za-z0-9_-]+|"(?:\\.|[^"\\])*"|'[^']*')`;
+/**
+ * A table header line `[key.path]` / `[[key.path]]`, allowing whitespace inside
+ * the brackets and a trailing comment. Requiring a KEY PATH (not just a leading
+ * `[`) is what keeps a lone array element like `[1, 2]` from looking like a
+ * header when scanning for the end of a table body.
+ */
+const TABLE_HEADER = new RegExp(
+  String.raw`^\s*\[\[?\s*${TOML_KEY}(?:\s*\.\s*${TOML_KEY})*\s*\]\]?\s*(?:#.*)?$`,
+);
+/** The `[projects."<cwd>"]` header for ONE directory (either quote style). */
+const PROJECTS_HEADER = new RegExp(
+  String.raw`^\s*\[\s*projects\s*\.\s*(?:"((?:\\.|[^"\\])*)"|'([^']*)')\s*\]\s*(?:#.*)?$`,
+);
+
+/**
+ * Does `line` open the `projects.<key>` table — accepting inner whitespace, a
+ * trailing comment and either quote style? Compared on the RAW inner text:
+ * `JSON.stringify` renders the same TOML basic string, so `\\` and `\"` are
+ * escaped identically on both sides.
+ */
+function isProjectHeader(line: string, key: string): boolean {
+  const m = PROJECTS_HEADER.exec(line);
+  if (!m) return false;
+  return m[1] === JSON.stringify(key).slice(1, -1) || m[2] === key;
+}
+
+interface TomlScan {
+  /** Open `[` depth — a table body ends only when this is 0. */
+  depth: number;
+  /** The open multi-line string, or null. */
+  multiline: '"' | "'" | null;
+}
+
+/** Advance the TOML scan state across one line (strings, comments, brackets). */
+function advanceToml(line: string, state: TomlScan): TomlScan {
+  let { depth, multiline } = state;
+  let i = 0;
+  while (i < line.length) {
+    if (multiline === '"') {
+      if (line.startsWith('"""', i)) {
+        multiline = null;
+        i += 3;
+        continue;
+      }
+      i += line[i] === '\\' ? 2 : 1;
+      continue;
+    }
+    if (multiline === "'") {
+      if (line.startsWith("'''", i)) {
+        multiline = null;
+        i += 3;
+        continue;
+      }
+      i += 1;
+      continue;
+    }
+    const ch = line[i]!;
+    if (ch === '#') break;
+    if (ch === '"' || ch === "'") {
+      if (line.startsWith(ch.repeat(3), i)) {
+        multiline = ch as '"' | "'";
+        i += 3;
+        continue;
+      }
+      i += 1;
+      while (i < line.length) {
+        if (ch === '"' && line[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (line[i] === ch) {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '[') depth += 1;
+    else if (ch === ']') depth -= 1;
+    i += 1;
+  }
+  return { depth, multiline };
+}
+
+/** The first line after `headerIndex` that opens another table (or EOF). */
+function codexTableEnd(lines: readonly string[], headerIndex: number): number {
+  let state: TomlScan = { depth: 0, multiline: null };
+  for (let i = headerIndex + 1; i < lines.length; i++) {
+    const line = lines[i]!;
+    if (state.depth === 0 && state.multiline === null && TABLE_HEADER.test(line)) return i;
+    state = advanceToml(line, state);
+  }
+  return lines.length;
+}
+
+/** Index of the first `#` outside a string on `line`, or -1. */
+function commentIndex(line: string): number {
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i]!;
+    if (ch === '#') return i;
+    if (ch === '"' || ch === "'") {
+      i += 1;
+      while (i < line.length) {
+        if (ch === '"' && line[i] === '\\') {
+          i += 2;
+          continue;
+        }
+        if (line[i] === ch) {
+          i += 1;
+          break;
+        }
+        i += 1;
+      }
+      continue;
+    }
+    i += 1;
+  }
+  return -1;
+}
+
+/** `trust_level = "trusted"`, keeping any trailing comment on the old line. */
+function trustedAssignment(line: string): string {
+  const at = commentIndex(line);
+  const comment = at >= 0 ? line.slice(at).trimEnd() : '';
+  return comment.length > 0 ? `trust_level = "trusted" ${comment}` : 'trust_level = "trusted"';
+}
+
 /**
  * Merge `[projects."<cwd>"] trust_level = "trusted"` into an existing codex
- * `config.toml`, leaving every other line byte-for-byte intact. An existing
- * table for the directory keeps its other keys and has its `trust_level`
- * replaced; an already-trusted table is left completely unchanged.
+ * `config.toml`, leaving every other line byte-for-byte intact. The existing
+ * table is located TOML-aware: a header with inner whitespace or a trailing
+ * comment still counts (never a second table — TOML forbids redefinition), the
+ * body ends at the next REAL header (a `[`-leading array element is not one),
+ * an existing `trust_level` is replaced keeping its trailing comment, and an
+ * already-trusted table is left completely unchanged.
  */
 export function mergeCodexTrustToml(
   existing: string,
   cwd: string,
 ): { changed: boolean; text: string } {
   const key = trustKeyFor(cwd);
-  const doubleQuoted = `[projects.${JSON.stringify(key)}]`;
-  const singleQuoted = `[projects.'${key}']`;
-  const isHeader = (line: string): boolean =>
-    line.trim() === doubleQuoted || line.trim() === singleQuoted;
-
   const lines = existing.split('\n');
-  const headerIndex = lines.findIndex(isHeader);
+  const headerIndex = lines.findIndex((line) => isProjectHeader(line, key));
   if (headerIndex === -1) {
     const base = existing.replace(/\s+$/, '');
-    const block = `${doubleQuoted}\ntrust_level = "trusted"\n`;
+    const block = `${codexProjectHeader(cwd)}\ntrust_level = "trusted"\n`;
     return { changed: true, text: base.length > 0 ? `${base}\n\n${block}` : block };
   }
 
-  // The table ends at the next table header (or EOF).
-  let end = lines.length;
-  for (let i = headerIndex + 1; i < lines.length; i++) {
-    if (/^\s*\[/.test(lines[i]!)) {
-      end = i;
-      break;
-    }
+  const end = codexTableEnd(lines, headerIndex);
+  const body = lines.slice(headerIndex + 1, end);
+  const trustIndex = body.findIndex((line) => /^\s*trust_level\s*=/.test(line));
+  if (trustIndex === -1) {
+    // No trust_level yet: insert one right after the header, inside the table.
+    const inserted = [
+      ...lines.slice(0, headerIndex + 1),
+      'trust_level = "trusted"',
+      ...lines.slice(headerIndex + 1),
+    ];
+    return { changed: true, text: inserted.join('\n') };
   }
-  const table = lines.slice(headerIndex + 1, end);
-  if (table.some((line) => /^\s*trust_level\s*=\s*"trusted"\s*$/.test(line))) {
+  const current = body[trustIndex]!;
+  if (/^\s*trust_level\s*=\s*"trusted"\s*(?:#.*)?$/.test(current)) {
     return { changed: false, text: existing };
   }
-  const rebuilt: string[] = [lines[headerIndex]!];
-  let inserted = false;
-  for (const line of table) {
-    if (/^\s*trust_level\s*=/.test(line)) {
-      if (!inserted) {
-        rebuilt.push('trust_level = "trusted"');
-        inserted = true;
-      }
-      continue;
-    }
-    rebuilt.push(line);
-  }
-  if (!inserted) rebuilt.push('trust_level = "trusted"');
+  const replaced = body.slice();
+  replaced[trustIndex] = trustedAssignment(current);
   return {
     changed: true,
-    text: [...lines.slice(0, headerIndex), ...rebuilt, ...lines.slice(end)].join('\n'),
+    text: [...lines.slice(0, headerIndex + 1), ...replaced, ...lines.slice(end)].join('\n'),
   };
 }
 
@@ -278,12 +426,21 @@ function configTarget(path: string): string {
   }
 }
 
-/** Write `body` to `path` via a temp file in the same directory, then rename. */
+/**
+ * Write `body` to `path` via a temp file in the same directory, then rename.
+ * The target's OWN mode is preserved (a 0600 config must not widen to 0644 —
+ * codex's config can hold MCP env values), and a brand-new file is created 0600
+ * because `~/.claude.json` carries account state.
+ */
 function writeFileAtomic(path: string, body: string): void {
   const target = configTarget(path);
   mkdirSync(dirname(target), { recursive: true });
+  const mode = statSync(target, { throwIfNoEntry: false })?.mode ?? 0o600;
   const temporary = `${target}.karst-trust-${process.pid}-${Date.now()}.tmp`;
   writeFileSync(temporary, body);
+  // chmod AFTER the write: `open`'s mode is masked by the umask, so only an
+  // explicit chmod preserves the exact original bits.
+  chmodSync(temporary, mode & 0o777);
   renameSync(temporary, target);
 }
 
@@ -361,7 +518,7 @@ export function releaseTrustLock(configPath: string): void {
  */
 export function ensureClaudeWorkspaceTrusted(cwd: string, opts: TrustOptions = {}): void {
   const debug = opts.debug ?? (() => {});
-  const path = join(opts.home ?? defaultHome(), '.claude.json');
+  const path = claudeConfigPath(opts);
 
   const first = readClaudeJson(path, debug);
   if (!first.ok) return;
@@ -406,7 +563,7 @@ export function ensureClaudeWorkspaceTrusted(cwd: string, opts: TrustOptions = {
  */
 export function ensureCodexWorkspaceTrusted(cwd: string, opts: TrustOptions = {}): void {
   const debug = opts.debug ?? (() => {});
-  const path = join(opts.home ?? defaultHome(), '.codex', 'config.toml');
+  const path = codexConfigPath(opts);
 
   const first = readTextFile(path, debug);
   if (first === null) return;

@@ -1,5 +1,6 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
+  chmodSync,
   existsSync,
   lstatSync,
   mkdtempSync,
@@ -7,6 +8,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -31,6 +33,7 @@ function tempDir(): string {
   return dir;
 }
 afterEach(() => {
+  vi.unstubAllEnvs();
   while (cleanups.length > 0) cleanups.pop()!();
 });
 
@@ -271,6 +274,49 @@ describe('mergeCodexTrustToml', () => {
     const existing = `[projects.'/karst/wt']\ntrust_level = "trusted"\n`;
     expect(mergeCodexTrustToml(existing, '/karst/wt').changed).toBe(false);
   });
+
+  it('recognises a header with a trailing comment — no duplicate table', () => {
+    const existing = '[projects."/karst/wt"] # my project\ntrust_level = "untrusted"\n';
+    const merged = mergeCodexTrustToml(existing, '/karst/wt');
+    expect(merged.changed).toBe(true);
+    expect(merged.text.match(/\[projects\."\/karst\/wt"\]/g)).toHaveLength(1);
+    expect(merged.text).toContain('trust_level = "trusted"');
+    expect(merged.text).not.toContain('untrusted');
+  });
+
+  it('recognises a header with inner whitespace — no duplicate table', () => {
+    const existing = '[ projects."/karst/wt" ]\ntrust_level = "untrusted"\n';
+    const merged = mergeCodexTrustToml(existing, '/karst/wt');
+    expect(merged.text.match(/projects/g)).toHaveLength(1);
+    expect(merged.text).toContain('trust_level = "trusted"');
+  });
+
+  it('keeps a trailing comment when it replaces trust_level', () => {
+    const existing = '[projects."/karst/wt"]\ntrust_level = "untrusted" # keep me\n';
+    expect(mergeCodexTrustToml(existing, '/karst/wt').text).toContain(
+      'trust_level = "trusted" # keep me',
+    );
+  });
+
+  it('does not mistake an array element for the next table header', () => {
+    const existing = [
+      '[projects."/karst/wt"]',
+      'name = "proj"',
+      'matrix = [',
+      '[1,2],',
+      ']',
+      '',
+      '[tui]',
+      'x = 1',
+      '',
+    ].join('\n');
+    const merged = mergeCodexTrustToml(existing, '/karst/wt');
+    expect(merged.changed).toBe(true);
+    // trust_level sits after the header, and the array + next table are intact.
+    expect(merged.text).toContain('[projects."/karst/wt"]\ntrust_level = "trusted"\nname = "proj"');
+    expect(merged.text).toContain('matrix = [\n[1,2],\n]');
+    expect(merged.text).toContain('[tui]\nx = 1');
+  });
 });
 
 describe('ensureCodexWorkspaceTrusted', () => {
@@ -315,5 +361,58 @@ describe('ensureCodexWorkspaceTrusted', () => {
     writeFileSync(join(dir, 'config.toml'), body);
     ensureCodexWorkspaceTrusted('/karst/wt', { home });
     expect(readFileSync(join(dir, 'config.toml'), 'utf8')).toBe(body);
+  });
+});
+
+describe('config dir overrides', () => {
+  it('writes claude trust under $CLAUDE_CONFIG_DIR', () => {
+    const home = tempDir();
+    const dir = tempDir();
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('CLAUDE_CONFIG_DIR', dir);
+    ensureClaudeWorkspaceTrusted('/karst/wt', {});
+    expect(existsSync(join(dir, '.claude.json'))).toBe(true);
+    expect(existsSync(join(home, '.claude.json'))).toBe(false);
+  });
+
+  it('writes codex trust under $CODEX_HOME', () => {
+    const home = tempDir();
+    const dir = tempDir();
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('CODEX_HOME', dir);
+    ensureCodexWorkspaceTrusted('/karst/wt', {});
+    expect(existsSync(join(dir, 'config.toml'))).toBe(true);
+    expect(existsSync(join(home, '.codex'))).toBe(false);
+  });
+
+  it('ignores an empty override and uses the home default', () => {
+    const home = tempDir();
+    vi.stubEnv('HOME', home);
+    vi.stubEnv('CLAUDE_CONFIG_DIR', '');
+    ensureClaudeWorkspaceTrusted('/karst/wt', {});
+    expect(existsSync(join(home, '.claude.json'))).toBe(true);
+  });
+});
+
+describe('config file permissions', () => {
+  it('preserves an existing mode instead of widening it', () => {
+    const home = tempDir();
+    const path = join(home, '.claude.json');
+    writeFileSync(path, JSON.stringify({ projects: {} }));
+    chmodSync(path, 0o600);
+    ensureClaudeWorkspaceTrusted('/karst/wt', { home });
+    expect(statSync(path).mode & 0o777).toBe(0o600);
+  });
+
+  it('creates a new claude config 0600', () => {
+    const home = tempDir();
+    ensureClaudeWorkspaceTrusted('/karst/wt', { home });
+    expect(statSync(join(home, '.claude.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('creates a new codex config 0600', () => {
+    const home = tempDir();
+    ensureCodexWorkspaceTrusted('/karst/wt', { home });
+    expect(statSync(join(home, '.codex', 'config.toml')).mode & 0o777).toBe(0o600);
   });
 });
