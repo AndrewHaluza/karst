@@ -494,13 +494,12 @@ function collectLogs(
     else agedOut += 1
   }
   const collapsed = collapseRepeats(recent, ticketPatternFor(ticketId))
-  // Selection priority within the row/byte caps, newest first inside a class:
-  // (a) every warn/error in the window, (b) ticket-scoped debug/info, (c) the
-  // rest. The caps then spend on the ticketed evidence before the noise.
-  const priority: Readonly<Record<LogClass, number>> = { warnError: 0, ticket: 1, other: 2 }
-  const ordered = [...collapsed].sort(
-    (a, b) => priority[a.class] - priority[b.class] || b.index - a.index,
-  )
+  // Selection within the row/byte caps. Warn/error and ticket evidence are both
+  // the ticket's evidence, so they are INTERLEAVED (newest first inside each):
+  // a flood of one can no longer spend the whole cap before the other — the
+  // shape that dropped the runtime/gate lines when warnings filled the cap.
+  // Remaining noise follows, newest first.
+  const ordered = interleaveByPriority(collapsed)
   const kept: CollapsedLog[] = []
   let bytes = 0
   let limitedBy: 'rows' | 'bytes' = 'rows'
@@ -529,6 +528,11 @@ function collectLogs(
     + omittedByClass.ticket
     + omittedByClass.other
     + omittedByClass.age
+  // The dominant cause of the omission: 'age' only when the age window dropped
+  // at least as much as the caps did, otherwise the cap that actually bound.
+  const capOmitted = omitted - omittedByClass.age
+  const reason: 'rows' | 'bytes' | 'age' =
+    omittedByClass.age > capOmitted ? 'age' : limitedBy
   const data = kept.map((entry) => ({
     timestamp: entry.firstTimestamp,
     level: entry.level,
@@ -539,10 +543,41 @@ function collectLogs(
       status: 'truncated',
       data: json(data),
       omitted,
-      reason: agedOut > 0 ? 'age' : limitedBy,
+      reason,
       omittedByClass,
     }
     : available(data)
+}
+
+/**
+ * Order the collapsed entries for cap selection: warn/error and ticket
+ * evidence alternate, newest first inside each class, then the rest newest
+ * first. Neither of the two evidence classes can consume the entire cap while
+ * the other still has lines — decision #2's strict warn/error-first order let a
+ * warning flood omit the spin/gate evidence the report exists to carry.
+ */
+function interleaveByPriority(collapsed: readonly CollapsedLog[]): CollapsedLog[] {
+  const warnError: CollapsedLog[] = []
+  const ticket: CollapsedLog[] = []
+  const other: CollapsedLog[] = []
+  for (const entry of collapsed) {
+    if (entry.class === 'warnError') warnError.push(entry)
+    else if (entry.class === 'ticket') ticket.push(entry)
+    else other.push(entry)
+  }
+  warnError.reverse()
+  ticket.reverse()
+  other.reverse()
+  const ordered: CollapsedLog[] = []
+  const paired = Math.max(warnError.length, ticket.length)
+  for (let i = 0; i < paired; i += 1) {
+    const warn = warnError[i]
+    if (warn) ordered.push(warn)
+    const evidence = ticket[i]
+    if (evidence) ordered.push(evidence)
+  }
+  ordered.push(...other)
+  return ordered
 }
 
 /**

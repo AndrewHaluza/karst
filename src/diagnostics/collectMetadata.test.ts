@@ -431,6 +431,54 @@ describe('collectMetadata', () => {
     expect(section.data.length).toBeLessThan(200)
   })
 
+  it('keeps ticket evidence when warn/error alone would fill the report cap', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-07-28T00:00:00.000Z', level: 'info', message: '[runtime] service came up' })
+      logs.capture({ timestamp: '2026-07-28T00:00:01.000Z', level: 'info', message: '[gate] test:unit failed' })
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'warn',
+          message: `warn ${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+      omittedByClass: Record<string, number>
+    }
+    const messages = section.data.map((entry) => entry.message)
+    // The warnings alone exceed the 200-row cap; interleaving keeps both.
+    expect(messages).toContain('[runtime] service came up')
+    expect(messages).toContain('[gate] test:unit failed')
+    expect(section.omittedByClass.ticket).toBe(0)
+    expect(section.omittedByClass.warnError).toBeGreaterThan(0)
+    expect(section.data).toHaveLength(200)
+  })
+
+  it('names the binding cap when the cap drops more than the age window', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-01-01T00:00:00.000Z', level: 'warn', message: 'ancient' })
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'info',
+          message: `recent ${i}`,
+        })
+      }
+      return logs
+    })
+    // One entry aged out, but 50 were dropped by the row cap — the cap bound.
+    expect(draft.metadata.logs).toMatchObject({ status: 'truncated', reason: 'rows' })
+    const section = draft.metadata.logs as { omittedByClass: Record<string, number> }
+    expect(section.omittedByClass.age).toBe(1)
+    expect(section.omittedByClass.other).toBe(50)
+  })
+
   it('collapses consecutive repeats, counting them and keeping chronology', async () => {
     const { draft } = await collectLogsDraft(() => {
       const logs = makeBoundedLogBuffer()
