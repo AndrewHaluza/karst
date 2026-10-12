@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
 
 /**
  * Real machine probes for `karst doctor`. This runs in the short-lived CLI
@@ -48,6 +48,25 @@ export function resolveCommand(command: string): string | undefined {
 export function realpath(p: string): string | undefined {
   try {
     return realpathSync(p);
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the directory entry exists (`lstat`), even as a dangling symlink. */
+export function linkExists(p: string): boolean {
+  try {
+    lstatSync(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A symlink's raw target (`readlinkSync`); undefined when `p` is not a symlink. */
+export function readLink(p: string): string | undefined {
+  try {
+    return readlinkSync(p);
   } catch {
     return undefined;
   }

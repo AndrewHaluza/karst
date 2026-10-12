@@ -149,6 +149,8 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
       out.push(checkClaudeInstall(claudeLinkProbe(dbPath, {
         homeDir: homedir(),
         pathExists: probes.pathExists,
+        linkExists: probes.linkExists,
+        readLink: probes.readLink,
         realpath: probes.realpath,
         resolveCommand: probes.resolveCommand,
         env,
