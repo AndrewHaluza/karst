@@ -521,9 +521,9 @@ function linkedAbort(outer: AbortSignal | undefined, timeoutMs: number): BudgetA
 }
 
 /**
- * Recover the observations from a run a budget stopped, over the answers it
- * left in order (the first answer, the wrap-up's, the raw stdout captured while
- * it streamed).
+ * Recover the observations from a run a budget stopped, over the agent's
+ * answers in order (the first, then the wrap-up's) and the raw stdout captured
+ * while it streamed.
  *
  * An answer that CARRIES observations wins over one that only says `[]`: a run
  * the budget cut short can have written its observations to the stream and then
@@ -532,19 +532,28 @@ function linkedAbort(outer: AbortSignal | undefined, timeoutMs: number): BudgetA
  * candidate carries observations does an explicit `[]` stand (a genuinely clean
  * stop), and only when every candidate is unreadable does the last parse win
  * (so the unreadable log keeps what the agent actually said).
+ *
+ * The agent's own answers warn through `warn`; the captured stdout is parsed
+ * SILENTLY — it is console text, not the agent's answer, so the shared parser's
+ * "unrecognizable" warning there is noise a budget stop does not deserve.
  */
 function parseFirstUsable(
-  candidates: readonly string[],
+  answers: readonly string[],
+  captured: string,
   context: { repo: string; worktreePath: string; max: number },
   warn?: WarnFn,
 ): { parse: ReturnType<typeof parseFindingsResult>; raw: string } {
-  const present = candidates.filter((raw) => raw.trim() !== '');
-  if (present.length === 0) return { parse: parseFindingsResult('', context, warn), raw: '' };
-  const parses = present.map((raw) => ({ raw, parse: parseFindingsResult(raw, context, warn) }));
-  const withFindings = parses.find((p) => p.parse.findings.length > 0);
+  const candidates = answers
+    .filter((raw) => raw.trim() !== '')
+    .map((raw) => ({ raw, parse: parseFindingsResult(raw, context, warn) }));
+  if (captured.trim() !== '') {
+    candidates.push({ raw: captured, parse: parseFindingsResult(captured, context, () => {}) });
+  }
+  if (candidates.length === 0) return { parse: parseFindingsResult('', context, warn), raw: '' };
+  const withFindings = candidates.find((c) => c.parse.findings.length > 0);
   if (withFindings) return withFindings;
-  const usable = parses.find((p) => p.parse.shape !== 'unreadable');
-  return usable ?? parses[parses.length - 1]!;
+  const usable = candidates.find((c) => c.parse.shape !== 'unreadable');
+  return usable ?? candidates[candidates.length - 1]!;
 }
 
 /**
@@ -902,7 +911,8 @@ export async function runUatTester(
         // had already written. The silence/reformat nudges are SKIPPED here —
         // the budget already spent its ONE re-ask.
         const recovered = parseFirstUsable(
-          [firstRaw, result.raw, captured.join('')],
+          [firstRaw, result.raw],
+          captured.join(''),
           parseContext,
           opts.warn,
         );

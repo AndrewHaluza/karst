@@ -13,6 +13,7 @@ import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import {
   spawnHeadlessCli,
+  capturedStdoutFromError,
   headlessPreview,
   type HeadlessSpawnOptions,
 } from './headlessSpawn.js';
@@ -563,6 +564,17 @@ export class Opencode2Adapter implements AgentAdapter {
         stdin: opts.prompt,
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
       });
+    } catch (error) {
+      // A run the spawner KILLED (its deadline, or a Stop) never reached the
+      // exit-code path below, so its step_finish usage would be lost and the
+      // meter would fall back to a prompt-length estimate. v2's counts sit in a
+      // shape the generic extractor cannot read, so parse them here from the
+      // partial stdout the spawner carries — a runaway's real spend then reaches
+      // the ledger (and the UAT Tester's token budget).
+      if (error instanceof Error) {
+        throw attachUsage(error, parseOpencode2JsonlUsage(capturedStdoutFromError(error)));
+      }
+      throw error;
     } finally {
       consoleStream?.flush();
     }

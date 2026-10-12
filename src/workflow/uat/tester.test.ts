@@ -1120,6 +1120,25 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     ]);
   });
 
+  it('does not surface the review-worded parser warning when a budget stop recovers nothing', async () => {
+    // The captured stdout is console text, not the agent's answer — parsing it
+    // must not emit review's "not recognizable JSON" warning in a UAT context.
+    const warnings: string[] = [];
+    let n = 0;
+    const { adapter } = fakeAdapter(async (headlessOpts) => {
+      n += 1;
+      if (n === 1) headlessOpts.onOutput?.({ stream: 'stdout', text: 'plain console text, no JSON' });
+      throw timeoutError();
+    });
+    const res = await runUatTester(
+      store,
+      opts({ adapter, warn: (m) => warnings.push(m) }),
+      { now },
+    );
+    expect(res).toMatchObject({ kind: 'partial', detail: 'timed out — no observations recovered' });
+    expect(warnings.some((w) => /review findings/i.test(w))).toBe(false);
+  });
+
   it('a timeout with nothing parseable records no observations and says so, never parking', async () => {
     const { adapter } = fakeAdapter(async () => {
       throw timeoutError();

@@ -4,7 +4,7 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawnHeadlessCli } from './headlessSpawn.js';
+import { capturedStdoutFromError, spawnHeadlessCli } from './headlessSpawn.js';
 import { usageFromError } from './tokenUsage.js';
 
 /** A fake child with real stdout/stderr EventEmitters, like claude.test.ts. */
@@ -221,6 +221,11 @@ describe('spawnHeadlessCli', () => {
     expect(error).toBeInstanceOf(Error);
     expect((error as Error).name).toBe('TimeoutError');
     expect(usageFromError(error)).toMatchObject({ inputTokens: 800, outputTokens: 27, totalTokens: 827 });
+    // The raw partial stdout rides along too, so an adapter whose core reports
+    // usage in a shape the generic scan cannot read (opencode2) parses its own.
+    expect(capturedStdoutFromError(error)).toContain('"input_tokens":800');
+    // It must never serialize onto the error (non-enumerable).
+    expect(JSON.stringify(error)).not.toContain('input_tokens');
   });
 
   it('bounds stdout to maxOutputBytes and appends the truncation marker', async () => {

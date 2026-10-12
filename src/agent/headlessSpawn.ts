@@ -107,6 +107,34 @@ function abortError(): Error {
   return err;
 }
 
+/** The non-enumerable property a killed run's partial stdout rides on. */
+const CAPTURED_STDOUT = 'capturedStdout';
+
+/**
+ * The partial stdout a KILLED run (its deadline, or a Stop) had already
+ * streamed, as carried on the rejection by `spawnHeadlessCli`. An adapter whose
+ * core reports usage in a shape the generic `extractTokenUsage` cannot read
+ * (opencode2's nested `part.tokens`) parses its own counts out of this, so a
+ * runaway's real spend still reaches the meter. `''` for any other error.
+ */
+export function capturedStdoutFromError(error: unknown): string {
+  if (typeof error !== 'object' || error === null) return '';
+  const value = (error as Record<string, unknown>)[CAPTURED_STDOUT];
+  return typeof value === 'string' ? value : '';
+}
+
+/** Carry the partial stdout out through the rejection, non-enumerably (it must not serialize or log). */
+function attachCapturedStdout<E extends Error>(error: E, stdout: string): E {
+  if (stdout === '') return error;
+  Object.defineProperty(error, CAPTURED_STDOUT, {
+    value: stdout,
+    enumerable: false,
+    configurable: true,
+    writable: true,
+  });
+  return error;
+}
+
 function timeoutError(timeoutMs: number, diagnostic: string): Error {
   const err = new Error(`headless agent run timed out after ${timeoutMs}ms${diagnostic}`);
   // A stable name, so a lane that must SALVAGE a cut run can tell the deadline
@@ -223,14 +251,17 @@ export function spawnHeadlessCli(
     // counts the partial stream holds on the rejection, so the meter records
     // the real spend instead of an estimate from the prompt. Without this the
     // most expensive calls — a runaway killed at its deadline — were the only
-    // ones missing from the ledger, and a spend budget could not see them.
-    const killError = (): Error =>
-      attachUsage(
+    // ones missing from the ledger, and a spend budget could not see them. The
+    // raw stdout rides along too, so an adapter whose core reports usage in a
+    // shape this generic scan cannot read (opencode2) parses its own.
+    const killError = (): Error => {
+      const partial = stdout.render();
+      const error =
         killReason === 'abort'
           ? abortError()
-          : timeoutError(timeoutMs, terminationDiagnostic),
-        extractTokenUsage(stdout.render()),
-      );
+          : timeoutError(timeoutMs, terminationDiagnostic);
+      return attachUsage(attachCapturedStdout(error, partial), extractTokenUsage(partial));
+    };
 
     const settle = (outcome: HeadlessSpawnResult | Error): void => {
       if (settled) return;
