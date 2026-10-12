@@ -48,6 +48,12 @@ export function parseRepoFieldError(raw: string | null): RepoFieldError | null {
   if (m) return { key: `${m[1]}.portRange` };
   m = msg.match(/^repository "([^"]+)" service\.ports\[(\d+)\]\.(name|env|default)\b/);
   if (m) return { key: `${m[1]}.ports.${m[2]}.${m[3]}` };
+  // A per-repo convention fault: map it to the repo card's override control (the
+  // `conventions.` prefix distinguishes it from the global Git-tab fault).
+  m = msg.match(
+    /^repository "([^"]+)" conventions\.(commitMessage|pullRequestTitle|pullRequestDescription)\b/,
+  );
+  if (m) return { key: `${m[1]}.${m[2]}` };
   return null;
 }
 
