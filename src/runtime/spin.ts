@@ -139,12 +139,14 @@ export function hotRepoPaths(manifest: Manifest, hot: readonly string[]): string
 }
 
 /**
- * Reap the ticket's dead (stopped) server rows after an unsuccessful spin.
- * Best-effort: a cleanup that cannot run must never replace the real error.
+ * Reap the ticket's dead server rows after an unsuccessful spin. `includeFailed`
+ * is true only for a FULL rollback, which is the one exit where a `failed` row
+ * cannot be this run's own explanation (see `pruneDeadServers`). Best-effort: a
+ * cleanup that cannot run must never replace the real error.
  */
-function reapDeadRows(store: Store, ticketId: number): void {
+function reapDeadRows(store: Store, ticketId: number, includeFailed: boolean): void {
   try {
-    pruneDeadServers(store, ticketId);
+    pruneDeadServers(store, ticketId, { includeFailed });
   } catch {
     /* best-effort */
   }
@@ -188,12 +190,13 @@ async function teardownRun(
   // The stops above RETAIN their rows as `stopped`, and the pre-spin stop left
   // the PRIOR spin's rows the same way. With every port now released (and the
   // fresh worktrees possibly gone) those rows can no longer be started — a
-  // Start on one fails "ports are no longer recorded". Drop them; a row still
-  // `running` is a refused kill, a live orphan that must stay visible
+  // Start on one fails "ports are no longer recorded". Drop them — including a
+  // prior spin's `failed` row, which this rollback also makes un-startable; a
+  // row still `running` is a refused kill, a live orphan that must stay visible
   // (@arch:WT-REMOVE), and baseline rows are never this spin's to reap. Runs
   // AFTER the stops so a container row is deleted only once `stopServer` has
   // removed the container (the row is its last handle).
-  reapDeadRows(store, ticketId);
+  reapDeadRows(store, ticketId, true);
 }
 
 /**
@@ -386,10 +389,10 @@ export async function spinTicket(
     }
     // A non-cancel mid-way failure keeps its partial state for a retry to adopt
     // (no worktree/server teardown), but the release at spin start already wiped
-    // the ticket's `port_allocations` — so the offline rows it did not restart
-    // are just as un-startable as on a cancel. Reap them here; only the FULL
-    // teardown stays cancel-only.
-    reapDeadRows(store, ticketId);
+    // the ticket's `port_allocations` — so the stopped rows it did not restart
+    // are just as un-startable as on a cancel. Reap them here, but KEEP failed
+    // rows: the one this failure just recorded explains why it died.
+    reapDeadRows(store, ticketId, false);
     throw err;
   }
 }

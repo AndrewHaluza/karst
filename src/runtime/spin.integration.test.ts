@@ -399,16 +399,15 @@ describe('spinTicket integration', () => {
     const manifest = feBeManifest({ backend, frontend, bePort, fePort });
 
     const ticket = createTicket(store, { key: 'PROJ-7', title: 'dead rows' });
-    // A prior spin's server, retired to an offline row (what `stopTicketServers`
-    // leaves at spin start). The rollback releases the ticket's ports, so a
-    // Start on that row could only fail "ports are no longer recorded" — it must
-    // not survive the teardown.
-    store.db
-      .prepare(
-        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
-         VALUES (?, 'frontend', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
-      )
-      .run(ticket.id);
+    // A prior spin's rows — one retired to `stopped`, one left `failed`. The
+    // rollback releases the ticket's ports, so a Start on EITHER could only fail
+    // "ports are no longer recorded" — neither must survive the teardown.
+    const seed = store.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+       VALUES (?, ?, '127.0.0.1', 3000, NULL, ?, '/tmp/prior.log')`,
+    );
+    seed.run(ticket.id, 'frontend', 'stopped');
+    seed.run(ticket.id, 'backend', 'failed');
 
     const ctrl = new AbortController();
     ctrl.abort(); // cancel before the run: `bail()` throws, the rollback runs

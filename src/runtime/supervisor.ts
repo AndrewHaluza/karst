@@ -763,8 +763,8 @@ export function pruneOrphanServers(
 }
 
 /**
- * Delete a ticket's DEAD service rows — the `stopped` rows an unsuccessful spin
- * leaves behind.
+ * Delete a ticket's DEAD service rows — the offline rows an unsuccessful spin
+ * can never start again.
  *
  * A stop RETAINS its row on purpose (`stopServer`): an offline server stays
  * visible so the user can restart it. That holds only while the row can still
@@ -774,24 +774,34 @@ export function pruneOrphanServers(
  * no port left. Start on one can only fail "ports are no longer recorded", and
  * the row is a button that cannot work. This reaps exactly those.
  *
- * Only `status = 'stopped'` is reaped, deliberately:
- *  - a row still `running` is a REFUSED kill (`killTree` → 'denied') — a live
- *    orphan that must stay visible, never erased from under the user
- *    (@arch:WT-REMOVE);
- *  - a `failed` row is this run's own explanation of why the spin died and is
- *    restartable (its ports were allocated before the start), so it must stay.
+ * `includeFailed` separates the two unsuccessful exits, because a `failed` row
+ * means different things on each:
+ *  - a FULL rollback (cancel) releases every port and may remove the fresh
+ *    worktrees, so ANY non-running row is dead — no `failed` row of this run can
+ *    exist (an aborted start records none), so `includeFailed: true` reaps them
+ *    all;
+ *  - a mid-way failure keeps its partial state, including the `failed` row
+ *    `recordFailedStart` just wrote to explain WHY it died, and that row is
+ *    restartable (its ports were allocated before the start) — so the default
+ *    reaps only `stopped` rows and leaves `failed` ones.
  *
- * `pid` is NOT part of the test: a stopped row normally has `pid` nulled, but the
- * CLI doctor's `markServerStopped` leaves the old pid in place — the row is stale
- * either way and must be reaped. `kind = 'service'` keeps a graph/node session
- * row (kind `agent`) out of a service rollback, the same split `livenessSweep`
- * makes. Ticket-scoped like `pruneOrphanServers`: baseline rows
- * (`ticket_id IS NULL`) are shared across tickets and are not one ticket's to
- * reap.
+ * A row still `running` is never reaped: it is a REFUSED kill (`killTree` →
+ * 'denied'), a live orphan that must stay visible (@arch:WT-REMOVE). `pid` is not
+ * part of the test — a stopped row normally has `pid` nulled, but the CLI
+ * doctor's `markServerStopped` leaves the old pid in place, and the row is stale
+ * either way. `kind = 'service'` keeps a graph/node session row (kind `agent`)
+ * out of a service rollback, the same split `livenessSweep` makes. Ticket-scoped
+ * like `pruneOrphanServers`: baseline rows (`ticket_id IS NULL`) are shared
+ * across tickets and are not one ticket's to reap.
  */
-export function pruneDeadServers(store: Store, ticketId: number): void {
+export function pruneDeadServers(
+  store: Store,
+  ticketId: number,
+  opts: { includeFailed?: boolean } = {},
+): void {
+  const status = opts.includeFailed ? "status != 'running'" : "status = 'stopped'";
   store.db
-    .prepare("DELETE FROM servers WHERE ticket_id = ? AND kind = 'service' AND status = 'stopped'")
+    .prepare(`DELETE FROM servers WHERE ticket_id = ? AND kind = 'service' AND ${status}`)
     .run(ticketId);
 }
 

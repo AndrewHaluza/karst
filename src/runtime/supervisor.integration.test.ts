@@ -1277,7 +1277,8 @@ describe('pruneOrphanServers', () => {
  * An unsuccessful spin wipes and (on a cancel) releases the ticket's ports, so
  * the offline rows a stop retains can no longer be started — Start on one fails
  * "ports are no longer recorded". This reaps exactly those rows, while a row
- * still RUNNING (a refused kill) and a restartable `failed` row stay visible.
+ * still RUNNING (a refused kill) and — on a mid-way failure — a restartable
+ * `failed` row stay visible.
  */
 describe('pruneDeadServers', () => {
   let store: Store;
@@ -1325,12 +1326,28 @@ describe('pruneDeadServers', () => {
     expect(exists(running)).toBe(true);
   });
 
-  it('keeps a failed row — it is the failure’s explanation and is restartable', () => {
+  it('keeps a failed row by default — it is a mid-way failure’s own explanation', () => {
     const failed = row(7, 'frontend', 'failed', null);
 
     pruneDeadServers(store, 7);
 
     expect(exists(failed)).toBe(true);
+  });
+
+  it('reaps a prior failed row on a full rollback (includeFailed)', () => {
+    const failed = row(7, 'frontend', 'failed', null);
+
+    pruneDeadServers(store, 7, { includeFailed: true });
+
+    expect(exists(failed)).toBe(false);
+  });
+
+  it('never reaps a running row even when includeFailed is set', () => {
+    const running = row(7, 'backend', 'running', 4242);
+
+    pruneDeadServers(store, 7, { includeFailed: true });
+
+    expect(exists(running)).toBe(true);
   });
 
   it('reaps a stopped row whose pid is still set (the CLI doctor leaves it)', () => {
