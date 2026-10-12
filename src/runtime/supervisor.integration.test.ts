@@ -1274,10 +1274,10 @@ describe('pruneOrphanServers', () => {
 });
 
 /**
- * A rolled-back spin releases the ticket's ports and may remove the worktree it
- * created, so the offline rows a stop retains can no longer be started — Start
- * on one fails "ports are no longer recorded". This reaps exactly those rows,
- * while a row still RUNNING (a refused kill) must stay visible.
+ * An unsuccessful spin wipes and (on a cancel) releases the ticket's ports, so
+ * the offline rows a stop retains can no longer be started — Start on one fails
+ * "ports are no longer recorded". This reaps exactly those rows, while a row
+ * still RUNNING (a refused kill) and a restartable `failed` row stay visible.
  */
 describe('pruneDeadServers', () => {
   let store: Store;
@@ -1290,27 +1290,31 @@ describe('pruneDeadServers', () => {
   });
 
   /** Insert a server row directly — no process; only the row shape matters here. */
-  function row(ticketId: number | null, repo: string, status: string, pid: number | null): number {
+  function row(
+    ticketId: number | null,
+    repo: string,
+    status: string,
+    pid: number | null,
+    kind = 'service',
+  ): number {
     const info = store.db
       .prepare(
-        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
-         VALUES (?, ?, '127.0.0.1', 3000, ?, ?, '/tmp/x.log')`,
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, kind)
+         VALUES (?, ?, '127.0.0.1', 3000, ?, ?, '/tmp/x.log', ?)`,
       )
-      .run(ticketId, repo, pid, status);
+      .run(ticketId, repo, pid, status, kind);
     return Number(info.lastInsertRowid);
   }
 
   const exists = (id: number): boolean =>
     store.db.prepare('SELECT id FROM servers WHERE id = ?').get(id) !== undefined;
 
-  it('deletes the ticket’s stopped and failed rows', () => {
+  it('deletes the ticket’s stopped rows', () => {
     const stopped = row(7, 'backend', 'stopped', null);
-    const failed = row(7, 'frontend', 'failed', null);
 
     pruneDeadServers(store, 7);
 
     expect(exists(stopped)).toBe(false);
-    expect(exists(failed)).toBe(false);
   });
 
   it('keeps a running row — a refused kill leaves a live orphan that must stay visible', () => {
@@ -1319,6 +1323,30 @@ describe('pruneDeadServers', () => {
     pruneDeadServers(store, 7);
 
     expect(exists(running)).toBe(true);
+  });
+
+  it('keeps a failed row — it is the failure’s explanation and is restartable', () => {
+    const failed = row(7, 'frontend', 'failed', null);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(failed)).toBe(true);
+  });
+
+  it('reaps a stopped row whose pid is still set (the CLI doctor leaves it)', () => {
+    const doctorStopped = row(7, 'backend', 'stopped', 12345);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(doctorStopped)).toBe(false);
+  });
+
+  it('never reaps an agent (graph-session) row', () => {
+    const agent = row(7, 't658-graph', 'stopped', null, 'agent');
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(agent)).toBe(true);
   });
 
   it('touches neither another ticket nor a baseline row', () => {

@@ -423,36 +423,45 @@ describe('spinTicket integration', () => {
     expect(dead.n).toBe(0);
   });
 
-  it('(a8) a spin that fails mid-way tears down and reaps the ticket’s dead rows too', async () => {
+  it('(a8) a spin that fails mid-way (no cancel) also reaps the ticket’s dead rows', async () => {
     const bePort = port();
     const fePort = port();
     const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
-    // Binds its port but never answers /health — the abort lands inside its
-    // health gate, so the spin FAILS mid-way (`signal?.aborted`) rather than at
-    // a `bail()` checkpoint, and the rollback runs either way.
-    const frontend = makeRepo(root, 'frontend', { 'server.mjs': NEVER_HEALTHY_FE });
+    const web = makeRepo(root, 'web', { 'server.mjs': BACKEND_SRC });
+    // Exits immediately, so the spin REJECTS with no AbortSignal at all — the
+    // mid-way failure the catch used to skip, leaving the prior offline row.
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': 'process.exit(1);\n' });
 
-    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+    const base = feBeManifest({ backend, frontend, bePort, fePort });
+    const manifest: Manifest = {
+      ...base,
+      repositories: { ...base.repositories, web: node(web, port()) },
+    };
 
     const ticket = createTicket(store, { key: 'PROJ-8', title: 'failed mid-way' });
+    // A prior spin's offline row for a repo NOT hot this run: the pre-spin
+    // release wiped its allocation, so a Start on it can only fail.
     store.db
       .prepare(
         `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
-         VALUES (?, 'backend', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
+         VALUES (?, 'web', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/prior.log')`,
       )
       .run(ticket.id);
 
-    const ctrl = new AbortController();
-    setTimeout(() => ctrl.abort(), 700);
-
-    await expect(
-      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
-    ).rejects.toBeInstanceOf(SpinCancelledError);
+    await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow();
 
     const dead = store.db
-      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status != 'running'")
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status = 'stopped'")
       .get(ticket.id) as { n: number };
     expect(dead.n).toBe(0);
+    // The FAILED row survives: it explains the failure and IS restartable (its
+    // port was allocated before the start).
+    const failed = store.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'frontend' AND status = 'failed'",
+      )
+      .get(ticket.id) as { n: number };
+    expect(failed.n).toBe(1);
   });
 
   it('(a9) a successful spin leaves an offline row for a service it did not spin', async () => {
@@ -467,7 +476,7 @@ describe('spinTicket integration', () => {
 
     const ticket = createTicket(store, { key: 'PROJ-9b', title: 'success keeps offline' });
     // A declared repo simply not hot this spin. No rollback runs on success, so
-    // its offline row is untouched — the prune is rollback-only.
+    // its offline row is untouched — the prune runs only on an unsuccessful spin.
     store.db
       .prepare(
         `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
