@@ -3,7 +3,7 @@ import type { Manifest, PortSlot, ServiceDef } from '../manifest/types.js';
 import { unitByKey, unitsOfRepos, resolveTarget } from '../manifest/runnable.js';
 import { resolve, transitiveDependents } from '../resolver/resolve.js';
 import { makeRecordedPortAllocator } from '../resolver/recordedAllocator.js';
-import { makePortAllocator } from '../resolver/allocator.js';
+import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { startResolvedService } from './startService.js';
 import { getEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { stopServer, type ServerRecord } from './supervisor.js';
@@ -267,50 +267,85 @@ export async function startTicketService(
     );
   }
   const fresh = makePortAllocator(store, manifest.portRange, { busy });
-  // Record the recovered LIVE ports FIRST, so the fresh allocator below can never
-  // hand one of them to another unit; then draw every still-missing slot. One
-  // transaction: a range that exhausts mid-way records nothing.
+
+  // The ports this recovery will use, resolved from three sources in order:
+  //   1. the ticket's existing records — a recorded port never moves;
+  //   2. a RUNNING unit's live port (its `servers` row) — the truth, even when
+  //      the allocation row was wiped;
+  //   3. a fresh draw for every intended unit's still-missing slot.
+  // `intended` is what this recovery starts or wires: the target, its running
+  // dependents, their peers, and the already-recorded peers. A hot-repository
+  // unit outside it (an unrelated sibling) consumes no real port — see
+  // `knownAllocator` below.
+  const intended = new Set<string>([...recorded.keys(), ...started, ...directDeps]);
+  const known = new Map<string, Map<string, number>>(
+    [...recorded].map(([key, slots]) => [key, new Map(slots)]),
+  );
+  const drawn: { key: string; slot: string }[] = [];
   const insertLive = store.db.prepare(
     'INSERT OR IGNORE INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)',
   );
   store.db.transaction(() => {
-    for (const hotUnit of unitsOfRepos(manifest, hot)) {
-      const seeded = live.get(hotUnit.key);
-      if (!seeded) continue;
-      for (const [slot, port] of seeded) {
-        // A port another ticket already recorded is not ours to reclaim — drop
-        // the seed so the slot is drawn fresh below instead.
-        if (insertLive.run(ticketId, hotUnit.key, slot, port).changes === 0) seeded.delete(slot);
+    // Steps 1+2: record every live port recovered from a running unit.
+    // `INSERT OR IGNORE` guards the GLOBAL uniqueness of the port: if another
+    // row already holds it, the running unit still owns it, so `known` keeps the
+    // live port and `resolve` names it — we just do not duplicate the row.
+    for (const [key, slots] of live) {
+      const have = known.get(key) ?? new Map<string, number>();
+      for (const [slot, port] of slots) {
+        have.set(slot, port);
+        insertLive.run(ticketId, key, slot, port);
       }
+      known.set(key, have);
     }
+    // Step 3: draw only an intended unit's still-missing slots. One transaction:
+    // a range that exhausts mid-way records nothing.
     for (const hotUnit of unitsOfRepos(manifest, hot)) {
-      const have = recorded.get(hotUnit.key);
-      const seeded = live.get(hotUnit.key);
-      const missing = hotUnit.def.ports
-        .map((p) => p.name)
-        .filter((name) => !(have?.has(name) ?? false) && !(seeded?.has(name) ?? false));
+      if (!intended.has(hotUnit.key)) continue;
+      const have = known.get(hotUnit.key) ?? new Map<string, number>();
+      const missing = hotUnit.def.ports.map((p) => p.name).filter((name) => !have.has(name));
       if (missing.length === 0) continue;
-      fresh.allocate(ticketId, hotUnit.key, missing, hotUnit.def.portRange ?? manifest.portRange);
+      const got = fresh.allocate(
+        ticketId,
+        hotUnit.key,
+        missing,
+        hotUnit.def.portRange ?? manifest.portRange,
+      );
+      for (const slot of missing) {
+        have.set(slot, got[slot]!);
+        drawn.push({ key: hotUnit.key, slot });
+      }
+      known.set(hotUnit.key, have);
       opts.debug?.(
         `[runtime] ticket ${ticketId}: allocated ${missing.join(', ')} for ${hotUnit.key} (no record)`,
       );
     }
   })();
 
-  const resolved = resolve(manifest, hot, makeRecordedPortAllocator(store, ticketId), ticketId);
-
-  // `resolve` allocates for every unit of a hot REPOSITORY, but this recovery
-  // only needs the units it will start or wire: the target, its running
-  // dependents, their peers, and the already-recorded peers. Drop the freshly
-  // drawn ports of the rest, so an unrelated sibling service of a hot
-  // repository does not hold a port for a recovery it is not part of.
-  const intended = new Set<string>([...recorded.keys(), ...started, ...directDeps]);
-  const pruneAllocation = store.db.prepare(
-    'DELETE FROM port_allocations WHERE ticket_id = ? AND repo = ?',
-  );
-  for (const hotUnit of unitsOfRepos(manifest, hot)) {
-    if (!intended.has(hotUnit.key)) pruneAllocation.run(ticketId, hotUnit.key);
-  }
+  // `resolve` needs a port for EVERY hot unit, including siblings nobody starts.
+  // Serve those from the unit's DECLARED DEFAULTS: an unrelated sibling must not
+  // consume a real port, nor fail the recovery by exhausting the range for the
+  // units that actually matter.
+  const knownAllocator: PortAllocator = {
+    allocate: (_ticket, repo, slots) => {
+      const have = known.get(repo);
+      const out: Record<string, number> = {};
+      for (const slot of slots) {
+        const real = have?.get(slot);
+        if (real !== undefined) {
+          out[slot] = real;
+          continue;
+        }
+        const def = unitByKey(manifest, repo)?.def.ports.find((p) => p.name === slot);
+        out[slot] = def?.default ?? 0;
+      }
+      return out;
+    },
+    release: () => {
+      throw new Error('knownAllocator: release() is not supported');
+    },
+  };
+  const resolved = resolve(manifest, hot, knownAllocator, ticketId);
 
   const newPorts: Record<string, number> = {};
   for (const slot of targetSlots) {
@@ -331,6 +366,16 @@ export async function startTicketService(
     signal: opts.signal,
     onReclaim: opts.onReclaim,
     debug: opts.debug,
+  }).catch((err: unknown) => {
+    // A target that never came up must not leave its freshly drawn ports
+    // recorded — a later start would play them back as if they were real.
+    const dropDrawn = store.db.prepare(
+      'DELETE FROM port_allocations WHERE ticket_id = ? AND repo = ? AND port_name = ?',
+    );
+    store.db.transaction(() => {
+      for (const { key, slot } of drawn) dropDrawn.run(ticketId, key, slot);
+    })();
+    throw err;
   });
   opts.debug?.(
     `[runtime] ticket ${ticketId}: ${repoName} healthy (pid ${rec.pid}, new port ` +

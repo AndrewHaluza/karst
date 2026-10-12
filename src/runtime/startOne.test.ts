@@ -490,6 +490,77 @@ describe('startTicketService', () => {
     expect(allocationOf('mono/web', 'http')).toBeUndefined();
   });
 
+  it('starts the target even when unrelated siblings would exhaust the range', async () => {
+    const m = manifest(
+      {
+        mono: repo({
+          repoPath: '/repo/mono',
+          services: {
+            api: svc({ ports: [httpSlot(3000)] }),
+            web: svc({ ports: [httpSlot(5173)] }),
+          },
+        }),
+      },
+      { portRange: [4000, 4000] }, // room for exactly one unit
+    );
+    addWorktree(1, '/repo/mono', '/wt/mono');
+
+    const result = await startTicketService(store, m, 1, 'mono/api', { probeBusyPorts: noBusy });
+
+    expect(result.newPorts).toEqual({ http: 4000 });
+    expect(allocationOf('mono/web', 'http')).toBeUndefined();
+  });
+
+  it('keeps a running peer on its live port even when that port is already recorded elsewhere', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    // Another ticket already holds 4100; backend is nonetheless live on it.
+    store.db
+      .prepare('INSERT INTO tickets (id, key, title) VALUES (2, ?, ?)')
+      .run('K-2', 'other');
+    addAllocation(2, 'other', 'http', 4100);
+    addServer(1, 10, 'backend', 4100, 1111, 'running');
+
+    const result = await startTicketService(store, m, 1, 'frontend', { probeBusyPorts: noBusy });
+
+    expect(calledNames()).toEqual(['frontend']);
+    const args = startResolvedMock.mock.calls[0]![0];
+    // backend is wired at its LIVE port, not re-drawn to a fresh one.
+    expect(args.resolved.services['backend']!.ports.http).toBe(4100);
+    expect(args.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:4100');
+    expect(result.newPorts).toEqual({ http: 4000 });
+  });
+
+  it('releases the freshly drawn allocation when the target start fails', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    startResolvedMock.mockImplementation(async (args) => {
+      if (args.name === 'frontend') throw new Error('fe refused to bind');
+      const ports = args.resolved.services[args.name]!.ports;
+      return {
+        id: 99,
+        ticketId: args.ticketId,
+        service: args.name,
+        host: args.manifest.host,
+        port: ports['http']!,
+        pid: 4242,
+        status: 'running',
+        logPath: `/logs/${args.name}.log`,
+        container: null,
+      };
+    });
+
+    const err = await startTicketService(store, m, 1, 'frontend', {
+      probeBusyPorts: noBusy,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Error);
+    expect(allocationOf('frontend', 'http')).toBeUndefined();
+    expect(allocationOf('backend', 'http')).toBeUndefined();
+  });
+
   it('resolves the whole hot set so a peer binds its allocated port, not its default', async () => {
     const m = manifest(stack());
     addWorktree(1, '/repo/backend', '/wt/backend');
