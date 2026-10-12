@@ -390,6 +390,99 @@ describe('spinTicket integration', () => {
     expect(ports.n).toBe(0);
   });
 
+  it('(a7) a cancelled spin’s rollback reaps the ticket’s dead server rows', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
+
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+
+    const ticket = createTicket(store, { key: 'PROJ-7', title: 'dead rows' });
+    // A prior spin's server, retired to an offline row (what `stopTicketServers`
+    // leaves at spin start). The rollback releases the ticket's ports, so a
+    // Start on that row could only fail "ports are no longer recorded" — it must
+    // not survive the teardown.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (?, 'frontend', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
+      )
+      .run(ticket.id);
+
+    const ctrl = new AbortController();
+    ctrl.abort(); // cancel before the run: `bail()` throws, the rollback runs
+
+    await expect(
+      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
+    ).rejects.toBeInstanceOf(SpinCancelledError);
+
+    const dead = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status != 'running'")
+      .get(ticket.id) as { n: number };
+    expect(dead.n).toBe(0);
+  });
+
+  it('(a8) a spin that fails mid-way tears down and reaps the ticket’s dead rows too', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    // Binds its port but never answers /health — the abort lands inside its
+    // health gate, so the spin FAILS mid-way (`signal?.aborted`) rather than at
+    // a `bail()` checkpoint, and the rollback runs either way.
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': NEVER_HEALTHY_FE });
+
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+
+    const ticket = createTicket(store, { key: 'PROJ-8', title: 'failed mid-way' });
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (?, 'backend', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
+      )
+      .run(ticket.id);
+
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(), 700);
+
+    await expect(
+      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
+    ).rejects.toBeInstanceOf(SpinCancelledError);
+
+    const dead = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status != 'running'")
+      .get(ticket.id) as { n: number };
+    expect(dead.n).toBe(0);
+  });
+
+  it('(a9) a successful spin leaves an offline row for a service it did not spin', async () => {
+    const apiPort = port();
+    const webPort = port();
+    const api = makeRepo(root, 'api', { 'server.mjs': BACKEND_SRC });
+    const web = makeRepo(root, 'web', { 'server.mjs': BACKEND_SRC });
+    const manifest = buildManifest(
+      { api: node(api, apiPort), web: node(web, webPort) },
+      { host: '127.0.0.1', portRange: [webPort, webPort + 20] },
+    );
+
+    const ticket = createTicket(store, { key: 'PROJ-9b', title: 'success keeps offline' });
+    // A declared repo simply not hot this spin. No rollback runs on success, so
+    // its offline row is untouched — the prune is rollback-only.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (?, 'web', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
+      )
+      .run(ticket.id);
+
+    await spinTicket(store, manifest, ticket.id, ['api']);
+
+    const offline = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'web' AND status = 'stopped'")
+      .get(ticket.id) as { n: number };
+    expect(offline.n).toBe(1);
+  });
+
   it('(a2) a wrong baselineBranch rejects via preflight and leaves the DB untouched', async () => {
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC }); // on develop
     const manifest = buildManifest(

@@ -15,6 +15,7 @@ import {
   stopServer,
   stopTicketServers,
   pruneOrphanServers,
+  pruneDeadServers,
   type ServerRecord,
 } from './supervisor.js';
 import { preflightSpin, SpinError } from './preflight.js';
@@ -169,6 +170,19 @@ async function teardownRun(
   // worktree existed (adopted-only run) — release is idempotent (delete-by-ticket).
   try {
     allocator.release(ticketId);
+  } catch {
+    /* best-effort */
+  }
+  // The stops above RETAIN their rows as `stopped`, and the pre-spin stop left
+  // the PRIOR spin's rows the same way. With every port now released (and the
+  // fresh worktrees possibly gone) those rows can no longer be started — a
+  // Start on one fails "ports are no longer recorded". Drop the ticket's dead
+  // rows; a row still `running` is a refused kill, a live orphan that must stay
+  // visible (@arch:WT-REMOVE), and baseline rows are never this spin's to reap.
+  // Runs AFTER the stops so a container row is deleted only once `stopServer`
+  // has removed the container (the row is its last handle).
+  try {
+    pruneDeadServers(store, ticketId);
   } catch {
     /* best-effort */
   }

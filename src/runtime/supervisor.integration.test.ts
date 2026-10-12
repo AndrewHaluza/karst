@@ -9,6 +9,7 @@ import {
   stopServer,
   stopTicketServers,
   pruneOrphanServers,
+  pruneDeadServers,
   tailLog,
   abandonVerdict,
 } from './supervisor.js';
@@ -1268,6 +1269,65 @@ describe('pruneOrphanServers', () => {
     pruneOrphanServers(store, 7, []);
 
     expect(exists(a)).toBe(false);
+    expect(exists(baseline)).toBe(true);
+  });
+});
+
+/**
+ * A rolled-back spin releases the ticket's ports and may remove the worktree it
+ * created, so the offline rows a stop retains can no longer be started — Start
+ * on one fails "ports are no longer recorded". This reaps exactly those rows,
+ * while a row still RUNNING (a refused kill) must stay visible.
+ */
+describe('pruneDeadServers', () => {
+  let store: Store;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  /** Insert a server row directly — no process; only the row shape matters here. */
+  function row(ticketId: number | null, repo: string, status: string, pid: number | null): number {
+    const info = store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (?, ?, '127.0.0.1', 3000, ?, ?, '/tmp/x.log')`,
+      )
+      .run(ticketId, repo, pid, status);
+    return Number(info.lastInsertRowid);
+  }
+
+  const exists = (id: number): boolean =>
+    store.db.prepare('SELECT id FROM servers WHERE id = ?').get(id) !== undefined;
+
+  it('deletes the ticket’s stopped and failed rows', () => {
+    const stopped = row(7, 'backend', 'stopped', null);
+    const failed = row(7, 'frontend', 'failed', null);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(stopped)).toBe(false);
+    expect(exists(failed)).toBe(false);
+  });
+
+  it('keeps a running row — a refused kill leaves a live orphan that must stay visible', () => {
+    const running = row(7, 'backend', 'running', 4242);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(running)).toBe(true);
+  });
+
+  it('touches neither another ticket nor a baseline row', () => {
+    const otherTicket = row(9, 'backend', 'stopped', null);
+    const baseline = row(null, 'backend', 'stopped', null);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(otherTicket)).toBe(true);
     expect(exists(baseline)).toBe(true);
   });
 });

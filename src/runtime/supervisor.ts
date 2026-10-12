@@ -762,6 +762,31 @@ export function pruneOrphanServers(
   store.db.prepare(sql).run(ticketId, ...knownRepos);
 }
 
+/**
+ * Delete a ticket's server rows that are NOT running — the dead `stopped` /
+ * `failed` rows a torn-down spin leaves behind.
+ *
+ * A stop RETAINS its row on purpose (`stopServer`): an offline server stays
+ * visible so the user can restart it. That holds only while the row can still
+ * be started. A rolled-back spin releases the ticket's `port_allocations` and
+ * may remove the worktree it created, so its offline rows have no ports left —
+ * Start on one can only fail "ports are no longer recorded", and the row is a
+ * button that cannot work. This reaps exactly those rows.
+ *
+ * The test is `status != 'running'` AND `pid IS NULL`, and the running half is
+ * load-bearing: a REFUSED kill (`killTree` → 'denied') leaves the process alive,
+ * so its row stays truthfully `running` (pid intact) and must remain visible
+ * rather than be erased from under the user (@arch:WT-REMOVE).
+ *
+ * Ticket-scoped like `pruneOrphanServers`: baseline rows (`ticket_id IS NULL`)
+ * are shared across tickets and are not one ticket's rollback to reap.
+ */
+export function pruneDeadServers(store: Store, ticketId: number): void {
+  store.db
+    .prepare("DELETE FROM servers WHERE ticket_id = ? AND status != 'running' AND pid IS NULL")
+    .run(ticketId);
+}
+
 /** Read the current contents of a server's log file (§10 log-tail). */
 export function tailLog(record: Pick<ServerRecord, 'logPath'>): string {
   if (!existsSync(record.logPath)) return '';
