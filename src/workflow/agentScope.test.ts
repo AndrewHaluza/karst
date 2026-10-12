@@ -77,7 +77,12 @@ describe('buildScopeBlock', () => {
     expect(text.indexOf('/repo/.karst/worktrees/x')).toBeLessThan(
       text.indexOf('Wrong checkout → STOP'),
     );
-    expect(text).toContain('git -C /repo/.karst/worktrees/x rev-parse --abbrev-ref HEAD');
+    // The recovery moves the agent's working directory, then runs a PLAIN
+    // invocation. `git -C <path>` cannot match a per-subcommand allow-rule
+    // (agy soft-denies it headless), so the block must never name one.
+    expect(text).toContain('Set your working directory to `/repo/.karst/worktrees/x`');
+    expect(text).toContain('Check: `git rev-parse --abbrev-ref HEAD`');
+    expect(text).not.toContain('git -C');
     // The hard stop survives — it is now the answer for a checkout that is
     // still wrong AFTER the agent moved into the worktree.
     expect(text).toContain('severity "critical"');
@@ -94,6 +99,26 @@ describe('buildScopeBlock', () => {
     const text = buildScopeBlock('review', { baseRef: 'develop', branch: 'karst/x' }).join('\n');
     expect(text).toContain('Check: `git rev-parse --abbrev-ref HEAD`');
     expect(text).toContain('Wrong checkout → STOP');
+  });
+
+  // The agy reviewer's step-2 denial: `git -C <worktree> rev-parse …` matched
+  // no allow-rule even though a broad `command(git *)` rule was present,
+  // because the subcommand it resolves is `-C`, not `rev-parse`. Every command
+  // the scope block names must be ONE plain invocation so a per-subcommand
+  // allow-rule (`command(git rev-parse)`, `command(git diff)`) can match it —
+  // no `-C`, no `&&`/`|` chain, no path prefix on the executable.
+  it('tells the agent to run only plain, allow-rule-matchable commands', () => {
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      worktreePath: '/repo/.karst/worktrees/x',
+      openChanges: true,
+    }).join('\n');
+    expect(text).not.toContain('git -C');
+    expect(text).not.toMatch(/`\/[^`]*git /);
+    for (const span of text.match(/`[^`]*`/g) ?? []) {
+      expect(span).not.toMatch(/&&|\||git -C/);
+    }
   });
 
   it('never claims a wrong checkout or empty-diff guard when no branch is known', () => {

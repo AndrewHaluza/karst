@@ -215,10 +215,15 @@ export function buildScopeBlock(intent: ScopeIntent, opts: ScopeBlockOpts = {}):
   const worktreePath = opts.worktreePath?.trim() || null;
   // The recovery line comes FIRST: an agent that can put itself in the right
   // checkout must do that instead of reporting the harness. Only a checkout
-  // still wrong from there is the hard stop below.
+  // still wrong from there is the hard stop below. It moves the agent by
+  // SETTING its working directory — never `git -C <path>` and never a `cd … &&`
+  // chain: headless agy resolves that command's subcommand to `-C`, which no
+  // per-subcommand allow-rule (`command(git rev-parse)`) can match, so the run
+  // is auto-denied (the reviewer's step-2 denial). The check itself is one
+  // plain `git rev-parse` invocation.
   const checkLine =
     worktreePath !== null
-      ? `Run every command in \`${worktreePath}\`. Check: \`git -C ${worktreePath} rev-parse --abbrev-ref HEAD\` → MUST print \`${branch}\`.`
+      ? `Set your working directory to \`${worktreePath}\` and run every command from there. Check: \`git rev-parse --abbrev-ref HEAD\` → MUST print \`${branch}\`.`
       : `Check: \`git rev-parse --abbrev-ref HEAD\` → MUST print \`${branch}\`.`;
   const orientation =
     branch !== null
