@@ -11,6 +11,7 @@ export const AGY_READ_ONLY_COMMANDS: readonly string[] = [
   'git log',
   'git show',
   'git status',
+  'git rev-parse',
   'rg',
   'grep',
   'cat',

@@ -17,6 +17,18 @@ describe('checkAgyPermissions', () => {
     expect(c?.status).toBe('ok');
   });
 
+  it('lists git rev-parse — the scope block mandates the plain checkout check', () => {
+    // `agentScope.ts` tells every review/UAT agent to run
+    // `git rev-parse --abbrev-ref HEAD`. Without this line the doctor would
+    // report agy as ready while the mandated check is still auto-denied.
+    expect(AGY_READ_ONLY_COMMANDS).toContain('git rev-parse');
+    const [c] = checkAgyPermissions({
+      settingsPath: '/s.json',
+      allow: AGY_READ_ONLY_COMMANDS.filter((cmd) => cmd !== 'git rev-parse').map((cmd) => `command(${cmd})`),
+    });
+    expect(c?.detail).toContain('git rev-parse');
+  });
+
   it('warns naming each missing command and the exact lines to add', () => {
     const [c] = checkAgyPermissions({
       settingsPath: '/s.json',
