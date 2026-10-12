@@ -91,6 +91,21 @@ function makeWorktree(): string {
  * fake event stream built from the recorded live fixtures. The stream ends
  * after the supplied events, so `done` resolves once the loop drains.
  */
+async function importBridge(endpointUrl: string): Promise<{
+  default: { id: string; setup(ctx: unknown): Promise<void> };
+}> {
+  const worktree = makeWorktree();
+  const cmd = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }))
+    .buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl, configDir: join(worktree, '.karst-runtime') },
+      initialPrompt: 'go',
+    });
+  return (await import(pathToFileURL(cmd.ownedPaths![0]!).href)) as {
+    default: { id: string; setup(ctx: unknown): Promise<void> };
+  };
+}
+
 async function loadBridge(
   events: unknown[],
   directory: string,
@@ -279,5 +294,95 @@ describe('generated opencode2 bridge — live event fixtures', () => {
     } finally {
       await r.close();
     }
+  });
+
+  describe('setup() never awaits the long-lived stream (arch:AC-28)', () => {
+    const NEVER = new Promise<never>(() => {});
+    const settled = (p: Promise<void>, ms = 100): Promise<boolean> =>
+      Promise.race([p.then(() => true), new Promise<boolean>((r) => setTimeout(() => r(false), ms))]);
+    const sessionStarted = (id: string) => ({
+      id: `evt_${id}`,
+      created: 1,
+      type: 'session.created',
+      data: { sessionID: id },
+    });
+
+    it('resolves at once while the event stream never ends', async () => {
+      const r = await receiver();
+      try {
+        const mod = await importBridge(r.endpointUrl);
+        const ctx = {
+          location: { directory: '/wt' },
+          event: { subscribe: () => ({ [Symbol.asyncIterator]: () => ({ next: () => NEVER }) }) },
+        };
+        expect(await settled(mod.default.setup(ctx))).toBe(true);
+      } finally {
+        await r.close();
+      }
+    });
+
+    it('delivers events that arrive after setup has resolved', async () => {
+      const r = await receiver();
+      try {
+        const mod = await importBridge(r.endpointUrl);
+        const queue: unknown[] = [sessionStarted('ses_a'), sessionStarted('ses_b')];
+        const ctx = {
+          location: { directory: '/wt' },
+          event: {
+            subscribe: () => ({
+              [Symbol.asyncIterator]: () => ({
+                next: () =>
+                  queue.length > 0
+                    ? Promise.resolve({ value: queue.shift(), done: false })
+                    : NEVER,
+              }),
+            }),
+          },
+        };
+        expect(await settled(mod.default.setup(ctx))).toBe(true);
+        await waitFor(() => r.bodies.length >= 2);
+        expect(r.bodies.map((b) => (b as { session_id: string }).session_id)).toEqual([
+          'ses_a',
+          'ses_b',
+        ]);
+      } finally {
+        await r.close();
+      }
+    });
+
+    it('swallows a rejecting stream and a throwing subscribe() without unhandled rejections', async () => {
+      const r = await receiver();
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on('unhandledRejection', onUnhandled);
+      try {
+        const mod = await importBridge(r.endpointUrl);
+        const rejecting = {
+          location: { directory: '/wt' },
+          event: {
+            subscribe: () => ({
+              [Symbol.asyncIterator]: () => ({ next: () => Promise.reject(new Error('boom')) }),
+            }),
+          },
+        };
+        const throwing = {
+          location: { directory: '/wt' },
+          event: {
+            subscribe: () => {
+              throw new Error('subscribe failed');
+            },
+          },
+        };
+        expect(await settled(mod.default.setup(rejecting))).toBe(true);
+        expect(await settled(mod.default.setup(throwing))).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off('unhandledRejection', onUnhandled);
+        await r.close();
+      }
+    });
   });
 });
