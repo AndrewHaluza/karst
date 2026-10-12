@@ -136,5 +136,6 @@ function startMessage(
     result.restartedDependents.length > 0
       ? `; restarted ${result.restartedDependents.join(', ')} to rewire.`
       : '.';
-  return `${verb} ${repo} on :${ports[0]!} (new port)${rewired}`;
+  const label = ports.length > 1 ? 'new ports' : 'new port';
+  return `${verb} ${repo} on :${ports.join(', :')} (${label})${rewired}`;
 }

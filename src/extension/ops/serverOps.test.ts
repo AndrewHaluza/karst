@@ -212,6 +212,18 @@ describe('serverOps', () => {
     expect(deps.notify.info).toHaveBeenCalledWith('Started backend on :6012 (new port).');
   });
 
+  it('startServerRow names every newly allocated port', async () => {
+    addServer(1, 7, 'backend');
+    startTicketServiceMock.mockResolvedValue({
+      record: {} as never,
+      newPorts: { http: 6012, debug: 9229 },
+      restartedDependents: [],
+    });
+    const deps = makeDeps({ store });
+    await startServerRow(deps, 1);
+    expect(deps.notify.info).toHaveBeenCalledWith('Started backend on :6012, :9229 (new ports).');
+  });
+
   it('startServerRow surfaces a port-range-exhausted error as a user-facing message', async () => {
     addServer(1, 7, 'backend');
     startTicketServiceMock.mockRejectedValue(

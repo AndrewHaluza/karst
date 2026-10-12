@@ -185,6 +185,41 @@ describe('startTicketService', () => {
     expect(result.newPorts).toEqual({ http: 4000 });
   });
 
+  it('rewires a running dependent that has no recorded allocation, keeping its live port', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    // frontend is running but its allocation was wiped.
+    addServer(1, 30, 'frontend', 4200, 3333, 'running');
+
+    const result = await startTicketService(store, m, 1, 'backend', { probeBusyPorts: noBusy });
+
+    expect(calledNames()).toEqual(['backend', 'frontend']);
+    expect(result.restartedDependents).toEqual(['frontend']);
+    const feArgs = startResolvedMock.mock.calls[1]![0];
+    expect(feArgs.resolved.services['frontend']!.ports.http).toBe(4200); // its LIVE port
+    expect(feArgs.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:4000');
+    expect(allocationOf('frontend', 'http')).toBe(4200);
+    expect(stopServerMock).toHaveBeenCalledWith(store, 30);
+  });
+
+  it('names a running dependency live port in the target env', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    // backend (the target's dependency) is running but its allocation was wiped.
+    addServer(1, 10, 'backend', 4100, 1111, 'running');
+
+    const result = await startTicketService(store, m, 1, 'frontend', { probeBusyPorts: noBusy });
+
+    expect(calledNames()).toEqual(['frontend']);
+    expect(result.restartedDependents).toEqual([]);
+    const args = startResolvedMock.mock.calls[0]![0];
+    expect(args.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:4100');
+    expect(allocationOf('backend', 'http')).toBe(4100);
+    expect(result.newPorts).toEqual({ http: 4000 });
+  });
+
   it('restarts a running dependent with the target new port in its env', async () => {
     const m = manifest(stack());
     addWorktree(1, '/repo/backend', '/wt/backend');

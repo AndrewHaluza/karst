@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import type { Manifest } from '../manifest/types.js';
+import type { Manifest, PortSlot, ServiceDef } from '../manifest/types.js';
 import { unitByKey, unitsOfRepos, resolveTarget } from '../manifest/runnable.js';
 import { resolve, transitiveDependents } from '../resolver/resolve.js';
 import { makeRecordedPortAllocator } from '../resolver/recordedAllocator.js';
@@ -26,12 +26,14 @@ import { portsToAvoid } from './portProbe.js';
  * rollback/teardown, or the service was added to the manifest after the spin —
  * the row is not dead: it RECOVERS. Fresh ports are drawn for its missing slots
  * from the same range/override windows a spin uses (probing for listeners karst
- * cannot reclaim), the target is started on them, and every dependent that is
- * currently running is restarted in `startOrder` so its env carries the new
- * peer URL. A recorded peer keeps its port; a stopped, non-baseline peer the
- * target depends on is allocated too, so the target's env names a recorded port
- * (a declared baseline keeps its shared default). A dependent left stopped stays
- * stopped — its next start reads the recorded port.
+ * cannot reclaim), the target is started on them, and the units the target's
+ * wiring touches are recovered with it: every RUNNING dependent is restarted in
+ * `startOrder` so its env carries the new peer URL, and a RUNNING direct
+ * dependency contributes its LIVE port (recovered from its `servers` row) to
+ * the target's env. A recorded port never moves; a stopped, non-baseline direct
+ * dependency is allocated a port so the target's env names a recorded one (a
+ * declared baseline keeps its shared default). A stopped dependent stays stopped
+ * — its next start reads the recorded port.
  *
  * `spinTicket` is deliberately NOT reused: it stops EVERY server of the ticket,
  * releases and reallocates every port, and re-creates worktrees. Calling it with
@@ -76,12 +78,12 @@ export interface StartTicketServiceResult {
   restartedDependents: string[];
 }
 
-/** The unit keys with a `running` registry row for this ticket. */
-function runningUnitKeys(store: Store, ticketId: number): Set<string> {
-  const rows = store.db
-    .prepare("SELECT repo FROM servers WHERE ticket_id = ? AND status = 'running'")
-    .all(ticketId) as { repo: string }[];
-  return new Set(rows.map((r) => r.repo));
+/**
+ * The slot whose port a unit's `servers` row records — `startResolvedService`
+ * launches the `http` slot (or the first declared) as the service's own port.
+ */
+function primaryPortSlot(def: ServiceDef): PortSlot | undefined {
+  return def.ports.find((p) => p.name === 'http') ?? def.ports[0];
 }
 
 /** Stop the named unit's running row, if any, before it is (re)started. */
@@ -180,11 +182,19 @@ export async function startTicketService(
   }
 
   // --- Recovery: the target has no recorded port(s) to play back. ---
-  const running = runningUnitKeys(store, ticketId);
+  // The `servers` row of a running unit names the port it is ACTUALLY listening
+  // on, even when the allocation row was wiped. Recover that live port rather
+  // than re-draw one, so a running peer keeps its address.
+  const runningRows = store.db
+    .prepare("SELECT repo, port FROM servers WHERE ticket_id = ? AND status = 'running'")
+    .all(ticketId) as { repo: string; port: number | null }[];
+  const running = new Set(runningRows.map((r) => r.repo));
+  const runningPort = new Map<string, number>();
+  for (const row of runningRows) if (row.port !== null) runningPort.set(row.repo, row.port);
+
   // A dependency the ticket already declared as a BASELINE is a shared singleton
   // on its default port — allocating it an alt port would wire the target to
-  // where nothing listens. Only a peer that was part of this ticket's hot set
-  // (and so lost its own allocation) is safe to re-draw.
+  // where nothing listens. Only hot peers are safe to re-draw.
   const baselineKeys = new Set(
     (
       store.db.prepare('SELECT repo FROM baseline_refs WHERE ticket_id = ?').all(ticketId) as {
@@ -193,19 +203,42 @@ export async function startTicketService(
     ).map((r) => r.repo),
   );
 
-  // An unrecorded, stopped direct dependency still needs a recorded port when
-  // the target's env names it — otherwise the target is wired to the peer's
-  // default while the peer's own row-start would draw a different alt port.
-  // A running peer is left as-is (its port cannot be re-drawn without a restart
-  // it did not ask for); a baseline peer and an unrelated peer are skipped
-  // exactly as before.
+  // The target's wiring touches two groups of RUNNING units: its DEPENDENTS
+  // (restart them so their env names the new target port) and its direct
+  // DEPENDENCIES (the target's env names their port). Both become hot and are
+  // seeded with their live port; neither is left to resolve as a baseline.
+  const dependents = new Set(transitiveDependents(manifest, unit.key));
+  const directDeps = new Set<string>();
   for (const dep of unit.def.dependsOn) {
     const target = resolveTarget(manifest.repositories, dep.target);
-    if ('error' in target) continue;
-    const depUnit = target.unit;
-    const have = recorded.get(depUnit.key);
+    if (!('error' in target)) directDeps.add(target.unit.key);
+  }
+  const live = new Map<string, Map<string, number>>();
+  for (const key of running) {
+    if (key === unit.key) continue; // the target was stopped above
+    if (!dependents.has(key) && !directDeps.has(key)) continue;
+    const runningUnit = unitByKey(manifest, key);
+    if (!runningUnit) continue;
+    if (!hot.includes(runningUnit.repo)) hot.push(runningUnit.repo);
+    const primary = primaryPortSlot(runningUnit.def);
+    const port = runningPort.get(key);
+    if (primary && port !== undefined && !(recorded.get(key)?.has(primary.name) ?? false)) {
+      const slots = live.get(key) ?? new Map<string, number>();
+      slots.set(primary.name, port);
+      live.set(key, slots);
+    }
+  }
+
+  // An unrecorded, STOPPED direct dependency still needs a recorded port when
+  // the target's env names it — otherwise the target is wired to the peer's
+  // default while the peer's own row-start would draw a different alt port. A
+  // running peer keeps its live port (seeded above); a baseline peer and an
+  // unrelated peer are skipped exactly as before.
+  for (const key of directDeps) {
+    const depUnit = unitByKey(manifest, key)!;
+    const have = recorded.get(key);
     const depRecorded = depUnit.def.ports.every((p) => have?.has(p.name) ?? false);
-    if (depRecorded || running.has(depUnit.key) || baselineKeys.has(depUnit.key)) continue;
+    if (depRecorded || running.has(key) || baselineKeys.has(key)) continue;
     if (!hot.includes(depUnit.repo)) hot.push(depUnit.repo);
   }
 
@@ -223,15 +256,28 @@ export async function startTicketService(
     );
   }
   const fresh = makePortAllocator(store, manifest.portRange, { busy });
-  // Draw only the MISSING slots per unit, so a recorded port never moves. One
-  // transaction: a range that exhausts mid-way records nothing rather than
-  // leaving half a service allocated.
+  // Record the recovered LIVE ports FIRST, so the fresh allocator below can never
+  // hand one of them to another unit; then draw every still-missing slot. One
+  // transaction: a range that exhausts mid-way records nothing.
+  const insertLive = store.db.prepare(
+    'INSERT OR IGNORE INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)',
+  );
   store.db.transaction(() => {
     for (const hotUnit of unitsOfRepos(manifest, hot)) {
+      const seeded = live.get(hotUnit.key);
+      if (!seeded) continue;
+      for (const [slot, port] of seeded) {
+        // A port another ticket already recorded is not ours to reclaim — drop
+        // the seed so the slot is drawn fresh below instead.
+        if (insertLive.run(ticketId, hotUnit.key, slot, port).changes === 0) seeded.delete(slot);
+      }
+    }
+    for (const hotUnit of unitsOfRepos(manifest, hot)) {
       const have = recorded.get(hotUnit.key);
+      const seeded = live.get(hotUnit.key);
       const missing = hotUnit.def.ports
         .map((p) => p.name)
-        .filter((name) => !(have?.has(name) ?? false));
+        .filter((name) => !(have?.has(name) ?? false) && !(seeded?.has(name) ?? false));
       if (missing.length === 0) continue;
       fresh.allocate(ticketId, hotUnit.key, missing, hotUnit.def.portRange ?? manifest.portRange);
       opts.debug?.(
@@ -270,7 +316,6 @@ export async function startTicketService(
   // dependent starts after anything it depends on. A stopped dependent keeps
   // its recorded port and picks it up on its next start; the target stays up
   // even if one dependent fails — that failure is reported per service.
-  const dependents = new Set(transitiveDependents(manifest, unit.key));
   const restartedDependents: string[] = [];
   for (const name of resolved.startOrder) {
     if (name === unit.key || !dependents.has(name) || !running.has(name)) continue;
