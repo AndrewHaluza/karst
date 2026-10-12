@@ -18,15 +18,17 @@ import { IMPLEMENTED_PROVIDERS } from './provider.js';
 import { consoleLineRendererFor } from './consoleFormat.js';
 import { KARST_EXCLUDE_RULES } from '../runtime/karstExcludes.js';
 import type { AgentAdapter, MaterializeOpts, RunHeadlessOpts } from './adapter.js';
+import type { HeadlessSpawnOptions } from './headlessSpawn.js';
 import type { AgentProvider } from '../manifest/types.js';
 import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
 import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
+import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, sep } from 'node:path';
 
 /** Replace the adapter's spawn with one that records argv and answers `stdout`. */
-type SpawnCall = { command: string; args: string[]; cwd: string };
+type SpawnCall = { command: string; args: string[]; cwd: string; opts?: HeadlessSpawnOptions };
 
 function withRecordedSpawn(
   adapter: AgentAdapter,
@@ -39,8 +41,9 @@ function withRecordedSpawn(
     command: string,
     args: string[],
     cwd: string,
+    opts?: HeadlessSpawnOptions,
   ) => {
-    calls.push({ command, args, cwd });
+    calls.push({ command, args, cwd, opts });
     return { stdout: result.stdout, stderr: result.stderr ?? '', exitCode: result.exitCode };
   };
   return calls;
@@ -105,6 +108,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'readOnlyInteractive',
       'addDirsInteractive',
       'mcpConfigInteractive',
+      'processKillDeny',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -192,10 +196,6 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     };
     return parsed.permission ?? {};
   };
-  const configPermission = (env: Record<string, string>): unknown => {
-    if (!env.OPENCODE_CONFIG_CONTENT) return undefined;
-    return (JSON.parse(env.OPENCODE_CONFIG_CONTENT) as { permission?: unknown }).permission;
-  };
   const after = (args: string[], flag: string): string | undefined => args[args.indexOf(flag) + 1];
 
   const READ_ONLY: Record<AgentProvider, (l: Launch) => void> = {
@@ -212,7 +212,10 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       expect(args).not.toContain('/repos/api');
     },
     opencode: (l) => {
-      expect(opencodePermission(l)).toMatchObject({ edit: 'deny', bash: 'ask' });
+      const permission = opencodePermission(l);
+      expect(permission).toMatchObject({ edit: 'deny' });
+      // The bash catch-all asks; the kill deny follows it (last-match-wins).
+      expect(permission.bash).toMatchObject({ '*': 'ask' });
     },
     // agy 1.2.17 accepts only `accept-edits` | `plan` (anything else falls back
     // to the SAVED mode). `plan` is the only non-editing one; nothing verifies it
@@ -225,7 +228,9 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     // 2.0.24) and `bash` ask gates shell, so the core CAN block edits and a
     // planning launch needs no acknowledgement.
     opencode2: (l) => {
-      expect(opencode2Permission(l)).toMatchObject({ edit: 'deny', bash: 'ask' });
+      const permission = opencode2Permission(l);
+      expect(permission).toMatchObject({ edit: 'deny' });
+      expect(permission.bash).toMatchObject({ '*': 'ask' });
     },
   };
 
@@ -256,12 +261,79 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     expect(launch.args.at(-1), `${provider} prompt stays last`).toBe('plan it');
   });
 
-  it('never applies the read-only policy to an ordinary launch', () => {
+  it('never applies the read-only policy to an ordinary launch (the kill deny is not one)', () => {
     const { args, env } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
-    for (const token of ['--disallowedTools', 'workspace-write', '--mode']) expect(args).not.toContain(token);
-    expect(env.OPENCODE_PERMISSION).toBeUndefined();
-    // v2 must likewise omit the nested permission object on an ordinary launch.
-    expect(configPermission(env), `${provider} ordinary launch carries no permission blob`).toBeUndefined();
+    // The read-only POLICY tokens are absent from an ordinary launch.
+    for (const token of ['workspace-write', '--mode', '--permission-mode']) {
+      expect(args, `${provider} ordinary launch must not carry ${token}`).not.toContain(token);
+    }
+    // claude's kill deny rides its `--settings` deny list (this launch has no
+    // hook channel), so an ordinary claude launch carries no `--disallowedTools`
+    // at all; opencode/2 carry the deny in their permission blob below, never
+    // the read-only ask.
+    expect(args).not.toContain('--disallowedTools');
+    // The opencode blobs carry the kill deny, never an edit-deny or a bash-ask catch-all.
+    for (const blob of [env.OPENCODE_PERMISSION, env.OPENCODE_CONFIG_CONTENT]) {
+      if (!blob) continue;
+      const parsed = JSON.parse(blob) as {
+        permission?: { edit?: unknown; bash?: Record<string, string> };
+        edit?: unknown;
+        bash?: Record<string, string>;
+      };
+      const permission = parsed.permission ?? parsed;
+      expect(permission.edit, `${provider} ordinary launch must deny no edits`).toBeUndefined();
+      if (permission.bash) {
+        expect(permission.bash['*'], `${provider} ordinary launch must ask for no catch-all`).toBeUndefined();
+      }
+    }
+  });
+
+  /**
+   * The process kill deny (incident 2026-10-12) lands on EVERY core in the
+   * core's own channel, or the core declares a reason. `processKillGuard.ts` is
+   * the single list; a claim is checked against real argv/env here.
+   */
+  it('denies the process-wide kill commands in its own channel when declared supported', () => {
+    const support = surfacesOf(provider).processKillDeny;
+    if (!support.supported) {
+      expect(reasonOf(support).length, `${provider}.processKillDeny reason`).toBeGreaterThan(20);
+      return;
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'karst-kill-conf-'));
+    try {
+      // A ticket session always carries a hook channel; claude's deny rides the
+      // `--settings` file that channel writes, opencode/2's rides the permission
+      // blob they carry without one. Either way the six commands must be present.
+      const launch = resolveAdapter(provider).buildInteractiveCommand({
+        cwd: '/wt',
+        ...(provider === 'claude'
+          ? { hookChannel: { endpointUrl: 'http://127.0.0.1:4567/hooks', configDir: dir } }
+          : {}),
+        initialPrompt: 'go',
+      });
+      let text = JSON.stringify({ args: launch.args, env: launch.env });
+      if (provider === 'claude') {
+        const path = launch.args[launch.args.indexOf('--settings') + 1]!;
+        text += readFileSync(path, 'utf8');
+      }
+      for (const command of PROCESS_WIDE_KILL_COMMANDS) {
+        expect(text, `${provider} interactive launch must deny ${command}`).toContain(command);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('denies the process-wide kill commands on a headless run when declared supported', async () => {
+    const support = surfacesOf(provider).processKillDeny;
+    if (!support.supported) return;
+    const adapter = resolveAdapter(provider);
+    const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
+    await adapter.runHeadless(baseOpts());
+    const text = JSON.stringify({ args: calls[0]!.args, env: calls[0]!.opts?.isolationEnv });
+    for (const command of PROCESS_WIDE_KILL_COMMANDS) {
+      expect(text, `${provider} headless run must deny ${command}`).toContain(command);
+    }
   });
 
   it('makes every extra directory readable', () => {
