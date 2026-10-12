@@ -29,6 +29,8 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - Fallback invariant: the seed is self-contained when the adapter reports no entry invocation
 - agy has no executable hook channel
 - An OpenCode v2 session warns before it opens with no provider signed in
+- An opencode2 plugin's setup() never awaits a long-lived stream
+- Subscription quota probe sources across agent cores
 END_DOC_BLOCK: [@arch:AC-01]
 
 ## [@arch:AC-02] Ticket-context shaping lives ONCE in `src/context/ticketContext.ts`
@@ -251,3 +253,27 @@ Symptom (2.0.27): an interactive opencode2 session opens but never works — the
 
 `renderOpencode2Bridge` (`agent/opencode2Bridge.ts`) now starts the loop in a detached `pump(ctx, directory)` and `setup()` returns at once. `subscribe()` is still called synchronously inside `pump`, so no early event is missed; `pump` wraps everything (including `subscribe()`) in try/catch so the detached promise can never reject. Rejected: a timeout/race around setup (still delays boot, depends on v2 internals), a v2 `effect` export (no live fixture of its lifecycle), dropping the plugin for interactive runs (loses all hooks). No migration: `writeOpencode2Bridge` rewrites a differing file on the next launch. Tests (`opencode2Bridge.integration.test.ts`): `resolves at once while the event stream never ends`, `delivers events that arrive after setup has resolved`, `swallows a rejecting stream and a throwing subscribe() without unhandled rejections`, plus the headless `never subscribes` case.
 END_DOC_BLOCK: [@arch:AC-28]
+
+## [@arch:AC-29] Subscription quota probe sources across agent cores
+
+Karst tracks token counts per ticket and aggregates spend across sessions (`agent/tokenUsage.ts`, `arch:AC-14`), but provider subscription quotas (such as Claude 5h/weekly, Codex plan limits, Gemini daily quota, OpenCode Go dollar pools) cannot be self-estimated from karst's local token usage without ignoring usage outside karst. To guard against quota exhaustion lockouts before launching a run or warn operators in the UI (D162/D163), karst probes provider-reported subscription windows (used %, window length, reset time) without spending model requests.
+
+In accordance with candidate preference order:
+1. **Provider usage API** called with the auth the core CLI already stores (OAuth token / credentials file / keychain) — reusing existing credentials, never asking the user for new ones.
+2. **Local data written by the CLI** (e.g. Codex session JSONL `rate_limits`).
+3. **Headless CLI status/usage output** (e.g. CLI status commands).
+4. **None** (legitimate `unknown` verdict in the spirit of `arch:AC-05`, never a blocking error).
+
+| Core | Primary Source | Auth Reused | Fields Available | Freshness | Cost | Failure Modes | Verdict |
+|---|---|---|---|---|---|---|---|
+| **Codex** | Local session JSONL (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`, event `token_count` → `rate_limits`) | None required (local file read from `~/.codex`) | `primary.used_percent`, `primary.window_minutes`, `primary.resets_at`, `secondary.used_percent`, `secondary.window_minutes`, `secondary.resets_at`, `plan_type` | Updated by Codex on every model response; stale across idle periods until next Codex turn | Zero model requests, zero network calls | No session files found if fresh install; corrupt/truncated JSONL line; stale timestamps if no recent turns | **Supported** |
+| **Claude** | CLI statusLine telemetry hook (pushed via stdin JSON into `statusLine` command in `~/.claude/settings.json`) / Local credentials in keychain | None for statusLine read; macOS Keychain (`Claude Code-credentials`) for static tier (`subscriptionType`, `rateLimitTier`) | `rate_limits.five_hour.used_percentage`, `rate_limits.five_hour.resets_at`, `rate_limits.seven_day.used_percentage`, `rate_limits.seven_day.resets_at` | Real-time during Claude sessions (emitted per turn); no public zero-spend HTTP API for individual subscriptions | Zero model requests (reads cached statusline payload) | Missing if statusLine command is not configured or session has never had a model turn | **Partial** |
+| **Antigravity (agy)** | None (Google Cloud Quotas / Cloud Monitoring backend) | OAuth credentials stored in `~/.gemini/oauth_creds.json` (`https://www.googleapis.com/auth/cloud-platform`) | None locally; conversation steps persist token usage (`steps.metadata`), but not subscription rate limit windows | N/A | N/A | No zero-request endpoint or local telemetry file exposed by agy CLI | **Unknown** |
+| **OpenCode** | None (OpenCode Go Console backend) | Auth stored in `~/.local/share/opencode/auth.json` (OpenCode Go API key) | `opencode stats --standalone --json` reports local token spend & costs, but no provider subscription window quotas | N/A | N/A | No public zero-spend usage API endpoint exists for OpenCode Go (`GET /zen/go/v1/usage` is an open feature request upstream); local DB stores conversation messages only | **Unknown** |
+
+### Implementation and Redaction Rules
+- Secrets, bearer tokens, and API keys must NEVER be logged or written to the store; record only response SHAPES (captured in `scratch/quota-probes/fixtures.json`).
+- Probe scripts for each core reside in `scratch/quota-probes/` (`probe-codex.mjs`, `probe-claude.mjs`, `probe-agy.mjs`, `probe-opencode.mjs`).
+- Cores with an `unknown` verdict report `unknown` in the quota UI (D163), never `0%`.
+END_DOC_BLOCK: [@arch:AC-29]
+
