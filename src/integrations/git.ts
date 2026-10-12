@@ -511,7 +511,9 @@ export async function changedPathsMatching(
   if (out.exitCode !== 0) {
     throw new Error(describeGitFailure(`git diff --name-only ${range}`, out));
   }
-  return splitLines(out.stdout);
+  // `--name-only` C-quotes a non-ASCII path just like `status` does; unquote so
+  // the committed-match warning names the real path, not its octal form.
+  return splitLines(out.stdout).map(unquotePorcelain);
 }
 
 /** Split git's newline-separated path output, dropping blank lines. */
@@ -559,18 +561,52 @@ export function parsePorcelainPaths(porcelain: string): string[] {
   return parsePorcelainEntries(porcelain).map((entry) => entry.path);
 }
 
-/** Undo git's C-style path quoting: `"`-wrapped, with `\` escapes and octal bytes. */
+/**
+ * Undo git's C-style path quoting: `"`-wrapped, with `\` escapes and octal
+ * BYTES. The escapes are collected as raw bytes and decoded as UTF-8 — a
+ * per-escape `String.fromCharCode` reads each UTF-8 byte as Latin-1 and turns
+ * `näme` (quoted `n\303\244me`) into `nÃ¤me`.
+ */
 function unquotePorcelain(value: string): string {
   if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
   const body = value.slice(1, -1);
-  return body.replace(/\\(\\|"|t|n|r|[0-7]{1,3})/g, (_match, escape: string) => {
-    if (escape === '\\') return '\\';
-    if (escape === '"') return '"';
-    if (escape === 't') return '\t';
-    if (escape === 'n') return '\n';
-    if (escape === 'r') return '\r';
-    return String.fromCharCode(parseInt(escape, 8));
-  });
+  const bytes: number[] = [];
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (ch !== '\\') {
+      bytes.push(ch.charCodeAt(0));
+      continue;
+    }
+    const escape = body[i + 1];
+    if (escape === undefined) {
+      bytes.push(0x5c); // trailing backslash — literal
+      break;
+    }
+    if (escape === '\\' || escape === '"') {
+      bytes.push(escape.charCodeAt(0));
+    } else if (escape === 't') {
+      bytes.push(0x09);
+    } else if (escape === 'n') {
+      bytes.push(0x0a);
+    } else if (escape === 'r') {
+      bytes.push(0x0d);
+    } else if (escape >= '0' && escape <= '7') {
+      // A byte git wrote as 1–3 octal digits (UTF-8 continuation bytes included).
+      let octal = escape;
+      let j = i + 2;
+      while (octal.length < 3 && j < body.length && body[j]! >= '0' && body[j]! <= '7') {
+        octal += body[j];
+        j++;
+      }
+      bytes.push(parseInt(octal, 8) & 0xff);
+      i = j - 1;
+      continue;
+    } else {
+      bytes.push(0x5c); // unknown escape — keep the backslash
+    }
+    i++;
+  }
+  return Buffer.from(bytes).toString('utf8');
 }
 
 /**

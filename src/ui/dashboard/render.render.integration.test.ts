@@ -394,6 +394,21 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
+  it('keeps the Ship clock on a live repaint while the slot waits (D142)', () => {
+    const base = populatedStateFor('ship');
+    const h = renderWebview('dashboard');
+    // A stale rail selection from before the ticket reached ship.
+    h.receive({ type: 'state', state: { ...base, ship: { kind: 'none' as const } } });
+    h.click('[data-stage="review"]');
+    const state = { ...base, ship: { kind: 'confirm' as const }, shipPreview: shipPreviewFixture('ready')! };
+    h.receive({ type: 'state', state });
+    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    h.receive({ type: 'state', state, live: true });
+    // The live repaint must keep the PINNED stage's clock, not review's.
+    expect(h.query('#inside .inside-meta')!.textContent).toBe('09:40:02 · 1m 40s · attempt 1');
+    h.close();
+  });
+
   it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', () => {
     const h = render('ready');
     h.click('[data-act="refresh-ship-preview"]');

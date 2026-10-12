@@ -3349,6 +3349,19 @@
     return kind === 'confirm' || kind === 'retry';
   }
 
+  /**
+   * The stage the Inside block shows. While the ship slot waits for
+   * Confirm/Retry the Ship view (and its preview, D142) is PINNED, so a stale
+   * rail selection from an earlier stage can never hide it. ONE definition for
+   * the full render and the live repaint — the live repaint used to recompute
+   * this from the unpinned `selectedStage` and overwrite the Ship clock with
+   * the previously selected stage's.
+   */
+  function insideSelection(state) {
+    if (shipSlotWaits(state.ship)) return 'ship';
+    return selectedStage || state.presentedStage || state.stageCurrent || 'scope';
+  }
+
   function shipPreviewStatusBadge(r) {
     // A read failure means the repo's state was never determined, so the badge
     // must not claim a verdict (it used to read "nothing to commit").
@@ -3578,7 +3591,7 @@
   }
 
   function updateInsideLive(state) {
-    const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
+    const sel = insideSelection(state);
     const view = (state.insideViews || {})[sel];
     const block = el('inside');
     if (!view || !block) return;
@@ -5538,14 +5551,10 @@
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
     //
-    // While the ship slot waits for Confirm/Retry the Ship view (and its
-    // preview, D142) is PINNED: the header's Confirm ship is always clickable,
-    // so the commit/PR-title preview must always be on screen — a stale rail
-    // selection from an earlier stage must never hide it from someone about to
-    // ship. The pin lifts the moment the slot stops waiting.
-    const sel = shipSlotWaits(state.ship)
-      ? 'ship'
-      : (selectedStage || state.presentedStage || state.stageCurrent || 'scope');
+    // `insideSelection` pins the Ship view while the ship slot waits (D142):
+    // the header's Confirm ship is always clickable, so the commit/PR-title
+    // preview must always be on screen. The pin lifts when the slot stops.
+    const sel = insideSelection(state);
     el('title').textContent = state.title || '(untitled)';
     renderParentRef(state);
     renderTicketIdentity(state);

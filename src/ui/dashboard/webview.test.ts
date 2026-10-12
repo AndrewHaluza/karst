@@ -3063,20 +3063,22 @@ describe('inside render round trip (executed in a VM)', () => {
     };
     const run = new Function(
       'el',
-      'selectedStage',
+      'insideSelection',
       'liveOps',
       'state',
       `${src}\n;return updateInsideLive(state);`,
     ) as (
       el: (id: string) => unknown,
-      selectedStage: unknown,
+      insideSelection: (state: DashboardState) => string,
       liveOps: unknown,
       state: DashboardState,
     ) => void;
     const tick = renderStateFor('impl');
     tick.insideViews.impl!.clock = 'started 09:12:33 · 4m 13s elapsed · attempt 1';
     tick.insideViews.impl!.processes[0]!.duration = '4m 13s';
-    run((id) => (id === 'inside' ? block : null), null, {}, tick);
+    // The stage-selection policy is injected: this test is about the in-place
+    // clock advance, and the pin's own behaviour is pinned by the render tests.
+    run((id) => (id === 'inside' ? block : null), () => 'impl', {}, tick);
     expect(meta.textContent).toBe('started 09:12:33 · 4m 13s elapsed · attempt 1');
     expect(dur.textContent).toBe('4m 13s');
   });
