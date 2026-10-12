@@ -317,12 +317,15 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('blocked: shows the deny paths as danger text with an icon', () => {
+  it('blocked: shows the deny paths as danger text with an icon, never as "Commits"', () => {
     const h = render('blocked');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('.env');
     expect(section.querySelector('.sp-badge--danger')).toBeTruthy();
     expect(section.querySelector('.sp-row--danger')).toBeTruthy();
+    // Ship refuses before the sweep, so the refused path is never labelled as
+    // something it will commit.
+    expect(section.textContent).not.toContain('Commits');
     h.close();
   });
 
@@ -342,10 +345,11 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('error: renders the per-repo message and keeps the rest', () => {
+  it('error: renders the per-repo message and never a "no changes" verdict', () => {
     const h = render('error');
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.textContent).toContain('git status exited 128');
+    expect(section.textContent).not.toContain('no changes from base');
     expect(h.queryAll('[data-region="ship-preview-repo"]')).toHaveLength(1);
     h.close();
   });
@@ -370,6 +374,23 @@ describe('dashboard render — ship preview (D142)', () => {
     const section = h.query('[data-region="ship-preview"]')!;
     expect(section.querySelectorAll('.sp-file').length).toBe(51); // 50 + the remainder row
     expect(section.textContent).toContain('and 10 more');
+    h.close();
+  });
+
+  it('keeps the Ship preview on screen while Confirm ship is clickable (D142)', () => {
+    const base = populatedStateFor('ship');
+    const state = { ...base, ship: { kind: 'confirm' as const }, shipPreview: shipPreviewFixture('ready')! };
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state });
+    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    expect(h.query<HTMLElement>('#confirmShip')!.hidden).toBe(false);
+    // The tester's bypass: selecting another stage used to hide the preview
+    // while the header Confirm ship stayed clickable. The Ship view is pinned
+    // while the slot waits, so the rail click is ignored.
+    h.click('[data-stage="impl"]');
+    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    h.receive({ type: 'state', state });
+    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
     h.close();
   });
 

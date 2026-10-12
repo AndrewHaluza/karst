@@ -3343,7 +3343,16 @@
     return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   }
 
+  /** Is the header's ship slot waiting for the user's Confirm/Retry click? */
+  function shipSlotWaits(slot) {
+    const kind = (slot || {}).kind;
+    return kind === 'confirm' || kind === 'retry';
+  }
+
   function shipPreviewStatusBadge(r) {
+    // A read failure means the repo's state was never determined, so the badge
+    // must not claim a verdict (it used to read "nothing to commit").
+    if (r.error) return `<span class="sp-badge">${karstIcon('circle-x', 14)}<span>not read</span></span>`;
     if (r.status === 'blocked') return `<span class="sp-badge sp-badge--danger">${karstIcon('circle-x', 14)}<span>blocked</span></span>`;
     if (r.status === 'already-shipped') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>PR open — skipped</span></span>`;
     if (r.status === 'will-commit') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>will commit</span></span>`;
@@ -3371,13 +3380,19 @@
     } else if (r.status === 'already-shipped') {
       rows.push(`<div class="sp-row"><span class="sp-label">Status</span>`
         + `<span class="sp-value">PR #${esc(String(r.prNumber == null ? '?' : r.prNumber))} open — skipped</span></div>`);
-    } else if (r.status === 'nothing-to-commit') {
+    } else if (r.status === 'nothing-to-commit' && !r.error) {
+      // Never a verdict on a failed read: `r.error` renders its own row below.
       const text = r.changedFromBase ? 'nothing to commit — agent committed its work' : 'no changes from base';
       rows.push(`<div class="sp-row"><span class="sp-label">Status</span><span class="sp-value">${esc(text)}</span></div>`);
     }
     rows.push(`<div class="sp-row"><span class="sp-label">PR title</span><span class="sp-value">${esc(r.prTitle)}</span></div>`);
     rows.push(`<div class="sp-row"><span class="sp-label">Commit</span><span class="sp-value">${esc(r.commitMessage)}</span></div>`);
-    if (r.commitFiles && r.commitFiles.length) rows.push(shipPreviewFilesHtml('Commits', r.commitFiles, ''));
+    // A blocked repo will not commit at all (ship refuses before the sweep), so
+    // listing its dirty paths under "Commits" would claim work ship will never
+    // do — the deny row already names the refused paths.
+    if (r.status !== 'blocked' && r.commitFiles && r.commitFiles.length) {
+      rows.push(shipPreviewFilesHtml('Commits', r.commitFiles, ''));
+    }
     if (r.excludedFiles && r.excludedFiles.length) rows.push(shipPreviewFilesHtml('Excluded', r.excludedFiles, '(ship.exclude)'));
     if (r.committedExcludedWarning && r.committedExcludedWarning.length) {
       rows.push(`<div class="sp-row sp-row--warn"><span class="sp-label">Warning</span>`
@@ -5522,7 +5537,15 @@
     graphTicketId = state.ticketId;
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
-    const sel = selectedStage || state.presentedStage || state.stageCurrent || 'scope';
+    //
+    // While the ship slot waits for Confirm/Retry the Ship view (and its
+    // preview, D142) is PINNED: the header's Confirm ship is always clickable,
+    // so the commit/PR-title preview must always be on screen — a stale rail
+    // selection from an earlier stage must never hide it from someone about to
+    // ship. The pin lifts the moment the slot stops waiting.
+    const sel = shipSlotWaits(state.ship)
+      ? 'ship'
+      : (selectedStage || state.presentedStage || state.stageCurrent || 'scope');
     el('title').textContent = state.title || '(untitled)';
     renderParentRef(state);
     renderTicketIdentity(state);
@@ -5607,6 +5630,10 @@
   const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
 
   function select(stage) {
+    // While the ship slot waits, the Ship view is pinned (see render): a rail
+    // click elsewhere is ignored so the preview stays on screen next to the
+    // always-available Confirm ship.
+    if (shipSlotWaits(lastState && lastState.ship) && stage !== 'ship') return;
     selectedStage = stage;
     // Selecting a stage closes the current header's ⋯ menu — the menu belongs
     // to the stage header being shown, and the header is about to change.
