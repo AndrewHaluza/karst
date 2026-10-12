@@ -1,6 +1,12 @@
 import type { Store } from '../store/db.js';
 import type { Manifest, PortSlot, ServiceDef } from '../manifest/types.js';
-import { unitByKey, unitsOfRepos, resolveTarget, type ServiceUnit } from '../manifest/runnable.js';
+import {
+  unitByKey,
+  unitsOfRepos,
+  resolveTarget,
+  serviceUnits,
+  type ServiceUnit,
+} from '../manifest/runnable.js';
 import { resolve, transitiveDependents } from '../resolver/resolve.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
 import { startResolvedService } from './startService.js';
@@ -26,11 +32,11 @@ import { portsToAvoid } from './portProbe.js';
  * the row is not dead: it RECOVERS. Fresh ports are drawn for its missing slots
  * from the same range/override windows a spin uses (probing for listeners karst
  * cannot reclaim), the target is started on them, and everything the moved ports
- * TOUCH is recovered with it: every RUNNING unit that depends on a moved port
- * (the target's dependents, and any other consumer of a re-drawn dependency) is
- * restarted in `startOrder` so its env carries the new URL, and a RUNNING peer
- * contributes its LIVE port (recovered from its `servers` row) rather than being
- * re-drawn. A recorded port never moves; a stopped, non-baseline dependency is
+ * TOUCH is recovered with it: every RUNNING unit that DIRECTLY consumes a moved
+ * port (the target's dependents, and any other consumer of a re-drawn
+ * dependency) is restarted in `startOrder` so its env carries the new URL, and a
+ * RUNNING peer contributes its LIVE port (recovered from its `servers` row)
+ * rather than being re-drawn. A unit that consumes no moved port is left alone. A recorded port never moves; a stopped, non-baseline dependency is
  * allocated a port so its consumers' env names a recorded one (a declared
  * baseline keeps its shared default). A stopped unit stays stopped — its next
  * start reads the recorded port. Starting a RECORDED unit is unaffected: a hot
@@ -265,31 +271,64 @@ export async function startTicketService(
     const have = recorded.get(u.key);
     return u.def.ports.every((p) => have?.has(p.name) ?? false);
   };
-
-  let started = new Set<string>([unit.key]);
-  let wire = new Set<string>();
-  for (;;) {
-    wire = new Set<string>();
-    const next = new Set(started);
-    for (const key of next) {
-      for (const dep of directDepUnits(key)) {
-        if (baselineKeys.has(dep.key)) continue; // a baseline keeps its default
-        wire.add(dep.key);
-        if (!running.has(dep.key) && !fullyRecorded(dep)) {
-          for (const v of transitiveDependents(manifest, dep.key)) {
-            if (running.has(v)) next.add(v);
-          }
+  /** Every unit with a BOUND dependsOn edge to `key` — the consumers of its port. */
+  const directDependents = (key: string): string[] => {
+    const out: string[] = [];
+    for (const u of serviceUnits(manifest)) {
+      if (u.key === key) continue;
+      for (const dep of u.def.dependsOn) {
+        if (dep.bind.length === 0) continue;
+        const target = resolveTarget(manifest.repositories, dep.target);
+        if (!('error' in target) && target.unit.key === key) {
+          out.push(u.key);
+          break;
         }
       }
     }
-    // The target is (re)started on a fresh path, so everything that depends on
-    // it must be rewired.
-    for (const v of transitiveDependents(manifest, unit.key)) {
-      if (running.has(v)) next.add(v);
+    return out;
+  };
+
+  // The units this recovery WIRES and STARTS, to a fixed point.
+  //
+  //  - `started` is the target plus every RUNNING transitive dependent of it —
+  //    a moved target port is named all the way downstream, so their envs must
+  //    be resolved.
+  //  - `wire` is every BOUND peer of a started unit, so a started unit's env is
+  //    fully resolved.
+  //  - A unit whose port MOVES — the target, or any intended stopped/unrecorded
+  //    unit (it is drawn fresh) — pulls in the RUNNING units that DIRECTLY
+  //    consume it.
+  //
+  // Starting a unit does NOT by itself restart its dependents: the actual
+  // restarts below are filtered to units that consume a moved port.
+  let started = new Set<string>([unit.key]);
+  for (const key of transitiveDependents(manifest, unit.key)) {
+    if (running.has(key)) started.add(key);
+  }
+  let wire = new Set<string>();
+  const movedPorts = (startedKeys: Set<string>, wireKeys: Set<string>): Set<string> => {
+    const moved = new Set<string>([unit.key]);
+    for (const key of [...startedKeys, ...wireKeys]) {
+      const u = unitByKey(manifest, key);
+      if (u && !running.has(key) && !fullyRecorded(u)) moved.add(key);
+    }
+    return moved;
+  };
+  for (;;) {
+    wire = new Set<string>();
+    for (const key of started) {
+      for (const dep of directDepUnits(key)) {
+        if (!baselineKeys.has(dep.key)) wire.add(dep.key);
+      }
+    }
+    const next = new Set(started);
+    for (const movedKey of movedPorts(started, wire)) {
+      for (const v of directDependents(movedKey)) if (running.has(v)) next.add(v);
     }
     if (next.size === started.size) break;
     started = next;
   }
+  const moved = movedPorts(started, wire);
 
   // Every started/wired repository is hot. A RUNNING started/wired unit has its
   // live port recovered from its `servers` row rather than re-drawn.
@@ -423,16 +462,17 @@ export async function startTicketService(
       `${Object.values(newPorts).join(', ')})`,
   );
 
-  // Rewire only the units this recovery STARTED (all RUNNING), in startOrder so
-  // a unit starts after anything it depends on. A stopped unit keeps its
-  // recorded port and picks it up on its next start. One unit's failure does NOT
-  // abort the rest: a unit left pointing at an OLD port is the silent miswiring
-  // this whole path exists to prevent, so every other started unit is still
-  // rewired. Failures are reported per service, and the target stays up.
+  // Restart only the started units that CONSUME a moved port, in startOrder so a
+  // unit starts after anything it depends on. A unit that consumes no moved port
+  // (its peers kept their addresses) is left running untouched. One failure does
+  // NOT abort the rest: a unit left pointing at an OLD port is the silent
+  // miswiring this whole path exists to prevent, so every other affected unit is
+  // still rewired. Failures are reported per service, and the target stays up.
   const restartedDependents: string[] = [];
   const failures: string[] = [];
   for (const name of resolved.startOrder) {
     if (name === unit.key || !started.has(name) || !running.has(name)) continue;
+    if (!directDepUnits(name).some((dep) => moved.has(dep.key))) continue;
     const depUnit = unitByKey(manifest, name)!;
     const depCwd = pathByRepo.get(depUnit.repoDef.repoPath);
     if (depCwd === undefined) {

@@ -287,7 +287,7 @@ describe('startTicketService', () => {
     expect(n.n).toBe(0);
   });
 
-  it('restarts transitive dependents in startOrder', async () => {
+  it('restarts only the running dependents that consume a moved port', async () => {
     const m = manifest({
       contracts: runnableRepo({ ports: [httpSlot(6000)] }, { repoPath: '/repo/contracts' }),
       backend: runnableRepo(
@@ -325,8 +325,10 @@ describe('startTicketService', () => {
       probeBusyPorts: noBusy,
     });
 
-    expect(calledNames()).toEqual(['contracts', 'backend', 'frontend']);
-    expect(result.restartedDependents).toEqual(['backend', 'frontend']);
+    // contracts moved; backend consumes it and restarts. frontend consumes
+    // backend (4100, unchanged), so it is left alone.
+    expect(calledNames()).toEqual(['contracts', 'backend']);
+    expect(result.restartedDependents).toEqual(['backend']);
     const beArgs = startResolvedMock.mock.calls[1]![0];
     expect(beArgs.resolved.services['backend']!.env['CONTRACTS_URL']).toBe(
       'http://localhost:4000',
