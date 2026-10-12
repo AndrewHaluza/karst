@@ -1933,6 +1933,33 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a v79 DB to v80, adding tickets.base_shas as NULL and planning_proposals.base_shas as default {}', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec('CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, title TEXT NOT NULL)');
+    legacy.prepare("INSERT INTO tickets (key, title) VALUES ('K-1', 'old')").run();
+    legacy.exec('CREATE TABLE planning_proposals (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, payload_json TEXT NOT NULL)');
+    legacy.prepare("INSERT INTO planning_proposals (session_id, payload_json) VALUES (1, '{}')").run();
+    legacy.pragma('user_version = 79');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.db.prepare('SELECT base_shas FROM tickets WHERE key = ?').get('K-1')).toEqual({
+      base_shas: null,
+    });
+    expect(migrated.db.prepare('SELECT base_shas FROM planning_proposals WHERE id = 1').get()).toEqual({
+      base_shas: '{}',
+    });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
   // v21 was RENUMBERED before release: it first shipped as the gate_runs
   // invocation-identity columns in a build whose SCHEMA_VERSION was 22, and only
   // afterwards became the servers.cwd step (SCHEMA_VERSION 23, gate_runs moved to

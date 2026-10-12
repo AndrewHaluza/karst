@@ -37,6 +37,8 @@ export interface PlanningProposal {
   payload: ProposalPayload;
   status: ProposalStatus;
   ticketId: number | null;
+  /** Per-repo base commit shas (v80) recorded at ingest / revise. */
+  baseShas: Record<string, string>;
   /**
    * Host proposal ids pruned from `payload.dependsOn` because their target was
    * discarded. Host-owned (never agent input): the sidebar warns on the draft
@@ -63,6 +65,7 @@ interface ProposalRow {
   id: number;
   session_id: number;
   payload_json: string;
+  base_shas?: string | null;
   depends_on: string;
   depends_dropped: string;
   status: ProposalStatus;
@@ -76,7 +79,7 @@ interface ProposalRow {
 }
 
 const COLUMNS =
-  'p.id, p.session_id, p.payload_json, p.depends_on, p.depends_dropped, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
+  'p.id, p.session_id, p.payload_json, p.base_shas, p.depends_on, p.depends_dropped, p.status, p.ticket_id, p.source_uuid, p.created_at, p.updated_at, p.resolved_at';
 
 /** A JSON column holding a positive-integer id array, decoded defensively —
  *  a corrupt or non-array value reads as none. */
@@ -103,6 +106,21 @@ function splitPayload(
   return { body: JSON.stringify(body), dependsOn: JSON.stringify(dependsOn) };
 }
 
+function parseBaseShas(raw: string | null | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof value === 'string' && value.trim() !== '') out[key] = value.trim();
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 function toProposal(r: ProposalRow): PlanningProposal {
   const { hostWarnings, ...payload } = JSON.parse(r.payload_json) as ProposalPayload & { hostWarnings?: unknown };
   const warnings =
@@ -115,6 +133,7 @@ function toProposal(r: ProposalRow): PlanningProposal {
     payload,
     status: r.status,
     ticketId: r.ticket_id,
+    baseShas: parseBaseShas(r.base_shas),
     droppedDepends: parseIdArray(r.depends_dropped),
     warnings,
     sourceUuid: r.source_uuid,
@@ -134,6 +153,7 @@ export function insertProposal(
   payload: ProposalPayload,
   sourceUuid = '',
   warnings: readonly string[] = [],
+  baseShas: Record<string, string> = {},
 ): number {
   // `updated_at` is set EXPLICITLY, not left to the schema default: on a
   // migrated v65 DB the v66 column is nullable (SQLite forbids a function
@@ -142,9 +162,9 @@ export function insertProposal(
   const { body, dependsOn } = splitPayload(payload, warnings);
   const { lastInsertRowid } = store.db
     .prepare(
-      "INSERT INTO planning_proposals (session_id, payload_json, depends_on, source_uuid, updated_at) VALUES (?, ?, ?, ?, datetime('now'))",
+      "INSERT INTO planning_proposals (session_id, payload_json, base_shas, depends_on, source_uuid, updated_at) VALUES (?, ?, ?, ?, ?, datetime('now'))",
     )
-    .run(sessionId, body, dependsOn, sourceUuid);
+    .run(sessionId, body, JSON.stringify(baseShas), dependsOn, sourceUuid);
   return Number(lastInsertRowid);
 }
 
@@ -230,22 +250,25 @@ export function updateProposalPayload(
   payload: ProposalPayload,
   sourceUuid?: string,
   warnings: readonly string[] = [],
+  baseShas?: Record<string, string>,
 ): void {
   requirePending(store, id);
   const { body, dependsOn } = splitPayload(payload, warnings);
+  const cur = getProposal(store, id);
+  const shasJson = JSON.stringify(baseShas ?? cur?.baseShas ?? {});
   if (sourceUuid === undefined) {
     store.db
       .prepare(
-        "UPDATE planning_proposals SET payload_json = ?, depends_on = ?, depends_dropped = '[]', updated_at = datetime('now') WHERE id = ?",
+        "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_dropped = '[]', updated_at = datetime('now') WHERE id = ?",
       )
-      .run(body, dependsOn, id);
+      .run(body, shasJson, dependsOn, id);
     return;
   }
   store.db
     .prepare(
-      "UPDATE planning_proposals SET payload_json = ?, depends_on = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
+      "UPDATE planning_proposals SET payload_json = ?, base_shas = ?, depends_on = ?, depends_dropped = '[]', source_uuid = ?, updated_at = datetime('now') WHERE id = ?",
     )
-    .run(body, dependsOn, sourceUuid, id);
+    .run(body, shasJson, dependsOn, sourceUuid, id);
 }
 
 /** Replace only a pending proposal's host warnings (a late async check result). */
@@ -416,6 +439,7 @@ export function markProposalAccepted(
     updateTicketFields(store, ticketId, {
       source: 'planning',
       brief: base ? `${base}\n\n${origin}` : origin,
+      baseShas: p.baseShas,
     });
     linkPlanningTicket(store, p.sessionId, ticketId);
     applyProposalDependencies(store, p, ticketId);

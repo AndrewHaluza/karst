@@ -53,6 +53,8 @@ export interface PlanningOutboxDeps {
   onProposal(p: PlanningProposal, change?: 'updated'): void;
   /** Repo names → their distinct repoPaths, for the constraint checks; absent = path checks skipped. */
   repoPaths?(names: string[]): string[];
+  /** Repo names → base commit shas (planned base, host-side); absent = no shas recorded. */
+  resolveBaseShas?(repos: readonly string[]): Record<string, string>;
   /** Async `git cat-file` probe for commit constraints; absent = commit check skipped. */
   commitExists?: CommitExists;
   /** A late (async) check added warnings to a stored proposal. */
@@ -70,6 +72,17 @@ const errCode = (e: unknown): string | undefined => (e as NodeJS.ErrnoException 
 export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   const fs = deps.fs ?? nodeFs;
   const debug = (line: string): void => deps.debug?.(`[planning] ${line}`);
+
+  /** Resolved base shas, or undefined (keep what is recorded) when no resolver, it throws, or it finds none. */
+  function resolveShas(repos: readonly string[]): Record<string, string> | undefined {
+    try {
+      const shas = deps.resolveBaseShas?.(repos);
+      return shas && Object.keys(shas).length > 0 ? shas : undefined;
+    } catch (e) {
+      debug(`base sha resolution failed: ${e instanceof Error ? e.message : String(e)}`);
+      return undefined;
+    }
+  }
 
   /** The outbox path, only when it is a real dir at exactly the expected place. */
   function verifiedDir(sessionId: number, scratch: string): string | undefined {
@@ -231,7 +244,8 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         reject(sessionId, claimed, proposal, reason);
         return;
       }
-      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value));
+      const baseShas = resolveShas(read.value.repos);
+      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value), baseShas);
       safeRefresh(sessionId, scratch);
       remove(claimed);
       const row = getProposal(deps.store, requestedId);
@@ -252,7 +266,8 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       );
       return;
     }
-    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value));
+    const baseShas = resolveShas(read.value.repos) ?? {};
+    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value), baseShas);
     safeRefresh(sessionId, scratch);
     remove(claimed);
     const row = getProposal(deps.store, id);

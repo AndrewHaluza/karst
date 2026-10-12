@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   agent             TEXT,                 -- chosen single-subagent id (nullable)
   selected_repos    TEXT,                 -- JSON array of confirmed repository names
   base_refs         TEXT,                 -- v48: JSON object of per-repo base branch overrides
+  base_shas         TEXT,                 -- v80: JSON object of per-repo base commit shas
   -- v78 analysis columns (kept in sync with migrations.ts v78 ALTERs):
   intent            TEXT,                 -- canonical black-box test charter; NULL = none yet
   code_pointers     TEXT,                 -- unverified implementer hints; NULL = none
@@ -1243,6 +1244,7 @@ CREATE TABLE IF NOT EXISTS planning_proposals (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   session_id   INTEGER NOT NULL REFERENCES planning_sessions(id) ON DELETE CASCADE,
   payload_json TEXT NOT NULL,
+  base_shas    TEXT NOT NULL DEFAULT '{}',
   depends_on   TEXT NOT NULL DEFAULT '[]',
   depends_dropped TEXT NOT NULL DEFAULT '[]',
   status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'discarded')),

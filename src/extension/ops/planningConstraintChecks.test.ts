@@ -6,6 +6,7 @@ import {
   archDocFiles,
   archWarnings,
   repoPathsOf,
+  resolveBaseShasOf,
   commitExistsViaGit,
   commitWarnings,
   sensitivePathWarning,
@@ -164,5 +165,60 @@ describe('check anchoring', () => {
     for (const path of ['src/agent/seed.ts', 'src/agent/entrySeed.ts', 'src/agent/instructions.ts', 'src/context/ticketContext.ts', 'src/planning/preamble.ts']) {
       expect(sensitivePathWarning({ description: '', summary: `edit ${path}` })).toHaveLength(1);
     }
+  });
+});
+
+describe('resolveBaseShasOf', () => {
+  const SHA = 'a'.repeat(40);
+  const manifest = {
+    baselineBranch: 'main',
+    repositories: {
+      web: { repoPath: '/r/mono', baselineBranch: 'develop' },
+      api: { repoPath: '/r/mono', baselineBranch: 'develop' },
+      other: { repoPath: '/r/other' },
+    },
+  } as unknown as Parameters<typeof resolveBaseShasOf>[0];
+
+  it('returns nothing without a manifest', () => {
+    expect(resolveBaseShasOf(undefined, ['web'], () => SHA)).toEqual({});
+  });
+
+  it('prefers origin/<baseline branch> and keys by manifest name for repos sharing a repoPath', () => {
+    const calls: Array<[string, string[]]> = [];
+    const out = resolveBaseShasOf(manifest, ['web', 'api'], (cwd, args) => {
+      calls.push([cwd, args]);
+      return `${SHA}\n`;
+    });
+    expect(out).toEqual({ web: SHA, api: SHA });
+    expect(calls).toEqual([
+      ['/r/mono', ['rev-parse', '--verify', 'origin/develop^{commit}']],
+      ['/r/mono', ['rev-parse', '--verify', 'origin/develop^{commit}']],
+    ]);
+  });
+
+  it('falls back to the local branch when origin/<branch> is missing, using the manifest default', () => {
+    const refs: string[] = [];
+    const out = resolveBaseShasOf(manifest, ['other'], (_cwd, args) => {
+      refs.push(args[2]!);
+      if (args[2]!.startsWith('origin/')) throw new Error('no such ref');
+      return SHA;
+    });
+    expect(out).toEqual({ other: SHA });
+    expect(refs).toEqual(['origin/main^{commit}', 'main^{commit}']);
+  });
+
+  it('omits unknown names, unresolvable bases and too-short output without throwing', () => {
+    expect(resolveBaseShasOf(manifest, ['ghost'], () => SHA)).toEqual({});
+    expect(
+      resolveBaseShasOf(manifest, ['web'], () => {
+        throw new Error('git failed');
+      }),
+    ).toEqual({});
+    expect(resolveBaseShasOf(manifest, ['web'], () => 'abc123')).toEqual({});
+    expect(resolveBaseShasOf(manifest, ['web'], () => '')).toEqual({});
+  });
+
+  it('accepts exactly 7 characters', () => {
+    expect(resolveBaseShasOf(manifest, ['web'], () => 'abcdef1')).toEqual({ web: 'abcdef1' });
   });
 });

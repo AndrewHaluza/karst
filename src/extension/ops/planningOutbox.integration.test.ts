@@ -15,7 +15,7 @@ import {
   listPendingProposals,
   markProposalAccepted,
 } from '../../store/planningProposals.js';
-import { createTicket } from '../../store/tickets.js';
+import { createTicket, getTicket } from '../../store/tickets.js';
 import { MAX_PROPOSAL_BYTES } from '../../planning/proposal.js';
 import { readProposalIndex } from '../../planning/proposalIndex.js';
 import {
@@ -123,11 +123,16 @@ describe('planning outbox', () => {
   });
 
   it('revises a pending proposal of the same session in place and re-announces it as updated', () => {
-    const id = insertProposal(store, sessionId, good);
+    const id = insertProposal(store, sessionId, good, '', [], { web: 'sha-old' });
     const onProposal = vi.fn();
     put(`${UUID(2)}.json`, { ...good, id, title: 'Revised auth', repos: ['web'] });
-    make({ onProposal }).scan();
-    expect(getProposal(store, id)).toMatchObject({ id, status: 'pending', payload: { title: 'Revised auth', repos: ['web'] } });
+    make({ onProposal, resolveBaseShas: (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-new'])) }).scan();
+    expect(getProposal(store, id)).toMatchObject({
+      id,
+      status: 'pending',
+      payload: { title: 'Revised auth', repos: ['web'] },
+      baseShas: { web: 'sha-new' },
+    });
     expect(countPending(store, sessionId)).toBe(1);
     expect(onProposal).toHaveBeenCalledTimes(1);
     expect(onProposal.mock.calls[0]![1]).toBe('updated');
@@ -135,6 +140,40 @@ describe('planning outbox', () => {
       { id, uuid: UUID(2), title: 'Revised auth', status: 'pending', updatedAt: expect.any(String) },
     ]);
     expect(readdirSync(outbox)).toEqual([]);
+  });
+
+  it.each([
+    ['no resolver', undefined],
+    ['a resolver that returns nothing', () => ({})],
+    ['a resolver that throws', () => { throw new Error('git down'); }],
+  ])('a revise keeps the recorded base shas with %s', (_n, resolveBaseShas) => {
+    const id = insertProposal(store, sessionId, good, '', [], { web: 'sha-old' });
+    const debug = vi.fn();
+    put(`${UUID(2)}.json`, { ...good, id, title: 'Revised', repos: ['web'] });
+    make({ resolveBaseShas, debug }).scan();
+    expect(getProposal(store, id)).toMatchObject({ payload: { title: 'Revised' }, baseShas: { web: 'sha-old' } });
+    if (_n === 'a resolver that throws') expect(debug).toHaveBeenCalledWith(expect.stringContaining('base sha resolution failed: git down'));
+  });
+
+  it('a new draft whose resolver throws is still ingested with empty shas', () => {
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: () => { throw new Error('boom'); } }).scan();
+    expect(pending()[0]!.baseShas).toEqual({});
+  });
+
+  it('shas recorded at ingest travel to the ticket when the draft is accepted', () => {
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();
+    const ticket = createTicket(store, { key: 'K-sha', title: 'with shas', projectId });
+    markProposalAccepted(store, pending()[0]!.id, ticket.id);
+    expect(getTicket(store, ticket.id).baseShas).toEqual({ api: 'sha-init' });
+  });
+
+  it('records base commit shas via resolveBaseShas on new draft ingest', () => {
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();
+    const p = pending()[0]!;
+    expect(p.baseShas).toEqual({ api: 'sha-init' });
   });
 
   it('refuses a revision of another session, an accepted or a discarded proposal, writing nothing', () => {
