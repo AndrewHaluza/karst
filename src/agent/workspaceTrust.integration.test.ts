@@ -23,12 +23,15 @@ const tsxBin = resolve(here, '../../node_modules/.bin/tsx');
 
 function runTrust(cwd: string, home: string, startAt: number): Promise<void> {
   // The barrier spins every child until the same instant, so all of them read
-  // the initial (empty) config together — the race the lock must serialise.
+  // the initial (empty) config together — the race the lock must serialise. The
+  // hook is `void | Promise<void>`: a contended lock returns a promise, so the
+  // child awaits it and exits only once its record is written.
   const script =
     `import { ensureClaudeWorkspaceTrusted } from ${JSON.stringify(modulePath)};` +
     ` const start = Number(process.env.KARST_TRUST_TEST_START);` +
     ` while (Date.now() < start) {}` +
-    ` ensureClaudeWorkspaceTrusted(${JSON.stringify(cwd)}, { home: ${JSON.stringify(home)} });`;
+    ` Promise.resolve(ensureClaudeWorkspaceTrusted(${JSON.stringify(cwd)}, { home: ${JSON.stringify(home)} }))` +
+    `   .then(() => process.exit(0), (e) => { console.error(e); process.exit(1); });`;
   return new Promise((resolvePromise, reject) => {
     execFile(
       tsxBin,

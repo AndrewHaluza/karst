@@ -465,8 +465,11 @@ export class CodexAdapter implements AgentAdapter {
    * `[projects."<cwd>"] trust_level` in `~/.codex/config.toml`; pre-trusting the
    * realpath of `cwd` avoids the same launch-exit class as claude (T661).
    */
-  ensureWorkspaceTrusted(cwd: string, opts?: { debug?: (message: string) => void }): void {
-    ensureCodexWorkspaceTrusted(cwd, opts);
+  ensureWorkspaceTrusted(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void> {
+    return ensureCodexWorkspaceTrusted(cwd, opts);
   }
 
   materializeApproach(opts: MaterializeOpts): Materialized {

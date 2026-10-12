@@ -505,7 +505,7 @@ export class SessionManager {
    * omitted → the agent CLI's own default. `resume` is
    * an agent session id to continue via `--resume`, fresh-launch only.
    */
-   openSession(
+   async openSession(
     adapter: AgentAdapter,
     ticketId: number,
     worktreePath: string,
@@ -518,7 +518,7 @@ export class SessionManager {
     ownedPaths: string[] = [],
     options: OpenSessionOptions = {},
     identity?: SessionIdentity,
-  ): void {
+  ): Promise<void> {
     const existing = this.terminals.get(ticketId);
     if (existing) {
       if (options.reveal !== false) existing.terminal.show();
@@ -550,11 +550,15 @@ export class SessionManager {
     const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     // Trust the ticket worktree before the core starts: a fresh worktree is
     // untrusted, and claude would open on its folder-trust dialog and exit
-    // (T661). Done here, at the one launch site, never as a UI action.
-    adapter.ensureWorkspaceTrusted?.(
+    // (T661). Done here, at the one launch site, never as a UI action. The hook
+    // returns void when the config lock is free — the common case, which keeps
+    // this method fully synchronous — and a Promise only when another process
+    // holds it, awaited WITHOUT blocking the extension host's event loop.
+    const trust = adapter.ensureWorkspaceTrusted?.(
       worktreePath,
       options.debug ? { debug: options.debug } : undefined,
     );
+    if (trust) await trust;
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
       hookChannel,

@@ -295,8 +295,11 @@ export class ClaudeAdapter implements AgentAdapter {
    * session ~1.5s in (T661). Record the acceptance for the realpath of `cwd`
    * before the launch — see `workspaceTrust.ts` for the merge rules.
    */
-  ensureWorkspaceTrusted(cwd: string, opts?: { debug?: (message: string) => void }): void {
-    ensureClaudeWorkspaceTrusted(cwd, opts);
+  ensureWorkspaceTrusted(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void> {
+    return ensureClaudeWorkspaceTrusted(cwd, opts);
   }
 
   /**

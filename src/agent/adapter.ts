@@ -426,15 +426,23 @@ export interface AgentAdapter {
    * Called at each launch path that spawns an agent in a karst-owned cwd —
    * graph node workspace and planner (the supervised CLI transport), planning
    * scratch, the setup session, the ticket worktree, and every headless run
-   * (the instrumented seam) — BEFORE the spawn. Sync because the interactive
-   * session launch is synchronous; best-effort, because a trust write must
-   * never be the reason a launch did not happen.
+   * (the instrumented seam) — BEFORE the spawn.
+   *
+   * Returns `void` when the trust record is written (or already present): the
+   * common launch stays fully synchronous. Returns a `Promise<void>` ONLY when
+   * another process holds the config lock, so the caller awaits instead of
+   * blocking the extension host's event loop (T661 review). A caller that cannot
+   * await may ignore the promise — the write still completes — but should await
+   * when it must know the record landed before the spawn.
    *
    * Optional on the interface only so the many test fakes keep compiling; every
    * adapter `registry.ts` can resolve MUST implement it, which
    * `adapterConformance.test.ts` enforces.
    */
-  ensureWorkspaceTrusted?(cwd: string, opts?: { debug?: (message: string) => void }): void;
+  ensureWorkspaceTrusted?(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void>;
 
   /**
    * Translate a neutral approach package into this agent's on-disk format and

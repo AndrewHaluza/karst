@@ -155,7 +155,7 @@ describe('ensureClaudeWorkspaceTrusted', () => {
     expect(readdirSync(home).filter((f) => f.includes('.tmp') || f.endsWith('.lock'))).toEqual([]);
   });
 
-  it('skips the write while another live process holds the lock', () => {
+  it('skips the write while another live process holds the lock', async () => {
     const home = tempDir();
     const path = join(home, '.claude.json');
     writeFileSync(path, JSON.stringify({ projects: {} }));
@@ -164,13 +164,33 @@ describe('ensureClaudeWorkspaceTrusted', () => {
     // A fast clock makes the bounded wait return immediately.
     let t = 0;
     const now = (): number => (t += 100_000);
-    ensureClaudeWorkspaceTrusted('/karst/wt', {
+    await ensureClaudeWorkspaceTrusted('/karst/wt', {
       home,
       debug: (m) => logs.push(m),
       lock: { alive: () => true, now, sleep: () => {} },
     });
     expect((JSON.parse(readFileSync(path, 'utf8')) as { projects: unknown }).projects).toEqual({});
     expect(logs.join('\n')).toMatch(/trust lock busy/);
+  });
+
+  it('is fully synchronous (returns void) when the lock is free', () => {
+    const home = tempDir();
+    expect(ensureClaudeWorkspaceTrusted('/karst/wt', { home })).toBeUndefined();
+  });
+
+  it('returns a Promise (never blocks the loop) when the lock is contended', async () => {
+    const home = tempDir();
+    const path = join(home, '.claude.json');
+    writeFileSync(path, JSON.stringify({ projects: {} }));
+    writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
+    let t = 0;
+    const now = (): number => (t += 100_000);
+    const result = ensureClaudeWorkspaceTrusted('/karst/wt', {
+      home,
+      lock: { alive: () => true, now, sleep: () => {} },
+    });
+    expect(result).toBeInstanceOf(Promise);
+    await result;
   });
 
   it('logs and continues when the lock cannot be taken (best-effort)', () => {
@@ -203,33 +223,33 @@ describe('ensureClaudeWorkspaceTrusted', () => {
 });
 
 describe('trust lock', () => {
-  it('acquires a free lock, then releases its own', () => {
+  it('acquires a free lock, then releases its own', async () => {
     const path = join(tempDir(), '.claude.json');
-    expect(acquireTrustLock(path)).toBe(true);
+    expect(await acquireTrustLock(path)).toBe(true);
     expect(existsSync(trustLockPath(path))).toBe(true);
     releaseTrustLock(path);
     expect(existsSync(trustLockPath(path))).toBe(false);
   });
 
-  it('refuses a lock a LIVE other process holds (bounded wait, then false)', () => {
+  it('refuses a lock a LIVE other process holds (bounded wait, then false)', async () => {
     const path = join(tempDir(), '.claude.json');
     writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
     let t = 0;
     const now = (): number => (t += 100_000);
-    expect(acquireTrustLock(path, { alive: () => true, now, sleep: () => {} })).toBe(false);
+    expect(await acquireTrustLock(path, { alive: () => true, now, sleep: () => {} })).toBe(false);
   });
 
-  it('takes over a lock whose owner died', () => {
+  it('takes over a lock whose owner died', async () => {
     const path = join(tempDir(), '.claude.json');
     writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
-    expect(acquireTrustLock(path, { alive: () => false })).toBe(true);
+    expect(await acquireTrustLock(path, { alive: () => false })).toBe(true);
     expect(JSON.parse(readFileSync(trustLockPath(path), 'utf8'))).toMatchObject({ pid: process.pid });
   });
 
-  it('then takes over a lock we already held (crashed re-entry)', () => {
+  it('then takes over a lock we already held (crashed re-entry)', async () => {
     const path = join(tempDir(), '.claude.json');
     writeFileSync(trustLockPath(path), JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
-    expect(acquireTrustLock(path)).toBe(true);
+    expect(await acquireTrustLock(path)).toBe(true);
   });
 
   it('release never removes a lock another process owns', () => {

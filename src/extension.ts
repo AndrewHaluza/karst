@@ -6476,7 +6476,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         brandIcon,
       });
 
-        sessions.openSession(
+        await sessions.openSession(
           adapter,
           ticketId,
           wt.path,

@@ -147,8 +147,10 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // Trust the workspace BEFORE the core starts: claude opens on its folder-
       // trust dialog (default "No, exit") in a fresh graph workspace and dies
       // ~1.5s in with no transcript (T661). Every graph launch — a fresh node,
-      // a planner, a relaunch/Resume — funnels through this one call site.
-      request.adapter.ensureWorkspaceTrusted?.(
+      // a planner, a relaunch/Resume — funnels through this one call site. The
+      // awaited promise keeps the spawn from racing the record; the wait itself
+      // is async, so it never blocks the extension host.
+      await request.adapter.ensureWorkspaceTrusted?.(
         request.cwd,
         deps.debug ? { debug: deps.debug } : undefined,
       );

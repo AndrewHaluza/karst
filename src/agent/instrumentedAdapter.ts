@@ -155,9 +155,14 @@ export function instrumentAdapter(
       );
       // The headless counterpart of the launch-path trust hook: every headless
       // run in production reaches its core through this ONE seam, so a graph /
-      // worktree directory is trusted before the CLI starts there too. A fake
-      // adapter without the method is a no-op (`?.`).
-      adapter.ensureWorkspaceTrusted?.(opts.cwd, options.debug ? { debug: options.debug } : undefined);
+      // worktree directory is trusted before the CLI starts there too. AWAIT it:
+      // a contended lock returns a promise (the wait is async, never a block),
+      // and the spawn must not race the record. A fake adapter without the
+      // method is a no-op (`?.`).
+      await adapter.ensureWorkspaceTrusted?.(
+        opts.cwd,
+        options.debug ? { debug: options.debug } : undefined,
+      );
       const hostEnv = options.env?.(opts.tracking);
       const env = hostEnv ? { ...hostEnv, ...opts.env } : opts.env;
       let result: HeadlessResult;

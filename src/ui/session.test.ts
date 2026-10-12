@@ -979,6 +979,25 @@ describe('SessionManager', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('defers the terminal until an async trust hook resolves (no blocked host)', async () => {
+    const { adapter } = fakeAdapter();
+    const { host, terminals } = fakeHost();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    adapter.ensureWorkspaceTrusted = () => gate;
+    const mgr = new DefaultedSessionManager(host, channelFor);
+
+    const opened = mgr.openSession(adapter, 1, '/wt/a');
+    // The hook returned a promise (a contended lock): the terminal must not be
+    // created until the record lands — but the host's event loop never blocked.
+    expect(terminals).toHaveLength(0);
+    release();
+    await opened;
+    expect(terminals).toHaveLength(1);
+  });
+
   it('does not re-seed on re-open (focus path skips buildInteractiveCommand)', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();
@@ -1608,7 +1627,7 @@ describe('SessionManager', () => {
     expect(mgr.isOpen(7)).toBe(true);
   });
 
-  it('terminal creation failure invokes onLaunchFailed with the launch id and rethrows', () => {
+  it('terminal creation failure invokes onLaunchFailed with the launch id and rethrows', async () => {
     const { adapter } = fakeAdapter();
     const failingHost: TerminalHost = {
       createTerminal: () => {
@@ -1623,7 +1642,9 @@ describe('SessionManager', () => {
       (launchId) => failed.push(launchId),
     );
 
-    expect(() => mgr.openSession(adapter, 7, '/wt/a')).toThrow('spawn failed');
+    // `openSession` is async (its trust hook may await a contended lock), so a
+    // launch failure surfaces as a rejection.
+    await expect(mgr.openSession(adapter, 7, '/wt/a')).rejects.toThrow('spawn failed');
     expect(prepared).toHaveLength(1);
     expect(failed).toEqual([launchId]);
   });
