@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildScopeBlock } from './agentScope.js';
+import { SCOPE_GIT_COMMANDS, buildScopeBlock } from './agentScope.js';
 
 describe('buildScopeBlock', () => {
   it('names the exact diff range when the base ref is known', () => {
@@ -271,6 +271,29 @@ describe('buildScopeBlock', () => {
   it('omits the gate line entirely when no gate is named', () => {
     const text = buildScopeBlock('review', { baseRef: 'main' }).join('\n');
     expect(text).not.toContain('already ran and PASSED');
+  });
+
+  // `tools.agy-permissions` probes SCOPE_GIT_COMMANDS, so every entry must be a
+  // token prefix of a git command `buildScopeBlock` actually renders. If a
+  // prompt stops emitting one (e.g. the worktree recovery drops `git -C`), this
+  // fails and forces the doctor's list to shrink with it — the check cannot
+  // report a shape the prompts no longer name, or miss one they do.
+  it('exports only git prefixes the scope block actually emits', () => {
+    const text = buildScopeBlock('review', {
+      baseRef: 'develop',
+      branch: 'karst/x',
+      worktreePath: '/repo/.karst/worktrees/x',
+      openChanges: true,
+    }).join('\n');
+    const emitted = (text.match(/`git [^`]+`/g) ?? []).map((s) => s.slice(1, -1));
+    for (const prefix of SCOPE_GIT_COMMANDS) {
+      const prefixTokens = prefix.split(' ');
+      const matches = emitted.some((cmd) => {
+        const cmdTokens = cmd.split(' ');
+        return prefixTokens.length <= cmdTokens.length && prefixTokens.every((t, i) => t === cmdTokens[i]);
+      });
+      expect(matches, `no emitted git command starts with "${prefix}"`).toBe(true);
+    }
   });
 });
 

@@ -66,6 +66,28 @@
 
 import { SCOPE_ORIENTATION_HEADING, SCOPE_RULES_HEADING } from '../agent/promptText.js';
 
+/**
+ * Allow-rule-sized TOKEN PREFIXES for the git commands this block tells a
+ * headless agent to run. agy matches a `command(<target>)` rule against the
+ * command's whitespace-delimited tokens as a PREFIX (verified against agy
+ * 1.3.3 — @arch:AC-06), so `command(git diff)` covers
+ * `git diff origin/<base>...origin/<branch>`, and a prefix is the only shape a
+ * rule can name while the arguments (base, branch, worktree path) are
+ * per-ticket. Every command is ONE plain invocation: never `git -C <path>`
+ * (its `-C` is the SECOND token, which no per-subcommand rule matches — the
+ * reason the worktree recovery moves the agent's cwd and runs plain
+ * `git rev-parse` instead). `tools.agy-permissions` probes exactly this list —
+ * never a hand-maintained one — so the doctor cannot report agy ready while a
+ * command these prompts emit is auto-denied. `agentScope.test.ts` pins every
+ * entry to a command `buildScopeBlock` actually renders, so the list cannot
+ * drift from the block.
+ */
+export const SCOPE_GIT_COMMANDS: readonly string[] = [
+  'git diff',
+  'git rev-parse',
+  'git status',
+];
+
 /** What the agent is being pointed at — the two lanes word this differently. */
 export type ScopeIntent = 'review' | 'test';
 
