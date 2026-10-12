@@ -42,6 +42,7 @@ import { isMarkerStage } from '../agent/markerStage.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES } from '../agent/promptText.js';
 import type { Manifest, RepositoryDef } from '../manifest/types.js';
 import { unitsOf } from '../manifest/runnable.js';
+import { computeDriftNote, parseCodePointerPaths, sharedBaseSha } from './drift.js';
 
 export interface TicketContextWorktree {
   repo: string;
@@ -303,6 +304,8 @@ export interface TicketContext {
   /** The user's authored instruction (the `description` column). */
   prompt: string | null;
   brief: string | null;
+  /** Base commit SHAs per repository recorded at draft ingest. */
+  baseShas: Record<string, string>;
   /** Canonical black-box intent charter (the `intent` column). */
   intent: string | null;
   /** Opt-in unverified implementer hints (the `code_pointers` column). */
@@ -564,9 +567,10 @@ export function buildTicketContext(
     key: t.key,
     title: t.title,
     prompt: t.description,
+    brief: t.brief,
+    baseShas: t.baseShas ?? {},
     intent: t.intent,
     codePointers: t.codePointers,
-    brief: t.brief,
     approach: t.approach,
     agent: t.agent,
     stageCurrent: t.stageCurrent,
@@ -699,6 +703,8 @@ export function renderTicketContext(
      * blockers and family sections. Default: the full view.
      */
     audience?: ContextAudience;
+    /** Git runner for evaluating branch drift against recorded base SHA. Defaults to execFileSync. */
+    git?: (args: string[], cwd: string) => string;
   },
 ): string {
   if (opts?.audience === 'tester') return renderTesterContext(ctx, opts);
@@ -895,11 +901,15 @@ export function renderTicketContext(
   }
 
   if (operational && ctx.worktrees.length > 0) {
-    const rows = ctx.worktrees.map((w) => {
+    const pointerPaths = parseCodePointerPaths(ctx.codePointers);
+    const rows = ctx.worktrees.flatMap((w) => {
       const branch = w.branch ?? '(no branch)';
       const sourceTag = w.source ? `, ${w.source}` : '';
       const base = w.baseRef ? ` (from ${w.baseRef}${sourceTag})` : '';
-      return `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
+      const baseSha = ctx.baseShas[w.repo] ?? sharedBaseSha(ctx, w.repo);
+      const drift = computeDriftNote(w.path, baseSha, w.baseRef, pointerPaths, debug, opts?.git);
+      const mainLine = `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
+      return drift ? [mainLine, `  ${drift}`] : [mainLine];
     });
     parts.push(`## Worktrees & branches\n${rows.join('\n')}`);
   }

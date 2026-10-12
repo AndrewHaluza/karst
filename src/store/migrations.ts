@@ -2637,5 +2637,19 @@ function migrateLocked(db: Database): void {
     db.exec(BULLETIN_DDL);
   }
 
+  if (current < 80) {
+    // v80: `tickets.base_shas` and `planning_proposals.base_shas` — JSON object
+    // mapping repo name/path to the base branch HEAD sha recorded at draft ingest.
+    // Carried from proposal to ticket on confirm.
+    const cols80 = ticketColumns(db);
+    if (cols80.size > 0 && !cols80.has('base_shas')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN base_shas TEXT');
+    }
+    const proposalCols80 = tableColumns(db, 'planning_proposals');
+    if (proposalCols80.size > 0 && !proposalCols80.has('base_shas')) {
+      db.exec("ALTER TABLE planning_proposals ADD COLUMN base_shas TEXT NOT NULL DEFAULT '{}'");
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

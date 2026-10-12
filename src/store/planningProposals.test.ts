@@ -140,7 +140,7 @@ describe('planning proposals', () => {
     raw.exec(
       `CREATE TABLE planning_proposals (
          id INTEGER PRIMARY KEY AUTOINCREMENT, session_id INTEGER NOT NULL,
-         payload_json TEXT NOT NULL, depends_on TEXT NOT NULL DEFAULT '[]',
+         payload_json TEXT NOT NULL, base_shas TEXT NOT NULL DEFAULT '{}', depends_on TEXT NOT NULL DEFAULT '[]',
          depends_dropped TEXT NOT NULL DEFAULT '[]',
          status TEXT NOT NULL DEFAULT 'pending',
          ticket_id INTEGER, source_uuid TEXT NOT NULL DEFAULT '',
@@ -165,16 +165,17 @@ describe('planning proposals', () => {
   });
 
   it('markProposalAccepted links a form-saved ticket, marks it planning, copies the summary to its brief, and resolves the proposal', () => {
-    const id = insertProposal(store, sessionId, payload);
+    const id = insertProposal(store, sessionId, payload, '', [], { repoA: 'sha123' });
     const t = createTicket(store, { key: 'K-1', title: 'saved', projectId });
     markProposalAccepted(store, id, t.id);
-    expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id });
+    expect(getProposal(store, id)).toMatchObject({ status: 'accepted', ticketId: t.id, baseShas: { repoA: 'sha123' } });
     expect(listPlanningTickets(store, sessionId)).toEqual([t.id]);
     const saved = getTicket(store, t.id)!;
     expect(saved.brief).toBe(`sum\n\nPlanned in P${sessionId} as D${id}.`);
     expect(saved.brief).toContain(`P${sessionId}`);
     expect(saved.brief).toContain(`D${id}`);
     expect(saved.source).toBe('planning');
+    expect(saved.baseShas).toEqual({ repoA: 'sha123' });
     expect(() => markProposalAccepted(store, id, t.id)).toThrow(/not pending/);
   });
 

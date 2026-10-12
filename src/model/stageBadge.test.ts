@@ -28,6 +28,7 @@ function ticket(
     agent: null,
     selectedRepos: [],
     baseRefs: {},
+    baseShas: {},
     archivedAt: null,
     updatedAt: null,
     model: null,

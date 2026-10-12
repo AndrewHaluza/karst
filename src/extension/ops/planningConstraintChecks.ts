@@ -1,5 +1,8 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Manifest } from '../../manifest/types.js';
+import { resolveBaselineBranch } from '../../manifest/baselineBranch.js';
 import { PROMPT_SENSITIVE_PATHS } from '../../planning/proposal.js';
 
 /**
@@ -36,6 +39,39 @@ export function repoPathsOf(
   names: readonly string[],
 ): string[] {
   return [...new Set(names.flatMap((n) => manifest?.repositories[n]?.repoPath ?? []))];
+}
+
+/**
+ * Record, per manifest repository NAME, the sha of the ticket's planned base
+ * (BASE-PER: `origin/<baseline branch>`, then the local branch) via host-side
+ * git. Names sharing a repoPath each get their own entry. Unresolvable bases
+ * are omitted; this never blocks ingest.
+ */
+export function resolveBaseShasOf(
+  manifest: Manifest | undefined,
+  names: readonly string[],
+  runGit: (repoPath: string, args: string[]) => string = (repoPath, args) =>
+    execFileSync('git', args, { cwd: repoPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim(),
+): Record<string, string> {
+  const shas: Record<string, string> = {};
+  if (!manifest) return shas;
+  for (const name of names) {
+    const repository = manifest.repositories[name];
+    if (!repository?.repoPath) continue;
+    const branch = resolveBaselineBranch(manifest, repository);
+    for (const ref of [`origin/${branch}`, branch]) {
+      try {
+        const sha = runGit(repository.repoPath, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
+        if (sha.length >= 7) {
+          shas[name] = sha;
+          break;
+        }
+      } catch {
+        // ref missing or git failure: try the next, else omit
+      }
+    }
+  }
+  return shas;
 }
 
 /** For each `@arch:KEY` constraint, the docs/arch file (by name) that defines it. */

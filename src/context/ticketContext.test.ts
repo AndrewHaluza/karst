@@ -1828,3 +1828,99 @@ describe('ticket context — tester audience', () => {
     expect(md).not.toContain('## Prompt');
   });
 });
+
+describe('ticket context — drift note', () => {
+  let store: Store;
+  beforeEach(() => (store = openStore(':memory:')));
+  afterEach(() => store.close());
+
+  function setupDriftTicket(opts: {
+    baseShas?: Record<string, string>;
+    codePointers?: string;
+  }) {
+    const t = createTicket(store, { key: 'K-10', title: 'Test drift' });
+    updateTicketFields(store, t.id, {
+      description: 'Fix the bug',
+      baseShas: opts.baseShas ?? {},
+      ...(opts.codePointers !== undefined ? { codePointers: opts.codePointers } : {}),
+    });
+    store.db
+      .prepare(
+        "INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode) VALUES (?, 'frontend', '/wt/frontend', 'feat/x', 'develop', 'inherited')",
+      )
+      .run(t.id);
+    return t.id;
+  }
+
+  it('renders drift note with moved count and touching files when code pointers match commits', () => {
+    const id = setupDriftTicket({
+      baseShas: { frontend: '1122334455667788' },
+      codePointers: '- src/a.ts — entrypoint\n- src/b.ts:42 — helper',
+    });
+    const ctx = buildTicketContext(store, undefined, id);
+
+    const gitCalls: string[][] = [];
+    const mockGit = (args: string[], cwd: string) => {
+      gitCalls.push(args);
+      if (args[0] === 'rev-list' && args[3] !== '--') {
+        // count of baseSha..targetBase
+        return '7\n';
+      }
+      if (args[0] === 'rev-list' && args[3] === '--') {
+        // count of baseSha..targetBase -- paths
+        return '2\n';
+      }
+      if (args[0] === 'log') {
+        return 'aabbcc1 first fix\naabbcc2 second fix\n';
+      }
+      return '';
+    };
+
+    const md = renderTicketContext(ctx, undefined, { git: mockGit });
+    expect(md).toContain(
+      'Planned against 11223344; develop has moved 7 commits since; 2 touch files this ticket names: aabbcc1 first fix, aabbcc2 second fix',
+    );
+    // Verified arguments passed to git
+    expect(gitCalls[0]).toEqual(['rev-list', '--count', '1122334455667788..develop']);
+    expect(gitCalls[1]).toEqual(['rev-list', '--count', '1122334455667788..develop', '--', 'src/a.ts', 'src/b.ts']);
+    expect(gitCalls[2]).toEqual(['log', '-n', '5', '--format=%h %s', '1122334455667788..develop', '--', 'src/a.ts', 'src/b.ts']);
+  });
+
+  it('renders only the moved count when no code pointers exist or 0 commits touch those files', () => {
+    const id = setupDriftTicket({
+      baseShas: { frontend: '1122334455667788' },
+    });
+    const ctx = buildTicketContext(store, undefined, id);
+    const mockGit = (args: string[]) => {
+      if (args[0] === 'rev-list') return '3\n';
+      return '';
+    };
+    const md = renderTicketContext(ctx, undefined, { git: mockGit });
+    expect(md).toContain('Planned against 11223344; develop has moved 3 commits since');
+    expect(md).not.toContain('touch files');
+  });
+
+  it('omits drift note when count is 0 or base SHA is missing', () => {
+    const idNoSha = setupDriftTicket({});
+    const ctxNoSha = buildTicketContext(store, undefined, idNoSha);
+    const mdNoSha = renderTicketContext(ctxNoSha);
+    expect(mdNoSha).not.toContain('Planned against');
+
+    const idZero = setupDriftTicket({ baseShas: { frontend: '11223344' } });
+    const ctxZero = buildTicketContext(store, undefined, idZero);
+    const mdZero = renderTicketContext(ctxZero, undefined, { git: () => '0\n' });
+    expect(mdZero).not.toContain('Planned against');
+  });
+
+  it('logs debug and skips drift line when git command fails', () => {
+    const id = setupDriftTicket({ baseShas: { frontend: '11223344' } });
+    const ctx = buildTicketContext(store, undefined, id);
+    const debugLogs: string[] = [];
+    const brokenGit = () => {
+      throw new Error('git fatal: bad revision');
+    };
+    const md = renderTicketContext(ctx, (msg) => debugLogs.push(msg), { git: brokenGit });
+    expect(md).not.toContain('Planned against');
+    expect(debugLogs.some((l) => l.includes('[context:drift] git failed'))).toBe(true);
+  });
+});

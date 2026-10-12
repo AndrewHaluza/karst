@@ -46,6 +46,8 @@ export interface Ticket {
   selectedRepos: string[];
   /** Parsed from the `base_refs` JSON column; `{}` when unset/invalid. */
   baseRefs: Record<string, string>;
+  /** Parsed from the `base_shas` JSON column (v80); `{}` when unset/invalid. */
+  baseShas: Record<string, string>;
   /** Soft-delete timestamp; `null` = active. Archived tickets hide by default. */
   archivedAt: string | null;
   /** Last mutation timestamp; bumped by every writer here. Surfaced so a ticket
@@ -143,6 +145,7 @@ interface TicketRow {
   agent: string | null;
   selected_repos: string | null;
   base_refs: string | null;
+  base_shas?: string | null;
   archived_at: string | null;
   updated_at: string | null;
   model: string | null;
@@ -218,6 +221,7 @@ function rowToTicket(r: TicketRow): Ticket {
     agent: r.agent,
     selectedRepos: parseSelectedRepos(r.selected_repos),
     baseRefs: parseBaseRefs(r.base_refs),
+    baseShas: parseBaseRefs(r.base_shas ?? null),
     archivedAt: r.archived_at,
     updatedAt: r.updated_at,
     model: r.model,
@@ -567,6 +571,8 @@ export interface TicketFieldsPatch {
   selectedRepos?: string[];
   /** Per-repo base branch chosen before the ticket is spun; keyed by repo path/name. */
   baseRefs?: Record<string, string>;
+  /** Per-repo base commit shas (v80); keyed by repo path/name. */
+  baseShas?: Record<string, string>;
   /** Per-ticket launch model id; empty string clears it back to inherit. */
   model?: string;
   /** Per-ticket effort/variant override; empty string clears it back to inherit. */
@@ -616,6 +622,9 @@ export function updateTicketFields(
   }
   if (patch.baseRefs !== undefined) {
     columns.base_refs = JSON.stringify(patch.baseRefs);
+  }
+  if (patch.baseShas !== undefined) {
+    columns.base_shas = JSON.stringify(patch.baseShas);
   }
   // An explicit empty string clears the per-ticket model back to "inherit" (NULL).
   if (patch.model !== undefined) columns.model = patch.model === '' ? null : patch.model;

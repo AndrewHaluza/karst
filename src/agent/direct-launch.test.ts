@@ -36,6 +36,7 @@ describe('direct approach launch path (integration)', () => {
         title: 'Add rate limiting to /login',
         prompt: 'Brute-force protection missing on the auth endpoint.',
         brief: 'Cap login attempts per IP; return 429 past the threshold.',
+        baseShas: {},
         intent: null,
         codePointers: null,
         approach: 'direct',

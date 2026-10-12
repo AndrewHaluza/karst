@@ -176,7 +176,7 @@ import { agyPointerBusy, type AgyWatchState } from './agent/agyConversationWatch
 import { type AgyUsageState } from './agent/agyUsageWatch.js';
 import { createAgyWatchLoop, AGY_WATCH_INTERVAL_MS } from './extension/ops/agyWatchLoop.js';
 import { createPlanningOps } from './extension/ops/planningOps.js'; import { offerPlannerRestart } from './extension/planningRestartOffer.js'; import { execGit, gatherPlanningHistory } from './extension/ops/planningHistory.js';
-import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf } from './extension/ops/planningConstraintChecks.js';
+import { createPlanningOutbox } from './extension/ops/planningOutbox.js'; import { archDocFiles, commitExistsViaGit, repoPathsOf, resolveBaseShasOf } from './extension/ops/planningConstraintChecks.js';
 import { activateSetupFeature } from './extension/setupWiring.js';
 import { refreshProposalIndex } from './extension/ops/planningIndex.js';
 import { createPlanningProposalOps, type ProposalChoice } from './extension/ops/planningProposalOps.js';
@@ -6960,7 +6960,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     knownRepos: () => { const m = currentManifest(); return m && Object.entries(m.repositories).filter(([, d]) => d.enabled !== false).map(([n]) => n); },
     windowId: randomUUID(), now: () => Date.now(), notify, debug: (m) => logger.debug(m),
     onProposal: (p, change) => { provider.refresh(); void proposalOps.announce(p, change); },
-    repoPaths: (names) => repoPathsOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit), onWarnings: () => provider.refresh() });
+    repoPaths: (names) => repoPathsOf(currentManifest(), names), resolveBaseShas: (names) => resolveBaseShasOf(currentManifest(), names), commitExists: (r, h) => commitExistsViaGit(r, h, execGit), onWarnings: () => provider.refresh() });
   let planScanTimer: NodeJS.Timeout | undefined;
   const planScan = (): void => { clearTimeout(planScanTimer); planScanTimer = setTimeout(() => { try { outbox.scan(); } catch (e) { logError('planning: outbox scan failed', e); } }, 200); };
   let planWatcher: { close(): void } | undefined;
