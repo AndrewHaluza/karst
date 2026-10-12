@@ -2083,8 +2083,9 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
     expect(stopped).toBe(1);
   });
 
-  it('parks boot-failed with the health evidence when the spin fails, and never runs the Tester', async () => {
+  it('parks boot-failed with the health evidence when the spin fails, never runs the Tester, and stops the services it already started', async () => {
     let testerRan = false;
+    let stopped = 0;
     const adapter: AgentAdapter = {
       ...testerAgent,
       runHeadless: async () => {
@@ -2095,12 +2096,13 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
     const res = await run({
       tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
       spin: async () => {
+        // A mid-way failure: an earlier service started, a later one did not.
         throw new Error(
           'could not start \'web\': nothing is listening on 127.0.0.1:4100 — the service never bound its port.',
         );
       },
       stopServers: async () => {
-        throw new Error('must not stop after a failed spin');
+        stopped += 1;
       },
     });
     expect(res).toEqual({
@@ -2110,19 +2112,25 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
     });
     expect(stageBlock(store, id, 'uat')?.kind).toBe('boot-failed');
     expect(testerRan).toBe(false);
+    // The partial stack spinTicket left running is stopped by the finally.
+    expect(stopped).toBe(1);
   });
 
   it('treats a cancelled spin as a Stop, never boot-failed', async () => {
+    let stopped = 0;
     const res = await run({
       spin: async () => {
         throw new SpinCancelledError(id);
       },
+      // The cancel already tore its own run down; the finally's stop is a
+      // harmless no-op that must not turn the Stop into a failure.
       stopServers: async () => {
-        throw new Error('must not stop after a cancelled spin');
+        stopped += 1;
       },
     });
     expect(res).toEqual({ kind: 'stopped' });
     expect(stageBlock(store, id, 'uat')).toBeNull();
+    expect(stopped).toBe(1);
   });
 });
 

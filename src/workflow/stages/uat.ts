@@ -719,18 +719,26 @@ export async function runUat(
   // stack is UAT's — the spin stops every ticket server first (spin.ts), so a
   // partial user-started stack is not restored afterwards (deliberate).
   const ticket = getTicket(store, opts.ticketId);
+  const spinFn = deps.spin;
+  const stopFn = deps.stopServers;
+  const spinManifest = opts.manifest;
+  // Set when THIS run starts the stack (or tries to): the `finally` below stops
+  // it on every exit path, INCLUDING a spin that failed partway — `spinTicket`
+  // leaves the services it already started running on a non-cancel failure, and
+  // an un-stopped stack is a leaked dev server on a port karst believes is free.
   let ownsStack = false;
+  let spinHot: string[] = [];
   // BOTH seams must be present: a spin with no way to stop would leak the
   // stack it started, so an absent stop disables the capability entirely.
-  if (deps.tester && deps.spin && deps.stopServers && opts.manifest !== undefined) {
-    const hot = runnableSubset(opts.manifest, ticket.selectedRepos);
+  if (deps.tester && spinFn && stopFn && spinManifest !== undefined) {
+    const hot = runnableSubset(spinManifest, ticket.selectedRepos);
     if (hot.length > 0) {
       const running = new Set(
         listServersByTicket(store, opts.ticketId)
           .filter((s) => s.status === 'running')
           .map((s) => s.service),
       );
-      const needed = unitsOfRepos(opts.manifest, hot).map((u) => u.key);
+      const needed = unitsOfRepos(spinManifest, hot).map((u) => u.key);
       if (needed.length > 0 && needed.every((key) => running.has(key))) {
         opts.debug?.(
           `[gate] uat ticket ${opts.ticketId}: ${needed.length} service(s) already running — ` +
@@ -738,33 +746,7 @@ export async function runUat(
         );
       } else {
         ownsStack = true;
-        opts.debug?.(
-          `[gate] uat ticket ${opts.ticketId}: spinning ${hot.length} runnable repo(s) before the Tester`,
-        );
-        try {
-          await deps.spin(store, opts.manifest, opts.ticketId, hot, {
-            signal: opts.signal,
-            debug: opts.debug,
-          });
-        } catch (error) {
-          // A Stop is a cancel, never an environment fault.
-          if (error instanceof SpinCancelledError) {
-            opts.debug?.(`[gate] uat ticket ${opts.ticketId}: spin cancelled — stopped`);
-            return finish({ kind: 'stopped' }, ['spin cancelled before the services came up']);
-          }
-          // An environment fault is a BLOCK, never a failed verdict: the code
-          // was not judged, so a fix round would be spent on nothing. The
-          // reason carries startHot's health evidence (nothing listening, or a
-          // listener that never answered) plus the service's own log tail.
-          const reason =
-            `could not start the ticket's services: ` +
-            (error instanceof Error ? error.message : String(error));
-          opts.debug?.(
-            `[gate] uat ticket ${opts.ticketId}: spin failed — parked boot-failed`,
-          );
-          sections.push(`# services (spin failed)\n${reason}`);
-          return finish({ kind: 'blocked', blocker: 'boot-failed', reason }, [reason]);
-        }
+        spinHot = hot;
       }
     }
   }
@@ -935,14 +917,46 @@ export async function runUat(
   };
 
   try {
+    // The spin is INSIDE this try so its `finally` covers a partial failure too:
+    // `spinTicket` leaves the services it already started running when a later
+    // one fails (only a cancel tears its own run down), so a `boot-failed` park
+    // must still stop whatever came up. Idempotent, and a cancel already stopped
+    // its own run — stopping again is a no-op.
+    if (ownsStack && spinFn && spinManifest !== undefined) {
+      opts.debug?.(
+        `[gate] uat ticket ${opts.ticketId}: spinning ${spinHot.length} runnable repo(s) before the Tester`,
+      );
+      try {
+        await spinFn(store, spinManifest, opts.ticketId, spinHot, {
+          signal: opts.signal,
+          debug: opts.debug,
+        });
+      } catch (error) {
+        // A Stop is a cancel, never an environment fault.
+        if (error instanceof SpinCancelledError) {
+          opts.debug?.(`[gate] uat ticket ${opts.ticketId}: spin cancelled — stopped`);
+          return finish({ kind: 'stopped' }, ['spin cancelled before the services came up']);
+        }
+        // An environment fault is a BLOCK, never a failed verdict: the code was
+        // not judged, so a fix round would be spent on nothing. The reason
+        // carries startHot's health evidence (nothing listening, or a listener
+        // that never answered) plus the service's own log tail.
+        const reason =
+          `could not start the ticket's services: ` +
+          (error instanceof Error ? error.message : String(error));
+        opts.debug?.(`[gate] uat ticket ${opts.ticketId}: spin failed — parked boot-failed`);
+        sections.push(`# services (spin failed)\n${reason}`);
+        return finish({ kind: 'blocked', blocker: 'boot-failed', reason }, [reason]);
+      }
+    }
     return await finishAfterServices();
   } finally {
     // Stop the services UAT started on every exit path — the rows stay offline
     // so the dashboard offers Restart. Best-effort: a stop that cannot run must
     // never replace the stage's own outcome. A stack the user owns is untouched.
-    if (ownsStack) {
+    if (ownsStack && stopFn) {
       try {
-        await deps.stopServers?.(store, opts.ticketId);
+        await stopFn(store, opts.ticketId);
         opts.debug?.(`[gate] uat ticket ${opts.ticketId}: stopped the ticket's services after UAT`);
       } catch (error) {
         opts.debug?.(
