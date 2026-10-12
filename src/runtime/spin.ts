@@ -288,7 +288,6 @@ export async function spinTicket(
   // worktree it already created is adopted by createWorktree, baseline_refs is
   // INSERT OR IGNORE, so ports are the only leftover that needs releasing here.
   allocator.release(ticketId);
-  const resolved = resolve(manifest, hot, allocator, ticketId);
 
   // Track what this run creates so cancel / mid-way failure can undo exactly it.
   const created: WorktreeRecord[] = [];
@@ -297,6 +296,10 @@ export async function spinTicket(
 
   try {
     bail();
+
+    // Resolve INSIDE the try: a no-free-port refusal happens after the release
+    // above, so it too must reap the ticket's now-dead rows (below).
+    const resolved = resolve(manifest, hot, allocator, ticketId);
 
     // 1. one worktree per hot REPOPATH — INCLUDING repositories that declare no
     //    service. A non-runnable repo is still edited by the agent, so it needs

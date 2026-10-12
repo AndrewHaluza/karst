@@ -813,9 +813,24 @@ describe('spinTicket integration', () => {
       await waitUntilListening(fePort);
 
       const ticket = createTicket(store, { key: 'PROJ-SQ3', title: 'squat only port' });
+      // A prior spin's offline row. This spin dies at `resolve` (before any
+      // worktree), but the release above already wiped its allocation — so the
+      // row is dead and must be reaped like any other unsuccessful spin.
+      store.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+           VALUES (?, 'backend', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/prior.log')`,
+        )
+        .run(ticket.id);
+
       await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
         /no free contiguous block|in use/,
       );
+
+      const dead = store.db
+        .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status = 'stopped'")
+        .get(ticket.id) as { n: number };
+      expect(dead.n).toBe(0);
 
       await new Promise((r) => setTimeout(r, 200));
       expect(alive(squatter.pid!)).toBe(true); // untouched
