@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { manifest, repo } from '../manifest/fixtures.js'
-import { makeBoundedLogBuffer } from '../logging/logger.js'
+import { makeBoundedLogBuffer, type LogBuffer } from '../logging/logger.js'
 import { openStore, type Store } from '../store/db.js'
 import { createTicket } from '../store/tickets.js'
 import { upsertProject } from '../store/projects.js'
@@ -274,6 +274,378 @@ describe('collectMetadata', () => {
       status: 'truncated',
       omitted: 1,
       reason: 'rows',
+    })
+  })
+
+  async function collectLogsDraft(
+    build: (ticketId: number) => LogBuffer,
+    generatedAt = '2026-07-28T00:05:00.000Z',
+  ): Promise<{ draft: Awaited<ReturnType<typeof collectMetadata>>; ticketId: number }> {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'logs' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1',
+        editorVersion: '1',
+        platform: 'darwin',
+        arch: 'arm64',
+        remoteNamePresent: false,
+        uiKind: 'desktop',
+        developmentMode: false,
+      },
+      logs: build(ticket.id),
+      reportId: 'report-logs',
+      generatedAt,
+      aliases: createPseudonymizer(new Uint8Array(32).fill(11)),
+    })
+    return { draft, ticketId: ticket.id }
+  }
+
+  it('keeps ticket evidence (warn and [runtime]) over newer [driver] spam', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({
+        timestamp: '2026-07-28T00:00:00.000Z',
+        level: 'warn',
+        message: 'UAT spin failed',
+      })
+      logs.capture({
+        timestamp: '2026-07-28T00:00:01.000Z',
+        level: 'info',
+        message: '[runtime] service came up',
+      })
+      for (let i = 0; i < 300; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'debug',
+          message: `[driver] delivery T999: notes deferred ${i}`,
+        })
+      }
+      return logs
+    })
+    const logsSection = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+      omitted: number
+      omittedByClass: Record<string, number>
+    }
+    const messages = logsSection.data.map((entry) => entry.message)
+    // Both older evidence entries outrank the newer driver flood.
+    expect(messages).toContain('UAT spin failed')
+    expect(messages).toContain('[runtime] service came up')
+    expect(logsSection.data).toHaveLength(200)
+    // 302 entries kept 200: the 102 dropped are all unranked [driver] noise.
+    expect(logsSection).toMatchObject({
+      status: 'truncated',
+      omitted: 102,
+      reason: 'rows',
+      omittedByClass: { warnError: 0, ticket: 0, other: 102, age: 0 },
+    })
+  })
+
+  it('keeps a [driver] line only when it names the report ticket', async () => {
+    const { draft, ticketId } = await collectLogsDraft((id) => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({
+        timestamp: '2026-07-28T00:00:00.000Z',
+        level: 'debug',
+        message: `[driver] delivery T${id}: notes deferred`,
+      })
+      for (let i = 0; i < 300; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'debug',
+          message: `[driver] delivery T9001: notes deferred ${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+      omittedByClass: Record<string, number>
+    }
+    expect(section.data.map((entry) => entry.message)).toContain(
+      `[driver] delivery T${ticketId}: notes deferred`,
+    )
+    // The ticket-named line is ranked, so the dropped entries are all noise.
+    expect(section.omittedByClass.ticket).toBe(0)
+    expect(section.omittedByClass.other).toBe(101)
+  })
+
+  it('does not fold a ticket-named line into a preceding same-shaped other-ticket line', async () => {
+    const { draft, ticketId } = await collectLogsDraft((id) => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({
+        timestamp: '2026-07-28T00:00:00.000Z',
+        level: 'debug',
+        message: '[driver] delivery T9000: notes deferred',
+      })
+      logs.capture({
+        timestamp: '2026-07-28T00:00:01.000Z',
+        level: 'debug',
+        message: `[driver] delivery T${id}: notes deferred`,
+      })
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: '2026-07-28T00:00:02.000Z',
+          level: 'debug',
+          message: `[driver] noise ${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+    }
+    // Normalizing T<n> would otherwise fold this into the T9000 group and let
+    // its 'other' class cap the ticket-named evidence away.
+    expect(section.data.map((entry) => entry.message)).toContain(
+      `[driver] delivery T${ticketId}: notes deferred`,
+    )
+  })
+
+  it('reports bytes when the byte cap binds before the row cap', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      const filler = 'y'.repeat(686)
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'warn',
+          message: `${filler}-${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as { status: string; reason: string; data: unknown[] }
+    // 250 distinct warn rows: the byte cap is the binding limit, not the count.
+    expect(section).toMatchObject({ status: 'truncated', reason: 'bytes' })
+    expect(section.data.length).toBeLessThan(200)
+  })
+
+  it('keeps ticket evidence when warn/error alone would fill the report cap', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-07-28T00:00:00.000Z', level: 'info', message: '[runtime] service came up' })
+      logs.capture({ timestamp: '2026-07-28T00:00:01.000Z', level: 'info', message: '[gate] test:unit failed' })
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'warn',
+          message: `warn ${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+      omittedByClass: Record<string, number>
+    }
+    const messages = section.data.map((entry) => entry.message)
+    // The warnings alone exceed the 200-row cap; interleaving keeps both.
+    expect(messages).toContain('[runtime] service came up')
+    expect(messages).toContain('[gate] test:unit failed')
+    expect(section.omittedByClass.ticket).toBe(0)
+    expect(section.omittedByClass.warnError).toBeGreaterThan(0)
+    expect(section.data).toHaveLength(200)
+  })
+
+  it('names the binding cap when the cap drops more than the age window', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-01-01T00:00:00.000Z', level: 'warn', message: 'ancient' })
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'info',
+          message: `recent ${i}`,
+        })
+      }
+      return logs
+    })
+    // One entry aged out, but 50 were dropped by the row cap — the cap bound.
+    expect(draft.metadata.logs).toMatchObject({ status: 'truncated', reason: 'rows' })
+    const section = draft.metadata.logs as { omittedByClass: Record<string, number> }
+    expect(section.omittedByClass.age).toBe(1)
+    expect(section.omittedByClass.other).toBe(50)
+  })
+
+  it('keeps prefix evidence over a same-ticket [driver] flood', async () => {
+    const evidenceLines = [
+      '[gate] test:unit failed',
+      '[runtime] service came up',
+      '[stage] impl done',
+      '[merge] pr feedback: changes_requested',
+    ]
+    const { draft } = await collectLogsDraft((id) => {
+      const logs = makeBoundedLogBuffer()
+      evidenceLines.forEach((message, i) => {
+        logs.capture({ timestamp: `2026-07-28T00:00:0${i}.000Z`, level: 'info', message })
+      })
+      for (let i = 0; i < 200; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:01:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'debug',
+          message: `[driver] delivery T${id}: notes deferred ${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+      omittedByClass: Record<string, number>
+    }
+    const messages = section.data.map((entry) => entry.message)
+    // The newer same-ticket [driver] lines outnumber the cap, but they rank
+    // below the older prefix evidence rather than sharing its class.
+    for (const line of evidenceLines) expect(messages).toContain(line)
+    expect(section.omittedByClass.ticket).toBeGreaterThan(0)
+  })
+
+  it('reports age when the window dropped as much as the cap', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-01-01T00:00:00.000Z', level: 'info', message: 'ancient' })
+      for (let i = 0; i < 201; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'info',
+          message: `recent ${i}`,
+        })
+      }
+      return logs
+    })
+    // One aged out, one dropped by the 200-row cap: documented contract is 'age'.
+    expect(draft.metadata.logs).toMatchObject({
+      status: 'truncated',
+      reason: 'age',
+      omittedByClass: { warnError: 0, ticket: 0, other: 1, age: 1 },
+    })
+  })
+
+  it('collapses consecutive repeats, counting them and keeping chronology', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      for (let i = 1; i <= 5; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:0${i}.000Z`,
+          level: 'debug',
+          message: `[driver] delivery T900${i}: notes deferred`,
+        })
+      }
+      return logs
+    })
+    const logsSection = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+    }
+    expect(logsSection.status).toBe('available')
+    expect(logsSection.data).toHaveLength(1)
+    expect(logsSection.data[0]!.message).toBe(
+      '[driver] delivery T9001: notes deferred (repeated 5× from '
+      + '2026-07-28T00:00:01.000Z to 2026-07-28T00:00:05.000Z)',
+    )
+  })
+
+  it('does not collapse a repeat that is not consecutive', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-07-28T00:00:01.000Z', level: 'info', message: 'same' })
+      logs.capture({ timestamp: '2026-07-28T00:00:02.000Z', level: 'info', message: 'other' })
+      logs.capture({ timestamp: '2026-07-28T00:00:03.000Z', level: 'info', message: 'same' })
+      return logs
+    })
+    const section = draft.metadata.logs as unknown as { data: Array<{ message: string }> }
+    expect(section.data.map((entry) => entry.message)).toEqual(['same', 'other', 'same'])
+  })
+
+  it('attributes aged-out entries to the age class', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({ timestamp: '2026-01-01T00:00:00.000Z', level: 'warn', message: 'ancient' })
+      logs.capture({ timestamp: '2026-07-28T00:00:00.000Z', level: 'info', message: 'recent' })
+      return logs
+    })
+    expect(draft.metadata.logs).toMatchObject({
+      status: 'truncated',
+      omitted: 1,
+      reason: 'age',
+      omittedByClass: { warnError: 0, ticket: 0, other: 0, age: 1 },
+    })
+  })
+
+  it('applies the byte cap and its omissions sum to the total', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      const filler = 'x'.repeat(1024)
+      for (let i = 0; i < 200; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'warn',
+          message: `${filler}-${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      reason: string
+      omitted: number
+      omittedByClass: Record<string, number>
+    }
+    expect(section).toMatchObject({ status: 'truncated', reason: 'bytes' })
+    const byClass = section.omittedByClass
+    expect(
+      byClass.warnError! + byClass.ticket! + byClass.other! + byClass.age!,
+    ).toBe(section.omitted)
+    expect(byClass.warnError).toBeGreaterThan(0)
+  })
+
+  it('carries each service started_at into the topology section', async () => {
+    store = openStore(':memory:')
+    const localStore = store
+    const project = upsertProject(localStore, { slug: 'topology' })
+    const ticket = createTicket(localStore, { projectId: project.id, key: 'X', title: 'x' })
+    localStore.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, status, kind, started_at)
+       VALUES (?, 'api', 'running', 'service', '2026-07-28T08:00:00.000Z')`,
+    ).run(ticket.id)
+    const draft = await collectMetadata({
+      store: localStore,
+      project,
+      manifest: manifest({}),
+      ticketId: ticket.id,
+      runtime: {
+        extensionVersion: '1',
+        editorVersion: '1',
+        platform: 'darwin',
+        arch: 'arm64',
+        remoteNamePresent: false,
+        uiKind: 'desktop',
+        developmentMode: false,
+      },
+      logs: makeBoundedLogBuffer(),
+      reportId: 'report-topology',
+      generatedAt: '2026-07-28T00:05:00.000Z',
+      aliases: createPseudonymizer(new Uint8Array(32).fill(12)),
+    })
+    const topology = draft.metadata.topology as {
+      status: string
+      data: { servers: Array<{ status: string; startedAt: string }> }
+    }
+    expect(topology.data.servers[0]).toMatchObject({
+      status: 'running',
+      startedAt: '2026-07-28T08:00:00.000Z',
     })
   })
 

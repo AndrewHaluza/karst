@@ -75,8 +75,9 @@ describe('diagnostic store evidence', () => {
        VALUES (7, 'api', '/secret/worktree', 'secret-branch', 'secret-base', 'local')`,
     ).run()
     store.db.prepare(
-      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
-       VALUES (7, 'api', 'private.host', 4444, 1, 'running', '/secret/log')`,
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, started_at)
+       VALUES (7, 'api', 'private.host', 4444, 1, 'running', '/secret/log',
+               '2026-07-28T09:00:00.000Z')`,
     ).run()
     store.db.prepare(
       `INSERT INTO prs (ticket_id, repo, number, url, status)
@@ -99,6 +100,7 @@ describe('diagnostic store evidence', () => {
     expect(readServers(store, 7, 10).rows).toEqual([{
       repo: 'api',
       status: 'running',
+      startedAt: '2026-07-28T09:00:00.000Z',
       hasAddress: true,
     }])
     expect(readPullRequests(store, 7, 10).rows).toEqual([{
