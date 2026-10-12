@@ -331,4 +331,37 @@ describe('process_runs', () => {
       expect(listProcessRuns(store, ticketId)).toHaveLength(0);
     });
   });
+
+  describe('failure_detail (v81)', () => {
+    it('records the bounded failure sentence at close and reads it back', () => {
+      const run = open();
+      finishProcessRun(
+        store,
+        run.id,
+        'failed',
+        '2026-08-08T10:01:00.000Z',
+        'execution-failed',
+        null,
+        'Antigravity headless run was auto-denied the "command" permission (headless mode cannot prompt).',
+      );
+      expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+        status: 'failed',
+        resultKind: 'execution-failed',
+        failureDetail:
+          'Antigravity headless run was auto-denied the "command" permission (headless mode cannot prompt).',
+      });
+    });
+
+    it('NULL failure detail reads back as null (never an invented sentence)', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'passed', '2026-08-08T10:01:00.000Z', 'observed');
+      expect(listProcessRuns(store, ticketId)[0]!.failureDetail).toBeNull();
+    });
+
+    it('a close that carries no detail leaves the column NULL', () => {
+      const run = open();
+      finishProcessRun(store, run.id, 'failed', '2026-08-08T10:01:00.000Z', 'execution-failed', null);
+      expect(getProcessRunById(store, run.id)!.failureDetail).toBeNull();
+    });
+  });
 });

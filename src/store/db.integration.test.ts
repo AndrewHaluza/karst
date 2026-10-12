@@ -2401,6 +2401,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION
       'status',
       'result_kind',
       'artifact_path',
+      'failure_detail',
       'prompt_telemetry',
       'started_at',
       'ended_at',
@@ -2469,6 +2470,54 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION
     cleanups.push(() => reopened.close());
     expect(tableNames(reopened)).toContain('process_runs');
 expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
+  it('migrates a v80 DB to v81, adding process_runs.failure_detail without touching rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec(`
+      CREATE TABLE process_runs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL,
+        stage_key TEXT NOT NULL, process_id TEXT NOT NULL, attempt INTEGER NOT NULL,
+        stage_run_id INTEGER, agent_name TEXT, provider TEXT, model TEXT, pid INTEGER,
+        status TEXT NOT NULL, result_kind TEXT, artifact_path TEXT,
+        prompt_telemetry TEXT, started_at TEXT NOT NULL, ended_at TEXT);
+    `);
+    legacy
+      .prepare(
+        `INSERT INTO process_runs
+           (ticket_id, stage_key, process_id, attempt, status, result_kind, artifact_path, started_at)
+         VALUES (1, 'review', 'review', 1, 'failed', 'execution-failed', '/logs/r.log',
+                 '2026-08-01T00:00:00.000Z')`,
+      )
+      .run();
+    legacy.pragma('user_version = 80');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const cols = new Set(
+      (migrated.db.prepare("PRAGMA table_info('process_runs')").all() as { name: string }[]).map(
+        (c) => c.name,
+      ),
+    );
+    expect(cols.has('failure_detail')).toBe(true);
+    // Additive only, nothing derived: the pre-existing row keeps NULL — no
+    // failure sentence can be invented for a run that recorded none.
+    expect(
+      migrated.db
+        .prepare('SELECT status, result_kind, failure_detail FROM process_runs WHERE id = 1')
+        .get(),
+    ).toEqual({ status: 'failed', result_kind: 'execution-failed', failure_detail: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    // Idempotence: reopening an already-migrated DB must be a no-op.
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
   it('migrates a v27 DB to v28, adding the implementation tables and evidence linkage', () => {

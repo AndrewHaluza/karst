@@ -8,6 +8,7 @@ import { collapseDiagnostic } from '../diagnosticText.js';
 import { REVIEW_FINDINGS_DEFAULTS, UAT_TESTER_BLOCKING_SEVERITY } from '../../manifest/qualityDefaults.js';
 import type { Severity } from '../../manifest/types.js';
 import { isBlockingSeverity, sortBySeverityDesc } from '../severityOrder.js';
+import { isPermissionDenialDetail } from '../../agent/cliFailure.js';
 import { displayStatus, type StepperCell } from '../stepper.js';
 import type { StageKey } from '../types.js';
 import { executionView, tokenView, type SessionConfiguredInput, type SessionTokensInput } from './agent.js';
@@ -658,6 +659,27 @@ function testerObservedDetail(total: number, blocking: number, threshold: Severi
 }
 
 /**
+ * The one extra pointer a permission-denial failure earns (T652): the failure
+ * detail already names the denied permission and the settings file, and the
+ * `karst doctor` check lists the allow-rules the user still has to add.
+ */
+const AGY_PERMISSION_DOCTOR_HINT =
+  'Run karst doctor (tools.agy-permissions) to see the missing allow-rules.';
+
+/**
+ * The Tester/Review `execution-failed` detail (T652): the bounded one-line
+ * failure sentence the adapter threw, carried on the run (`failureDetail`), so
+ * a NAMED diagnostic (an agy permission denial, a usage limit) reaches the
+ * reader instead of a fixed string. A run with no detail — every legacy run —
+ * keeps the `generic` wording. A permission denial also earns the doctor hint.
+ */
+function executionFailedDetail(run: ProcessRun, generic: string): string {
+  const detail = run.failureDetail?.trim() ?? '';
+  if (detail === '') return generic;
+  return isPermissionDenialDetail(detail) ? `${detail} ${AGY_PERMISSION_DOCTOR_HINT}` : detail;
+}
+
+/**
  * The Tester process (uat): the latest Tester run and ITS observations, by
  * process-run id — an observation from an older invocation is superseded
  * evidence, not this run's. Observations are advisory: they render as note
@@ -720,7 +742,7 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
                 : run.resultKind === 'unreadable-output'
                   ? 'output unreadable — no observations recorded'
                   : run.resultKind === 'execution-failed'
-                    ? 'adapter execution failed'
+                    ? executionFailedDetail(run, 'adapter execution failed')
                     : run.resultKind === 'interrupted'
                       ? 'interrupted — no outcome'
                       : undefined,
@@ -825,7 +847,10 @@ function reviewProcess(input: QualityProcessesInput): InsideProcessView {
                 : // handoff §11: an execution failure must never read as
                   // "no findings" — it names what failed and what to do.
                   run.resultKind === 'execution-failed'
-                  ? 'Review execution failed: the agent did not return a result. Retry review.'
+                  ? executionFailedDetail(
+                      run,
+                      'Review execution failed: the agent did not return a result. Retry review.',
+                    )
                   : run.resultKind === 'interrupted'
                     ? 'interrupted — no outcome'
                     : undefined,

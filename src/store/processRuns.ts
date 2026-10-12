@@ -57,6 +57,14 @@ export interface ProcessRun {
   /** Path of the artifact the process produced, if any. Never backfilled. */
   artifactPath: string | null;
   /**
+   * v81: the bounded, ONE-LINE failure sentence for a run that failed
+   * (`execution-failed`), when the caller had one — the adapter's named
+   * diagnostic, collapsed and capped by `model/diagnosticText.ts` before it is
+   * written (untrusted CLI prose, @arch:AC-06). NULL = nothing recorded (every
+   * pre-v81 row, and any failure with no diagnostic). Read, never invented.
+   */
+  failureDetail: string | null;
+  /**
    * v57: prompt-effectiveness facts for this run, decoded from the `prompt_telemetry`
    * JSON blob. NULL = nothing recorded (every pre-v57 row). Read, never invented —
    * the codec below degrades an unparseable blob to NULL rather than guessing keys.
@@ -85,6 +93,7 @@ interface ProcessRunRow {
   status: string;
   result_kind: string | null;
   artifact_path: string | null;
+  failure_detail: string | null;
   prompt_telemetry: string | null;
   started_at: string;
   ended_at: string | null;
@@ -138,6 +147,7 @@ function rowToProcessRun(r: ProcessRunRow): ProcessRun {
     status: (STATUSES.includes(r.status) ? r.status : 'stale') as ProcessRunStatus,
     resultKind: r.result_kind,
     artifactPath: r.artifact_path,
+    failureDetail: r.failure_detail,
     promptTelemetry: decodePromptTelemetry(r.prompt_telemetry),
     startedAt: r.started_at,
     endedAt: r.ended_at,
@@ -147,7 +157,7 @@ function rowToProcessRun(r: ProcessRunRow): ProcessRun {
 const SELECT =
   `SELECT id, ticket_id, stage_key, process_id, attempt, stage_run_id,
           agent_name, provider, model, pid, status, result_kind, artifact_path,
-          prompt_telemetry, started_at, ended_at
+          failure_detail, prompt_telemetry, started_at, ended_at
      FROM process_runs`;
 
 export interface OpenProcessRunInput {
@@ -238,6 +248,12 @@ export function openProcessRun(store: Store, input: OpenProcessRunInput): Proces
  * `execution-failed`. Written with COALESCE so an absent value never clobbers
  * what a previous close recorded; legacy four-argument callers keep exactly
  * the pre-v31 behavior.
+ *
+ * `failureDetail` (v81) is the bounded one-line failure sentence for an
+ * `execution-failed` close — the called adapter's NAMED diagnostic (a
+ * permission denial, a usage limit), already collapsed and capped by the
+ * caller so no untrusted CLI prose reaches a surface raw. COALESCE so an
+ * absent detail leaves a legacy run's NULL in place.
  */
 export function finishProcessRun(
   store: Store,
@@ -246,16 +262,25 @@ export function finishProcessRun(
   endedAt: string,
   resultKind?: string | null,
   artifactPath?: string | null,
+  failureDetail?: string | null,
 ): void {
   store.db
     .prepare(
       `UPDATE process_runs
           SET status = ?, ended_at = ?,
               result_kind = COALESCE(?, result_kind),
-              artifact_path = COALESCE(?, artifact_path)
+              artifact_path = COALESCE(?, artifact_path),
+              failure_detail = COALESCE(?, failure_detail)
         WHERE id = ? AND status = 'running'`,
     )
-    .run(status, endedAt, resultKind ?? null, artifactPath ?? null, runId);
+    .run(
+      status,
+      endedAt,
+      resultKind ?? null,
+      artifactPath ?? null,
+      failureDetail ?? null,
+      runId,
+    );
 }
 
 /**

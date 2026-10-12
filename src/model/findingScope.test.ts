@@ -18,6 +18,7 @@ function makeRun(overrides: Partial<ProcessRun> & { id: number }): ProcessRun {
     status: 'passed',
     resultKind: 'validated',
     artifactPath: null,
+    failureDetail: null,
     promptTelemetry: null,
     startedAt: '2026-07-20T12:00:00.000Z',
     endedAt: '2026-07-20T12:01:00.000Z',

@@ -11,6 +11,7 @@ import { finishProcessRun } from '../../store/processRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
+import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
@@ -688,7 +689,25 @@ export async function runReview(
       outcome.blocker === 'capability-missing';
     const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
     if (crashes.length > 0 || unreadableBlock) {
-      finishProcessRun(store, processRunId, 'failed', now(), 'execution-failed', artifactPath);
+      // The bounded failure sentence — the lane's already-collapsed crash
+      // messages (deduped: a multi-repo review repeats the SAME denial per
+      // target), re-collapsed so joining cannot exceed the cap — rides onto the
+      // run so the inside Review detail renders the NAMED diagnostic (an agy
+      // permission denial, say) instead of a fixed string (T652). An
+      // unreadable-only block has no crash message; its detail stays NULL and
+      // the generic wording stands.
+      const uniqueCrashes = [...new Set(crashes)];
+      const failureDetail =
+        uniqueCrashes.length > 0 ? collapseDiagnostic(uniqueCrashes.join('; ')) : null;
+      finishProcessRun(
+        store,
+        processRunId,
+        'failed',
+        now(),
+        'execution-failed',
+        artifactPath,
+        failureDetail,
+      );
     } else if (blocking) {
       finishProcessRun(store, processRunId, 'failed', now(), 'blocking', artifactPath);
     } else {

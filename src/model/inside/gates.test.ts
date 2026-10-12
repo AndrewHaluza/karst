@@ -13,6 +13,12 @@ import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js
 
 const NOW = '2026-07-20T12:30:00.000Z';
 
+/** A stored failure detail of the exact shape `describePermissionDenial` produces (T652). */
+const AGY_DENIAL_DETAIL =
+  'Antigravity headless run was auto-denied the "command" permission (headless mode cannot prompt). ' +
+  'Add an allow-rule under permissions.allow in ~/.gemini/antigravity-cli/settings.json ' +
+  '(e.g. command(git diff)), or run review/UAT on another agent core.';
+
 function cell(stageKey: StageKey, status: StageStatus, extra: Partial<StepperCell> = {}): StepperCell {
   return { stageKey, status, ...extra };
 }
@@ -80,6 +86,7 @@ function processRun(extra: Partial<ProcessRun> = {}): ProcessRun {
     status: 'passed',
     resultKind: 'observed',
     artifactPath: null,
+    failureDetail: null,
     promptTelemetry: null,
     startedAt: '2026-07-20T12:00:00.000Z',
     endedAt: '2026-07-20T12:01:00.000Z',
@@ -619,6 +626,38 @@ describe('uatProcesses', () => {
     expect(interrupted.status).toBe('note');
   });
 
+  it('renders the carried failure detail instead of the generic string (T652)', () => {
+    const tester = uatProcesses(
+      qualityInput({
+        processRuns: [
+          processRun({
+            status: 'failed',
+            resultKind: 'execution-failed',
+            failureDetail: 'Claude failed (exit 1): Invalid API key · Please run /login',
+          }),
+        ],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(tester.detail).toBe('Claude failed (exit 1): Invalid API key · Please run /login');
+  });
+
+  it('adds the karst-doctor hint to an agy permission-denial detail (T652)', () => {
+    const tester = uatProcesses(
+      qualityInput({
+        processRuns: [
+          processRun({
+            status: 'failed',
+            resultKind: 'execution-failed',
+            failureDetail: AGY_DENIAL_DETAIL,
+          }),
+        ],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(tester.detail).toContain(AGY_DENIAL_DETAIL);
+    expect(tester.detail).toContain('karst doctor');
+    expect(tester.detail).toContain('tools.agy-permissions');
+  });
+
   it('reads a stale tester run as note, never as pass or fail', () => {
     const views = uatProcesses(
       qualityInput({
@@ -942,6 +981,47 @@ describe('reviewProcesses', () => {
     expect(review.detail).toBe(
       'Review execution failed: the agent did not return a result. Retry review.',
     );
+  });
+
+  it('renders the carried failure detail instead of the generic string (T652)', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: 'failed' },
+        processRuns: [
+          processRun({
+            stageKey: 'review',
+            processId: 'review',
+            status: 'failed',
+            resultKind: 'execution-failed',
+            failureDetail: 'Claude failed (exit 1): Invalid API key · Please run /login',
+          }),
+        ],
+      }),
+    );
+    expect(views.find((p) => p.id === 'review')!.detail).toBe(
+      'Claude failed (exit 1): Invalid API key · Please run /login',
+    );
+  });
+
+  it('adds the karst-doctor hint to an agy permission-denial detail (T652)', () => {
+    const views = reviewProcesses(
+      qualityInput({
+        cell: { ...reviewCell, status: 'failed' },
+        processRuns: [
+          processRun({
+            stageKey: 'review',
+            processId: 'review',
+            status: 'failed',
+            resultKind: 'execution-failed',
+            failureDetail: AGY_DENIAL_DETAIL,
+          }),
+        ],
+      }),
+    );
+    const review = views.find((p) => p.id === 'review')!;
+    expect(review.detail).toContain(AGY_DENIAL_DETAIL);
+    expect(review.detail).toContain('karst doctor');
+    expect(review.detail).toContain('tools.agy-permissions');
   });
 
   it('states a failed gate batch compactly on the process row (B9)', () => {

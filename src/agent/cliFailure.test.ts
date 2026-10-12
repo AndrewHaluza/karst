@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { describeHeadlessFailure, describePermissionDenial, isUsageLimitFailure } from './cliFailure.js';
+import { describeHeadlessFailure, describePermissionDenial, isPermissionDenialDetail, isUsageLimitFailure } from './cliFailure.js';
 
 /** Verbatim `claude -p --output-format json` envelope for a 429 (from 869ea499g). */
 const CLAUDE_429 = JSON.stringify({
@@ -227,5 +227,21 @@ describe('describePermissionDenial', () => {
       'tool(s) required approval that headless mode cannot prompt for, so they were auto-denied.',
     );
     expect(message).toContain('a tool permission');
+  });
+});
+
+describe('isPermissionDenialDetail', () => {
+  it('recognizes the sentence describePermissionDenial produces', () => {
+    const message = describePermissionDenial('Antigravity', AGY_DENIAL)!;
+    expect(isPermissionDenialDetail(message)).toBe(true);
+  });
+
+  it('is false for every other failure detail, including ones that name permissions', () => {
+    expect(isPermissionDenialDetail('Claude failed (exit 1): Invalid API key')).toBe(false);
+    expect(isPermissionDenialDetail('Codex usage limit reached — out of quota.')).toBe(false);
+    // The raw notice alone is NOT the stored sentence; a run detail is what
+    // describePermissionDenial produced.
+    expect(isPermissionDenialDetail(AGY_DENIAL)).toBe(false);
+    expect(isPermissionDenialDetail('')).toBe(false);
   });
 });
