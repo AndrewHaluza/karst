@@ -15,16 +15,69 @@ import type {
   BindVar,
   DependsOn,
   PortSlot,
+  RepoConventions,
   RepositoryDef,
   ServiceDef,
 } from '../types.js';
 import { validateDocker } from './docker.js';
+import {
+  validateArtifactTemplate,
+  type ArtifactConventionName,
+} from '../../workflow/artifactConventions.js';
 import {
   assertUnique,
   isObject,
   requirePort,
   requireString,
 } from './primitives.js';
+
+/** The three templates a repository may override, in the global block's order. */
+const REPO_CONVENTION_FIELDS: ArtifactConventionName[] = [
+  'commitMessage',
+  'pullRequestTitle',
+  'pullRequestDescription',
+];
+
+/**
+ * A repository's `conventions:` — the SAME strict validation the global block
+ * gets (`validateArtifactTemplate`, so the variable vocabulary and the transform
+ * checks come from one source, never a mirror). Each of the three template keys
+ * is optional and falls back to its global counterpart independently.
+ *
+ * `branchName` is REFUSED, not ignored: it IS a legal global key, so an author
+ * copying the global block would otherwise get a silent no-op. A ticket has one
+ * branch name across every repository (@arch:BRANCH-NAME).
+ */
+function validateRepoConventions(raw: unknown, repo: string): RepoConventions | undefined {
+  if (raw === undefined) return undefined;
+  const where = `repository "${repo}" conventions`;
+  if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
+
+  if (raw.branchName !== undefined) {
+    throw new ManifestError(
+      `${where}.branchName is not overridable per repository — a ticket has one branch name ` +
+        `across every repository, rendered once at worktree creation. Set \`conventions.branchName\` at the top level.`,
+    );
+  }
+
+  const conventions: RepoConventions = {};
+  for (const field of REPO_CONVENTION_FIELDS) {
+    const value = raw[field];
+    if (value === undefined) continue;
+    if (typeof value !== 'string') {
+      throw new ManifestError(`${where}.${field} must be a string`);
+    }
+    try {
+      validateArtifactTemplate(field, value);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new ManifestError(`${where}.${field}${detail.slice(field.length)}`);
+    }
+    conventions[field] = value;
+  }
+
+  return Object.keys(conventions).length > 0 ? conventions : undefined;
+}
 
 /** Runtime fields that belong under `service:` and nowhere else. */
 const RUNTIME_FIELDS = [
@@ -331,6 +384,7 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
     // Conventional-commit scope for `{scope}`; blank normalizes to undefined so
     // the renderer falls back to the repository name rather than emitting "()".
     scope: optionalString(raw.scope, `${where}.scope`),
+    conventions: validateRepoConventions(raw.conventions, name),
   };
 
   if (raw.service !== undefined && raw.services !== undefined) {

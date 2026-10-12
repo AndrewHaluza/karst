@@ -28,6 +28,25 @@ repositories:
       dependsOn: []
 `;
 
+// A repository carrying per-repo conventions, including an unmodeled nested key
+// (`organizationPolicy`) that must survive a write.
+const REPO_CONVENTIONS_RAW = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+    conventions:
+      commitMessage: "feat({repo}): {title}"
+      organizationPolicy: keep-me
+    service:
+      start: npm run dev
+      ports:
+        - { name: http, env: PORT, default: 3000 }
+      dependsOn: []
+`;
+
 /** A pre-rework manifest, for the on-disk upgrade path. */
 const LEGACY_RAW = `
 host: localhost
@@ -170,6 +189,10 @@ describe('writeManifest', () => {
             hasMigrations: true,
             signals: ['api', 'endpoint'],
             scope: 'api',
+            conventions: {
+              commitMessage: '{type}({scope}): {title} [{key}]',
+              pullRequestTitle: '[{key}] {title}',
+            },
             service: {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
@@ -508,6 +531,53 @@ conventions:
       raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
       expect(raw.repositories.backend.service.portRange).toBeUndefined();
       expect(loadManifest(path).repositories.backend!.service!.portRange).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('round-trips per-repo conventions, preserving unknown nested keys', () => {
+    const { path, cleanup } = fixture(REPO_CONVENTIONS_RAW);
+    try {
+      const m = loadManifest(path);
+      writeManifest(path, {
+        ...m,
+        repositories: {
+          backend: {
+            ...m.repositories.backend!,
+            conventions: {
+              ...m.repositories.backend!.conventions,
+              pullRequestTitle: '[{key}] {title}',
+            },
+          },
+        },
+      });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.conventions).toEqual({
+        organizationPolicy: 'keep-me',
+        commitMessage: 'feat({repo}): {title}',
+        pullRequestTitle: '[{key}] {title}',
+      });
+      expect(loadManifest(path).repositories.backend!.conventions).toEqual({
+        commitMessage: 'feat({repo}): {title}',
+        pullRequestTitle: '[{key}] {title}',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops the per-repo conventions block once cleared', () => {
+    const { path, cleanup } = fixture(REPO_CONVENTIONS_RAW);
+    try {
+      const m = loadManifest(path);
+      const { conventions: _cleared, ...withoutConventions } = m.repositories.backend!;
+      writeManifest(path, { ...m, repositories: { backend: withoutConventions } });
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.conventions).toBeUndefined();
+      expect(loadManifest(path).repositories.backend!.conventions).toBeUndefined();
     } finally {
       cleanup();
     }

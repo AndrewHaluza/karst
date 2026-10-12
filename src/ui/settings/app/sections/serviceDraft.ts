@@ -152,6 +152,55 @@ export function writeRepositoryField(
   return writeRepository(draft, name, { ...repo, ...patch } as RepositoryDef);
 }
 
+/** The three templates a repository may override (`RepoConventions` keys). */
+export const REPO_CONVENTION_KEYS = [
+  'commitMessage',
+  'pullRequestTitle',
+  'pullRequestDescription',
+] as const;
+
+export type RepoConventionKey = (typeof REPO_CONVENTION_KEYS)[number];
+
+/**
+ * Write ONE per-repo convention override. A cleared value DELETES its key, and
+ * clearing the last one deletes the whole `conventions` block — an absent block
+ * is what "inherit the global template" means, the same absent-field rule every
+ * other optional block here follows.
+ */
+export function writeRepositoryConvention(
+  draft: Manifest,
+  name: string,
+  key: RepoConventionKey,
+  value: string,
+): Manifest {
+  const repo = (draft.repositories ?? {})[name];
+  if (!repo) return draft;
+  const conventions: Record<string, unknown> = { ...(repo.conventions ?? {}) };
+  if (value.trim() === '') delete conventions[key];
+  else conventions[key] = value;
+
+  const next: RepositoryDef = { ...repo };
+  if (Object.keys(conventions).length === 0) {
+    delete (next as { conventions?: unknown }).conventions;
+  } else {
+    next.conventions = conventions as RepositoryDef['conventions'];
+  }
+  return writeRepository(draft, name, next);
+}
+
+/**
+ * The template a repository inherits for `key` when it has no override of its
+ * own: the project's global `conventions.<key>`, else `fallback`.
+ */
+export function inheritedConvention(
+  draft: Manifest,
+  key: RepoConventionKey,
+  fallback: string,
+): string {
+  const global = draft.conventions?.[key];
+  return global !== undefined && global !== '' ? global : fallback;
+}
+
 /**
  * Set `enabled` explicitly.
  *

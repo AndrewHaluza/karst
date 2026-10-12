@@ -35,6 +35,7 @@
  */
 import { useMemo, useState } from 'react';
 import type { Manifest, RepositoryDef, ServiceDef } from '../../../../manifest/types.js';
+import { resolveRepoScope } from '../../../../workflow/conventionContext.js';
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { manifestFaultDetail, parseRepoFieldError, shouldShowBanner } from '../diagnostics.js';
 import { Field } from '../primitives/Field.js';
@@ -44,10 +45,17 @@ import { Chip } from '../primitives/Chip.js';
 import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { ServiceFields } from './ServiceFields.js';
 import {
+  CONVENTION_FIELD_DEFAULTS,
+  previewConvention,
+  repoConventionSample,
+} from './conventionPreview.js';
+import {
+  REPO_CONVENTION_KEYS,
   addService,
   addSignal,
   baselineFor,
   dependencyTargetsFor,
+  inheritedConvention,
   isMultiService,
   isRunnable,
   newRepository,
@@ -62,8 +70,10 @@ import {
   runtimeBadge,
   splitToServices,
   writeRepository,
+  writeRepositoryConvention,
   writeRepositoryField,
   writeService,
+  type RepoConventionKey,
 } from './serviceDraft.js';
 
 export function ServicesSection() {
@@ -157,6 +167,9 @@ export function ServicesSection() {
             }}
             onRemove={() => edit((current) => writeRepository(current, name, null))}
             onTouch={touch}
+            onSetConvention={(key, value) =>
+              edit((current) => writeRepositoryConvention(current, name, key, value))
+            }
             onBrowsePath={() => send.browseRepoPath(name)}
             fieldError={fieldError}
           />
@@ -180,6 +193,7 @@ function RepositoryCard({
   onRenameService,
   onRemove,
   onTouch,
+  onSetConvention,
   onBrowsePath,
   fieldError,
 }: {
@@ -196,6 +210,8 @@ function RepositoryCard({
   readonly onRemove: () => void;
   /** Takes the full `<repo>.<field>` (or `<repo>/<service>.<field>`) key. */
   readonly onTouch: (key: string) => void;
+  /** Set one per-repo convention override ('' clears it → inherit global). */
+  readonly onSetConvention: (key: RepoConventionKey, value: string) => void;
   readonly onBrowsePath: () => void;
   readonly fieldError: (key: string) => string | undefined;
 }) {
@@ -351,6 +367,16 @@ function RepositoryCard({
           </>
         ) : null}
 
+        <h2>Conventions</h2>
+        <RepoConventionsEditor
+          name={name}
+          repo={repo}
+          draft={draft}
+          fieldError={fieldError}
+          onTouch={onTouch}
+          onSet={onSetConvention}
+        />
+
         <h2>Signals</h2>
         <div className="chips" data-signals={name}>
           {(repo.signals ?? []).map((signal) => (
@@ -371,6 +397,92 @@ function RepositoryCard({
         <SignalInput name={name} onAdd={(signal) => onReplace(addSignal(repo, signal))} />
       </div>
     </div>
+  );
+}
+
+/** Human labels for the three overridable templates, in the global block's order. */
+const REPO_CONVENTION_LABELS: Record<RepoConventionKey, string> = {
+  commitMessage: 'Commit message',
+  pullRequestTitle: 'Pull request title',
+  pullRequestDescription: 'Pull request description',
+};
+
+/**
+ * The per-repo convention overrides (`repositories.<name>.conventions`).
+ *
+ * An EMPTY field means "inherit the project template", so each control shows the
+ * inherited value as its placeholder and previews the EFFECTIVE template — the
+ * override when set, else the global, else the built-in default. This is the one
+ * place these fields are edited: they live under `repositories`, which THIS tab
+ * owns, so a tab-scoped Save carries them (@arch:SAVE) without a second section
+ * claiming the key.
+ */
+function RepoConventionsEditor({
+  name,
+  repo,
+  draft,
+  fieldError,
+  onTouch,
+  onSet,
+}: {
+  readonly name: string;
+  readonly repo: RepositoryDef;
+  readonly draft: Manifest;
+  readonly fieldError: (key: string) => string | undefined;
+  readonly onTouch: (key: string) => void;
+  readonly onSet: (key: RepoConventionKey, value: string) => void;
+}) {
+  const scope = resolveRepoScope(draft, name);
+  const sample = useMemo(() => repoConventionSample(name, scope), [name, scope]);
+
+  return (
+    <>
+      {REPO_CONVENTION_KEYS.map((key) => {
+        const value = repo.conventions?.[key] ?? '';
+        const inherited = inheritedConvention(draft, key, CONVENTION_FIELD_DEFAULTS[key]);
+        const effective = value.trim() === '' ? inherited : value;
+        const preview = previewConvention(key, effective, sample);
+        const isBody = key === 'pullRequestDescription';
+        const controlName = `f-repo-conv-${name}-${key}`;
+        return (
+          <Field
+            key={key}
+            label={REPO_CONVENTION_LABELS[key]}
+            error={fieldError(`${name}.${key}`)}
+            help="Empty inherits the project template. Only artifacts Karst creates are affected."
+            control={
+              isBody
+                ? {
+                    kind: 'textarea',
+                    name: controlName,
+                    value,
+                    rows: 4,
+                    placeholder: inherited,
+                    onChange: (next: string) => {
+                      onTouch(`${name}.${key}`);
+                      onSet(key, next);
+                    },
+                  }
+                : {
+                    kind: 'input',
+                    name: controlName,
+                    value,
+                    placeholder: inherited,
+                    onChange: (next: string) => {
+                      onTouch(`${name}.${key}`);
+                      onSet(key, next);
+                    },
+                  }
+            }
+            meta={
+              <div className="template-preview">
+                Preview: <span className="lp-val">{preview}</span>
+              </div>
+            }
+          />
+        );
+      })}
+    </>
   );
 }
 

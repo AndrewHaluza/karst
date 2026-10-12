@@ -109,6 +109,19 @@ export function writeManifest(path: string, manifest: Manifest): void {
       enabled: repo.enabled === false ? false : undefined,
       // Optional: written when set, dropped when cleared (→ falls back to name).
       scope: repo.scope,
+      // Per-repo convention overrides. Overlay each modeled key onto the raw
+      // block (like the global `conventions`) so an unmodeled nested key
+      // survives; assign every modeled child even when absent so clearing one
+      // drops its stale raw value, and write `undefined` for an empty/cleared
+      // block so the dumper omits it (→ falls back to the global conventions).
+      conventions: repo.conventions
+        ? {
+            ...(isRecord(rawRepo.conventions) ? rawRepo.conventions : {}),
+            commitMessage: repo.conventions.commitMessage,
+            pullRequestTitle: repo.conventions.pullRequestTitle,
+            pullRequestDescription: repo.conventions.pullRequestDescription,
+          }
+        : undefined,
       // Undefined (not omitted) so the dumper DROPS a `service:` block the user
       // just turned off — leaving the raw one would silently keep the repo
       // runnable after they said it wasn't.
