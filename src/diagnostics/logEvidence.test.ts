@@ -9,6 +9,9 @@ describe('log evidence vocabulary', () => {
     // `[driver]` is chatter unless it names the ticket (a report-time rule).
     expect(isEvidenceMessage('[driver] delivery T1: notes deferred')).toBe(false)
     expect(isEvidenceMessage('ordinary info line')).toBe(false)
+    // DBG-03 also names the agent-adapter and process-seam prefixes.
+    expect(isEvidenceMessage('[agent:claude] spawn exit 0')).toBe(true)
+    expect(isEvidenceMessage('[process] profile body')).toBe(true)
   })
 
   it('does not let a longer prefix masquerade as an evidence prefix', () => {

@@ -11,9 +11,10 @@
  */
 
 /**
- * Prefixes that mark a line as ticket evidence. `[driver]` is deliberately
- * absent: the driver is chatty and its lines qualify only when they name the
- * report's ticket (a report-time decision the buffer cannot make — it is not
+ * Prefixes that mark a line as ticket evidence, drawn from the DBG-03
+ * load-bearing filter vocabulary. `[driver]` is deliberately absent: the
+ * driver is chatty and its lines qualify only when they name the report's
+ * ticket (a report-time decision the buffer cannot make — it is not
  * ticket-scoped).
  */
 export const EVIDENCE_PREFIXES = [
@@ -25,6 +26,8 @@ export const EVIDENCE_PREFIXES = [
   '[hot]',
   '[hotSet]',
   '[staged]',
+  '[agent:',
+  '[process]',
 ] as const
 
 /** True when a message starts with one of the DBG-03 evidence prefixes. */

@@ -98,9 +98,7 @@ function entryBytes(entry: LogEntry): number {
  * outranks plain `info`; a plain `debug` line is the first to go. Level alone
  * is not enough: the spin/runtime/gate evidence the field report needs is
  * emitted at `debug`, so a buffer full of ordinary `info` would otherwise drop
- * the just-captured evidence instead of its oldest info. A field report whose
- * tail was entirely `[driver]` debug spam is the shape this prevents — the
- * noise yields before the evidence.
+ * the just-captured evidence instead of its oldest info.
  */
 function retentionPriority(entry: LogEntry): number {
   if (entry.level === 'warn' || entry.level === 'error') return 3;
@@ -108,25 +106,22 @@ function retentionPriority(entry: LogEntry): number {
   return entry.level === 'info' ? 1 : 0;
 }
 
-/** Index of the entry to drop: the oldest of the lowest-priority entries. */
-function evictionIndex(entries: readonly LogEntry[]): number {
-  let index = 0;
-  let lowest = retentionPriority(entries[0]!);
-  for (let i = 1; i < entries.length; i++) {
-    const priority = retentionPriority(entries[i]!);
-    if (priority < lowest) {
-      lowest = priority;
-      index = i;
-    }
-  }
-  return index;
-}
+/**
+ * Priority at or above which an incoming entry is admitted even when the
+ * buffer is already full of higher-priority lines: the oldest resident of the
+ * lowest priority yields instead. Below it the incoming line is the eviction
+ * candidate, so a `[driver]` debug flood still cannot displace warn/error or
+ * evidence — the field bug this retention exists to fix.
+ */
+const ADMITTED_PRIORITY = 2;
 
 /**
  * Activation-local diagnostic history. Capture is sanitized before retention
  * and entries are evicted to satisfy both limits by `retentionPriority` —
  * plain `debug` first, then plain `info`, then ticket evidence, and
- * `warn`/`error` last. Snapshots stay chronological. Nothing is persisted.
+ * `warn`/`error` last. A newly captured warn/error or evidence line is never
+ * the one dropped: it displaces the oldest lowest-priority resident. Snapshots
+ * stay chronological. Nothing is persisted.
  */
 export function makeBoundedLogBuffer(
   options: {
@@ -148,7 +143,41 @@ export function makeBoundedLogBuffer(
   let maxEntries = normalMaxEntries;
   let maxBytes = normalMaxBytes;
   const entries: LogEntry[] = [];
+  // Priority is computed once at capture, not on every eviction scan: a
+  // sustained flood at the cap otherwise re-derived it for the whole buffer on
+  // every line, turning the extension host into seconds of string work.
+  const priorities: number[] = [];
+  // Live count per priority (index 0..3). Knowing the lowest non-empty
+  // priority lets eviction stop at the first matching entry instead of
+  // scanning the whole buffer for a minimum on every capture.
+  const priorityCounts = [0, 0, 0, 0];
   let bytes = 0;
+
+  /**
+   * Oldest entry of the lowest priority, skipping `skip` (the freshly captured
+   * entry, which must not evict itself). The lowest non-empty priority is read
+   * from `priorityCounts`, so the scan only walks as far as the oldest entry
+   * of that priority.
+   */
+  const evictionIndex = (skip: number): number => {
+    for (let priority = 0; priority < priorityCounts.length; priority += 1) {
+      if (priorityCounts[priority] === 0) continue;
+      // The only entry at the lowest priority is the protected incoming one:
+      // fall through to the next priority rather than dropping it.
+      if (skip >= 0 && priorityCounts[priority] === 1 && priorities[skip] === priority) continue;
+      for (let i = 0; i < priorities.length; i += 1) {
+        if (i !== skip && priorities[i] === priority) return i;
+      }
+    }
+    return -1;
+  };
+
+  const removeAt = (index: number): void => {
+    const [removed] = entries.splice(index, 1);
+    const [priority] = priorities.splice(index, 1);
+    if (priority !== undefined) priorityCounts[priority]! -= 1;
+    if (removed) bytes -= entryBytes(removed);
+  };
 
   return {
     capture(entry): void {
@@ -160,12 +189,17 @@ export function makeBoundedLogBuffer(
       };
       const size = entryBytes(safeEntry);
       if (maxEntries === 0 || size > maxBytes) return;
+      const priority = retentionPriority(safeEntry);
       entries.push(safeEntry);
+      priorities.push(priority);
+      priorityCounts[priority]! += 1;
       bytes += size;
+      const incoming = entries.length - 1;
+      const skipIncoming = priority >= ADMITTED_PRIORITY ? incoming : -1;
       while (entries.length > maxEntries || bytes > maxBytes) {
-        const index = evictionIndex(entries);
-        const [removed] = entries.splice(index, 1);
-        if (removed) bytes -= entryBytes(removed);
+        const index = evictionIndex(skipIncoming);
+        if (index < 0) break;
+        removeAt(index);
       }
     },
     snapshot(): readonly LogEntry[] {

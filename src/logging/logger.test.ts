@@ -307,6 +307,31 @@ describe('makeBoundedLogBuffer — level-aware eviction', () => {
     expect(messages).not.toContain('info 0');
   });
 
+  it('admits fresh evidence when the buffer is saturated with warn/error', () => {
+    // A repeating warning must not pin the buffer: the fresh evidence is newer
+    // and the oldest warning yields, rather than the evidence self-evicting.
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'warn', message: `warn ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[runtime] fresh spin evidence' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[runtime] fresh spin evidence');
+    expect(messages).not.toContain('warn 0');
+    expect(messages).toHaveLength(5);
+  });
+
+  it('drops fresh plain debug rather than displacing a warn', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'warn', message: `warn ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[driver] delivery T1: notes deferred' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('warn 0');
+    expect(messages).not.toContain('[driver] delivery T1: notes deferred');
+  });
+
   it('drops older debug before newer debug and accounts the released bytes', () => {
     const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 26 });
     // Empty timestamp + level + 4-char message: info 8 bytes, debug 9 bytes.
