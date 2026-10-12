@@ -9,6 +9,7 @@ import {
   stopServer,
   stopTicketServers,
   pruneOrphanServers,
+  pruneDeadServers,
   tailLog,
   abandonVerdict,
 } from './supervisor.js';
@@ -1268,6 +1269,112 @@ describe('pruneOrphanServers', () => {
     pruneOrphanServers(store, 7, []);
 
     expect(exists(a)).toBe(false);
+    expect(exists(baseline)).toBe(true);
+  });
+});
+
+/**
+ * An unsuccessful spin wipes and (on a cancel) releases the ticket's ports, so
+ * the offline rows a stop retains can no longer be started — Start on one fails
+ * "ports are no longer recorded". This reaps exactly those rows, while a row
+ * still RUNNING (a refused kill) and a mid-way failure's own `failed` row (its
+ * ports were allocated before the start) stay visible.
+ */
+describe('pruneDeadServers', () => {
+  let store: Store;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+  });
+  afterEach(() => {
+    store.close();
+  });
+
+  /** Insert a server row directly — no process; only the row shape matters here. */
+  function row(
+    ticketId: number | null,
+    repo: string,
+    status: string,
+    pid: number | null,
+    kind = 'service',
+  ): number {
+    const info = store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, kind)
+         VALUES (?, ?, '127.0.0.1', 3000, ?, ?, '/tmp/x.log', ?)`,
+      )
+      .run(ticketId, repo, pid, status, kind);
+    return Number(info.lastInsertRowid);
+  }
+
+  /** Record a port for `repo`, so its offline row is still restartable. */
+  function allocate(ticketId: number, repo: string): void {
+    store.db
+      .prepare('INSERT INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)')
+      .run(ticketId, repo, 'http', 3000 + ticketId);
+  }
+
+  const exists = (id: number): boolean =>
+    store.db.prepare('SELECT id FROM servers WHERE id = ?').get(id) !== undefined;
+
+  it('deletes the ticket’s stopped rows', () => {
+    const stopped = row(7, 'backend', 'stopped', null);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(stopped)).toBe(false);
+  });
+
+  it('keeps a running row — a refused kill leaves a live orphan that must stay visible', () => {
+    const running = row(7, 'backend', 'running', 4242);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(running)).toBe(true);
+  });
+
+  it('keeps a failed row whose repo still has a port — a mid-way failure’s own explanation', () => {
+    const failed = row(7, 'frontend', 'failed', null);
+    allocate(7, 'frontend');
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(failed)).toBe(true);
+  });
+
+  it('reaps a failed row whose repo no longer has a port — a prior spin’s dead leftover', () => {
+    const failed = row(7, 'frontend', 'failed', null);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(failed)).toBe(false);
+  });
+
+  it('spares a stopped row that still records a pid (the ticket’s pid IS NULL guard)', () => {
+    // The CLI doctor used to be the one path leaving this shape; it now nulls
+    // the pid like every other stop, so this can only be a legacy row.
+    const doctorStopped = row(7, 'backend', 'stopped', 12345);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(doctorStopped)).toBe(true);
+  });
+
+  it('never reaps an agent (graph-session) row', () => {
+    const agent = row(7, 't658-graph', 'stopped', null, 'agent');
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(agent)).toBe(true);
+  });
+
+  it('touches neither another ticket nor a baseline row', () => {
+    const otherTicket = row(9, 'backend', 'stopped', null);
+    const baseline = row(null, 'backend', 'stopped', null);
+
+    pruneDeadServers(store, 7);
+
+    expect(exists(otherTicket)).toBe(true);
     expect(exists(baseline)).toBe(true);
   });
 });

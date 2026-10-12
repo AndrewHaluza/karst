@@ -15,6 +15,7 @@ import {
   stopServer,
   stopTicketServers,
   pruneOrphanServers,
+  pruneDeadServers,
   type ServerRecord,
 } from './supervisor.js';
 import { preflightSpin, SpinError } from './preflight.js';
@@ -138,6 +139,20 @@ export function hotRepoPaths(manifest: Manifest, hot: readonly string[]): string
 }
 
 /**
+ * Reap the ticket's dead server rows after an unsuccessful spin. What counts as
+ * dead is decided in `pruneDeadServers` (a stopped row always; a failed row only
+ * when its ports are no longer recorded). Best-effort: a cleanup that cannot run
+ * must never replace the real error.
+ */
+function reapDeadRows(store: Store, ticketId: number): void {
+  try {
+    pruneDeadServers(store, ticketId);
+  } catch {
+    /* best-effort */
+  }
+}
+
+/**
  * Undo what THIS spin run created (cancel or mid-way failure): stop every server
  * it started, remove only the worktrees it freshly created — an adopted leftover
  * from a prior spin is left intact — and release the ticket's port allocations.
@@ -172,6 +187,16 @@ async function teardownRun(
   } catch {
     /* best-effort */
   }
+  // The stops above RETAIN their rows as `stopped`, and the pre-spin stop left
+  // the PRIOR spin's rows the same way. With every port now released (and the
+  // fresh worktrees possibly gone) those rows can no longer be started — a
+  // Start on one fails "ports are no longer recorded". Drop them — every port is
+  // gone, so even a prior spin's `failed` row is dead; a row still `running` is a
+  // refused kill, a live orphan that must stay visible (@arch:WT-REMOVE), and
+  // baseline rows are never this spin's to reap. Runs AFTER the stops so a
+  // container row is deleted only once `stopServer` has removed the container
+  // (the row is its last handle).
+  reapDeadRows(store, ticketId);
 }
 
 /**
@@ -266,7 +291,6 @@ export async function spinTicket(
   // worktree it already created is adopted by createWorktree, baseline_refs is
   // INSERT OR IGNORE, so ports are the only leftover that needs releasing here.
   allocator.release(ticketId);
-  const resolved = resolve(manifest, hot, allocator, ticketId);
 
   // Track what this run creates so cancel / mid-way failure can undo exactly it.
   const created: WorktreeRecord[] = [];
@@ -275,6 +299,10 @@ export async function spinTicket(
 
   try {
     bail();
+
+    // Resolve INSIDE the try: a no-free-port refusal happens after the release
+    // above, so it too must reap the ticket's now-dead rows (below).
+    const resolved = resolve(manifest, hot, allocator, ticketId);
 
     // 1. one worktree per hot REPOPATH — INCLUDING repositories that declare no
     //    service. A non-runnable repo is still edited by the agent, so it needs
@@ -359,6 +387,12 @@ export async function spinTicket(
       await teardownRun(store, allocator, ticketId, created, servers);
       throw err instanceof SpinCancelledError ? err : new SpinCancelledError(ticketId);
     }
+    // A non-cancel mid-way failure keeps its partial state for a retry to adopt
+    // (no worktree/server teardown), but the release at spin start already wiped
+    // the ticket's `port_allocations` — so the offline rows it did not restart
+    // are just as un-startable as on a cancel. Reap them here too; the `failed`
+    // row this failure just recorded keeps its allocation and is spared.
+    reapDeadRows(store, ticketId);
     throw err;
   }
 }

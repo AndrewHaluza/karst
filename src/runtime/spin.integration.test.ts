@@ -390,6 +390,109 @@ describe('spinTicket integration', () => {
     expect(ports.n).toBe(0);
   });
 
+  it('(a7) a cancelled spin’s rollback reaps the ticket’s dead server rows', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC });
+
+    const manifest = feBeManifest({ backend, frontend, bePort, fePort });
+
+    const ticket = createTicket(store, { key: 'PROJ-7', title: 'dead rows' });
+    // A prior spin's rows — one retired to `stopped`, one left `failed`. The
+    // rollback releases the ticket's ports, so a Start on EITHER could only fail
+    // "ports are no longer recorded" — neither must survive the teardown.
+    const seed = store.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+       VALUES (?, ?, '127.0.0.1', 3000, NULL, ?, '/tmp/prior.log')`,
+    );
+    seed.run(ticket.id, 'frontend', 'stopped');
+    seed.run(ticket.id, 'backend', 'failed');
+
+    const ctrl = new AbortController();
+    ctrl.abort(); // cancel before the run: `bail()` throws, the rollback runs
+
+    await expect(
+      spinTicket(store, manifest, ticket.id, ['frontend'], { signal: ctrl.signal }),
+    ).rejects.toBeInstanceOf(SpinCancelledError);
+
+    const dead = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status != 'running'")
+      .get(ticket.id) as { n: number };
+    expect(dead.n).toBe(0);
+  });
+
+  it('(a8) a spin that fails mid-way (no cancel) also reaps the ticket’s dead rows', async () => {
+    const bePort = port();
+    const fePort = port();
+    const backend = makeRepo(root, 'backend', { 'server.mjs': BACKEND_SRC });
+    const web = makeRepo(root, 'web', { 'server.mjs': BACKEND_SRC });
+    // Exits immediately, so the spin REJECTS with no AbortSignal at all — the
+    // mid-way failure the catch used to skip, leaving the prior offline row.
+    const frontend = makeRepo(root, 'frontend', { 'server.mjs': 'process.exit(1);\n' });
+
+    const base = feBeManifest({ backend, frontend, bePort, fePort });
+    const manifest: Manifest = {
+      ...base,
+      repositories: { ...base.repositories, web: node(web, port()) },
+    };
+
+    const ticket = createTicket(store, { key: 'PROJ-8', title: 'failed mid-way' });
+    // A prior spin's offline rows for a repo NOT hot this run — one `stopped`,
+    // one `failed`. The pre-spin release wiped their allocations, so a Start on
+    // either can only fail; both must go.
+    const seed = store.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+       VALUES (?, 'web', '127.0.0.1', 3000, NULL, ?, '/tmp/prior.log')`,
+    );
+    seed.run(ticket.id, 'stopped');
+    seed.run(ticket.id, 'failed');
+
+    await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow();
+
+    // The prior rows are gone: nothing non-running and un-startable remains.
+    const priorRows = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'web'")
+      .get(ticket.id) as { n: number };
+    expect(priorRows.n).toBe(0);
+    // This run's OWN failed row survives: it explains the failure and IS
+    // restartable (its port was allocated before the start).
+    const failed = store.db
+      .prepare(
+        "SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'frontend' AND status = 'failed'",
+      )
+      .get(ticket.id) as { n: number };
+    expect(failed.n).toBe(1);
+  });
+
+  it('(a9) a successful spin leaves an offline row for a service it did not spin', async () => {
+    const apiPort = port();
+    const webPort = port();
+    const api = makeRepo(root, 'api', { 'server.mjs': BACKEND_SRC });
+    const web = makeRepo(root, 'web', { 'server.mjs': BACKEND_SRC });
+    const manifest = buildManifest(
+      { api: node(api, apiPort), web: node(web, webPort) },
+      { host: '127.0.0.1', portRange: [webPort, webPort + 20] },
+    );
+
+    const ticket = createTicket(store, { key: 'PROJ-9b', title: 'success keeps offline' });
+    // A declared repo simply not hot this spin. No rollback runs on success, so
+    // its offline row is untouched — the prune runs only on an unsuccessful spin.
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+         VALUES (?, 'web', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/x.log')`,
+      )
+      .run(ticket.id);
+
+    await spinTicket(store, manifest, ticket.id, ['api']);
+
+    const offline = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'web' AND status = 'stopped'")
+      .get(ticket.id) as { n: number };
+    expect(offline.n).toBe(1);
+  });
+
   it('(a2) a wrong baselineBranch rejects via preflight and leaves the DB untouched', async () => {
     const frontend = makeRepo(root, 'frontend', { 'server.mjs': FRONTEND_SRC }); // on develop
     const manifest = buildManifest(
@@ -711,9 +814,24 @@ describe('spinTicket integration', () => {
       await waitUntilListening(fePort);
 
       const ticket = createTicket(store, { key: 'PROJ-SQ3', title: 'squat only port' });
+      // A prior spin's offline row. This spin dies at `resolve` (before any
+      // worktree), but the release above already wiped its allocation — so the
+      // row is dead and must be reaped like any other unsuccessful spin.
+      store.db
+        .prepare(
+          `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+           VALUES (?, 'backend', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/prior.log')`,
+        )
+        .run(ticket.id);
+
       await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow(
         /no free contiguous block|in use/,
       );
+
+      const dead = store.db
+        .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status = 'stopped'")
+        .get(ticket.id) as { n: number };
+      expect(dead.n).toBe(0);
 
       await new Promise((r) => setTimeout(r, 200));
       expect(alive(squatter.pid!)).toBe(true); // untouched
