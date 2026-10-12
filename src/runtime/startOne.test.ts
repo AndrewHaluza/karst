@@ -11,6 +11,7 @@ import {
   repo,
   runnableRepo,
   stack,
+  svc,
 } from '../manifest/fixtures.js';
 
 vi.mock('./startService.js', () => ({ startResolvedService: vi.fn() }));
@@ -364,6 +365,129 @@ describe('startTicketService', () => {
     expect((err as Error).message).toContain('port is held by a stranger');
     // the target itself did start; only the dependent restart failed.
     expect(calledNames()).toEqual(['backend', 'frontend']);
+  });
+
+  it('keeps rewiring the other dependents when one restart fails', async () => {
+    const m = manifest({
+      backend: runnableRepo({ ports: [httpSlot(3000)] }, { repoPath: '/repo/backend' }),
+      api: runnableRepo(
+        {
+          ports: [httpSlot(8080)],
+          dependsOn: [
+            dependsOn('backend', 'http', [{ env: 'API_URL', template: 'http://{host}:{port}' }]),
+          ],
+        },
+        { repoPath: '/repo/api' },
+      ),
+      worker: runnableRepo(
+        {
+          ports: [httpSlot(9090)],
+          dependsOn: [
+            dependsOn('backend', 'http', [
+              { env: 'WORKER_API_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/worker' },
+      ),
+    });
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/api', '/wt/api');
+    addWorktree(1, '/repo/worker', '/wt/worker');
+    addAllocation(1, 'api', 'http', 4100);
+    addAllocation(1, 'worker', 'http', 4200);
+    addServer(1, 10, 'api', 4100, 1111, 'running');
+    addServer(1, 20, 'worker', 4200, 2222, 'running');
+    startResolvedMock.mockImplementation(async (args) => {
+      if (args.name === 'api') throw new Error('api port held by a stranger');
+      const ports = args.resolved.services[args.name]!.ports;
+      return {
+        id: 99,
+        ticketId: args.ticketId,
+        service: args.name,
+        host: args.manifest.host,
+        port: ports['http']!,
+        pid: 4242,
+        status: 'running',
+        logPath: `/logs/${args.name}.log`,
+        container: null,
+      };
+    });
+
+    const err = await startTicketService(store, m, 1, 'backend', {
+      probeBusyPorts: noBusy,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(StartServiceError);
+    expect((err as Error).message).toContain('api (api port held by a stranger)');
+    // worker is still rewired even though api failed.
+    expect(calledNames()).toEqual(['backend', 'api', 'worker']);
+    const workerArgs = startResolvedMock.mock.calls.find((c) => c[0].name === 'worker')![0];
+    expect(workerArgs.resolved.services['worker']!.env['WORKER_API_URL']).toBe(
+      'http://localhost:4000',
+    );
+  });
+
+  it('wires a restarted transitive dependent to its stopped peer allocated port, not a default', async () => {
+    const m = manifest({
+      contracts: runnableRepo({ ports: [httpSlot(6000)] }, { repoPath: '/repo/contracts' }),
+      backend: runnableRepo(
+        {
+          ports: [httpSlot(3000)],
+          dependsOn: [
+            dependsOn('contracts', 'http', [
+              { env: 'CONTRACTS_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/backend' },
+      ),
+      frontend: runnableRepo(
+        {
+          ports: [httpSlot(5173)],
+          dependsOn: [
+            dependsOn('backend', 'http', [
+              { env: 'VITE_API_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/frontend' },
+      ),
+    });
+    addWorktree(1, '/repo/contracts', '/wt/contracts');
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'frontend', 'http', 4200);
+    addServer(1, 41, 'frontend', 4200, 5555, 'running');
+
+    const result = await startTicketService(store, m, 1, 'contracts', { probeBusyPorts: noBusy });
+
+    expect(result.restartedDependents).toEqual(['frontend']);
+    const feArgs = startResolvedMock.mock.calls.find((c) => c[0].name === 'frontend')![0];
+    // backend is stopped and unrecorded but frontend binds its port, so it must
+    // be allocated — never left at backend's default 3000.
+    expect(feArgs.resolved.services['backend']!.ports.http).toBe(4001);
+    expect(feArgs.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:4001');
+  });
+
+  it('does not allocate a port for an unrelated sibling service of the target repo', async () => {
+    const m = manifest({
+      mono: repo({
+        repoPath: '/repo/mono',
+        services: {
+          api: svc({ ports: [httpSlot(3000)] }),
+          web: svc({ ports: [httpSlot(5173)] }),
+        },
+      }),
+    });
+    addWorktree(1, '/repo/mono', '/wt/mono');
+
+    const result = await startTicketService(store, m, 1, 'mono/api', { probeBusyPorts: noBusy });
+
+    expect(result.newPorts).toEqual({ http: 4000 });
+    expect(allocationOf('mono/api', 'http')).toBe(4000);
+    // `web` is in the same (hot) repository but is neither started nor wired.
+    expect(allocationOf('mono/web', 'http')).toBeUndefined();
   });
 
   it('resolves the whole hot set so a peer binds its allocated port, not its default', async () => {

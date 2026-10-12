@@ -204,14 +204,25 @@ export async function startTicketService(
   );
 
   // The target's wiring touches two groups of RUNNING units: its DEPENDENTS
-  // (restart them so their env names the new target port) and its direct
-  // DEPENDENCIES (the target's env names their port). Both become hot and are
-  // seeded with their live port; neither is left to resolve as a baseline.
+  // (restart them so their env names the new target port) and the DIRECT
+  // DEPENDENCIES of everything we start (whose ports their env names). Both
+  // become hot and are seeded with their live port; neither is left to resolve
+  // as a baseline.
   const dependents = new Set(transitiveDependents(manifest, unit.key));
+  // Every unit we will START — the target plus each running dependent restarted
+  // below — has its OWN peers bound into its env. Each of those peers must be
+  // resolved too (recorded, live, or freshly allocated), never left to fall back
+  // to a default the peer would not actually start on.
+  const started = new Set<string>([unit.key]);
+  for (const key of dependents) if (running.has(key)) started.add(key);
   const directDeps = new Set<string>();
-  for (const dep of unit.def.dependsOn) {
-    const target = resolveTarget(manifest.repositories, dep.target);
-    if (!('error' in target)) directDeps.add(target.unit.key);
+  for (const key of started) {
+    const startedUnit = unitByKey(manifest, key);
+    if (!startedUnit) continue;
+    for (const dep of startedUnit.def.dependsOn) {
+      const target = resolveTarget(manifest.repositories, dep.target);
+      if (!('error' in target)) directDeps.add(target.unit.key);
+    }
   }
   const live = new Map<string, Map<string, number>>();
   for (const key of running) {
@@ -287,6 +298,20 @@ export async function startTicketService(
   })();
 
   const resolved = resolve(manifest, hot, makeRecordedPortAllocator(store, ticketId), ticketId);
+
+  // `resolve` allocates for every unit of a hot REPOSITORY, but this recovery
+  // only needs the units it will start or wire: the target, its running
+  // dependents, their peers, and the already-recorded peers. Drop the freshly
+  // drawn ports of the rest, so an unrelated sibling service of a hot
+  // repository does not hold a port for a recovery it is not part of.
+  const intended = new Set<string>([...recorded.keys(), ...started, ...directDeps]);
+  const pruneAllocation = store.db.prepare(
+    'DELETE FROM port_allocations WHERE ticket_id = ? AND repo = ?',
+  );
+  for (const hotUnit of unitsOfRepos(manifest, hot)) {
+    if (!intended.has(hotUnit.key)) pruneAllocation.run(ticketId, hotUnit.key);
+  }
+
   const newPorts: Record<string, number> = {};
   for (const slot of targetSlots) {
     if (!(recordedForTarget?.has(slot) ?? false)) {
@@ -314,18 +339,20 @@ export async function startTicketService(
 
   // Rewire only the dependents that are RUNNING right now, in startOrder so a
   // dependent starts after anything it depends on. A stopped dependent keeps
-  // its recorded port and picks it up on its next start; the target stays up
-  // even if one dependent fails — that failure is reported per service.
+  // its recorded port and picks it up on its next start. One dependent's failure
+  // does NOT abort the rest: a dependent left pointing at the target's OLD port
+  // is the silent miswiring this whole path exists to prevent, so every other
+  // running dependent is still rewired. Failures are reported per service, and
+  // the target stays up.
   const restartedDependents: string[] = [];
+  const failures: string[] = [];
   for (const name of resolved.startOrder) {
     if (name === unit.key || !dependents.has(name) || !running.has(name)) continue;
     const depUnit = unitByKey(manifest, name)!;
     const depCwd = pathByRepo.get(depUnit.repoDef.repoPath);
     if (depCwd === undefined) {
-      throw new StartServiceError(
-        `Started ${repoName} on the new port, but "${name}" has no worktree for this ticket — ` +
-          're-spin the ticket to rewire it.',
-      );
+      failures.push(`${name} (no worktree for this ticket — re-spin the ticket)`);
+      continue;
     }
     await stopRunning(store, ticketId, name);
     try {
@@ -342,13 +369,16 @@ export async function startTicketService(
         debug: opts.debug,
       });
     } catch (err) {
-      throw new StartServiceError(
-        `Started ${repoName} on the new port, but restarting dependent "${name}" failed: ` +
-          `${err instanceof Error ? err.message : String(err)}`,
-      );
+      failures.push(`${name} (${err instanceof Error ? err.message : String(err)})`);
+      continue;
     }
     restartedDependents.push(name);
     opts.debug?.(`[runtime] ticket ${ticketId}: restarted dependent ${name} for new peer port`);
+  }
+  if (failures.length > 0) {
+    throw new StartServiceError(
+      `Started ${repoName} on the new port, but could not rewire ${failures.join('; ')}.`,
+    );
   }
 
   return { record: rec, newPorts, restartedDependents };
