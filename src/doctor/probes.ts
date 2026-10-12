@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 
 /**
  * Real machine probes for `karst doctor`. This runs in the short-lived CLI
@@ -29,7 +29,28 @@ export function branchExists(repo: string, branch: string): boolean {
 
 export function binaryResolves(command: string): boolean {
   if (command.includes('/')) return existsSync(command);
-  return run(process.platform === 'win32' ? 'where' : 'which', [command]).ok;
+  return resolveCommand(command) !== undefined;
+}
+
+/**
+ * The path `which`/`where` reports for `command` (first line), or undefined
+ * when it does not resolve. An absolute/relative path with a separator is only
+ * checked for existence — never run.
+ */
+export function resolveCommand(command: string): string | undefined {
+  if (command.includes('/')) return existsSync(command) ? command : undefined;
+  const r = run(process.platform === 'win32' ? 'where' : 'which', [command]);
+  if (!r.ok) return undefined;
+  return r.out.split('\n').map((l) => l.trim()).find((l) => l !== '');
+}
+
+/** Resolves symlinks (`realpathSync`); undefined when the path cannot be read. */
+export function realpath(p: string): string | undefined {
+  try {
+    return realpathSync(p);
+  } catch {
+    return undefined;
+  }
 }
 
 export function pidAlive(pid: number): boolean {

@@ -9,6 +9,10 @@ import { dependencyRegistry, binaryExists, commandSucceeds, readCommandOutput } 
 import { SCHEMA_VERSION } from '../store/schemaVersion.js';
 import { checkTools } from '../doctor/toolsChecks.js';
 import { checkAgyPermissions } from '../doctor/agyPermissionChecks.js';
+import {
+  checkClaudeInstall,
+  claudeLinkProbe,
+} from '../doctor/claudeInstallCheck.js';
 import { checkManifest } from '../doctor/manifestChecks.js';
 import { checkState } from '../doctor/stateChecks.js';
 import { checkStuckTickets } from '../doctor/stuckCheck.js';
@@ -140,6 +144,15 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
         registry: dependencyRegistry('claude'), // the CLI has no host settings; claude is the default core
         probe: binaryExists, ready: commandSucceeds, readOutput: readCommandOutput, version: probes.toolVersion,
       }));
+      // A karst-isolated run can relink the user's global claude into karst
+      // storage; warn and name the relink, never rewrite it (@arch:AC-17).
+      out.push(checkClaudeInstall(claudeLinkProbe(dbPath, {
+        homeDir: homedir(),
+        pathExists: probes.pathExists,
+        realpath: probes.realpath,
+        resolveCommand: probes.resolveCommand,
+        env,
+      })));
       // Only when agy is installed: its headless review/UAT lanes need allow-rules karst cannot own.
       if (binaryExists('agy')) {
         const settingsPath = join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');

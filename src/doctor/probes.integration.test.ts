@@ -66,4 +66,16 @@ describe('doctor probes (real git)', () => {
     expect(p.fileBytes(join(root, 'none'))).toBe(0);
     expect(p.listeningPids(1)).toEqual([]);
   });
+
+  it('resolveCommand returns the on-PATH path, realpath follows a symlink', () => {
+    expect(p.resolveCommand('git')).toMatch(/git$/);
+    expect(p.resolveCommand('definitely-not-a-binary-xyz')).toBeUndefined();
+    expect(p.resolveCommand(process.execPath)).toBe(process.execPath);
+    expect(p.resolveCommand(join(root, 'none'))).toBeUndefined();
+
+    const link = join(root, 'claude');
+    execFileSync('ln', ['-sfn', join(repo, 'a.txt'), link]);
+    expect(p.realpath(link)).toBe(p.realpath(join(repo, 'a.txt')));
+    expect(p.realpath(join(root, 'none'))).toBeUndefined();
+  });
 });
