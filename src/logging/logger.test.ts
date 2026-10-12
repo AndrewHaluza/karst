@@ -294,6 +294,20 @@ describe('makeBoundedLogBuffer — level-aware eviction', () => {
     expect(capture.snapshot().map((entry) => entry.message)).toEqual(['[runtime] two', '[runtime] three']);
   });
 
+  it('admits fresh evidence when the buffer is saturated with warn/error', () => {
+    // A repeating warning must not pin the buffer: the fresh evidence is newer
+    // and the oldest warning yields, rather than the evidence self-evicting.
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'warn', message: `warn ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[runtime] fresh spin evidence' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[runtime] fresh spin evidence');
+    expect(messages).not.toContain('warn 0');
+    expect(messages).toHaveLength(5);
+  });
+
   it('keeps incoming evidence when the buffer is full of plain info', () => {
     // Evidence is emitted at debug, so a buffer full of ordinary info must
     // evict its oldest info, not the just-captured runtime/gate evidence.
@@ -307,18 +321,29 @@ describe('makeBoundedLogBuffer — level-aware eviction', () => {
     expect(messages).not.toContain('info 0');
   });
 
-  it('admits fresh evidence when the buffer is saturated with warn/error', () => {
-    // A repeating warning must not pin the buffer: the fresh evidence is newer
-    // and the oldest warning yields, rather than the evidence self-evicting.
-    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
-    for (let i = 0; i < 5; i += 1) {
-      capture.capture({ timestamp: String(i), level: 'warn', message: `warn ${i}` });
-    }
-    capture.capture({ timestamp: '5', level: 'debug', message: '[runtime] fresh spin evidence' });
+  it('never drops fresh evidence when the byte cap needs several evictions', () => {
+    // Two warns (24 bytes each) leave 48/54 bytes; the 37-byte [runtime] line
+    // cannot fit without evicting BOTH warnings, so an index-based guard would
+    // go stale and let the incoming evidence evict itself.
+    const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 54 });
+    capture.capture({ timestamp: '', level: 'warn', message: 'w'.repeat(20) });
+    capture.capture({ timestamp: '', level: 'warn', message: 'w'.repeat(20) });
+    capture.capture({ timestamp: '', level: 'debug', message: `[runtime] ${'e'.repeat(22)}` });
     const messages = capture.snapshot().map((entry) => entry.message);
-    expect(messages).toContain('[runtime] fresh spin evidence');
-    expect(messages).not.toContain('warn 0');
-    expect(messages).toHaveLength(5);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.startsWith('[runtime] ')).toBe(true);
+  });
+
+  it('admits every freshly captured evidence line under sustained byte pressure', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 20, maxBytes: 500 });
+    for (let i = 0; i < 2000; i += 1) {
+      capture.capture({ timestamp: '', level: 'warn', message: 'w'.repeat(30) });
+      const message = `[runtime] evidence ${i}`;
+      capture.capture({ timestamp: '', level: 'debug', message });
+      // The entry just captured must be present in the snapshot right after,
+      // however many older entries had to yield.
+      expect(capture.snapshot().some((entry) => entry.message === message)).toBe(true);
+    }
   });
 
   it('drops fresh plain debug rather than displacing a warn', () => {

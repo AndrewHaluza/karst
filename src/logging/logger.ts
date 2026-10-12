@@ -154,19 +154,19 @@ export function makeBoundedLogBuffer(
   let bytes = 0;
 
   /**
-   * Oldest entry of the lowest priority, skipping `skip` (the freshly captured
-   * entry, which must not evict itself). The lowest non-empty priority is read
-   * from `priorityCounts`, so the scan only walks as far as the oldest entry
-   * of that priority.
+   * Oldest entry of the lowest priority, never selecting `protectedEntry`
+   * (the freshly captured line). `priorityCounts` names the lowest non-empty
+   * priority so the scan only walks to the oldest entry of that priority. The
+   * protected entry is matched by IDENTITY, not by index: `removeAt` shifts
+   * indices, and a byte-cap capture can need several evictions, so a captured
+   * index would go stale and let the incoming evidence evict itself.
    */
-  const evictionIndex = (skip: number): number => {
+  const evictionIndex = (protectedEntry: LogEntry | null): number => {
     for (let priority = 0; priority < priorityCounts.length; priority += 1) {
       if (priorityCounts[priority] === 0) continue;
-      // The only entry at the lowest priority is the protected incoming one:
-      // fall through to the next priority rather than dropping it.
-      if (skip >= 0 && priorityCounts[priority] === 1 && priorities[skip] === priority) continue;
-      for (let i = 0; i < priorities.length; i += 1) {
-        if (i !== skip && priorities[i] === priority) return i;
+      for (let i = 0; i < entries.length; i += 1) {
+        if (entries[i] === protectedEntry) continue;
+        if (priorities[i] === priority) return i;
       }
     }
     return -1;
@@ -194,10 +194,9 @@ export function makeBoundedLogBuffer(
       priorities.push(priority);
       priorityCounts[priority]! += 1;
       bytes += size;
-      const incoming = entries.length - 1;
-      const skipIncoming = priority >= ADMITTED_PRIORITY ? incoming : -1;
+      const protectIncoming = priority >= ADMITTED_PRIORITY ? safeEntry : null;
       while (entries.length > maxEntries || bytes > maxBytes) {
-        const index = evictionIndex(skipIncoming);
+        const index = evictionIndex(protectIncoming);
         if (index < 0) break;
         removeAt(index);
       }
