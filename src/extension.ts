@@ -538,6 +538,7 @@ import {
   checkOpencode2Binary,
   opencode2LoginCommand,
 } from './extension/ops/opencode2Ops.js';
+import { shouldGateOpencode2Auth, warnOpencode2AuthIfUnset } from './extension/ops/opencode2AuthWarning.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
@@ -1695,6 +1696,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       silent,
     );
   };
+
+  /** Warn before an OpenCode v2 launch with no provider signed in (see opencode2AuthWarning.ts). False only when the user signs in first. */
+  const opencode2AuthGate = (
+    ticketId: number,
+    assignedProvider?: AgentProvider,
+  ): Promise<boolean> =>
+    warnOpencode2AuthIfUnset({
+      // The launch honours an explicit assignment over the ticket default.
+      provider:
+        assignedProvider ??
+        resolveTicketProvider(
+          currentManifest() ?? emptyManifest(),
+          getTicket(localStore, ticketId) ?? {},
+        ),
+      probe: commandOutputAsync,
+      choose: (message, ...buttons) =>
+        Promise.resolve(vscode.window.showWarningMessage(message, ...buttons)),
+      logIn: async () => {
+        await vscode.commands.executeCommand('karst.opencode2.login');
+      },
+      debug: (message) => logger.debug(message),
+    });
 
   /**
    * Switch-only provider probe. Unlike the activation and ordinary action
@@ -6028,6 +6051,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
+      // An opencode2 session with an empty isolated credential store opens into
+      // "No provider selected"; warn first (real launches only).
+      if (
+        shouldGateOpencode2Auth({
+          providerReady: !!options.providerReady,
+          isOpen: sessions.isOpen(ticketId),
+          activeGraph: !!activeGraph,
+        }) &&
+        !(await opencode2AuthGate(ticketId, options.assignment?.provider))
+      ) {
+        return;
+      }
       // A graph ticket with an active run is owned by the graph coordinator:
       // REVEAL the live node terminal, never spawn a second agent (entry-point
       // matrix, Slice 3 Task 7).
