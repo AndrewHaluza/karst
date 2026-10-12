@@ -28,7 +28,10 @@ const REQUIRED_ARTIFACTS = [
 // Raised 354 → 356 KB for the pending-outputs panel on the Approaches card (~1.3 KB).
 // Raised 356 → 358 KB for the aligned Roles table (KarstMark, SourceCell and the
 // one-grid cell contract, ~1.4 KB).
-const APP_BUNDLE_BUDGET_BYTES = 358 * 1024;
+// Raised 358 → 360 KB for the per-repository `ship.exclude` list on the
+// Repositories card (the exclude chips + composer, ~0.8 KB of genuine app code
+// on a base already within ~0.7 KB of the old cap).
+const APP_BUNDLE_BUDGET_BYTES = 360 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {
