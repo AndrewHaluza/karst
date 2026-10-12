@@ -629,6 +629,43 @@ describe('startTicketService', () => {
     );
   });
 
+  it('never hands the target a port a running same-repo sibling is listening on', async () => {
+    const m = manifest({
+      mono: repo({
+        repoPath: '/repo/mono',
+        services: {
+          api: svc({ ports: [httpSlot(3000)] }),
+          web: svc({ ports: [httpSlot(5173)] }),
+        },
+      }),
+    });
+    addWorktree(1, '/repo/mono', '/wt/mono');
+    // web is a sibling this recovery does not touch, live on the lowest free port.
+    addServer(1, 30, 'mono/web', 4000, 3333, 'running');
+
+    const result = await startTicketService(store, m, 1, 'mono/api', { probeBusyPorts: noBusy });
+
+    expect(result.newPorts).toEqual({ http: 4001 }); // 4000 is taken by the live sibling
+    expect(allocationOf('mono/api', 'http')).toBe(4001);
+  });
+
+  it('does not allocate a port for a peer the target depends on but does not bind', async () => {
+    const m = manifest({
+      backend: runnableRepo({ ports: [httpSlot(3000)] }, { repoPath: '/repo/backend' }),
+      frontend: runnableRepo(
+        { ports: [httpSlot(5173)], dependsOn: [dependsOn('backend', 'http', [])] },
+        { repoPath: '/repo/frontend' },
+      ),
+    });
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+
+    const result = await startTicketService(store, m, 1, 'frontend', { probeBusyPorts: noBusy });
+
+    expect(result.newPorts).toEqual({ http: 4000 });
+    expect(allocationOf('backend', 'http')).toBeUndefined();
+  });
+
   it('resolves the whole hot set so a peer binds its allocated port, not its default', async () => {
     const m = manifest(stack());
     addWorktree(1, '/repo/backend', '/wt/backend');

@@ -253,6 +253,9 @@ export async function startTicketService(
     if (!u) return [];
     const deps: ServiceUnit[] = [];
     for (const dep of u.def.dependsOn) {
+      // An edge with no `bind` puts no peer port into env, so its target is
+      // neither wired nor needs a port drawn for it.
+      if (dep.bind.length === 0) continue;
       const target = resolveTarget(manifest.repositories, dep.target);
       if (!('error' in target)) deps.push(target.unit);
     }
@@ -313,12 +316,18 @@ export async function startTicketService(
     allocationRanges(manifest, hot),
     hotRepoPaths(manifest, hot),
   );
-  if (busy.size > 0) {
+  // A RUNNING unit is listening on its live port right now — including a
+  // same-repository sibling this recovery does NOT restart. The probe may call
+  // that port reclaimable (it is a karst server), so reserve every running
+  // unit's live port explicitly: a fresh draw must never land on one.
+  const avoid = new Set(busy);
+  for (const port of runningPort.values()) avoid.add(port);
+  if (avoid.size > 0) {
     opts.debug?.(
-      `[runtime] ticket ${ticketId}: ${busy.size} occupied port(s) excluded from recovery allocation`,
+      `[runtime] ticket ${ticketId}: ${avoid.size} occupied/live port(s) excluded from recovery allocation`,
     );
   }
-  const fresh = makePortAllocator(store, manifest.portRange, { busy });
+  const fresh = makePortAllocator(store, manifest.portRange, { busy: avoid });
 
   // The ports this recovery will use, resolved from three sources in order:
   //   1. the ticket's existing records — a recorded port never moves;
