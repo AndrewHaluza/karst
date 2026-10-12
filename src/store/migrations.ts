@@ -2651,5 +2651,18 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 81) {
+    // v81: `process_runs.failure_detail` — the bounded one-line failure sentence
+    // for a failed process run (the adapter's named diagnostic: a permission
+    // denial, a usage limit), so the Tester/Review detail can render it instead
+    // of a fixed string (T652). NULL is honest for every pre-v81 row: none
+    // recorded a detail. The guard reads the CURRENT columns, so a fresh DB
+    // (schema.sql already carries it) and a re-open are no-ops.
+    const cols81 = tableColumns(db, 'process_runs');
+    if (cols81.size > 0 && !cols81.has('failure_detail')) {
+      db.exec('ALTER TABLE process_runs ADD COLUMN failure_detail TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

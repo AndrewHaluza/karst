@@ -341,6 +341,11 @@ describe('runUatTester', () => {
     expect(res.kind === 'execution-failed' && res.message).toMatch(
       /auto-denied the "command" permission/,
     );
+    // The bounded sentence rides onto the run, so the inside Tester detail can
+    // render the named denial instead of a fixed string (T652).
+    expect(listProcessRuns(store, ticketId)[0]!.failureDetail).toMatch(
+      /auto-denied the "command" permission/,
+    );
   });
 
   it('an adapter crash is execution-failed, finished failed, and never transitions anything', async () => {
@@ -352,6 +357,7 @@ describe('runUatTester', () => {
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       resultKind: 'execution-failed',
       status: 'failed',
+      failureDetail: 'spawn ENOENT',
     });
     expect(listUatFindings(store, ticketId)).toEqual([]);
   });

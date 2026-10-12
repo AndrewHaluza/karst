@@ -1630,7 +1630,9 @@ describe('runReview — findings process run (Task 8)', () => {
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     const run = listProcessRuns(store, id)[0]!;
-    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+    // No crash message exists on an unreadable-only block, so no failure detail
+    // is invented — the inside Review detail keeps its generic wording (T652).
+    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed', failureDetail: null });
   });
 
   it('a deterministic gate failure keeps the round\'s source process run null, however the process was wired', async () => {
@@ -1675,7 +1677,11 @@ describe('runReview — findings process run (Task 8)', () => {
     // The gates still decide: an AI crash is not a code verdict.
     expect(res).toEqual({ kind: 'advanced', next: 'ship' });
     const run = listProcessRuns(store, id)[0]!;
-    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+    expect(run).toMatchObject({
+      resultKind: 'execution-failed',
+      status: 'failed',
+      failureDetail: 'spawn ENOENT',
+    });
     // The artifact is where the crash is exposed: the one-line collapsed
     // boundary diagnostic lands in the run's artifact.
     // The artifact path includes the stage_run_id so each run gets its own

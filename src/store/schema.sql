@@ -192,7 +192,9 @@ CREATE INDEX IF NOT EXISTS idx_stage_runs_ticket ON stage_runs(ticket_id, stage_
 --
 -- `status` is a closed vocabulary (running | passed | failed | interrupted |
 -- stale); `result_kind`/`artifact_path` carry the outcome's verdict kind and
--- artifact path, both NULLable and never backfilled.
+-- artifact path, both NULLable and never backfilled. `failure_detail` (v81) is
+-- the bounded one-line failure sentence for a failed run, NULL when none was
+-- recorded (every pre-v81 row) — never backfilled.
 CREATE TABLE IF NOT EXISTS process_runs (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   ticket_id     INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
@@ -207,6 +209,7 @@ CREATE TABLE IF NOT EXISTS process_runs (
   status        TEXT NOT NULL CHECK (status IN ('running','passed','failed','interrupted','stale')),
   result_kind   TEXT,                 -- the outcome's verdict kind, when the process has one
   artifact_path TEXT,                 -- path of the artifact the process produced, if any
+  failure_detail TEXT,                -- v81: bounded one-line failure sentence for a failed run
   prompt_telemetry TEXT,              -- v57: JSON blob of prompt-effectiveness facts for this run
   started_at    TEXT NOT NULL,
   ended_at      TEXT                  -- NULL while running AND on a stale run

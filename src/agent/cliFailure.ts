@@ -224,3 +224,21 @@ export function describePermissionDenial(tool: string, output: string): string |
     `or run review/UAT on another agent core.`
   );
 }
+
+/**
+ * The stable phrase of `describePermissionDenial`'s sentence — what makes a
+ * STORED failure detail recognizable as a permission denial at render time,
+ * where the raw CLI notice is no longer present. Kept beside the sentence it
+ * matches so the two cannot drift.
+ */
+const DENIAL_SENTENCE = /headless run was auto-denied/i;
+
+/**
+ * True when a stored failure detail is the agy headless permission-denial
+ * sentence. The Tester/Review process detail uses it to add the `karst doctor`
+ * pointer (`tools.agy-permissions`) — the one case with a concrete next step
+ * beyond retrying.
+ */
+export function isPermissionDenialDetail(detail: string): boolean {
+  return DENIAL_SENTENCE.test(detail);
+}

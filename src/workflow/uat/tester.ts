@@ -537,8 +537,9 @@ export async function runUatTester(
   const close = (
     status: 'passed' | 'failed' | 'interrupted',
     resultKind: string,
+    failureDetail?: string,
   ): void => {
-    finishProcessRun(store, run.id, status, now(), resultKind);
+    finishProcessRun(store, run.id, status, now(), resultKind, null, failureDetail);
   };
 
   const cap = opts.maxObservations ?? DEFAULT_MAX_TESTER_OBSERVATIONS;
@@ -835,7 +836,10 @@ export async function runUatTester(
     debug?.(
       `[gate] uat tester ticket ${opts.ticketId}: adapter call failed — execution-failed (${collapsed})`,
     );
-    close('failed', 'execution-failed');
+    // The bounded failure sentence rides onto the run so the inside Tester
+    // detail renders the NAMED diagnostic (an agy permission denial, say)
+    // instead of a fixed "adapter execution failed" (T652).
+    close('failed', 'execution-failed', collapsed);
     return { kind: 'execution-failed', message: collapsed };
   } finally {
     if (opts.git) {
