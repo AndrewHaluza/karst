@@ -415,6 +415,28 @@ export interface AgentAdapter {
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand;
 
   /**
+   * Ensure this core's folder-trust state ACCEPTS `cwd` before a launch, so an
+   * interactive session cannot open on its folder-trust dialog (claude defaults
+   * to "No, exit") and die seconds in with no transcript — T661's graph-node
+   * launch failure. Each core merges its OWN record for the REALPATH-normalised
+   * absolute `cwd` (`workspaceTrust.ts`); a core with no trust prompt is an
+   * explicit no-op naming why (AC-08: every adapter answers, none is silently
+   * missing).
+   *
+   * Called at each launch path that spawns an agent in a karst-owned cwd —
+   * graph node workspace and planner (the supervised CLI transport), planning
+   * scratch, the setup session, the ticket worktree, and every headless run
+   * (the instrumented seam) — BEFORE the spawn. Sync because the interactive
+   * session launch is synchronous; best-effort, because a trust write must
+   * never be the reason a launch did not happen.
+   *
+   * Optional on the interface only so the many test fakes keep compiling; every
+   * adapter `registry.ts` can resolve MUST implement it, which
+   * `adapterConformance.test.ts` enforces.
+   */
+  ensureWorkspaceTrusted?(cwd: string, opts?: { debug?: (message: string) => void }): void;
+
+  /**
    * Translate a neutral approach package into this agent's on-disk format and
    * return the launch additions (e.g. Claude's `--plugin-dir`). Optional: an
    * adapter that has no notion of loadable approaches omits it → bare launch.

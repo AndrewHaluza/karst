@@ -54,6 +54,7 @@ import { codexMcpConfigArgs, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer } from './instructions.js';
+import { ensureCodexWorkspaceTrusted } from './workspaceTrust.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -457,6 +458,15 @@ export class CodexAdapter implements AgentAdapter {
         ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
         : {}),
     };
+  }
+
+  /**
+   * codex prompts on an untrusted directory and records the answer as
+   * `[projects."<cwd>"] trust_level` in `~/.codex/config.toml`; pre-trusting the
+   * realpath of `cwd` avoids the same launch-exit class as claude (T661).
+   */
+  ensureWorkspaceTrusted(cwd: string, opts?: { debug?: (message: string) => void }): void {
+    ensureCodexWorkspaceTrusted(cwd, opts);
   }
 
   materializeApproach(opts: MaterializeOpts): Materialized {

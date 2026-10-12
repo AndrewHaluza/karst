@@ -1083,6 +1083,13 @@ export class OpencodeAdapter implements AgentAdapter {
     };
   }
 
+  /**
+   * Explicit no-op: opencode has no per-directory folder-trust prompt (it never
+   * opens a dialog and never exits on trust), so a launch needs no trust record
+   * written. AC-08 requires every adapter to answer, not to stay silent.
+   */
+  ensureWorkspaceTrusted(): void {}
+
   materializeApproach(opts: MaterializeOpts): Materialized {
     const idName = opencodeName('approach id', opts.pkg.id);
     const owned = new Set<string>();

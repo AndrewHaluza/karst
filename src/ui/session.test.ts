@@ -1,5 +1,5 @@
 import { DefaultedSessionManager } from './testing/launchDefaults.js';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,19 @@ import {
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
 import { KARST_INSTRUCTIONS_ENV } from '../agent/cliEnv.js';
 import { hashInstructions } from '../agent/instructions.js';
+
+// `openSession` pre-trusts the worktree by writing the core's USER config
+// (claude's `~/.claude.json`, codex's `~/.codex/config.toml`). Point HOME at a
+// per-file temp dir so no unit test can ever mutate the operator's real config.
+let trustHome: string;
+beforeEach(() => {
+  trustHome = mkdtempSync(join(tmpdir(), 'karst-session-home-'));
+  vi.stubEnv('HOME', trustHome);
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(trustHome, { recursive: true, force: true });
+});
 
 /** Records the interactive command built, so the test can assert on it. */
 function fakeAdapter(
@@ -941,6 +954,29 @@ describe('SessionManager', () => {
 
     expect(calls).toHaveLength(1);
     expect((calls[0] as { resume?: string }).resume).toBe('sess-7');
+  });
+
+  it('pre-trusts the worktree before building the launch command', () => {
+    const { adapter, calls } = fakeAdapter();
+    const { host } = fakeHost();
+    const order: string[] = [];
+    const trusted: string[] = [];
+    adapter.ensureWorkspaceTrusted = (cwd) => {
+      order.push('trust');
+      trusted.push(cwd);
+    };
+    const build = adapter.buildInteractiveCommand;
+    adapter.buildInteractiveCommand = (opts) => {
+      order.push('build');
+      return build(opts);
+    };
+    const mgr = new DefaultedSessionManager(host, channelFor);
+    mgr.openSession(adapter, 1, '/wt/a');
+    // A fresh worktree is untrusted; the hook must run for exactly the cwd the
+    // terminal spawns in, before the command is built (T661).
+    expect(trusted).toEqual(['/wt/a']);
+    expect(order).toEqual(['trust', 'build']);
+    expect(calls).toHaveLength(1);
   });
 
   it('does not re-seed on re-open (focus path skips buildInteractiveCommand)', () => {

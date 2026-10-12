@@ -18,6 +18,7 @@ import { openStore } from '../../../store/db.js';
 import { stopServersUnder, reapStaleServers } from '../../../runtime/worktreeServers.js';
 import {
   createSupervisedCliTransport,
+  type SupervisedLaunchRequest,
   type SupervisedTransportDeps,
 } from './supervisedCliTransport.js';
 import type { TransportTerminal, TransportTerminalHost, SupervisedAgentSession } from './agentTransport.js';
@@ -141,6 +142,33 @@ describe('SupervisedCLITransport', () => {
     expect(session.ownerNonce).toBe(LAUNCH.ownerNonce);
     expect(h.sessions).toHaveLength(1);
     expect(h.sessions[0]).toMatchObject({ ticketId: 1, repo: 'api', pid: 4242, cwd: '/wt/n1' });
+  });
+
+  it('pre-trusts the workspace cwd before building the launch command', async () => {
+    const h = harness(4242);
+    const order: string[] = [];
+    const trusted: string[] = [];
+    const adapter = {
+      requiredBinary: 'fake',
+      runHeadless: async () => {
+        throw new Error('unused');
+      },
+      ensureWorkspaceTrusted: (cwd: string) => {
+        order.push('trust');
+        trusted.push(cwd);
+      },
+      buildInteractiveCommand: () => {
+        order.push('build');
+        return { command: 'claude', args: [], env: {} };
+      },
+    } as unknown as AgentAdapter;
+    const transport = createSupervisedCliTransport(h.deps);
+    const request: SupervisedLaunchRequest = { ...LAUNCH, adapter };
+    await transport.start(request);
+    // Every graph launch — fresh node, planner, relaunch/Resume — goes through
+    // here, so the hook must run with exactly the cwd it spawns in.
+    expect(trusted).toEqual(['/wt/n1']);
+    expect(order).toEqual(['trust', 'build']);
   });
 
   it('merges the graph environment onto the adapter-built environment', async () => {

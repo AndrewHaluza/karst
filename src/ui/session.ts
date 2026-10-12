@@ -548,6 +548,13 @@ export class SessionManager {
     const terminalName = naming?.name ?? `Karst: ${label?.key ?? formatId('ticket', ticketId)}`;
     const hookChannel = this.hookChannelFor(ticketId);
     const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
+    // Trust the ticket worktree before the core starts: a fresh worktree is
+    // untrusted, and claude would open on its folder-trust dialog and exit
+    // (T661). Done here, at the one launch site, never as a UI action.
+    adapter.ensureWorkspaceTrusted?.(
+      worktreePath,
+      options.debug ? { debug: options.debug } : undefined,
+    );
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
       hookChannel,

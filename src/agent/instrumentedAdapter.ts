@@ -153,6 +153,11 @@ export function instrumentAdapter(
       options.debug?.(
         `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'} for ticket ${opts.tracking?.ticketId ?? '?'})`,
       );
+      // The headless counterpart of the launch-path trust hook: every headless
+      // run in production reaches its core through this ONE seam, so a graph /
+      // worktree directory is trusted before the CLI starts there too. A fake
+      // adapter without the method is a no-op (`?.`).
+      adapter.ensureWorkspaceTrusted?.(opts.cwd, options.debug ? { debug: options.debug } : undefined);
       const hostEnv = options.env?.(opts.tracking);
       const env = hostEnv ? { ...hostEnv, ...opts.env } : opts.env;
       let result: HeadlessResult;
@@ -198,6 +203,16 @@ export function instrumentAdapter(
       sessionId: string,
       opts: { cwd: string; debug?: (message: string) => void },
     ) => adapter.resolveResume!(sessionId, opts);
+  }
+
+  // The folder-trust hook must survive instrumentation: a launch path calls it
+  // on the RUNTIME adapter, and dropping it here would silently skip the trust
+  // write on every real launch (T661). Absent stays absent, as above.
+  if (adapter.ensureWorkspaceTrusted) {
+    instrumented.ensureWorkspaceTrusted = (
+      cwd: string,
+      opts?: { debug?: (message: string) => void },
+    ) => adapter.ensureWorkspaceTrusted!(cwd, opts);
   }
 
   return instrumented;

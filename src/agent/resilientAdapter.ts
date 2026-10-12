@@ -193,5 +193,15 @@ export function resilientAdapter(
     ) => inner.resolveResume!(sessionId, opts);
   }
 
+  // The folder-trust hook must survive BOTH decorators: a launch path calls it
+  // on the runtime adapter (`resilientAdapter(instrumentAdapter(core))`), and
+  // dropping it here would skip the trust write on every real launch (T661).
+  if (inner.ensureWorkspaceTrusted) {
+    adapter.ensureWorkspaceTrusted = (
+      cwd: string,
+      opts?: { debug?: (message: string) => void },
+    ) => inner.ensureWorkspaceTrusted!(cwd, opts);
+  }
+
   return adapter;
 }

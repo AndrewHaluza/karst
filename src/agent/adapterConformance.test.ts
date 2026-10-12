@@ -117,6 +117,16 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     }
   });
 
+  // Folder trust (T661): every core answers the launch-time trust hook, so a
+  // fresh graph workspace / worktree never opens on a trust dialog. A core with
+  // no prompt is an explicit no-op (its own comment says why) — never an
+  // adapter that forgot the method and silently kept the bug.
+  it('implements the launch-time folder-trust hook', () => {
+    expect(typeof resolveAdapter(provider).ensureWorkspaceTrusted, `${provider}.ensureWorkspaceTrusted`).toBe(
+      'function',
+    );
+  });
+
   // MAILBOX-DELIVERY-RELIABLE-SUBMIT: typed nudges type the text, wait this
   // per-core window, then send the submit `\r`. A core that forgets to declare
   // it would fall back to a shared default and submit mid-paste on exactly the

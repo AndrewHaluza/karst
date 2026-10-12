@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { historySection } from '../../planning/preamble.js';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +14,7 @@ import { hashInstructions } from '../../agent/instructions.js';
 import { createPlanningOps, planningSessionIdOf, type PlanningOpsDeps } from './planningOps.js';
 import { createTicket, findTicketById } from '../../store/tickets.js';
 import { runNotesCommand } from '../../cli/notesCommand.js';
+import { trustKeyFor } from '../../agent/workspaceTrust.js';
 
 interface Recorded {
   opts: CreateTerminalOpts;
@@ -41,6 +42,20 @@ function fakeHost(): { host: TerminalHost; created: Recorded[] } {
   };
   return { host, created };
 }
+
+// Every describe in this file launches a planning agent, and the launch
+// pre-trusts the scratch dir by writing the core's USER config (claude's
+// `~/.claude.json`). Point HOME at a temp dir for the WHOLE file so no test can
+// mutate the operator's real config.
+let home: string;
+beforeEach(() => {
+  home = mkdtempSync(join(tmpdir(), 'karst-plan-home-'));
+  vi.stubEnv('HOME', home);
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(home, { recursive: true, force: true });
+});
 
 describe('planning ops', () => {
   let store: Store;
@@ -74,6 +89,22 @@ describe('planning ops', () => {
   afterEach(() => {
     store.close();
     rmSync(scratch, { recursive: true, force: true });
+  });
+
+  it('pre-trusts the planning scratch dir before launching a core that prompts', async () => {
+    const logs: string[] = [];
+    const ops = createPlanningOps({ ...deps, debug: (m) => logs.push(m) });
+    const session = (await ops.create('Trust'))!;
+    // The real claude adapter writes the record through the seam — proof the
+    // launch site calls the hook with the cwd it spawns in (T661).
+    const claude = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')) as {
+      projects: Record<string, { hasTrustDialogAccepted?: boolean }>;
+    };
+    expect(claude.projects[trustKeyFor(join(scratch, String(session.id)))]?.hasTrustDialogAccepted).toBe(
+      true,
+    );
+    // The launch's own debug callback reaches the hook, so a refusal is visible.
+    expect(logs.join('\n')).toContain('[trust] claude: recorded folder trust');
   });
 
   it('creates a session and launches a read-only agent across every repo', async () => {
