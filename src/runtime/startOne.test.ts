@@ -3,14 +3,24 @@ import { openStore, type Store } from '../store/db.js';
 import { startResolvedService } from './startService.js';
 import { stopServer } from './supervisor.js';
 import { startTicketService, StartServiceError } from './startOne.js';
-import { MissingAllocationError } from '../resolver/recordedAllocator.js';
-import { manifest, repo, stack } from '../manifest/fixtures.js';
+import { PortRangeExhaustedError } from '../resolver/allocator.js';
+import {
+  dependsOn,
+  httpSlot,
+  manifest,
+  repo,
+  runnableRepo,
+  stack,
+} from '../manifest/fixtures.js';
 
 vi.mock('./startService.js', () => ({ startResolvedService: vi.fn() }));
 vi.mock('./supervisor.js', () => ({ stopServer: vi.fn() }));
 
 const startResolvedMock = vi.mocked(startResolvedService);
 const stopServerMock = vi.mocked(stopServer);
+
+/** Live-listener probe stub: this machine owns no port in the fixtures' ranges. */
+const noBusy = async (): Promise<Set<number>> => new Set<number>();
 
 describe('startTicketService', () => {
   let store: Store;
@@ -65,6 +75,18 @@ describe('startTicketService', () => {
       .run(id, ticketId, repoName, port, pid, status, `/logs/${repoName}.log`, `/wt/${repoName}`);
   }
 
+  function allocationOf(repoName: string, portName: string): number | undefined {
+    return (
+      store.db
+        .prepare('SELECT port FROM port_allocations WHERE ticket_id = 1 AND repo = ? AND port_name = ?')
+        .get(repoName, portName) as { port: number } | undefined
+    )?.port;
+  }
+
+  function calledNames(): string[] {
+    return startResolvedMock.mock.calls.map((c) => c[0].name);
+  }
+
   it('starts only repo B and leaves repo A running untouched', async () => {
     const m = manifest(stack());
     addWorktree(1, '/repo/backend', '/wt/backend');
@@ -73,13 +95,13 @@ describe('startTicketService', () => {
     addAllocation(1, 'frontend', 'http', 4200);
     addServer(1, 10, 'backend', 4100, 1111, 'running');
 
-    const rec = await startTicketService(store, m, 1, 'frontend');
+    const { record } = await startTicketService(store, m, 1, 'frontend');
 
     expect(startResolvedMock).toHaveBeenCalledOnce();
     const args = startResolvedMock.mock.calls[0]![0];
     expect(args.name).toBe('frontend');
     expect(args.cwd).toBe('/wt/frontend');
-    expect(rec.port).toBe(4200);
+    expect(record.port).toBe(4200);
     expect(stopServerMock).not.toHaveBeenCalled();
 
     const aRow = store.db.prepare('SELECT status, pid FROM servers WHERE id = 10').get() as {
@@ -98,11 +120,11 @@ describe('startTicketService', () => {
     addAllocation(1, 'frontend', 'http', 4200);
     addServer(1, 20, 'frontend', 4200, 2222, 'running');
 
-    const rec = await startTicketService(store, m, 1, 'frontend');
+    const { record } = await startTicketService(store, m, 1, 'frontend');
 
     expect(stopServerMock).toHaveBeenCalledOnce();
     expect(stopServerMock).toHaveBeenCalledWith(store, 20);
-    expect(rec.port).toBe(4200);
+    expect(record.port).toBe(4200);
   });
 
   it('rejects an unknown repository name', async () => {
@@ -131,13 +153,182 @@ describe('startTicketService', () => {
     expect((err as Error).message).toContain('no worktree for this ticket');
   });
 
-  it('propagates MissingAllocationError when the target has no recorded allocation', async () => {
+  it('recovers a missing target allocation: records a new row and starts the target', async () => {
     const m = manifest(stack());
     addWorktree(1, '/repo/frontend', '/wt/frontend');
 
-    const err = await startTicketService(store, m, 1, 'frontend').catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(MissingAllocationError);
-    expect((err as Error).name).toBe('MissingAllocationError');
+    const result = await startTicketService(store, m, 1, 'frontend', { probeBusyPorts: noBusy });
+
+    expect(calledNames()).toEqual(['frontend']);
+    expect(result.record.port).toBe(4000); // lowest free in the range
+    expect(result.newPorts).toEqual({ http: 4000 });
+    expect(result.restartedDependents).toEqual([]);
+    expect(allocationOf('frontend', 'http')).toBe(4000);
+    // The unrecorded, stopped dependency the target needs is allocated too.
+    expect(allocationOf('backend', 'http')).toBe(4001);
+  });
+
+  it('leaves a declared-baseline dependency on its default port during recovery', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    // The ticket already resolved backend as a shared baseline: it runs on its
+    // default port, so recovery must NOT draw an alt port for it.
+    store.db.prepare('INSERT INTO baseline_refs (ticket_id, repo) VALUES (?, ?)').run(1, 'backend');
+
+    const result = await startTicketService(store, m, 1, 'frontend', { probeBusyPorts: noBusy });
+
+    const args = startResolvedMock.mock.calls[0]![0];
+    expect(args.resolved.services['backend']!.mode).toBe('baseline');
+    expect(args.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:3000');
+    expect(allocationOf('backend', 'http')).toBeUndefined();
+    expect(result.newPorts).toEqual({ http: 4000 });
+  });
+
+  it('restarts a running dependent with the target new port in its env', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'frontend', 'http', 4200);
+    addServer(1, 30, 'frontend', 4200, 3333, 'running');
+
+    const result = await startTicketService(store, m, 1, 'backend', { probeBusyPorts: noBusy });
+
+    expect(result.newPorts).toEqual({ http: 4000 });
+    expect(result.restartedDependents).toEqual(['frontend']);
+    expect(calledNames()).toEqual(['backend', 'frontend']);
+    const feArgs = startResolvedMock.mock.calls[1]![0];
+    expect(feArgs.cwd).toBe('/wt/frontend');
+    expect(feArgs.resolved.services['frontend']!.env['VITE_API_URL']).toBe('http://localhost:4000');
+    expect(stopServerMock).toHaveBeenCalledWith(store, 30);
+  });
+
+  it('leaves a stopped dependent untouched', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'frontend', 'http', 4200);
+    // frontend is recorded but has no running row.
+
+    const result = await startTicketService(store, m, 1, 'backend', { probeBusyPorts: noBusy });
+
+    expect(result.restartedDependents).toEqual([]);
+    expect(calledNames()).toEqual(['backend']);
+    expect(stopServerMock).not.toHaveBeenCalled();
+  });
+
+  it('existing allocation path: no port moves and no dependent is restarted', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'backend', 'http', 4100);
+    addAllocation(1, 'frontend', 'http', 4200);
+    addServer(1, 30, 'frontend', 4200, 3333, 'running');
+
+    const result = await startTicketService(store, m, 1, 'backend');
+
+    expect(result.newPorts).toEqual({});
+    expect(result.restartedDependents).toEqual([]);
+    expect(result.record.port).toBe(4100);
+    expect(calledNames()).toEqual(['backend']);
+    expect(stopServerMock).not.toHaveBeenCalled();
+    expect(allocationOf('frontend', 'http')).toBe(4200);
+  });
+
+  it('fails with a port-range error and records nothing when the range is exhausted', async () => {
+    const m = manifest(stack(), { portRange: [5000, 4000] }); // inverted → no free block
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+
+    const err = await startTicketService(store, m, 1, 'frontend', {
+      probeBusyPorts: noBusy,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(PortRangeExhaustedError);
+    expect(startResolvedMock).not.toHaveBeenCalled();
+    const n = store.db
+      .prepare('SELECT COUNT(*) AS n FROM port_allocations WHERE ticket_id = 1')
+      .get() as { n: number };
+    expect(n.n).toBe(0);
+  });
+
+  it('restarts transitive dependents in startOrder', async () => {
+    const m = manifest({
+      contracts: runnableRepo({ ports: [httpSlot(6000)] }, { repoPath: '/repo/contracts' }),
+      backend: runnableRepo(
+        {
+          ports: [httpSlot(3000)],
+          dependsOn: [
+            dependsOn('contracts', 'http', [
+              { env: 'CONTRACTS_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/backend' },
+      ),
+      frontend: runnableRepo(
+        {
+          ports: [httpSlot(5173)],
+          dependsOn: [
+            dependsOn('backend', 'http', [
+              { env: 'VITE_API_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/frontend' },
+      ),
+    });
+    addWorktree(1, '/repo/contracts', '/wt/contracts');
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'backend', 'http', 4100);
+    addAllocation(1, 'frontend', 'http', 4200);
+    addServer(1, 40, 'backend', 4100, 4444, 'running');
+    addServer(1, 41, 'frontend', 4200, 5555, 'running');
+
+    const result = await startTicketService(store, m, 1, 'contracts', {
+      probeBusyPorts: noBusy,
+    });
+
+    expect(calledNames()).toEqual(['contracts', 'backend', 'frontend']);
+    expect(result.restartedDependents).toEqual(['backend', 'frontend']);
+    const beArgs = startResolvedMock.mock.calls[1]![0];
+    expect(beArgs.resolved.services['backend']!.env['CONTRACTS_URL']).toBe(
+      'http://localhost:4000',
+    );
+  });
+
+  it('keeps the target up and names the dependent when a dependent restart fails', async () => {
+    const m = manifest(stack());
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/frontend', '/wt/frontend');
+    addAllocation(1, 'frontend', 'http', 4200);
+    addServer(1, 30, 'frontend', 4200, 3333, 'running');
+    startResolvedMock.mockImplementation(async (args) => {
+      if (args.name === 'frontend') throw new Error('port is held by a stranger');
+      const ports = args.resolved.services[args.name]!.ports;
+      return {
+        id: 99,
+        ticketId: args.ticketId,
+        service: args.name,
+        host: args.manifest.host,
+        port: ports['http']!,
+        pid: 4242,
+        status: 'running',
+        logPath: `/logs/${args.name}.log`,
+        container: null,
+      };
+    });
+
+    const err = await startTicketService(store, m, 1, 'backend', {
+      probeBusyPorts: noBusy,
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(StartServiceError);
+    expect((err as Error).message).toContain('Started backend on the new port');
+    expect((err as Error).message).toContain('frontend');
+    expect((err as Error).message).toContain('port is held by a stranger');
+    // the target itself did start; only the dependent restart failed.
+    expect(calledNames()).toEqual(['backend', 'frontend']);
   });
 
   it('resolves the whole hot set so a peer binds its allocated port, not its default', async () => {
@@ -161,9 +352,9 @@ describe('startTicketService', () => {
     // backend's allocation was released; only the target is still recorded.
     addAllocation(1, 'frontend', 'http', 4200);
 
-    const rec = await startTicketService(store, m, 1, 'frontend');
+    const { record } = await startTicketService(store, m, 1, 'frontend');
 
-    expect(rec.port).toBe(4200);
+    expect(record.port).toBe(4200);
     const args = startResolvedMock.mock.calls[0]![0];
     expect(args.resolved.services['backend']!.mode).toBe('baseline');
   });

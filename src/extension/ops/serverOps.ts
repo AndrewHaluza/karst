@@ -3,18 +3,24 @@ import type { Manifest } from '../../manifest/types.js';
 import type { Notify } from './notify.js';
 import { stopServer } from '../../runtime/supervisor.js';
 import { serverAddress } from '../../store/dashboard.js';
-import { startTicketService, StartServiceError } from '../../runtime/startOne.js';
+import {
+  startTicketService,
+  StartServiceError,
+  type StartTicketServiceResult,
+} from '../../runtime/startOne.js';
 import { MissingAllocationError } from '../../resolver/recordedAllocator.js';
+import { PortRangeExhaustedError } from '../../resolver/allocator.js';
 
 /**
  * The dashboard Servers panel's row-scoped operations, extracted from
  * `extension.ts` behind the `Notify` seam and explicit host callbacks. No
  * `vscode` import (enforced by `src/extension/ops/ratchet.test.ts`).
  *
- * `startServerRow` / `restartServerRow` start exactly one already-spun service
- * in its existing worktree on its existing ports (`startTicketService`). They
- * are not a re-spin: peers and ports are untouched, and a missing allocation
- * tells the user to re-spin rather than silently re-porting one service.
+ * `startServerRow` / `restartServerRow` start one already-spun service in its
+ * existing worktree. A recorded ticket plays its ports back untouched; when the
+ * target's allocation is missing (wiped by a teardown, or added to the manifest
+ * after the spin) `startTicketService` recovers — a fresh port plus a restart of
+ * every running dependent — and the toast names the new port and who was rewired.
  */
 export interface ServerOpsDeps {
   store: Store;
@@ -90,12 +96,19 @@ async function runStart(
 
   try {
     if (stopFirst) await stopServer(deps.store, serverId);
-    await startTicketService(deps.store, manifest, row.ticketId, repo, { debug: deps.debug });
-    deps.notify.info(`${verb} ${repo}.`);
+    const result = await startTicketService(deps.store, manifest, row.ticketId, repo, {
+      debug: deps.debug,
+    });
+    deps.notify.info(startMessage(verb, repo, result));
   } catch (err) {
     if (err instanceof MissingAllocationError) {
       throw new Error(
         `Cannot start ${repo}: its ports are no longer recorded. Re-spin the ticket to restart it.`,
+      );
+    }
+    if (err instanceof PortRangeExhaustedError) {
+      throw new Error(
+        `Cannot start ${repo}: ${err.message}. Free a port or widen the range, then try again.`,
       );
     }
     if (err instanceof StartServiceError) throw err;
@@ -105,4 +118,23 @@ async function runStart(
   } finally {
     deps.afterServerChange();
   }
+}
+
+/**
+ * The row-start toast. A recorded start says so plainly; a recovery names the
+ * new port and the dependents restarted to pick it up, so silent miswiring is
+ * impossible to miss.
+ */
+function startMessage(
+  verb: 'Started' | 'Restarted',
+  repo: string,
+  result: StartTicketServiceResult,
+): string {
+  const ports = Object.values(result.newPorts);
+  if (ports.length === 0) return `${verb} ${repo}.`;
+  const rewired =
+    result.restartedDependents.length > 0
+      ? `; restarted ${result.restartedDependents.join(', ')} to rewire.`
+      : '.';
+  return `${verb} ${repo} on :${ports[0]!} (new port)${rewired}`;
 }

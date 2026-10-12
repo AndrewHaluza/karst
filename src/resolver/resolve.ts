@@ -78,6 +78,36 @@ function topoSort(hot: string[], units: Record<string, ServiceUnit>, manifest: M
 }
 
 /**
+ * Unit keys that transitively dependOn `targetKey`, walking the SAME dependsOn
+ * edges `topoSort` uses (through `resolveTarget`) in reverse. These are the
+ * units whose env names the target's port — directly, or through another unit —
+ * so a target whose port MOVED must have each of them rewired. Returns unit
+ * keys (`repo` or `repo/service`), unordered; callers order by `startOrder`.
+ */
+export function transitiveDependents(manifest: Manifest, targetKey: string): string[] {
+  const dependentsOf = new Map<string, string[]>();
+  for (const unit of serviceUnits(manifest)) {
+    for (const dep of unit.def.dependsOn) {
+      const target = resolveTarget(manifest.repositories, dep.target);
+      if ('error' in target) continue; // graph validation already rejected this
+      const list = dependentsOf.get(target.unit.key);
+      if (list) list.push(unit.key);
+      else dependentsOf.set(target.unit.key, [unit.key]);
+    }
+  }
+
+  const found = new Set<string>();
+  const stack = [...(dependentsOf.get(targetKey) ?? [])];
+  while (stack.length > 0) {
+    const key = stack.pop()!;
+    if (found.has(key)) continue;
+    found.add(key);
+    for (const next of dependentsOf.get(key) ?? []) stack.push(next);
+  }
+  return [...found];
+}
+
+/**
  * Resolve a manifest + hot set into per-service port allocations and fully
  * resolved env (§7.2). Pure: the allocator is injected. This is the
  * silent-failure surface — misconfig here produces a stack wired to the wrong
