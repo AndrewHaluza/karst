@@ -50,6 +50,8 @@ END_DOC_BLOCK: [@arch:PLACEHOLDER]
 ## [@arch:BRANCH-NAME] A branch name is rendered once, at worktree creation; the `worktrees` row is authoritative forever after
 
 Changing `conventions.branchName` renames nothing: `createWorktree` adopts by PATH and returns the STORED branch, `preflightSpin` treats a registered worktree at the ticket's path as resumable even on the old branch, and `archive.ts` derives its archive slug from `basename(path)` (never by stripping a `karst/` prefix — a templated branch carries its own slashes) and restores onto `row.branch`.
+
+One exception, still at creation: when the rendered branch already exists on `origin` and no live ticket's `worktrees` row owns it (a stale branch a since-archived ticket pushed), `ticketBranch.resolveWorktreeBranch` appends `-t<id>` (`branchName.suffixBranchForCollision`) before the row is written — so the push cannot be rejected non-fast-forward (`T640`). A resumed ticket's live branch is left untouched, and an `ls-remote` failure keeps the rendered name.
 END_DOC_BLOCK: [@arch:BRANCH-NAME]
 
 ## [@arch:BASE-PULL] The base is pulled before a worktree is cut, and that is a switch — ON by default, honored as set

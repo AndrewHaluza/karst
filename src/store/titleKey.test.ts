@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { slugifyTitleKey, TITLE_KEY_MAX } from './titleKey.js';
+import { slugifyTitleKey, TITLE_KEY_MAX, isPlaceholderTitle } from './titleKey.js';
 
 describe('slugifyTitleKey', () => {
   it('uppercases and dash-joins the words of a title', () => {
@@ -33,5 +33,30 @@ describe('slugifyTitleKey', () => {
   it('is total over non-string input (webview payloads are untrusted)', () => {
     expect(slugifyTitleKey(undefined as unknown as string)).toBe('');
     expect(slugifyTitleKey(null as unknown as string)).toBe('');
+  });
+
+  // The placeholder is the draft title `ensureTicket` seeds every unbound form
+  // with — never something the user typed. Deriving UNTITLED-TICKET from it keyed
+  // every older, since-archived draft identically and let their pushed branches
+  // collide on re-use (T640). No key at all, so the caller falls back to MANUAL-…
+  it('returns an empty string for the default placeholder title', () => {
+    expect(slugifyTitleKey('Untitled ticket')).toBe('');
+    expect(slugifyTitleKey('  Untitled Ticket  ')).toBe('');
+  });
+});
+
+describe('isPlaceholderTitle', () => {
+  it('matches the placeholder case-insensitively, ignoring surrounding whitespace', () => {
+    expect(isPlaceholderTitle('Untitled ticket')).toBe(true);
+    expect(isPlaceholderTitle('untitled TICKET')).toBe(true);
+    expect(isPlaceholderTitle('  Untitled ticket  ')).toBe(true);
+  });
+
+  it('is false for a real title and for empty/non-string input', () => {
+    expect(isPlaceholderTitle('Untitled ticket collision')).toBe(false);
+    expect(isPlaceholderTitle('Fix login redirect')).toBe(false);
+    expect(isPlaceholderTitle('')).toBe(false);
+    expect(isPlaceholderTitle(undefined as unknown as string)).toBe(false);
+    expect(isPlaceholderTitle(null as unknown as string)).toBe(false);
   });
 });

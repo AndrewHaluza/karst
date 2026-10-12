@@ -99,6 +99,7 @@ describe('ticket-form webview.html', () => {
       '  [FIX] on  ticket/creation — key! ',
       'Bump vite 5 to 6',
       'On ticket creation when no fetch clicked it does not open the rest of the view',
+      'Untitled ticket', // the draft placeholder — must derive nothing, not UNTITLED-TICKET
       '—— ***',
       '',
     ]) {
