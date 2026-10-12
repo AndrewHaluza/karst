@@ -93,39 +93,40 @@ function entryBytes(entry: LogEntry): number {
 }
 
 /**
- * Eviction precedence, most disposable first. Verbose `debug` lines are a
- * line at every decision point and can bury the sparse info/warn/error stream
- * a report exists to carry, so they go first; `info` next; `warn`/`error`
- * last. Within a level, a plain line yields before a ticket-evidence line
- * (the DBG-03 prefixes): the spin/runtime/gate evidence the field report
- * needs is emitted at `debug`, so level alone would lose it to `[driver]`
- * chatter. A field report whose tail was entirely `[driver]` debug spam is
- * the shape this prevents — the noise yields before the evidence.
+ * Retention priority, higher = kept longer. `warn`/`error` outrank
+ * everything; a ticket-evidence line (the DBG-03 prefixes in `logEvidence.ts`)
+ * outranks plain `info`; a plain `debug` line is the first to go. Level alone
+ * is not enough: the spin/runtime/gate evidence the field report needs is
+ * emitted at `debug`, so a buffer full of ordinary `info` would otherwise drop
+ * the just-captured evidence instead of its oldest info. A field report whose
+ * tail was entirely `[driver]` debug spam is the shape this prevents — the
+ * noise yields before the evidence.
  */
-const EVICTION_ORDER: readonly LogLevel[] = ['debug', 'info'];
+function retentionPriority(entry: LogEntry): number {
+  if (entry.level === 'warn' || entry.level === 'error') return 3;
+  if (isEvidenceMessage(entry.message)) return 2;
+  return entry.level === 'info' ? 1 : 0;
+}
 
-/**
- * Index of the entry to drop: oldest of the most disposable level present,
- * preferring a non-evidence line over an evidence one at that level.
- */
+/** Index of the entry to drop: the oldest of the lowest-priority entries. */
 function evictionIndex(entries: readonly LogEntry[]): number {
-  for (const level of EVICTION_ORDER) {
-    const plain = entries.findIndex(
-      (entry) => entry.level === level && !isEvidenceMessage(entry.message),
-    );
-    if (plain >= 0) return plain;
-    const evidence = entries.findIndex((entry) => entry.level === level);
-    if (evidence >= 0) return evidence;
+  let index = 0;
+  let lowest = retentionPriority(entries[0]!);
+  for (let i = 1; i < entries.length; i++) {
+    const priority = retentionPriority(entries[i]!);
+    if (priority < lowest) {
+      lowest = priority;
+      index = i;
+    }
   }
-  // Only warn/error remain — the oldest goes, exactly as FIFO would.
-  return 0;
+  return index;
 }
 
 /**
  * Activation-local diagnostic history. Capture is sanitized before retention
- * and entries are evicted to satisfy both limits — oldest `debug` first, then
- * `info`, and `warn`/`error` last (see `EVICTION_ORDER`). Snapshots stay
- * chronological. Nothing is persisted.
+ * and entries are evicted to satisfy both limits by `retentionPriority` —
+ * plain `debug` first, then plain `info`, then ticket evidence, and
+ * `warn`/`error` last. Snapshots stay chronological. Nothing is persisted.
  */
 export function makeBoundedLogBuffer(
   options: {

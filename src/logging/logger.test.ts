@@ -294,6 +294,19 @@ describe('makeBoundedLogBuffer — level-aware eviction', () => {
     expect(capture.snapshot().map((entry) => entry.message)).toEqual(['[runtime] two', '[runtime] three']);
   });
 
+  it('keeps incoming evidence when the buffer is full of plain info', () => {
+    // Evidence is emitted at debug, so a buffer full of ordinary info must
+    // evict its oldest info, not the just-captured runtime/gate evidence.
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'info', message: `info ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[runtime] the spin evidence' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[runtime] the spin evidence');
+    expect(messages).not.toContain('info 0');
+  });
+
   it('drops older debug before newer debug and accounts the released bytes', () => {
     const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 26 });
     // Empty timestamp + level + 4-char message: info 8 bytes, debug 9 bytes.
