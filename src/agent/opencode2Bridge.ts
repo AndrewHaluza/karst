@@ -14,6 +14,11 @@ import { currentEndpointPath } from './hookFailureLog.js';
  * called), so this is a SEPARATE renderer, not a parameterization of v1's
  * `renderHookBridge`.
  *
+ * `setup(ctx)` MUST return at once: v2 waits for every plugin's setup before
+ * provider/model init, so awaiting the never-ending event stream there hangs the
+ * session (`/api/model` 503, no `provider.updated`, seen on 2.0.27). The
+ * subscription loop therefore runs detached (arch:AC-28).
+ *
  * The event stream is an ASYNC ITERATOR: `for await (const e of
  * ctx.event.subscribe())`. `subscribe(cb)` is NOT a callback registrar — it
  * treats `cb` as a stream transform (live-verified, SPIKE-OPENCODE2-V2-0-24).
@@ -365,6 +370,20 @@ function initialDirectory(ctx) {
   return stringOf(ctx && ctx.directory);
 }
 
+// Detached on purpose: v2 awaits every plugin's setup() before provider/model
+// init, and the event stream never ends. Never rejects (arch:AC-28).
+async function pump(ctx, directory) {
+  try {
+    for await (const event of ctx.event.subscribe()) {
+      try {
+        handleEvent(event, directory);
+      } catch {}
+    }
+  } catch {
+    // The stream can fail on shutdown; the loop must never throw into the agent.
+  }
+}
+
 export default {
   id: ${JSON.stringify(OPENCODE2_BRIDGE_ID)},
   async setup(ctx) {
@@ -374,15 +393,9 @@ export default {
     // deleting the plugin (which would race a live session).
     if (process.env[headlessEnvVar] === '1') return;
     const directory = initialDirectory(ctx);
-    try {
-      for await (const event of ctx.event.subscribe()) {
-        try {
-          handleEvent(event, directory);
-        } catch {}
-      }
-    } catch {
-      // The stream can fail on shutdown; the loop must never throw into the agent.
-    }
+    // subscribe() runs synchronously inside pump (no early event is missed);
+    // the loop itself is never awaited.
+    void pump(ctx, directory);
   },
 };
 `;

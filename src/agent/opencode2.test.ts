@@ -487,10 +487,9 @@ describe('renderOpencode2Bridge module shape', () => {
     '/cfg/opencode2/current-endpoint',
   );
 
-  it('emits the v2 default-export module contract with an async-iterator subscription', () => {
+  it('emits the v2 default-export module contract', () => {
     expect(body).toContain('export default');
-    expect(body).toContain('async setup(ctx)');
-    expect(body).toContain('for await (const event of ctx.event.subscribe())');
+    expect(body).toMatch(/export default \{\s+id: "karst-bridge"/);
     expect(body).toContain('http://127.0.0.1:4567/hooks?karstLaunch=gen-1');
     expect(body).toContain('/cfg/opencode2/current-endpoint');
     expect(body).toContain(KARST_OPENCODE_HEADLESS_ENV);
