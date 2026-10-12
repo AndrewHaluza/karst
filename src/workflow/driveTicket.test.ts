@@ -21,6 +21,8 @@ import { runProcess } from './gates/run.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import { openRecoveryRound, listRecoveryRounds } from '../store/recoveryRounds.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
+import { spinTicket } from '../runtime/spin.js';
+import { stopTicketServers } from '../runtime/supervisor.js';
 
 describe('fixResumeDecision', () => {
   const stages = (uatAttempt: number, reviewAttempt: number) => [
@@ -755,6 +757,9 @@ describe('driveTicket', () => {
       adapter: adapterA,
     });
     expect(seenUatDeps?.runVerifier).toBe(runVerifier);
+    // D155: the service spin/stop seams default to the runtime implementations.
+    expect(seenUatDeps?.spin).toBe(spinTicket);
+    expect(seenUatDeps?.stopServers).toBe(stopTicketServers);
     expect(seenReviewDeps?.reviewProcess).toEqual({
       assignment: { agentName: 'Review Agent', provider: 'codex' },
       adapter: adapterB,

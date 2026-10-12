@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicketFlow } from './create.js';
-import { getTicket } from '../../store/tickets.js';
+import { getTicket, setStageCurrent, updateTicketFields } from '../../store/tickets.js';
+import { SpinCancelledError } from '../../runtime/spin.js';
 import { transition } from '../machine.js';
 import { listStageRuns, openStageRun } from '../../store/stageRuns.js';
 import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
@@ -16,6 +17,7 @@ import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
 import { runUat, resolveTargetGates, testerTargets, type UatDeps } from './uat.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
+import type { ServerView } from '../../store/dashboard.js';
 import type { ScriptProbe } from '../gates/probe.js';
 import type { ProcessOutcome } from '../gates/run.js';
 import type { TesterGateRunner } from '../uat/testerVerifier.js';
@@ -1100,7 +1102,7 @@ describe('runUat', () => {
   });
 });
 
-describe('testerTargets service context', () => {
+describe('testerTargets running services', () => {
   const project: Manifest = manifest({
     single: repo({ repoPath: '/single', service: svc({ start: 'npm run start' }) }),
     mono: repo({
@@ -1111,29 +1113,48 @@ describe('testerTargets service context', () => {
       },
     }),
   });
-  const worktrees = [{ repo: '/mono', baseRef: 'develop', branch: 'karst/t-1' }];
+  const server = (
+    service: string,
+    status: string,
+    host: string | null,
+    port: number | null,
+  ): ServerView => ({ id: 1, ticketId: 1, service, host, port, status, logPath: '/log' });
 
-  it('keeps the single-service shape: one start command for a single-service repository', () => {
+  it('lists the target repository RUNNING services as repo/service → url, from the server rows', () => {
+    const [target] = testerTargets(
+      project,
+      [{ repo: '/mono', path: '/wt/mono', names: ['mono'] }],
+      [{ repo: '/mono', baseRef: 'develop', branch: 'karst/t-1' }],
+      [
+        server('mono/web', 'running', '127.0.0.1', 4100),
+        server('mono/api', 'running', '127.0.0.1', 4200),
+        server('mono/db', 'stopped', '127.0.0.1', 4300),
+      ],
+    );
+    expect(target?.runningServices).toEqual([
+      { key: 'mono/web', url: 'http://127.0.0.1:4100' },
+      { key: 'mono/api', url: 'http://127.0.0.1:4200' },
+    ]);
+  });
+
+  it('yields no running services for a runnable repository with no running row', () => {
     const [target] = testerTargets(
       project,
       [{ repo: '/single', path: '/wt/single', names: ['single'] }],
       [{ repo: '/single', baseRef: 'develop', branch: null }],
+      [server('single', 'stopped', '127.0.0.1', 4100)],
     );
-    expect(target).toMatchObject({ service: { start: 'npm run start' } });
-    expect(target?.services).toBeUndefined();
+    expect(target?.runningServices).toEqual([]);
   });
 
-  it('lists every service of a multi-service repository, keyed repo/service, with its cwd', () => {
+  it('yields no running services when the manifest is absent', () => {
     const [target] = testerTargets(
-      project,
-      [{ repo: '/mono', path: '/wt/mono', names: ['mono'] }],
-      worktrees,
+      undefined,
+      [{ repo: '/wt', path: '/wt', names: [] }],
+      [],
+      [server('web', 'running', '127.0.0.1', 4100)],
     );
-    expect(target?.services).toEqual([
-      { key: 'mono/web', start: 'npm run dev', cwd: 'apps/web' },
-      { key: 'mono/api', start: 'go run .' },
-    ]);
-    expect(target?.service).toBeNull();
+    expect(target?.runningServices).toEqual([]);
   });
 });
 
@@ -1849,6 +1870,259 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     const rows = listUatFindings(store, id);
     expect(rows).toHaveLength(100);
     expect(rows[0]).toMatchObject({ severity: 'critical', repo: '/api' });
+  });
+});
+
+/**
+ * D155: UAT starts the ticket's runnable services before the Tester and stops
+ * them after — on every exit path — unless the user already owns the whole
+ * stack. A spin failure is a `boot-failed` block (an environment fault), never
+ * a failed verdict; a cancel is a Stop.
+ */
+describe('runUat — service spin/stop lifecycle (D155)', () => {
+  let store: Store;
+  let id: number;
+  let artifactDir: string;
+
+  const project: Manifest = manifest({
+    web: repo({ repoPath: '/repo/web', service: svc({ start: 'npm run dev' }) }),
+    api: repo({ repoPath: '/repo/api', service: svc({ start: 'go run .' }) }),
+    docs: repo({ repoPath: '/repo/docs' }),
+  });
+
+  const testerAgent: AgentAdapter = {
+    requiredBinary: 'fake',
+    capabilities: { lifecycleEvents: false, resume: false },
+    buildInteractiveCommand: () => {
+      throw new Error('not used by the tester');
+    },
+    runHeadless: async () => ({ sessionId: '', verdict: null, raw: '[]' }),
+  };
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    id = createTicketFlow(store, { key: 'T-spin', title: 't' }).id;
+    transition(store, id, 'scope', { kind: 'passed' });
+    transition(store, id, 'impl', { kind: 'passed' });
+    artifactDir = mkdtempSync(join(tmpdir(), 'karst-uat-spin-'));
+  });
+  afterEach(() => {
+    store.close();
+    rmSync(artifactDir, { recursive: true, force: true });
+  });
+
+  function seedServer(service: string, status: 'running' | 'stopped' | 'failed'): void {
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path, kind)
+         VALUES (?, ?, '127.0.0.1', 4100, ?, ?, '/log', 'service')`,
+      )
+      .run(id, service, status === 'running' ? 1234 : null, status);
+  }
+
+  const spinOk = async () => ({ servers: [], reclaimedPids: [] });
+
+  function run(over: Partial<UatDeps> = {}, selected: string[] = ['web']) {
+    updateTicketFields(store, id, { selectedRepos: selected });
+    return runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir, manifest: project },
+      deps({
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter: testerAgent },
+        ...over,
+      }),
+    );
+  }
+
+  it('spins the ticket runnable services before the Tester and stops them after a pass', async () => {
+    const order: string[] = [];
+    const res = await run({
+      spin: async (_s, _m, _id, hot) => {
+        order.push(`spin:${hot.join(',')}`);
+        return spinOk();
+      },
+      stopServers: async () => {
+        order.push('stop');
+      },
+    });
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(order).toEqual(['spin:web', 'stop']);
+  });
+
+  it('stops the services when the Tester parks the stage (unreadable output)', async () => {
+    let stopped = 0;
+    const adapter: AgentAdapter = {
+      ...testerAgent,
+      runHeadless: async () => ({ sessionId: '', verdict: null, raw: 'not json at all' }),
+    };
+    const res = await run({
+      tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+      spin: spinOk,
+      stopServers: async () => {
+        stopped += 1;
+      },
+    });
+    expect(res).toEqual({ kind: 'blocked', blocker: 'capability-missing', reason: expect.any(String) });
+    expect(stopped).toBe(1);
+  });
+
+  it('re-spins and stops again on a second UAT pass', async () => {
+    const events: string[] = [];
+    const over: Partial<UatDeps> = {
+      spin: async () => {
+        events.push('spin');
+        return spinOk();
+      },
+      stopServers: async () => {
+        events.push('stop');
+      },
+    };
+    await run(over);
+    // A fix→uat loop re-enters uat; move the ticket back so the second pass can
+    // transition (transition refuses from a stage the ticket has left).
+    setStageCurrent(store, id, 'uat');
+    await run(over);
+    expect(events).toEqual(['spin', 'stop', 'spin', 'stop']);
+  });
+
+  it('does not spin when a gate fails — the verdict is decided first', async () => {
+    let spun = 0;
+    const res = await run({
+      runGates: async (gates) => ({
+        kind: 'ran',
+        results: gates.map((g) => ({
+          name: g.name,
+          exitCode: 1,
+          output: 'boom',
+          startedAt: now(),
+          endedAt: now(),
+        })),
+      }),
+      spin: async () => {
+        spun += 1;
+        return spinOk();
+      },
+      stopServers: async () => {},
+    });
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(spun).toBe(0);
+    expect(listProcessRuns(store, id).some((r) => r.processId === 'tester')).toBe(false);
+  });
+
+  it('runs the Tester with no spin or stop when the ticket has no runnable repo', async () => {
+    let spun = 0;
+    let stopped = 0;
+    const res = await run(
+      {
+        spin: async () => {
+          spun += 1;
+          return spinOk();
+        },
+        stopServers: async () => {
+          stopped += 1;
+        },
+      },
+      ['docs'],
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(spun).toBe(0);
+    expect(stopped).toBe(0);
+    expect(listProcessRuns(store, id).some((r) => r.processId === 'tester')).toBe(true);
+  });
+
+  it('spins only the runnable repos of a mixed selection', async () => {
+    let hot: string[] = [];
+    await run(
+      {
+        spin: async (_s, _m, _id, repos) => {
+          hot = repos;
+          return spinOk();
+        },
+        stopServers: async () => {},
+      },
+      ['web', 'docs'],
+    );
+    expect(hot).toEqual(['web']);
+  });
+
+  it('reuses a fully user-started stack: no spin and no stop', async () => {
+    seedServer('web', 'running');
+    let spun = 0;
+    let stopped = 0;
+    const res = await run({
+      spin: async () => {
+        spun += 1;
+        return spinOk();
+      },
+      stopServers: async () => {
+        stopped += 1;
+      },
+    });
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(spun).toBe(0);
+    expect(stopped).toBe(0);
+  });
+
+  it('owns a partial stack: it spins and stops', async () => {
+    seedServer('web', 'running'); // api is missing, so the stack is not whole
+    let spun = 0;
+    let stopped = 0;
+    await run(
+      {
+        spin: async () => {
+          spun += 1;
+          return spinOk();
+        },
+        stopServers: async () => {
+          stopped += 1;
+        },
+      },
+      ['web', 'api'],
+    );
+    expect(spun).toBe(1);
+    expect(stopped).toBe(1);
+  });
+
+  it('parks boot-failed with the health evidence when the spin fails, and never runs the Tester', async () => {
+    let testerRan = false;
+    const adapter: AgentAdapter = {
+      ...testerAgent,
+      runHeadless: async () => {
+        testerRan = true;
+        return { sessionId: '', verdict: null, raw: '[]' };
+      },
+    };
+    const res = await run({
+      tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+      spin: async () => {
+        throw new Error(
+          'could not start \'web\': nothing is listening on 127.0.0.1:4100 — the service never bound its port.',
+        );
+      },
+      stopServers: async () => {
+        throw new Error('must not stop after a failed spin');
+      },
+    });
+    expect(res).toEqual({
+      kind: 'blocked',
+      blocker: 'boot-failed',
+      reason: expect.stringContaining('nothing is listening'),
+    });
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('boot-failed');
+    expect(testerRan).toBe(false);
+  });
+
+  it('treats a cancelled spin as a Stop, never boot-failed', async () => {
+    const res = await run({
+      spin: async () => {
+        throw new SpinCancelledError(id);
+      },
+      stopServers: async () => {
+        throw new Error('must not stop after a cancelled spin');
+      },
+    });
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(stageBlock(store, id, 'uat')).toBeNull();
   });
 });
 

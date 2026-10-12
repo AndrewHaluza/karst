@@ -1691,7 +1691,7 @@ describe('insideViews (the six-stage inside presentation)', () => {
     const ticketId = ticketAt('uat');
     const views = buildDashboardState(store, ticketId).insideViews;
     expect(views.uat.processes.map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
-    expect(views.review.processes.map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+    expect(views.review.processes.map((p) => p.id)).toEqual(['gates', 'review']);
   });
 
   it('renders the resolved gate names as pending rows before the uat stage runs', () => {

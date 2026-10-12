@@ -138,34 +138,40 @@ export interface TesterTarget {
    */
   branch?: string | null;
   /**
-   * Host-known, READ-ONLY context: the manifest-declared service start command
-   * for the target, when the repository is runnable. The Tester may use it to
-   * stand the service up; it is never AI output and never a credential.
+   * Host-known, READ-ONLY context: the services of this target that karst
+   * ALREADY started for this ticket, each as `repo/service → http://host:port`.
+   * The Tester exercises these live; it never starts or stops anything (the
+   * stage owns the stack — `SERVERS_VIA_CLI_RULE`). Empty/absent → the target
+   * has no running service and the prompt says so.
    */
-  service?: { start?: string } | null;
-  /**
-   * Host-known, READ-ONLY context for a repository with SEVERAL services: one
-   * entry per service (`repo/service`), each with its start command and the
-   * folder it runs from when the manifest sets one. Absent for single-service
-   * repositories, which use `service`.
-   */
-  services?: readonly TesterService[] | null;
+  runningServices?: readonly TesterRunningService[] | null;
 }
 
-export interface TesterService {
+export interface TesterRunningService {
   /** `repo/service` — the unit key the rest of karst names this service by. */
   key: string;
-  start: string;
-  cwd?: string;
+  /** The live URL, `http://host:port`. */
+  url: string;
 }
 
-/** The "services start with" block for a multi-service repository. */
-function servicesClause(services: readonly TesterService[]): string {
-  const lines = services.map((s) => {
-    const cwd = s.cwd !== undefined ? ` (cwd: ${s.cwd})` : '';
-    return `\n- ${s.key}: \`${s.start}\`${cwd}`;
-  });
-  return `\nThe repository's services start with:${lines.join('')}\nYou may stand them up to observe behavior.`;
+/**
+ * The running-services clause. A target with live services is told they are up
+ * and must not be touched; a serviceless target is told its change is not live
+ * in any running app, so it verifies through its CLI/API/library instead of
+ * looking for a UI that was never started.
+ */
+function serviceClauseFor(services: readonly TesterRunningService[] | null | undefined): string {
+  if (services && services.length > 0) {
+    const lines = services.map((s) => `\n- ${s.key} → ${s.url}`).join('');
+    return (
+      `\nThese services are already running for this ticket; do not start, restart or stop them.` +
+      lines
+    );
+  }
+  return (
+    `\nThis repository has no running service; verify through its CLI, API or library usage. ` +
+    `Its change is NOT live in any running app of this ticket.`
+  );
 }
 
 export interface RunUatTesterOpts {
@@ -442,12 +448,7 @@ export function buildTesterPrompt(
   const baseClause = target.baseRef
     ? `against its base branch, \`${target.baseRef}\` (compare against \`origin/${target.baseRef}\` when available, otherwise the local \`${target.baseRef}\`).`
     : `against its base branch.`;
-  const serviceClause =
-    target.services && target.services.length > 0
-      ? servicesClause(target.services)
-      : target.service?.start
-        ? `\nThe repository's service starts with: \`${target.service.start}\`. You may stand it up to observe behavior.`
-        : '';
+  const serviceClause = serviceClauseFor(target.runningServices);
   // User instructions REPLACE the role/strategy block (the ticket's
   // precedence: user override → built-in default). The target context is
   // kept — repo, base branch and service are facts the agent needs whatever
