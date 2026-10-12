@@ -464,6 +464,69 @@ describe('ServicesSection — signals', () => {
   });
 });
 
+describe('ServicesSection — ship exclude', () => {
+  it('emits data-karst-action="remove-ship-exclude" and removes by VALUE', () => {
+    mount({
+      ...BASE,
+      repositories: {
+        api: {
+          name: 'api',
+          repoPath: '../api',
+          hasMigrations: false,
+          enabled: true,
+          ship: { exclude: ['dist/**', '*.lock.json'] },
+        },
+      } as unknown as Manifest['repositories'],
+    });
+    open('api');
+    const del = screen.getByRole('button', { name: 'Remove ship exclude dist/**' });
+    expect(del.getAttribute('data-karst-action')).toBe('remove-ship-exclude');
+    fireEvent.click(del);
+    expect((repositories().api?.ship as { exclude?: string[] }).exclude).toEqual(['*.lock.json']);
+  });
+
+  it('removes the ship block when the last pathspec goes', () => {
+    mount({
+      ...BASE,
+      repositories: {
+        api: {
+          name: 'api',
+          repoPath: '../api',
+          hasMigrations: false,
+          enabled: true,
+          ship: { exclude: ['dist/**'] },
+        },
+      } as unknown as Manifest['repositories'],
+    });
+    open('api');
+    fireEvent.click(screen.getByRole('button', { name: 'Remove ship exclude dist/**' }));
+    expect(repositories().api?.ship).toBeUndefined();
+  });
+
+  it('adds a typed pathspec and disables Add for blank or ":"-magic input', () => {
+    mount({
+      ...BASE,
+      repositories: {
+        api: { name: 'api', repoPath: '../api', hasMigrations: false, enabled: true },
+      } as unknown as Manifest['repositories'],
+    });
+    open('api');
+    const add = screen.getByRole('button', {
+      name: 'Add ship exclude pathspec for api',
+    }) as HTMLButtonElement;
+    expect(add.disabled).toBe(true);
+
+    // The host refuses a `:`-magic entry, so the form must not accept one.
+    setField('f-ship-exclude-api', ':(glob)dist/**');
+    expect(add.disabled).toBe(true);
+
+    setField('f-ship-exclude-api', 'dist/**');
+    expect(add.disabled).toBe(false);
+    fireEvent.click(add);
+    expect((repositories().api?.ship as { exclude?: string[] }).exclude).toEqual(['dist/**']);
+  });
+});
+
 describe('ServicesSection — a mapped fault stays silent until its field is touched', () => {
   const fault = 'repository "api" service.start is required';
 

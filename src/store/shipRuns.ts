@@ -131,6 +131,8 @@ export type ShipOperationPreState =
       author: PersistedCommitIdentity;
       committer: PersistedCommitIdentity;
       quarantineKey: string;
+      /** Exclude specs the sweep commit was prepared with — replayed on rebuild. */
+      exclude?: string[];
     }
   | { step: 'push'; localHead: string; remote: string; ref: string; preRemoteHead: string | null }
   | { step: 'describe'; prUrl: string; preBodyHash: string }
@@ -1070,6 +1072,13 @@ export function parseShipPreState(
       ) {
         return null;
       }
+      // Optional (pre-existing rows have none): absent is [], a mistyped value is
+      // malformed data — never adopted.
+      let exclude: string[] | undefined;
+      if (parsed.exclude !== undefined) {
+        if (!Array.isArray(parsed.exclude) || !parsed.exclude.every(isStr)) return null;
+        exclude = parsed.exclude;
+      }
       return {
         step,
         preHead,
@@ -1079,6 +1088,7 @@ export function parseShipPreState(
         author,
         committer,
         quarantineKey,
+        ...(exclude === undefined ? {} : { exclude }),
       };
     }
     case 'push': {

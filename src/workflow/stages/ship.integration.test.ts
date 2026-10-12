@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../../store/db.js';
@@ -17,6 +17,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import { defaultGitRunner, runGit, type GitRunner } from '../../integrations/git.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { fullPreset, manifest, repo } from '../../manifest/fixtures.js';
+import type { Manifest } from '../../manifest/types.js';
 
 function seedWorktree(
   store: Store,
@@ -706,6 +707,148 @@ setTimeout(() => {
 
       expect(result.prs).toHaveLength(1);
       expect(calls.some((args) => args[0] === 'push')).toBe(true);
+    });
+  });
+
+  describe('ship exclude (repos.<name>.ship.exclude)', () => {
+    /** Real git everywhere but `push` (there is no remote); records every call. */
+    function shipGit(calls: string[][] = []): GitRunner {
+      return async (args, cwd, opts) => {
+        calls.push(args);
+        if (args[0] === 'push') return { stdout: '', stderr: '', exitCode: 0 };
+        return defaultGitRunner(args, cwd, opts);
+      };
+    }
+
+    /**
+     * A worktree whose base branch TRACKS `dist/a.js`, checked out on `karst/x` —
+     * the shape the exclude exists for: a tracked build artifact edited locally.
+     */
+    async function worktreeWithTrackedDist(): Promise<string> {
+      const worktree = join(dir, 'fe');
+      await initRealRepo(worktree);
+      await runGit(['checkout', 'develop'], worktree);
+      mkdirSync(join(worktree, 'dist'), { recursive: true });
+      writeFileSync(join(worktree, 'dist/a.js'), 'built');
+      await runGit(['add', '-A'], worktree);
+      await runGit(['commit', '-m', 'track dist on base'], worktree);
+      await runGit(['checkout', '-b', 'karst/x'], worktree);
+      return worktree;
+    }
+
+    const withShip = (exclude: string[]): Manifest =>
+      manifest({ frontend: repo({ repoPath: '/repo/frontend', ship: { exclude } }) });
+
+    it('leaves an excluded dirty path out of the sweep commit and reports it', async () => {
+      const worktree = await worktreeWithTrackedDist();
+      writeFileSync(join(worktree, 'dist/a.js'), 'local stand-in');
+      writeFileSync(join(worktree, 'src.ts'), 'export const a = 1;\n');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+
+      const events: ShipStepEvent[] = [];
+      const calls: string[][] = [];
+      const result = await shipTicket(
+        store,
+        { ticketId: id, manifest: withShip(['dist/**']) },
+        fakeGh().gh,
+        undefined,
+        shipGit(calls),
+        (e) => events.push(e),
+      );
+
+      // The sweep commit carries src.ts only; dist keeps the base content and the
+      // local edit stays dirty in the worktree.
+      const created = createdShipCommit(store, id, '/repo/frontend');
+      expect(created).toBeDefined();
+      const files = (await runGit(['ls-tree', '-r', '--name-only', created!.sha], worktree))
+        .stdout.trim()
+        .split('\n')
+        .sort();
+      expect(files).toContain('src.ts');
+      expect((await runGit(['show', `${created!.sha}:dist/a.js`], worktree)).stdout).toBe('built');
+      expect(readFileSync(join(worktree, 'dist/a.js'), 'utf8')).toBe('local stand-in');
+      expect(result.prs).toHaveLength(1);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          repo: '/repo/frontend',
+          step: 'commit',
+          status: 'note',
+          detail: expect.stringContaining('excluded from sweep commit: dist/a.js'),
+        }),
+      );
+    });
+
+    it('warns when an excluded spec also matches agent-committed changes', async () => {
+      const worktree = await worktreeWithTrackedDist();
+      // The agent COMMITS a dist change — the escape hatch — and leaves src dirty.
+      writeFileSync(join(worktree, 'dist/a.js'), 'committed');
+      await runGit(['add', '-A'], worktree);
+      await runGit(['commit', '-m', 'agent ships dist'], worktree);
+      writeFileSync(join(worktree, 'src.ts'), 'export const a = 1;\n');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id, manifest: withShip(['dist/**']) },
+        fakeGh().gh,
+        undefined,
+        shipGit(),
+        (e) => events.push(e),
+      );
+
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          repo: '/repo/frontend',
+          step: 'commit',
+          status: 'note',
+          detail: expect.stringContaining('ship.exclude matches committed changes: dist/a.js'),
+        }),
+      );
+    });
+
+    it('treats a repo whose only dirty paths are excluded as unchanged', async () => {
+      const worktree = await worktreeWithTrackedDist();
+      writeFileSync(join(worktree, 'dist/a.js'), 'local stand-in');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+
+      // Every target is unchanged from its base once dist is excluded, so ship
+      // refuses — and no sweep commit was created.
+      await expect(
+        shipTicket(
+          store,
+          { ticketId: id, manifest: withShip(['dist/**']) },
+          fakeGh().gh,
+          undefined,
+          shipGit(),
+        ),
+      ).rejects.toThrow(/ship produced nothing/);
+      expect(createdShipCommit(store, id, '/repo/frontend')).toBeUndefined();
+    });
+
+    it('ships normally when the manifest declares no exclude', async () => {
+      const worktree = await worktreeWithTrackedDist();
+      writeFileSync(join(worktree, 'dist/a.js'), 'local stand-in');
+      writeFileSync(join(worktree, 'src.ts'), 'export const a = 1;\n');
+      seedWorktree(store, id, '/repo/frontend', worktree);
+
+      const events: ShipStepEvent[] = [];
+      await shipTicket(
+        store,
+        { ticketId: id, manifest: manifest({ frontend: repo({ repoPath: '/repo/frontend' }) }) },
+        fakeGh().gh,
+        undefined,
+        shipGit(),
+        (e) => events.push(e),
+      );
+
+      // The sweep staged the whole worktree: dist is in the commit and nothing
+      // was reported as excluded.
+      const created = createdShipCommit(store, id, '/repo/frontend');
+      expect((await runGit(['show', `${created!.sha}:dist/a.js`], worktree)).stdout).toBe(
+        'local stand-in',
+      );
+      expect(events.some((e) => e.detail?.includes('excluded from sweep commit'))).toBe(false);
     });
   });
 

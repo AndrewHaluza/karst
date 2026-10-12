@@ -150,6 +150,8 @@ export function renderDoneMarkerInstruction(
   const artifactCommand = `${stageCommand.replace(marker, ' artifact add <path> --kind <kind> ')} ${ticketArg}`;
   return (
     base +
+    " A path a repository lists in `ship.exclude` is left out of ship's sweep commit but stays " +
+    'dirty in the worktree — if you must ship it, COMMIT it: committed changes always ship.' +
     ' If you learned something another task should know, post ONE short note for the ' +
     (mcpStage
       ? 'project bulletin first: call the karst MCP tool `notes` with { action: "post", title: "<short title>", body: "<learnings>" } ' +

@@ -109,6 +109,11 @@ export function writeManifest(path: string, manifest: Manifest): void {
       enabled: repo.enabled === false ? false : undefined,
       // Optional: written when set, dropped when cleared (→ falls back to name).
       scope: repo.scope,
+      // Optional: written when set, dropped (undefined → omitted by the dumper,
+      // overriding any stale raw value) when cleared, so a repo that never had a
+      // ship block does not gain one on Save. Without this line Save silently
+      // drops `ship.exclude` — the failure mode the round-trip test catches.
+      ship: repo.ship,
       // Per-repo convention overrides. Overlay each modeled key onto the raw
       // block (like the global `conventions`) so an unmodeled nested key
       // survives; assign every modeled child even when absent so clearing one

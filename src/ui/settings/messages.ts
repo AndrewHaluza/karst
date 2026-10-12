@@ -122,6 +122,7 @@ export const DESTRUCTIVE_ACTIONS = [
   'remove-binding',
   'remove-dependency',
   'remove-signal',
+  'remove-ship-exclude',
   'remove-gate',
   'remove-override',
 ] as const;

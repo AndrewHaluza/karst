@@ -262,6 +262,21 @@ describe('renderDoneMarkerInstruction', () => {
     expect(fix).not.toContain('artifact add');
   });
 
+  it('tells the IMPLEMENTER the ship.exclude escape hatch — committing a path ships it', () => {
+    const impl = renderDoneMarkerInstruction(
+      'node "/ext/cli.js" stage impl pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(impl).toContain('ship.exclude');
+    expect(impl).toContain('COMMIT');
+    // Fix resumes and gate surfaces never carry it.
+    const fix = renderDoneMarkerInstruction(
+      'node "/ext/cli.js" stage fix pass --db "/x.db" --ticket',
+      'PROJ-9',
+    );
+    expect(fix).not.toContain('ship.exclude');
+  });
+
   it('does NOT ask a fix session for a bulletin note', () => {
     const s = renderDoneMarkerInstruction(
       'node "/ext/cli.js" stage fix pass --db "/x.db" --ticket',

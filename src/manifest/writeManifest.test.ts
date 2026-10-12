@@ -167,6 +167,30 @@ describe('writeManifest', () => {
     }
   });
 
+  // A repository's `ship` block follows the same overlay rule: written when set,
+  // dropped (undefined → omitted by the dumper) when cleared, so a repo that
+  // never had one does not gain an empty block on Save.
+  it('round-trips a repository ship block and drops it when cleared', () => {
+    const { path, cleanup } = fixture();
+    try {
+      const m = loadManifest(path);
+      const name = Object.keys(m.repositories)[0]!;
+      writeManifest(path, {
+        ...m,
+        repositories: { ...m.repositories, [name]: { ...m.repositories[name]!, ship: { exclude: ['dist/**'] } } },
+      });
+      expect(loadManifest(path).repositories[name]!.ship).toEqual({ exclude: ['dist/**'] });
+
+      writeManifest(path, {
+        ...m,
+        repositories: { ...m.repositories, [name]: { ...m.repositories[name]!, ship: undefined } },
+      });
+      expect(loadManifest(path).repositories[name]!.ship).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
   // Regression guard: writeManifest whitelists modeled top-level keys in its
   // overlay, so ANY newly-added Manifest field silently fails to persist until
   // it's added there. This round-trips a fully-populated manifest and asserts
@@ -189,6 +213,7 @@ describe('writeManifest', () => {
             hasMigrations: true,
             signals: ['api', 'endpoint'],
             scope: 'api',
+            ship: { exclude: ['dist/**', '*.lock.json'] },
             conventions: {
               commitMessage: '{type}({scope}): {title} [{key}]',
               pullRequestTitle: '[{key}] {title}',

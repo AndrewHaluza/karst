@@ -100,6 +100,23 @@ export interface ServiceDef {
 }
 
 /**
+ * Per-repository ship behaviour. Today the one knob is `exclude`: git pathspecs
+ * (glob magic, e.g. `dist/**`) that ship's sweep commit must leave out of the
+ * index it builds in quarantine. Excluded paths stay dirty in the worktree —
+ * nothing is deleted and the live index is untouched — but they never reach the
+ * sweep commit. Committed changes are never affected: committing a path is the
+ * escape hatch for shipping it on purpose.
+ */
+export interface ShipDef {
+  /**
+   * Git pathspecs (glob magic) ship's sweep commit must not stage. Each entry is
+   * a plain pathspec — karst adds the `:(glob)` magic prefix itself, so an entry
+   * starting with `:` is refused rather than silently misapplied.
+   */
+  exclude?: string[];
+}
+
+/**
  * A repository's overrides of the three git artifact templates that CAN vary
  * per repo. Deliberately a subset of `ArtifactConventions`: `defaultType` steers
  * `{type}` for every repo from one place, and `branchName` is one branch per
@@ -175,6 +192,12 @@ export interface RepositoryDef {
    * Addressed everywhere as `repo/service`; see `manifest/runnable.ts`.
    */
   services?: Record<string, ServiceDef>;
+  /**
+   * Ship behaviour for this repository. Absent means "ship the whole worktree"
+   * — the default. The one knob today is `exclude`, the pathspecs ship's sweep
+   * commit leaves out.
+   */
+  ship?: ShipDef;
   /**
    * Whether this repository is used by the system. `false` is the DRAFT state:
    * the settings UI lets an author save an incomplete repository as long as it
