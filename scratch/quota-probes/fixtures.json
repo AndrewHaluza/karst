@@ -1,0 +1,86 @@
+{
+  "claude": {
+    "statusline_payload": {
+      "model": {
+        "display_name": "Claude 3.7 Sonnet"
+      },
+      "context_window": {
+        "used_percentage": 22.4,
+        "context_window_size": 200000
+      },
+      "rate_limits": {
+        "five_hour": {
+          "used_percentage": 34.0,
+          "resets_at": 1746540000
+        },
+        "seven_day": {
+          "used_percentage": 12.0,
+          "resets_at": 1746799200
+        }
+      }
+    },
+    "keychain_credentials": {
+      "subscriptionType": "pro",
+      "rateLimitTier": "default_claude_ai",
+      "scopes": [
+        "user:file_upload",
+        "user:inference",
+        "user:mcp_servers",
+        "user:plugins",
+        "user:profile",
+        "user:sessions:claude_code"
+      ]
+    }
+  },
+  "codex": {
+    "session_rate_limits": {
+      "limit_id": "codex",
+      "limit_name": null,
+      "primary": {
+        "used_percent": 76.0,
+        "window_minutes": 43200,
+        "resets_at": 1793635607
+      },
+      "secondary": {
+        "used_percent": 24.0,
+        "window_minutes": 10080,
+        "resets_at": 1793700000
+      },
+      "credits": {
+        "has_credits": false,
+        "unlimited": false,
+        "balance": null
+      },
+      "plan_type": "pro",
+      "rate_limit_reached_type": null
+    }
+  },
+  "antigravity": {
+    "oauth_creds": {
+      "token_type": "Bearer",
+      "scope": "https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email openid"
+    },
+    "subscription_quota_source": null
+  },
+  "opencode": {
+    "auth": {
+      "opencode-go": {
+        "type": "api",
+        "key": "[REDACTED]"
+      }
+    },
+    "stats_output": {
+      "tokens": {
+        "input": 2715775,
+        "output": 82995,
+        "reasoning": 63869,
+        "cache": {
+          "read": 46375680,
+          "write": 0
+        }
+      },
+      "cost": 11.449
+    },
+    "subscription_quota_source": null
+  }
+}
