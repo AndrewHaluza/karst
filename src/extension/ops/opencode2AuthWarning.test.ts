@@ -3,7 +3,11 @@ import {
   configureOpencode2,
   resetOpencode2Config,
 } from '../../agent/opencode2Binary.js';
-import { OPENCODE2_AUTH_WARNING, warnOpencode2AuthIfUnset } from './opencode2AuthWarning.js';
+import {
+  OPENCODE2_AUTH_WARNING,
+  shouldGateOpencode2Auth,
+  warnOpencode2AuthIfUnset,
+} from './opencode2AuthWarning.js';
 
 const HOME = '/gs/opencode2';
 const BIN = '/opt/oc/opencode';
@@ -107,5 +111,19 @@ describe('warnOpencode2AuthIfUnset', () => {
     expect(OPENCODE2_AUTH_WARNING).toContain('no provider signed in');
     expect(OPENCODE2_AUTH_WARNING).toContain('No provider selected');
     expect(OPENCODE2_AUTH_WARNING).toContain("Karst: Log in to OpenCode v2");
+  });
+});
+
+describe('shouldGateOpencode2Auth', () => {
+  const base = { providerReady: false, isOpen: false, activeGraph: false };
+  it('gates a real fresh launch', () => {
+    expect(shouldGateOpencode2Auth(base)).toBe(true);
+  });
+  it.each([
+    ['an automated provider-ready launch', { providerReady: true }],
+    ['an already-open session reveal', { isOpen: true }],
+    ['an active graph run reveal', { activeGraph: true }],
+  ])('does not gate %s', (_label, over) => {
+    expect(shouldGateOpencode2Auth({ ...base, ...over })).toBe(false);
   });
 });

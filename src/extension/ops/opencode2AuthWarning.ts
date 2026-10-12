@@ -69,3 +69,17 @@ export async function warnOpencode2AuthIfUnset(
   await deps.logIn();
   return false;
 }
+
+/**
+ * Whether a `karst.openSession` call should run the auth check at all: only a
+ * real fresh launch. Not an automated launch (`providerReady`, nobody to
+ * answer), not a reveal of a session karst already holds, and not a reveal of
+ * an active graph run's live node terminal.
+ */
+export function shouldGateOpencode2Auth(ctx: {
+  providerReady: boolean;
+  isOpen: boolean;
+  activeGraph: boolean;
+}): boolean {
+  return !ctx.providerReady && !ctx.isOpen && !ctx.activeGraph;
+}

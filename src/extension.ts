@@ -538,7 +538,7 @@ import {
   checkOpencode2Binary,
   opencode2LoginCommand,
 } from './extension/ops/opencode2Ops.js';
-import { warnOpencode2AuthIfUnset } from './extension/ops/opencode2AuthWarning.js';
+import { shouldGateOpencode2Auth, warnOpencode2AuthIfUnset } from './extension/ops/opencode2AuthWarning.js';
 import { buildDepsIndicator } from './ui/depsIndicator.js';
 import { buildResourceIndicator } from './ui/resourceStatus.js';
 import { WorktreeDiskCache } from './runtime/worktreeDisk.js';
@@ -1697,20 +1697,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     );
   };
 
-  /**
-   * Warn before an OpenCode v2 session opens with no provider signed in: karst
-   * sandboxes every v2 spawn in its own XDG dirs, so the user's personal
-   * credentials are invisible and the TUI renders `No provider selected` for
-   * the session's whole life. The binary and version guards both pass, so this
-   * is the last moment that can catch it. False only when the user signs in
-   * first; a dismissal or "Launch anyway" lets the launch continue.
-   */
-  const opencode2AuthGate = (ticketId: number): Promise<boolean> =>
+  /** Warn before an OpenCode v2 launch with no provider signed in (see opencode2AuthWarning.ts). False only when the user signs in first. */
+  const opencode2AuthGate = (
+    ticketId: number,
+    assignedProvider?: AgentProvider,
+  ): Promise<boolean> =>
     warnOpencode2AuthIfUnset({
-      provider: resolveTicketProvider(
-        currentManifest() ?? emptyManifest(),
-        getTicket(localStore, ticketId) ?? {},
-      ),
+      // The launch honours an explicit assignment over the ticket default.
+      provider:
+        assignedProvider ??
+        resolveTicketProvider(
+          currentManifest() ?? emptyManifest(),
+          getTicket(localStore, ticketId) ?? {},
+        ),
       probe: commandOutputAsync,
       choose: (message, ...buttons) =>
         Promise.resolve(vscode.window.showWarningMessage(message, ...buttons)),
@@ -6052,15 +6051,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Without the CLI the terminal opens, prints a shell "command not found",
       // and sits there looking like karst did something.
       if (!options.providerReady && !guardCapability('sessions', ticketId)) return;
-      // An opencode2 session whose isolated store holds no credential opens
-      // straight into "No provider selected" and can never answer; warn before
-      // the terminal does. Only for a real launch (never an already-open
-      // reveal) and never for an automated fix launch, which has nobody to
-      // answer the prompt.
+      // An opencode2 session with an empty isolated credential store opens into
+      // "No provider selected"; warn first (real launches only).
       if (
-        !options.providerReady &&
-        !sessions.isOpen(ticketId) &&
-        !(await opencode2AuthGate(ticketId))
+        shouldGateOpencode2Auth({
+          providerReady: !!options.providerReady,
+          isOpen: sessions.isOpen(ticketId),
+          activeGraph: !!activeGraph,
+        }) &&
+        !(await opencode2AuthGate(ticketId, options.assignment?.provider))
       ) {
         return;
       }
