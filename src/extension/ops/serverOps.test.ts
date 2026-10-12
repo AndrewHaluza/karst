@@ -9,10 +9,20 @@ import {
   type ServerOpsDeps,
 } from './serverOps.js';
 import type { Notify } from './notify.js';
-import { startTicketService, StartServiceError } from '../../runtime/startOne.js';
+import {
+  startTicketService,
+  StartServiceError,
+  type StartTicketServiceResult,
+} from '../../runtime/startOne.js';
 import { stopServer } from '../../runtime/supervisor.js';
 import { MissingAllocationError } from '../../resolver/recordedAllocator.js';
+import { PortRangeExhaustedError } from '../../resolver/allocator.js';
 import { manifest, stack } from '../../manifest/fixtures.js';
+
+/** A recorded-path result: the target kept its port and nothing was rewired. */
+function recordedResult(): StartTicketServiceResult {
+  return { record: {} as never, newPorts: {}, restartedDependents: [] };
+}
 
 vi.mock('../../runtime/startOne.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../runtime/startOne.js')>();
@@ -50,7 +60,7 @@ describe('serverOps', () => {
     store = openStore(':memory:');
     startTicketServiceMock.mockReset();
     stopServerMock.mockReset();
-    startTicketServiceMock.mockResolvedValue({} as never);
+    startTicketServiceMock.mockResolvedValue(recordedResult());
   });
 
   afterEach(() => store.close());
@@ -168,11 +178,61 @@ describe('serverOps', () => {
     });
     startTicketServiceMock.mockImplementation(async () => {
       order.push('start');
-      return {} as never;
+      return recordedResult();
     });
     const deps = makeDeps({ store });
     await restartServerRow(deps, 1);
     expect(order).toEqual(['stop', 'start']);
     expect(deps.notify.info).toHaveBeenCalledWith('Restarted backend.');
+  });
+
+  it('startServerRow names the new port and the dependents it restarted', async () => {
+    addServer(1, 7, 'backend');
+    startTicketServiceMock.mockResolvedValue({
+      record: {} as never,
+      newPorts: { http: 6012 },
+      restartedDependents: ['api', 'worker'],
+    });
+    const deps = makeDeps({ store });
+    await startServerRow(deps, 1);
+    expect(deps.notify.info).toHaveBeenCalledWith(
+      'Started backend on :6012 (new port); restarted api, worker to rewire.',
+    );
+  });
+
+  it('startServerRow names the new port with no dependents to rewire', async () => {
+    addServer(1, 7, 'backend');
+    startTicketServiceMock.mockResolvedValue({
+      record: {} as never,
+      newPorts: { http: 6012 },
+      restartedDependents: [],
+    });
+    const deps = makeDeps({ store });
+    await startServerRow(deps, 1);
+    expect(deps.notify.info).toHaveBeenCalledWith('Started backend on :6012 (new port).');
+  });
+
+  it('startServerRow names every newly allocated port', async () => {
+    addServer(1, 7, 'backend');
+    startTicketServiceMock.mockResolvedValue({
+      record: {} as never,
+      newPorts: { http: 6012, debug: 9229 },
+      restartedDependents: [],
+    });
+    const deps = makeDeps({ store });
+    await startServerRow(deps, 1);
+    expect(deps.notify.info).toHaveBeenCalledWith('Started backend on :6012, :9229 (new ports).');
+  });
+
+  it('startServerRow surfaces a port-range-exhausted error as a user-facing message', async () => {
+    addServer(1, 7, 'backend');
+    startTicketServiceMock.mockRejectedValue(
+      new PortRangeExhaustedError([4000, 4099], 1, 'backend'),
+    );
+    const deps = makeDeps({ store });
+    await expect(startServerRow(deps, 1)).rejects.toThrow(
+      'Cannot start backend: no free contiguous block of 1 port(s) in range [4000, 4099] for service "backend". Free a port or widen the range, then try again.',
+    );
+    expect(deps.afterServerChange).toHaveBeenCalledTimes(1);
   });
 });

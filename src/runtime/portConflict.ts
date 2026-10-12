@@ -86,7 +86,7 @@ async function discoverListenerPids(
   if (targets.length === 0) return [];
 
   if (process.platform === 'win32') {
-    const stdout = await commandOutput('netstat', ['-ano', '-p', 'tcp']);
+    const stdout = await commandOutput('netstat', ['-ano', '-p', 'tcp'], options.timeoutMs);
     if (stdout === null) return [];
     const pids: number[] = [];
     for (const line of stdout.split('\n')) {
@@ -106,13 +106,11 @@ async function discoverListenerPids(
     }
     return [...new Set(pids)];
   }
-  const stdout = await commandOutput('lsof', [
-    '-nP',
-    '-a',
-    `-iTCP:${port}`,
-    '-sTCP:LISTEN',
-    '-Fpn',
-  ]);
+  const stdout = await commandOutput(
+    'lsof',
+    ['-nP', '-a', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpn'],
+    options.timeoutMs,
+  );
   if (stdout === null) return [];
   const pids: number[] = [];
   let pid: number | null = null;

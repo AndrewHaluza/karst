@@ -37,6 +37,23 @@ function close(srv: Server): Promise<void> {
   return new Promise((resolve) => srv.close(() => resolve()));
 }
 
+/**
+ * Discovery for the POSITIVE cases only. `lsof` is a whole-process-table scan
+ * that, on a machine loaded by the rest of this suite, can miss the default 2s
+ * budget — `listenerPids` then returns `[]` by its "cannot identify" contract.
+ * These cases assert the PARSE and address-family scoping, not the deadline
+ * (pinned by the dedicated stalled-host case), so give discovery a generous
+ * budget and a few attempts rather than race a busy machine. Never use this for
+ * a negative assertion, where `[]` is itself the expected answer.
+ */
+async function discover(host: string, port: number): Promise<number[]> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const pids = await listenerPids(host, port, { timeoutMs: 8_000 });
+    if (pids.length > 0) return pids;
+  }
+  return [];
+}
+
 describe('isPortOpen', () => {
   it('is false for a port nothing has bound', async () => {
     const { srv, port } = await listen();
@@ -90,7 +107,7 @@ describe('listenerPids', () => {
   it('names the process LISTENING on the port, and nothing for a free one', async () => {
     const { srv, port } = await listen();
     try {
-      expect(await listenerPids('127.0.0.1', port)).toContain(process.pid);
+      expect(await discover('127.0.0.1', port)).toContain(process.pid);
     } finally {
       await close(srv);
     }
@@ -100,7 +117,7 @@ describe('listenerPids', () => {
   it('returns only listeners that occupy the requested address family', async () => {
     const { srv, port } = await listen({ host: '::1', ipv6Only: true });
     try {
-      expect(await listenerPids('::1', port)).toContain(process.pid);
+      expect(await discover('::1', port)).toContain(process.pid);
       expect(await listenerPids('127.0.0.1', port)).not.toContain(process.pid);
     } finally {
       await close(srv);
@@ -114,7 +131,7 @@ describe('listenerPids', () => {
     // not a v4 socket (this is the squatter the incident reported: lsof -i4TCP
     // misses it on Linux).
     try {
-      expect(await listenerPids('127.0.0.1', port)).toContain(process.pid);
+      expect(await discover('127.0.0.1', port)).toContain(process.pid);
     } finally {
       await close(srv);
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from '../store/db.js';
 import { makePortAllocator } from './allocator.js';
-import { resolve } from './resolve.js';
+import { resolve, transitiveDependents } from './resolve.js';
 import type { Manifest } from '../manifest/types.js';
 import {
   dependsOn,
@@ -45,6 +45,51 @@ function manifest(): Manifest {
     docs: repo({ repoPath: '../docs' }),
   });
 }
+
+describe('transitiveDependents', () => {
+  it('finds a direct dependent (frontend depends on backend)', () => {
+    expect(transitiveDependents(manifest(), 'backend')).toEqual(['frontend']);
+  });
+
+  it('finds a dependent through an intermediate, not just direct edges', () => {
+    const m = manifest();
+    // contracts <- backend <- frontend
+    m.repositories.backend!.service!.dependsOn = [
+      {
+        target: 'contracts',
+        port: 'http',
+        bind: [{ env: 'CONTRACTS_URL', template: 'http://{host}:{port}' }],
+      },
+    ];
+    expect(new Set(transitiveDependents(m, 'contracts'))).toEqual(
+      new Set(['backend', 'frontend']),
+    );
+  });
+
+  it('returns an empty list for a leaf that nothing depends on', () => {
+    expect(transitiveDependents(manifest(), 'frontend')).toEqual([]);
+  });
+
+  it('keys a dependent by its full unit key in a multi-service repository', () => {
+    const m = buildManifest({
+      mono: repo({
+        repoPath: '../mono',
+        services: {
+          api: svc({ ports: [httpSlot(3000)] }),
+          web: svc({
+            ports: [httpSlot(5173)],
+            dependsOn: [
+              dependsOn('mono/api', 'http', [
+                { env: 'VITE_API_URL', template: 'http://{host}:{port}' },
+              ]),
+            ],
+          }),
+        },
+      }),
+    });
+    expect(transitiveDependents(m, 'mono/api')).toEqual(['mono/web']);
+  });
+});
 
 describe('resolve', () => {
   let store: Store;
