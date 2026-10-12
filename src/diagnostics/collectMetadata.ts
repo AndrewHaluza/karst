@@ -494,11 +494,9 @@ function collectLogs(
     else agedOut += 1
   }
   const collapsed = collapseRepeats(recent, ticketPatternFor(ticketId))
-  // Selection within the row/byte caps. Warn/error and ticket evidence are both
-  // the ticket's evidence, so they are INTERLEAVED (newest first inside each):
-  // a flood of one can no longer spend the whole cap before the other — the
-  // shape that dropped the runtime/gate lines when warnings filled the cap.
-  // Remaining noise follows, newest first.
+  // Selection within the row/byte caps. Warn/error and prefix evidence are
+  // interleaved (newest first inside each), then a ticket-named non-prefix line
+  // such as `[driver] … T<id>`, then the rest — see `interleaveByPriority`.
   const ordered = interleaveByPriority(collapsed)
   const kept: CollapsedLog[] = []
   let bytes = 0
@@ -532,7 +530,7 @@ function collectLogs(
   // at least as much as the caps did, otherwise the cap that actually bound.
   const capOmitted = omitted - omittedByClass.age
   const reason: 'rows' | 'bytes' | 'age' =
-    omittedByClass.age > capOmitted ? 'age' : limitedBy
+    omittedByClass.age >= capOmitted ? 'age' : limitedBy
   const data = kept.map((entry) => ({
     timestamp: entry.firstTimestamp,
     level: entry.level,
@@ -550,33 +548,37 @@ function collectLogs(
 }
 
 /**
- * Order the collapsed entries for cap selection: warn/error and ticket
- * evidence alternate, newest first inside each class, then the rest newest
- * first. Neither of the two evidence classes can consume the entire cap while
- * the other still has lines — decision #2's strict warn/error-first order let a
- * warning flood omit the spin/gate evidence the report exists to carry.
+ * Order the collapsed entries for cap selection.
+ *
+ * Tier 0 `warn`/`error` and tier 1 prefix evidence (the `logEvidence`
+ * vocabulary) are INTERLEAVED, newest first inside each, so neither can spend
+ * the whole cap before the other — decision #2's strict warn/error-first order
+ * let a warning flood omit the spin/gate evidence the report exists to carry.
+ * Tier 2 is a ticket-named line with no evidence prefix (e.g. `[driver] …
+ * T<id>`): it ranks below real prefix evidence, so a same-ticket `[driver]`
+ * flood cannot push the older `[gate]`/`[runtime]`/`[stage]` lines out. Tier 3
+ * is the rest. Every tier is newest first.
  */
 function interleaveByPriority(collapsed: readonly CollapsedLog[]): CollapsedLog[] {
-  const warnError: CollapsedLog[] = []
-  const ticket: CollapsedLog[] = []
-  const other: CollapsedLog[] = []
+  const tiers: CollapsedLog[][] = [[], [], [], []]
   for (const entry of collapsed) {
-    if (entry.class === 'warnError') warnError.push(entry)
-    else if (entry.class === 'ticket') ticket.push(entry)
-    else other.push(entry)
+    const tier = entry.class === 'warnError'
+      ? 0
+      : entry.class === 'ticket'
+        ? (isEvidenceMessage(entry.baseMessage) ? 1 : 2)
+        : 3
+    tiers[tier]!.push(entry)
   }
-  warnError.reverse()
-  ticket.reverse()
-  other.reverse()
+  for (const tier of tiers) tier.reverse()
   const ordered: CollapsedLog[] = []
-  const paired = Math.max(warnError.length, ticket.length)
+  const paired = Math.max(tiers[0]!.length, tiers[1]!.length)
   for (let i = 0; i < paired; i += 1) {
-    const warn = warnError[i]
+    const warn = tiers[0]![i]
     if (warn) ordered.push(warn)
-    const evidence = ticket[i]
+    const evidence = tiers[1]![i]
     if (evidence) ordered.push(evidence)
   }
-  ordered.push(...other)
+  ordered.push(...tiers[2]!, ...tiers[3]!)
   return ordered
 }
 
