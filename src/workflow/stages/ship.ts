@@ -98,7 +98,12 @@ import {
   type PrDiffContext,
 } from '../prDescription.js';
 import { collectPrDiffContext } from '../prDiffContext.js';
-import { resolveRepoName, resolveRepoScope, resolveTicketType } from '../conventionContext.js';
+import {
+  resolveRepoConventions,
+  resolveRepoName,
+  resolveRepoScope,
+  resolveTicketType,
+} from '../conventionContext.js';
 import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../conventionPresets.js';
 
 /**
@@ -790,7 +795,6 @@ export async function shipTicket(
   }
   const title = ticket.title ?? ticket.key ?? `Ticket ${opts.ticketId}`;
   const key = ticket.key ?? String(opts.ticketId);
-  const conventions = opts.conventions ?? opts.manifest?.conventions;
   // A crash-recovery re-run can land here after an EARLIER call already
   // advanced the ticket past `ship` (§5.3 idempotency). One read, reused below
   // to gate both the head `setStage` and the tail `resolveShipLanding` call:
@@ -899,6 +903,12 @@ export async function shipTicket(
     }
     for (const wt of scoped) {
       try {
+        // The conventions for THIS repo: a direct `opts.conventions` injection
+        // (focused tests, host-agnostic callers) wins outright; otherwise each
+        // template key resolves repo override → global → built-in default.
+        const repoName = resolveRepoName(opts.manifest, wt.repo);
+        const conventions =
+          opts.conventions ?? resolveRepoConventions(opts.manifest, repoName);
         const prior = findExistingLivePr(store, opts.ticketId, wt.repo);
         const deliveringToOpenPr = Boolean(prior && opts.deliverToOpenPr);
         if (prior && !opts.deliverToOpenPr) {
@@ -951,8 +961,8 @@ export async function shipTicket(
         // `{repo}`/`{scope}` name the manifest repository ENTRY, never the
         // worktree's local path — worktrees are keyed by path, the manifest by
         // name, and a public artifact must not leak the machine's directory
+        // lit must not leak the machine's directory
         // layout (PR bodies once shipped "Repository: /Users/nd/…").
-        const repoName = resolveRepoName(opts.manifest, wt.repo);
         // Per-repo ship exclude (`repos.<name>.ship.exclude`): the git pathspecs
         // ship's sweep commit leaves out. Read from the CURRENT manifest, like the
         // base and the artifact conventions — live configuration only.

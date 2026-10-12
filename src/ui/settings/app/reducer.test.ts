@@ -451,6 +451,11 @@ describe('draft arithmetic', () => {
 describe('error attribution (the reducer-adjacent display selectors)', () => {
   it('points a fault at the tab that owns it', () => {
     expect(sectionForError('Invalid karst.yml: repository "api" service.docker.image is required')).toBe('services');
+    // A per-repo convention fault is repository-level (`repository "<name>"
+    // conventions.<f>`), so it belongs to the Repositories tab, not Git.
+    expect(
+      sectionForError('Invalid karst.yml: repository "api" conventions.commitMessage must be a string'),
+    ).toBe('services');
     expect(sectionForError('Invalid karst.yml: conventions.x is not a valid form')).toBe('git');
     expect(sectionForError('Invalid karst.yml: activeAgentPreset names no preset')).toBe('agents');
     expect(sectionForError('Invalid karst.yml: processes.p1 is missing a role')).toBe('agents');

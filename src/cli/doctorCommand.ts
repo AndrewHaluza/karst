@@ -111,7 +111,12 @@ function runnableJs(p: string): boolean {
 
 function fixEffects(store: Store): FixEffects {
   return {
-    markServerStopped: (id) => { store.db.prepare("UPDATE servers SET status = 'stopped' WHERE id = ?").run(id); },
+    // Null the pid like `supervisor.markServerStopped` and `reconcile` do: the
+    // fix ran because the recorded process is gone, so a `stopped` row keeping a
+    // pid would be the one shape that lies about the row's lifecycle — and the
+    // only one a `pid IS NULL` reap (runtime/supervisor.ts `pruneDeadServers`)
+    // would leave behind.
+    markServerStopped: (id) => { store.db.prepare("UPDATE servers SET status = 'stopped', pid = NULL WHERE id = ?").run(id); },
     pidStartedAtMs: probes.pidStartedAtMs,
     killProcess: (pid) => { process.kill(pid, 'SIGTERM'); },
     worktreeState: probes.worktreeState,

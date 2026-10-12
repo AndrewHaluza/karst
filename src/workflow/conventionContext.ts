@@ -30,6 +30,35 @@ export function resolveRepoScope(manifest: Manifest | undefined, repo: string): 
 }
 
 /**
+ * The artifact conventions that apply to ONE repository (ship time).
+ *
+ * Each of the three template keys resolves INDEPENDENTLY: the repository's own
+ * `conventions.<key>` wins, else the global `conventions.<key>`, else nothing
+ * (the caller falls back to its built-in default — the ticket title, or the
+ * default PR body). This is the same layering as a repository's `scope:`.
+ *
+ * `defaultType` and `branchName` are PROJECT-wide and are carried through from
+ * the global block untouched: `{type}` is chosen once for the ticket
+ * (`resolveTicketType`) and a ticket has one branch name across every repository
+ * (@arch:BRANCH-NAME). `repo` is the repository NAME (`resolveRepoName`), never
+ * the worktree's local path.
+ *
+ * Undefined when neither layer configures anything, so ship's no-conventions
+ * path stays byte-identical to before this feature.
+ */
+export function resolveRepoConventions(
+  manifest: Manifest | undefined,
+  repo: string,
+): ArtifactConventions | undefined {
+  const global = manifest?.conventions;
+  const override = manifest?.repositories[repo]?.conventions;
+  if (!global && !override) return undefined;
+  // A repository key that is absent must not shadow the global one, so the
+  // override is spread AFTER the global only for the keys it actually carries.
+  return { ...global, ...override };
+}
+
+/**
  * A repository's manifest NAME for the worktree's repo path — what `{repo}` (and
  * therefore `{scope}`'s fallback) renders. Worktrees are keyed by the absolute
  * repo path (`worktrees.repo`), while the manifest is keyed by entry name, so a

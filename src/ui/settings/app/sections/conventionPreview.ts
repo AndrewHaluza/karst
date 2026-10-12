@@ -13,6 +13,7 @@
  */
 import { parseTokenBody } from '../../../../template/token.js';
 import { applyTransforms } from '../../../../template/transforms.js';
+import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../../../../workflow/conventionPresets.js';
 
 /** The values every convention preview renders from. */
 export const CONVENTION_SAMPLE: Readonly<Record<string, string>> = {
@@ -42,14 +43,39 @@ export const CONVENTION_FALLBACKS = {
 export type ConventionField = keyof typeof CONVENTION_FALLBACKS;
 
 /**
+ * The BUILT-IN template each field falls back to when neither the project nor a
+ * repository configures one. Ship uses these exact values (the ticket title for
+ * the two titles, the generated body for a description), so a per-repo field's
+ * placeholder can name what a blank override actually inherits.
+ */
+export const CONVENTION_FIELD_DEFAULTS: Record<ConventionField, string> = {
+  branchName: 'karst/{type}/{slug}',
+  commitMessage: '{title}',
+  pullRequestTitle: '{title}',
+  pullRequestDescription: DEFAULT_PR_DESCRIPTION_TEMPLATE,
+};
+
+/** The preview sample for ONE repository, with its own `{repo}`/`{scope}`. */
+export function repoConventionSample(
+  repo: string,
+  scope: string,
+): Readonly<Record<string, string>> {
+  return { ...CONVENTION_SAMPLE, repo, scope };
+}
+
+/**
  * Render `template` against the sample. An empty template yields the field's
  * fallback copy rather than a blank line, because a blank preview reads as a bug.
  */
-export function previewConvention(field: ConventionField, template: string): string {
+export function previewConvention(
+  field: ConventionField,
+  template: string,
+  sample: Readonly<Record<string, string>> = CONVENTION_SAMPLE,
+): string {
   if (template.trim() === '') return CONVENTION_FALLBACKS[field];
   return template.replace(/\{([^{}]*)\}/g, (match, body: string) => {
     const token = parseTokenBody(body);
-    if (!Object.prototype.hasOwnProperty.call(CONVENTION_SAMPLE, token.variable)) return match;
-    return applyTransforms(CONVENTION_SAMPLE[token.variable], token.transforms);
+    if (!Object.prototype.hasOwnProperty.call(sample, token.variable)) return match;
+    return applyTransforms(sample[token.variable]!, token.transforms);
   });
 }

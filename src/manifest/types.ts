@@ -117,6 +117,19 @@ export interface ShipDef {
 }
 
 /**
+ * A repository's overrides of the three git artifact templates that CAN vary
+ * per repo. Deliberately a subset of `ArtifactConventions`: `defaultType` steers
+ * `{type}` for every repo from one place, and `branchName` is one branch per
+ * ticket (@arch:BRANCH-NAME), so neither is overridable here. Every key is
+ * optional and each falls back to the global `conventions.<key>` independently.
+ */
+export interface RepoConventions {
+  commitMessage?: string;
+  pullRequestTitle?: string;
+  pullRequestDescription?: string;
+}
+
+/**
  * The PRIMARY ENTITY: a git repository karst can worktree, scope to a ticket,
  * classify, and ship. Runnability is the optional part (`service`), not the
  * assumption.
@@ -151,6 +164,19 @@ export interface RepositoryDef {
    * describes the source tree, not a running process.
    */
   scope?: string;
+  /**
+   * Per-repository overrides of the project's git artifact conventions
+   * (`repositories.<name>.conventions`). Each key falls back INDEPENDENTLY to the
+   * global `conventions.<key>`, then to today's default (the ticket title for
+   * commit/PR title, the generated body for a PR description) — the same
+   * layering as `scope:`. Repository-level, like `signals`: it describes how the
+   * source tree is shipped, not a running process.
+   *
+   * `branchName` is deliberately NOT here: a ticket has ONE branch name across
+   * every repository, rendered once at worktree creation (@arch:BRANCH-NAME), so
+   * it cannot vary per repo — the schema refuses a per-repo `branchName`.
+   */
+  conventions?: RepoConventions;
   /**
    * The runnable relation. ABSENT means this repository is not runnable — that
    * is a valid, first-class state, never an error and never a sentinel. Gate on

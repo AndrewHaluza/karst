@@ -124,8 +124,11 @@ export function GitSection() {
   // message names one thing and the tab shows it verbatim where it belongs.
   const detail = manifestFaultDetail(state.validation.ok ? null : state.validation.error);
 
+  // Anchored at the START: a per-repo fault (`repository "x" conventions.<f>`)
+  // also contains the substring `conventions.<f>` and belongs on the repository
+  // card, not this global field.
   const faultFor = (field: string): string | undefined =>
-    detail && detail.includes(`conventions.${field}`) ? detail : undefined;
+    detail && detail.startsWith(`conventions.${field}`) ? detail : undefined;
 
   const setTemplate = (field: TemplateField, raw: string) => edit(writeConvention(field, raw));
   const templateValue = (field: TemplateField): string => {

@@ -1359,6 +1359,50 @@ setTimeout(() => {
       expect(headless).toBe(1);
     });
 
+    it('renders a different title per repo from a per-repo manifest override', async () => {
+      const fePath = join(dir, 'fe');
+      const wcPath = join(dir, 'wc');
+      seedWorktree(store, id, 'frontend', fePath);
+      seedWorktree(store, id, 'web-contract', wcPath);
+      await initRealRepo(fePath);
+      await initRealRepo(wcPath);
+      writeFileSync(join(fePath, 'work.txt'), 'work');
+      writeFileSync(join(wcPath, 'work.txt'), 'work');
+      const gitCalls: string[][] = [];
+      const { gh, creates } = recordingGh();
+
+      await shipTicket(
+        store,
+        {
+          ticketId: id,
+          manifest: manifest(
+            {
+              frontend: repo({ repoPath: '/repo/frontend' }),
+              'web-contract': repo({
+                repoPath: '/repo/web-contract',
+                // The repo's CI lint-title requires a conventional-commit title;
+                // it drives web-contract's semver bump. The other repo keeps the
+                // project-wide `{key} {title}`.
+                conventions: { pullRequestTitle: 'feat: {title} [{key}]' },
+              }),
+            },
+            { conventions: { pullRequestTitle: '{key} {title}' } },
+          ),
+        },
+        gh,
+        undefined,
+        dirtyRealRepo(gitCalls),
+      );
+
+      const titles = creates.map((args) => args[args.indexOf('--title') + 1]);
+      expect(titles).toContain('PROJ-1 add search');
+      expect(titles).toContain('feat: add search [PROJ-1]');
+      // The commit message, not overridden on either repo, stays the shared
+      // fallback — the ticket title.
+      expect(createdShipCommit(store, id, 'frontend')?.message).toBe('add search');
+      expect(createdShipCommit(store, id, 'web-contract')?.message).toBe('add search');
+    });
+
     it('renders {type} from the ticket and {scope} from the repository', async () => {
       const worktree = join(dir, 'fe');
       seedWorktree(store, id, 'frontend', worktree);

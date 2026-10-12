@@ -65,12 +65,14 @@ describe('runGateList', () => {
       {
         signal: controller.signal,
         now,
-        // Abort the INSTANT the first gate's result is recorded, not after a
-        // fixed delay: under a loaded machine the first spawn can outlast any
-        // timeout short enough to keep the test fast, and the abort then lands
-        // before `results` is populated — the flake this replaced (observed when
-        // the unit gate ran beside the visual sweep).
-        onGateComplete: () => controller.abort(),
+        // Abort the instant the first gate's result is recorded — the loop
+        // checks the signal before the next gate, so this lands DETERMINISTICALLY
+        // between the two. A wall-clock `setTimeout(…, 200)` here raced the first
+        // `node` spawn: on the loaded gate machine it occasionally aborted before
+        // `fast` finished, and the test then saw no carried results.
+        onGateComplete: (name) => {
+          if (name === 'fast') controller.abort();
+        },
       },
     );
     const out = await started;

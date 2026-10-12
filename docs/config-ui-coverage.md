@@ -28,6 +28,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 | `agentPresets.<name>.label` / `.slots.<capability>.{provider,model,effort}`, `activeAgentPreset`, `defaultAgentPreset` (deprecated alias) | Presets |
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |
 | `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` / `.ship.exclude[]` | Repositories |
+| `repositories.<n>.conventions.{commitMessage,pullRequestTitle,pullRequestDescription}` | Repositories |
 | `repositories.<n>.service.start` / `.health` / `.portRange` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
 | `approaches[].id` / `.label` / `.description` / `.entrypoint` / `.recommended` / `.enabled` / `.source` (git: repo/ref/include; npm: package/command/collect) | Approaches |
 | `agents.<n>.enabled` | Agents |
@@ -111,6 +112,8 @@ The conventional-commit `{scope}` override. The Git tab's templates *offer*
 `{scope}` and preview it, but the repo card has no field to set it — so a user who
 picks the `{type}({scope}): …` preset can only get the manifest repository name.
 Unchanged by this plan — out of its four decisions, not an oversight.
+D141 (per-repo `conventions`) added the three per-repo template overrides to the
+repo card; `scope` itself is still yml-only.
 
 ### 5. `agents.<n>.role` / `.command` / `.promptPath` — now inert, reported at load
 

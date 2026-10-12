@@ -2338,6 +2338,137 @@ conventions:
   });
 });
 
+describe('per-repository conventions', () => {
+  // A one-repository manifest — VALID's own `repositories` map is replaced, not
+  // merged, so these cases carry exactly the block under test.
+  const ONLY_CONTRACT = `
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  contract:
+    repoPath: ../contract
+    conventions:
+`;
+
+  it('loads the overrides independently, one key at a time', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      pullRequestTitle: "feat: {title} [{key}]"\n`);
+    try {
+      expect(loadManifest(path).repositories.contract?.conventions).toEqual({
+        pullRequestTitle: 'feat: {title} [{key}]',
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('leaves conventions undefined when the repository omits the block', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).repositories.backend?.conventions).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-mapping block', () => {
+    const { path, cleanup } = fixture(`
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  contract:
+    repoPath: ../contract
+    conventions: nope
+`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/repository "contract" conventions must be an object/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects per-repo branchName with a clear message', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      branchName: "karst/{slug}"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repository "contract" conventions\.branchName is not overridable per repository/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects per-repo defaultType with a clear message rather than ignoring it', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      defaultType: fix\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repository "contract" conventions\.defaultType is not overridable per repository/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps a block that carries only an unmodeled key, so a save can preserve it', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      organizationPolicy: keep-me\n`);
+    try {
+      // `{}`, NOT undefined: the block must stay present for `write.ts` to
+      // overlay its unmodeled keys (the global block behaves the same way).
+      expect(loadManifest(path).repositories.contract?.conventions).toEqual({});
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each([
+    ['commitMessage: 42', /repository "contract" conventions\.commitMessage must be a string/],
+    ['pullRequestTitle: "   "', /repository "contract" conventions\.pullRequestTitle.*blank/],
+    [
+      'pullRequestDescription: false',
+      /repository "contract" conventions\.pullRequestDescription must be a string/,
+    ],
+  ])('rejects invalid %s values with the exact path', (line, error) => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      ${line}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(error);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects an unknown variable and a malformed template at the exact path', () => {
+    const unknown = fixture(`${ONLY_CONTRACT}      pullRequestTitle: "{ticket}: {title}"\n`);
+    try {
+      expect(() => loadManifest(unknown.path)).toThrow(
+        /repository "contract" conventions\.pullRequestTitle.*\{ticket\}/,
+      );
+    } finally {
+      unknown.cleanup();
+    }
+
+    const malformed = fixture(`${ONLY_CONTRACT}      commitMessage: "fix: {title"\n`);
+    try {
+      expect(() => loadManifest(malformed.path)).toThrow(
+        /repository "contract" conventions\.commitMessage.*malformed/,
+      );
+    } finally {
+      malformed.cleanup();
+    }
+  });
+
+  it('rejects {description} outside the pull-request description', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      commitMessage: "{description}"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repository "contract" conventions\.commitMessage.*\{description\}/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('notices channel', () => {
   it('reports inert keys as notices, not warnings', () => {
     const yaml = `${VALID}\nuat:\n  maxFixAttempts: 2\n  secrets: [STRIPE_KEY]\n`;

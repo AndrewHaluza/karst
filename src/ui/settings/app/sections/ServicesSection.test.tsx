@@ -556,6 +556,12 @@ describe('ServicesSection — a mapped fault stays silent until its field is tou
     expect(parseRepoFieldError(fault)?.key).toBe('api.start');
   });
 
+  it('maps a per-repo convention fault to that repo card override control', () => {
+    const conventionFault =
+      'repository "api" conventions.commitMessage contains unsupported variable "{ticket}"';
+    expect(parseRepoFieldError(conventionFault)?.key).toBe('api.commitMessage');
+  });
+
   it('shows nothing before the field is touched, and the message after it is', () => {
     mountWithFault();
     open('api');
@@ -677,6 +683,39 @@ describe('ServicesSection — split from the shorthand', () => {
     open('api');
     expect(document.querySelector('[name="f-svc-cwd-api"]')).toBeNull();
     expect(document.querySelector('[name="f-svc-start-api"]')).not.toBeNull();
+  });
+});
+
+describe('ServicesSection — per-repo convention overrides', () => {
+  const WITH_GLOBAL: Manifest = {
+    ...BASE,
+    conventions: { pullRequestTitle: 'GLOBAL {key} {title}' },
+  } as Manifest;
+
+  it('shows the inherited global template as the placeholder and previews the repo', () => {
+    mount(WITH_GLOBAL);
+    open('api');
+    const title = document.querySelector('[name="f-repo-conv-api-pullRequestTitle"]') as HTMLInputElement;
+    // Empty override → the global template is what this repo inherits.
+    expect(title.value).toBe('');
+    expect(title.placeholder).toBe('GLOBAL {key} {title}');
+    // The preview renders THAT template against this repo's own {repo}/{scope}.
+    expect(card('api').textContent).toContain('GLOBAL PROJ-142 add login');
+  });
+
+  it('writes the override onto the repository and clears the block when emptied', () => {
+    mount(WITH_GLOBAL);
+    open('api');
+    setField('f-repo-conv-api-commitMessage', 'fix({scope}): {title}');
+    expect((repositories().api as { conventions?: unknown }).conventions).toEqual({
+      commitMessage: 'fix({scope}): {title}',
+    });
+    // The preview now renders the override, not the inherited global.
+    expect(card('api').textContent).toContain('fix(api): add login');
+
+    // Clearing the last override removes the whole `conventions` block.
+    setField('f-repo-conv-api-commitMessage', '');
+    expect((repositories().api as { conventions?: unknown }).conventions).toBeUndefined();
   });
 });
 
