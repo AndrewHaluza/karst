@@ -265,6 +265,35 @@ describe('makeBoundedLogBuffer — level-aware eviction', () => {
     expect(capture.snapshot().map((entry) => entry.message)).toEqual(['e1', 'e2']);
   });
 
+  it('protects ticket-evidence debug lines from a plain debug flood', () => {
+    // The spin/gate/merge evidence a report needs is emitted at debug level,
+    // so level alone would lose it to `[driver]` chatter.
+    const capture = makeBoundedLogBuffer();
+    capture.capture({ timestamp: '2026-07-13T09:00:00.000Z', level: 'debug', message: '[gate] test:unit failed' });
+    capture.capture({ timestamp: '2026-07-13T09:00:01.000Z', level: 'debug', message: '[merge] pr feedback: changes_requested' });
+    capture.capture({ timestamp: '2026-07-13T09:00:02.000Z', level: 'debug', message: '[runtime] service came up' });
+    for (let i = 0; i < 2000; i += 1) {
+      capture.capture({
+        timestamp: `2026-07-13T10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`,
+        level: 'debug',
+        message: `[driver] delivery T${i}: notes deferred`,
+      });
+    }
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[gate] test:unit failed');
+    expect(messages).toContain('[merge] pr feedback: changes_requested');
+    expect(messages).toContain('[runtime] service came up');
+  });
+
+  it('evicts evidence debug lines once no plain debug line remains', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 2, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'debug', message: '[runtime] one' });
+    capture.capture({ timestamp: '1', level: 'debug', message: '[runtime] two' });
+    capture.capture({ timestamp: '2', level: 'debug', message: '[runtime] three' });
+    // Nothing but evidence debug: FIFO within the level applies.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['[runtime] two', '[runtime] three']);
+  });
+
   it('drops older debug before newer debug and accounts the released bytes', () => {
     const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 26 });
     // Empty timestamp + level + 4-char message: info 8 bytes, debug 9 bytes.

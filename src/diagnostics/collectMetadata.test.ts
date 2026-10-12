@@ -379,6 +379,58 @@ describe('collectMetadata', () => {
     expect(section.omittedByClass.other).toBe(101)
   })
 
+  it('does not fold a ticket-named line into a preceding same-shaped other-ticket line', async () => {
+    const { draft, ticketId } = await collectLogsDraft((id) => {
+      const logs = makeBoundedLogBuffer()
+      logs.capture({
+        timestamp: '2026-07-28T00:00:00.000Z',
+        level: 'debug',
+        message: '[driver] delivery T9000: notes deferred',
+      })
+      logs.capture({
+        timestamp: '2026-07-28T00:00:01.000Z',
+        level: 'debug',
+        message: `[driver] delivery T${id}: notes deferred`,
+      })
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: '2026-07-28T00:00:02.000Z',
+          level: 'debug',
+          message: `[driver] noise ${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as {
+      status: string
+      data: Array<{ message: string }>
+    }
+    // Normalizing T<n> would otherwise fold this into the T9000 group and let
+    // its 'other' class cap the ticket-named evidence away.
+    expect(section.data.map((entry) => entry.message)).toContain(
+      `[driver] delivery T${ticketId}: notes deferred`,
+    )
+  })
+
+  it('reports bytes when the byte cap binds before the row cap', async () => {
+    const { draft } = await collectLogsDraft(() => {
+      const logs = makeBoundedLogBuffer()
+      const filler = 'y'.repeat(686)
+      for (let i = 0; i < 250; i += 1) {
+        logs.capture({
+          timestamp: `2026-07-28T00:00:${String(i % 60).padStart(2, '0')}.000Z`,
+          level: 'warn',
+          message: `${filler}-${i}`,
+        })
+      }
+      return logs
+    })
+    const section = draft.metadata.logs as { status: string; reason: string; data: unknown[] }
+    // 250 distinct warn rows: the byte cap is the binding limit, not the count.
+    expect(section).toMatchObject({ status: 'truncated', reason: 'bytes' })
+    expect(section.data.length).toBeLessThan(200)
+  })
+
   it('collapses consecutive repeats, counting them and keeping chronology', async () => {
     const { draft } = await collectLogsDraft(() => {
       const logs = makeBoundedLogBuffer()
@@ -386,7 +438,7 @@ describe('collectMetadata', () => {
         logs.capture({
           timestamp: `2026-07-28T00:00:0${i}.000Z`,
           level: 'debug',
-          message: `[driver] delivery T${i}: notes deferred`,
+          message: `[driver] delivery T900${i}: notes deferred`,
         })
       }
       return logs
@@ -398,7 +450,7 @@ describe('collectMetadata', () => {
     expect(logsSection.status).toBe('available')
     expect(logsSection.data).toHaveLength(1)
     expect(logsSection.data[0]!.message).toBe(
-      '[driver] delivery T1: notes deferred (repeated 5× from '
+      '[driver] delivery T9001: notes deferred (repeated 5× from '
       + '2026-07-28T00:00:01.000Z to 2026-07-28T00:00:05.000Z)',
     )
   })

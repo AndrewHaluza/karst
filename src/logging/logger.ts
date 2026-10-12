@@ -10,6 +10,7 @@
  */
 
 import { DIAGNOSTIC_LIMITS } from '../diagnostics/limits.js';
+import { isEvidenceMessage } from '../diagnostics/logEvidence.js';
 import { sanitizeText } from '../diagnostics/redact.js';
 
 /** The one method a sink must provide — `vscode.OutputChannel` satisfies this. */
@@ -95,16 +96,26 @@ function entryBytes(entry: LogEntry): number {
  * Eviction precedence, most disposable first. Verbose `debug` lines are a
  * line at every decision point and can bury the sparse info/warn/error stream
  * a report exists to carry, so they go first; `info` next; `warn`/`error`
- * last. A field report whose tail was entirely `[driver]` debug spam is the
- * shape this prevents — the noise yields before the evidence.
+ * last. Within a level, a plain line yields before a ticket-evidence line
+ * (the DBG-03 prefixes): the spin/runtime/gate evidence the field report
+ * needs is emitted at `debug`, so level alone would lose it to `[driver]`
+ * chatter. A field report whose tail was entirely `[driver]` debug spam is
+ * the shape this prevents — the noise yields before the evidence.
  */
 const EVICTION_ORDER: readonly LogLevel[] = ['debug', 'info'];
 
-/** Index of the entry to drop: oldest of the most disposable level present. */
+/**
+ * Index of the entry to drop: oldest of the most disposable level present,
+ * preferring a non-evidence line over an evidence one at that level.
+ */
 function evictionIndex(entries: readonly LogEntry[]): number {
   for (const level of EVICTION_ORDER) {
-    const index = entries.findIndex((entry) => entry.level === level);
-    if (index >= 0) return index;
+    const plain = entries.findIndex(
+      (entry) => entry.level === level && !isEvidenceMessage(entry.message),
+    );
+    if (plain >= 0) return plain;
+    const evidence = entries.findIndex((entry) => entry.level === level);
+    if (evidence >= 0) return evidence;
   }
   // Only warn/error remain — the oldest goes, exactly as FIFO would.
   return 0;

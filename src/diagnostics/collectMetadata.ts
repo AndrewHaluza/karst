@@ -5,6 +5,7 @@ import type { Manifest } from '../manifest/types.js'
 import type { Store } from '../store/db.js'
 import type { Project } from '../store/projects.js'
 import { DIAGNOSTIC_LIMITS } from './limits.js'
+import { isEvidenceMessage, ticketPatternFor } from './logEvidence.js'
 import { projectEffectiveConfig } from './projectConfig.js'
 import type { Pseudonymizer } from './pseudonymize.js'
 import { sanitizeText } from './redact.js'
@@ -502,12 +503,19 @@ function collectLogs(
   )
   const kept: CollapsedLog[] = []
   let bytes = 0
+  let limitedBy: 'rows' | 'bytes' = 'rows'
   for (const entry of ordered) {
-    if (kept.length >= DIAGNOSTIC_LIMITS.maxReportLogEntries) break
+    if (kept.length >= DIAGNOSTIC_LIMITS.maxReportLogEntries) {
+      limitedBy = 'rows'
+      break
+    }
     const size = Buffer.byteLength(entry.firstTimestamp)
       + Buffer.byteLength(entry.level)
       + Buffer.byteLength(collapsedMessage(entry))
-    if (bytes + size > DIAGNOSTIC_LIMITS.maxReportLogBytes) break
+    if (bytes + size > DIAGNOSTIC_LIMITS.maxReportLogBytes) {
+      limitedBy = 'bytes'
+      break
+    }
     kept.push(entry)
     bytes += size
   }
@@ -531,31 +539,18 @@ function collectLogs(
       status: 'truncated',
       data: json(data),
       omitted,
-      reason: agedOut > 0
-        ? 'age'
-        : collapsed.length > DIAGNOSTIC_LIMITS.maxReportLogEntries
-          ? 'rows'
-          : 'bytes',
+      reason: agedOut > 0 ? 'age' : limitedBy,
       omittedByClass,
     }
     : available(data)
 }
 
 /**
- * Prefixes that mark a debug/info line as ticket evidence (the DBG-03
- * vocabulary). `[driver]` is deliberately absent: the driver is chatty and its
- * lines qualify only when they name the report's ticket.
+ * Debug/info prefixes that mark a line as ticket evidence live in
+ * `logEvidence.ts` (shared with the buffer's retention). `[driver]` is
+ * deliberately absent: the driver is chatty and its lines qualify only when
+ * they name the report's ticket.
  */
-const EVIDENCE_PREFIXES = [
-  '[runtime]',
-  '[gate]',
-  '[stage]',
-  '[stage-log]',
-  '[merge]',
-  '[hot]',
-  '[hotSet]',
-  '[staged]',
-] as const
 
 type LogClass = 'warnError' | 'ticket' | 'other'
 
@@ -582,15 +577,9 @@ function repeatKey(message: string): string {
 
 function classifyLog(entry: LogEntry, ticketPattern: RegExp | null): LogClass {
   if (entry.level === 'warn' || entry.level === 'error') return 'warnError'
-  if (EVIDENCE_PREFIXES.some((prefix) => entry.message.startsWith(prefix))) return 'ticket'
+  if (isEvidenceMessage(entry.message)) return 'ticket'
   if (ticketPattern?.test(entry.message)) return 'ticket'
   return 'other'
-}
-
-/** `/\bT<id>\b|\bticket <id>\b/` for the report's ticket; none for a project report. */
-function ticketPatternFor(ticketId: number | null): RegExp | null {
-  if (ticketId === null) return null
-  return new RegExp(`\\bT${ticketId}\\b|\\bticket ${ticketId}\\b`)
 }
 
 function collapsedMessage(entry: CollapsedLog): string {
@@ -606,8 +595,18 @@ function collapseRepeats(
   const collapsed: CollapsedLog[] = []
   recent.forEach((entry, index) => {
     const key = repeatKey(entry.message)
+    const entryClass = classifyLog(entry, ticketPattern)
     const previous = collapsed[collapsed.length - 1]
-    if (previous && previous.level === entry.level && previous.key === key) {
+    // Never fold across a classification boundary: a ticket-named line whose
+    // ticket number is normalized away (e.g. `[driver] delivery T<id>` after
+    // `[driver] delivery T9000`) must not inherit the other line's class, or
+    // the evidence it carries would be classified as noise and capped away.
+    if (
+      previous
+      && previous.level === entry.level
+      && previous.key === key
+      && previous.class === entryClass
+    ) {
       collapsed[collapsed.length - 1] = {
         ...previous,
         repeats: previous.repeats + 1,
@@ -622,7 +621,7 @@ function collapseRepeats(
       firstTimestamp: entry.timestamp,
       lastTimestamp: entry.timestamp,
       index,
-      class: classifyLog(entry, ticketPattern),
+      class: entryClass,
       repeats: 1,
     })
   })
