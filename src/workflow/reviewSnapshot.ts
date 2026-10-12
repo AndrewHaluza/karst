@@ -66,6 +66,12 @@ export async function createReviewSnapshot(
         author: identity,
         committer: identity,
       });
+      // No exclude is passed, so a commit is always prepared; guard anyway — a
+      // snapshot with nothing to point at falls back to the branch range.
+      if (prepared.expectedHead === null) {
+        opts.debug?.(`[gate] snapshot ${ref}: nothing to commit — falling back to the branch range`);
+        return null;
+      }
       await promoteQuarantinedObjects(git, opts.worktreePath, key);
       const update = await git(['update-ref', ref, prepared.expectedHead], opts.worktreePath);
       if (update.exitCode !== 0) {

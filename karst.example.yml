@@ -275,6 +275,15 @@ repositories:
     repoPath: /absolute/path/to/tooling
     hasMigrations: false
     signals: [tooling, script, ci, config, extension]
+    # Optional: paths ship's auto-commit must leave out. Each is a git pathspec
+    # (glob magic, e.g. `dist/**`); karst adds the `:(glob)` itself. This is for
+    # a file the repo TRACKS that must not ship — a locally rebuilt `dist/`, a
+    # lock file pinned to a stand-in. An untracked leftover belongs in the
+    # repo's `.gitignore` (ignore rules never apply to tracked files), and a
+    # path you have already COMMITTED still ships: exclude shapes only the sweep
+    # commit. A spec that also matches committed changes logs a warning.
+    # ship:
+    #   exclude: [dist/**, "*.lock.json"]
 
   # MONOREPO with several runnable processes. Use `services:` as a NAMED MAP
   # instead of `service:`. Each entry is a full service (start/health/ports/

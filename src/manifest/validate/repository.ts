@@ -17,6 +17,7 @@ import type {
   PortSlot,
   RepositoryDef,
   ServiceDef,
+  ShipDef,
 } from '../types.js';
 import { validateDocker } from './docker.js';
 import {
@@ -294,6 +295,36 @@ function validateSignals(raw: unknown, repo: string): string[] {
 }
 
 /**
+ * Parse a repository's optional `ship` block. The only knob is `exclude`: git
+ * pathspecs ship's sweep commit leaves out. Each entry is a plain pathspec —
+ * karst adds the `:(glob)` magic prefix itself, so an entry that already carries
+ * pathspec magic (a leading `:`) is refused rather than silently double-applied.
+ * An absent or empty `exclude` drops the whole block, so an untouched repo keeps
+ * a clean yml.
+ */
+function validateShip(raw: unknown, repo: string): ShipDef | undefined {
+  if (raw === undefined) return undefined;
+  const where = `repository "${repo}" ship`;
+  if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
+  if (raw.exclude === undefined) return undefined;
+  if (!Array.isArray(raw.exclude)) {
+    throw new ManifestError(`${where}.exclude must be an array of pathspec strings`);
+  }
+  if (raw.exclude.length === 0) return undefined;
+  const exclude = raw.exclude.map((p, i) => {
+    const spec = requireString(p, `${where}.exclude[${i}]`);
+    if (spec.startsWith(':')) {
+      throw new ManifestError(
+        `${where}.exclude[${i}] must be a plain pathspec — karst adds the ":(glob)" ` +
+          `magic itself, so a leading ":" is refused (got "${spec}")`,
+      );
+    }
+    return spec;
+  });
+  return { exclude };
+}
+
+/**
  * Catch a half-migrated file. A runtime field at repository level is inert under
  * the new schema, so accepting it would quietly turn a runnable repo into a
  * non-runnable one — the exact silent misinterpretation this model must not
@@ -331,6 +362,7 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
     // Conventional-commit scope for `{scope}`; blank normalizes to undefined so
     // the renderer falls back to the repository name rather than emitting "()".
     scope: optionalString(raw.scope, `${where}.scope`),
+    ship: validateShip(raw.ship, name),
   };
 
   if (raw.service !== undefined && raw.services !== undefined) {

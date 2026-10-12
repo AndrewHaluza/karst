@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -556,6 +556,8 @@ describe('ship quarantine commit primitives', () => {
 
       expect(prepared.expectedHead).toMatch(/^[0-9a-f]{40}$/);
       expect(prepared.intendedTree).toMatch(/^[0-9a-f]{40}$/);
+      // No exclude was passed: nothing is left out and a commit is always made.
+      expect(prepared.excluded).toEqual([]);
       expect(await headCommit(defaultGitRunner, dir)).toBe(preHead);
       expect((await runGit(['write-tree'], dir)).stdout.trim()).toBe(preIndexTree);
       expect(readFileSync(join(dir, 'a.txt'), 'utf8')).toBe('b');
@@ -563,7 +565,7 @@ describe('ship quarantine commit primitives', () => {
       await promoteQuarantineTwice(dir);
       const cas = await compareAndSwapHeadAndIndex(defaultGitRunner, dir, {
         preHead,
-        expectedHead: prepared.expectedHead,
+        expectedHead: prepared.expectedHead!,
         intendedTree: prepared.intendedTree,
         preIndexTree,
         expectedFingerprint: fingerprint,
@@ -586,6 +588,136 @@ describe('ship quarantine commit primitives', () => {
 
       const own = await runGit(['log', '-1', '--format=%s'], dir);
       expect(own.stdout.trim()).toBe('chore: ship the work');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('excludes matched dirty paths from the sweep commit, leaving them dirty', async () => {
+    const dir = await freshRepo('exclude');
+    const ident = {
+      name: 'Author',
+      email: 'author@example.com',
+      at: '2026-08-08T10:00:00+02:00',
+    };
+    try {
+      mkdirSync(join(dir, 'dist'), { recursive: true });
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      await writeAndCommit(dir, 'dist/a.js', 'old', 'base-dist');
+      await writeAndCommit(dir, 'src/s.js', 'old', 'base-src');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+      const preIndexTree = (await runGit(['write-tree'], dir)).stdout.trim();
+
+      writeFileSync(join(dir, 'dist/a.js'), 'changed');
+      writeFileSync(join(dir, 'dist/b.js'), 'new');
+      writeFileSync(join(dir, 'src/s.js'), 'work');
+      const fingerprint = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
+
+      const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, KEY, {
+        preHead,
+        message: 'chore: ship the work',
+        author: ident,
+        committer: ident,
+        exclude: ['dist/**'],
+      });
+
+      expect(prepared.expectedHead).toMatch(/^[0-9a-f]{40}$/);
+      // The `--cached` diff before the reset is the report: exactly the dirty
+      // paths the spec matched.
+      expect([...prepared.excluded].sort()).toEqual(['dist/a.js', 'dist/b.js']);
+
+      // The quarantined tree carries the source change and NONE of dist.
+      const qObjects = join(dir, '.git', 'karst-quarantine', KEY, 'objects');
+      const qEnv = {
+        GIT_OBJECT_DIRECTORY: qObjects,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: join(dir, '.git', 'objects'),
+      };
+      const tree = await runGitEnv(
+        ['ls-tree', '-r', '--name-only', prepared.intendedTree],
+        dir,
+        qEnv,
+      );
+      expect(tree.stdout.trim().split('\n').sort()).toEqual(['dist/a.js', 'src/s.js']);
+      const dist = await runGitEnv(['show', `${prepared.intendedTree}:dist/a.js`], dir, qEnv);
+      expect(dist.stdout).toBe('old');
+
+      // Live HEAD/index/worktree untouched: excluded paths stay dirty.
+      expect(await headCommit(defaultGitRunner, dir)).toBe(preHead);
+      expect((await runGit(['write-tree'], dir)).stdout.trim()).toBe(preIndexTree);
+      expect(readFileSync(join(dir, 'dist/a.js'), 'utf8')).toBe('changed');
+      expect(existsSync(join(dir, 'dist/b.js'))).toBe(true);
+
+      // Landing the sweep commit ships the source only.
+      await promoteQuarantinedObjects(defaultGitRunner, dir, KEY);
+      const cas = await compareAndSwapHeadAndIndex(defaultGitRunner, dir, {
+        preHead,
+        expectedHead: prepared.expectedHead!,
+        intendedTree: prepared.intendedTree,
+        preIndexTree,
+        expectedFingerprint: fingerprint,
+        quarantineKey: KEY,
+      });
+      expect(cas).toEqual({ ok: true });
+      const landed = await runGit(['ls-tree', '-r', '--name-only', 'HEAD'], dir);
+      expect(landed.stdout.trim().split('\n').sort()).toEqual(['dist/a.js', 'src/s.js']);
+      expect((await runGit(['show', 'HEAD:src/s.js'], dir)).stdout).toBe('work');
+      expect((await runGit(['show', 'HEAD:dist/a.js'], dir)).stdout).toBe('old');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('creates no commit when every dirty path is excluded (never an empty commit)', async () => {
+    const dir = await freshRepo('exclude-all');
+    const ident = { name: 'A', email: 'a@e', at: '2026-08-08T10:00:00+02:00' };
+    try {
+      mkdirSync(join(dir, 'dist'), { recursive: true });
+      await writeAndCommit(dir, 'dist/a.js', 'old', 'base');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+
+      writeFileSync(join(dir, 'dist/a.js'), 'changed');
+      writeFileSync(join(dir, 'dist/b.js'), 'new');
+
+      const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, KEY, {
+        preHead,
+        message: 'm',
+        author: ident,
+        committer: ident,
+        exclude: ['dist/**'],
+      });
+
+      expect(prepared.expectedHead).toBeNull();
+      expect([...prepared.excluded].sort()).toEqual(['dist/a.js', 'dist/b.js']);
+      // The tree equals `preHead`'s: no commit object was written, and nothing
+      // moved in the live repo.
+      const preTree = (await runGit(['rev-parse', `${preHead}^{tree}`], dir)).stdout.trim();
+      expect(prepared.intendedTree).toBe(preTree);
+      expect(await headCommit(defaultGitRunner, dir)).toBe(preHead);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the sweep unchanged when an exclude spec matches nothing', async () => {
+    const dir = await freshRepo('exclude-nomatch');
+    const ident = { name: 'A', email: 'a@e', at: '2026-08-08T10:00:00+02:00' };
+    try {
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      await writeAndCommit(dir, 'src/s.js', 'old', 'base');
+      const preHead = (await headCommit(defaultGitRunner, dir))!;
+
+      writeFileSync(join(dir, 'src/s.js'), 'work');
+
+      const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, KEY, {
+        preHead,
+        message: 'm',
+        author: ident,
+        committer: ident,
+        exclude: ['dist/**'],
+      });
+
+      expect(prepared.expectedHead).toMatch(/^[0-9a-f]{40}$/);
+      expect(prepared.excluded).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -655,11 +787,11 @@ describe('ship quarantine commit primitives', () => {
       await promoteQuarantineTwice(wt);
       // Promoted objects must be reachable from the MAIN repo (the common
       // object db) — a per-worktree copy would be invisible here.
-      expect((await runGit(['cat-file', '-e', prepared.expectedHead], dir)).exitCode).toBe(0);
+      expect((await runGit(['cat-file', '-e', prepared.expectedHead!], dir)).exitCode).toBe(0);
 
       const cas = await compareAndSwapHeadAndIndex(defaultGitRunner, wt, {
         preHead,
-        expectedHead: prepared.expectedHead,
+        expectedHead: prepared.expectedHead!,
         intendedTree: prepared.intendedTree,
         preIndexTree,
         expectedFingerprint: fingerprint,
@@ -688,7 +820,7 @@ describe('ship quarantine commit primitives', () => {
       });
       const input = {
         preHead,
-        expectedHead: prepared.expectedHead,
+        expectedHead: prepared.expectedHead!,
         intendedTree: prepared.intendedTree,
         preIndexTree,
         expectedFingerprint: fingerprint,

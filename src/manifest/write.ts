@@ -109,6 +109,11 @@ export function writeManifest(path: string, manifest: Manifest): void {
       enabled: repo.enabled === false ? false : undefined,
       // Optional: written when set, dropped when cleared (→ falls back to name).
       scope: repo.scope,
+      // Optional: written when set, dropped (undefined → omitted by the dumper,
+      // overriding any stale raw value) when cleared, so a repo that never had a
+      // ship block does not gain one on Save. Without this line Save silently
+      // drops `ship.exclude` — the failure mode the round-trip test catches.
+      ship: repo.ship,
       // Undefined (not omitted) so the dumper DROPS a `service:` block the user
       // just turned off — leaving the raw one would silently keep the repo
       // runnable after they said it wasn't.

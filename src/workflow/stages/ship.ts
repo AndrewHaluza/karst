@@ -45,6 +45,7 @@ import {
 import { backfillDescription, bodyHash, generateDescription, noteReusedPr } from './shipDescription.js';
 import {
   describeGitFailure,
+  changedPathsMatching,
   hasChangesFrom,
   pushBranch,
   defaultGitRunner,
@@ -366,6 +367,7 @@ async function reconcileStep(
             message: pre.message,
             author: pre.author,
             committer: pre.committer,
+            exclude: pre.exclude,
           }).catch(() => null);
           if (
             rebuilt === null ||
@@ -951,6 +953,10 @@ export async function shipTicket(
         // name, and a public artifact must not leak the machine's directory
         // layout (PR bodies once shipped "Repository: /Users/nd/…").
         const repoName = resolveRepoName(opts.manifest, wt.repo);
+        // Per-repo ship exclude (`repos.<name>.ship.exclude`): the git pathspecs
+        // ship's sweep commit leaves out. Read from the CURRENT manifest, like the
+        // base and the artifact conventions — live configuration only.
+        const excludes = opts.manifest?.repositories[repoName]?.ship?.exclude ?? [];
         const templateContext: ArtifactTemplateContext = {
           id: opts.ticketId,
           key,
@@ -1018,6 +1024,39 @@ export async function shipTicket(
               message: '',
               origin: 'before-ship',
             });
+          }
+        }
+
+        // An excluded pathspec that also matches AGENT-COMMITTED changes is a
+        // WARNING, never a block: the exclude only shapes ship's own sweep commit,
+        // and committing a path is the escape hatch for shipping it on purpose —
+        // repo CI is what catches a committed path that must not ship. Fail-soft:
+        // an unresolvable base or a git error must never sink a ship over a note.
+        if (excludes.length > 0 && base) {
+          const head = await headCommit(git, wt.path);
+          if (head !== null) {
+            const committed = await changedPathsMatching(
+              git,
+              wt.path,
+              `${base}...${head}`,
+              excludes,
+            ).catch((err: unknown) => {
+              opts.debug?.(
+                `[gate] ship ticket ${opts.ticketId}: exclude/committed probe failed in ${wt.repo}: ` +
+                  `${err instanceof Error ? err.message : String(err)}`,
+              );
+              return [] as string[];
+            });
+            if (committed.length > 0) {
+              onProgress({
+                repo: wt.repo,
+                step: 'commit',
+                status: 'note',
+                detail:
+                  `ship.exclude matches committed changes: ${committed.join(', ')} — these DO ship ` +
+                  `(exclude only affects ship's sweep commit)`,
+              });
+            }
           }
         }
 
@@ -1114,6 +1153,8 @@ export async function shipTicket(
               author: identity,
               committer: identity,
               quarantineKey,
+              // Persisted so a crash-recovery rebuild replays the SAME sweep.
+              ...(excludes.length > 0 ? { exclude: excludes } : {}),
             },
             detail: commitMessage,
             at,
@@ -1124,46 +1165,68 @@ export async function shipTicket(
               message: commitMessage,
               author: identity,
               committer: identity,
+              exclude: excludes,
             });
-            finalizeShipOperationIntent(
-              store,
-              intentId,
-              {
+            if (prepared.excluded.length > 0) {
+              onProgress({
+                repo: wt.repo,
                 step: 'commit',
-                intendedTree: prepared.intendedTree,
-                expectedHead: prepared.expectedHead,
-                quarantineKey,
-              },
-              nowIso(),
-            );
-            await promoteQuarantinedObjects(git, wt.path, quarantineKey);
-            const cas = await compareAndSwapHeadAndIndex(git, wt.path, {
-              preHead,
-              expectedHead: prepared.expectedHead,
-              intendedTree: prepared.intendedTree,
-              preIndexTree,
-              expectedFingerprint: fingerprint,
-              quarantineKey,
-            });
-            if (!cas.ok) {
-              // A divergence is never overwritten: the world moved under the
-              // preparation, and only a human can say what should happen.
-              throw new Error(`git commit refused in ${wt.path}: ${cas.reason}`);
+                status: 'note',
+                detail: `excluded from sweep commit: ${prepared.excluded.join(', ')}`,
+              });
             }
-            markShipOperationApplied(store, intentId, { appliedAt: nowIso(), resolvedAt: nowIso() });
-            reconcileShipOperation(store, intentId, 'reconciled', { resolvedAt: nowIso() });
-            recordShipCommit(store, {
-              shipRunId: run.id,
-              repo: wt.repo,
-              sha: prepared.expectedHead,
-              message: commitMessage,
-              origin: 'created-by-ship',
-            });
-            finishShipRepoStep(store, stepId, {
-              status: 'passed',
-              detail: prepared.expectedHead.slice(0, 7),
-              endedAt: nowIso(),
-            });
+            if (prepared.expectedHead === null) {
+              // Every dirty path was excluded: the quarantine tree equals
+              // `preHead`'s, so there is nothing to commit and no empty commit is
+              // made. The (unused) intent is closed and the step reads `note`; the
+              // repo's fate is decided by the post-commit `changedFromBase` probe
+              // below, exactly as for a clean worktree — committed changes still
+              // ship, and a repo with none joins `noChangeRepos`.
+              const detail = 'nothing to commit — every dirty path is excluded';
+              reconcileShipOperation(store, intentId, 'reconciled', { resolvedAt: nowIso(), detail });
+              finishShipRepoStep(store, stepId, { status: 'note', detail, endedAt: nowIso() });
+            } else {
+              finalizeShipOperationIntent(
+                store,
+                intentId,
+                {
+                  step: 'commit',
+                  intendedTree: prepared.intendedTree,
+                  expectedHead: prepared.expectedHead,
+                  quarantineKey,
+                },
+                nowIso(),
+              );
+              await promoteQuarantinedObjects(git, wt.path, quarantineKey);
+              const cas = await compareAndSwapHeadAndIndex(git, wt.path, {
+                preHead,
+                expectedHead: prepared.expectedHead,
+                intendedTree: prepared.intendedTree,
+                preIndexTree,
+                expectedFingerprint: fingerprint,
+                quarantineKey,
+              });
+              if (!cas.ok) {
+                // A divergence is never overwritten: the world moved under the
+                // preparation, and only a human can say what should happen.
+                throw new Error(`git commit refused in ${wt.path}: ${cas.reason}`);
+              }
+              markShipOperationApplied(store, intentId, { appliedAt: nowIso(), resolvedAt: nowIso() });
+              reconcileShipOperation(store, intentId, 'reconciled', { resolvedAt: nowIso() });
+              recordShipCommit(store, {
+                shipRunId: run.id,
+                repo: wt.repo,
+                sha: prepared.expectedHead,
+                message: commitMessage,
+                origin: 'created-by-ship',
+              });
+              finishShipRepoStep(store, stepId, {
+                status: 'passed',
+                detail: prepared.expectedHead.slice(0, 7),
+                endedAt: nowIso(),
+              });
+              onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
+            }
           } catch (err) {
             const detail = err instanceof Error ? err.message : String(err);
             reconcileShipOperation(
@@ -1179,7 +1242,6 @@ export async function shipTicket(
             });
             throw err;
           }
-          onProgress({ repo: wt.repo, step: 'commit', status: 'pass' });
         }
 
         // A clean worktree already answered this above — asking twice would fetch

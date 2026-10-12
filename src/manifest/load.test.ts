@@ -794,6 +794,83 @@ describe('repository signals', () => {
   });
 });
 
+describe('repository ship exclude', () => {
+  /** Add a repository-level block after backend's `service.dependsOn: []`. */
+  const withBackend = (extra: string): string =>
+    VALID.replace('      dependsOn: []\n  frontend:', `      dependsOn: []\n${extra}  frontend:`);
+
+  it('leaves ship undefined when omitted', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).repositories.backend!.ship).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses declared exclude pathspecs', () => {
+    const { path, cleanup } = fixture(
+      withBackend('    ship:\n      exclude: ["dist/**", "*.lock.json"]\n'),
+    );
+    try {
+      expect(loadManifest(path).repositories.backend!.ship).toEqual({
+        exclude: ['dist/**', '*.lock.json'],
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('drops an empty exclude list — the block is absent', () => {
+    const { path, cleanup } = fixture(withBackend('    ship:\n      exclude: []\n'));
+    try {
+      expect(loadManifest(path).repositories.backend!.ship).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws when ship is not an object', () => {
+    const { path, cleanup } = fixture(withBackend('    ship: nope\n'));
+    try {
+      expect(() => loadManifest(path)).toThrow(/ship must be an object/i);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws when exclude is not an array', () => {
+    const { path, cleanup } = fixture(withBackend('    ship:\n      exclude: nope\n'));
+    try {
+      expect(() => loadManifest(path)).toThrow(/ship\.exclude/i);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws when an exclude entry is blank', () => {
+    const { path, cleanup } = fixture(
+      withBackend('    ship:\n      exclude: ["", "dist/**"]\n'),
+    );
+    try {
+      expect(() => loadManifest(path)).toThrow(/ship\.exclude\[0\]/i);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('refuses an exclude entry that already carries ":" pathspec magic', () => {
+    const { path, cleanup } = fixture(
+      withBackend('    ship:\n      exclude: [":(glob)dist/**"]\n'),
+    );
+    try {
+      expect(() => loadManifest(path)).toThrow(/plain pathspec/i);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('approaches', () => {
   const withApproaches = (block: string): string =>
     `${VALID}\napproaches:\n${block}`;

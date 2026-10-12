@@ -268,6 +268,33 @@ export function removeSignal(repo: RepositoryDef, signal: string): RepositoryDef
   return { ...repo, signals: (repo.signals ?? []).filter((s: string) => s !== signal) };
 }
 
+/**
+ * Whether a typed ship-exclude entry is a plain pathspec the host will accept:
+ * non-blank and without the `:` magic karst adds itself. The editor refuses one
+ * the host validator would reject, so an edit the form accepts cannot be
+ * refused at Save (`arch:FIELDCHK`).
+ */
+export function isValidShipExclude(spec: string): boolean {
+  const trimmed = spec.trim();
+  return trimmed !== '' && !trimmed.startsWith(':');
+}
+
+/** Add one ship-exclude pathspec, ignoring a blank or magic-prefixed one. */
+export function addShipExclude(repo: RepositoryDef, spec: string): RepositoryDef {
+  if (!isValidShipExclude(spec)) return repo;
+  const exclude = [...(repo.ship?.exclude ?? []), spec.trim()];
+  return { ...repo, ship: { ...repo.ship, exclude } } as RepositoryDef;
+}
+
+/** Remove one ship-exclude pathspec by VALUE; the block goes when the last does. */
+export function removeShipExclude(repo: RepositoryDef, spec: string): RepositoryDef {
+  const exclude = (repo.ship?.exclude ?? []).filter((s) => s !== spec);
+  const copy = { ...repo } as Record<string, unknown>;
+  if (exclude.length === 0) delete copy.ship;
+  else copy.ship = { ...repo.ship, exclude };
+  return copy as unknown as RepositoryDef;
+}
+
 /* ------------------------------------------------------------------------ *
  * Multi-service (`services:` map)
  * ------------------------------------------------------------------------ */

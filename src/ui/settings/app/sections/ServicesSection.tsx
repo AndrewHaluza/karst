@@ -45,16 +45,19 @@ import { DestructiveButton } from '../primitives/DestructiveButton.js';
 import { ServiceFields } from './ServiceFields.js';
 import {
   addService,
+  addShipExclude,
   addSignal,
   baselineFor,
   dependencyTargetsFor,
   isMultiService,
   isRunnable,
+  isValidShipExclude,
   newRepository,
   nextRepositoryName,
   nextServiceName,
   portsOfTarget,
   removeService,
+  removeShipExclude,
   removeSignal,
   renameRepository,
   renameServiceInDraft,
@@ -95,8 +98,8 @@ export function ServicesSection() {
         <div className="page-header">
           <div className="page-title">Repositories</div>
           <div className="page-desc">
-            Compact at rest; runtime, ports, dependencies, bindings, migrations and signals appear
-            when a repository is opened.
+            Compact at rest; runtime, ports, dependencies, bindings, migrations, signals and ship
+            excludes appear when a repository is opened.
           </div>
           <div className="page-actions">
             <Button variant="secondary" onClick={add}>
@@ -369,6 +372,29 @@ function RepositoryCard({
           ))}
         </div>
         <SignalInput name={name} onAdd={(signal) => onReplace(addSignal(repo, signal))} />
+
+        <h2>Ship exclude</h2>
+        <p className="field-hint">
+          Git pathspecs (glob magic, e.g. <code>dist/**</code>) ship&rsquo;s sweep commit leaves
+          out. They stay dirty in the worktree; a path you have already committed still ships.
+        </p>
+        <div className="chips" data-ship-exclude={name}>
+          {(repo.ship?.exclude ?? []).map((spec) => (
+            <Chip key={`${name}-ship-${spec}`} name={`ship-exclude-${spec}`}>
+              {spec}
+              <DestructiveButton
+                action="remove-ship-exclude"
+                size="sm"
+                aria-label={`Remove ship exclude ${spec}`}
+                title={`Remove ship exclude ${spec}`}
+                onClick={() => onReplace(removeShipExclude(repo, spec))}
+              >
+                &times;
+              </DestructiveButton>
+            </Chip>
+          ))}
+        </div>
+        <ShipExcludeInput name={name} onAdd={(spec) => onReplace(addShipExclude(repo, spec))} />
       </div>
     </div>
   );
@@ -485,6 +511,46 @@ function SignalInput({ name, onAdd }: { readonly name: string; readonly onAdd: (
         variant="secondary"
         size="sm"
         disabled={value.trim() === ''}
+        onClick={() => {
+          onAdd(value);
+          setValue('');
+        }}
+      >
+        Add
+      </Button>
+    </div>
+  );
+}
+
+/**
+ * The ship-exclude composer: one pathspec, added on Enter. Refuses a blank or
+ * `:`-magic entry (the host validator would reject it) by disabling Add.
+ */
+function ShipExcludeInput({
+  name,
+  onAdd,
+}: {
+  readonly name: string;
+  readonly onAdd: (spec: string) => void;
+}) {
+  const [value, setValue] = useState('');
+  return (
+    <div className="row">
+      <Field
+        label={<span className="sr-only">{`Add ship exclude pathspec for ${name}`}</span>}
+        control={{
+          kind: 'input',
+          name: `f-ship-exclude-${name}`,
+          value,
+          placeholder: 'add pathspec (e.g. dist/**), Enter to add',
+          onChange: setValue,
+        }}
+      />
+      <Button
+        variant="secondary"
+        size="sm"
+        aria-label={`Add ship exclude pathspec for ${name}`}
+        disabled={!isValidShipExclude(value)}
         onClick={() => {
           onAdd(value);
           setValue('');

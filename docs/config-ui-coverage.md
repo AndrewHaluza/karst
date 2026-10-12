@@ -27,7 +27,7 @@ Legend: **UI** = editable in Settings · **GAP** = yml-only.
 | `host`, `portRange`, `baselineBranch`, `worktreePathDisplay`, `agentProvider`, `defaultModel`, `ticketLabelTemplate`, `terminalNameTemplate`, `archiveDoneAfterDays`, `subtasks.maxConcurrentPerParent`, `subtasks.maxConcurrentTotal` | General |
 | `agentPresets.<name>.label` / `.slots.<capability>.{provider,model,effort}`, `activeAgentPreset`, `defaultAgentPreset` (deprecated alias) | Presets |
 | `conventions.branchName` / `.commitMessage` / `.pullRequestTitle` / `.pullRequestDescription` / `.defaultType` | Git (+ presets) |
-| `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` | Repositories |
+| `repositories.<n>.repoPath` / `.baselineBranch` / `.hasMigrations` / `.signals` / `.enabled` / `.ship.exclude[]` | Repositories |
 | `repositories.<n>.service.start` / `.health` / `.portRange` / `.ports[].{name,env,default}` / `.dependsOn[].{target,port}` / `.dependsOn[].bind[].{env,template}` | Repositories |
 | `approaches[].id` / `.label` / `.description` / `.entrypoint` / `.recommended` / `.enabled` / `.source` (git: repo/ref/include; npm: package/command/collect) | Approaches |
 | `agents.<n>.enabled` | Agents |

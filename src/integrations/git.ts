@@ -476,12 +476,62 @@ export interface QuarantinePrepareInput {
   message: string;
   author: PersistedCommitIdentity;
   committer: PersistedCommitIdentity;
+  /**
+   * Git pathspecs (glob magic) the sweep commit must leave out. Applied to the
+   * QUARANTINE index only: the live HEAD, index and worktree are untouched, and
+   * an excluded path stays dirty in the worktree. Absent/empty means "stage the
+   * whole worktree" — the pre-existing behavior.
+   */
+  exclude?: readonly string[];
+}
+
+/**
+ * A user-authored exclude entry as an explicit glob pathspec. `:(glob)` is what
+ * makes `**` cross directory separators (a bare `dist/**` under git's default
+ * fnmatch does not), so the magic is added here and never written by the author
+ * (`validateShip` refuses a leading `:`).
+ */
+function excludeGlobSpec(spec: string): string {
+  return `:(glob)${spec}`;
+}
+
+/**
+ * Paths changed in `range` (`git diff --name-only <range>`) that any exclude
+ * spec matches. Empty when `specs` is empty — no git invocation. Throws on a
+ * git failure so the caller decides; ship treats the answer as a warning.
+ */
+export async function changedPathsMatching(
+  git: GitRunner,
+  cwd: string,
+  range: string,
+  specs: readonly string[],
+): Promise<string[]> {
+  if (specs.length === 0) return [];
+  const out = await git(['diff', '--name-only', range, '--', ...specs.map(excludeGlobSpec)], cwd);
+  if (out.exitCode !== 0) {
+    throw new Error(describeGitFailure(`git diff --name-only ${range}`, out));
+  }
+  return splitLines(out.stdout);
+}
+
+/** Split git's newline-separated path output, dropping blank lines. */
+function splitLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line !== '');
 }
 
 /** The two object ids that authorize `created-by-ship` provenance. */
 export interface PreparedCommit {
   intendedTree: string;
-  expectedHead: string;
+  /**
+   * The commit to land, or `null` when excluding left the quarantine tree
+   * identical to `preHead`'s — no commit was created (never an empty commit).
+   */
+  expectedHead: string | null;
+  /** Worktree-relative paths the exclude specs kept out of the sweep commit. */
+  excluded: string[];
 }
 
 export type CasOutcome =
@@ -558,11 +608,44 @@ export async function prepareCommitInQuarantine(
   if (add.exitCode !== 0) {
     throw new Error(`git add failed in ${cwd}: ${add.stderr.trim()}`);
   }
+  // Exclude: reset the QUARANTINE index entries the exclude specs name back to
+  // `preHead`, so the sweep commit leaves them out. The live HEAD, live index and
+  // worktree are untouched — excluded paths stay dirty in the worktree. The
+  // `--cached` diff BEFORE the reset is what tells ship which dirty paths were
+  // actually excluded (a spec matching nothing reports nothing).
+  const specs = (input.exclude ?? []).map(excludeGlobSpec);
+  let excluded: string[] = [];
+  if (specs.length > 0) {
+    const dirty = await runGitEnv(
+      ['diff', '--cached', '--name-only', input.preHead, '--', ...specs],
+      cwd,
+      env,
+    );
+    if (dirty.exitCode !== 0) {
+      throw new Error(`git diff --cached failed in ${cwd}: ${dirty.stderr.trim()}`);
+    }
+    excluded = splitLines(dirty.stdout);
+    const reset = await runGitEnv(['reset', '-q', input.preHead, '--', ...specs], cwd, env);
+    if (reset.exitCode !== 0) {
+      throw new Error(`git reset failed in ${cwd}: ${reset.stderr.trim()}`);
+    }
+  }
   const tree = await runGitEnv(['write-tree'], cwd, env);
   if (tree.exitCode !== 0) {
     throw new Error(`git write-tree failed in ${cwd}: ${tree.stderr.trim()}`);
   }
   const intendedTree = tree.stdout.trim();
+
+  // Excluding every dirty path leaves the tree identical to `preHead`'s: there
+  // is nothing to commit, and an empty commit would be a lie. Only meaningful
+  // once a spec was given — without one the caller expects a commit even for a
+  // clean worktree (the review snapshot relies on that).
+  if (specs.length > 0) {
+    const preTree = await runGitEnv(['rev-parse', `${input.preHead}^{tree}`], cwd, env);
+    if (preTree.exitCode === 0 && preTree.stdout.trim() === intendedTree) {
+      return { intendedTree, expectedHead: null, excluded };
+    }
+  }
 
   const commitEnv: NodeJS.ProcessEnv = {
     ...env,
@@ -581,7 +664,7 @@ export async function prepareCommitInQuarantine(
   if (commit.exitCode !== 0) {
     throw new Error(`git commit-tree failed in ${cwd}: ${commit.stderr.trim()}`);
   }
-  return { intendedTree, expectedHead: commit.stdout.trim() };
+  return { intendedTree, expectedHead: commit.stdout.trim(), excluded };
 }
 
 /** Copy the quarantined objects into the main object database. Idempotent. */
