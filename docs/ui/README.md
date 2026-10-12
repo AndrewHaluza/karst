@@ -21,7 +21,7 @@ read a whole file.
    `UI-INVARIANTS.md` keys that apply.
 3. **Layout primitives** — `DESIGN-SYSTEM.md` `ui:LAYOUT-PRIMITIVES`, then the
    token and primitive blocks you use.
-4. **Verify** — `npm run test:layout` (advisory, fast on the host); the final
+4. **Verify** — run `npm run -s test:visual:docker 2>&1 | tail -40` after any webview change (CI runs it as the advisory `visual` job; judge visual failures only from the docker run, never host `test:visual`). `npm run test:layout` is advisory and fast on the host; the final
    check and any ledger change go through `npm run test:layout:docker`
    (`test:visual:docker` for baselines).
 5. **Screenshot changes need user approval.** Never edit baselines or the layout

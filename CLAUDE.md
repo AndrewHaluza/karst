@@ -10,16 +10,10 @@
 - Mutation: `stryker.config.json` is silent by design (reporters `html`+`json`, `logLevel: warn`; only a score-under-break error prints; CI overrides to `clear-text` + `logLevel info` so its log keeps the per-file table). Use `npx stryker run --mutate <changed files>`, then `node scripts/mutationSummary.mjs` for the score, worst files and top survivors (markdown on stdout). Details of one file: `reports/mutation/mutation.html`.
 - Never dump logs or reports whole: pipe through `tail -n`/`grep`.
 
-`test:unit`, `test:integration`, `test:coverage` and `test:mutation` each have a `pretest:*` that rebuilds better-sqlite3 for the Node ABI.
-- `npm run -s test:unit` — unit suite (`vitest.config.ts`); excludes `*.integration.test.*` and `*.e2e.test.*`. In-memory SQLite via `openStore(':memory:')`
-- `npm run -s test:integration` — `vitest.integration.config.ts`: `*.integration.test.*` + `*.e2e.test.*`
-- `npm run -s typecheck` — `tsc --noEmit`; `npm run -s lint:react` — eslint on `src/ui/settings/app` (CI runs it); `npm run -s typecheck:visual` — Playwright visual specs
-- `npm run -s build` — clean + esbuild bundle + `copy-assets` into `dist/` + `verify-build.mjs`. `npm run compile` is the separate `tsc -p tsconfig.build.json` emit.
+`test:unit`, `test:integration`, `test:coverage`, `test:mutation` each `pretest:*`-rebuild better-sqlite3 for the Node ABI. Other scripts (`typecheck`, `lint:react`, `build`, `compile`, `inventory:extension`, `typecheck:visual`): see `package.json`; CI runs `lint:react` too.
+- Unit config `vitest.config.ts` excludes `*.integration.test.*` and `*.e2e.test.*`; those run via `--config vitest.integration.config.ts`. Unit stores use `openStore(':memory:')`.
 - Single test: `npx vitest run src/path/to.test.ts` (render tests `*.render.test.ts` too). Bypasses `pretest`, so the Node ABI must already be built — if not, `npm run -s rebuild:node` first.
-- Single integration/e2e: `npx vitest run --config vitest.integration.config.ts src/path/to.integration.test.ts`
-- `npm run -s test:coverage` — v8 coverage. **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.**
-- `npm run -s test:mutation` — Stryker over `src/extension/**` minus the `mutate` excludes in `stryker.config.json`.
-- `npm run -s inventory:extension` — regenerates `docs/arch/extension-inventory.md`.
+- **Never run `npx vitest run --coverage` directly — it skips the rebuild and produces thousands of false `openStore` failures.** Use `npm run -s test:coverage`.
 
 ## Gates and CI (binding)
 - **Naming rule (binding):** a test file that spawns a real child/git process, binds or connects a real network port, or renders a full settings/dashboard jsdom document is named `*.integration.test.*`; a headless end-to-end file is `*.e2e.test.*`; everything else stays `*.test.*`. A file must never match two suites — the unit config excludes both suffixes.
@@ -63,9 +57,9 @@ Reference docs under `docs/` (all except `plans/`, `superpowers/` and the genera
 - **Domain terms** → `docs/glossary.md` (`gloss:GL-*`); **UAT stuck** → `docs/troubleshooting/uat-stuck.md` (`ts:UAT-03` fix); **test naming / contributor rules** → `CONTRIBUTING.md` §5
 - Other arch docs (graph-run reliability, model/store/workflow layering, impl exit-condition ADR) live in `docs/arch/`: find keys with the grep above.
 
-## UI/UX (binding — read `docs/ui/README.md` before touching any webview)
-Start at `docs/ui/README.md`: it gives the read order (prototype regions → group L layout rules `ui:UI-R39`..`R48` → rules for touched controls → layout primitives → `test:layout`) and which sibling doc to read when. Every UI change is judged pass/fail against `docs/ui/UI-RULES.md`; cite the rule id in the commit when a change exists to satisfy one (UI-R35). Rule block keys are `ui:UI-R01`..`ui:UI-R48` (list them with the key listing above). UI work is verified by the docker layout run (`test:visual:docker` / `test:layout:docker`; host `test:layout` is advisory only) and user-approved screenshots; never edit baselines or the layout ledger to pass a gate (the ledger shrinks only via `npm run test:layout:docker:prune`).
-**Settings webview (NDL-126)** is the ONE React surface (`src/ui/settings/app/**`), governed by the UI-RULES v3.1 "React views" annex; vanilla views keep v3.0. Mounted once into `#root` (tests use `renderWebviewReady('settings')`, never a second mount); `app/main.tsx` owns the single `acquireVsCodeApi()`.
+## UI/UX (binding)
+Touching `src/ui/**` -> read `docs/ui/README.md` first (read order, verification, never edit baselines or the layout ledger to pass a gate).
+The Settings webview is the ONE React surface (`src/ui/settings/app/**`): mounted once into `#root`, `app/main.tsx` owns the single `acquireVsCodeApi()`, tests use `renderWebviewReady('settings')`. Other views stay vanilla (`ui:APPX-V31`).
 
 ## TS/ESM quirks
 - ESM (`type:module`): imports need `.js` suffix; `moduleResolution:Bundler`.
@@ -82,11 +76,6 @@ Start at `docs/ui/README.md`: it gives the read order (prototype regions → gro
 - `vscode`-importing modules don't load under vitest (no mock). Put testable logic in a vscode-free module (e.g. `secretStore.ts`), keep the `vscode` binding a thin wrapper (`secrets.ts`).
 - Command logic belongs in `src/extension/ops/` with a `Notify` seam; `extension.ts` handlers are bindings only (enforced by `src/extension/ops/ratchet.test.ts`).
 
-## Debug Logging Rules
-- **The gate is `src/logging/logger.ts`**: `logger.debug()` is a NO-OP unless `setDebugEnabled(true)` was called (manifest `debug: true`). Detail, retention, and the callback inventory → `docs/arch/debug-logging.md` (`arch:DBG-02` gate and retention; `arch:DBG-01` callbacks).
-- **Every new stage runner, gate, or agent adapter MUST emit `debug(...)` via the injected callback at**: entry point (what is being attempted), decision branch (which path was taken), exit point (what was the outcome).
-- **Module prefixes are load-bearing for filtering**: `[driver]` (stage driver), `[gate]` (gate run/runList + uat/review stages), `[agent:<name>]` (claude/codex/opencode/antigravity adapters), `[runtime]` (spin/supervisor/worktreeServers), `[merge]` (mergeGate), `[process]` (process-assignment seam — profile body overlaid as a process's instructions). Not exhaustive (e.g. `[dashboard]`); reuse an existing prefix before adding one.
-- **Host-agnostic modules receive `debug` as an INJECTED callback**, never by importing the logger. `extension.ts` binds them all to `logger.debug`; the full list is `arch:DBG-01` in `docs/arch/debug-logging.md`.
-- **Debug logs MUST NOT include** secrets, tokens, full prompts (redact to `<prompt:<n> chars>`), or repository contents. Bound untrusted agent stdout/stderr first (`headlessPreview`, 500 chars; gate output: length only).
-- **A new `catch {}` in workflow/runtime** MUST be preceded by a `debug` line when it is a decision point; blocks and parks name their `blocker`/`reason`.
-- New debug call sites are cheap to add but must stay behind the injected callback — never call a global logger from a vscode-free module.
+## Debug Logging
+Adding a stage runner, gate or agent adapter (or a `catch {}` in workflow/runtime) -> read `docs/arch/debug-logging.md` first (`arch:DBG-01` callbacks, `DBG-02` gate, `DBG-03` authoring rules).
+Host-agnostic modules take `debug` as an injected callback, never the global logger.
