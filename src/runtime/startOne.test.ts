@@ -561,6 +561,74 @@ describe('startTicketService', () => {
     expect(allocationOf('backend', 'http')).toBeUndefined();
   });
 
+  it('starts a recorded service when a sibling in the same repo has no record', async () => {
+    const m = manifest({
+      mono: repo({
+        repoPath: '/repo/mono',
+        services: {
+          api: svc({ ports: [httpSlot(3000)] }),
+          web: svc({ ports: [httpSlot(5173)] }), // added after the spin
+        },
+      }),
+    });
+    addWorktree(1, '/repo/mono', '/wt/mono');
+    addAllocation(1, 'mono/api', 'http', 4100);
+
+    const result = await startTicketService(store, m, 1, 'mono/api');
+
+    expect(result.newPorts).toEqual({});
+    expect(calledNames()).toEqual(['mono/api']);
+    const args = startResolvedMock.mock.calls[0]![0];
+    expect(args.resolved.services['mono/api']!.ports.http).toBe(4100); // port never moved
+    // the unrecorded sibling is hot but served its declared default, not a port.
+    expect(allocationOf('mono/web', 'http')).toBeUndefined();
+  });
+
+  it('rewires another running consumer of a re-drawn shared dependency', async () => {
+    const m = manifest({
+      backend: runnableRepo({ ports: [httpSlot(3000)] }, { repoPath: '/repo/backend' }),
+      api: runnableRepo(
+        {
+          ports: [httpSlot(8080)],
+          dependsOn: [
+            dependsOn('backend', 'http', [
+              { env: 'API_BACKEND_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/api' },
+      ),
+      worker: runnableRepo(
+        {
+          ports: [httpSlot(9090)],
+          dependsOn: [
+            dependsOn('backend', 'http', [
+              { env: 'WORKER_BACKEND_URL', template: 'http://{host}:{port}' },
+            ]),
+          ],
+        },
+        { repoPath: '/repo/worker' },
+      ),
+    });
+    addWorktree(1, '/repo/backend', '/wt/backend');
+    addWorktree(1, '/repo/api', '/wt/api');
+    addWorktree(1, '/repo/worker', '/wt/worker');
+    addAllocation(1, 'worker', 'http', 4200);
+    addServer(1, 20, 'worker', 4200, 2222, 'running');
+    // api is the target; backend is a shared stopped dependency of both api and
+    // the already-running worker.
+
+    const result = await startTicketService(store, m, 1, 'api', { probeBusyPorts: noBusy });
+
+    expect(result.newPorts).toEqual({ http: 4000 });
+    expect(result.restartedDependents).toEqual(['worker']);
+    const workerArgs = startResolvedMock.mock.calls.find((c) => c[0].name === 'worker')![0];
+    expect(workerArgs.resolved.services['api']!.env['API_BACKEND_URL']).toBe('http://localhost:4001');
+    expect(workerArgs.resolved.services['worker']!.env['WORKER_BACKEND_URL']).toBe(
+      'http://localhost:4001',
+    );
+  });
+
   it('resolves the whole hot set so a peer binds its allocated port, not its default', async () => {
     const m = manifest(stack());
     addWorktree(1, '/repo/backend', '/wt/backend');
