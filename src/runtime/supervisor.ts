@@ -767,42 +767,44 @@ export function pruneOrphanServers(
  * can never start again.
  *
  * A stop RETAINS its row on purpose (`stopServer`): an offline server stays
- * visible so the user can restart it. That holds only while the row can still
- * be started. Every spin wipes and re-allocates the ticket's
- * `port_allocations` up front, and a rolled-back spin also releases them and may
- * remove the worktree it created — so the offline rows it did not restart have
- * no port left. Start on one can only fail "ports are no longer recorded", and
- * the row is a button that cannot work. This reaps exactly those.
+ * visible so the user can restart it. That holds only while the row can still be
+ * started, and an unsuccessful spin wipes and re-allocates the ticket's
+ * `port_allocations` up front — a rolled-back spin releases them and may remove
+ * the worktree it created too. Start on a row it did not restart can only fail
+ * "ports are no longer recorded", so the row is a button that cannot work.
  *
- * `includeFailed` separates the two unsuccessful exits, because a `failed` row
- * means different things on each:
- *  - a FULL rollback (cancel) releases every port and may remove the fresh
- *    worktrees, so ANY non-running row is dead — no `failed` row of this run can
- *    exist (an aborted start records none), so `includeFailed: true` reaps them
- *    all;
- *  - a mid-way failure keeps its partial state, including the `failed` row
- *    `recordFailedStart` just wrote to explain WHY it died, and that row is
- *    restartable (its ports were allocated before the start) — so the default
- *    reaps only `stopped` rows and leaves `failed` ones.
+ * `status = 'stopped'` rows are ALWAYS reaped: the spin that stopped them is
+ * gone, and the ticket returns to un-spun (a re-spin, not a Restart, is how to
+ * bring them back). `failed` rows are reaped only when the ticket no longer
+ * records a port for their repo — the `failed` row `recordFailedStart` writes
+ * for a mid-way failure keeps its allocation (ports resolve before anything
+ * starts), so it stays as the failure's explanation and IS restartable; a prior
+ * spin's `failed` row, or any after a full rollback released the ports, has
+ * none and goes.
  *
  * A row still `running` is never reaped: it is a REFUSED kill (`killTree` →
- * 'denied'), a live orphan that must stay visible (@arch:WT-REMOVE). `pid` is not
- * part of the test — a stopped row normally has `pid` nulled, but the CLI
- * doctor's `markServerStopped` leaves the old pid in place, and the row is stale
- * either way. `kind = 'service'` keeps a graph/node session row (kind `agent`)
- * out of a service rollback, the same split `livenessSweep` makes. Ticket-scoped
- * like `pruneOrphanServers`: baseline rows (`ticket_id IS NULL`) are shared
- * across tickets and are not one ticket's to reap.
+ * 'denied'), a live orphan that must stay visible (@arch:WT-REMOVE). `pid IS
+ * NULL` is the ticket's guard; every path that marks a row stopped nulls the pid
+ * (the CLI doctor's `markServerStopped` used to be the one exception and is
+ * aligned). `kind = 'service'` keeps a graph/node session row (kind `agent`) out
+ * of a service rollback, the same split `livenessSweep` makes. Ticket-scoped like
+ * `pruneOrphanServers`: baseline rows (`ticket_id IS NULL`) are shared across
+ * tickets and are not one ticket's to reap.
  */
-export function pruneDeadServers(
-  store: Store,
-  ticketId: number,
-  opts: { includeFailed?: boolean } = {},
-): void {
-  const status = opts.includeFailed ? "status != 'running'" : "status = 'stopped'";
+export function pruneDeadServers(store: Store, ticketId: number): void {
   store.db
-    .prepare(`DELETE FROM servers WHERE ticket_id = ? AND kind = 'service' AND ${status}`)
-    .run(ticketId);
+    .prepare(
+      `DELETE FROM servers
+        WHERE ticket_id = ?
+          AND kind = 'service'
+          AND status != 'running'
+          AND pid IS NULL
+          AND (
+            status = 'stopped'
+            OR repo NOT IN (SELECT repo FROM port_allocations WHERE ticket_id = ?)
+          )`,
+    )
+    .run(ticketId, ticketId);
 }
 
 /** Read the current contents of a server's log file (§10 log-tail). */

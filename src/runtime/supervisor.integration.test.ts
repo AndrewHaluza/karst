@@ -1277,8 +1277,8 @@ describe('pruneOrphanServers', () => {
  * An unsuccessful spin wipes and (on a cancel) releases the ticket's ports, so
  * the offline rows a stop retains can no longer be started — Start on one fails
  * "ports are no longer recorded". This reaps exactly those rows, while a row
- * still RUNNING (a refused kill) and — on a mid-way failure — a restartable
- * `failed` row stay visible.
+ * still RUNNING (a refused kill) and a mid-way failure's own `failed` row (its
+ * ports were allocated before the start) stay visible.
  */
 describe('pruneDeadServers', () => {
   let store: Store;
@@ -1307,6 +1307,13 @@ describe('pruneDeadServers', () => {
     return Number(info.lastInsertRowid);
   }
 
+  /** Record a port for `repo`, so its offline row is still restartable. */
+  function allocate(ticketId: number, repo: string): void {
+    store.db
+      .prepare('INSERT INTO port_allocations (ticket_id, repo, port_name, port) VALUES (?, ?, ?, ?)')
+      .run(ticketId, repo, 'http', 3000 + ticketId);
+  }
+
   const exists = (id: number): boolean =>
     store.db.prepare('SELECT id FROM servers WHERE id = ?').get(id) !== undefined;
 
@@ -1326,36 +1333,31 @@ describe('pruneDeadServers', () => {
     expect(exists(running)).toBe(true);
   });
 
-  it('keeps a failed row by default — it is a mid-way failure’s own explanation', () => {
+  it('keeps a failed row whose repo still has a port — a mid-way failure’s own explanation', () => {
     const failed = row(7, 'frontend', 'failed', null);
+    allocate(7, 'frontend');
 
     pruneDeadServers(store, 7);
 
     expect(exists(failed)).toBe(true);
   });
 
-  it('reaps a prior failed row on a full rollback (includeFailed)', () => {
+  it('reaps a failed row whose repo no longer has a port — a prior spin’s dead leftover', () => {
     const failed = row(7, 'frontend', 'failed', null);
 
-    pruneDeadServers(store, 7, { includeFailed: true });
+    pruneDeadServers(store, 7);
 
     expect(exists(failed)).toBe(false);
   });
 
-  it('never reaps a running row even when includeFailed is set', () => {
-    const running = row(7, 'backend', 'running', 4242);
-
-    pruneDeadServers(store, 7, { includeFailed: true });
-
-    expect(exists(running)).toBe(true);
-  });
-
-  it('reaps a stopped row whose pid is still set (the CLI doctor leaves it)', () => {
+  it('spares a stopped row that still records a pid (the ticket’s pid IS NULL guard)', () => {
+    // The CLI doctor used to be the one path leaving this shape; it now nulls
+    // the pid like every other stop, so this can only be a legacy row.
     const doctorStopped = row(7, 'backend', 'stopped', 12345);
 
     pruneDeadServers(store, 7);
 
-    expect(exists(doctorStopped)).toBe(false);
+    expect(exists(doctorStopped)).toBe(true);
   });
 
   it('never reaps an agent (graph-session) row', () => {

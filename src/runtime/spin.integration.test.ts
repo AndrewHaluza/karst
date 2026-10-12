@@ -438,23 +438,25 @@ describe('spinTicket integration', () => {
     };
 
     const ticket = createTicket(store, { key: 'PROJ-8', title: 'failed mid-way' });
-    // A prior spin's offline row for a repo NOT hot this run: the pre-spin
-    // release wiped its allocation, so a Start on it can only fail.
-    store.db
-      .prepare(
-        `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
-         VALUES (?, 'web', '127.0.0.1', 3000, NULL, 'stopped', '/tmp/prior.log')`,
-      )
-      .run(ticket.id);
+    // A prior spin's offline rows for a repo NOT hot this run — one `stopped`,
+    // one `failed`. The pre-spin release wiped their allocations, so a Start on
+    // either can only fail; both must go.
+    const seed = store.db.prepare(
+      `INSERT INTO servers (ticket_id, repo, host, port, pid, status, log_path)
+       VALUES (?, 'web', '127.0.0.1', 3000, NULL, ?, '/tmp/prior.log')`,
+    );
+    seed.run(ticket.id, 'stopped');
+    seed.run(ticket.id, 'failed');
 
     await expect(spinTicket(store, manifest, ticket.id, ['frontend'])).rejects.toThrow();
 
-    const dead = store.db
-      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND status = 'stopped'")
+    // The prior rows are gone: nothing non-running and un-startable remains.
+    const priorRows = store.db
+      .prepare("SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'web'")
       .get(ticket.id) as { n: number };
-    expect(dead.n).toBe(0);
-    // The FAILED row survives: it explains the failure and IS restartable (its
-    // port was allocated before the start).
+    expect(priorRows.n).toBe(0);
+    // This run's OWN failed row survives: it explains the failure and IS
+    // restartable (its port was allocated before the start).
     const failed = store.db
       .prepare(
         "SELECT COUNT(*) AS n FROM servers WHERE ticket_id = ? AND repo = 'frontend' AND status = 'failed'",
