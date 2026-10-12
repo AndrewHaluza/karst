@@ -27,7 +27,9 @@ function load(): Record<string, unknown> {
   return new Function(`${agentIdentityJs()}\n${js}\nreturn {
     apEfforts, apEffortOptions, apCoreOptionsHtml, apModelOptionsHtml,
     apCoreSelection: typeof apCoreSelection === 'function' ? apCoreSelection : undefined,
-    apTags, apModelTagsHtml, apInheritLabels,
+    apTags, apModelTagsHtml, apInheritLabels, apEffortMode, apModelTriggerName,
+    apTriggerLabelHtml: typeof apTriggerLabelHtml === 'function' ? apTriggerLabelHtml : undefined,
+    apCoreTriggerName: typeof apCoreTriggerName === 'function' ? apCoreTriggerName : undefined,
   };`)();
 }
 
@@ -421,5 +423,62 @@ describe('injectAgentPicker', () => {
     const html = `<style>/*KARST_AGENT_PICKER_CSS*/</style>`;
     const out = injectAgentPicker(html);
     expect(out).not.toContain(AGENT_PICKER_CSS_MARKER);
+  });
+});
+
+describe('compact effort placeholder', () => {
+  const fns = load() as {
+    apEffortMode: (e: string[] | undefined, saved: string, compact: boolean) => string;
+    apModelTriggerName: (label: string, id: string, fallback: string) => string;
+  };
+  it('offers a select when the model advertises efforts', () => {
+    expect(fns.apEffortMode(['low', 'high'], '', true)).toBe('select');
+    expect(fns.apEffortMode(['low', 'high'], '', false)).toBe('select');
+  });
+  it('keeps a saved effort visible as a select', () => {
+    expect(fns.apEffortMode(undefined, 'high', true)).toBe('select');
+  });
+  it('shows a disabled placeholder only in compact mode', () => {
+    expect(fns.apEffortMode(undefined, '', true)).toBe('placeholder');
+    expect(fns.apEffortMode([], '', true)).toBe('placeholder');
+  });
+  it('hides Effort outside compact mode as today', () => {
+    expect(fns.apEffortMode(undefined, '', false)).toBe('hidden');
+  });
+  it('puts the full model id in the trigger name', () => {
+    expect(fns.apModelTriggerName('deepseek-v4.1-flash', 'opencode-go/deepseek-v4.1-flash', 'No model'))
+      .toBe('deepseek-v4.1-flash \u2014 opencode-go/deepseek-v4.1-flash');
+    expect(fns.apModelTriggerName('', '', 'No model')).toBe('No model');
+    expect(fns.apModelTriggerName('same', 'same', 'x')).toBe('same');
+  });
+  it('ships the placeholder markup and CSS', () => {
+    expect(js).toContain('data-ap-effort-placeholder');
+    expect(js).toContain('Effort is not available for this model');
+    expect(agentPickerCss()).toContain('.ap-effort-placeholder');
+    expect(agentPickerCss()).toMatch(/\.ap-effort-placeholder\{[^}]*color:var\(--k-text-dim\)[^}]*dashed/);
+  });
+});
+
+describe('truncated trigger text stays reachable (UI-R44)', () => {
+  const fns = load() as {
+    apTriggerLabelHtml?: (inner: string, triggerId: string) => string;
+    apCoreTriggerName?: (caption: string, coreName: string) => string;
+  };
+  it('describes the clipping label by its trigger, whose name carries the full text', () => {
+    expect(fns.apTriggerLabelHtml!('Claude Code', 'ap-3-core'))
+      .toBe('<span class="ap-trigger-label" aria-describedby="ap-3-core">Claude Code</span>');
+  });
+  it('names the compact core trigger with the full core label', () => {
+    expect(fns.apCoreTriggerName!('Core', 'Claude Code')).toBe('Core: Claude Code');
+    expect(fns.apCoreTriggerName!('Core', '')).toBe('Core');
+  });
+  it('compact fields are table cells (the row owns Core | Model | Effort)', () => {
+    expect(js).toContain("var cellRole = compact ? ' role=\"cell\"' : '';");
+    expect(js.match(/'<div class="ap-field[^']*"' \+ cellRole/g)).toHaveLength(3);
+  });
+  it('gives each trigger a unique id and wires the labels to it', () => {
+    expect(js).toContain("id=\"' + apId + '-core\"");
+    expect(js).toContain("id=\"' + apId + '-model\"");
+    expect(js).toContain("apTriggerLabelHtml(");
   });
 });

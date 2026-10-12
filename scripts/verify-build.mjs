@@ -26,7 +26,9 @@ const REQUIRED_ARTIFACTS = [
 // map per repository: per-service blocks, split/add/remove, repo/service
 // dependency targets), which added ~4 KB of genuine app code on a ~356 KB base.
 // Raised 354 → 356 KB for the pending-outputs panel on the Approaches card (~1.3 KB).
-const APP_BUNDLE_BUDGET_BYTES = 356 * 1024;
+// Raised 356 → 358 KB for the aligned Roles table (KarstMark, SourceCell and the
+// one-grid cell contract, ~1.4 KB).
+const APP_BUNDLE_BUDGET_BYTES = 358 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

@@ -38,6 +38,19 @@ function apModelTagsHtml(tags) {
   return out + '</div>';
 }
 
+/** How the Effort field presents: a select, a compact-only disabled "\u2014", or nothing. */
+function apEffortMode(efforts, saved, compact) {
+  if ((efforts && efforts.length > 0) || saved) return 'select';
+  return compact ? 'placeholder' : 'hidden';
+}
+
+/** Accessible name / tooltip of the model trigger: label plus the full id. */
+function apModelTriggerName(label, id, fallback) {
+  if (!label && !id) return fallback;
+  if (!id || label === id) return label || id;
+  return label + ' \u2014 ' + id;
+}
+
 /** The effort options HTML for a model: inherit/none row + advertised efforts. */
 function apEffortOptions(catalog, provider, modelId, saved, inheritLabel) {
   var efforts = apEfforts(catalog, provider, modelId);
@@ -157,6 +170,23 @@ function apModelItemHtml(m, saved, tags) {
     + '</div>';
 }
 
+/**
+ * A clipping trigger label points at its trigger (UI-R44). The describedby exists to satisfy
+ * layout check (d): a clipped element must carry aria-describedby. The real accessible full
+ * text is the trigger's aria-label.
+ */
+function apTriggerLabelHtml(inner, triggerId) {
+  return '<span class="ap-trigger-label" aria-describedby="' + apEsc(triggerId) + '">' + inner + '</span>';
+}
+
+/** Compact core trigger name: caption plus the full core label. */
+function apCoreTriggerName(caption, coreName) {
+  return coreName ? caption + ': ' + coreName : caption;
+}
+
+/** Per-page counter for unique picker trigger ids. */
+var AP_SEQ = 0;
+
 /** The identity the core trigger shows: full pattern when a model is set. */
 function apCoreTriggerLabel(provider, modelLabel) {
   if (typeof agentIdentityHtml === 'function') {
@@ -242,24 +272,28 @@ function mountAgentPicker(root, opts) {
   var labelModel = o.labels && o.labels.model ? o.labels.model : 'Model';
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
 
+  var apId = 'ap-' + (++AP_SEQ);
+  var cellRole = compact ? ' role="cell"' : '';
   root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
-    + '<div class="ap-field">'
+    + '<div class="ap-field"' + cellRole + '>'
     + '<label class="ap-label">' + (o.labels && o.labels.core ? apEsc(o.labels.core) : 'Agent core') + '</label>'
     + '<div class="ap-shell" data-ap-shell="core">'
-    + '<button type="button" class="ap-trigger" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
+    + '<button type="button" class="ap-trigger" id="' + apId + '-core" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="core" role="listbox" hidden></div>'
     + '</div></div>'
-    + '<div class="ap-field">'
+    + '<div class="ap-field"' + cellRole + '>'
     + '<label class="ap-label">' + apEsc(labelModel) + '</label>'
     + '<div class="ap-shell" data-ap-shell="model">'
-    + '<button type="button" class="ap-trigger" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
+    + '<button type="button" class="ap-trigger" id="' + apId + '-model" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="model" role="listbox" hidden>'
     + '<div class="ap-search"><input type="text" placeholder="Search models…" aria-label="Search models" data-ap-search /></div>'
     + '<div class="ap-scroll" data-ap-list="model"></div>'
     + '</div></div></div>'
-    + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
+    + '<div class="ap-field ap-effort-field"' + cellRole + ' data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
     + '<select class="ap-effort" data-ap-effort aria-label="' + apEsc(labelEffort) + '"></select>'
+    + '<div class="ap-effort-placeholder" data-ap-effort-placeholder hidden role="group" aria-disabled="true"'
+    + ' aria-label="' + apEsc(labelEffort) + ': Effort is not available for this model" title="Effort is not available for this model">\u2014</div>'
     + '</div>'
     + '</div>';
 
@@ -292,31 +326,37 @@ function mountAgentPicker(root, opts) {
       catalog, state.core, state.model, labels().model, recent[state.core],
     );
     var coreLabel = modelLabel();
-    $('[data-ap-trigger="core"]').innerHTML =
-      '<span class="ap-trigger-label">' + apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || '')) + '</span>'
+    var coreTrigger = $('[data-ap-trigger="core"]');
+    coreTrigger.innerHTML =
+      apTriggerLabelHtml(apCoreTriggerLabel(state.core, compact ? '' : (coreLabel || '')), apId + '-core')
       + '<span class="chev" aria-hidden="true"></span>';
-    modelTrigger.innerHTML = coreLabel
-      ? '<span class="ap-trigger-label">' + apEsc(coreLabel) + '</span><span class="chev" aria-hidden="true"></span>'
-      : '<span class="ap-trigger-label">' + apEsc(labels().model || 'No model (agent picks)') + '</span>'
-        + '<span class="chev" aria-hidden="true"></span>';
+    if (compact) {
+      coreTrigger.setAttribute('aria-label', apCoreTriggerName(
+        o.labels && o.labels.core ? o.labels.core : 'Agent core', (coreTrigger.textContent || '').trim()));
+    }
+    modelTrigger.innerHTML = apTriggerLabelHtml(apEsc(coreLabel || labels().model || 'No model (agent picks)'), apId + '-model')
+      + '<span class="chev" aria-hidden="true"></span>';
+    var triggerName = apModelTriggerName(coreLabel, state.model, labels().model || 'No model (agent picks)');
+    modelTrigger.title = triggerName;
+    if (compact) modelTrigger.setAttribute('aria-label', labelModel + ': ' + triggerName);
     renderEffort();
   }
 
   function renderEffort() {
     var field = $('[data-ap-effort-field]');
+    var placeholder = $('[data-ap-effort-placeholder]');
+    var sel = $('[data-ap-effort]');
     if (!showEffort) { field.hidden = true; return; }
     var efforts = apEfforts(catalog, state.core, state.model);
-    var show = efforts !== undefined && efforts.length > 0;
-    if (show || state.effort) {
-      field.hidden = false;
-      var sel = $('[data-ap-effort]');
+    var mode = apEffortMode(efforts, state.effort, compact);
+    if (mode === 'select') {
+      field.hidden = false; sel.hidden = false; placeholder.hidden = true;
       var effortInherit = labels().effort || (compact ? 'No effort' : '');
       var built = apEffortOptions(catalog, state.core, state.model, state.effort, effortInherit);
       sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
-      if (built.efforts === null && !state.effort) {
-        // No advertised efforts and nothing saved — keep a single none row.
-        sel.innerHTML = '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
-      }
+    } else if (mode === 'placeholder') {
+      field.hidden = false; sel.hidden = true; placeholder.hidden = false;
+      state.effort = '';
     } else {
       field.hidden = true;
       state.effort = '';

@@ -183,8 +183,8 @@ describe('Agents page — compare', () => {
     fireEvent.click(document.querySelector('[name="agents-only-diffs"]')!);
     expect(document.querySelectorAll('.agents-compare-row')).toHaveLength(2);
     fireEvent.click(screen.getByText('Swap A/B'));
-    expect(screen.getByText('A: B')).not.toBeNull();
-    expect(screen.getByText('B: A')).not.toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'A: B' })).not.toBeNull();
+    expect(screen.getByRole('columnheader', { name: 'B: A' })).not.toBeNull();
   });
 });
 
@@ -238,5 +238,101 @@ describe('Agents page — agent profiles', () => {
     expect((document.querySelector('[name="agent-body-reviewer"]') as HTMLTextAreaElement).value).toBe('edited');
     fireEvent.click(screen.getByText('Save'));
     expect(bridge.last('save-agent-file')).toMatchObject({ name: 'reviewer', body: 'edited' });
+  });
+});
+
+describe('Agents page — roles table layout markup', () => {
+  const cells = (r: Element) => Array.from(r.children).map((c) => c.className);
+  const mountCompare = () => {
+    mount();
+    fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
+  };
+
+  it('header has an empty "Enabled" first column and Core / Model / Effort as separate headings', () => {
+    mount();
+    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
+    expect(heads).toEqual(['Enabled', 'Role', 'Agent profile', 'Core', 'Model', 'Effort', 'Source', 'Actions']);
+    const first = screen.getAllByRole('columnheader')[0]!;
+    expect(first.querySelector('.sr-only')!.textContent).toBe('Enabled');
+  });
+
+  it('every normal row has the same six cells in the same order', () => {
+    mount();
+    for (const r of document.querySelectorAll('.agents-row[data-role]')) {
+      expect(cells(r).map((c) => c.split(' ').find((n) => n.startsWith('agents-cell-')))).toEqual([
+        'agents-cell-switch', 'agents-cell-role', 'agents-cell-profile',
+        'agents-cell-picker', 'agents-cell-source', 'agents-cell-actions',
+      ]);
+    }
+  });
+
+  it('Core, Model and Effort are the row\'s own cells so they map 1:1 to the eight headings', () => {
+    mount();
+    const r = document.querySelector('.agents-row[data-role]:not(.agents-compare-row)')!;
+    expect(r.querySelector('.agents-cell-picker')!.getAttribute('role')).toBeNull();
+    // The compact picker's three .ap-field elements carry role="cell" (pinned in agentPicker.test.ts),
+    // so the row has 5 own cells + 3 picker cells = the 8 headings.
+    expect(Array.from(r.children).filter((c) => c.getAttribute('role') === 'cell')).toHaveLength(5);
+  });
+
+  it('a non-pinnable role has an empty switch cell and a hidden pin slot beside Clear', () => {
+    mount();
+    const r = Array.from(document.querySelectorAll('.agents-row[data-role]')).find(
+      (el) => !el.querySelector('[role="switch"], input[type="checkbox"]'),
+    )!;
+    expect(r.querySelector('.agents-cell-switch')!.children).toHaveLength(0);
+    const slot = r.querySelector('.agents-pin-slot')!;
+    expect(slot.getAttribute('aria-hidden')).toBe('true');
+    expect(slot.nextElementSibling!.getAttribute('aria-label')).toBe('Clear');
+  });
+
+  it('the profile open button uses the file icon and names the profile', () => {
+    mount();
+    const btn = screen.getAllByRole('button', { name: /^Open profile / })[0]!;
+    expect(btn.querySelector('.icon-island')).not.toBeNull();
+  });
+
+  it('Karst defaults carry the mark, say "default", and never say "Role default"', () => {
+    mount();
+    expect(document.body.textContent).not.toContain('Role default');
+    const r = row('implementation');
+    const chip = r.querySelector('[data-source="default"]')!;
+    expect(chip.querySelector('.k-karst-mark')).not.toBeNull();
+    expect(chip.getAttribute('title')).toContain('Karst default');
+    expect(chip.textContent).toContain('Karst default');
+    expect(chip.querySelector('[aria-hidden="true"]:not(svg)')!.textContent).toBe('default');
+    expect(chip.getAttribute('title')).toContain("uses Karst's built-in default.");
+  });
+
+  it('a role on the built-in profile shows the mark and "Open Karst built-in …" labels', () => {
+    mount();
+    const btns = screen.getAllByRole('button', { name: /^Open Karst built-in (prompt|profile)$/ });
+    expect(btns.length).toBeGreaterThan(0);
+    expect(btns[0]!.querySelector('.k-karst-mark')).not.toBeNull();
+    const sel = document.querySelector('.agents-profile-select.has-mark select') as HTMLSelectElement;
+    expect(sel.selectedOptions[0]!.textContent).toBe('default');
+    expect(sel.closest('.agents-profile-select')!.querySelector('.k-karst-mark')).not.toBeNull();
+  });
+
+  it('compare rows keep the empty switch cell and show A / B field labels', () => {
+    mountCompare();
+    const r = document.querySelector('.agents-compare-row')!;
+    expect(r.firstElementChild!.className).toContain('agents-cell-switch');
+    expect(Array.from(r.querySelectorAll('.agents-field-label')).map((l) => l.textContent?.slice(0, 2))).toEqual(['A:', 'B:']);
+  });
+
+  it('compare A / B labels are exposed to screen readers (cards have no header)', () => {
+    mountCompare();
+    const labels = document.querySelector('.agents-compare-row')!.querySelectorAll('.agents-field-label');
+    expect(labels).toHaveLength(2);
+    for (const l of labels) expect(l.closest('[aria-hidden="true"]') ?? (l.getAttribute('aria-hidden') === 'true' ? l : null)).toBeNull();
+  });
+
+  it('compare cells reuse the source cell: default chips carry the Karst mark, tooltip and SR text', () => {
+    mountCompare();
+    const chip = document.querySelector('.agents-compare-row [data-source="default"]')!;
+    expect(chip.querySelector('.k-karst-mark')).not.toBeNull();
+    expect(chip.getAttribute('title')).toContain('Karst default');
+    expect(chip.querySelector('.sr-only')!.textContent).toBe('Karst default');
   });
 });
