@@ -17,12 +17,15 @@ import { join } from 'node:path';
 import {
   acquireTrustLock,
   codexProjectHeader,
+  codexProjectHeaderForKey,
   ensureClaudeWorkspaceTrusted,
   ensureCodexWorkspaceTrusted,
   mergeClaudeTrust,
   mergeCodexTrustToml,
   releaseTrustLock,
+  repositoryRootFor,
   trustKeyFor,
+  trustKeysFor,
   trustLockPath,
 } from './workspaceTrust.js';
 
@@ -57,6 +60,48 @@ describe('trustKeyFor', () => {
     const dir = join(tempDir(), 'does-not-exist');
     // resolve() makes it absolute; there is no realpath to resolve.
     expect(trustKeyFor(dir)).toBe(dir);
+  });
+});
+
+describe('trustKeysFor / repositoryRootFor', () => {
+  /** A repo whose `.git` is a DIRECTORY (a normal clone), with a subdirectory. */
+  function repoWithSubdir(): { repo: string; sub: string } {
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'packages', 'app');
+    mkdirSync(sub, { recursive: true });
+    return { repo, sub };
+  }
+
+  it('adds the repository root when the cwd is a subdirectory of a repo', () => {
+    const { repo, sub } = repoWithSubdir();
+    expect(repositoryRootFor(trustKeyFor(sub))).toBe(trustKeyFor(repo));
+    // cwd first (codex keys on it), then the root Claude actually reads.
+    expect(trustKeysFor(sub)).toEqual([trustKeyFor(sub), trustKeyFor(repo)]);
+  });
+
+  it('resolves a linked worktree to the MAIN worktree root', () => {
+    const main = tempDir();
+    mkdirSync(join(main, '.git'));
+    const worktree = join(tempDir(), 'wt');
+    mkdirSync(worktree);
+    // A linked worktree's `.git` is a FILE pointing at the common dir.
+    writeFileSync(join(worktree, '.git'), `gitdir: ${join(main, '.git', 'worktrees', 'wt')}\n`);
+    const sub = join(worktree, 'sub');
+    mkdirSync(sub);
+    expect(repositoryRootFor(trustKeyFor(sub))).toBe(trustKeyFor(main));
+    expect(trustKeysFor(sub)).toEqual([trustKeyFor(sub), trustKeyFor(main)]);
+  });
+
+  it('returns only the cwd when it is not inside a repo', () => {
+    const dir = tempDir();
+    expect(repositoryRootFor(trustKeyFor(dir))).toBeUndefined();
+    expect(trustKeysFor(dir)).toEqual([trustKeyFor(dir)]);
+  });
+
+  it('returns only the cwd for a directory that does not exist', () => {
+    const dir = join(tempDir(), 'does-not-exist');
+    expect(trustKeysFor(dir)).toEqual([dir]);
   });
 });
 
@@ -100,6 +145,51 @@ describe('mergeClaudeTrust', () => {
     expect(mergeClaudeTrust([], '/wt')).toEqual({ changed: false, next: [] });
     expect(mergeClaudeTrust(null, '/wt')).toEqual({ changed: false, next: null });
     expect(mergeClaudeTrust('nope', '/wt')).toEqual({ changed: false, next: 'nope' });
+  });
+
+  it('records trust for both the cwd and the repository root (T661 UAT, medium)', () => {
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'pkg');
+    mkdirSync(sub);
+    expect(mergeClaudeTrust(undefined, sub).next).toEqual({
+      projects: {
+        [trustKeyFor(sub)]: { hasTrustDialogAccepted: true },
+        [trustKeyFor(repo)]: { hasTrustDialogAccepted: true },
+      },
+    });
+  });
+
+  it('keeps existing project fields while adding the missing repository-root key', () => {
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'pkg');
+    mkdirSync(sub);
+    const existing = {
+      projects: { [trustKeyFor(sub)]: { allowedTools: ['Read'], hasTrustDialogAccepted: true } },
+    };
+    const merged = mergeClaudeTrust(existing, sub);
+    expect(merged.changed).toBe(true);
+    expect(merged.next).toEqual({
+      projects: {
+        [trustKeyFor(sub)]: { allowedTools: ['Read'], hasTrustDialogAccepted: true },
+        [trustKeyFor(repo)]: { hasTrustDialogAccepted: true },
+      },
+    });
+  });
+
+  it('is idempotent once both the cwd and the repository root are trusted', () => {
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'pkg');
+    mkdirSync(sub);
+    const existing = {
+      projects: {
+        [trustKeyFor(sub)]: { hasTrustDialogAccepted: true },
+        [trustKeyFor(repo)]: { hasTrustDialogAccepted: true },
+      },
+    };
+    expect(mergeClaudeTrust(existing, sub)).toEqual({ changed: false, next: existing });
   });
 });
 
@@ -220,6 +310,20 @@ describe('ensureClaudeWorkspaceTrusted', () => {
     };
     expect(parsed.projects[trustKeyFor('/karst/wt')]?.hasTrustDialogAccepted).toBe(true);
   });
+
+  it('records the repository-root key for a launch cwd inside a repo', () => {
+    const home = tempDir();
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'pkg');
+    mkdirSync(sub);
+    ensureClaudeWorkspaceTrusted(sub, { home });
+    const parsed = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')) as {
+      projects: Record<string, { hasTrustDialogAccepted?: boolean }>;
+    };
+    expect(parsed.projects[trustKeyFor(repo)]?.hasTrustDialogAccepted).toBe(true);
+    expect(parsed.projects[trustKeyFor(sub)]?.hasTrustDialogAccepted).toBe(true);
+  });
 });
 
 describe('trust lock', () => {
@@ -315,6 +419,20 @@ describe('mergeCodexTrustToml', () => {
     const existing = '[projects."/karst/wt"]\ntrust_level = "untrusted" # keep me\n';
     expect(mergeCodexTrustToml(existing, '/karst/wt').text).toContain(
       'trust_level = "trusted" # keep me',
+    );
+  });
+
+  it('writes a table for both the cwd and the repository root', () => {
+    const repo = tempDir();
+    mkdirSync(join(repo, '.git'));
+    const sub = join(repo, 'pkg');
+    mkdirSync(sub);
+    const merged = mergeCodexTrustToml('model = "x"\n', sub);
+    expect(merged.text).toContain(
+      `${codexProjectHeaderForKey(trustKeyFor(sub))}\ntrust_level = "trusted"`,
+    );
+    expect(merged.text).toContain(
+      `${codexProjectHeaderForKey(trustKeyFor(repo))}\ntrust_level = "trusted"`,
     );
   });
 

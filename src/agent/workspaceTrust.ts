@@ -39,6 +39,11 @@
  * - **Symlinked configs are followed.** A dotfiles setup points `~/.claude.json`
  *   at another file; renaming over the link would replace it with a regular
  *   file and leave the target stale, so the write resolves the real target first.
+ * - **Keyed where the CLI looks.** Claude keys `projects[<key>]` on the
+ *   repository's root (a linked worktree resolves to the MAIN worktree root),
+ *   not the launch cwd, so `trustKeysFor` writes both the cwd and that root;
+ *   a record under a path the CLI never reads leaves the dialog in place
+ *   (T661 UAT, medium).
  * - **Idempotent.** Already-true skips the write (and the reformat) entirely.
  */
 
@@ -55,7 +60,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { pidAlive } from '../runtime/pidAlive.js';
 
 /** Shared options for the per-core ensure functions. */
@@ -154,6 +159,62 @@ function codexConfigPath(opts: TrustOptions): string {
 }
 
 /**
+ * The repository root a CLI records folder trust under, or `undefined` when
+ * `dir` is not inside a git repository. Claude Code 2.1.296 keys
+ * `projects[<root>]` on the repository's COMMON git dir parent, NOT the launch
+ * cwd: a launch in a subdirectory of a repo records the repo root, and a launch
+ * in a linked worktree records the MAIN worktree root (`<main>/.git/worktrees/<n>`
+ * → `<main>`). Trusting the exact cwd therefore misses whenever the cwd is not
+ * itself the repository root — a monorepo whose `repoPath` is a subdirectory of
+ * one git repo, or a ticket worktree — so the workspace stays untrusted and the
+ * dialog/exit plus the dropped `.claude/settings.json` pre-approvals remain
+ * (T661 UAT, medium). Walks up with `statSync`, never a git child process.
+ */
+export function repositoryRootFor(dir: string): string | undefined {
+  let current = dir;
+  for (;;) {
+    const dotGit = join(current, '.git');
+    const stat = statSync(dotGit, { throwIfNoEntry: false });
+    if (stat?.isDirectory()) return realOrSelf(current);
+    if (stat?.isFile()) return realOrSelf(commonRootFromGitFile(dotGit) ?? current);
+    const parent = dirname(current);
+    if (parent === current) return undefined;
+    current = parent;
+  }
+}
+
+/** The realpath of `path`, or `path` when it cannot be resolved (it may not exist). */
+function realOrSelf(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+/**
+ * The main worktree root a linked worktree's `.git` FILE points at. The file
+ * holds `gitdir: <main>/.git/worktrees/<name>`; the common root is `<main>`.
+ * Any other shape (a submodule's `.git/modules/<n>`) has no such marker and the
+ * caller falls back to the directory that holds the `.git` file.
+ */
+function commonRootFromGitFile(dotGitFile: string): string | undefined {
+  let text: string;
+  try {
+    text = readFileSync(dotGitFile, 'utf8');
+  } catch {
+    return undefined;
+  }
+  const match = /^\s*gitdir:\s*(.+?)\s*$/m.exec(text);
+  if (!match) return undefined;
+  const gitDir = resolve(dirname(dotGitFile), match[1]!);
+  const marker = `${sep}worktrees${sep}`;
+  const at = gitDir.lastIndexOf(marker);
+  if (at === -1) return undefined;
+  return dirname(gitDir.slice(0, at)); // <main>/.git → <main>
+}
+
+/**
  * The absolute, symlink-resolved path a core records for a launch directory.
  * macOS `/tmp` is a symlink to `/private/tmp` and the extension's globalStorage
  * can sit behind a symlinked home, so the SAME directory reaches the CLI as
@@ -172,32 +233,62 @@ export function trustKeyFor(cwd: string): string {
 }
 
 /**
- * Merge `projects[<cwd>].hasTrustDialogAccepted = true` into a parsed
- * `~/.claude.json`. Preserves every top-level key and the existing project
- * entry's other fields. `undefined` (a missing or empty file) starts a fresh
- * minimal document. A top-level shape karst cannot merge (an array, a scalar,
- * `null`) is left alone (`changed: false`).
+ * Every key a core may record trust under for `cwd`: the realpath cwd, plus the
+ * git repository root when the cwd is inside one. Claude keys on the repository
+ * root (a linked worktree resolves to the MAIN worktree root); codex keys on the
+ * cwd. Writing both covers either, and a non-repo cwd yields just its own key.
+ */
+export function trustKeysFor(cwd: string): string[] {
+  const absolute = resolve(cwd);
+  let real: string;
+  try {
+    real = realpathSync(absolute);
+  } catch {
+    return [absolute];
+  }
+  const root = repositoryRootFor(real);
+  return root !== undefined && root !== real ? [real, root] : [real];
+}
+
+/**
+ * Merge `hasTrustDialogAccepted = true` into a parsed `~/.claude.json` for every
+ * key `trustKeysFor(cwd)` names (the cwd and, inside a repo, the repository
+ * root Claude actually reads). Preserves every top-level key and each existing
+ * project entry's other fields. `undefined` (a missing or empty file) starts a
+ * fresh minimal document. A top-level shape karst cannot merge (an array, a
+ * scalar, `null`) is left alone (`changed: false`).
  */
 export function mergeClaudeTrust(existing: unknown, cwd: string): TrustMerge {
-  const key = trustKeyFor(cwd);
+  const keys = trustKeysFor(cwd);
   if (existing === undefined) {
-    return { changed: true, next: { projects: { [key]: { hasTrustDialogAccepted: true } } } };
+    const projects: Record<string, unknown> = {};
+    for (const key of keys) projects[key] = { hasTrustDialogAccepted: true };
+    return { changed: true, next: { projects } };
   }
   if (!isPlainObject(existing)) return { changed: false, next: existing };
   const projects = isPlainObject(existing['projects']) ? existing['projects'] : {};
-  const entry = isPlainObject(projects[key]) ? projects[key] : {};
-  if (entry['hasTrustDialogAccepted'] === true) return { changed: false, next: existing };
-  return {
-    changed: true,
-    next: { ...existing, projects: { ...projects, [key]: { ...entry, hasTrustDialogAccepted: true } } },
-  };
+  let changed = false;
+  const next: Record<string, unknown> = { ...projects };
+  for (const key of keys) {
+    const entry = isPlainObject(projects[key]) ? projects[key] : {};
+    if (entry['hasTrustDialogAccepted'] === true) continue;
+    next[key] = { ...entry, hasTrustDialogAccepted: true };
+    changed = true;
+  }
+  if (!changed) return { changed: false, next: existing };
+  return { changed: true, next: { ...existing, projects: next } };
+}
+
+/** The `[projects."<key>"]` TOML table header codex writes for a directory. */
+export function codexProjectHeaderForKey(key: string): string {
+  // A TOML basic string; JSON.stringify escapes exactly the characters TOML
+  // requires (`\` and `"`), so a Windows-style path cannot break the header.
+  return `[projects.${JSON.stringify(key)}]`;
 }
 
 /** The `[projects."<cwd>"]` TOML table header codex writes for a directory. */
 export function codexProjectHeader(cwd: string): string {
-  // A TOML basic string; JSON.stringify escapes exactly the characters TOML
-  // requires (`\` and `"`), so a Windows-style path cannot break the header.
-  return `[projects.${JSON.stringify(trustKeyFor(cwd))}]`;
+  return codexProjectHeaderForKey(trustKeyFor(cwd));
 }
 
 /** A TOML key: bare, or a basic/literal quoted string. */
@@ -333,6 +424,25 @@ function trustedAssignment(line: string): string {
 
 /**
  * Merge `[projects."<cwd>"] trust_level = "trusted"` into an existing codex
+ * `config.toml` for every key `trustKeysFor(cwd)` names (the cwd and, inside a
+ * repo, its root). Each table is merged by `mergeCodexTrustForKey`.
+ */
+export function mergeCodexTrustToml(
+  existing: string,
+  cwd: string,
+): { changed: boolean; text: string } {
+  let text = existing;
+  let changed = false;
+  for (const key of trustKeysFor(cwd)) {
+    const merged = mergeCodexTrustForKey(text, key);
+    text = merged.text;
+    changed = changed || merged.changed;
+  }
+  return { changed, text };
+}
+
+/**
+ * Merge one `[projects."<key>"] trust_level = "trusted"` table into a codex
  * `config.toml`, leaving every other line byte-for-byte intact. The existing
  * table is located TOML-aware: a header with inner whitespace or a trailing
  * comment still counts (never a second table — TOML forbids redefinition), the
@@ -340,16 +450,12 @@ function trustedAssignment(line: string): string {
  * an existing `trust_level` is replaced keeping its trailing comment, and an
  * already-trusted table is left completely unchanged.
  */
-export function mergeCodexTrustToml(
-  existing: string,
-  cwd: string,
-): { changed: boolean; text: string } {
-  const key = trustKeyFor(cwd);
+function mergeCodexTrustForKey(existing: string, key: string): { changed: boolean; text: string } {
   const lines = existing.split('\n');
   const headerIndex = lines.findIndex((line) => isProjectHeader(line, key));
   if (headerIndex === -1) {
     const base = existing.replace(/\s+$/, '');
-    const block = `${codexProjectHeader(cwd)}\ntrust_level = "trusted"\n`;
+    const block = `${codexProjectHeaderForKey(key)}\ntrust_level = "trusted"\n`;
     return { changed: true, text: base.length > 0 ? `${base}\n\n${block}` : block };
   }
 
