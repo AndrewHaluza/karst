@@ -1,6 +1,6 @@
 import { resolveModelForProvider } from '../agent/models.js'
 import { resolvePresetDefaults } from '../agent/agentPresets.js'
-import type { LogBuffer, LogEntry } from '../logging/logger.js'
+import type { LogBuffer, LogEntry, LogLevel } from '../logging/logger.js'
 import type { Manifest } from '../manifest/types.js'
 import type { Store } from '../store/db.js'
 import type { Project } from '../store/projects.js'
@@ -276,7 +276,7 @@ export async function collectMetadata(input: MetadataSources): Promise<Diagnosti
   await yieldToHost(input.isCancelled)
   metadata.cores = collectCores(input, safe)
   await yieldToHost(input.isCancelled)
-  metadata.logs = collectLogs(input.logs.snapshot(), input.generatedAt, safe)
+  metadata.logs = collectLogs(input.logs.snapshot(), input.generatedAt, safe, input.ticketId)
 
   return {
     reportId: input.reportId,
@@ -320,7 +320,7 @@ export async function collectProjectMetadata(
         repositoryAlias: aliases.byName,
       })),
       cores: collectProjectCores(input, safe),
-      logs: collectLogs(input.logs.snapshot(), input.generatedAt, safe),
+      logs: collectLogs(input.logs.snapshot(), input.generatedAt, safe, null),
     },
     exclusions: [
       'credentials, tokens, private keys, environment and SecretStorage',
@@ -426,6 +426,7 @@ function collectTopology(
       servers: servers.rows.map((row) => ({
         repository: repositories.byName(row.repo),
         status: safe(row.status),
+        startedAt: row.startedAt,
         hasAddress: row.hasAddress,
       })),
       repositoryOrder: dedup(
@@ -482,39 +483,150 @@ function collectLogs(
   snapshot: readonly LogEntry[],
   generatedAt: string,
   safe: (value: string | null) => string | null,
+  ticketId: number | null,
 ): DiagnosticSection {
   const cutoff = new Date(generatedAt).valueOf() - DIAGNOSTIC_LIMITS.maxAgeMs
-  const recent = snapshot.filter((entry) => new Date(entry.timestamp).valueOf() >= cutoff)
-  const byRows = recent.slice(-DIAGNOSTIC_LIMITS.maxReportLogEntries)
-  const kept: LogEntry[] = []
+  const recent: LogEntry[] = []
+  let agedOut = 0
+  for (const entry of snapshot) {
+    if (new Date(entry.timestamp).valueOf() >= cutoff) recent.push(entry)
+    else agedOut += 1
+  }
+  const collapsed = collapseRepeats(recent, ticketPatternFor(ticketId))
+  // Selection priority within the row/byte caps, newest first inside a class:
+  // (a) every warn/error in the window, (b) ticket-scoped debug/info, (c) the
+  // rest. The caps then spend on the ticketed evidence before the noise.
+  const priority: Readonly<Record<LogClass, number>> = { warnError: 0, ticket: 1, other: 2 }
+  const ordered = [...collapsed].sort(
+    (a, b) => priority[a.class] - priority[b.class] || b.index - a.index,
+  )
+  const kept: CollapsedLog[] = []
   let bytes = 0
-  for (let i = byRows.length - 1; i >= 0; i--) {
-    const entry = byRows[i]!
-    const size = Buffer.byteLength(entry.timestamp)
+  for (const entry of ordered) {
+    if (kept.length >= DIAGNOSTIC_LIMITS.maxReportLogEntries) break
+    const size = Buffer.byteLength(entry.firstTimestamp)
       + Buffer.byteLength(entry.level)
-      + Buffer.byteLength(entry.message)
+      + Buffer.byteLength(collapsedMessage(entry))
     if (bytes + size > DIAGNOSTIC_LIMITS.maxReportLogBytes) break
-    kept.unshift(entry)
+    kept.push(entry)
     bytes += size
   }
-  const omitted = snapshot.length - kept.length
+  kept.sort((a, b) => a.index - b.index)
+  const omittedByClass = { warnError: 0, ticket: 0, other: 0, age: agedOut }
+  const keptSet = new Set(kept)
+  for (const entry of collapsed) {
+    if (!keptSet.has(entry)) omittedByClass[entry.class] += entry.repeats
+  }
+  const omitted = omittedByClass.warnError
+    + omittedByClass.ticket
+    + omittedByClass.other
+    + omittedByClass.age
   const data = kept.map((entry) => ({
-    timestamp: entry.timestamp,
+    timestamp: entry.firstTimestamp,
     level: entry.level,
-    message: safe(entry.message),
+    message: safe(collapsedMessage(entry)),
   }))
   return omitted > 0
     ? {
       status: 'truncated',
       data: json(data),
       omitted,
-      reason: recent.length < snapshot.length
+      reason: agedOut > 0
         ? 'age'
-        : recent.length > DIAGNOSTIC_LIMITS.maxReportLogEntries
+        : collapsed.length > DIAGNOSTIC_LIMITS.maxReportLogEntries
           ? 'rows'
           : 'bytes',
+      omittedByClass,
     }
     : available(data)
+}
+
+/**
+ * Prefixes that mark a debug/info line as ticket evidence (the DBG-03
+ * vocabulary). `[driver]` is deliberately absent: the driver is chatty and its
+ * lines qualify only when they name the report's ticket.
+ */
+const EVIDENCE_PREFIXES = [
+  '[runtime]',
+  '[gate]',
+  '[stage]',
+  '[stage-log]',
+  '[merge]',
+  '[hot]',
+  '[hotSet]',
+  '[staged]',
+] as const
+
+type LogClass = 'warnError' | 'ticket' | 'other'
+
+interface CollapsedLog {
+  readonly baseMessage: string
+  /** Normalized text the consecutive group was matched on. */
+  readonly key: string
+  readonly level: LogLevel
+  readonly firstTimestamp: string
+  readonly lastTimestamp: string
+  /** Original position of the group's first entry, for chronological output. */
+  readonly index: number
+  readonly class: LogClass
+  readonly repeats: number
+}
+
+const REPEAT_TICKET = /\bT\d+\b/g
+const REPEAT_COUNT = /\(\s*\d+\s*\)/g
+
+/** Consecutive-line equivalence: ticket numbers and counts are incidental. */
+function repeatKey(message: string): string {
+  return message.replace(REPEAT_TICKET, 'T<n>').replace(REPEAT_COUNT, '(n)')
+}
+
+function classifyLog(entry: LogEntry, ticketPattern: RegExp | null): LogClass {
+  if (entry.level === 'warn' || entry.level === 'error') return 'warnError'
+  if (EVIDENCE_PREFIXES.some((prefix) => entry.message.startsWith(prefix))) return 'ticket'
+  if (ticketPattern?.test(entry.message)) return 'ticket'
+  return 'other'
+}
+
+/** `/\bT<id>\b|\bticket <id>\b/` for the report's ticket; none for a project report. */
+function ticketPatternFor(ticketId: number | null): RegExp | null {
+  if (ticketId === null) return null
+  return new RegExp(`\\bT${ticketId}\\b|\\bticket ${ticketId}\\b`)
+}
+
+function collapsedMessage(entry: CollapsedLog): string {
+  return entry.repeats > 1
+    ? `${entry.baseMessage} (repeated ${entry.repeats}× from ${entry.firstTimestamp} to ${entry.lastTimestamp})`
+    : entry.baseMessage
+}
+
+function collapseRepeats(
+  recent: readonly LogEntry[],
+  ticketPattern: RegExp | null,
+): CollapsedLog[] {
+  const collapsed: CollapsedLog[] = []
+  recent.forEach((entry, index) => {
+    const key = repeatKey(entry.message)
+    const previous = collapsed[collapsed.length - 1]
+    if (previous && previous.level === entry.level && previous.key === key) {
+      collapsed[collapsed.length - 1] = {
+        ...previous,
+        repeats: previous.repeats + 1,
+        lastTimestamp: entry.timestamp,
+      }
+      return
+    }
+    collapsed.push({
+      baseMessage: entry.message,
+      key,
+      level: entry.level,
+      firstTimestamp: entry.timestamp,
+      lastTimestamp: entry.timestamp,
+      index,
+      class: classifyLog(entry, ticketPattern),
+      repeats: 1,
+    })
+  })
+  return collapsed
 }
 
 interface CoreEvidenceSource {

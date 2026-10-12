@@ -220,3 +220,59 @@ describe('makeBoundedLogBuffer — debug retention', () => {
     expect(capture.snapshot()).toHaveLength(4); // no new capture while disabled
   });
 });
+
+describe('makeBoundedLogBuffer — level-aware eviction', () => {
+  it('evicts the oldest debug entry before any info or warn', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 3, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'warn', message: 'keep me' });
+    capture.capture({ timestamp: '1', level: 'info', message: 'i1' });
+    capture.capture({ timestamp: '2', level: 'debug', message: 'd1' });
+    capture.capture({ timestamp: '3', level: 'debug', message: 'd2' });
+    // Over the 3-entry cap: the oldest debug (d1) yields, never the warn.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['keep me', 'i1', 'd2']);
+  });
+
+  it('falls back to the oldest info once no debug remains', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 2, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'info', message: 'i1' });
+    capture.capture({ timestamp: '1', level: 'warn', message: 'w1' });
+    capture.capture({ timestamp: '2', level: 'error', message: 'e1' });
+    // No debug in the buffer: the oldest info goes before the warn/error pair.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['w1', 'e1']);
+  });
+
+  it('an earlier warn survives a full debug flood at the default limits', () => {
+    const capture = makeBoundedLogBuffer();
+    capture.capture({ timestamp: '2026-07-13T09:00:00.000Z', level: 'warn', message: 'UAT spin failed' });
+    for (let i = 0; i < 2000; i += 1) {
+      capture.capture({
+        timestamp: `2026-07-13T10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`,
+        level: 'debug',
+        message: `[driver] delivery T${i}: notes deferred`,
+      });
+    }
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('UAT spin failed');
+    expect(capture.snapshot().length).toBeLessThanOrEqual(500);
+  });
+
+  it('keeps the newest warn/error entries when only those overflow', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 2, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'warn', message: 'w1' });
+    capture.capture({ timestamp: '1', level: 'error', message: 'e1' });
+    capture.capture({ timestamp: '2', level: 'error', message: 'e2' });
+    // No lower level available: FIFO applies to warn/error too.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['e1', 'e2']);
+  });
+
+  it('drops older debug before newer debug and accounts the released bytes', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 26 });
+    // Empty timestamp + level + 4-char message: info 8 bytes, debug 9 bytes.
+    capture.capture({ timestamp: '', level: 'info', message: 'aaaa' });
+    capture.capture({ timestamp: '', level: 'debug', message: 'dddd' });
+    capture.capture({ timestamp: '', level: 'debug', message: 'eeee' });
+    // 26 bytes fit these three; the fourth must drop the oldest debug, not the info.
+    capture.capture({ timestamp: '', level: 'debug', message: 'ffff' });
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['aaaa', 'eeee', 'ffff']);
+  });
+});

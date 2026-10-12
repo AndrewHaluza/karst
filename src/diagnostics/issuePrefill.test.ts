@@ -237,6 +237,24 @@ describe('GitHub issue prefill', () => {
     expect(prefill.body).toContain('- Redactions: authorization 3')
   })
 
+  it('carries the omittedByClass breakdown into a section notice', () => {
+    const prefill = buildIssuePrefill(
+      snapshot({
+        logs: {
+          status: 'truncated',
+          data: [],
+          omitted: 5,
+          reason: 'rows',
+          omittedByClass: { warnError: 0, ticket: 1, other: 3, age: 1 },
+        },
+      }),
+      '1.2.3',
+    )
+    expect(prefill.body).toContain(
+      'logs truncated (5 omitted by rows: warnError 0, ticket 1, other 3, age 1)',
+    )
+  })
+
   it('degrades to the sections it has rather than emitting empty rows', () => {
     const prefill = buildIssuePrefill(snapshot({}), '9.9.9')
     expect(prefill.body).not.toMatch(/\|\s*\|/)

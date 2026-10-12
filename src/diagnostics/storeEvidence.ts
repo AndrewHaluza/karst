@@ -43,6 +43,8 @@ export interface WorktreeEvidence {
 export interface ServerEvidence {
   readonly repo: string
   readonly status: string
+  /** When the service last started, so a report can place it on the timeline. */
+  readonly startedAt: string
   readonly hasAddress: boolean
 }
 
@@ -210,7 +212,7 @@ export function readWorktrees(store: Store, ticketId: number, cap: number): Boun
 export function readServers(store: Store, ticketId: number, cap: number): BoundedRows<ServerEvidence> {
   const limit = checkedCap(cap)
   const rows = store.db.prepare(
-    `SELECT repo, status, (host IS NOT NULL AND port IS NOT NULL) AS has_address,
+    `SELECT repo, status, started_at, (host IS NOT NULL AND port IS NOT NULL) AS has_address,
             COUNT(*) OVER() AS total_count
        FROM servers
       WHERE ticket_id = ? AND kind = 'service'
@@ -219,6 +221,7 @@ export function readServers(store: Store, ticketId: number, cap: number): Bounde
   ).all(ticketId, limit + 1) as Array<{
     repo: string
     status: string
+    started_at: string
     has_address: number
     total_count: number
   }>
@@ -228,6 +231,7 @@ export function readServers(store: Store, ticketId: number, cap: number): Bounde
     rows: result.rows.map((row) => ({
       repo: row.repo,
       status: row.status,
+      startedAt: row.started_at,
       hasAddress: row.has_address === 1,
     })),
   }

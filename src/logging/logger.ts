@@ -92,8 +92,29 @@ function entryBytes(entry: LogEntry): number {
 }
 
 /**
+ * Eviction precedence, most disposable first. Verbose `debug` lines are a
+ * line at every decision point and can bury the sparse info/warn/error stream
+ * a report exists to carry, so they go first; `info` next; `warn`/`error`
+ * last. A field report whose tail was entirely `[driver]` debug spam is the
+ * shape this prevents — the noise yields before the evidence.
+ */
+const EVICTION_ORDER: readonly LogLevel[] = ['debug', 'info'];
+
+/** Index of the entry to drop: oldest of the most disposable level present. */
+function evictionIndex(entries: readonly LogEntry[]): number {
+  for (const level of EVICTION_ORDER) {
+    const index = entries.findIndex((entry) => entry.level === level);
+    if (index >= 0) return index;
+  }
+  // Only warn/error remain — the oldest goes, exactly as FIFO would.
+  return 0;
+}
+
+/**
  * Activation-local diagnostic history. Capture is sanitized before retention
- * and oldest entries are evicted to satisfy both limits. Nothing is persisted.
+ * and entries are evicted to satisfy both limits — oldest `debug` first, then
+ * `info`, and `warn`/`error` last (see `EVICTION_ORDER`). Snapshots stay
+ * chronological. Nothing is persisted.
  */
 export function makeBoundedLogBuffer(
   options: {
@@ -130,7 +151,8 @@ export function makeBoundedLogBuffer(
       entries.push(safeEntry);
       bytes += size;
       while (entries.length > maxEntries || bytes > maxBytes) {
-        const removed = entries.shift();
+        const index = evictionIndex(entries);
+        const [removed] = entries.splice(index, 1);
         if (removed) bytes -= entryBytes(removed);
       }
     },
