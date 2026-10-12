@@ -194,6 +194,7 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
+import { computeDriftNotes } from './context/drift.js';
 import { resolveModelChain } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
@@ -4075,6 +4076,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, ticketId, graphRunId);
   };
 
+  /** A ticket's context with drift precomputed async; the render itself does no git. */
+  const ticketContextWithDrift = async (ticketId: number): Promise<string> => {
+    const ctx = buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath);
+    const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
+    return renderTicketContext(ctx, undefined, { bounded: false, driftNotes });
+  };
+
   /** The graph recovery deps (Slice-4 T6): the atomic claim wrapper plus the
    *  prompt re-snapshot seam — content-addressed writes under the graph
    *  artifact root, and the effective-prompt resolution that consults the
@@ -4142,7 +4150,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               undefined,
               // PROMPT-08 bounds the interactive-session launch seed only; the
               // graph-planner prompt is a different surface this ticket never
-              // touched, so it keeps its pre-ticket unbounded behavior.
+              // touched, so it keeps its pre-ticket unbounded behavior. This
+              // sync seam only signals the launch seams are wired; the launch
+              // hosts re-render WITH drift (async), so no git runs here.
               { bounded: false },
             )
           : undefined,
@@ -4478,12 +4488,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       // PROMPT-08 bounds the interactive-session launch seed only — this
       // graph surface is out of that ticket's scope, so it stays unbounded.
-      ticketContextOf: (ticketId) =>
-        renderTicketContext(
-          buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
-          undefined,
-          { bounded: false },
-        ),
+      // Drift is precomputed asynchronously (the render does no git).
+      ticketContextOf: (ticketId) => ticketContextWithDrift(ticketId),
       visitMailboxOf: (ticketId) => visitMailboxFacts(localStore, ticketId),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
       manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
@@ -4965,18 +4971,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
-      renderTicketContext(
-        buildTicketContext(
-          localStore,
-          currentManifest(),
-          graphRunTicketId(graphRunId),
-          context.globalStorageUri.fsPath,
-        ),
-        undefined,
-        // PROMPT-08 bounds the interactive-session launch seed only; this
-        // graph-planner retry prompt is out of that ticket's scope.
-        { bounded: false },
-      ),
+      // PROMPT-08 bounds the interactive-session launch seed only; this
+      // graph-planner retry prompt is out of that ticket's scope.
+      await ticketContextWithDrift(graphRunTicketId(graphRunId)),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
@@ -5033,7 +5030,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const diagnostics = graphDiagnosticsSection(launch.graphRunId);
     const prompt = [
       base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
-      launch.ticketContext,
+      await ticketContextWithDrift(graphRunTicketId(launch.graphRunId)),
       // The skill calls the legal-values block authoritative, so a replanner
       // must get it too — this is the path where a plan is rewritten after a
       // failure, exactly where guessing an id costs another cycle.
@@ -5094,7 +5091,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
-      launch.ticketContext,
+      await ticketContextWithDrift(graphRunTicketId(launch.graphRunId)),
       plannerVocabularyFor(
         () => graphCompileContext(launch.graphRunId),
         graphArtifactRoot(launch.graphRunId),
@@ -6346,8 +6343,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ticketId,
         context.globalStorageUri.fsPath, { markNotesShown: true },
       );
+      const driftNotes = await computeDriftNotes(ticketContext, undefined, (msg) => logger.debug(msg));
       const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
-        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId });
+        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId, driftNotes });
       const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok), hasMcp);
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's

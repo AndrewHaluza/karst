@@ -12,6 +12,7 @@ import { setStage } from '../store/stages.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import { openStageRun, closeStageRun } from '../store/stageRuns.js';
 import { buildTicketContext, renderTicketContext } from './ticketContext.js';
+import { computeDriftNotes } from './drift.js';
 import { truncateToBudget, SEED_BUDGETS } from '../agent/seedBudget.js';
 import type { Manifest, RepositoryDef, ServiceDef } from '../manifest/types.js';
 import {
@@ -1852,7 +1853,7 @@ describe('ticket context — drift note', () => {
     return t.id;
   }
 
-  it('renders drift note with moved count and touching files when code pointers match commits', () => {
+  it('renders a precomputed drift note with moved count and touching files', async () => {
     const id = setupDriftTicket({
       baseShas: { frontend: '1122334455667788' },
       codePointers: '- src/a.ts — entrypoint\n- src/b.ts:42 — helper',
@@ -1860,7 +1861,7 @@ describe('ticket context — drift note', () => {
     const ctx = buildTicketContext(store, undefined, id);
 
     const gitCalls: string[][] = [];
-    const mockGit = (args: string[], cwd: string) => {
+    const mockGit = async (args: string[]) => {
       gitCalls.push(args);
       if (args[0] === 'rev-list' && args[3] !== '--') {
         // count of baseSha..targetBase
@@ -1876,7 +1877,8 @@ describe('ticket context — drift note', () => {
       return '';
     };
 
-    const md = renderTicketContext(ctx, undefined, { git: mockGit });
+    const driftNotes = await computeDriftNotes(ctx, mockGit);
+    const md = renderTicketContext(ctx, undefined, { driftNotes });
     expect(md).toContain(
       'Planned against 11223344; develop has moved 7 commits since; 2 touch files this ticket names: aabbcc1 first fix, aabbcc2 second fix',
     );
@@ -1886,40 +1888,48 @@ describe('ticket context — drift note', () => {
     expect(gitCalls[2]).toEqual(['log', '-n', '5', '--format=%h %s', '1122334455667788..develop', '--', 'src/a.ts', 'src/b.ts']);
   });
 
-  it('renders only the moved count when no code pointers exist or 0 commits touch those files', () => {
+  it('renders only the moved count when no code pointers exist or 0 commits touch those files', async () => {
     const id = setupDriftTicket({
       baseShas: { frontend: '1122334455667788' },
     });
     const ctx = buildTicketContext(store, undefined, id);
-    const mockGit = (args: string[]) => {
-      if (args[0] === 'rev-list') return '3\n';
-      return '';
-    };
-    const md = renderTicketContext(ctx, undefined, { git: mockGit });
+    const git = async (args: string[]) => (args[0] === 'rev-list' ? '3\n' : '');
+    const md = renderTicketContext(ctx, undefined, { driftNotes: await computeDriftNotes(ctx, git) });
     expect(md).toContain('Planned against 11223344; develop has moved 3 commits since');
     expect(md).not.toContain('touch files');
   });
 
-  it('omits drift note when count is 0 or base SHA is missing', () => {
-    const idNoSha = setupDriftTicket({});
-    const ctxNoSha = buildTicketContext(store, undefined, idNoSha);
-    const mdNoSha = renderTicketContext(ctxNoSha);
-    expect(mdNoSha).not.toContain('Planned against');
+  it('renders no drift line when no notes were precomputed, and the render itself does no git', async () => {
+    // No driftNotes supplied → no drift line, even though a base sha exists and
+    // this ticket HAS code pointers: the render has no git runner it could call,
+    // so a missing map is fail-soft exactly like a git failure.
+    const idNoNotes = setupDriftTicket({ baseShas: { frontend: '1122334455667788' }, codePointers: '- src/a.ts — entry' });
+    expect(renderTicketContext(buildTicketContext(store, undefined, idNoNotes))).not.toContain('Planned against');
 
+    // A zero moved count yields an empty map → still no line.
     const idZero = setupDriftTicket({ baseShas: { frontend: '11223344' } });
-    const ctxZero = buildTicketContext(store, undefined, idZero);
-    const mdZero = renderTicketContext(ctxZero, undefined, { git: () => '0\n' });
-    expect(mdZero).not.toContain('Planned against');
+    const zeroCtx = buildTicketContext(store, undefined, idZero);
+    const zeroNotes = await computeDriftNotes(zeroCtx, async () => '0\n');
+    expect(renderTicketContext(zeroCtx, undefined, { driftNotes: zeroNotes })).not.toContain('Planned against');
+
+    // A missing base sha never even calls git.
+    const idNoSha = setupDriftTicket({});
+    const noShaCtx = buildTicketContext(store, undefined, idNoSha);
+    expect(renderTicketContext(noShaCtx, undefined, { driftNotes: await computeDriftNotes(noShaCtx, async () => '9\n') })).not.toContain('Planned against');
   });
 
-  it('logs debug and skips drift line when git command fails', () => {
+  it('logs debug and skips the drift line when the async git command fails', async () => {
     const id = setupDriftTicket({ baseShas: { frontend: '11223344' } });
     const ctx = buildTicketContext(store, undefined, id);
     const debugLogs: string[] = [];
-    const brokenGit = () => {
-      throw new Error('git fatal: bad revision');
-    };
-    const md = renderTicketContext(ctx, (msg) => debugLogs.push(msg), { git: brokenGit });
+    const driftNotes = await computeDriftNotes(
+      ctx,
+      async () => {
+        throw new Error('git fatal: bad revision');
+      },
+      (msg) => debugLogs.push(msg),
+    );
+    const md = renderTicketContext(ctx, (msg) => debugLogs.push(msg), { driftNotes });
     expect(md).not.toContain('Planned against');
     expect(debugLogs.some((l) => l.includes('[context:drift] git failed'))).toBe(true);
   });

@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
@@ -45,14 +45,14 @@ export function repoPathsOf(
  * Record, per manifest repository NAME, the sha of the ticket's planned base
  * (BASE-PER: `origin/<baseline branch>`, then the local branch) via host-side
  * git. Names sharing a repoPath each get their own entry. Unresolvable bases
- * are omitted; this never blocks ingest.
+ * are omitted; this never blocks ingest. ASYNC on purpose: it runs in the
+ * extension host, whose event loop must never block on a child process.
  */
-export function resolveBaseShasOf(
+export async function resolveBaseShasOf(
   manifest: Manifest | undefined,
   names: readonly string[],
-  runGit: (repoPath: string, args: string[]) => string = (repoPath, args) =>
-    execFileSync('git', args, { cwd: repoPath, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 }).trim(),
-): Record<string, string> {
+  runGit: (repoPath: string, args: string[]) => Promise<string> = defaultAsyncGit,
+): Promise<Record<string, string>> {
   const shas: Record<string, string> = {};
   if (!manifest) return shas;
   for (const name of names) {
@@ -61,7 +61,7 @@ export function resolveBaseShasOf(
     const branch = resolveBaselineBranch(manifest, repository);
     for (const ref of [`origin/${branch}`, branch]) {
       try {
-        const sha = runGit(repository.repoPath, ['rev-parse', '--verify', `${ref}^{commit}`]).trim();
+        const sha = (await runGit(repository.repoPath, ['rev-parse', '--verify', `${ref}^{commit}`])).trim();
         if (sha.length >= 7) {
           shas[name] = sha;
           break;
@@ -72,6 +72,18 @@ export function resolveBaseShasOf(
     }
   }
   return shas;
+}
+
+/** `git <args>` in `repoPath`, rejecting on failure. Async so it never blocks the host loop. */
+function defaultAsyncGit(repoPath: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'git',
+      args,
+      { cwd: repoPath, encoding: 'utf8', timeout: 5000, maxBuffer: 256 * 1024 },
+      (err, stdout) => (err ? reject(err) : resolve(stdout)),
+    );
+  });
 }
 
 /** For each `@arch:KEY` constraint, the docs/arch file (by name) that defines it. */

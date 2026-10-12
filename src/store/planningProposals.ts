@@ -278,6 +278,14 @@ export function setProposalWarnings(store: Store, id: number, warnings: readonly
   store.db.prepare('UPDATE planning_proposals SET payload_json = ?, updated_at = datetime(\'now\') WHERE id = ?').run(body, id);
 }
 
+/** Replace only a pending proposal's recorded base shas (a late async resolve result). */
+export function setProposalBaseShas(store: Store, id: number, baseShas: Record<string, string>): void {
+  requirePending(store, id);
+  store.db
+    .prepare("UPDATE planning_proposals SET base_shas = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(JSON.stringify(baseShas), id);
+}
+
 /**
  * Mark a pending proposal discarded. Its dependents are cleaned up in the SAME
  * transaction: rows that targeted it as a proposal are deleted (and each ticket

@@ -13,7 +13,7 @@ function git(cwd: string, ...args: string[]): string {
 }
 
 describe('resolveBaseShasOf with the default git runner', () => {
-  it('resolves the baseline branch sha, not HEAD, and omits an unborn or missing branch', () => {
+  it('resolves the baseline branch sha, not HEAD, and omits an unborn or missing branch', async () => {
     const root = mkdtempSync(join(tmpdir(), 'karst-bs-'));
     dirs.push(root);
     git(root, 'init', '-q', '-b', 'main');
@@ -25,6 +25,6 @@ describe('resolveBaseShasOf with the default git runner', () => {
       baselineBranch: 'main',
       repositories: { app: { repoPath: root }, missing: { repoPath: root, baselineBranch: 'nope' } },
     } as unknown as Parameters<typeof resolveBaseShasOf>[0];
-    expect(resolveBaseShasOf(manifest, ['app', 'missing'])).toEqual({ app: mainSha });
+    expect(await resolveBaseShasOf(manifest, ['app', 'missing'])).toEqual({ app: mainSha });
   });
 });

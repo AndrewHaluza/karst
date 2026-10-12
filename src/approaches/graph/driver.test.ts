@@ -187,7 +187,7 @@ function harness(config: GraphApproachConfig = graphApproachConfig()): Harness {
       writeFileSync(target, bytes);
     },
     readBytes,
-    ticketContextOf: () => '# Ticket context',
+    ticketContextOf: async () => '# Ticket context',
     compileContextOf,
     commandDefOf: (_graphRunId, commandId) =>
       commandId === 'test'

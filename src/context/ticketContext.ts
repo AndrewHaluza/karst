@@ -42,7 +42,6 @@ import { isMarkerStage } from '../agent/markerStage.js';
 import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES } from '../agent/promptText.js';
 import type { Manifest, RepositoryDef } from '../manifest/types.js';
 import { unitsOf } from '../manifest/runnable.js';
-import { computeDriftNote, parseCodePointerPaths, sharedBaseSha } from './drift.js';
 
 export interface TicketContextWorktree {
   repo: string;
@@ -703,8 +702,13 @@ export function renderTicketContext(
      * blockers and family sections. Default: the full view.
      */
     audience?: ContextAudience;
-    /** Git runner for evaluating branch drift against recorded base SHA. Defaults to execFileSync. */
-    git?: (args: string[], cwd: string) => string;
+    /**
+     * Precomputed per-worktree drift notes, keyed by worktree path (see
+     * `computeDriftNotes` / `computeDriftNotesSync`). The render does NO git: a
+     * worktree absent from the map simply renders no drift line — the same
+     * fail-soft outcome as a git failure.
+     */
+    driftNotes?: ReadonlyMap<string, string>;
   },
 ): string {
   if (opts?.audience === 'tester') return renderTesterContext(ctx, opts);
@@ -901,13 +905,11 @@ export function renderTicketContext(
   }
 
   if (operational && ctx.worktrees.length > 0) {
-    const pointerPaths = parseCodePointerPaths(ctx.codePointers);
     const rows = ctx.worktrees.flatMap((w) => {
       const branch = w.branch ?? '(no branch)';
       const sourceTag = w.source ? `, ${w.source}` : '';
       const base = w.baseRef ? ` (from ${w.baseRef}${sourceTag})` : '';
-      const baseSha = ctx.baseShas[w.repo] ?? sharedBaseSha(ctx, w.repo);
-      const drift = computeDriftNote(w.path, baseSha, w.baseRef, pointerPaths, debug, opts?.git);
+      const drift = opts?.driftNotes?.get(w.path);
       const mainLine = `- ${w.repo}: \`${branch}\`${base} — ${w.path}`;
       return drift ? [mainLine, `  ${drift}`] : [mainLine];
     });
