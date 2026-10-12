@@ -10,7 +10,11 @@ import { createWorktree, type WorktreeRecord } from '../../runtime/worktree.js';
 import { pullBaseRef } from '../../runtime/pullBase.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { getTicket } from '../../store/tickets.js';
-import { ticketWorktreeNames } from '../../runtime/ticketBranch.js';
+import {
+  distinctRepoPaths,
+  resolveWorktreeBranch,
+  ticketWorktreeNames,
+} from '../../runtime/ticketBranch.js';
 import { clearStageBlock, parkGateStage, stageBlock } from '../../store/stageBlocks.js';
 
 /**
@@ -132,6 +136,19 @@ export async function confirmScope(
   // stale: clear it, or a sub-task that is now startable keeps a scope blocker.
   if (stageBlock(store, ticketId, 'scope')) clearStageBlock(store, ticketId, 'scope');
 
+  // A rendered branch that collides with a stale `origin` branch from an older
+  // ticket would make the eventual push a non-fast-forward (T640). Resolved ONCE
+  // per ticket (all repos share the branch) so every worktree below stays on the
+  // same name; a live ticket's own branch — a resume — is returned untouched.
+  const resolvedBranch = await resolveWorktreeBranch(
+    store,
+    git,
+    distinctRepoPaths(manifest, hot),
+    branch,
+    ticketId,
+    opts.debug,
+  );
+
   for (const name of hot) {
     const repo = manifest.repositories[name];
     if (!repo) {
@@ -183,7 +200,7 @@ export async function confirmScope(
         ticketId,
         repoPath: repo.repoPath,
         slug,
-        branch,
+        branch: resolvedBranch,
         baseRef,
         startPoint,
       }),

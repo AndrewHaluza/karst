@@ -133,3 +133,18 @@ export function renderBranchName(
   );
   return rendered || String(context.id);
 }
+
+/**
+ * Disambiguate a rendered branch that collides with a pre-existing `origin`
+ * branch of the same name: append `-t<id>` and re-sanitize (`ticketBranch.ts`
+ * decides WHEN; this only renders). The ticket id is what makes the suffix
+ * unique where a re-used key/title did not, and re-sanitizing keeps the result a
+ * legal ref. Room is made for the suffix before it is appended so capping the
+ * length can never truncate it back into the collision.
+ */
+export function suffixBranchForCollision(branch: string, ticketId: number): string {
+  const suffix = `-t${ticketId}`;
+  const room = MAX_LENGTH - suffix.length;
+  const base = branch.length > room ? branch.slice(0, room).replace(/[/.\-_]+$/, '') : branch;
+  return sanitizeRef(`${base}${suffix}`);
+}

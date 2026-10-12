@@ -20,7 +20,12 @@ import {
 import { preflightSpin, SpinError } from './preflight.js';
 import { portsToAvoid } from './portProbe.js';
 import { getTicket } from '../store/tickets.js';
-import { ticketWorktreeNames } from './ticketBranch.js';
+import {
+  distinctRepoPaths,
+  resolveWorktreeBranch,
+  ticketWorktreeNames,
+} from './ticketBranch.js';
+import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 import { serviceUnits, unitByKey, unitsOfRepos } from '../manifest/runnable.js';
 import { startResolvedService } from './startService.js';
 import { formatId } from '../model/entityId.js';
@@ -56,6 +61,12 @@ export interface SpinOptions {
     ranges: readonly (readonly [number, number])[],
     repoPaths: readonly string[],
   ) => Promise<Set<number>>;
+  /**
+   * Injected git runner used for the remote branch-collision probe (real:
+   * `defaultGitRunner`); tests supply a fake. The probe is best-effort, so a
+   * runner failure never blocks the spin.
+   */
+  git?: GitRunner;
 }
 
 /**
@@ -123,12 +134,7 @@ export function mergeRanges(
  * is `startHot`'s to kill, which is what makes its port allocatable.
  */
 export function hotRepoPaths(manifest: Manifest, hot: readonly string[]): string[] {
-  const paths = new Set<string>();
-  for (const name of hot) {
-    const repo = manifest.repositories[name];
-    if (repo) paths.add(repo.repoPath);
-  }
-  return [...paths];
+  return distinctRepoPaths(manifest, hot);
 }
 
 /**
@@ -208,9 +214,22 @@ export async function spinTicket(
     throw err;
   }
 
+  // Disambiguate the rendered branch from a stale `origin` branch an older,
+  // archived ticket left behind — otherwise this spin's eventual push is a
+  // non-fast-forward (T640). Resolved ONCE per ticket (all repos share the
+  // branch); a live ticket's own branch — a resume — is returned untouched.
+  const resolvedBranch = await resolveWorktreeBranch(
+    store,
+    opts.git ?? defaultGitRunner,
+    hotRepoPaths(manifest, hot),
+    branch,
+    ticketId,
+    debug,
+  );
+
   // Validate every hot repo (git repo + has baselineBranch) before any mutation,
   // so a bad branch/path fails fast with a friendly SpinError and nothing partial.
-  preflightSpin(manifest, slug, hot, branch, ticket, store);
+  preflightSpin(manifest, slug, hot, resolvedBranch, ticket, store);
 
   // Ports something is LISTENING on cannot be allocated, whatever the registry
   // says: a leaked server from a worktree nobody will spin again, or a process
@@ -275,7 +294,7 @@ export async function spinTicket(
           ticketId,
           repoPath: repo.repoPath,
           slug,
-          branch,
+          branch: resolvedBranch,
           baseRef: resolvePlannedBase(
             ticket,
             manifest,

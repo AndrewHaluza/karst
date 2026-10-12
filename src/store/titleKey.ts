@@ -13,12 +13,28 @@
 export const TITLE_KEY_MAX = 32;
 
 /**
+ * The title `ensureTicket` seeds every unbound draft form with. It is a stand-in,
+ * never something the user typed, so deriving a key from it would key every
+ * older (since-archived) placeholder draft as `UNTITLED-TICKET` — and their
+ * pushed branches would then collide on re-use (T640). Treated as empty.
+ * Mirrored in the ticket-form webview (`deriveKey`).
+ */
+export const PLACEHOLDER_TITLE = 'Untitled ticket';
+
+/** True when `title` is the untitled draft placeholder (case/space-insensitive). */
+export function isPlaceholderTitle(title: string | null | undefined): boolean {
+  return String(title ?? '').trim().toLowerCase() === PLACEHOLDER_TITLE.toLowerCase();
+}
+
+/**
  * `[FIX] on ticket/creation` → `FIX-ON-TICKET-CREATION`. Returns '' when the
- * title carries nothing key-able (emoji-only, punctuation-only, blank) — the
- * caller then falls back to a generated key rather than persisting an empty one.
- * Truncation cuts on a word boundary and never leaves a trailing dash.
+ * title carries nothing key-able (emoji-only, punctuation-only, blank, or the
+ * untitled draft placeholder) — the caller then falls back to a generated key
+ * rather than persisting an empty one. Truncation cuts on a word boundary and
+ * never leaves a trailing dash.
  */
 export function slugifyTitleKey(title: string): string {
+  if (isPlaceholderTitle(title)) return '';
   const words = String(title ?? '')
     .toUpperCase()
     .split(/[^A-Z0-9]+/)

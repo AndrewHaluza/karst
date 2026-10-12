@@ -1023,7 +1023,12 @@
   // for a blank field, so a drift shows the user one key and stores another.
   const TITLE_KEY_MAX = 32;
   function deriveKey(title) {
-    const words = String(title == null ? '' : title)
+    const raw = String(title == null ? '' : title);
+    // The untitled draft placeholder is never user-typed, so it derives no key —
+    // the store then mints a MANUAL-… one instead of persisting UNTITLED-TICKET.
+    // Mirrors PLACEHOLDER_TITLE / isPlaceholderTitle.
+    if (raw.trim().toLowerCase() === 'untitled ticket') return '';
+    const words = raw
       .toUpperCase().split(/[^A-Z0-9]+/).filter((w) => w !== '');
     const out = [];
     let len = 0;
