@@ -65,13 +65,16 @@ describe('runGateList', () => {
       {
         signal: controller.signal,
         now,
-        // Abort right after the first gate's result is recorded, before the
-        // loop reaches the second (slow) gate's spawn.
+        // Abort the instant the first gate's result is recorded — the loop
+        // checks the signal before the next gate, so this lands DETERMINISTICALLY
+        // between the two. A wall-clock `setTimeout(…, 200)` here raced the first
+        // `node` spawn: on the loaded gate machine it occasionally aborted before
+        // `fast` finished, and the test then saw no carried results.
+        onGateComplete: (name) => {
+          if (name === 'fast') controller.abort();
+        },
       },
     );
-    // Give the first gate time to complete and be pushed to `results`, then
-    // abort so the second gate's runProcess call observes it.
-    setTimeout(() => controller.abort(), 200);
     const out = await started;
     expect(out.kind).toBe('stopped');
     if (out.kind !== 'stopped') return;
