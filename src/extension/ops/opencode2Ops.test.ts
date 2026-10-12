@@ -102,12 +102,14 @@ describe('opencode2LoginCommand', () => {
     expect(opencode2LoginCommand()).toBeNull();
   });
 
-  it('quotes the path, runs auth login, and carries the isolated env', () => {
+  it('quotes the path, runs a STANDALONE auth login, and carries the isolated env', () => {
+    // Without `--standalone` v2 hits the managed service and collides with the
+    // user's own running OpenCode ("port 49374 already in use", live 2.0.27).
     configureOpencode2({ binaryPath: BIN, home: HOME });
     expect(opencode2LoginCommand()).toEqual({
       name: 'Karst: OpenCode v2 login',
       env: XDG,
-      text: `"${BIN}" auth login`,
+      text: `"${BIN}" auth login --standalone`,
     });
   });
 });

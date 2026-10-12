@@ -75,8 +75,15 @@ export interface Opencode2Login {
 
 /**
  * The login terminal description, or null when no binary is configured. Runs
- * `<binaryPath> auth login` under the SAME isolated XDG env every spawn uses,
- * so credentials land in karst's store and never the user's real dirs.
+ * `<binaryPath> auth login --standalone` under the SAME isolated XDG env every
+ * spawn uses, so credentials land in karst's store and never the user's real
+ * dirs.
+ *
+ * `--standalone` is NOT optional: without it v2 resolves the managed service
+ * through its state dir and, when the user's own OpenCode is running (the
+ * normal case), fails with `Managed service port 49374 on 127.0.0.1 is already
+ * in use by another process` — or, worse, reaches a foreign server. Live-verified
+ * on 2.0.27; `auth list --standalone` is the read-side twin of this rule.
  */
 export function opencode2LoginCommand(): Opencode2Login | null {
   const binaryPath = opencode2BinaryPath();
@@ -84,6 +91,6 @@ export function opencode2LoginCommand(): Opencode2Login | null {
   return {
     name: 'Karst: OpenCode v2 login',
     env: opencode2IsolationEnv(opencode2Config().home),
-    text: `"${binaryPath}" auth login`,
+    text: `"${binaryPath}" auth login --standalone`,
   };
 }
