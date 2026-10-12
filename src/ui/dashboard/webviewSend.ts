@@ -107,6 +107,8 @@ export function createSender(api: WebviewApi) {
     undismissPr: (repo: Msg<'undismiss-pr'>['repo'], requestId?: string) =>
       send({ type: 'undismiss-pr', repo }, requestId),
     refreshPrs: (requestId?: string) => send({ type: 'refresh-prs' }, requestId),
+    refreshShipPreview: (requestId?: string) =>
+      send({ type: 'refresh-ship-preview' }, requestId),
     toggleBind: (requestId?: string) => send({ type: 'toggle-bind' }, requestId),
     switchAgent: (
       provider: Msg<'switch-agent'>['provider'],

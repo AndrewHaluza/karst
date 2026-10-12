@@ -21,6 +21,7 @@ import { buildStageRail } from '../../model/stageRail.js';
 import { MAIN_LINE } from '../../workflow/graph.js';
 import type { ServerView } from '../../store/dashboard.js';
 import type { PrPanelRow } from '../../model/prPanelView.js';
+import type { ShipPreview, ShipPreviewRepo } from '../../workflow/shipPreview.js';
 
 /**
  * The checked-in render fixture matrix for the dashboard webview's render
@@ -571,6 +572,127 @@ function shipView(n: RenderRepoCount): InsideStageView {
       },
     ],
     blurb: STAGE_BLURBS.ship,
+  };
+}
+
+/** The ship preview fixture kinds the render tests pin (D142). */
+export type ShipPreviewFixtureKind =
+  | 'ready'
+  | 'excluded-warning'
+  | 'blocked'
+  | 'nothing-to-commit'
+  | 'all-nothing'
+  | 'error'
+  | 'loading'
+  | 're-ship';
+
+function shipPreviewRepo(over: Partial<ShipPreviewRepo> & { repo: string }): ShipPreviewRepo {
+  return {
+    prTitle: `feat(${over.repo}): land the change`,
+    commitMessage: `feat(${over.repo}): land the change`,
+    commitFiles: [],
+    excludedFiles: [],
+    committedExcludedWarning: [],
+    deny: [],
+    prNumber: null,
+    changedFromBase: true,
+    status: 'will-commit',
+    ...over,
+  };
+}
+
+/** The advisory preview data for one fixture kind; null = still loading. */
+export function shipPreviewFixture(kind: ShipPreviewFixtureKind): ShipPreview | null {
+  if (kind === 'loading') return null;
+  const computedAt = '2026-05-01T09:41:07.000Z';
+  if (kind === 'ready') {
+    return {
+      computedAt,
+      repos: [
+        shipPreviewRepo({
+          repo: 'web',
+          prTitle: HOSTILE_TITLE,
+          commitMessage: HOSTILE_TITLE,
+          commitFiles: ['src/app.ts', 'src/app.test.ts'],
+        }),
+        shipPreviewRepo({ repo: 'api', commitFiles: ['src/handler.ts'] }),
+      ],
+    };
+  }
+  if (kind === 'excluded-warning') {
+    return {
+      computedAt,
+      repos: [
+        shipPreviewRepo({
+          repo: 'web',
+          commitFiles: ['src/app.ts'],
+          excludedFiles: ['dist/bundle.js', 'dist/bundle.css'],
+          committedExcludedWarning: ['dist/legacy.js'],
+        }),
+      ],
+    };
+  }
+  if (kind === 'blocked') {
+    return {
+      computedAt,
+      repos: [
+        shipPreviewRepo({
+          repo: 'web',
+          status: 'blocked',
+          deny: ['.env', 'id_rsa'],
+          commitFiles: ['.env'],
+        }),
+      ],
+    };
+  }
+  if (kind === 'nothing-to-commit') {
+    return {
+      computedAt,
+      repos: [
+        shipPreviewRepo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: true }),
+      ],
+    };
+  }
+  if (kind === 'all-nothing') {
+    return {
+      computedAt,
+      repos: [
+        shipPreviewRepo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: false }),
+        shipPreviewRepo({ repo: 'api', status: 'nothing-to-commit', changedFromBase: false }),
+      ],
+    };
+  }
+  if (kind === 're-ship') {
+    return {
+      computedAt,
+      repos: [shipPreviewRepo({ repo: 'web', prNumber: 42, commitFiles: ['src/app.ts'] })],
+    };
+  }
+  return {
+    computedAt,
+    repos: [
+      shipPreviewRepo({
+        repo: 'web',
+        status: 'nothing-to-commit',
+        changedFromBase: false,
+        error: 'git status exited 128',
+      }),
+    ],
+  };
+}
+
+/**
+ * `renderStateFor('ship')` with the header slot at `confirm` and the preview
+ * overlaid (D142). `loading` omits `shipPreview`, exactly as the first snapshot
+ * before the async read lands does.
+ */
+export function shipPreviewStateFor(kind: ShipPreviewFixtureKind): DashboardState {
+  const base = renderStateFor('ship');
+  const preview = shipPreviewFixture(kind);
+  return {
+    ...base,
+    ship: { kind: 'confirm' },
+    ...(preview ? { shipPreview: preview } : {}),
   };
 }
 

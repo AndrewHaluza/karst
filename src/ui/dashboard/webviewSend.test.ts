@@ -90,6 +90,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'undismiss-pr', repo: 'api' });
     sender.refreshPrs();
     expect(posted.at(-1)).toEqual({ type: 'refresh-prs' });
+    sender.refreshShipPreview();
+    expect(posted.at(-1)).toEqual({ type: 'refresh-ship-preview' });
     sender.toggleBind();
     expect(posted.at(-1)).toEqual({ type: 'toggle-bind' });
 
@@ -165,7 +167,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(50);
+    expect(posted).toHaveLength(51);
   });
 
   it('rejects a wrong argument type at compile time', () => {

@@ -1,7 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
-import { resolvePresetDefaults } from '../../agent/agentPresets.js';
+import { resolveShipArtifacts } from '../shipPreview.js';
 import {
   shipFinishedEvent,
   shipStartedEvent,
@@ -82,13 +82,9 @@ import { checkMergeable } from '../mergeCheck.js';
 import { setMergeCheck } from '../../store/mergeChecks.js';
 import { mergeOpStatus } from '../../model/mergeCheckView.js';
 import type { WorktreeView } from '../../store/dashboard.js';
-import type { AgentProvider, ArtifactConventions, Manifest } from '../../manifest/types.js';
+import type { ArtifactConventions, Manifest } from '../../manifest/types.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
-import {
-  renderArtifactTemplate,
-  usesDescription,
-  type ArtifactTemplateContext,
-} from '../artifactConventions.js';
+import { renderArtifactTemplate, usesDescription } from '../artifactConventions.js';
 import {
   buildPrDescriptionPrompt,
   gateSetChangedSincePreviousRun,
@@ -98,12 +94,7 @@ import {
   type PrDiffContext,
 } from '../prDescription.js';
 import { collectPrDiffContext } from '../prDiffContext.js';
-import {
-  resolveRepoConventions,
-  resolveRepoName,
-  resolveRepoScope,
-  resolveTicketType,
-} from '../conventionContext.js';
+import { resolveRepoConventions, resolveRepoName } from '../conventionContext.js';
 import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../conventionPresets.js';
 
 /**
@@ -186,36 +177,6 @@ async function gitIdentity(git: GitRunner, cwd: string): Promise<PersistedCommit
     email: email.exitCode === 0 && email.stdout.trim() ? email.stdout.trim() : 'karst@local',
     at: new Date().toISOString(),
   };
-}
-
-/**
- * The `{model}` value for the PR description template, following the launch
- * precedence: the per-ticket model override, else the manifest-level default,
- * else nothing (the agent CLI picks its own default — rendered as `n/a` by the
- * default template). Blank at either level counts as "inherit".
- *
- * The manifest-level default is PRESET-AWARE: the effective preset supplies it
- * only when the ticket's own core is the preset's core (a preset is a
- * core+model pair), and the legacy `defaultModel` covers every other case.
- */
-function resolveTemplateModel(
-  ticket: {
-    model: string | null;
-    agentProvider?: AgentProvider | null;
-    agentPreset?: string | null;
-  },
-  manifest?: Manifest,
-): string | undefined {
-  const defaults = manifest
-    ? resolvePresetDefaults(manifest, 'implementation', {
-        ticketPreset: ticket.agentPreset ?? null,
-        explicitProvider: ticket.agentProvider ?? null,
-      })
-    : undefined;
-  for (const candidate of [ticket.model, defaults?.model ?? manifest?.defaultModel]) {
-    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate;
-  }
-  return undefined;
 }
 
 /** A ShipRepoStep as stored — the four saga steps (merge stays a live event). */
@@ -966,37 +927,18 @@ export async function shipTicket(
         // Per-repo ship exclude (`repos.<name>.ship.exclude`): the git pathspecs
         // ship's sweep commit leaves out. Read from the CURRENT manifest, like the
         // base and the artifact conventions — live configuration only.
-        const excludes = opts.manifest?.repositories[repoName]?.ship?.exclude ?? [];
-        const templateContext: ArtifactTemplateContext = {
-          id: opts.ticketId,
+        // ONE renderer for ship and the read-only preview (D142): the same
+        // template context, the same per-repo conventions, the same excludes.
+        // The preview may never disagree with what this commit will contain.
+        const { commitMessage, prTitle, excludes, context: templateContext } = resolveShipArtifacts({
+          manifest: opts.manifest,
+          ticketId: opts.ticketId,
           key,
           title,
-          repo: repoName,
-          type: resolveTicketType(ticket, conventions),
-          scope: resolveRepoScope(opts.manifest, repoName),
-          // Implementation metadata for the PR description template: the agent
-          // that actually ran the impl session wins, then the per-ticket core
-          // override, then the manifest default; the model mirrors the launch
-          // precedence (ticket override, else manifest default).
-          provider: ticket.sessionProvider ?? ticket.agentProvider ?? opts.manifest?.agentProvider ?? 'claude',
-          model: resolveTemplateModel(ticket, opts.manifest),
-          approach: ticket.approach ?? undefined,
-          sessionId: ticket.sessionId ?? undefined,
-        };
-        const commitMessage = conventions?.commitMessage
-          ? renderArtifactTemplate(
-              'commitMessage',
-              conventions.commitMessage,
-              templateContext,
-            )
-          : title;
-        const prTitle = conventions?.pullRequestTitle
-          ? renderArtifactTemplate(
-              'pullRequestTitle',
-              conventions.pullRequestTitle,
-              templateContext,
-            )
-          : title;
+          repoName,
+          ticket,
+          ...(conventions ? { conventions } : {}),
+        });
 
         // Provenance: whatever the branch carried BEFORE this ship ran, bounded
         // at the baseline PERSISTED at worktree creation — `rev-list <base>..HEAD`

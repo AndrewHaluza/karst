@@ -299,6 +299,45 @@ describe('DashboardManager', () => {
     expect(panels[0]!.posted.length).toBeLessThanOrEqual(pushed + 1);
   });
 
+  it('reads the ship preview only while the ship slot waits, and overlays it', async () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'ship', { status: 'pending' });
+    const { host, panels } = fakeHost();
+    const preview = { computedAt: '2026-01-01T00:00:00.000Z', repos: [] };
+    const loadShipPreview = vi.fn(async () => preview);
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, loadShipPreview,
+    );
+    mgr.openDashboard(t.id);
+    await vi.waitFor(() => {
+      const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: { shipPreview?: unknown } }>;
+      expect(states.at(-1)!.state.shipPreview).toEqual(preview);
+    });
+    expect(loadShipPreview).toHaveBeenCalledOnce();
+  });
+
+  it('omits the ship preview outside the confirm/retry slot and never reads it', () => {
+    const t = createTicket(store, { key: 'A', title: 'a' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'impl', { status: 'running' });
+    const { host, panels } = fakeHost();
+    const loadShipPreview = vi.fn(async () => ({ computedAt: '', repos: [] }));
+    const mgr = new DashboardManager(
+      store, host, () => ({}) as never,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined, undefined, loadShipPreview,
+    );
+    mgr.openDashboard(t.id);
+    const states = panels[0]!.posted.filter((m) => (m as { type?: string }).type === 'state') as Array<{ state: { shipPreview?: unknown } }>;
+    expect(states.at(-1)!.state.shipPreview).toBeUndefined();
+    expect(loadShipPreview).not.toHaveBeenCalled();
+  });
+
   it('pushPassiveState reloads supplemental facts without settling dashboard actions', () => {
     const t = createTicket(store, { key: 'A', title: 'a' });
     const { host, panels } = fakeHost();
