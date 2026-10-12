@@ -22,15 +22,35 @@
  * - **A file karst cannot parse is never overwritten.** Invalid JSON is logged
  *   and the launch continues — the launch-exit detection reports the real
  *   failure, and destroying the user's config is strictly worse.
+ * - **Serialised across processes.** Atomic rename prevents a CORRUPT file, not
+ *   a LOST update: two karst launches for different workspaces both read, both
+ *   merge, and the second rename drops the first's record, so that workspace
+ *   still hit the dialog. A read-modify-write therefore runs under an exclusive
+ *   lock file (`acquireTrustLock`) that serialises karst's own writers; the read
+ *   happens INSIDE the lock, so each writer merges onto the freshest content.
+ *   A writer that cannot take the lock within a bounded wait SKIPS the write
+ *   (logged) rather than racing — the launch-exit detection surfaces it.
  * - **Atomic and small.** Read, merge, write a temp file in the SAME directory,
- *   rename. Re-read immediately before the write because other agent processes
- *   write the same file concurrently.
+ *   rename.
+ * - **Symlinked configs are followed.** A dotfiles setup points `~/.claude.json`
+ *   at another file; renaming over the link would replace it with a regular
+ *   file and leave the target stale, so the write resolves the real target first.
  * - **Idempotent.** Already-true skips the write (and the reformat) entirely.
  */
 
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { pidAlive } from '../runtime/pidAlive.js';
 
 /** Shared options for the per-core ensure functions. */
 export interface TrustOptions {
@@ -41,6 +61,40 @@ export interface TrustOptions {
   home?: string;
   /** Verbose decision-point logging. Absent → silent. */
   debug?: (message: string) => void;
+  /**
+   * Lock clock/liveness seams, injected by tests so a held or stale lock can be
+   * simulated deterministically (production uses `Date.now`, `Atomics.wait`,
+   * and `pidAlive`).
+   */
+  lock?: TrustLockDeps;
+}
+
+/** The seams a lock acquisition needs a real answer for, overridable in tests. */
+export interface TrustLockDeps {
+  now?: () => number;
+  sleep?: (ms: number) => void;
+  alive?: (pid: number) => boolean;
+}
+
+interface TrustLockRecord {
+  pid: number;
+  startedAt: number;
+}
+
+/**
+ * How long a lock may outlive its owner before it counts as abandoned. The
+ * owner's pid is the real signal (`pidAlive`); this only covers the case where
+ * the OS reissued a dead owner's pid to an unrelated live process. A trust write
+ * is a read, a merge and one rename, so any real hold is milliseconds.
+ */
+const TRUST_LOCK_TTL_MS = 30_000;
+/** Upper bound on waiting for a busy lock, so a launch never blocks on it. */
+const TRUST_LOCK_WAIT_MS = 2_000;
+const TRUST_LOCK_POLL_MS = 5;
+
+/** Sync sleep — the same `Atomics.wait` trick `planning/proposalIndex.ts` uses. */
+function defaultSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
 /** `MergeResult` for the claude JSON merge. */
@@ -210,12 +264,95 @@ function readTextFile(path: string, debug: (message: string) => void): string | 
   }
 }
 
+/**
+ * Follow a symlinked config so an atomic rename replaces its TARGET, not the
+ * link. A dotfiles setup (`~/.claude.json -> ~/dotfiles/claude.json`) would
+ * otherwise be silently turned into a regular file, leaving the real target
+ * stale (T661 UAT, low). A path that does not exist yet has no realpath.
+ */
+function configTarget(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
 /** Write `body` to `path` via a temp file in the same directory, then rename. */
 function writeFileAtomic(path: string, body: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const temporary = `${path}.karst-trust-${process.pid}-${Date.now()}.tmp`;
+  const target = configTarget(path);
+  mkdirSync(dirname(target), { recursive: true });
+  const temporary = `${target}.karst-trust-${process.pid}-${Date.now()}.tmp`;
   writeFileSync(temporary, body);
-  renameSync(temporary, path);
+  renameSync(temporary, target);
+}
+
+/** The lock file beside a core's config (on the config's real target). */
+export function trustLockPath(configPath: string): string {
+  return `${configTarget(configPath)}.karst-trust.lock`;
+}
+
+function readTrustLock(path: string): TrustLockRecord | null {
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<TrustLockRecord>;
+    return typeof raw.pid === 'number' && typeof raw.startedAt === 'number'
+      ? { pid: raw.pid, startedAt: raw.startedAt }
+      : null;
+  } catch {
+    // Missing or corrupt → no usable lock; the acquirer removes and replaces it.
+    return null;
+  }
+}
+
+/**
+ * Claim the exclusive right to read-modify-write a core's config. Atomic ACROSS
+ * processes: the record is fully written to a temp file and then `link`ed into
+ * place (EEXIST if held), so a reader can never observe a half-written lock —
+ * a plain exclusive create is visible with EMPTY content for a moment, which a
+ * reader would misread as "no lock" and steal. A lock whose owner died — or
+ * that we already held from a crashed re-entry — is stale and taken over.
+ * Returns false when a LIVE other process still holds it after the wait; the
+ * caller then skips the write.
+ */
+export function acquireTrustLock(configPath: string, deps: TrustLockDeps = {}): boolean {
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? defaultSleep;
+  const alive = deps.alive ?? pidAlive;
+  const path = trustLockPath(configPath);
+  mkdirSync(dirname(path), { recursive: true });
+  const deadline = now() + TRUST_LOCK_WAIT_MS;
+  for (;;) {
+    const staging = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
+    writeFileSync(staging, JSON.stringify({ pid: process.pid, startedAt: now() }));
+    try {
+      linkSync(staging, path);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+    } finally {
+      rmSync(staging, { force: true });
+    }
+    const record = readTrustLock(path);
+    const stale =
+      record === null ||
+      record.pid === process.pid ||
+      !alive(record.pid) ||
+      now() - record.startedAt > TRUST_LOCK_TTL_MS;
+    if (stale) {
+      rmSync(path, { force: true });
+      continue;
+    }
+    const remaining = deadline - now();
+    if (remaining <= 0) return false;
+    sleep(Math.min(TRUST_LOCK_POLL_MS, remaining));
+  }
+}
+
+/** Release the lock, but only while WE still own it — never another's. */
+export function releaseTrustLock(configPath: string): void {
+  const path = trustLockPath(configPath);
+  if (readTrustLock(path)?.pid !== process.pid) return;
+  rmSync(path, { force: true });
 }
 
 /**
@@ -230,18 +367,35 @@ export function ensureClaudeWorkspaceTrusted(cwd: string, opts: TrustOptions = {
   if (!first.ok) return;
   if (!mergeClaudeTrust(first.value, cwd).changed) return;
 
-  // Re-read immediately before the write: other claude processes write this
-  // file concurrently, and a stale read would drop their update on rename.
-  const again = readClaudeJson(path, debug);
-  if (!again.ok) return;
-  const merged = mergeClaudeTrust(again.value, cwd);
-  if (!merged.changed) return;
-
+  // Serialise the read-modify-write (T661 UAT: a rename prevents corruption,
+  // not a lost update from a concurrent launch). The re-read INSIDE the lock
+  // merges onto whatever the previous writer committed.
+  let locked: boolean;
   try {
-    writeFileAtomic(path, `${JSON.stringify(merged.next, null, 2)}\n`);
-    debug(`[trust] claude: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
+    locked = acquireTrustLock(path, opts.lock);
   } catch (error) {
-    debug(`[trust] claude: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
+    debug(
+      `[trust] claude: cannot take the trust lock for ${path} (${describeError(error)}) — launch continues`,
+    );
+    return;
+  }
+  if (!locked) {
+    debug(`[trust] claude: trust lock busy for ${path} — leaving the config untouched`);
+    return;
+  }
+  try {
+    const again = readClaudeJson(path, debug);
+    if (!again.ok) return;
+    const merged = mergeClaudeTrust(again.value, cwd);
+    if (!merged.changed) return;
+    try {
+      writeFileAtomic(path, `${JSON.stringify(merged.next, null, 2)}\n`);
+      debug(`[trust] claude: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
+    } catch (error) {
+      debug(`[trust] claude: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
+    }
+  } finally {
+    releaseTrustLock(path);
   }
 }
 
@@ -258,16 +412,33 @@ export function ensureCodexWorkspaceTrusted(cwd: string, opts: TrustOptions = {}
   if (first === null) return;
   if (!mergeCodexTrustToml(first, cwd).changed) return;
 
-  // Re-read immediately before the write for the same race reason as claude.
-  const again = readTextFile(path, debug);
-  if (again === null) return;
-  const merged = mergeCodexTrustToml(again, cwd);
-  if (!merged.changed) return;
-
+  // Same serialisation as claude: codex's config.toml has the identical
+  // read-modify-write race, and loses the same records without the lock.
+  let locked: boolean;
   try {
-    writeFileAtomic(path, merged.text);
-    debug(`[trust] codex: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
+    locked = acquireTrustLock(path, opts.lock);
   } catch (error) {
-    debug(`[trust] codex: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
+    debug(
+      `[trust] codex: cannot take the trust lock for ${path} (${describeError(error)}) — launch continues`,
+    );
+    return;
+  }
+  if (!locked) {
+    debug(`[trust] codex: trust lock busy for ${path} — leaving the config untouched`);
+    return;
+  }
+  try {
+    const again = readTextFile(path, debug);
+    if (again === null) return;
+    const merged = mergeCodexTrustToml(again, cwd);
+    if (!merged.changed) return;
+    try {
+      writeFileAtomic(path, merged.text);
+      debug(`[trust] codex: recorded folder trust for ${trustKeyFor(cwd)} in ${path}`);
+    } catch (error) {
+      debug(`[trust] codex: could not record folder trust in ${path} (${describeError(error)}) — launch continues`);
+    }
+  } finally {
+    releaseTrustLock(path);
   }
 }

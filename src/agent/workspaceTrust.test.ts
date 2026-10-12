@@ -1,14 +1,27 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  acquireTrustLock,
   codexProjectHeader,
   ensureClaudeWorkspaceTrusted,
   ensureCodexWorkspaceTrusted,
   mergeClaudeTrust,
   mergeCodexTrustToml,
+  releaseTrustLock,
   trustKeyFor,
+  trustLockPath,
 } from './workspaceTrust.js';
 
 const cleanups: (() => void)[] = [];
@@ -133,10 +146,94 @@ describe('ensureClaudeWorkspaceTrusted', () => {
     expect(readFileSync(path, 'utf8')).toBe(body);
   });
 
-  it('leaves no temporary file behind (atomic rename)', () => {
+  it('leaves no temporary or lock file behind', () => {
     const home = tempDir();
     ensureClaudeWorkspaceTrusted('/karst/wt', { home });
-    expect(readdirSync(home).filter((f) => f.includes('.tmp'))).toEqual([]);
+    expect(readdirSync(home).filter((f) => f.includes('.tmp') || f.endsWith('.lock'))).toEqual([]);
+  });
+
+  it('skips the write while another live process holds the lock', () => {
+    const home = tempDir();
+    const path = join(home, '.claude.json');
+    writeFileSync(path, JSON.stringify({ projects: {} }));
+    writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
+    const logs: string[] = [];
+    // A fast clock makes the bounded wait return immediately.
+    let t = 0;
+    const now = (): number => (t += 100_000);
+    ensureClaudeWorkspaceTrusted('/karst/wt', {
+      home,
+      debug: (m) => logs.push(m),
+      lock: { alive: () => true, now, sleep: () => {} },
+    });
+    expect((JSON.parse(readFileSync(path, 'utf8')) as { projects: unknown }).projects).toEqual({});
+    expect(logs.join('\n')).toMatch(/trust lock busy/);
+  });
+
+  it('logs and continues when the lock cannot be taken (best-effort)', () => {
+    const dir = tempDir();
+    const blocker = join(dir, 'blocker');
+    writeFileSync(blocker, 'not a directory');
+    const logs: string[] = [];
+    // `home` sits under a FILE, so creating the lock directory throws.
+    expect(() =>
+      ensureClaudeWorkspaceTrusted('/karst/wt', {
+        home: join(blocker, 'home'),
+        debug: (m) => logs.push(m),
+      }),
+    ).not.toThrow();
+    expect(logs.join('\n')).toMatch(/cannot take the trust lock/);
+  });
+
+  it('writes through a symlinked config instead of replacing the link', () => {
+    const home = tempDir();
+    const target = join(tempDir(), 'claude.json');
+    writeFileSync(target, JSON.stringify({ projects: {} }));
+    symlinkSync(target, join(home, '.claude.json'));
+    ensureClaudeWorkspaceTrusted('/karst/wt', { home });
+    expect(lstatSync(join(home, '.claude.json')).isSymbolicLink()).toBe(true);
+    const parsed = JSON.parse(readFileSync(target, 'utf8')) as {
+      projects: Record<string, { hasTrustDialogAccepted?: boolean }>;
+    };
+    expect(parsed.projects[trustKeyFor('/karst/wt')]?.hasTrustDialogAccepted).toBe(true);
+  });
+});
+
+describe('trust lock', () => {
+  it('acquires a free lock, then releases its own', () => {
+    const path = join(tempDir(), '.claude.json');
+    expect(acquireTrustLock(path)).toBe(true);
+    expect(existsSync(trustLockPath(path))).toBe(true);
+    releaseTrustLock(path);
+    expect(existsSync(trustLockPath(path))).toBe(false);
+  });
+
+  it('refuses a lock a LIVE other process holds (bounded wait, then false)', () => {
+    const path = join(tempDir(), '.claude.json');
+    writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
+    let t = 0;
+    const now = (): number => (t += 100_000);
+    expect(acquireTrustLock(path, { alive: () => true, now, sleep: () => {} })).toBe(false);
+  });
+
+  it('takes over a lock whose owner died', () => {
+    const path = join(tempDir(), '.claude.json');
+    writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
+    expect(acquireTrustLock(path, { alive: () => false })).toBe(true);
+    expect(JSON.parse(readFileSync(trustLockPath(path), 'utf8'))).toMatchObject({ pid: process.pid });
+  });
+
+  it('then takes over a lock we already held (crashed re-entry)', () => {
+    const path = join(tempDir(), '.claude.json');
+    writeFileSync(trustLockPath(path), JSON.stringify({ pid: process.pid, startedAt: Date.now() }));
+    expect(acquireTrustLock(path)).toBe(true);
+  });
+
+  it('release never removes a lock another process owns', () => {
+    const path = join(tempDir(), '.claude.json');
+    writeFileSync(trustLockPath(path), JSON.stringify({ pid: 999_999, startedAt: Date.now() }));
+    releaseTrustLock(path);
+    expect(existsSync(trustLockPath(path))).toBe(true);
   });
 });
 
@@ -182,6 +279,21 @@ describe('ensureCodexWorkspaceTrusted', () => {
     ensureCodexWorkspaceTrusted('/karst/wt', { home });
     const text = readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
     expect(text).toContain(`${codexProjectHeader('/karst/wt')}\ntrust_level = "trusted"`);
+    // No temporary or lock file survives the write.
+    expect(
+      readdirSync(join(home, '.codex')).filter((f) => f.includes('.tmp') || f.endsWith('.lock')),
+    ).toEqual([]);
+  });
+
+  it('writes through a symlinked config instead of replacing the link', () => {
+    const home = tempDir();
+    const target = join(tempDir(), 'config.toml');
+    writeFileSync(target, 'model = "x"\n');
+    mkdirSync(join(home, '.codex'), { recursive: true });
+    symlinkSync(target, join(home, '.codex', 'config.toml'));
+    ensureCodexWorkspaceTrusted('/karst/wt', { home });
+    expect(lstatSync(join(home, '.codex', 'config.toml')).isSymbolicLink()).toBe(true);
+    expect(readFileSync(target, 'utf8')).toContain('trust_level = "trusted"');
   });
 
   it('preserves existing config content', () => {
