@@ -26,8 +26,11 @@ copy and not the other and that test fails — that is the whole invariant.
 Each copy carries five provider sections: `claude`, `codex`, `antigravity`,
 `opencode`, `opencode2` (`AgentProvider` in `src/manifest/types.ts`).
 `opencode` (v1) stays empty; `opencode2` (v2) carries a small curated fallback
-in `provider/model` form (its CLI probe is `unsupported` — v2 reads models.dev
-at runtime). Effort for opencode2 rides as a `#<effort>` suffix on the model id.
+in `provider/model` form. The `cli` tier runs the CONFIGURED v2 launcher
+(`karst.opencode2.binaryPath`) with `models --standalone`, and a discovered id
+that matches a row here inherits its curated `label`/`efforts`/`tags` by id —
+which is what keeps `#<effort>` working for the bundled ids. Effort for
+opencode2 rides as a `#<effort>` suffix on the model id.
 
 The pickers render the catalog the host supplies (`state.models`); no model
 list is mirrored into any webview HTML. Do not add a model id to a `.html`.
@@ -94,6 +97,7 @@ row.
 | `codex` | `codex app-server --stdio`, then JSON-RPC `initialize` → `model/list`. Rows marked unavailable are skipped. | `discoverCodexModels` |
 | `antigravity` | `agy models`. The CLI prints labels; ids are normalized (lowercase, non-alphanumerics → `-`), so the catalog id must be what `agy --model` accepts. | `discoverAntigravityModels` / `parseAntigravityModels` |
 | `opencode` | `opencode models` — one `provider/model` id per line, account dependent. | `discoverOpencodeModels` |
+| `opencode2` | The CONFIGURED v2 launcher (`karst.opencode2.binaryPath`) run with `models --standalone` — a setting, not a PATH command (v1 shares the `opencode` name); one `provider/model` id per line. The probe reads the user's own config, so an unset binary falls back to the bundled rows. | `discoverOpencode2Models` |
 
 Effort is a separate question from the id: `effortCapabilities` in
 `src/agent/effort.ts` says which cores can express effort at all (opencode's
