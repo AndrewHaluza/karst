@@ -179,13 +179,13 @@ describe('resolveBaseShasOf', () => {
     },
   } as unknown as Parameters<typeof resolveBaseShasOf>[0];
 
-  it('returns nothing without a manifest', () => {
-    expect(resolveBaseShasOf(undefined, ['web'], () => SHA)).toEqual({});
+  it('returns nothing without a manifest', async () => {
+    expect(await resolveBaseShasOf(undefined, ['web'], async () => SHA)).toEqual({});
   });
 
-  it('prefers origin/<baseline branch> and keys by manifest name for repos sharing a repoPath', () => {
+  it('prefers origin/<baseline branch> and keys by manifest name for repos sharing a repoPath', async () => {
     const calls: Array<[string, string[]]> = [];
-    const out = resolveBaseShasOf(manifest, ['web', 'api'], (cwd, args) => {
+    const out = await resolveBaseShasOf(manifest, ['web', 'api'], async (cwd, args) => {
       calls.push([cwd, args]);
       return `${SHA}\n`;
     });
@@ -196,9 +196,9 @@ describe('resolveBaseShasOf', () => {
     ]);
   });
 
-  it('falls back to the local branch when origin/<branch> is missing, using the manifest default', () => {
+  it('falls back to the local branch when origin/<branch> is missing, using the manifest default', async () => {
     const refs: string[] = [];
-    const out = resolveBaseShasOf(manifest, ['other'], (_cwd, args) => {
+    const out = await resolveBaseShasOf(manifest, ['other'], async (_cwd, args) => {
       refs.push(args[2]!);
       if (args[2]!.startsWith('origin/')) throw new Error('no such ref');
       return SHA;
@@ -207,18 +207,18 @@ describe('resolveBaseShasOf', () => {
     expect(refs).toEqual(['origin/main^{commit}', 'main^{commit}']);
   });
 
-  it('omits unknown names, unresolvable bases and too-short output without throwing', () => {
-    expect(resolveBaseShasOf(manifest, ['ghost'], () => SHA)).toEqual({});
+  it('omits unknown names, unresolvable bases and too-short output without throwing', async () => {
+    expect(await resolveBaseShasOf(manifest, ['ghost'], async () => SHA)).toEqual({});
     expect(
-      resolveBaseShasOf(manifest, ['web'], () => {
+      await resolveBaseShasOf(manifest, ['web'], async () => {
         throw new Error('git failed');
       }),
     ).toEqual({});
-    expect(resolveBaseShasOf(manifest, ['web'], () => 'abc123')).toEqual({});
-    expect(resolveBaseShasOf(manifest, ['web'], () => '')).toEqual({});
+    expect(await resolveBaseShasOf(manifest, ['web'], async () => 'abc123')).toEqual({});
+    expect(await resolveBaseShasOf(manifest, ['web'], async () => '')).toEqual({});
   });
 
-  it('accepts exactly 7 characters', () => {
-    expect(resolveBaseShasOf(manifest, ['web'], () => 'abcdef1')).toEqual({ web: 'abcdef1' });
+  it('accepts exactly 7 characters', async () => {
+    expect(await resolveBaseShasOf(manifest, ['web'], async () => 'abcdef1')).toEqual({ web: 'abcdef1' });
   });
 });

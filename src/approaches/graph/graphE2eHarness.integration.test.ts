@@ -367,7 +367,7 @@ export function makeHarness(): Harness {
       writeFileSync(target, bytes);
     },
     readBytes,
-    ticketContextOf: () => '# Ticket context',
+    ticketContextOf: async () => '# Ticket context',
     compileContextOf: (graphRunId, document) => compileContextOf(document),
     commandDefOf: () => undefined,
     runProcess: async () => ({ kind: 'completed', exitCode: 0, output: '' }),

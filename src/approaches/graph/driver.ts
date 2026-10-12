@@ -173,7 +173,7 @@ export interface GraphDriverDeps {
   /** Read a file under the graph run's artifact root. */
   readBytes: (graphRunId: number, relativePath: string) => Uint8Array | undefined;
   /** Current ticket context markdown for seeding a session. */
-  ticketContextOf: (ticketId: number) => string;
+  ticketContextOf: (ticketId: number) => Promise<string>;
   /** The graph TICKET's pending mail/notes, read from the unread rows at visit
    *  time (never stored). Absent → no mailbox section is added to a visit. */
   visitMailboxOf?: (ticketId: number) => Omit<VisitMailboxFacts, 'completing'>;
@@ -422,7 +422,7 @@ export async function bootstrapAndLaunchPlanner(
   });
   const prompt = [
     new TextDecoder().decode(promptBytes),
-    deps.ticketContextOf(input.ticketId),
+    await deps.ticketContextOf(input.ticketId),
     plannerVocabularyFor(() => deps.compileContextOf(graphRunId), artifactRoot, deps.debug),
     PLANNER_SUBMIT_INSTRUCTION,
   ]
@@ -567,7 +567,7 @@ export async function relaunchBootstrapPlanner(
   const rejection = compileDiagnosticsSection(latestPlannerDiagnostics(deps, input.graphRunId));
   const prompt = [
     new TextDecoder().decode(promptBytes),
-    deps.ticketContextOf(run.ticket_id),
+    await deps.ticketContextOf(run.ticket_id),
     plannerVocabularyFor(() => deps.compileContextOf(input.graphRunId), artifactRoot, deps.debug),
     ...(rejection ? [rejection] : []),
     PLANNER_SUBMIT_INSTRUCTION,
@@ -800,6 +800,7 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
   }
+  const nodeContext = await nodeTicketContext(deps, graphRunId, row, repo, cwd);
   const runResult = await runAgentNode(
     {
       transport: deps.transport,
@@ -817,7 +818,7 @@ async function executeReadyNode(
           })
           .filter((s): s is string => s !== undefined),
       ticketContext: [
-        nodeTicketContext(deps, graphRunId, row, repo, cwd),
+        nodeContext,
         visitMailboxSection(deps, graphRunId, row, parsed.document),
       ]
         .filter((part) => part !== '')
@@ -911,20 +912,21 @@ function visitMailboxSection(
  *  names the canonical repo/worktree paths) plus the node-workspace directive
  *  naming the isolated clone the session actually runs in. Resolved per launch
  *  so a resumed node gets the CURRENT workspace's directive. */
-function nodeTicketContext(
+async function nodeTicketContext(
   deps: GraphDriverDeps,
   graphRunId: number,
   row: RunnableNodeRow,
   repo: string,
   cwd: string,
-): string {
+): Promise<string> {
+  const ticketContext = await deps.ticketContextOf(runTicketId(deps, graphRunId));
   const canonicalWorktree = deps.cwdForRepo(graphRunId, repo) ?? '';
-  if (canonicalWorktree === '') return deps.ticketContextOf(runTicketId(deps, graphRunId));
+  if (canonicalWorktree === '') return ticketContext;
   const domainKey = domainKeyOf(canonicalPath(canonicalWorktree), deps.gitCommonDirOf(canonicalWorktree));
   const baseCommit =
     nodeRunBaseHeads(deps.db, row.id).find((head) => head.domainKey === domainKey)?.commit ?? '';
   return [
-    deps.ticketContextOf(runTicketId(deps, graphRunId)),
+    ticketContext,
     nodeWorkspaceDirective({ workspace: cwd, canonicalWorktree, baseCommit }),
   ].join('\n\n');
 }

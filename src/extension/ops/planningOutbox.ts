@@ -5,6 +5,7 @@ import {
   countPending,
   getProposal,
   insertProposal,
+  setProposalBaseShas,
   setProposalWarnings,
   updateProposalPayload,
   validateProposalDependsOn,
@@ -54,10 +55,10 @@ export interface PlanningOutboxDeps {
   /** Repo names → their distinct repoPaths, for the constraint checks; absent = path checks skipped. */
   repoPaths?(names: string[]): string[];
   /** Repo names → base commit shas (planned base, host-side); absent = no shas recorded. */
-  resolveBaseShas?(repos: readonly string[]): Record<string, string>;
+  resolveBaseShas?(repos: readonly string[]): Promise<Record<string, string>>;
   /** Async `git cat-file` probe for commit constraints; absent = commit check skipped. */
   commitExists?: CommitExists;
-  /** A late (async) check added warnings to a stored proposal. */
+  /** A late (async) check added warnings or base shas to a stored proposal. */
   onWarnings?(p: PlanningProposal): void;
 }
 
@@ -73,15 +74,27 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
   const fs = deps.fs ?? nodeFs;
   const debug = (line: string): void => deps.debug?.(`[planning] ${line}`);
 
-  /** Resolved base shas, or undefined (keep what is recorded) when no resolver, it throws, or it finds none. */
-  function resolveShas(repos: readonly string[]): Record<string, string> | undefined {
-    try {
-      const shas = deps.resolveBaseShas?.(repos);
-      return shas && Object.keys(shas).length > 0 ? shas : undefined;
-    } catch (e) {
-      debug(`base sha resolution failed: ${e instanceof Error ? e.message : String(e)}`);
-      return undefined;
-    }
+  /**
+   * Base shas need git, so they land on the stored row once the async resolve
+   * answers — the same late pattern the commit probe uses. The draft is ingested
+   * at once with no shas; a failure or an empty resolve keeps what is already
+   * recorded (an earlier value on a revise, `{}` on a new draft) and only logs.
+   * Never throws and never blocks `scan()`.
+   */
+  function resolveBaseShasLate(id: number, uuid: string, p: Proposal): void {
+    if (!deps.resolveBaseShas) return;
+    void Promise.resolve()
+      .then(() => deps.resolveBaseShas!(p.repos))
+      .then((shas) => {
+        if (Object.keys(shas).length === 0) return; // nothing found: keep what is recorded
+        const cur = getProposal(deps.store, id);
+        // A revise or a resolution since ingest owns the row now.
+        if (!cur || cur.status !== 'pending' || cur.sourceUuid !== uuid) return;
+        setProposalBaseShas(deps.store, id, shas);
+        const row = getProposal(deps.store, id);
+        if (row) deps.onWarnings?.(row);
+      })
+      .catch((e: unknown) => debug(`base sha resolution failed: ${e instanceof Error ? e.message : String(e)}`));
   }
 
   /** The outbox path, only when it is a real dir at exactly the expected place. */
@@ -244,12 +257,12 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         reject(sessionId, claimed, proposal, reason);
         return;
       }
-      const baseShas = resolveShas(read.value.repos);
-      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value), baseShas);
+      updateProposalPayload(deps.store, requestedId, payload, uuid, quickWarnings(read.value));
       safeRefresh(sessionId, scratch);
       remove(claimed);
       const row = getProposal(deps.store, requestedId);
       if (row) deps.onProposal(row, 'updated');
+      resolveBaseShasLate(requestedId, uuid, read.value);
       verifyCommits(requestedId, uuid, read.value);
       debug(`session ${sessionId}: ${proposal} → proposal ${requestedId} updated`);
       return;
@@ -266,12 +279,12 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
       );
       return;
     }
-    const baseShas = resolveShas(read.value.repos) ?? {};
-    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value), baseShas);
+    const id = insertProposal(deps.store, sessionId, payload, uuid, quickWarnings(read.value));
     safeRefresh(sessionId, scratch);
     remove(claimed);
     const row = getProposal(deps.store, id);
     if (row) deps.onProposal(row);
+    resolveBaseShasLate(id, uuid, read.value);
     verifyCommits(id, uuid, read.value);
     debug(`session ${sessionId}: ${proposal} → proposal ${id}`);
   }

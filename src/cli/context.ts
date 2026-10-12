@@ -1,4 +1,5 @@
 import { dirname, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
 import type { StageKey } from '../model/types.js';
@@ -13,6 +14,7 @@ import {
 } from '../context/ticketContext.js';
 import { composeStageCommand } from './stage.js';
 import { markerStageFor } from '../agent/markerStage.js';
+import { computeDriftNotesSync, type DriftGitSync } from '../context/drift.js';
 import { renderDoneMarkerInstruction, renderGateOnlyInstruction } from '../agent/workflowCommand.js';
 import {
   KARST_CLI_ENV,
@@ -47,6 +49,14 @@ export function composeContextCommand(
 }
 
 export type ContextFormat = 'json' | 'md';
+
+/**
+ * The CLI's blocking git runner. The CLI is a short-lived process, not the
+ * extension host, so a synchronous probe here never stalls a shared event loop
+ * — and the render itself still does no git.
+ */
+const cliGit: DriftGitSync = (args, cwd) =>
+  execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 5000 });
 
 /**
  * How the ticket's CURRENT stage ends, resolved when `context` runs rather
@@ -178,9 +188,13 @@ export function runContextCommand(
           hasBlockingSubtasks,
         );
   if (parsed.format === 'md') {
+    // Drift is precomputed here (the render does no git); the tester view omits
+    // it, so no probe is spent for it.
+    const driftNotes = parsed.audience === 'tester' ? undefined : computeDriftNotesSync(ctx, cliGit);
     return renderTicketContext(ctx, undefined, {
       bounded: false,
       stageEnding: ending,
+      ...(driftNotes ? { driftNotes } : {}),
       ...(parsed.audience ? { audience: parsed.audience } : {}),
     });
   }

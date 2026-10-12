@@ -76,6 +76,8 @@ describe('planning outbox', () => {
   }
   const put = (name: string, body: unknown): void =>
     writeFileSync(join(outbox, name), typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body));
+  // Let the late async checks (base shas, commit probe) settle before asserting.
+  const settle = () => new Promise<void>((r) => setTimeout(r, 0));
   const pending = () => listPendingProposals(store, projectId);
 
   it('ingests a valid proposal, empties the outbox and reports it', () => {
@@ -122,11 +124,12 @@ describe('planning outbox', () => {
     expect(pending()).toHaveLength(1);
   });
 
-  it('revises a pending proposal of the same session in place and re-announces it as updated', () => {
+  it('revises a pending proposal of the same session in place and re-announces it as updated', async () => {
     const id = insertProposal(store, sessionId, good, '', [], { web: 'sha-old' });
     const onProposal = vi.fn();
     put(`${UUID(2)}.json`, { ...good, id, title: 'Revised auth', repos: ['web'] });
-    make({ onProposal, resolveBaseShas: (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-new'])) }).scan();
+    make({ onProposal, resolveBaseShas: async (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-new'])) }).scan();
+    await settle();
     expect(getProposal(store, id)).toMatchObject({
       id,
       status: 'pending',
@@ -142,36 +145,94 @@ describe('planning outbox', () => {
     expect(readdirSync(outbox)).toEqual([]);
   });
 
-  it.each([
+  it('patches base shas onto a new draft after the async resolve answers, without blocking scan', async () => {
+    const onWarnings = vi.fn();
+    let release!: (shas: Record<string, string>) => void;
+    const gate = new Promise<Record<string, string>>((r) => (release = r));
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: () => gate, onWarnings }).scan();
+    // scan() already returned: the row exists with no shas and the file is gone.
+    const id = pending()[0]!.id;
+    expect(pending()[0]!.baseShas).toEqual({});
+    expect(readdirSync(outbox)).toEqual([]);
+    release({ api: 'sha-late' });
+    await settle();
+    expect(getProposal(store, id)!.baseShas).toEqual({ api: 'sha-late' });
+    expect(onWarnings).toHaveBeenCalledWith(expect.objectContaining({ id, baseShas: { api: 'sha-late' } }));
+  });
+
+  it.each<[string, PlanningOutboxDeps['resolveBaseShas']]>([
     ['no resolver', undefined],
-    ['a resolver that returns nothing', () => ({})],
-    ['a resolver that throws', () => { throw new Error('git down'); }],
-  ])('a revise keeps the recorded base shas with %s', (_n, resolveBaseShas) => {
+    ['a resolver that resolves to nothing', async () => ({})],
+    ['a resolver that rejects', async () => {
+      throw new Error('git down');
+    }],
+    ['a resolver that throws synchronously', () => {
+      throw new Error('git down');
+    }],
+  ])('a revise keeps the recorded base shas with %s', async (_n, resolveBaseShas) => {
     const id = insertProposal(store, sessionId, good, '', [], { web: 'sha-old' });
     const debug = vi.fn();
     put(`${UUID(2)}.json`, { ...good, id, title: 'Revised', repos: ['web'] });
     make({ resolveBaseShas, debug }).scan();
+    await settle();
     expect(getProposal(store, id)).toMatchObject({ payload: { title: 'Revised' }, baseShas: { web: 'sha-old' } });
-    if (_n === 'a resolver that throws') expect(debug).toHaveBeenCalledWith(expect.stringContaining('base sha resolution failed: git down'));
+    if (_n === 'no resolver' || _n === 'a resolver that resolves to nothing') {
+      // Neither the absent resolver nor an empty result is a failure: nothing
+      // is logged for either.
+      expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('base sha resolution failed'));
+    } else {
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('base sha resolution failed: git down'));
+    }
   });
 
-  it('a new draft whose resolver throws is still ingested with empty shas', () => {
+  it('patches base shas without an onWarnings callback and logs no failure', async () => {
+    const debug = vi.fn();
     put(`${UUID(1)}.json`, good);
-    make({ resolveBaseShas: () => { throw new Error('boom'); } }).scan();
+    make({ resolveBaseShas: async (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-x'])), debug }).scan();
+    await settle();
+    expect(pending()[0]!.baseShas).toEqual({ api: 'sha-x' });
+    expect(debug).not.toHaveBeenCalledWith(expect.stringContaining('base sha resolution failed'));
+  });
+
+  it('a new draft whose resolver rejects is still ingested with empty shas and never throws', async () => {
+    put(`${UUID(1)}.json`, good);
+    make({
+      resolveBaseShas: async () => {
+        throw new Error('boom');
+      },
+    }).scan();
+    await settle();
     expect(pending()[0]!.baseShas).toEqual({});
   });
 
-  it('shas recorded at ingest travel to the ticket when the draft is accepted', () => {
+  it('drops a late base-sha patch when the draft was revised meanwhile', async () => {
+    let release!: (shas: Record<string, string>) => void;
+    const gate = new Promise<Record<string, string>>((r) => (release = r));
     put(`${UUID(1)}.json`, good);
-    make({ resolveBaseShas: (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();
+    make({ resolveBaseShas: () => gate }).scan();
+    const id = pending()[0]!.id;
+    // A revise (with its own empty resolve) owns the row from here on.
+    put(`${UUID(2)}.json`, { ...good, id, repos: ['web'] });
+    make({ resolveBaseShas: async () => ({}) }).scan();
+    release({ api: 'sha-stale' });
+    await settle();
+    expect(getProposal(store, id)!.baseShas).toEqual({});
+  });
+
+  it('shas recorded at ingest travel to the ticket when the draft is accepted', async () => {
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: async (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();
+    await settle();
     const ticket = createTicket(store, { key: 'K-sha', title: 'with shas', projectId });
     markProposalAccepted(store, pending()[0]!.id, ticket.id);
     expect(getTicket(store, ticket.id).baseShas).toEqual({ api: 'sha-init' });
   });
 
-  it('records base commit shas via resolveBaseShas on new draft ingest', () => {
+  it('records base commit shas via resolveBaseShas on new draft ingest', async () => {
     put(`${UUID(1)}.json`, good);
-    make({ resolveBaseShas: (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();
+    make({ resolveBaseShas: async (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();
+    await settle();
     const p = pending()[0]!;
     expect(p.baseShas).toEqual({ api: 'sha-init' });
   });

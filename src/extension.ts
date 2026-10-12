@@ -194,6 +194,7 @@ import type { HookPayload } from './hooks/dispatch.js';
 import { dispatchHook } from './hooks/dispatch.js';
 import type { StageKey } from './model/types.js';
 import { buildTicketContext, renderTicketContext } from './context/ticketContext.js';
+import { computeDriftNotes } from './context/drift.js';
 import { resolveModelChain } from './agent/models.js';
 import { terminalTicketName } from './store/ticketLabelTemplate.js';
 import { compactTicketLabel } from './model/followUp.js';
@@ -4142,7 +4143,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               undefined,
               // PROMPT-08 bounds the interactive-session launch seed only; the
               // graph-planner prompt is a different surface this ticket never
-              // touched, so it keeps its pre-ticket unbounded behavior.
+              // touched, so it keeps its pre-ticket unbounded behavior. This
+              // seam is synchronous, so no drift notes are precomputed: the
+              // render does no git and emits no drift line (fail-soft).
               { bounded: false },
             )
           : undefined,
@@ -4478,12 +4481,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       },
       // PROMPT-08 bounds the interactive-session launch seed only — this
       // graph surface is out of that ticket's scope, so it stays unbounded.
-      ticketContextOf: (ticketId) =>
-        renderTicketContext(
-          buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath),
-          undefined,
-          { bounded: false },
-        ),
+      // Drift is precomputed asynchronously (the render does no git).
+      ticketContextOf: async (ticketId) => {
+        const ctx = buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath);
+        const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
+        return renderTicketContext(ctx, undefined, { bounded: false, driftNotes });
+      },
       visitMailboxOf: (ticketId) => visitMailboxFacts(localStore, ticketId),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
       manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
@@ -4963,20 +4966,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs) return;
     const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
+    const ctx = buildTicketContext(localStore, currentManifest(), graphRunTicketId(graphRunId), context.globalStorageUri.fsPath);
+    const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
-      renderTicketContext(
-        buildTicketContext(
-          localStore,
-          currentManifest(),
-          graphRunTicketId(graphRunId),
-          context.globalStorageUri.fsPath,
-        ),
-        undefined,
-        // PROMPT-08 bounds the interactive-session launch seed only; this
-        // graph-planner retry prompt is out of that ticket's scope.
-        { bounded: false },
-      ),
+      // PROMPT-08 bounds the interactive-session launch seed only; this
+      // graph-planner retry prompt is out of that ticket's scope.
+      renderTicketContext(ctx, undefined, { bounded: false, driftNotes }),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
@@ -6346,8 +6342,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ticketId,
         context.globalStorageUri.fsPath, { markNotesShown: true },
       );
+      const driftNotes = await computeDriftNotes(ticketContext, undefined, (msg) => logger.debug(msg));
       const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
-        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId });
+        renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId, driftNotes });
       const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok), hasMcp);
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
