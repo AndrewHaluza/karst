@@ -556,7 +556,7 @@ export function parsePorcelainEntries(porcelain: string): PorcelainEntry[] {
     if (line.length < 4) continue;
     const status = line.slice(0, 2);
     const rest = line.slice(3);
-    const arrow = rest.lastIndexOf(' -> ');
+    const arrow = renameSeparator(rest);
     const rawPath = arrow === -1 ? rest : rest.slice(arrow + 4);
     const path = unquotePorcelain(rawPath);
     if (path === '') continue;
@@ -570,16 +570,42 @@ export function parsePorcelainEntries(porcelain: string): PorcelainEntry[] {
   return entries;
 }
 
+/**
+ * The index of the ` -> ` separator in a rename/copy entry, or -1. The search
+ * must respect git's quoting: a quoted path can itself contain ` -> `
+ * (`"a -> b.txt"`), and a naive `lastIndexOf` splits inside the quotes and
+ * returns a mangled path. The separator is always OUTSIDE the quotes, so scan
+ * with a quote toggle (skipping backslash-escaped characters) and take the
+ * first unquoted ` -> `.
+ */
+function renameSeparator(rest: string): number {
+  let inQuotes = false;
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i]!;
+    if (ch === '\\') {
+      i++; // the escaped character is literal; never a quote or separator
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && rest.startsWith(' -> ', i)) return i;
+  }
+  return -1;
+}
+
 /** The dirty paths of a `git status --porcelain -uall` read, in git's order. */
 export function parsePorcelainPaths(porcelain: string): string[] {
   return parsePorcelainEntries(porcelain).map((entry) => entry.path);
 }
 
 /**
- * Undo git's C-style path quoting: `"`-wrapped, with `\` escapes and octal
- * BYTES. The escapes are collected as raw bytes and decoded as UTF-8 — a
- * per-escape `String.fromCharCode` reads each UTF-8 byte as Latin-1 and turns
- * `näme` (quoted `n\303\244me`) into `nÃ¤me`.
+ * Undo git's C-style path quoting: `"`-wrapped, with the full C escape set
+ * (`\\`, `\"`, `\a`, `\b`, `\t`, `\n`, `\v`, `\f`, `\r`) and octal BYTES. The
+ * escapes are collected as raw bytes and decoded as UTF-8 — a per-escape
+ * `String.fromCharCode` reads each UTF-8 byte as Latin-1 and turns `näme`
+ * (quoted `n\303\244me`) into `nÃ¤me`.
  */
 function unquotePorcelain(value: string): string {
   if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
@@ -598,10 +624,18 @@ function unquotePorcelain(value: string): string {
     }
     if (escape === '\\' || escape === '"') {
       bytes.push(escape.charCodeAt(0));
+    } else if (escape === 'a') {
+      bytes.push(0x07);
+    } else if (escape === 'b') {
+      bytes.push(0x08);
     } else if (escape === 't') {
       bytes.push(0x09);
     } else if (escape === 'n') {
       bytes.push(0x0a);
+    } else if (escape === 'v') {
+      bytes.push(0x0b);
+    } else if (escape === 'f') {
+      bytes.push(0x0c);
     } else if (escape === 'r') {
       bytes.push(0x0d);
     } else if (escape >= '0' && escape <= '7') {

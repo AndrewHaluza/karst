@@ -982,6 +982,44 @@ describe('ship quarantine commit primitives', () => {
     }
   });
 
+  it('parsePorcelainPaths keeps a filename that itself contains " -> "', async () => {
+    // git quotes the path (`"a -> b.txt"`); a naive separator search splits
+    // inside the quotes and returns a mangled path.
+    const dir = await freshRepo('porcelain-arrow');
+    try {
+      writeFileSync(join(dir, 'a -> b.txt'), 'x');
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainPaths(status.stdout)).toEqual(['a -> b.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainEntries splits a rename whose paths contain " -> "', async () => {
+    const dir = await freshRepo('porcelain-arrow-rename');
+    try {
+      await writeAndCommit(dir, 'a -> b.txt', 'content', 'base');
+      await runGit(['mv', 'a -> b.txt', 'c -> d.txt'], dir);
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainEntries(status.stdout)).toEqual([
+        { status: 'R ', path: 'c -> d.txt', from: 'a -> b.txt' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainPaths decodes git C-escapes for control characters', async () => {
+    const dir = await freshRepo('porcelain-ctrl');
+    try {
+      writeFileSync(join(dir, 'ctrl\x08name.txt'), 'x');
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainPaths(status.stdout)).toEqual(['ctrl\x08name.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('parsePorcelainPaths decodes non-ASCII octal escapes as UTF-8, not Latin-1', async () => {
     const dir = await freshRepo('porcelain-utf8');
     try {

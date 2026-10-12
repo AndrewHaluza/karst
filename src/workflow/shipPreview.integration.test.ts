@@ -97,6 +97,15 @@ describe('loadShipPreview', () => {
     expect(row.deny).toEqual([]);
   });
 
+  it('names a filename containing " -> " exactly, matching ship', async () => {
+    // git quotes it (`"a -> b.txt"`); a mis-split would report a mangled path
+    // while ship commits the real name.
+    writeFileSync(join(dir, 'a -> b.txt'), 'x');
+    const row = (await preview(manifestFor())).repos[0]!;
+    expect(row.status).toBe('will-commit');
+    expect(row.commitFiles).toEqual(['a -> b.txt']);
+  });
+
   it('removes exclude matches from the commit set and keeps them dirty', async () => {
     writeFileSync(join(dir, 'dist-out.js'), 'changed dist');
     writeFileSync(join(dir, 'base.txt'), 'changed');
