@@ -1,0 +1,198 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { openStore, type Store } from '../store/db.js';
+import { createTicket } from '../store/tickets.js';
+import { manifest, repo } from '../manifest/fixtures.js';
+import type { Manifest } from '../manifest/types.js';
+import {
+  cleanupQuarantine,
+  headCommit,
+  prepareCommitInQuarantine,
+  promoteQuarantinedObjects,
+  runGit,
+  defaultGitRunner,
+  type PersistedCommitIdentity,
+} from '../integrations/git.js';
+import { loadShipPreview } from './shipPreview.js';
+
+const identity: PersistedCommitIdentity = {
+  name: 'Test',
+  email: 'test@example.com',
+  at: '2026-01-01T00:00:00.000Z',
+};
+
+let root: string;
+let dir: string;
+let store: Store;
+let ticketId: number;
+
+async function initRepo(path: string): Promise<void> {
+  mkdirSync(path, { recursive: true });
+  await runGit(['init', '-b', 'main'], path);
+  await runGit(['config', 'user.name', 'Test'], path);
+  await runGit(['config', 'user.email', 'test@example.com'], path);
+  await runGit(['config', 'commit.gpgsign', 'false'], path);
+  writeFileSync(join(path, 'base.txt'), 'base');
+  writeFileSync(join(path, 'dist-out.js'), 'base dist');
+  await runGit(['add', '-A'], path);
+  const commit = await runGit(['commit', '-m', 'base'], path);
+  expect(commit.exitCode).toBe(0);
+  await runGit(['branch', 'develop'], path);
+  await runGit(['checkout', '-b', 'karst/x'], path);
+}
+
+function seedWorktree(id: number, repoPath: string, baseRef = 'develop'): void {
+  store.db
+    .prepare(
+      `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref, deps_mode)
+       VALUES (?, ?, ?, 'karst/x', ?, 'inherited')`,
+    )
+    .run(id, repoPath, dir, baseRef);
+}
+
+function manifestFor(over: Partial<Manifest['repositories'][string]> = {}): Manifest {
+  return manifest({ extention: repo({ repoPath: dir, ...over }) });
+}
+
+async function preview(m: Manifest) {
+  return loadShipPreview({
+    store,
+    manifest: m,
+    git: defaultGitRunner,
+    ticketId,
+    key: 'T1',
+    title: 'Add ship preview',
+    ticket: { type: null, model: null },
+  });
+}
+
+beforeEach(async () => {
+  root = mkdtempSync(join(tmpdir(), 'karst-ship-preview-'));
+  dir = join(root, 'repo');
+  await initRepo(dir);
+  store = openStore(':memory:');
+  ticketId = createTicket(store, { key: 'T1', title: 'Add ship preview' }).id;
+  seedWorktree(ticketId, dir);
+});
+
+afterEach(() => {
+  store.close();
+  rmSync(root, { recursive: true, force: true });
+});
+
+describe('loadShipPreview', () => {
+  it('reads tracked and untracked dirty paths, and nothing else', async () => {
+    writeFileSync(join(dir, 'base.txt'), 'changed');
+    writeFileSync(join(dir, 'brand-new.ts'), 'new');
+    const result = await preview(manifestFor());
+    expect(result.repos).toHaveLength(1);
+    const row = result.repos[0]!;
+    expect(row.repo).toBe('extention');
+    expect(row.status).toBe('will-commit');
+    expect(row.commitFiles.sort()).toEqual(['base.txt', 'brand-new.ts']);
+    expect(row.excludedFiles).toEqual([]);
+    expect(row.deny).toEqual([]);
+  });
+
+  it('removes exclude matches from the commit set and keeps them dirty', async () => {
+    writeFileSync(join(dir, 'dist-out.js'), 'changed dist');
+    writeFileSync(join(dir, 'base.txt'), 'changed');
+    const result = await preview(manifestFor({ ship: { exclude: ['dist-out.js'] } }));
+    const row = result.repos[0]!;
+    expect(row.excludedFiles).toEqual(['dist-out.js']);
+    expect(row.commitFiles).toEqual(['base.txt']);
+    // The excluded path is still dirty in the worktree — nothing touched it.
+    const status = await runGit(['status', '--porcelain', '-uall'], dir);
+    expect(status.stdout).toContain('dist-out.js');
+  });
+
+  it('treats an all-excluded worktree as nothing to commit', async () => {
+    writeFileSync(join(dir, 'dist-out.js'), 'changed dist');
+    const result = await preview(manifestFor({ ship: { exclude: ['dist-out.js'] } }));
+    const row = result.repos[0]!;
+    expect(row.status).toBe('nothing-to-commit');
+    expect(row.commitFiles).toEqual([]);
+    expect(row.excludedFiles).toEqual(['dist-out.js']);
+    expect(row.changedFromBase).toBe(false);
+  });
+
+  it('blocks a repo whose untracked file matches the deny scan', async () => {
+    writeFileSync(join(dir, '.env'), 'SECRET=1');
+    const result = await preview(manifestFor());
+    const row = result.repos[0]!;
+    expect(row.status).toBe('blocked');
+    expect(row.deny).toEqual(['.env']);
+  });
+
+  it('warns when an exclude spec also matches committed changes', async () => {
+    writeFileSync(join(dir, 'dist-out.js'), 'committed dist');
+    await runGit(['add', '-A'], dir);
+    await runGit(['commit', '-m', 'committed dist'], dir);
+    writeFileSync(join(dir, 'base.txt'), 'changed');
+    const result = await preview(manifestFor({ ship: { exclude: ['dist-out.js'] } }));
+    const row = result.repos[0]!;
+    expect(row.committedExcludedWarning).toEqual(['dist-out.js']);
+    expect(row.commitFiles).toEqual(['base.txt']);
+  });
+
+  it('skips a repo with a live PR', async () => {
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 5, 'u', 'open')`,
+      )
+      .run(ticketId, dir);
+    writeFileSync(join(dir, 'base.txt'), 'changed');
+    const result = await preview(manifestFor());
+    expect(result.repos[0]!.status).toBe('already-shipped');
+    expect(result.repos[0]!.prNumber).toBe(5);
+    expect(result.repos[0]!.commitFiles).toEqual([]);
+  });
+
+  it('reports the branch as changed when the agent already committed the work', async () => {
+    writeFileSync(join(dir, 'base.txt'), 'committed');
+    await runGit(['add', '-A'], dir);
+    await runGit(['commit', '-m', 'agent work'], dir);
+    const result = await preview(manifestFor());
+    const row = result.repos[0]!;
+    expect(row.status).toBe('nothing-to-commit');
+    expect(row.changedFromBase).toBe(true);
+  });
+});
+
+describe('preview agrees with the commit ship actually prepares', () => {
+  it('commits exactly the preview commitFiles, leaving excluded paths dirty', async () => {
+    writeFileSync(join(dir, 'base.txt'), 'changed');
+    writeFileSync(join(dir, 'dist-out.js'), 'changed dist');
+    writeFileSync(join(dir, 'extra.ts'), 'new');
+    const m = manifestFor({ ship: { exclude: ['dist-out.js'] } });
+    const row = (await preview(m)).repos[0]!;
+    expect(row.commitFiles.sort()).toEqual(['base.txt', 'extra.ts']);
+    expect(row.excludedFiles).toEqual(['dist-out.js']);
+
+    const preHead = (await headCommit(defaultGitRunner, dir))!;
+    const key = randomUUID();
+    const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, key, {
+      preHead,
+      message: 'Add ship preview',
+      author: identity,
+      committer: identity,
+      exclude: ['dist-out.js'],
+    });
+    expect(prepared.excluded).toEqual(row.excludedFiles);
+    expect(prepared.expectedHead).not.toBeNull();
+    await promoteQuarantinedObjects(defaultGitRunner, dir, key);
+    const tree = await runGit(['ls-tree', '-r', '--name-only', prepared.intendedTree], dir);
+    expect(tree.stdout.trim().split('\n').sort()).toEqual([
+      'base.txt',
+      'dist-out.js',
+      'extra.ts',
+    ]);
+    // dist-out.js was already in base, so the tree carries the BASE version.
+    const distAtTree = await runGit(['show', `${prepared.intendedTree}:dist-out.js`], dir);
+    expect(distAtTree.stdout).toBe('base dist');
+    await cleanupQuarantine(defaultGitRunner, dir, key);
+  });
+});

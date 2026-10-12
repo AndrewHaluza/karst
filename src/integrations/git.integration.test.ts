@@ -7,6 +7,8 @@ import {
   commitAllIfDirty,
   compareAndSwapHeadAndIndex,
   describeGitFailure,
+  dirtyPathsMatching,
+  parsePorcelainPaths,
   hasChangesFrom,
   headCommit,
   listCommitsFrom,
@@ -943,6 +945,42 @@ describe('ship quarantine commit primitives', () => {
       writeFileSync(join(dir, 'u.txt'), 'untracked');
       const untracked = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
       expect(untracked).not.toBe(committed);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainPaths reads dirty, untracked, quoted and renamed paths', async () => {
+    const dir = await freshRepo('porcelain-paths');
+    try {
+      await writeAndCommit(dir, 'plain.txt', 'a', 'base');
+      await writeAndCommit(dir, 'a b.txt', 'a', 'base2');
+      writeFileSync(join(dir, 'plain.txt'), 'edited');
+      writeFileSync(join(dir, 'new file.txt'), 'untracked');
+      await runGit(['mv', 'a b.txt', 'c d.txt'], dir);
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      const paths = parsePorcelainPaths(status.stdout).sort();
+      expect(paths).toEqual(['c d.txt', 'new file.txt', 'plain.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('dirtyPathsMatching returns only the dirty paths an exclude spec matches', async () => {
+    const dir = await freshRepo('dirty-matching');
+    try {
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      await writeAndCommit(dir, 'src/keep.ts', 'a', 'base');
+      mkdirSync(join(dir, 'dist'), { recursive: true });
+      await writeAndCommit(dir, 'dist/out.js', 'base', 'base2');
+      writeFileSync(join(dir, 'src/keep.ts'), 'edited');
+      writeFileSync(join(dir, 'dist/out.js'), 'rebuilt');
+      writeFileSync(join(dir, 'dist/new.js'), 'built');
+      expect((await dirtyPathsMatching(defaultGitRunner, dir, ['dist/**'])).sort()).toEqual([
+        'dist/new.js',
+        'dist/out.js',
+      ]);
+      expect(await dirtyPathsMatching(defaultGitRunner, dir, [])).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

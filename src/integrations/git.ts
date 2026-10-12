@@ -522,6 +522,80 @@ function splitLines(text: string): string[] {
     .filter((line) => line !== '');
 }
 
+/** One `git status --porcelain` entry: the two status columns and the path. */
+export interface PorcelainEntry {
+  /** The two-character `XY` status (`??` for untracked, `R ` for a rename). */
+  status: string;
+  /** Worktree-relative path, C-quoted forms undone, the DESTINATION of a rename. */
+  path: string;
+}
+
+/**
+ * Parse `git status --porcelain -uall` output into one entry per dirty path.
+ * The DESTINATION of a rename/copy (`R  old -> new`) is what a sweep commit
+ * records, so it answers `path`. C-quoted paths (`"a b"`, octal escapes) are
+ * undone. A blank or short line is skipped rather than guessed at.
+ *
+ * Shared by ship's deny scan and the read-only ship preview so both read the
+ * exact same dirty set from the exact same git output (`arch:SHIP-SECRET`).
+ */
+export function parsePorcelainEntries(porcelain: string): PorcelainEntry[] {
+  const entries: PorcelainEntry[] = [];
+  for (const line of porcelain.split('\n')) {
+    if (line.length < 4) continue;
+    const status = line.slice(0, 2);
+    const rest = line.slice(3);
+    const arrow = rest.lastIndexOf(' -> ');
+    const rawPath = arrow === -1 ? rest : rest.slice(arrow + 4);
+    const path = unquotePorcelain(rawPath);
+    if (path === '') continue;
+    entries.push({ status, path });
+  }
+  return entries;
+}
+
+/** The dirty paths of a `git status --porcelain -uall` read, in git's order. */
+export function parsePorcelainPaths(porcelain: string): string[] {
+  return parsePorcelainEntries(porcelain).map((entry) => entry.path);
+}
+
+/** Undo git's C-style path quoting: `"`-wrapped, with `\` escapes and octal bytes. */
+function unquotePorcelain(value: string): string {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  const body = value.slice(1, -1);
+  return body.replace(/\\(\\|"|t|n|r|[0-7]{1,3})/g, (_match, escape: string) => {
+    if (escape === '\\') return '\\';
+    if (escape === '"') return '"';
+    if (escape === 't') return '\t';
+    if (escape === 'n') return '\n';
+    if (escape === 'r') return '\r';
+    return String.fromCharCode(parseInt(escape, 8));
+  });
+}
+
+/**
+ * The dirty paths (`git status --porcelain -uall`) that any exclude spec
+ * matches — ship's read-only mirror of the QUARANTINE reset it later performs,
+ * so the preview names exactly the paths the sweep commit will leave out. Empty
+ * when `specs` is empty (no git invocation). Throws on a git failure so the
+ * caller decides (the preview degrades the repo to an error).
+ */
+export async function dirtyPathsMatching(
+  git: GitRunner,
+  cwd: string,
+  specs: readonly string[],
+): Promise<string[]> {
+  if (specs.length === 0) return [];
+  const out = await git(
+    ['status', '--porcelain', '-uall', '--', ...specs.map(excludeGlobSpec)],
+    cwd,
+  );
+  if (out.exitCode !== 0) {
+    throw new Error(describeGitFailure('git status --porcelain -uall -- <exclude>', out));
+  }
+  return parsePorcelainPaths(out.stdout);
+}
+
 /** The two object ids that authorize `created-by-ship` provenance. */
 export interface PreparedCommit {
   intendedTree: string;

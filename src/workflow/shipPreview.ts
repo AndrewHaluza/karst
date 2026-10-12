@@ -1,0 +1,356 @@
+import { getTicket } from '../store/tickets.js';
+import { listWorktreesByTicket, type WorktreeView } from '../store/dashboard.js';
+import type { Store } from '../store/db.js';
+import type { AgentProvider, ArtifactConventions, Manifest } from '../manifest/types.js';
+import { resolvePresetDefaults } from '../agent/agentPresets.js';
+import { nowIso } from '../model/time.js';
+import {
+  changedPathsMatching,
+  dirtyPathsMatching,
+  headCommit,
+  parsePorcelainPaths,
+  type GitRunner,
+} from '../integrations/git.js';
+import { renderArtifactTemplate, type ArtifactTemplateContext } from './artifactConventions.js';
+import { resolveTicketBaseRef } from './baseRef.js';
+import {
+  resolveRepoConventions,
+  resolveRepoName,
+  resolveRepoScope,
+  resolveTicketType,
+} from './conventionContext.js';
+import { scanPorcelainForDenied } from './shipDenyScan.js';
+import { findExistingLivePr } from './stages/shipStore.js';
+
+/**
+ * Advisory preview of what ship's sweep commit and PR will do, computed
+ * read-only while the header's ship slot is `confirm`/`retry`.
+ *
+ * It MUST NOT diverge from ship: the titles come from the same
+ * `resolveShipArtifacts` ship calls, the deny scan is the same
+ * `scanPorcelainForDenied`, and the excluded set is git's own answer to the SAME
+ * `:(glob)` pathspecs `prepareCommitInQuarantine` resets. A preview that wrote a
+ * quarantine, touched the index or opened an object would be a second source of
+ * truth; this one reads only (`git status`, `git diff --name-only`) and renders.
+ */
+
+/** What a repo's sweep commit will do, as the preview frames it. */
+export type ShipPreviewRepoStatus =
+  /** The sweep commit carries at least one dirty path. */
+  | 'will-commit'
+  /** The sweep commit carries nothing (the agent already committed, or no change). */
+  | 'nothing-to-commit'
+  /** A live PR already exists for this repo; ship would skip it. */
+  | 'already-shipped'
+  /** The repo's deny scan refuses it; ship would park the repo. */
+  | 'blocked';
+
+/** One repository's previewed ship facts. All strings are untrusted prose (UI-R32). */
+export interface ShipPreviewRepo {
+  /** The manifest repository NAME (`{repo}`), never the worktree's local path. */
+  repo: string;
+  /** The PR title ship would open with, rendered from the repo's conventions. */
+  prTitle: string;
+  /** The commit subject ship's sweep commit would use. */
+  commitMessage: string;
+  /** Dirty paths (`-uall`) the sweep commit carries once excludes are removed. */
+  commitFiles: string[];
+  /** Dirty paths kept out by `ship.exclude` (`arch:SHIP-EXCLUDE`). */
+  excludedFiles: string[];
+  /** Excluded pathspecs that also match already-committed changes (warning only). */
+  committedExcludedWarning: string[];
+  /** Paths the deny scan would refuse (`arch:SHIP-SECRET`) — the repo will be blocked. */
+  deny: string[];
+  /** The live PR's number, when `status` is `already-shipped`; null otherwise. */
+  prNumber: number | null;
+  /**
+   * Whether the branch holds an effective change from its base, so a
+   * `nothing-to-commit` repo can still be one that ships committed work.
+   * Derived locally (no fetch); the webview uses it only for the
+   * "every repo unchanged" warning (`arch:SHIP-UNCHANGED`).
+   */
+  changedFromBase: boolean;
+  status: ShipPreviewRepoStatus;
+  /** Per-repo read failure; the preview never blocks ship. Absent on success. */
+  error?: string;
+}
+
+/** The host-derived preview on the dashboard state; `computedAt` stamps the read. */
+export interface ShipPreview {
+  computedAt: string;
+  repos: ShipPreviewRepo[];
+}
+
+/** The ticket facts the artifact templates interpolate. */
+export interface ShipArtifactTicket {
+  type: string | null;
+  model: string | null;
+  agentProvider?: AgentProvider | null;
+  agentPreset?: string | null;
+  sessionProvider?: AgentProvider | null;
+  approach?: string | null;
+  sessionId?: string | null;
+}
+
+export interface ShipArtifactInput {
+  manifest?: Manifest;
+  ticketId: number;
+  key: string;
+  title: string;
+  repoName: string;
+  ticket: ShipArtifactTicket;
+  /** Direct injection (focused tests); otherwise resolves per-repo conventions. */
+  conventions?: ArtifactConventions;
+}
+
+/** What ship renders for one repository: both subjects, its excludes and the context. */
+export interface ShipArtifacts {
+  commitMessage: string;
+  prTitle: string;
+  /** `repos.<name>.ship.exclude`, verbatim (empty when unset). */
+  excludes: string[];
+  /** The ArtifactTemplateContext both subjects and the PR body render from. */
+  context: ArtifactTemplateContext;
+}
+
+/**
+ * The `{model}` value for the PR description template, following the launch
+ * precedence: the per-ticket model override, else the manifest-level default,
+ * else nothing (the agent CLI picks its own default — rendered as `n/a` by the
+ * default template). Blank at either level counts as "inherit".
+ *
+ * The manifest-level default is PRESET-AWARE: the effective preset supplies it
+ * only when the ticket's own core is the preset's core (a preset is a
+ * core+model pair), and the legacy `defaultModel` covers every other case.
+ */
+export function resolveTemplateModel(
+  ticket: {
+    model: string | null;
+    agentProvider?: AgentProvider | null;
+    agentPreset?: string | null;
+  },
+  manifest?: Manifest,
+): string | undefined {
+  const defaults = manifest
+    ? resolvePresetDefaults(manifest, 'implementation', {
+        ticketPreset: ticket.agentPreset ?? null,
+        explicitProvider: ticket.agentProvider ?? null,
+      })
+    : undefined;
+  for (const candidate of [ticket.model, defaults?.model ?? manifest?.defaultModel]) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate;
+  }
+  return undefined;
+}
+
+/**
+ * Render the commit subject and PR title ship would use for ONE repository,
+ * with the SAME template context and per-repo conventions (`D141`)
+ * `driveTicket`/ship use. Ship and the preview call this one helper, so the two
+ * can never disagree about what a title renders to.
+ */
+export function resolveShipArtifacts(input: ShipArtifactInput): ShipArtifacts {
+  const conventions =
+    input.conventions ?? resolveRepoConventions(input.manifest, input.repoName);
+  const context: ArtifactTemplateContext = {
+    id: input.ticketId,
+    key: input.key,
+    title: input.title,
+    repo: input.repoName,
+    type: resolveTicketType(input.ticket, conventions),
+    scope: resolveRepoScope(input.manifest, input.repoName),
+    provider:
+      input.ticket.sessionProvider ??
+      input.ticket.agentProvider ??
+      input.manifest?.agentProvider ??
+      'claude',
+    model: resolveTemplateModel(input.ticket, input.manifest),
+    approach: input.ticket.approach ?? undefined,
+    sessionId: input.ticket.sessionId ?? undefined,
+  };
+  const commitMessage = conventions?.commitMessage
+    ? renderArtifactTemplate('commitMessage', conventions.commitMessage, context)
+    : input.title;
+  const prTitle = conventions?.pullRequestTitle
+    ? renderArtifactTemplate('pullRequestTitle', conventions.pullRequestTitle, context)
+    : input.title;
+  const excludes = input.manifest?.repositories[input.repoName]?.ship?.exclude ?? [];
+  return { commitMessage, prTitle, excludes, context };
+}
+
+/**
+ * Split a dirty path list by the paths ship's exclude kept out. Order follows
+ * the dirty list (git's own order), so the two lists read as one set.
+ */
+export function partitionDirtyByExclude(
+  dirty: readonly string[],
+  excluded: readonly string[],
+): { commitFiles: string[]; excludedFiles: string[] } {
+  const excludedSet = new Set(excluded);
+  return {
+    commitFiles: dirty.filter((path) => !excludedSet.has(path)),
+    excludedFiles: [...excludedSet],
+  };
+}
+
+/** Load the preview for one ticket (the dashboard panel's injected seam). */
+export type ShipPreviewLoader = (
+  ticketId: number,
+  signal?: AbortSignal,
+) => Promise<ShipPreview>;
+
+interface RepoContext {
+  store: Store;
+  manifest: Manifest | undefined;
+  git: GitRunner;
+  ticketId: number;
+  key: string;
+  title: string;
+  ticket: ShipArtifactTicket;
+  signal?: AbortSignal;
+}
+
+/**
+ * Whether the branch holds an effective change from its base, read LOCALLY (no
+ * fetch — the preview repaints on demand and must not spend a network round
+ * trip per repo). `origin/<base>` is preferred, then the local base; an
+ * unresolvable base reads as changed so the all-unchanged warning is never a
+ * false alarm.
+ */
+async function hasLocalChangesFrom(
+  ctx: RepoContext,
+  wt: WorktreeView,
+  base: string,
+): Promise<boolean> {
+  const git = ctx.git;
+  const opts = ctx.signal ? { signal: ctx.signal } : undefined;
+  const candidates: string[] = [];
+  const origin = await git(['rev-parse', '--verify', `origin/${base}^{commit}`], wt.path, opts);
+  if (origin.exitCode === 0) candidates.push(`origin/${base}`);
+  const local = await git(['rev-parse', '--verify', `${base}^{commit}`], wt.path, opts);
+  if (local.exitCode === 0) candidates.push(base);
+  if (candidates.length === 0) return true;
+  const head = wt.branch && wt.branch.trim() !== '' ? wt.branch : 'HEAD';
+  for (const spec of candidates) {
+    const diff = await git(['diff', '--quiet', `${spec}...${head}`], wt.path, opts);
+    if (diff.exitCode === 0) continue;
+    // Exit 1 is a real difference; any higher exit is a git failure, and
+    // assuming changes keeps the warning off rather than raising a false one.
+    if (diff.exitCode === 1) return true;
+    return true;
+  }
+  return false;
+}
+
+async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreviewRepo> {
+  const { store, manifest, git, signal } = ctx;
+  const opts = signal ? { signal } : undefined;
+  const repoName = resolveRepoName(manifest, wt.repo);
+  const base: ShipPreviewRepo = {
+    repo: repoName,
+    prTitle: '',
+    commitMessage: '',
+    commitFiles: [],
+    excludedFiles: [],
+    committedExcludedWarning: [],
+    deny: [],
+    prNumber: null,
+    changedFromBase: false,
+    status: 'nothing-to-commit',
+  };
+  try {
+    // The SAME renderer ship calls; a malformed template is a per-repo error,
+    // never a rejected whole-preview promise (the preview is advisory).
+    const artifacts = resolveShipArtifacts({
+      manifest,
+      ticketId: ctx.ticketId,
+      key: ctx.key,
+      title: ctx.title,
+      repoName,
+      ticket: ctx.ticket,
+    });
+    base.prTitle = artifacts.prTitle;
+    base.commitMessage = artifacts.commitMessage;
+
+    // A live PR means ship skips the repo entirely (the same short-circuit as
+    // `driveTicket`), so no commit facts are read for it.
+    const live = findExistingLivePr(store, ctx.ticketId, wt.repo);
+    if (live) {
+      base.status = 'already-shipped';
+      base.prNumber = live.number;
+      return base;
+    }
+
+    const status = await git(['status', '--porcelain', '-uall'], wt.path, opts);
+    if (status.exitCode !== 0) {
+      throw new Error(status.stderr.trim() || `git status exited ${status.exitCode}`);
+    }
+    base.deny = scanPorcelainForDenied(status.stdout).map((hit) => hit.path);
+    const dirty = parsePorcelainPaths(status.stdout);
+    const specs = artifacts.excludes;
+    const excluded = specs.length > 0 ? await dirtyPathsMatching(git, wt.path, specs) : [];
+    const { commitFiles, excludedFiles } = partitionDirtyByExclude(dirty, excluded);
+    base.commitFiles = commitFiles;
+    base.excludedFiles = excludedFiles;
+    if (base.deny.length > 0) {
+      base.status = 'blocked';
+    } else if (commitFiles.length > 0) {
+      base.status = 'will-commit';
+      base.changedFromBase = true;
+    } else {
+      base.status = 'nothing-to-commit';
+    }
+
+    const baseRef = manifest
+      ? resolveTicketBaseRef(store, ctx.ticketId, wt.repo, manifest)
+      : (wt.baseRef ?? '');
+    if (specs.length > 0) {
+      const head = await headCommit(git, wt.path);
+      if (head !== null && baseRef) {
+        base.committedExcludedWarning = await changedPathsMatching(
+          git,
+          wt.path,
+          `${baseRef}...${head}`,
+          specs,
+        ).catch(() => [] as string[]);
+      }
+    }
+    if (base.status === 'nothing-to-commit' && baseRef) {
+      base.changedFromBase = await hasLocalChangesFrom(ctx, wt, baseRef);
+    }
+  } catch (error) {
+    base.status = 'nothing-to-commit';
+    base.error = error instanceof Error ? error.message : String(error);
+  }
+  return base;
+}
+
+/** Read the advisory ship preview for a ticket, one repo at a time, fail-soft. */
+export async function loadShipPreview(ctx: RepoContext): Promise<ShipPreview> {
+  const worktrees = listWorktreesByTicket(ctx.store, ctx.ticketId);
+  const repos = await Promise.all(worktrees.map((wt) => loadRepo(ctx, wt)));
+  return { computedAt: nowIso(), repos };
+}
+
+/** Build the loader the dashboard panel consumes, bound to one store + git. */
+export function makeShipPreviewLoader(
+  store: Store,
+  manifest: () => Manifest | undefined,
+  git: GitRunner,
+): ShipPreviewLoader {
+  return async (ticketId, signal) => {
+    const ticket = getTicket(store, ticketId);
+    const title = ticket.title ?? ticket.key ?? `Ticket ${ticketId}`;
+    const key = ticket.key ?? String(ticketId);
+    return loadShipPreview({
+      store,
+      manifest: manifest(),
+      git,
+      ticketId,
+      key,
+      title,
+      ticket,
+      ...(signal ? { signal } : {}),
+    });
+  };
+}

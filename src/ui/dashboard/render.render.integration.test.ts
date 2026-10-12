@@ -15,6 +15,8 @@ import {
   renderStateFor,
   implementationPrototypeFixture,
   populatedStateFor,
+  shipPreviewFixture,
+  shipPreviewStateFor,
   type InsideRenderFixture,
 } from './renderFixtures.js';
 
@@ -273,6 +275,112 @@ describe('dashboard render — fixture corpus', () => {
     expect(row.firstElementChild!.id).toBe('parentRef');
     expect(row.textContent).toContain('Sub-task of T9 · PARENT-1');
     expect(h.queryAll('.capChip')).toHaveLength(0);
+    h.close();
+  });
+});
+
+describe('dashboard render — ship preview (D142)', () => {
+  const render = (kind: Parameters<typeof shipPreviewStateFor>[0]) => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: shipPreviewStateFor(kind) });
+    return h;
+  };
+
+  it('is absent unless the ship slot waits for Confirm/Retry', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: renderStateFor('ship') }); // slot: none
+    expect(h.query('[data-region="ship-preview"]')).toBeNull();
+    h.close();
+  });
+
+  it('ready: renders one card per repo with the PR title and commit subject', () => {
+    const h = render('ready');
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section).toBeTruthy();
+    const cards = h.queryAll('[data-region="ship-preview-repo"]');
+    expect(cards).toHaveLength(2);
+    expect(section.textContent).toContain('Ship preview');
+    expect(section.textContent).toContain('src/app.ts');
+    // Hostile prose is escaped, never a live element (UI-R32).
+    expect(section.querySelectorAll('script').length).toBe(0);
+    expect(h.errors).toEqual([]);
+    h.close();
+  });
+
+  it('excluded + warning: names the excluded files and the committed-match warning', () => {
+    const h = render('excluded-warning');
+    const text = h.query('[data-region="ship-preview"]')!.textContent!;
+    expect(text).toContain('Excluded');
+    expect(text).toContain('(ship.exclude)');
+    expect(text).toContain('dist/bundle.js');
+    expect(text).toContain('ship.exclude matches committed changes');
+    h.close();
+  });
+
+  it('blocked: shows the deny paths as danger text with an icon', () => {
+    const h = render('blocked');
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section.textContent).toContain('.env');
+    expect(section.querySelector('.sp-badge--danger')).toBeTruthy();
+    expect(section.querySelector('.sp-row--danger')).toBeTruthy();
+    h.close();
+  });
+
+  it('nothing-to-commit: says the agent already committed its work', () => {
+    const h = render('nothing-to-commit');
+    expect(h.query('[data-region="ship-preview"]')!.textContent).toContain(
+      'nothing to commit — agent committed its work',
+    );
+    h.close();
+  });
+
+  it('all-nothing: warns ship will fail (arch:SHIP-UNCHANGED)', () => {
+    const h = render('all-nothing');
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section.textContent).toContain('ship will fail — no repo has changes');
+    expect(section.querySelector('.sp-note--warn')).toBeTruthy();
+    h.close();
+  });
+
+  it('error: renders the per-repo message and keeps the rest', () => {
+    const h = render('error');
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section.textContent).toContain('git status exited 128');
+    expect(h.queryAll('[data-region="ship-preview-repo"]')).toHaveLength(1);
+    h.close();
+  });
+
+  it('loading: keeps geometry with a skeleton while the read lands', () => {
+    const h = render('loading');
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section.querySelector('.sp-skel')).toBeTruthy();
+    h.close();
+  });
+
+  it('caps the visible file list at 50 and names the remainder (UI-R44)', () => {
+    const files = Array.from({ length: 60 }, (_, i) => `src/file-${i}.ts`);
+    const state = shipPreviewStateFor('ready');
+    const preview = shipPreviewFixture('ready')!;
+    const withFiles = {
+      ...state,
+      shipPreview: { ...preview, repos: [{ ...preview.repos[0]!, commitFiles: files }] },
+    };
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: withFiles });
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section.querySelectorAll('.sp-file').length).toBe(51); // 50 + the remainder row
+    expect(section.textContent).toContain('and 10 more');
+    h.close();
+  });
+
+  it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', () => {
+    const h = render('ready');
+    h.click('[data-act="refresh-ship-preview"]');
+    expect(h.posted).toHaveLength(1);
+    expect(h.posted[0]).toMatchObject({ type: 'refresh-ship-preview' });
+    const btn = h.query<HTMLElement>('[data-act="refresh-ship-preview"]')!;
+    expect(btn.getAttribute('aria-busy')).toBe('true');
+    expect(btn.hasAttribute('disabled')).toBe(true);
     h.close();
   });
 });

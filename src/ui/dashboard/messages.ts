@@ -117,6 +117,12 @@ export type WebviewMessage =
    */
   | { type: 'refresh-prs' }
   /**
+   * Re-read this ticket's advisory ship preview NOW, instead of waiting for the
+   * next open or slot entry. Payload-free like `refresh-prs`: the host owns which
+   * ticket the panel is for, so a crafted message cannot aim the read.
+   */
+  | { type: 'refresh-ship-preview' }
+  /**
    * Flip the terminal↔dashboard binding. Carries no value on purpose: the host
    * holds the preference and the webview only renders what it is pushed, so the
    * two can never disagree about which way the toggle currently sits.
@@ -456,6 +462,11 @@ export interface DashboardActions {
    * already owns the ticket, and the panel is asking for "again", not "this one".
    */
   refreshPrs: () => void | Promise<void>;
+  /**
+   * Re-read this ticket's advisory ship preview and push the result. Takes
+   * nothing: the closure owns the ticket, and the panel is asking for "again".
+   */
+  refreshShipPreview: () => void | Promise<void>;
   /** Flip the window's terminal↔dashboard binding. */
   toggleBind: () => void | Promise<void>;
   /** Apply a staged agent-core/model selection to this ticket's live session. */
@@ -669,6 +680,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     // host already opened this panel for.
     case 'refresh-prs':
       return { type: 'refresh-prs' };
+    // Payload-free for the same reason as `refresh-prs`: the host re-reads the
+    // ticket it already opened this panel for.
+    case 'refresh-ship-preview':
+      return { type: 'refresh-ship-preview' };
     // Payload-free like the panel-level server controls: a companion `enabled`
     // is dropped rather than honored, so the host's value stays authoritative.
     case 'toggle-bind':
@@ -1003,6 +1018,8 @@ export function routeAction(
       return actions.undismissPr(msg.repo);
     case 'refresh-prs':
       return actions.refreshPrs();
+    case 'refresh-ship-preview':
+      return actions.refreshShipPreview();
     case 'toggle-bind':
       return actions.toggleBind();
     case 'switch-agent':

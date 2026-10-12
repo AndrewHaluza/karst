@@ -1227,6 +1227,57 @@
   #inside .pr-branch-note{padding:0 var(--p-s2) var(--p-s1) var(--p-s3);
     color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);line-height:18px}
 
+  /* Ship preview (D142): the advisory, read-only preview of what ship's sweep
+     commit and PR will do, shown only while the ship slot waits for Confirm.
+     One card per repo; every label/value row shares one left edge (UI-R41). */
+  #inside .ship-preview{border-bottom:var(--k-border-w) solid var(--p-border);background:var(--p-surface2)}
+  #inside .sp-head{display:flex;align-items:center;gap:var(--p-s2);padding:var(--p-s2) var(--p-s4);
+    border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .sp-title{font-size:var(--p-sm);font-weight:var(--k-weight-semibold);color:var(--p-strong)}
+  #inside .sp-meta{margin-left:auto;color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
+    white-space:nowrap}
+  #inside .sp-repo{padding:var(--p-s2) var(--p-s4);border-bottom:var(--k-border-w) solid var(--p-border)}
+  #inside .sp-repo:last-child{border-bottom:0}
+  #inside .sp-repo-head{display:flex;align-items:center;gap:var(--p-s2);margin-bottom:var(--p-s1);flex-wrap:wrap}
+  #inside .sp-repo-name{font-family:var(--p-mono);font-size:var(--p-sm);color:var(--p-strong);
+    overflow-wrap:anywhere;min-width:0}
+  #inside .sp-badge{display:inline-flex;align-items:center;gap:var(--p-s1);font-size:var(--p-xs);
+    color:var(--p-muted);border:var(--k-border-w) solid var(--p-border);border-radius:var(--k-radius-sm);
+    padding:0 var(--p-s1);white-space:nowrap}
+  #inside .sp-badge .k-icon{width:14px;height:14px}
+  #inside .sp-badge--ok{color:var(--p-passed)}
+  #inside .sp-badge--danger{color:var(--p-failed)}
+  #inside .sp-grid{display:grid;gap:var(--p-s1)}
+  #inside .sp-row{display:grid;grid-template-columns:minmax(84px,128px) minmax(0,1fr);
+    gap:var(--p-s2);align-items:baseline}
+  #inside .sp-label{color:var(--p-muted2);font-size:var(--p-xs);text-transform:uppercase;letter-spacing:.04em;
+    display:inline-flex;align-items:center;gap:var(--p-s1);min-width:0}
+  #inside .sp-label .k-icon{width:14px;height:14px;flex:none}
+  #inside .sp-value{color:var(--p-text);font-size:var(--p-sm);min-width:0;overflow-wrap:anywhere;white-space:normal}
+  #inside .sp-row--danger .sp-value{color:var(--p-failed)}
+  #inside .sp-row--warn .sp-value{color:var(--p-attention)}
+  #inside .sp-files summary{cursor:pointer;color:var(--p-muted);font-size:var(--p-xs)}
+  #inside .sp-files summary::-webkit-details-marker{display:none}
+  #inside .sp-files summary:focus-visible{outline:var(--k-focus-w) solid var(--k-focus);outline-offset:var(--k-focus-offset)}
+  #inside .sp-file-list{margin:var(--p-s1) 0 0;padding:0;list-style:none;display:grid;gap:var(--k-border-w)}
+  #inside .sp-file{font-family:var(--p-mono);font-size:var(--p-xs);color:var(--p-muted);overflow-wrap:anywhere}
+  #inside .sp-more{font-style:italic;color:var(--p-muted2)}
+  #inside .sp-note{display:flex;align-items:center;gap:var(--p-s1);margin:0;padding:var(--p-s2) var(--p-s4);
+    font-size:var(--p-sm);color:var(--p-muted);overflow-wrap:anywhere}
+  #inside .sp-note .k-icon{flex:none}
+  #inside .sp-note--warn{color:var(--p-attention)}
+  #inside .sp-skel{display:inline-block;height:10px;width:60%;border-radius:var(--k-radius-sm);
+    background:var(--p-border);opacity:.6}
+  #inside .sp-skel-name{width:40%}
+  #inside .sp-skel-row .sp-label:before{content:"…";visibility:visible}
+  #inside .sp-skel-row .sp-label{visibility:hidden}
+  /* ≤699 stacks label-above-value (UI-R43): a two-column grid at a narrow page
+     width would crush the value column to nothing. */
+  @media (max-width: 699px){
+    #inside .sp-row{grid-template-columns:minmax(0,1fr);gap:var(--k-border-w)}
+    #inside .sp-label{text-transform:none}
+  }
+
   /* The prototype's compact width, expressed as the block's own container
      query so it follows the panel rather than the window (handoff §10). */
   @container (max-width: 430px){
@@ -2258,6 +2309,11 @@
   // Cleared by the next action-settling state push (the host always sends one
   // when the refresh settles, including when nothing moved), so it cannot stick.
   let prRefreshId = null;
+  // The Ship preview's explicit Refresh is in flight (D142). Same contract as
+  // prRefreshId: set on the click BEFORE the host round trip, settled by the
+  // next action-settling state push (the host always sends one, whether or not
+  // the preview changed), so it cannot stick.
+  let shipPreviewRefreshId = null;
   // The stage header's ⋯ menu: which stage's menu is OPEN, or null. Local view
   // state exactly like `openProcesses` — render() replaces #inside wholesale on
   // every state push, so an open menu would snap shut on the very next one.
@@ -3276,6 +3332,105 @@
     return hasBody && (DEFAULT_OPEN_PROCESS_KINDS.has(p.kind) || p.status === 'run');
   }
 
+  // ---- Ship preview (D142) ------------------------------------------------
+  // The advisory preview of what ship's sweep commit and PR will do, shown ONLY
+  // while the header's ship slot waits for Confirm/Retry. Every fact is the
+  // host's (UI-R31); this layer only formats, escapes (UI-R32) and caps.
+  const SHIP_PREVIEW_FILE_CAP = 50;
+
+  function shipPreviewWhen(iso) {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function shipPreviewStatusBadge(r) {
+    if (r.status === 'blocked') return `<span class="sp-badge sp-badge--danger">${karstIcon('circle-x', 14)}<span>blocked</span></span>`;
+    if (r.status === 'already-shipped') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>PR open — skipped</span></span>`;
+    if (r.status === 'will-commit') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>will commit</span></span>`;
+    return `<span class="sp-badge">${karstIcon('check', 14)}<span>nothing to commit</span></span>`;
+  }
+
+  function shipPreviewFilesHtml(label, files, note) {
+    const n = files.length;
+    const shown = files.slice(0, SHIP_PREVIEW_FILE_CAP);
+    const more = n - shown.length;
+    const items = shown.map((f) => `<li class="sp-file">${esc(f)}</li>`).join('');
+    const tail = more > 0 ? `<li class="sp-file sp-more">and ${more} more</li>` : '';
+    const noun = n === 1 ? 'file' : 'files';
+    return `<div class="sp-row"><span class="sp-label">${esc(label)}</span>`
+      + `<span class="sp-value"><details class="sp-files"><summary>${n} ${noun}${note ? ' ' + esc(note) : ''}</summary>`
+      + `<ul class="sp-file-list">${items}${tail}</ul></details></span></div>`;
+  }
+
+  function shipPreviewRepoHtml(r) {
+    const rows = [];
+    if (r.status === 'blocked') {
+      const denied = (r.deny || []).map((p) => esc(p)).join(', ');
+      rows.push(`<div class="sp-row sp-row--danger"><span class="sp-label">${karstIcon('circle-x', 14)}<span>Blocked</span></span>`
+        + `<span class="sp-value">ship refuses ${denied || 'untracked secret-shaped files'} — commit them deliberately or ignore them</span></div>`);
+    } else if (r.status === 'already-shipped') {
+      rows.push(`<div class="sp-row"><span class="sp-label">Status</span>`
+        + `<span class="sp-value">PR #${esc(String(r.prNumber == null ? '?' : r.prNumber))} open — skipped</span></div>`);
+    } else if (r.status === 'nothing-to-commit') {
+      const text = r.changedFromBase ? 'nothing to commit — agent committed its work' : 'no changes from base';
+      rows.push(`<div class="sp-row"><span class="sp-label">Status</span><span class="sp-value">${esc(text)}</span></div>`);
+    }
+    rows.push(`<div class="sp-row"><span class="sp-label">PR title</span><span class="sp-value">${esc(r.prTitle)}</span></div>`);
+    rows.push(`<div class="sp-row"><span class="sp-label">Commit</span><span class="sp-value">${esc(r.commitMessage)}</span></div>`);
+    if (r.commitFiles && r.commitFiles.length) rows.push(shipPreviewFilesHtml('Commits', r.commitFiles, ''));
+    if (r.excludedFiles && r.excludedFiles.length) rows.push(shipPreviewFilesHtml('Excluded', r.excludedFiles, '(ship.exclude)'));
+    if (r.committedExcludedWarning && r.committedExcludedWarning.length) {
+      rows.push(`<div class="sp-row sp-row--warn"><span class="sp-label">Warning</span>`
+        + `<span class="sp-value">ship.exclude matches committed changes: ${r.committedExcludedWarning.map(esc).join(', ')} — these DO ship</span></div>`);
+    }
+    if (r.error) {
+      rows.push(`<div class="sp-row"><span class="sp-label">Error</span><span class="sp-value">${esc(r.error)}</span></div>`);
+    }
+    return `<section class="sp-repo" data-region="ship-preview-repo">`
+      + `<div class="sp-repo-head"><span class="sp-repo-name">${esc(r.repo)}</span>${shipPreviewStatusBadge(r)}</div>`
+      + `<div class="sp-grid">${rows.join('')}</div></section>`;
+  }
+
+  function shipPreviewSkeletonHtml() {
+    const row = `<div class="sp-row sp-skel-row"><span class="sp-label"></span>`
+      + `<span class="sp-value"><span class="sp-skel"></span></span></div>`;
+    return `<div class="sp-repo" data-region="ship-preview-repo" aria-hidden="true">`
+      + `<div class="sp-repo-head"><span class="sp-skel sp-skel-name"></span></div>`
+      + `<div class="sp-grid">${row}${row}${row}</div></div>`;
+  }
+
+  function shipPreviewHtml(state) {
+    const slot = state.ship || { kind: 'none' };
+    if (slot.kind !== 'confirm' && slot.kind !== 'retry') return '';
+    const preview = state.shipPreview;
+    const refreshing = !!shipPreviewRefreshId;
+    const meta = preview ? `as of ${esc(shipPreviewWhen(preview.computedAt))}` : 'reading…';
+    const head = `<div class="sp-head"><span class="sp-title" id="ship-preview-title">Ship preview</span>`
+      + `<span class="sp-meta">${meta}</span>`
+      + `<button type="button" class="k-btn k-btn--ghost k-btn--sm" data-act="refresh-ship-preview"`
+      + ` aria-busy="${refreshing ? 'true' : 'false'}"${refreshing ? ' disabled' : ''}`
+      + ` title="Re-read the worktrees now">Refresh</button></div>`;
+    let body;
+    if (!preview) {
+      body = shipPreviewSkeletonHtml();
+    } else {
+      const repos = preview.repos || [];
+      // @arch:SHIP-UNCHANGED: ship fails when EVERY target is unchanged. A repo
+      // skipped for a live PR, blocked, or failed is not counted, so the line
+      // only shows when every repo is a genuine no-change.
+      const allNothing = repos.length > 0 && repos.every(
+        (r) => r.status === 'nothing-to-commit' && !r.error && !r.changedFromBase);
+      const warn = allNothing
+        ? `<p class="sp-note sp-note--warn">${karstIcon('circle-x', 14)}<span>ship will fail — no repo has changes</span></p>`
+        : '';
+      const cards = repos.length
+        ? repos.map(shipPreviewRepoHtml).join('')
+        : `<p class="sp-note"><span>No repositories on this ticket.</span></p>`;
+      body = warn + cards;
+    }
+    return `<section class="ship-preview" data-region="ship-preview" aria-labelledby="ship-preview-title">${head}${body}</section>`;
+  }
+
   function renderInside(state, sel) {
     const view = (state.insideViews || {})[sel];
     if (!view) { el('inside').innerHTML = ''; return; }
@@ -3324,7 +3479,11 @@
     // `view.console` flag — only the stage key travels on, so the click
     // handler posts exactly the stage whose log is available.
     const consoleStage = view.console ? view.stageKey : null;
-    const body = attemptNoteHtml(view) + (procs.length
+    // The Ship preview sits ABOVE the process ledger in the Ship view (D142,
+    // UI-R40 reading order): it is the first thing read before the Confirm
+    // click. Absent outside the ship slot's confirm/retry states.
+    const preview = view.stageKey === 'ship' ? shipPreviewHtml(state) : '';
+    const body = attemptNoteHtml(view) + preview + (procs.length
       ? `<div class="ledger">${procs.map((p) => processRowHtml(p, `${view.stageKey}:${p.id}`, processOpen(p, `${view.stageKey}:${p.id}`), consoleStage, view.stageKey)).join('')}</div>`
       : `<div class="blurb">${esc(view.blurb)}</div>`);
 
@@ -5817,6 +5976,18 @@
       karstSend.refreshPrs();
       return;
     }
+    // The Ship preview's Refresh (D142): the host re-reads every worktree, so
+    // show the click landed and stop it repeating. Settled by the next
+    // action-settling state push (the host pushes one after the read, changed
+    // or not), exactly like refresh-prs.
+    if (act === 'refresh-ship-preview') {
+      if (shipPreviewRefreshId) return;
+      shipPreviewRefreshId = karstRequestId();
+      karstBeginPending(btn, shipPreviewRefreshId);
+      if (lastState) render(lastState);
+      karstSend.refreshShipPreview();
+      return;
+    }
     // Send back to Implement: the host answers with a confirmation MODAL and
     // then a state push (confirm, dismiss, refusal or throw — always). The
     // pending item is settled by resolveSendBackOutcome() on that push, the
@@ -6423,6 +6594,12 @@
         if (prRefreshId) {
           karstSettle(prRefreshId, true);
           prRefreshId = null;
+        }
+        // Likewise the Ship preview's Refresh: the host sends an action-settling
+        // snapshot after its read, changed or not.
+        if (shipPreviewRefreshId) {
+          karstSettle(shipPreviewRefreshId, true);
+          shipPreviewRefreshId = null;
         }
       }
       // The full snapshot supersedes the inside live overlay: progress.ts is
