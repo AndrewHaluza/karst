@@ -220,6 +220,34 @@ describe('planning outbox', () => {
     expect(getProposal(store, id)!.baseShas).toEqual({});
   });
 
+  it('an accepted proposal still receives its late base shas onto the ticket', async () => {
+    let release!: (shas: Record<string, string>) => void;
+    const gate = new Promise<Record<string, string>>((r) => (release = r));
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: () => gate }).scan();
+    const id = pending()[0]!.id;
+    const ticket = createTicket(store, { key: 'K-late', title: 'late', projectId });
+    markProposalAccepted(store, id, ticket.id);
+    // Accepted before the resolve answered: the ticket copied the empty shas.
+    expect(getTicket(store, ticket.id).baseShas).toEqual({});
+    release({ api: 'sha-after-accept' });
+    await settle();
+    // The late resolve patches the TICKET, not the now-accepted proposal.
+    expect(getTicket(store, ticket.id).baseShas).toEqual({ api: 'sha-after-accept' });
+  });
+
+  it('a discarded proposal ignores a late base-sha resolve', async () => {
+    let release!: (shas: Record<string, string>) => void;
+    const gate = new Promise<Record<string, string>>((r) => (release = r));
+    put(`${UUID(1)}.json`, good);
+    make({ resolveBaseShas: () => gate }).scan();
+    const id = pending()[0]!.id;
+    discardProposal(store, id);
+    release({ api: 'sha-x' });
+    await settle();
+    expect(getProposal(store, id)!.baseShas).toEqual({});
+  });
+
   it('shas recorded at ingest travel to the ticket when the draft is accepted', async () => {
     put(`${UUID(1)}.json`, good);
     make({ resolveBaseShas: async (repos) => Object.fromEntries(repos.map((r) => [r, 'sha-init'])) }).scan();

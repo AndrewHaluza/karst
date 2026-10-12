@@ -4076,6 +4076,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return artifactRootDir(context.globalStorageUri.fsPath, proj.slug, ticketId, graphRunId);
   };
 
+  /** A ticket's context with drift precomputed async; the render itself does no git. */
+  const ticketContextWithDrift = async (ticketId: number): Promise<string> => {
+    const ctx = buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath);
+    const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
+    return renderTicketContext(ctx, undefined, { bounded: false, driftNotes });
+  };
+
   /** The graph recovery deps (Slice-4 T6): the atomic claim wrapper plus the
    *  prompt re-snapshot seam — content-addressed writes under the graph
    *  artifact root, and the effective-prompt resolution that consults the
@@ -4144,8 +4151,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
               // PROMPT-08 bounds the interactive-session launch seed only; the
               // graph-planner prompt is a different surface this ticket never
               // touched, so it keeps its pre-ticket unbounded behavior. This
-              // seam is synchronous, so no drift notes are precomputed: the
-              // render does no git and emits no drift line (fail-soft).
+              // sync seam only signals the launch seams are wired; the launch
+              // hosts re-render WITH drift (async), so no git runs here.
               { bounded: false },
             )
           : undefined,
@@ -4482,11 +4489,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // PROMPT-08 bounds the interactive-session launch seed only — this
       // graph surface is out of that ticket's scope, so it stays unbounded.
       // Drift is precomputed asynchronously (the render does no git).
-      ticketContextOf: async (ticketId) => {
-        const ctx = buildTicketContext(localStore, currentManifest(), ticketId, context.globalStorageUri.fsPath);
-        const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
-        return renderTicketContext(ctx, undefined, { bounded: false, driftNotes });
-      },
+      ticketContextOf: (ticketId) => ticketContextWithDrift(ticketId),
       visitMailboxOf: (ticketId) => visitMailboxFacts(localStore, ticketId),
       compileContextOf: (graphRunId, document) => graphCompileContext(graphRunId, document),
       manifestResolvedFor: (graphRunId) => graphManifestResolution(graphRunId),
@@ -4966,13 +4969,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (!gs) return;
     const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
     const diagnostics = graphDiagnosticsSection(graphRunId, plannerRunId);
-    const ctx = buildTicketContext(localStore, currentManifest(), graphRunTicketId(graphRunId), context.globalStorageUri.fsPath);
-    const driftNotes = await computeDriftNotes(ctx, undefined, (m) => logger.debug(m));
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
       // PROMPT-08 bounds the interactive-session launch seed only; this
       // graph-planner retry prompt is out of that ticket's scope.
-      renderTicketContext(ctx, undefined, { bounded: false, driftNotes }),
+      await ticketContextWithDrift(graphRunTicketId(graphRunId)),
       diagnostics ?? 'The compiler rejected the previous `graph.json`.',
       `This is compile attempt ${attempt + 1}: write a corrected \`graph.json\` and submit it again.`,
       PLANNER_SUBMIT_INSTRUCTION,
@@ -5029,7 +5030,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const diagnostics = graphDiagnosticsSection(launch.graphRunId);
     const prompt = [
       base === undefined ? '# Graph Replanner' : new TextDecoder().decode(base),
-      launch.ticketContext,
+      await ticketContextWithDrift(graphRunTicketId(launch.graphRunId)),
       // The skill calls the legal-values block authoritative, so a replanner
       // must get it too — this is the path where a plan is rewritten after a
       // failure, exactly where guessing an id costs another cycle.
@@ -5090,7 +5091,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const base = graphDriverDeps().promptBytesOf('karst-graph-planner');
     const prompt = [
       base === undefined ? '# Graph Planner' : new TextDecoder().decode(base),
-      launch.ticketContext,
+      await ticketContextWithDrift(graphRunTicketId(launch.graphRunId)),
       plannerVocabularyFor(
         () => graphCompileContext(launch.graphRunId),
         graphArtifactRoot(launch.graphRunId),

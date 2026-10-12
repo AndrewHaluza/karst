@@ -12,6 +12,7 @@ import {
   type PlanningProposal,
 } from '../../store/planningProposals.js';
 import { MAX_PROPOSAL_BYTES, validateProposal, type Proposal } from '../../planning/proposal.js';
+import { updateTicketFields } from '../../store/tickets.js';
 import { planningOutboxDir } from '../../planning/preamble.js';
 import {
   archWarnings,
@@ -80,6 +81,11 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
    * at once with no shas; a failure or an empty resolve keeps what is already
    * recorded (an earlier value on a revise, `{}` on a new draft) and only logs.
    * Never throws and never blocks `scan()`.
+   *
+   * A human can ACCEPT the draft before the resolve answers, in which case
+   * `markProposalAccepted` has already copied the (then-empty) shas onto the
+   * ticket; the resolved shas then patch the TICKET, so accepting early does
+   * not leave it with none.
    */
   function resolveBaseShasLate(id: number, uuid: string, p: Proposal): void {
     if (!deps.resolveBaseShas) return;
@@ -89,10 +95,16 @@ export function createPlanningOutbox(deps: PlanningOutboxDeps): PlanningOutbox {
         if (Object.keys(shas).length === 0) return; // nothing found: keep what is recorded
         const cur = getProposal(deps.store, id);
         // A revise or a resolution since ingest owns the row now.
-        if (!cur || cur.status !== 'pending' || cur.sourceUuid !== uuid) return;
-        setProposalBaseShas(deps.store, id, shas);
-        const row = getProposal(deps.store, id);
-        if (row) deps.onWarnings?.(row);
+        if (!cur || cur.sourceUuid !== uuid) return;
+        if (cur.status === 'pending') {
+          setProposalBaseShas(deps.store, id, shas);
+          const row = getProposal(deps.store, id);
+          if (row) deps.onWarnings?.(row);
+          return;
+        }
+        if (cur.status === 'accepted' && cur.ticketId !== null) {
+          updateTicketFields(deps.store, cur.ticketId, { baseShas: shas });
+        }
       })
       .catch((e: unknown) => debug(`base sha resolution failed: ${e instanceof Error ? e.message : String(e)}`));
   }
