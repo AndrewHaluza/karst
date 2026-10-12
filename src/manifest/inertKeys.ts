@@ -17,8 +17,9 @@
  */
 
 /**
- * `uat.*` keys with no consumer. `maxFixAttempts`, `gates`, `testerVerifier`
- * and `testerObservations` are wired — never list them.
+ * `uat.*` keys with no consumer. `maxFixAttempts`, `gates`, `testerVerifier`,
+ * `testerObservations`, `tester` and `baselineReview` are wired — never list
+ * them.
  */
 const INERT_UAT_KEYS = [
   'testDir',

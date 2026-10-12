@@ -737,15 +737,23 @@ function testerProcess(input: QualityProcessesInput): InsideProcessView {
           detail:
             run.resultKind === 'observed'
               ? testerObservedDetail(observations.length, blocking, threshold)
-              : run.resultKind === 'verification-failed'
-                ? 'verifier failed — the observation did not hold'
-                : run.resultKind === 'unreadable-output'
-                  ? 'output unreadable — no observations recorded'
-                  : run.resultKind === 'execution-failed'
-                    ? executionFailedDetail(run, 'adapter execution failed')
-                    : run.resultKind === 'interrupted'
-                      ? 'interrupted — no outcome'
-                      : undefined,
+              : run.resultKind === 'partial'
+                ? // T663: the run was stopped by a budget or the deadline. The
+                  // stored sentence names the cause ("tester exceeded budget
+                  // (827.7k tok) — partial results recorded" / "timed out — N
+                  // partial observations recorded"), so a partial run can never
+                  // read as a clean pass. A legacy row with no detail keeps a
+                  // truthful generic.
+                  run.failureDetail?.trim() || 'partial — the run did not finish'
+                : run.resultKind === 'verification-failed'
+                  ? 'verifier failed — the observation did not hold'
+                  : run.resultKind === 'unreadable-output'
+                    ? 'output unreadable — no observations recorded'
+                    : run.resultKind === 'execution-failed'
+                      ? executionFailedDetail(run, 'adapter execution failed')
+                      : run.resultKind === 'interrupted'
+                        ? 'interrupted — no outcome'
+                        : undefined,
         }
       : // A key was explicitly selected (not the default/latest path) and no
         // run matched it — the T1 known limit: a legacy run with a null

@@ -8,9 +8,13 @@ import { listUatFindings } from '../../store/uatFindings.js';
 import {
   buildTesterPrompt,
   runUatTester,
+  testerPartialDetail,
+  TESTER_WRAP_UP_NUDGE,
+  UAT_TESTER_WRAP_UP_TIMEOUT_MS,
   type RunUatTesterOpts,
   type TesterTarget,
 } from './tester.js';
+import { recordTokenUsage } from '../../store/tokenUsage.js';
 import * as reviewSnapshot from '../reviewSnapshot.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 import type { GitRunner } from '../../integrations/git.js';
@@ -965,6 +969,198 @@ describe('runUatTester', () => {
     expect(calls[0]!.prompt).toContain('Output rules (strict):');
     // The instructed run's output still parses ([] → zero findings recorded).
     expect(listUatFindings(store, ticketId)).toHaveLength(0);
+  });
+});
+
+/**
+ * T663: a Tester run ALWAYS ends with a recorded result. When a target burns
+ * its fresh-token budget or its soft time budget, the lane stops the call and
+ * re-asks ONCE for the observations the agent already has; when even that
+ * fails, it salvages whatever stdout it captured. A run so stopped is recorded
+ * as `partial` — advisory like `observed`, but it can never read as a clean
+ * pass.
+ */
+describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
+  let store: Store;
+  let ticketId: number;
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+  });
+  afterEach(() => store.close());
+
+  const opts = (over: Partial<RunUatTesterOpts> = {}): RunUatTesterOpts => ({
+    ticketId,
+    targets: TARGETS,
+    assignment: ASSIGNMENT,
+    adapter: rawAdapter('[]').adapter,
+    git: neverGit,
+    ...over,
+  });
+
+  /** One MEASURED token row for the call, exactly what the instrumented adapter writes. */
+  const recordSpend = (processRunId: number, totalTokens: number): void => {
+    recordTokenUsage(store, {
+      projectId: null,
+      ticketId,
+      processRunId,
+      callSite: 'uat-tester',
+      usage: {
+        inputTokens: totalTokens,
+        outputTokens: 0,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens,
+        model: null,
+        estimated: false,
+      },
+      outcome: 'ok',
+      recordedAt: now(),
+    });
+  };
+
+  const timeoutError = (): Error => {
+    const err = new Error('headless agent run timed out after 3600000ms');
+    err.name = 'TimeoutError';
+    return err;
+  };
+
+  it('stops a target that exceeded the token budget and re-asks it exactly once, with the wrap-up nudge', async () => {
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
+      recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
+      return { sessionId: '', verdict: null, raw: '' };
+    });
+    const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
+    // Exactly ONE re-ask — not the silence nudge, not the reformat nudge.
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.prompt).not.toContain(TESTER_WRAP_UP_NUDGE);
+    expect(calls[1]!.prompt).toContain(TESTER_WRAP_UP_NUDGE);
+    expect(calls[1]!.timeoutMs).toBe(UAT_TESTER_WRAP_UP_TIMEOUT_MS);
+    expect(res.kind).toBe('partial');
+  });
+
+  it('records the wrap-up findings as partial, and names the spend that tripped the budget', async () => {
+    let n = 0;
+    const { adapter } = fakeAdapter(async (headlessOpts) => {
+      n += 1;
+      recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
+      return n === 1
+        ? { sessionId: '', verdict: null, raw: '' }
+        : {
+            sessionId: '',
+            verdict: null,
+            raw: JSON.stringify([{ severity: 'high', title: 'recovered late', detail: '' }]),
+          };
+    });
+    const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
+    const detail = 'tester exceeded budget (500k tok) — partial results recorded';
+    expect(res).toMatchObject({ kind: 'partial', blocking: 0, detail });
+    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['recovered late']);
+    expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+      resultKind: 'partial',
+      status: 'failed',
+      failureDetail: detail,
+    });
+  });
+
+  it('sends exactly ONE wrap-up re-ask even when the first answer was already usable', async () => {
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
+      recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
+    // The wrap-up still fires (the budget was hit), but only once.
+    expect(calls).toHaveLength(2);
+    expect(res.kind).toBe('partial');
+  });
+
+  it('salvages the observations a timed-out target had already streamed, marked partial', async () => {
+    const body = JSON.stringify([{ severity: 'medium', title: 'saw a glitch', detail: '' }]);
+    let n = 0;
+    const { adapter } = fakeAdapter(async (headlessOpts) => {
+      n += 1;
+      if (n === 1) headlessOpts.onOutput?.({ stream: 'stdout', text: body });
+      throw timeoutError();
+    });
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    const detail = 'timed out — 1 partial observation recorded';
+    expect(res).toMatchObject({ kind: 'partial', detail });
+    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['saw a glitch']);
+    expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+      resultKind: 'partial',
+      failureDetail: detail,
+    });
+  });
+
+  it('a timeout with nothing parseable records no observations and says so, never parking', async () => {
+    const { adapter } = fakeAdapter(async () => {
+      throw timeoutError();
+    });
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toMatchObject({ kind: 'partial', detail: 'timed out — no observations recovered' });
+    expect(listUatFindings(store, ticketId)).toEqual([]);
+    expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+      resultKind: 'partial',
+      status: 'failed',
+      failureDetail: 'timed out — no observations recovered',
+    });
+  });
+
+  it('stops a call at the soft time budget and re-asks once — a Stop is the only thing that interrupts', async () => {
+    let n = 0;
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
+      n += 1;
+      if (n === 1) {
+        return await new Promise<never>((_resolve, reject) => {
+          headlessOpts.signal?.addEventListener('abort', () => {
+            const err = new Error('headless agent run aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        });
+      }
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const res = await runUatTester(store, opts({ adapter, softTimeoutMs: 5 }), { now });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.prompt).toContain(TESTER_WRAP_UP_NUDGE);
+    expect(res).toMatchObject({ kind: 'partial', detail: 'timed out — no observations recovered' });
+  });
+
+  it('a partial run that recovered a blocking observation still fails UAT through the stage threshold', async () => {
+    // The verdict knob is unchanged: partial observations count exactly like
+    // complete ones (the stage owns the verdict, not this module).
+    let n = 0;
+    const { adapter } = fakeAdapter(async (headlessOpts) => {
+      n += 1;
+      recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
+      return n === 1
+        ? { sessionId: '', verdict: null, raw: '' }
+        : {
+            sessionId: '',
+            verdict: null,
+            raw: JSON.stringify([{ severity: 'critical', title: 'broken', detail: '' }]),
+          };
+    });
+    const res = await runUatTester(
+      store,
+      opts({ adapter, tokenBudget: 100_000, observationsBlockingSeverity: 'high' }),
+      { now },
+    );
+    expect(res).toMatchObject({ kind: 'partial', blocking: 1, blockingSummary: '1 critical' });
+  });
+
+  it('testerPartialDetail names the budget first, then the recovered count', () => {
+    expect(testerPartialDetail(500_000, 3)).toBe(
+      'tester exceeded budget (500k tok) — partial results recorded',
+    );
+    expect(testerPartialDetail(0, 3)).toBe('timed out — 3 partial observations recorded');
+    expect(testerPartialDetail(0, 1)).toBe('timed out — 1 partial observation recorded');
+    expect(testerPartialDetail(0, 0)).toBe('timed out — no observations recovered');
   });
 });
 

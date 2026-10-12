@@ -63,6 +63,18 @@ export function failureText(error: unknown): string {
 }
 
 /**
+ * Whether a thrown agent-call failure is the headless spawner's deadline
+ * (`headlessSpawn.ts` names it `TimeoutError`) or carries its sentence in a
+ * wrapped message. The ONE timeout test: `classifyFailure` and every lane that
+ * salvages a cut run (the UAT Tester, T663) read this instead of matching the
+ * spawner's prose themselves.
+ */
+export function isTimedOutFailure(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'TimeoutError') return true;
+  return TIMED_OUT.test(failureText(error));
+}
+
+/**
  * Classify a thrown agent-call failure into exactly one recovery class.
  * The precedence order is fixed and deliberate — do not rearrange.
  */
@@ -73,7 +85,7 @@ export function classifyFailure(error: unknown): FailureClass {
   const text = failureText(error);
 
   // 2. Timeout (K3): explicitly NOT transient.
-  if (TIMED_OUT.test(text)) return 'fatal';
+  if (isTimedOutFailure(error)) return 'fatal';
 
   // 3. Authentication.
   if (AUTH.test(text)) return 'fatal';

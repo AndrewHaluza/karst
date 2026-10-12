@@ -39,6 +39,15 @@ export const REVIEW_MAX_FIX_ATTEMPTS = 3;
 export const UAT_TESTER_BLOCKING_SEVERITY: Severity | 'none' = 'none';
 
 /**
+ * `uat.tester.tokenBudget` when the block (or the key) declares none — the
+ * FRESH-token budget one UAT Tester target may spend before the lane stops it
+ * and re-asks for whatever the agent already observed (T663). Sized against the
+ * observed runaway: a busy Tester that looped burned ~828k fresh tokens and
+ * returned nothing, so the budget cuts well below that.
+ */
+export const UAT_TESTER_TOKEN_BUDGET = 400_000;
+
+/**
  * Default `review.findings` — the human-decided ON / `'high'` default.
  *
  * Deep-merged by the Quality tab's `updateFindings`, so editing one findings
