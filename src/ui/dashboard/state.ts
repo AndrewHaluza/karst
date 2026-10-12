@@ -634,6 +634,13 @@ export function buildDashboardState(
     ticket.stages.find((s) => s.stageKey === 'review')?.attempt ?? 0,
   );
 
+  // ONE read of the ticket's server rows, shared by the dashboard's Servers
+  // panel and UAT's Services process. UAT's `boot-failed` reason is the health
+  // evidence a failed row shows (a failed start's row carries no reason column).
+  const serverRows = listServersByTicket(store, ticketId);
+  const serviceFailureReason =
+    currentStage?.blocked?.kind === 'boot-failed' ? currentStage.blocked.reason : null;
+
   // ONE projection of the six-stage inside presentation, from the same
   // evidence reads above (one read per table per snapshot). Every input is
   // host-resolved here; `stateInside.ts` is a pure projection.
@@ -658,7 +665,15 @@ export function buildDashboardState(
     findings,
     uatFindings,
     rounds,
-    services: serviceNames(ticketId),
+    services: serverRows.map((s) => ({
+      service: s.service,
+      status: s.status === 'running' || s.status === 'failed' ? s.status : 'stopped',
+      host: s.host,
+      port: s.port,
+      ...(s.status === 'failed' && serviceFailureReason !== null
+        ? { reason: serviceFailureReason }
+        : {}),
+    })),
     resolvedGates,
     findingsRepoSelection,
     repoNameFor,
@@ -705,7 +720,7 @@ export function buildDashboardState(
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
     agentSwitch,
     capabilityIdentity,
-    servers: listServersByTicket(store, ticketId),
+    servers: serverRows,
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live
     // Start button there is a dead affordance dressed as an available action.
