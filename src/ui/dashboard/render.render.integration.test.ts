@@ -409,6 +409,31 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
+  it('re-ship: a live PR is committed INTO, never reported as skipped (FIX-46)', () => {
+    const h = render('re-ship');
+    const section = h.query('[data-region="ship-preview"]')!;
+    expect(section.textContent).toContain('PR #42 open — this commit is pushed onto it');
+    expect(section.textContent).not.toContain('skipped');
+    expect(section.textContent).toContain('src/app.ts');
+    h.close();
+  });
+
+  it('disables every other rail control while the Ship view is pinned (D142)', () => {
+    const base = populatedStateFor('ship');
+    const h = renderWebview('dashboard');
+    h.receive({
+      type: 'state',
+      state: { ...base, ship: { kind: 'confirm' as const }, shipPreview: shipPreviewFixture('ready')! },
+    });
+    const impl = h.query<HTMLButtonElement>('[data-stage="impl"]')!;
+    expect(impl.disabled).toBe(true);
+    expect(impl.getAttribute('aria-disabled')).toBe('true');
+    expect(impl.getAttribute('title')).toContain('pinned to ship');
+    // The pinned Ship control itself stays live.
+    expect(h.query<HTMLButtonElement>('[data-stage="ship"]')!.disabled).toBe(false);
+    h.close();
+  });
+
   it('Refresh posts the intent once and marks the button busy (UI-R11/R12)', () => {
     const h = render('ready');
     h.click('[data-act="refresh-ship-preview"]');

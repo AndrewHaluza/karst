@@ -264,6 +264,9 @@
   /* The select control fills the wrapper, so the WHOLE segment is the hit area
      while still being one real <button> for Tab and Enter (UI-R09). */
   .track .seg .pick{position:absolute;inset:0;background:transparent;border:0;padding:0;cursor:pointer}
+  /* Pinned to Ship (D142): every other rail control is disabled, so it must not
+     offer a pointer cursor it will not honour. */
+  .track .seg .pick:disabled{cursor:default}
   /* The rectangular baseline, and the fallback if the ring below cannot be
      computed. It is honest about what it is: two bars, because an `outline` is
      a rectangle and the chevron clip cuts its left and right strokes away. */
@@ -2440,7 +2443,7 @@
   // second lane to bolt to specific columns; there is no second lane now, so the
   // only measurement left is `place()` below, and it POSITIONS NOTHING — it picks
   // one of three degradation classes.
-  function renderTrack(rail, approach, sel) {
+  function renderTrack(rail, approach, sel, shipPinned) {
     const segs = rail.main.map((s) => {
       const cell = s.cell;
       const k = cell.stageKey;
@@ -2502,13 +2505,20 @@
       // caption are its only visual form and the narrowest step drops both, and
       // the pips are `pointer-events:none` children of the segment, so their own
       // `title` never surfaces — this is where a reader gets the approach at all.
-      const aria = (needs ? `${title}: needs you` : `${title}: ${status}`)
+      let aria = (needs ? `${title}: needs you` : `${title}: ${status}`)
         + (showsApproach ? ` — approach ${approach.id}${phaseProgress(approach)}` : '')
         + (s.retry ? ` — fix ${s.retry.spent}/${s.retry.cap}${s.retry.live ? ' running' : ''}` : '')
         + (s.retry && s.retry.returnsTo ? `, revalidates from ${s.retry.returnsTo}` : '');
 
+      // While the ship slot waits, the Ship view is pinned (D142) and every other
+      // rail control is DISABLED: a click that `select()` would silently ignore
+      // now reads as inert, so the user is not left guessing why nothing moved.
+      const inert = shipPinned && k !== 'ship';
+      if (inert) aria += ' — pinned to ship while Confirm is pending';
+
       return `<div class="seg stg-${esc(k)} ${cls}">`
         + `<button type="button" class="pick" data-stage="${esc(k)}" aria-pressed="${sel === k}"`
+        + (inert ? ' disabled aria-disabled="true"' : '')
         + ` aria-label="${esc(aria)}" title="${esc(aria)}"></button>`
         + `<span class="g">${glyph}</span><span class="nm">${name}</span>${extra}</div>`;
     }).join('');
@@ -3397,6 +3407,12 @@
       // Never a verdict on a failed read: `r.error` renders its own row below.
       const text = r.changedFromBase ? 'nothing to commit — agent committed its work' : 'no changes from base';
       rows.push(`<div class="sp-row"><span class="sp-label">Status</span><span class="sp-value">${esc(text)}</span></div>`);
+    }
+    // A re-ship: a live PR exists but ship will commit and push into it (FIX-46),
+    // so the repo is NOT skipped — say so instead of leaving the open PR unseen.
+    if (r.prNumber != null && r.status !== 'already-shipped' && !r.error) {
+      rows.push(`<div class="sp-row"><span class="sp-label">PR</span>`
+        + `<span class="sp-value">PR #${esc(String(r.prNumber))} open — this commit is pushed onto it</span></div>`);
     }
     rows.push(`<div class="sp-row"><span class="sp-label">PR title</span><span class="sp-value">${esc(r.prTitle)}</span></div>`);
     rows.push(`<div class="sp-row"><span class="sp-label">Commit</span><span class="sp-value">${esc(r.commitMessage)}</span></div>`);
@@ -5560,7 +5576,7 @@
     renderTicketIdentity(state);
     renderAgentHeader(state);
     renderCapabilityLabels(state);
-    renderTrack(state.rail, state.approach, sel);
+    renderTrack(state.rail, state.approach, sel, shipSlotWaits(state.ship));
     renderInside(state, sel);
     renderBlocked(state);
     renderSubtasks(state);

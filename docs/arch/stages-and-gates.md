@@ -217,6 +217,8 @@ Ship's auto-commit and PR title are invisible until the PR exists, so a repo who
 
 It is read-only: no quarantine, no objects written, no index touched. Per worktree repo it reads `git status --porcelain -uall`, matches the same `:(glob)` exclude specs through `git status -- pathspec`, runs the same deny scan (`arch:SHIP-SECRET`) and renders the commit subject / PR title through the SAME `resolveShipArtifacts` helper ship calls (per-repo conventions of `D141`). It reports `will-commit` / `nothing-to-commit` / `already-shipped` / `blocked`, the files to commit, the excluded files, the committed-match warning of `arch:SHIP-EXCLUDE`, and the deny paths; a per-repo read failure is an `error` string and never blocks Confirm ship. The "ship will fail — no repo has changes" line mirrors `arch:SHIP-UNCHANGED` (only when every target is genuinely unchanged).
 
+Two cases the preview must mirror or it would lie: a live PR is `already-shipped` ONLY when the ticket has no completed ship run — after a `passed` ship (`FIX-46`) ship re-ships, so the preview reports `will-commit` and pushes into the open PR; and a rename whose DESTINATION is excluded still commits the SOURCE deletion (`arch:SHIP-EXCLUDE`), so the commit list names the source.
+
 The facts are host-derived (UI-R31) and recomputed on open, on entering the slot, and on the explicit Refresh intent — never polled. Ship itself recomputes at Confirm, exactly as before; the preview is advisory.
 END_DOC_BLOCK: [@arch:SHIP-PREVIEW]
 

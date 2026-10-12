@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { manifest, repo } from '../manifest/fixtures.js';
+import type { PorcelainEntry } from '../integrations/git.js';
 import {
-  partitionDirtyByExclude,
+  partitionPorcelainByExclude,
   resolveShipArtifacts,
   resolveTemplateModel,
   type ShipArtifactTicket,
@@ -12,10 +13,18 @@ const ticket: ShipArtifactTicket = {
   model: null,
 };
 
-describe('partitionDirtyByExclude', () => {
+const entry = (path: string, from?: string): PorcelainEntry =>
+  from === undefined ? { status: ' M', path } : { status: 'R ', path, from };
+
+describe('partitionPorcelainByExclude', () => {
   it('splits a dirty set by the excluded paths, preserving git order', () => {
-    const dirty = ['src/a.ts', 'dist/out.js', 'src/b.ts', 'dist/nested/x.js'];
-    const { commitFiles, excludedFiles } = partitionDirtyByExclude(dirty, [
+    const entries = [
+      entry('src/a.ts'),
+      entry('dist/out.js'),
+      entry('src/b.ts'),
+      entry('dist/nested/x.js'),
+    ];
+    const { commitFiles, excludedFiles } = partitionPorcelainByExclude(entries, [
       'dist/out.js',
       'dist/nested/x.js',
     ]);
@@ -24,9 +33,35 @@ describe('partitionDirtyByExclude', () => {
   });
 
   it('is identity when nothing is excluded', () => {
-    const dirty = ['a', 'b'];
-    expect(partitionDirtyByExclude(dirty, []).commitFiles).toEqual(['a', 'b']);
-    expect(partitionDirtyByExclude(dirty, []).excludedFiles).toEqual([]);
+    expect(partitionPorcelainByExclude([entry('a'), entry('b')], []).commitFiles).toEqual(['a', 'b']);
+    expect(partitionPorcelainByExclude([entry('a')], []).excludedFiles).toEqual([]);
+  });
+
+  it('commits the SOURCE deletion of a rename whose destination is excluded', () => {
+    // `git mv to-move.txt dist/moved.txt` with `dist/**` excluded: the reset
+    // restores the destination but the staged source deletion still lands.
+    const { commitFiles, excludedFiles } = partitionPorcelainByExclude(
+      [entry('dist/moved.txt', 'to-move.txt')],
+      ['dist/moved.txt'],
+    );
+    expect(commitFiles).toEqual(['to-move.txt']);
+    expect(excludedFiles).toEqual(['dist/moved.txt']);
+  });
+
+  it('commits nothing when BOTH ends of a rename are excluded', () => {
+    const { commitFiles } = partitionPorcelainByExclude(
+      [entry('dist/b.txt', 'dist/a.txt')],
+      ['dist/a.txt', 'dist/b.txt'],
+    );
+    expect(commitFiles).toEqual([]);
+  });
+
+  it('commits the destination of a rename that moves OUT of an excluded dir', () => {
+    const { commitFiles } = partitionPorcelainByExclude(
+      [entry('outside.txt', 'dist/inside.txt')],
+      ['dist/inside.txt'],
+    );
+    expect(commitFiles).toEqual(['outside.txt']);
   });
 });
 

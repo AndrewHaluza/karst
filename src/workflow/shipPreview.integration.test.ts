@@ -151,6 +151,27 @@ describe('loadShipPreview', () => {
     expect(result.repos[0]!.commitFiles).toEqual([]);
   });
 
+  it('does NOT skip a live PR after a completed ship — it re-ships into it (FIX-46)', async () => {
+    store.db
+      .prepare(
+        `INSERT INTO ship_runs (ticket_id, attempt, status, started_at)
+         VALUES (?, 1, 'passed', '2026-01-01T00:00:00.000Z')`,
+      )
+      .run(ticketId);
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 5, 'u', 'open')`,
+      )
+      .run(ticketId, dir);
+    writeFileSync(join(dir, 'base.txt'), 'changed');
+    const result = await preview(manifestFor());
+    const row = result.repos[0]!;
+    // A human re-ship commits and pushes onto the open PR — never "skipped".
+    expect(row.status).toBe('will-commit');
+    expect(row.prNumber).toBe(5);
+    expect(row.commitFiles).toEqual(['base.txt']);
+  });
+
   it('reports the branch as changed when the agent already committed the work', async () => {
     writeFileSync(join(dir, 'base.txt'), 'committed');
     await runGit(['add', '-A'], dir);
@@ -193,6 +214,36 @@ describe('preview agrees with the commit ship actually prepares', () => {
     // dist-out.js was already in base, so the tree carries the BASE version.
     const distAtTree = await runGit(['show', `${prepared.intendedTree}:dist-out.js`], dir);
     expect(distAtTree.stdout).toBe('base dist');
+    await cleanupQuarantine(defaultGitRunner, dir, key);
+  });
+
+  it('commits a rename SOURCE when the destination is excluded, matching ship', async () => {
+    // `git mv base.txt dist/moved.txt` with `dist/**` excluded: the quarantine
+    // reset restores dist/moved.txt, but the staged base.txt deletion survives —
+    // so ship DELETES base.txt. The preview must say the same.
+    mkdirSync(join(dir, 'dist'), { recursive: true });
+    await runGit(['mv', 'base.txt', 'dist/moved.txt'], dir);
+    const m = manifestFor({ ship: { exclude: ['dist/**'] } });
+    const row = (await preview(m)).repos[0]!;
+    expect(row.status).toBe('will-commit');
+    expect(row.excludedFiles).toEqual(['dist/moved.txt']);
+    expect(row.commitFiles).toEqual(['base.txt']);
+
+    const preHead = (await headCommit(defaultGitRunner, dir))!;
+    const key = randomUUID();
+    const prepared = await prepareCommitInQuarantine(defaultGitRunner, dir, key, {
+      preHead,
+      message: 'Add ship preview',
+      author: identity,
+      committer: identity,
+      exclude: ['dist/**'],
+    });
+    expect(prepared.excluded).toEqual(row.excludedFiles);
+    expect(prepared.expectedHead).not.toBeNull();
+    await promoteQuarantinedObjects(defaultGitRunner, dir, key);
+    const tree = await runGit(['ls-tree', '-r', '--name-only', prepared.intendedTree], dir);
+    // base.txt is DELETED and dist/moved.txt never entered the tree.
+    expect(tree.stdout.trim().split('\n').sort()).toEqual(['dist-out.js']);
     await cleanupQuarantine(defaultGitRunner, dir, key);
   });
 });

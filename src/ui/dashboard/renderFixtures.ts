@@ -583,7 +583,8 @@ export type ShipPreviewFixtureKind =
   | 'nothing-to-commit'
   | 'all-nothing'
   | 'error'
-  | 'loading';
+  | 'loading'
+  | 're-ship';
 
 function shipPreviewRepo(over: Partial<ShipPreviewRepo> & { repo: string }): ShipPreviewRepo {
   return {
@@ -659,6 +660,12 @@ export function shipPreviewFixture(kind: ShipPreviewFixtureKind): ShipPreview | 
         shipPreviewRepo({ repo: 'web', status: 'nothing-to-commit', changedFromBase: false }),
         shipPreviewRepo({ repo: 'api', status: 'nothing-to-commit', changedFromBase: false }),
       ],
+    };
+  }
+  if (kind === 're-ship') {
+    return {
+      computedAt,
+      repos: [shipPreviewRepo({ repo: 'web', prNumber: 42, commitFiles: ['src/app.ts'] })],
     };
   }
   return {

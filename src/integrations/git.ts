@@ -530,13 +530,22 @@ export interface PorcelainEntry {
   status: string;
   /** Worktree-relative path, C-quoted forms undone, the DESTINATION of a rename. */
   path: string;
+  /**
+   * The SOURCE path of a rename/copy (`R`/`C`), C-quoted forms undone; absent
+   * for every other entry. A sweep commit's exclude reset can keep the
+   * destination out while the source deletion still lands (`arch:SHIP-EXCLUDE`),
+   * so a caller that models the commit needs both ends of the pair.
+   */
+  from?: string;
 }
 
 /**
  * Parse `git status --porcelain -uall` output into one entry per dirty path.
- * The DESTINATION of a rename/copy (`R  old -> new`) is what a sweep commit
- * records, so it answers `path`. C-quoted paths (`"a b"`, octal escapes) are
- * undone. A blank or short line is skipped rather than guessed at.
+ * The DESTINATION of a rename/copy (`R  old -> new`) answers `path` and the
+ * SOURCE answers `from` — a sweep commit records the destination, but an
+ * exclude reset of that destination can leave the source deletion to commit
+ * (`arch:SHIP-EXCLUDE`). C-quoted paths (`"a b"`, octal escapes) are undone. A
+ * blank or short line is skipped rather than guessed at.
  *
  * Shared by ship's deny scan and the read-only ship preview so both read the
  * exact same dirty set from the exact same git output (`arch:SHIP-SECRET`).
@@ -551,7 +560,12 @@ export function parsePorcelainEntries(porcelain: string): PorcelainEntry[] {
     const rawPath = arrow === -1 ? rest : rest.slice(arrow + 4);
     const path = unquotePorcelain(rawPath);
     if (path === '') continue;
-    entries.push({ status, path });
+    if (arrow === -1) {
+      entries.push({ status, path });
+    } else {
+      const from = unquotePorcelain(rest.slice(0, arrow));
+      entries.push(from === '' ? { status, path } : { status, path, from });
+    }
   }
   return entries;
 }

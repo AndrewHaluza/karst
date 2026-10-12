@@ -9,6 +9,7 @@ import {
   compareAndSwapHeadAndIndex,
   describeGitFailure,
   dirtyPathsMatching,
+  parsePorcelainEntries,
   parsePorcelainPaths,
   hasChangesFrom,
   headCommit,
@@ -962,6 +963,20 @@ describe('ship quarantine commit primitives', () => {
       const status = await runGit(['status', '--porcelain', '-uall'], dir);
       const paths = parsePorcelainPaths(status.stdout).sort();
       expect(paths).toEqual(['c d.txt', 'new file.txt', 'plain.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainEntries exposes the rename SOURCE as `from`', async () => {
+    const dir = await freshRepo('porcelain-rename');
+    try {
+      await writeAndCommit(dir, 'a b.txt', 'a', 'base');
+      await runGit(['mv', 'a b.txt', 'c d.txt'], dir);
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainEntries(status.stdout)).toEqual([
+        { status: 'R ', path: 'c d.txt', from: 'a b.txt' },
+      ]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -8,8 +8,9 @@ import {
   changedPathsMatching,
   dirtyPathsMatching,
   headCommit,
-  parsePorcelainPaths,
+  parsePorcelainEntries,
   type GitRunner,
+  type PorcelainEntry,
 } from '../integrations/git.js';
 import { renderArtifactTemplate, type ArtifactTemplateContext } from './artifactConventions.js';
 import { resolveTicketBaseRef } from './baseRef.js';
@@ -20,7 +21,7 @@ import {
   resolveTicketType,
 } from './conventionContext.js';
 import { scanPorcelainForDenied } from './shipDenyScan.js';
-import { findExistingLivePr } from './stages/shipStore.js';
+import { findExistingLivePr, hasCompletedShipRun } from './stages/shipStore.js';
 
 /**
  * Advisory preview of what ship's sweep commit and PR will do, computed
@@ -61,7 +62,11 @@ export interface ShipPreviewRepo {
   committedExcludedWarning: string[];
   /** Paths the deny scan would refuse (`arch:SHIP-SECRET`) — the repo will be blocked. */
   deny: string[];
-  /** The live PR's number, when `status` is `already-shipped`; null otherwise. */
+  /**
+   * The live PR's number when one is open for the repo — `already-shipped`
+   * (ship skips it) or a re-ship that commits and pushes into it; null
+   * otherwise.
+   */
   prNumber: number | null;
   /**
    * Whether the branch holds an effective change from its base, so a
@@ -179,18 +184,37 @@ export function resolveShipArtifacts(input: ShipArtifactInput): ShipArtifacts {
 }
 
 /**
- * Split a dirty path list by the paths ship's exclude kept out. Order follows
- * the dirty list (git's own order), so the two lists read as one set.
+ * Split the porcelain dirty entries by the paths ship's exclude kept out,
+ * mirroring the QUARANTINE reset `prepareCommitInQuarantine` performs. Order
+ * follows the dirty list (git's own order), so the two lists read as one set.
+ *
+ * The reset restores each EXCLUDED path to `preHead`, but `git add -A` staged
+ * a rename as a delete of the source AND an add of the destination: excluding
+ * only the destination leaves the source deletion in the index, and the sweep
+ * commit DELETES the source (`arch:SHIP-EXCLUDE`). So a rename whose
+ * destination is excluded commits its source unless the source is excluded too
+ * (both sides reset → nothing). Every other excluded entry commits nothing.
  */
-export function partitionDirtyByExclude(
-  dirty: readonly string[],
+export function partitionPorcelainByExclude(
+  entries: readonly PorcelainEntry[],
   excluded: readonly string[],
 ): { commitFiles: string[]; excludedFiles: string[] } {
   const excludedSet = new Set(excluded);
-  return {
-    commitFiles: dirty.filter((path) => !excludedSet.has(path)),
-    excludedFiles: [...excludedSet],
+  const commitFiles: string[] = [];
+  const seen = new Set<string>();
+  const push = (path: string): void => {
+    if (seen.has(path)) return;
+    seen.add(path);
+    commitFiles.push(path);
   };
+  for (const entry of entries) {
+    if (entry.from !== undefined && excludedSet.has(entry.path)) {
+      if (!excludedSet.has(entry.from)) push(entry.from);
+    } else if (!excludedSet.has(entry.path)) {
+      push(entry.path);
+    }
+  }
+  return { commitFiles, excludedFiles: [...excludedSet] };
 }
 
 /** Load the preview for one ticket (the dashboard panel's injected seam). */
@@ -272,24 +296,30 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
     base.prTitle = artifacts.prTitle;
     base.commitMessage = artifacts.commitMessage;
 
-    // A live PR means ship skips the repo entirely (the same short-circuit as
-    // `driveTicket`), so no commit facts are read for it.
+    // A live PR is only SKIPPED when this is not a re-ship. A ticket that has
+    // already COMPLETED a ship (a `passed` run) and is back at ship delivers its
+    // new work into the still-open PR (`FIX-46`): `runShipSaga` sets
+    // `deliverToOpenPr` from the same `hasCompletedShipRun`, so ship commits and
+    // pushes. Mirroring that here is what keeps the preview from claiming
+    // "skipped" while ship commits the new work.
     const live = findExistingLivePr(store, ctx.ticketId, wt.repo);
-    if (live) {
+    const deliversToOpenPr = live !== undefined && hasCompletedShipRun(store, ctx.ticketId);
+    if (live && !deliversToOpenPr) {
       base.status = 'already-shipped';
       base.prNumber = live.number;
       return base;
     }
+    if (live) base.prNumber = live.number;
 
     const status = await git(['status', '--porcelain', '-uall'], wt.path, opts);
     if (status.exitCode !== 0) {
       throw new Error(status.stderr.trim() || `git status exited ${status.exitCode}`);
     }
     base.deny = scanPorcelainForDenied(status.stdout).map((hit) => hit.path);
-    const dirty = parsePorcelainPaths(status.stdout);
+    const entries = parsePorcelainEntries(status.stdout);
     const specs = artifacts.excludes;
     const excluded = specs.length > 0 ? await dirtyPathsMatching(git, wt.path, specs) : [];
-    const { commitFiles, excludedFiles } = partitionDirtyByExclude(dirty, excluded);
+    const { commitFiles, excludedFiles } = partitionPorcelainByExclude(entries, excluded);
     base.commitFiles = commitFiles;
     base.excludedFiles = excludedFiles;
     if (base.deny.length > 0) {
