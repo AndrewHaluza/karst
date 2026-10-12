@@ -44,9 +44,15 @@ const REPO_CONVENTION_FIELDS: ArtifactConventionName[] = [
  * checks come from one source, never a mirror). Each of the three template keys
  * is optional and falls back to its global counterpart independently.
  *
- * `branchName` is REFUSED, not ignored: it IS a legal global key, so an author
- * copying the global block would otherwise get a silent no-op. A ticket has one
- * branch name across every repository (@arch:BRANCH-NAME).
+ * `branchName` and `defaultType` are REFUSED, not ignored: both ARE legal global
+ * keys, so an author copying the global block would otherwise get a silent
+ * no-op. A ticket has one branch name across every repository (@arch:BRANCH-NAME)
+ * and one `{type}` (@arch:RENDERERS).
+ *
+ * A block that carries only UNMODELED keys (a future/hand-written key) is
+ * returned as `{}` rather than `undefined`: the caller must keep the block
+ * present so `write.ts` can overlay it onto the RAW keys and PRESERVE them — the
+ * same contract the global `conventions` validator keeps.
  */
 function validateRepoConventions(raw: unknown, repo: string): RepoConventions | undefined {
   if (raw === undefined) return undefined;
@@ -57,6 +63,12 @@ function validateRepoConventions(raw: unknown, repo: string): RepoConventions | 
     throw new ManifestError(
       `${where}.branchName is not overridable per repository — a ticket has one branch name ` +
         `across every repository, rendered once at worktree creation. Set \`conventions.branchName\` at the top level.`,
+    );
+  }
+  if (raw.defaultType !== undefined) {
+    throw new ManifestError(
+      `${where}.defaultType is not overridable per repository — \`{type}\` is chosen once for the ` +
+        `ticket (its own type, else \`conventions.defaultType\`, else feat). Set \`conventions.defaultType\` at the top level.`,
     );
   }
 
@@ -76,7 +88,10 @@ function validateRepoConventions(raw: unknown, repo: string): RepoConventions | 
     conventions[field] = value;
   }
 
-  return Object.keys(conventions).length > 0 ? conventions : undefined;
+  // Returned even when empty: `write.ts` overlays these modeled children onto
+  // the RAW block, so an empty object is what PRESERVES an unmodeled nested key
+  // across a Settings save. `undefined` (the old value) dropped the whole block.
+  return conventions;
 }
 
 /** Runtime fields that belong under `service:` and nowhere else. */

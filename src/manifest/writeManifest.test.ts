@@ -568,6 +568,31 @@ conventions:
     }
   });
 
+  it('preserves a per-repo conventions block that carries only an unmodeled key', () => {
+    const { path, cleanup } = fixture(`
+host: localhost
+portRange: [4000, 4999]
+baselineBranch: develop
+repositories:
+  backend:
+    repoPath: ../backend
+    conventions:
+      organizationPolicy: keep-me
+`);
+    try {
+      const m = loadManifest(path);
+      // The block loads as `{}` (no modeled key), which is what keeps it on disk.
+      expect(m.repositories.backend!.conventions).toEqual({});
+      writeManifest(path, m);
+
+      const raw = yamlLoad(readFileSync(path, 'utf8')) as Record<string, any>;
+      expect(raw.repositories.backend.conventions).toEqual({ organizationPolicy: 'keep-me' });
+      expect(loadManifest(path).repositories.backend!.conventions).toEqual({});
+    } finally {
+      cleanup();
+    }
+  });
+
   it('drops the per-repo conventions block once cleared', () => {
     const { path, cleanup } = fixture(REPO_CONVENTIONS_RAW);
     try {

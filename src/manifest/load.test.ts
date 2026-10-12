@@ -2322,6 +2322,28 @@ repositories:
     }
   });
 
+  it('rejects per-repo defaultType with a clear message rather than ignoring it', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      defaultType: fix\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(
+        /repository "contract" conventions\.defaultType is not overridable per repository/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps a block that carries only an unmodeled key, so a save can preserve it', () => {
+    const { path, cleanup } = fixture(`${ONLY_CONTRACT}      organizationPolicy: keep-me\n`);
+    try {
+      // `{}`, NOT undefined: the block must stay present for `write.ts` to
+      // overlay its unmodeled keys (the global block behaves the same way).
+      expect(loadManifest(path).repositories.contract?.conventions).toEqual({});
+    } finally {
+      cleanup();
+    }
+  });
+
   it.each([
     ['commitMessage: 42', /repository "contract" conventions\.commitMessage must be a string/],
     ['pullRequestTitle: "   "', /repository "contract" conventions\.pullRequestTitle.*blank/],
