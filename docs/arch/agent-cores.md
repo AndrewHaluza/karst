@@ -31,6 +31,7 @@ Everything that is true of every agent core, and the places a core-specific fix 
 - An OpenCode v2 session warns before it opens with no provider signed in
 - An opencode2 plugin's setup() never awaits a long-lived stream
 - Subscription quota probe sources across agent cores
+- Autonomous permissions only inside an enforced sandbox
 END_DOC_BLOCK: [@arch:AC-01]
 
 ## [@arch:AC-02] Ticket-context shaping lives ONCE in `src/context/ticketContext.ts`
@@ -277,3 +278,16 @@ In accordance with candidate preference order:
 - Cores with an `unknown` verdict report `unknown` in the quota UI (D163), never `0%`.
 END_DOC_BLOCK: [@arch:AC-29]
 
+## [@arch:AC-30] Autonomous permissions only inside an enforced sandbox
+
+Rule (D164, T667): a session may run with relaxed or no permission prompts ONLY when an enforced sandbox contains it. Karst never adds a bypass flag (`--dangerously-skip-permissions`, Codex `--full-auto`/`--dangerously-bypass-approvals-and-sandbox`, `--yolo`, or an opencode/agy allow-all config) to an unsandboxed host run. When the requested sandbox cannot be enforced (core cannot sandbox, platform not supported, sandbox setup failed), the run FAILS CLOSED to today's prompted behaviour and diagnostics say why; there is no silent fallback to host + bypass.
+
+Delivery, as sub-tasks of T667, in order:
+1. **Provider-native sandbox** (ST1). Each core uses its OWN OS-level sandbox: Claude Code sandbox settings; Codex `--sandbox workspace-write` with an approval policy; opencode, opencode2 and agy are verified, else declared unsupported through the adapter seam (`arch:AC-08`). Scope: write only to the ticket worktree; network allowlist = provider API + package registries. Opt-in manifest setting, default off. The effective mode (`sandboxed` / `prompted` + reason) is visible in session diagnostics.
+2. **Docker Sandbox spike** (ST2). Increment 0 of `docs/superpowers/plans/2026-07-28-docker-sandbox-agent-sessions.md`, Claude + Codex only, under `spikes/docker-sandbox/`; `RESULTS.md` gives GO / CONDITIONAL GO / NO-GO. No production code.
+3. **SessionRunner seam** (ST3, plan Increment 1, zero behaviour change) ONLY after a GO / CONDITIONAL GO. Increments 2-6 become new tickets after review.
+
+Residual risk (accepted, not contained by any sandbox): the agent can still damage its own worktree and branch, leak code over the allowed network, and follow prompt injection from repository content. Autonomy trades per-command approval for diff review; the review and gate stages stay mandatory.
+
+Rejected: bypass flags on the host to cut prompts (unbounded blast radius); jumping straight to a Docker runner (weeks, sbx OAuth/TTY/resume unproven); a generic OCI/microVM runtime (non-goal of the plan); hosted platforms (E2B/Daytona/Modal, rejected in the 2026-07-28 design).
+END_DOC_BLOCK: [@arch:AC-30]
