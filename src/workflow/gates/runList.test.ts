@@ -65,13 +65,14 @@ describe('runGateList', () => {
       {
         signal: controller.signal,
         now,
-        // Abort right after the first gate's result is recorded, before the
-        // loop reaches the second (slow) gate's spawn.
+        // Abort the INSTANT the first gate's result is recorded, not after a
+        // fixed delay: under a loaded machine the first spawn can outlast any
+        // timeout short enough to keep the test fast, and the abort then lands
+        // before `results` is populated — the flake this replaced (observed when
+        // the unit gate ran beside the visual sweep).
+        onGateComplete: () => controller.abort(),
       },
     );
-    // Give the first gate time to complete and be pushed to `results`, then
-    // abort so the second gate's runProcess call observes it.
-    setTimeout(() => controller.abort(), 200);
     const out = await started;
     expect(out.kind).toBe('stopped');
     if (out.kind !== 'stopped') return;
