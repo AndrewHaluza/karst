@@ -521,11 +521,17 @@ function linkedAbort(outer: AbortSignal | undefined, timeoutMs: number): BudgetA
 }
 
 /**
- * Parse the first of `candidates` that yields a usable answer, in order. A
- * budget hit ended the run before the agent chose to finish, so the salvage
- * prefers the answer it DID give, then the wrap-up's, then the raw stdout
- * captured while it streamed. Only when every candidate is unreadable does the
- * last parse stand (so the unreadable log keeps what the agent actually said).
+ * Recover the observations from a run a budget stopped, over the answers it
+ * left in order (the first answer, the wrap-up's, the raw stdout captured while
+ * it streamed).
+ *
+ * An answer that CARRIES observations wins over one that only says `[]`: a run
+ * the budget cut short can have written its observations to the stream and then
+ * answered `[]` (or been cut again before the wrap-up), and an empty later
+ * answer must not discard what the agent had already reported. Only when NO
+ * candidate carries observations does an explicit `[]` stand (a genuinely clean
+ * stop), and only when every candidate is unreadable does the last parse win
+ * (so the unreadable log keeps what the agent actually said).
  */
 function parseFirstUsable(
   candidates: readonly string[],
@@ -534,13 +540,11 @@ function parseFirstUsable(
 ): { parse: ReturnType<typeof parseFindingsResult>; raw: string } {
   const present = candidates.filter((raw) => raw.trim() !== '');
   if (present.length === 0) return { parse: parseFindingsResult('', context, warn), raw: '' };
-  let parse = parseFindingsResult(present[0]!, context, warn);
-  let raw = present[0]!;
-  for (let i = 1; i < present.length && parse.shape === 'unreadable'; i++) {
-    parse = parseFindingsResult(present[i]!, context, warn);
-    raw = present[i]!;
-  }
-  return { parse, raw };
+  const parses = present.map((raw) => ({ raw, parse: parseFindingsResult(raw, context, warn) }));
+  const withFindings = parses.find((p) => p.parse.findings.length > 0);
+  if (withFindings) return withFindings;
+  const usable = parses.find((p) => p.parse.shape !== 'unreadable');
+  return usable ?? parses[parses.length - 1]!;
 }
 
 /**

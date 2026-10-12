@@ -1096,6 +1096,30 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     });
   });
 
+  it('keeps the observations a timed-out target streamed even when the wrap-up answers []', async () => {
+    // The run wrote its observations to the stream, then timed out; the wrap-up
+    // re-ask came back with an explicit [] — an empty LATER answer must not
+    // discard what the agent had already reported (the T663 RED case).
+    const body = JSON.stringify([{ severity: 'high', title: 'written before the cut', detail: '' }]);
+    let n = 0;
+    const { adapter } = fakeAdapter(async (headlessOpts) => {
+      n += 1;
+      if (n === 1) {
+        headlessOpts.onOutput?.({ stream: 'stdout', text: body });
+        throw timeoutError();
+      }
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res).toMatchObject({
+      kind: 'partial',
+      detail: 'timed out — 1 partial observation recorded',
+    });
+    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual([
+      'written before the cut',
+    ]);
+  });
+
   it('a timeout with nothing parseable records no observations and says so, never parking', async () => {
     const { adapter } = fakeAdapter(async () => {
       throw timeoutError();
