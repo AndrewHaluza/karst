@@ -92,13 +92,16 @@ function mergeGraph(
 
   const profiles: Record<string, unknown> = {};
   for (const [key, p] of Object.entries(packaged.profiles)) {
-    const overlaid = projectProfiles[key] ? { ...p, ...projectProfiles[key] } : p;
-    // opencode: effort IS the model variant, never a separate field (A10) — a
-    // packaged effort (e.g. claude's "high") must not leak onto a project's
-    // opencode override just because the project didn't repeat the field.
-    const effectiveProvider = (projectProfiles[key] as { provider?: string } | undefined)
-      ?.provider ?? (p as { provider?: string }).provider;
-    if (effectiveProvider === 'opencode') delete (overlaid as { effort?: unknown }).effort;
+    // effort and model are provider-specific: a project override that switches
+    // provider must not inherit the packaged provider's values (e.g. claude's
+    // "high" effort leaking onto an opencode/opencode2/codex profile).
+    const override = projectProfiles[key] as { provider?: string } | undefined;
+    const packagedProvider = (p as { provider?: string }).provider;
+    const switched = override?.provider !== undefined && override.provider !== packagedProvider;
+    const base = switched
+      ? Object.fromEntries(Object.entries(p).filter(([k]) => k !== 'effort' && k !== 'model'))
+      : p;
+    const overlaid = override ? { ...base, ...override } : p;
     profiles[key] = overlaid;
   }
   for (const [key, p] of Object.entries(projectProfiles)) {

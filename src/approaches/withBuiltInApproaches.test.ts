@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ApproachDef, Manifest } from '../manifest/types.js';
+import type { AgentProvider, ApproachDef, Manifest } from '../manifest/types.js';
 import {
   approachDelta,
   builtInEnableEntry,
@@ -66,7 +66,7 @@ describe('withBuiltInApproaches', () => {
     expect(entry.graph!.profiles.worker).toEqual({
       provider: 'codex',
       model: 'gpt-5.6-sol',
-      effort: 'low', // packaged effort inherited
+      // provider differs from packaged claude: packaged effort is not inherited
     });
     expect(entry.graph!.profiles.expert).toEqual(BUILT_IN_APPROACHES[0]!.graph!.profiles.expert);
     expect(entry.graph!.commands.lint).toEqual({
@@ -92,6 +92,28 @@ describe('withBuiltInApproaches', () => {
       model: 'opencode-go/deepseek-v4-flash',
       // no `effort` — the packaged "high" (claude) must not leak through.
     });
+  });
+
+  it.each(['opencode2', 'codex', 'antigravity'])(
+    '%s override drops packaged effort and model',
+    (provider) => {
+      const project = graphApproach({
+        graph: graphApproachConfig({ profiles: { expert: { provider: provider as AgentProvider, model: 'x/custom' } } }),
+      });
+      const effective = withBuiltInApproaches(baseManifest([project]));
+      const entry = effective.approaches!.find((a) => a.id === builtInId)!;
+      expect(entry.graph!.profiles.expert).toEqual({ provider, model: 'x/custom' });
+    },
+  );
+
+  it('same-provider override without effort inherits packaged effort', () => {
+    const packaged = BUILT_IN_APPROACHES[0]!.graph!.profiles.expert as { provider: string; effort?: string };
+    const project = graphApproach({
+      graph: graphApproachConfig({ profiles: { expert: { provider: packaged.provider as AgentProvider, model: 'm' } } }),
+    });
+    const effective = withBuiltInApproaches(baseManifest([project]));
+    const entry = effective.approaches!.find((a) => a.id === builtInId)!;
+    expect((entry.graph!.profiles.expert as { effort?: string }).effort).toBe(packaged.effort);
   });
 
   it('never merges two entries positionally', () => {
