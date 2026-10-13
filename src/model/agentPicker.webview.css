@@ -2,7 +2,7 @@
 .ap-field{display:flex;flex-direction:column;gap:var(--k-space-2);min-width:0}
 .ap-label{font-size:var(--k-text-xs);color:var(--k-text-dim)}
 /* compact (table rows): one aligned run of Core | Model | Effort, captions screen-reader-only. */
-.ap-compact{grid-template-columns:repeat(3,minmax(0,1fr));align-items:center;gap:var(--k-space-3)}
+.ap-compact{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) minmax(96px,0.8fr);align-items:center;gap:var(--k-space-3)}
 .ap-compact .ap-label{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);
   clip-path:inset(50%);white-space:nowrap}
 .ap-compact .ap-trigger,.ap-compact .ap-effort{min-height:var(--k-control-h-lg);box-sizing:border-box}
@@ -54,8 +54,6 @@
   padding:var(--k-space-2) var(--k-space-4);font-family:inherit;font-size:var(--k-text-md)}
 .ap-effort:disabled{opacity:.45;cursor:default}
 
-.ap-effort-placeholder{display:flex;align-items:center;justify-content:center;width:100%;min-height:var(--k-control-h-lg);box-sizing:border-box;
-  color:var(--k-text-dim);border:var(--k-border-w) dashed var(--k-border);border-radius:var(--k-radius-sm);
-  font-size:var(--k-text-md);cursor:default}
-.ap-effort-placeholder[hidden]{display:none}
+/* Compact-only "no effort for this model" placeholder: a disabled select, dashed and dim (UI-R39). */
+.ap-effort--na{color:var(--k-text-dim);border-style:dashed;opacity:1;cursor:default}
 .ap-effort[hidden]{display:none}

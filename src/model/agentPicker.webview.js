@@ -273,15 +273,14 @@ function mountAgentPicker(root, opts) {
   var labelEffort = o.labels && o.labels.effort ? o.labels.effort : 'Effort / variant';
 
   var apId = 'ap-' + (++AP_SEQ);
-  var cellRole = compact ? ' role="cell"' : '';
   root.innerHTML = '<div class="ap' + (compact ? ' ap-compact' : '') + '">'
-    + '<div class="ap-field"' + cellRole + '>'
+    + '<div class="ap-field">'
     + '<label class="ap-label">' + (o.labels && o.labels.core ? apEsc(o.labels.core) : 'Agent core') + '</label>'
     + '<div class="ap-shell" data-ap-shell="core">'
     + '<button type="button" class="ap-trigger" id="' + apId + '-core" data-ap-trigger="core"' + (compact ? ' aria-label="' + apEsc(o.labels && o.labels.core ? o.labels.core : 'Agent core') + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="core" role="listbox" hidden></div>'
     + '</div></div>'
-    + '<div class="ap-field"' + cellRole + '>'
+    + '<div class="ap-field">'
     + '<label class="ap-label">' + apEsc(labelModel) + '</label>'
     + '<div class="ap-shell" data-ap-shell="model">'
     + '<button type="button" class="ap-trigger" id="' + apId + '-model" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
@@ -289,11 +288,9 @@ function mountAgentPicker(root, opts) {
     + '<div class="ap-search"><input type="text" placeholder="Search models…" aria-label="Search models" data-ap-search /></div>'
     + '<div class="ap-scroll" data-ap-list="model"></div>'
     + '</div></div></div>'
-    + '<div class="ap-field ap-effort-field"' + cellRole + ' data-ap-effort-field hidden>'
+    + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
     + '<select class="ap-effort" data-ap-effort aria-label="' + apEsc(labelEffort) + '"></select>'
-    + '<div class="ap-effort-placeholder" data-ap-effort-placeholder hidden role="group" aria-disabled="true"'
-    + ' aria-label="' + apEsc(labelEffort) + ': Effort is not available for this model" title="Effort is not available for this model">\u2014</div>'
     + '</div>'
     + '</div>';
 
@@ -344,23 +341,32 @@ function mountAgentPicker(root, opts) {
 
   function renderEffort() {
     var field = $('[data-ap-effort-field]');
-    var placeholder = $('[data-ap-effort-placeholder]');
     var sel = $('[data-ap-effort]');
     if (!showEffort) { field.hidden = true; return; }
     var efforts = apEfforts(catalog, state.core, state.model);
     var mode = apEffortMode(efforts, state.effort, compact);
-    if (mode === 'select') {
-      field.hidden = false; sel.hidden = false; placeholder.hidden = true;
-      var effortInherit = labels().effort || (compact ? 'No effort' : '');
-      var built = apEffortOptions(catalog, state.core, state.model, state.effort, effortInherit);
-      sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
-    } else if (mode === 'placeholder') {
-      field.hidden = false; sel.hidden = true; placeholder.hidden = false;
+    if (mode === 'placeholder') {
+      // Compact only: the model advertises no efforts and none is saved. Keep the
+      // field in the grid with a disabled, dashed "—" so Core/Model/Effort stay aligned.
+      field.hidden = false;
+      sel.disabled = true;
+      sel.classList.add('ap-effort--na');
+      sel.innerHTML = '<option value="" selected>\u2014</option>';
+      sel.setAttribute('aria-label', apEsc(labelEffort) + ': not available for this model');
       state.effort = '';
-    } else {
+      return;
+    }
+    sel.classList.remove('ap-effort--na');
+    sel.disabled = disabled;
+    if (mode === 'hidden') {
       field.hidden = true;
       state.effort = '';
+      return;
     }
+    field.hidden = false;
+    var effortInherit = labels().effort || (compact ? 'No effort' : '');
+    var built = apEffortOptions(catalog, state.core, state.model, state.effort, effortInherit);
+    sel.innerHTML = built.html || '<option value="" selected>' + apEsc(effortInherit || 'No effort (agent picks)') + '</option>';
   }
 
   function emit() { if (typeof onChange === 'function') onChange({ core: state.core, model: state.model, effort: state.effort }); }
@@ -370,7 +376,7 @@ function mountAgentPicker(root, opts) {
     var triggers = root.querySelectorAll('[data-ap-trigger]');
     for (var i = 0; i < triggers.length; i++) triggers[i].disabled = disabled;
     var effort = $('[data-ap-effort]');
-    if (effort) effort.disabled = disabled;
+    if (effort) effort.disabled = disabled || effort.classList.contains('ap-effort--na');
   }
 
   function openMenu(kind) {
