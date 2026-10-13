@@ -22,6 +22,7 @@ import type { HeadlessSpawnOptions } from './headlessSpawn.js';
 import type { AgentProvider } from '../manifest/types.js';
 import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
 import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
+import { UsageLimitError } from './cliFailure.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -529,6 +530,25 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     // reach a verdict, a log or a toast).
     expect(error.message.includes('\n'), `${provider} failure is one line`).toBe(false);
     expect(error.message.length, `${provider} failure is bounded`).toBeLessThan(4_000);
+  });
+
+  // K11: a quota exhaustion is TYPED by every core, so the resilience layer
+  // never has to guess from prose and the park can name the provider. All four
+  // cores share one failure path shape — an exit code plus stdout/stderr — so a
+  // core that forgot `headlessFailureError` would regress alone here.
+  it('throws a typed UsageLimitError when the account is out of quota', async () => {
+    const adapter = resolveAdapter(provider);
+    withRecordedSpawn(adapter, {
+      stdout: '',
+      stderr: 'Error: insufficient_quota — you have run out of credits\n',
+      exitCode: 1,
+    });
+    const error = await adapter
+      .runHeadless(baseOpts())
+      .then(() => new Error('expected a rejection'), (e: unknown) => e as Error);
+    expect(error, `${provider} quota rejection`).toBeInstanceOf(UsageLimitError);
+    expect((error as UsageLimitError).provider, `${provider} provider`).toBe(provider);
+    expect((error as UsageLimitError).tool.length, `${provider} tool`).toBeGreaterThan(0);
   });
 
   it('aborts through the shared bounded spawner', async () => {

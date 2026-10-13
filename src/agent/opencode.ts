@@ -19,7 +19,7 @@ import type {
   Materialized,
   RunHeadlessOpts,
 } from './adapter.js';
-import { describeHeadlessFailure } from './cliFailure.js';
+import { headlessFailureError } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
@@ -1401,14 +1401,14 @@ export class OpencodeAdapter implements AgentAdapter {
         `[agent:opencode] exit ${result.exitCode} — stdout: ${headlessPreview(result.stdout)}; stderr: ${headlessPreview(result.stderr)}`,
       );
       throw attachUsage(
-        new Error(
-          describeHeadlessFailure({
-            tool: 'OpenCode',
-            exitCode: result.exitCode,
-            stdout: result.stdout,
-            stderr: result.stderr,
-          }),
-        ),
+        headlessFailureError({
+          tool: 'OpenCode',
+          provider: 'opencode',
+          model: opts.model,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        }),
         parseOpencodeJsonlUsage(result.stdout),
       );
     }
