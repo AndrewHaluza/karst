@@ -40,13 +40,18 @@ describe('createSbxSessionRunner.placeInteractive', () => {
     ]);
   });
 
-  it('reattaches by name when the sandbox exists, and after its first launch', () => {
+  it('reattaches by name only when sbx ls reported the sandbox', () => {
     const reattach = ['run', '--name', NAME, 'claude', '--', '--dangerously-skip-permissions'];
     const existing = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [NAME] });
     expect(existing.placeInteractive(spec()).shellArgs).toEqual(reattach);
+  });
+
+  it('keeps --clone on a retry when the first launch never created the sandbox', () => {
     const fresh = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: ['other'] });
     fresh.placeInteractive(spec());
-    expect(fresh.placeInteractive(spec()).shellArgs).toEqual(reattach);
+    expect(fresh.placeInteractive(spec()).shellArgs).toEqual([
+      'run', '--clone', '--name', NAME, 'claude', '/wt/with space', '--', '--dangerously-skip-permissions',
+    ]);
   });
 });
 

@@ -54,9 +54,11 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     kind: 'sbx',
     enforcesSandbox: true,
     placeInteractive: (spec): PlacedInteractiveLaunch => {
+      // Only a sandbox `sbx ls` reported is reattached. Building the argv is
+      // not proof the sandbox exists: a first terminal can fail before
+      // creation, so a retry must create again (preflight re-lists per launch).
       const create = known.has(opts.name) ? [] : ['--clone'];
       const workspace = known.has(opts.name) ? [] : [spec.hostWorktreePath];
-      known.add(opts.name);
       return {
         cwd: spec.hostWorktreePath,
         shellPath: SBX_BIN,
