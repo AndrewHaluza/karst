@@ -156,6 +156,12 @@ export type WebviewMessage =
    * moved to another stage must not be resumable by this message.
    */
   | { type: 'stage-resume'; ticketId: number; stageKey: StageKey }
+  /** Pick agent/model to resolve a usage-limit block (D159). */
+  | { type: 'usage-limit-pick'; ticketId: number; stageKey: StageKey }
+  /** Retry same agent/model to resolve a usage-limit block (D159). */
+  | { type: 'usage-limit-retry'; ticketId: number; stageKey: StageKey }
+  /** Dismiss a usage-limit block into a failed verdict and fix round (D159). */
+  | { type: 'usage-limit-dismiss'; ticketId: number; stageKey: StageKey }
   /** Pause task execution for this ticket (payload-free: the panel owns the ticket). */
   | { type: 'pause-execution' }
   /** Unpause task execution for this ticket (payload-free: the panel owns the ticket). */
@@ -502,6 +508,9 @@ export interface DashboardActions {
    * place, right against the store it is about to mutate.
    */
   resumeStage: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  usageLimitPick: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  usageLimitRetry: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
+  usageLimitDismiss: (ticketId: number, stageKey: StageKey) => void | Promise<void>;
   /** Pause task execution for this panel's ticket (freeze all background driving). */
   pauseExecution: () => void | Promise<void>;
   /** Unpause (resume) task execution for this panel's ticket. */
@@ -751,6 +760,18 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'stage-resume':
       return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
         ? { type: 'stage-resume', ticketId: m.ticketId as number, stageKey: m.stageKey }
+        : null;
+    case 'usage-limit-pick':
+      return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
+        ? { type: 'usage-limit-pick', ticketId: m.ticketId as number, stageKey: m.stageKey }
+        : null;
+    case 'usage-limit-retry':
+      return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
+        ? { type: 'usage-limit-retry', ticketId: m.ticketId as number, stageKey: m.stageKey }
+        : null;
+    case 'usage-limit-dismiss':
+      return isFiniteNumber(m.ticketId) && isStageKey(m.stageKey)
+        ? { type: 'usage-limit-dismiss', ticketId: m.ticketId as number, stageKey: m.stageKey }
         : null;
     // Every field is required and typed here, at the trust boundary: `stage` is
     // narrowed to the closed `GATE_STAGES` set, and a blank or oversized name
@@ -1081,6 +1102,12 @@ export function routeAction(
       return actions.copyTicketKey();
     case 'stage-resume':
       return actions.resumeStage(msg.ticketId, msg.stageKey);
+    case 'usage-limit-pick':
+      return actions.usageLimitPick(msg.ticketId, msg.stageKey);
+    case 'usage-limit-retry':
+      return actions.usageLimitRetry(msg.ticketId, msg.stageKey);
+    case 'usage-limit-dismiss':
+      return actions.usageLimitDismiss(msg.ticketId, msg.stageKey);
     case 'pause-execution':
       return actions.pauseExecution();
     case 'unpause-execution':

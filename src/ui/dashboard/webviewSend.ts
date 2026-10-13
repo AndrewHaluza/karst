@@ -131,6 +131,21 @@ export function createSender(api: WebviewApi) {
       stageKey: Msg<'stage-resume'>['stageKey'],
       requestId?: string,
     ) => send({ type: 'stage-resume', ticketId, stageKey }, requestId),
+    usageLimitPick: (
+      ticketId: Msg<'usage-limit-pick'>['ticketId'],
+      stageKey: Msg<'usage-limit-pick'>['stageKey'],
+      requestId?: string,
+    ) => send({ type: 'usage-limit-pick', ticketId, stageKey }, requestId),
+    usageLimitRetry: (
+      ticketId: Msg<'usage-limit-retry'>['ticketId'],
+      stageKey: Msg<'usage-limit-retry'>['stageKey'],
+      requestId?: string,
+    ) => send({ type: 'usage-limit-retry', ticketId, stageKey }, requestId),
+    usageLimitDismiss: (
+      ticketId: Msg<'usage-limit-dismiss'>['ticketId'],
+      stageKey: Msg<'usage-limit-dismiss'>['stageKey'],
+      requestId?: string,
+    ) => send({ type: 'usage-limit-dismiss', ticketId, stageKey }, requestId),
     pauseExecution: (requestId?: string) => send({ type: 'pause-execution' }, requestId),
     unpauseExecution: (requestId?: string) => send({ type: 'unpause-execution' }, requestId),
     setDisabledGates: (

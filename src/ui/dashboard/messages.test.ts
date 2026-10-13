@@ -61,6 +61,9 @@ function actions(): DashboardActions {
     switchAgent: vi.fn(),
     copyTicketKey: vi.fn(),
     resumeStage: vi.fn(),
+    usageLimitPick: vi.fn(),
+    usageLimitRetry: vi.fn(),
+    usageLimitDismiss: vi.fn(),
     setDisabledGate: vi.fn(),
     insideAction: vi.fn(),
     openArtifactResource: vi.fn(),
@@ -522,6 +525,39 @@ describe('routeAction', () => {
     });
     routeAction({ type: 'stage-resume', ticketId: 7, stageKey: 'review' }, a);
     expect(a.resumeStage).toHaveBeenCalledWith(7, 'review');
+  });
+
+  it('parses well-formed usage-limit messages and dispatches them', () => {
+    const a = actions();
+    expect(parseWebviewMessage({ type: 'usage-limit-pick', ticketId: 7, stageKey: 'review' })).toEqual({
+      type: 'usage-limit-pick',
+      ticketId: 7,
+      stageKey: 'review',
+    });
+    routeAction({ type: 'usage-limit-pick', ticketId: 7, stageKey: 'review' }, a);
+    expect(a.usageLimitPick).toHaveBeenCalledWith(7, 'review');
+
+    expect(parseWebviewMessage({ type: 'usage-limit-retry', ticketId: 7, stageKey: 'uat' })).toEqual({
+      type: 'usage-limit-retry',
+      ticketId: 7,
+      stageKey: 'uat',
+    });
+    routeAction({ type: 'usage-limit-retry', ticketId: 7, stageKey: 'uat' }, a);
+    expect(a.usageLimitRetry).toHaveBeenCalledWith(7, 'uat');
+
+    expect(parseWebviewMessage({ type: 'usage-limit-dismiss', ticketId: 7, stageKey: 'review' })).toEqual({
+      type: 'usage-limit-dismiss',
+      ticketId: 7,
+      stageKey: 'review',
+    });
+    routeAction({ type: 'usage-limit-dismiss', ticketId: 7, stageKey: 'review' }, a);
+    expect(a.usageLimitDismiss).toHaveBeenCalledWith(7, 'review');
+  });
+
+  it('drops usage-limit messages with invalid ticketId or stageKey', () => {
+    expect(parseWebviewMessage({ type: 'usage-limit-pick', ticketId: '7', stageKey: 'review' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'usage-limit-retry', ticketId: 7, stageKey: 'invalid' })).toBeNull();
+    expect(parseWebviewMessage({ type: 'usage-limit-dismiss', ticketId: 7 })).toBeNull();
   });
 
   it('drops stage-resume with a non-numeric ticketId', () => {
