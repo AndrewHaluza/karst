@@ -56,13 +56,18 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       const runId = newRunId();
       // Killing the `docker exec` client leaves the process running in the
       // container; an abort also kills it there, by its recorded pid.
-      const onAbort = () => void opts.proc.run(DOCKER_BIN, headlessKillArgs(opts.names.container, runId));
+      // A timeout inside spawnHeadless kills only the client too, so the
+      // kill (a no-op once the process exited; it also drops the pid file)
+      // always runs when the run ends.
+      const kill = () => opts.proc.run(DOCKER_BIN, headlessKillArgs(opts.names.container, runId));
+      const onAbort = () => void kill();
       headlessOpts?.signal?.addEventListener('abort', onAbort, { once: true });
       try {
         const argv = headlessExecArgs(opts.names.container, runId, containerCommand(opts.core, command), rewritePaths(args, cwd));
         return await spawnHeadless(DOCKER_BIN, argv, cwd, headlessOpts);
       } finally {
         headlessOpts?.signal?.removeEventListener('abort', onAbort);
+        await kill();
       }
     },
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
@@ -111,13 +116,26 @@ export async function prepareDockerSandbox(input: PrepareInput): Promise<StepRes
   if (!repo.ok) return repo;
   const data = await ensureVolume(proc, names.dataVolume);
   if (!data.ok) return data;
-  if (repo.created || data.created) {
-    const owned = await chownVolumes(ctx);
-    if (!owned.ok) return owned;
-  }
+  // Every launch, not only on create: an interrupted first chown must be retried (idempotent).
+  const owned = await chownVolumes(ctx);
+  if (!owned.ok) return owned;
   const proxy = await startProxySidecar(proc, { proxy: names.proxy, network: names.network, scriptPath: input.proxyScript });
   if (!proxy.ok) return proxy;
-  const clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch });
+  const rest = await cloneAndSeed(input, ctx);
+  // The proxy is the one object with egress: never leave it up for a ticket
+  // that falls back to the host. Volumes stay, so a retry keeps sessions.
+  if (!rest.ok) await stopProxySidecar(proc, names.proxy);
+  return rest;
+}
+
+async function cloneAndSeed(input: PrepareInput, ctx: CloneContext): Promise<StepResult> {
+  const { proc, names } = input;
+  let clone: StepResult;
+  try {
+    clone = await ensureClone(ctx, { hostWorktreePath: input.ticket.hostWorktreePath, branch: input.ticket.branch });
+  } catch (err) {
+    clone = { ok: false, reason: err instanceof Error ? err.message : String(err) };
+  }
   if (!clone.ok) return clone;
   if (input.core === 'opencode2' && input.opencode2Host) {
     return seedOpencode2Credentials({

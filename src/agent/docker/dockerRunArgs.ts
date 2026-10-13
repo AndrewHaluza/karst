@@ -32,7 +32,17 @@ export function userArgs(user: LinuxUser | undefined): string[] {
   return ['--user', `${user.uid}:${user.gid}`, '--tmpfs', `${CONTAINER_HOME}:uid=${user.uid},gid=${user.gid},mode=0700`];
 }
 
-const HARDENING = ['--cap-drop', 'ALL', '--security-opt', 'no-new-privileges'];
+export const HARDENING = ['--cap-drop', 'ALL', '--security-opt', 'no-new-privileges'];
+
+/**
+ * A `--mount type=bind` value. `--mount` is comma-separated, so a host path
+ * holding `,` (or a newline) could inject mount options: refused, the caller
+ * fails closed with the reason.
+ */
+export function bindMount(source: string, target: string, readonly: boolean): string {
+  if (/[,\n]/.test(source)) throw new Error(`docker: unsafe bind path ${JSON.stringify(source)}`);
+  return `type=bind,source=${source},target=${target}${readonly ? ',readonly' : ''}`;
+}
 
 const PROXY_ENV = [
   `HTTPS_PROXY=${PROXY_URL}`, `HTTP_PROXY=${PROXY_URL}`,
@@ -93,7 +103,7 @@ export interface InteractiveArgsInput {
  */
 export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
   const auth = input.authFile
-    ? ['--mount', `type=bind,source=${input.authFile},target=${CONTAINER_DATA}/auth.json,readonly`]
+    ? ['--mount', bindMount(input.authFile, `${CONTAINER_DATA}/auth.json`, true)]
     : [];
   return [
     'run', '--interactive', '--tty', '--rm', '--name', input.names.container,
@@ -107,7 +117,7 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
 const RUN_ID = /^[a-z0-9]{1,32}$/;
 /** Records the process id so an abort can kill it: a dead `docker exec` client does not. */
 const PID_SCRIPT = 'echo $$ > "/tmp/karst-run-$1.pid"; shift; exec "$@"';
-const KILL_SCRIPT = 'kill -KILL "$(cat "/tmp/karst-run-$1.pid")"';
+const KILL_SCRIPT = 'f="/tmp/karst-run-$1.pid"; [ -f "$f" ] && kill -KILL "$(cat "$f")" 2>/dev/null; rm -f "$f"';
 
 function checkRunId(runId: string): string {
   if (!RUN_ID.test(runId)) throw new Error(`docker exec: unsafe run id ${JSON.stringify(runId)}`);

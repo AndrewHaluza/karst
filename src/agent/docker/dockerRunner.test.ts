@@ -43,20 +43,21 @@ describe('createDockerSessionRunner', () => {
     ], WT, { timeoutMs: 5 });
   });
 
-  it('kills the in-container process when the run is aborted, and only then', async () => {
+  it('kills the in-container process on abort and when the run ends (timeout kills only the client)', async () => {
+    const kill = `docker exec ${names.container} sh -c f="/tmp/karst-run-$1.pid"; [ -f "$f" ] && kill -KILL "$(cat "$f")" 2>/dev/null; rm -f "$f" karst-kill r2`;
     const proc = fakeDockerProcess();
     const ac = new AbortController();
     const spawnHeadless = vi.fn().mockImplementation(() => { ac.abort(); return Promise.resolve(OK); });
     const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined, spawnHeadless, newRunId: () => 'r2' });
     await runner.runHeadless('opencode', [], WT, { signal: ac.signal });
-    expect(lines(proc)).toEqual([`docker exec ${names.container} sh -c kill -KILL "$(cat "/tmp/karst-run-$1.pid")" karst-kill r2`]);
+    expect(lines(proc)).toEqual([kill, kill]);
 
-    const quiet = fakeDockerProcess();
+    const late = fakeDockerProcess();
     const ac2 = new AbortController();
-    const done = createDockerSessionRunner({ proc: quiet, core: 'opencode', names, user: undefined, spawnHeadless: vi.fn().mockResolvedValue(OK) });
-    await done.runHeadless('opencode', [], WT, { signal: ac2.signal });
+    const failing = createDockerSessionRunner({ proc: late, core: 'opencode', names, user: undefined, spawnHeadless: vi.fn().mockRejectedValue(new Error('timeout')), newRunId: () => 'r2' });
+    await expect(failing.runHeadless('opencode', [], WT, { signal: ac2.signal })).rejects.toThrow('timeout');
     ac2.abort();
-    expect(quiet.calls).toHaveLength(0);
+    expect(lines(late)).toEqual([kill]);
   });
 
   it('generates a safe random run id by default', async () => {
@@ -132,13 +133,27 @@ describe('prepareDockerSandbox', () => {
   });
 
   it('fails on a linux chown error', async () => {
-    const proc = fakeDockerProcess({ 'docker volume inspect': { code: 1 }, 'docker run --rm --network none --user 0': { code: 1, stderr: 'x' } });
+    const proc = fakeDockerProcess({ 'docker volume inspect': { code: 1 }, 'docker run --rm --network none --cap-drop ALL --cap-add CHOWN': { code: 1, stderr: 'x' } });
     await expect(prepareDockerSandbox({ ...base, proc, user: { uid: 1, gid: 1 } })).resolves.toEqual({ ok: false, reason: 'docker volume chown failed: x' });
   });
 
-  it('fails when the clone fails', async () => {
+  it('fails when the clone fails, and stops the proxy so no egress stays up', async () => {
     const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' }, 'docker run --rm --network none': { code: 128 }, 'git -C /w/t7 bundle': { code: 1, stderr: 'bad' } });
     await expect(prepareDockerSandbox({ ...base, proc })).resolves.toEqual({ ok: false, reason: 'git bundle create feat/x failed: bad' });
+    expect(lines(proc).at(-1)).toBe(`docker rm --force ${names.proxy}`);
+    expect(lines(proc).some((l) => l.startsWith('docker volume rm'))).toBe(false);
+  });
+
+  it('turns a throwing clone (unsafe temp path) into a reason', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' }, 'docker run --rm --network none': { code: 128 } });
+    const bad = { make: () => Promise.resolve('/t,x'), remove: () => Promise.resolve() };
+    await expect(prepareDockerSandbox({ ...base, proc, temp: bad })).resolves.toEqual({ ok: false, reason: 'docker: unsafe bind path "/t,x"' });
+  });
+
+  it('chowns on every linux launch, so an interrupted first chown is retried', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
+    await prepareDockerSandbox({ ...base, proc, user: { uid: 1001, gid: 1002 } });
+    expect(lines(proc).some((l) => l.includes('chown 1001:1002'))).toBe(true);
   });
 
   it('seeds opencode2 credentials last, and not for opencode v1', async () => {

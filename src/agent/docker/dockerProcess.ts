@@ -35,6 +35,9 @@ function exitOf(child: ReturnType<typeof spawn>): Promise<number> {
   });
 }
 
+/** A pipe that outlives this (a hung export or import) is killed; the launch then fails closed. */
+export const PIPE_TIMEOUT_MS = 60_000;
+
 export const NODE_DOCKER_PROCESS: DockerProcess = {
   run: NODE_SBX_PROCESS.run,
   pipe: async (from, to) => {
@@ -48,8 +51,14 @@ export const NODE_DOCKER_PROCESS: DockerProcess = {
     });
     const codes = Promise.all([exitOf(source), exitOf(sink)]);
     sink.stdin.on('error', () => source.kill());
+    source.on('error', () => sink.stdin.end());
     source.stdout.pipe(sink.stdin);
-    const [fromCode, toCode] = await codes;
-    return { fromCode, toCode };
+    const timer = setTimeout(() => { source.kill('SIGKILL'); sink.kill('SIGKILL'); }, PIPE_TIMEOUT_MS);
+    try {
+      const [fromCode, toCode] = await codes;
+      return { fromCode, toCode };
+    } finally {
+      clearTimeout(timer);
+    }
   },
 };

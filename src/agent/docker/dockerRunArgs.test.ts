@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import {
+  bindMount,
   containerCommand,
   containerXdgEnv,
   envArgs,
@@ -71,6 +72,15 @@ describe('envArgs', () => {
   });
 });
 
+describe('bindMount', () => {
+  it('builds a bind value and refuses comma or newline paths', () => {
+    expect(bindMount('/a b', '/t', true)).toBe('type=bind,source=/a b,target=/t,readonly');
+    expect(bindMount('/a', '/t', false)).toBe('type=bind,source=/a,target=/t');
+    expect(() => bindMount('/a,readonly=false', '/t', true)).toThrow(/unsafe bind path/);
+    expect(() => bindMount('/a\nb', '/t', true)).toThrow(/unsafe bind path/);
+  });
+});
+
 describe('rewritePaths', () => {
   it('rewrites the worktree path exactly and as a prefix, leaves others', () => {
     expect(rewritePaths([WT, `${WT}/src/a.ts`, `${WT}x`, '--model', 'm'], WT)).toEqual(
@@ -100,7 +110,7 @@ describe('headless exec', () => {
     ]);
   });
   it('kills by the recorded pid', () => {
-    expect(headlessKillArgs('c', 'r1')).toEqual(['exec', 'c', 'sh', '-c', 'kill -KILL "$(cat "/tmp/karst-run-$1.pid")"', 'karst-kill', 'r1']);
+    expect(headlessKillArgs('c', 'r1')).toEqual(['exec', 'c', 'sh', '-c', 'f="/tmp/karst-run-$1.pid"; [ -f "$f" ] && kill -KILL "$(cat "$f")" 2>/dev/null; rm -f "$f"', 'karst-kill', 'r1']);
   });
   it('refuses an unsafe run id', () => {
     expect(() => headlessExecArgs('c', '../x', 'a', [])).toThrow(/unsafe run id/);

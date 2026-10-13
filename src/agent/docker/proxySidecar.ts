@@ -1,6 +1,7 @@
 import { SANDBOX_NETWORK_ALLOWLIST } from '../sandbox.js';
 import { PROXY_PORT } from './allowlistProxy.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
+import { bindMount } from './dockerRunArgs.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
 
@@ -31,7 +32,7 @@ export function sidecarRunArgs(spec: SidecarSpec): string[] {
     '--network', spec.network, '--network-alias', PROXY_ALIAS,
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--env', `ALLOW=${(spec.allow ?? DOCKER_ALLOWLIST).join(',')}`,
-    '--mount', `type=bind,source=${spec.scriptPath},target=${SCRIPT_IN_CONTAINER},readonly`,
+    '--mount', bindMount(spec.scriptPath, SCRIPT_IN_CONTAINER, true),
     OPENCODE_IMAGE, 'node', SCRIPT_IN_CONTAINER,
   ];
 }

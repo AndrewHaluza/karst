@@ -6,7 +6,7 @@ import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
-import { CONTAINER_DATA, CONTAINER_REPO, CONTAINER_WORK, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
+import { bindMount, CONTAINER_DATA, CONTAINER_REPO, CONTAINER_WORK, HARDENING, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
 
 /**
  * Clone mode over `git bundle` files (arch:AC-32, plan task 6). Neither the
@@ -41,7 +41,7 @@ export type StepResult = { readonly ok: true } | { readonly ok: false; readonly 
 const BUNDLE_DIR = '/bundle';
 
 function helper(ctx: CloneContext, extra: readonly string[], command: readonly string[]): string[] {
-  return ['run', '--rm', '--network', 'none', ...userArgs(ctx.user), ...extra, OPENCODE_IMAGE, ...command];
+  return ['run', '--rm', '--network', 'none', ...HARDENING, ...userArgs(ctx.user), ...extra, OPENCODE_IMAGE, ...command];
 }
 
 async function withTemp<T>(temp: TempDirs, body: (dir: string) => Promise<T>): Promise<T> {
@@ -70,7 +70,8 @@ export async function chownVolumes(ctx: CloneContext): Promise<StepResult> {
   if (!ctx.user) return { ok: true };
   const owner = `${ctx.user.uid}:${ctx.user.gid}`;
   const run = await ctx.proc.run(DOCKER_BIN, [
-    'run', '--rm', '--network', 'none', '--user', '0', ...volumeMounts(ctx.names),
+    'run', '--rm', '--network', 'none', '--cap-drop', 'ALL', '--cap-add', 'CHOWN', '--security-opt', 'no-new-privileges',
+    '--user', '0', ...volumeMounts(ctx.names),
     OPENCODE_IMAGE, 'chown', owner, CONTAINER_WORK, CONTAINER_DATA,
   ]);
   return run.code === 0 ? { ok: true } : { ok: false, reason: `docker volume chown failed: ${detail(run)}` };
@@ -97,7 +98,7 @@ export async function ensureClone(ctx: CloneContext, input: CloneInput): Promise
     ];
     const cloned = await ctx.proc.run(DOCKER_BIN, helper(
       ctx,
-      [...volumeMounts(ctx.names), '--mount', `type=bind,source=${dir},target=${BUNDLE_DIR},readonly`],
+      [...volumeMounts(ctx.names), '--mount', bindMount(dir, BUNDLE_DIR, true)],
       ['git', 'clone', ...identity, '--branch', input.branch, `${BUNDLE_DIR}/in.bundle`, CONTAINER_REPO],
     ));
     return cloned.code === 0 ? { ok: true } : { ok: false, reason: `clone into ${ctx.names.repoVolume} failed: ${detail(cloned)}` };
@@ -109,11 +110,19 @@ export async function ensureClone(ctx: CloneContext, input: CloneInput): Promise
  * the (read-only mounted) volume, fetch the bundle, fast-forward or refuse.
  */
 export async function syncFromClone(ctx: CloneContext, input: CloneInput): Promise<SyncResult> {
+  try {
+    return await syncThroughBundle(ctx, input);
+  } catch (err) {
+    return { ok: false, reason: `docker sync failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+async function syncThroughBundle(ctx: CloneContext, input: CloneInput): Promise<SyncResult> {
   const git = (args: string[]) => ctx.proc.run('git', ['-C', input.hostWorktreePath, ...args]);
   return withTemp(ctx.temp, async (dir) => {
     const bundled = await ctx.proc.run(DOCKER_BIN, helper(
       ctx,
-      [...volumeMounts(ctx.names, { repoReadonly: true }), '--mount', `type=bind,source=${dir},target=${BUNDLE_DIR}`],
+      [...volumeMounts(ctx.names, { repoReadonly: true }), '--mount', bindMount(dir, BUNDLE_DIR, false)],
       ['git', '-c', 'safe.directory=*', '-C', CONTAINER_REPO, 'bundle', 'create', `${BUNDLE_DIR}/out.bundle`, input.branch],
     ));
     if (bundled.code !== 0) return { ok: false, reason: `no sandbox clone to sync from: ${detail(bundled)}` };

@@ -45,7 +45,7 @@ describe('chownVolumes', () => {
     const proc = fakeDockerProcess();
     await expect(chownVolumes(ctx(proc, fakeTemp(), { uid: 1001, gid: 1002 }))).resolves.toEqual({ ok: true });
     expect(lines(proc)).toEqual([
-      `docker run --rm --network none --user 0 ${VOLS} ${OPENCODE_IMAGE} chown 1001:1002 /work /home/node/.local/share/opencode`,
+      `docker run --rm --network none --cap-drop ALL --cap-add CHOWN --security-opt no-new-privileges --user 0 ${VOLS} ${OPENCODE_IMAGE} chown 1001:1002 /work /home/node/.local/share/opencode`,
     ]);
   });
   it('reports a failed chown', async () => {
@@ -58,14 +58,14 @@ describe('ensureClone', () => {
   it('skips when the volume already holds a clone', async () => {
     const proc = fakeDockerProcess();
     await expect(ensureClone(ctx(proc), input)).resolves.toEqual({ ok: true });
-    expect(lines(proc)).toEqual([`docker run --rm --network none ${VOLS} ${OPENCODE_IMAGE} git -C /work/repo rev-parse --git-dir`]);
+    expect(lines(proc)).toEqual([`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C /work/repo rev-parse --git-dir`]);
   });
 
   it('bundles the branch on the host and clones it offline with the host identity', async () => {
     const temp = fakeTemp();
-    const clone = `docker run --rm --network none ${VOLS} --mount type=bind,source=/tmp/k1,target=/bundle,readonly`;
+    const clone = `docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} --mount type=bind,source=/tmp/k1,target=/bundle,readonly`;
     const answers = fakeDockerProcess({
-      [`docker run --rm --network none ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 },
+      [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 },
       'git -C /w t config user.name': { stdout: 'Ann Dev\n' },
       'git -C /w t config user.email': { stdout: 'ann@x.io\n' },
     });
@@ -79,7 +79,7 @@ describe('ensureClone', () => {
   });
 
   it('omits an unset identity', async () => {
-    const proc = fakeDockerProcess({ [`docker run --rm --network none ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 } });
+    const proc = fakeDockerProcess({ [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 } });
     await ensureClone(ctx(proc), input);
     expect(lines(proc).at(-1)).not.toContain('--config');
   });
@@ -93,7 +93,7 @@ describe('ensureClone', () => {
   it('reports a failed bundle and still removes the temp dir', async () => {
     const temp = fakeTemp();
     const proc = fakeDockerProcess({
-      [`docker run --rm --network none ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 },
+      [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 },
       'git -C /w t bundle': { code: 128, stderr: 'fatal: bad ref' },
     });
     await expect(ensureClone(ctx(proc, temp), input)).resolves.toEqual({ ok: false, reason: 'git bundle create feat/x failed: fatal: bad ref' });
@@ -102,8 +102,8 @@ describe('ensureClone', () => {
 
   it('reports a failed clone', async () => {
     const proc = fakeDockerProcess({
-      [`docker run --rm --network none ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 },
-      [`docker run --rm --network none ${VOLS} --mount`]: { code: 128, stderr: 'fatal: x' },
+      [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} ${OPENCODE_IMAGE} git -C`]: { code: 128 },
+      [`docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${VOLS} --mount`]: { code: 128, stderr: 'fatal: x' },
     });
     await expect(ensureClone(ctx(proc), input)).resolves.toEqual({ ok: false, reason: `clone into ${names.repoVolume} failed: fatal: x` });
   });
@@ -119,7 +119,7 @@ describe('syncFromClone', () => {
       ok: true, summary: "fast-forwarded feat/x to the docker sandbox's commits",
     });
     expect(lines(proc)).toEqual([
-      `docker run --rm --network none ${RO} --mount type=bind,source=/tmp/k1,target=/bundle ${OPENCODE_IMAGE} git -c safe.directory=* -C /work/repo bundle create /bundle/out.bundle feat/x`,
+      `docker run --rm --network none --cap-drop ALL --security-opt no-new-privileges ${RO} --mount type=bind,source=/tmp/k1,target=/bundle ${OPENCODE_IMAGE} git -c safe.directory=* -C /work/repo bundle create /bundle/out.bundle feat/x`,
       'git -C /w t fetch /tmp/k1/out.bundle refs/heads/feat/x',
       'git -C /w t merge-base --is-ancestor HEAD FETCH_HEAD',
       'git -C /w t merge --ff-only FETCH_HEAD',
@@ -147,5 +147,14 @@ describe('syncFromClone', () => {
   it('reports a failed merge', async () => {
     const proc = fakeDockerProcess({ 'git -C /w t merge --ff-only': { code: 1, stderr: 'dirty tree' } });
     await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: false, reason: 'git merge --ff-only failed: dirty tree' });
+  });
+});
+
+describe('bind paths', () => {
+  it('refuses a temp dir with a comma, and sync reports it instead of throwing', async () => {
+    const temp = { removed: [], make: () => Promise.resolve('/tmp/a,b'), remove: () => Promise.resolve() };
+    await expect(syncFromClone(ctx(fakeDockerProcess(), temp), input)).resolves.toEqual({
+      ok: false, reason: 'docker sync failed: docker: unsafe bind path "/tmp/a,b"',
+    });
   });
 });
