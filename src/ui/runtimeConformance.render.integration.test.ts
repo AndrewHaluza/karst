@@ -238,6 +238,11 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
       handle.receive({
         type: 'state',
         state: {
+          tab: 'spend',
+          tabs: [
+            { id: 'spend', label: 'Spend' },
+            { id: 'quota', label: 'Quota' },
+          ],
           empty: false,
           rangeId: 'current',
           ranges: [{ id: 'current', label: 'Current' }],
@@ -249,6 +254,7 @@ describe.each(WEBVIEWS)('RUNTIME conformance — %s', (name) => {
           byProfile: [],
           tickets: [],
           page: { offset: 0, limit: 10, groups: 0, hasPrev: false, hasNext: false },
+          quota: { thresholdPct: 80, anyNear: false, rows: [] },
           error: null,
         },
       });

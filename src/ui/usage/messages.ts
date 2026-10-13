@@ -1,5 +1,5 @@
 import type { ActionResultMessage } from '../../model/actionResult.js';
-import type { UsageState } from './state.js';
+import type { UsageState, UsageTab } from './state.js';
 import { USAGE_RANGES, USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
 
 /**
@@ -17,6 +17,7 @@ import { USAGE_RANGES, USAGE_SORTS, type UsageSort } from '../../store/tokenUsag
 
 export type UsageWebviewMessage =
   | { type: 'request-state' }
+  | { type: 'set-tab'; tab: UsageTab }
   | { type: 'set-range'; range: string }
   | { type: 'set-sort'; sort: UsageSort }
   | { type: 'set-page'; offset: number }
@@ -38,6 +39,7 @@ export type UsageHostMessage = { type: 'state'; state: UsageState } | ActionResu
  */
 export interface UsageActions {
   requestState(): void | Promise<void>;
+  setTab(tab: UsageTab): void | Promise<void>;
   setRange(range: string): void | Promise<void>;
   setSort(sort: UsageSort): void | Promise<void>;
   setPage(offset: number): void | Promise<void>;
@@ -46,6 +48,7 @@ export interface UsageActions {
 
 const RANGE_IDS = new Set<string>(USAGE_RANGES.map((r) => r.id));
 const SORT_IDS = new Set<string>(USAGE_SORTS);
+const TAB_IDS = new Set<string>(['spend', 'quota']);
 
 /** Narrow an untrusted webview message; null for anything malformed. */
 export function parseUsageMessage(raw: unknown): UsageWebviewMessage | null {
@@ -54,6 +57,10 @@ export function parseUsageMessage(raw: unknown): UsageWebviewMessage | null {
   switch (m.type) {
     case 'request-state':
       return { type: 'request-state' };
+    case 'set-tab':
+      return typeof m.tab === 'string' && TAB_IDS.has(m.tab)
+        ? { type: 'set-tab', tab: m.tab as UsageTab }
+        : null;
     case 'set-range':
       return typeof m.range === 'string' && RANGE_IDS.has(m.range)
         ? { type: 'set-range', range: m.range }
@@ -87,6 +94,8 @@ export function routeUsageAction(msg: UsageWebviewMessage, actions: UsageActions
   switch (msg.type) {
     case 'request-state':
       return actions.requestState();
+    case 'set-tab':
+      return actions.setTab(msg.tab);
     case 'set-range':
       return actions.setRange(msg.range);
     case 'set-sort':

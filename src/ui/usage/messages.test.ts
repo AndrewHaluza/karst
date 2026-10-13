@@ -11,6 +11,9 @@ function actions(): UsageActions & { calls: string[] } {
     requestState: () => {
       calls.push('requestState');
     },
+    setTab: (t) => {
+      calls.push(`setTab:${t}`);
+    },
     setRange: (r) => {
       calls.push(`setRange:${r}`);
     },
@@ -29,6 +32,10 @@ function actions(): UsageActions & { calls: string[] } {
 describe('parseUsageMessage', () => {
   it('accepts every well-formed message', () => {
     expect(parseUsageMessage({ type: 'request-state' })).toEqual({ type: 'request-state' });
+    expect(parseUsageMessage({ type: 'set-tab', tab: 'quota' })).toEqual({
+      type: 'set-tab',
+      tab: 'quota',
+    });
     expect(parseUsageMessage({ type: 'set-range', range: '7d' })).toEqual({
       type: 'set-range',
       range: '7d',
@@ -52,6 +59,8 @@ describe('parseUsageMessage', () => {
     expect(parseUsageMessage({ type: 'set-range', range: "all'; DROP" })).toBeNull();
     expect(parseUsageMessage({ type: 'set-sort', sort: 'total_tokens; DROP TABLE' })).toBeNull();
     expect(parseUsageMessage({ type: 'set-sort', sort: 7 })).toBeNull();
+    expect(parseUsageMessage({ type: 'set-tab', tab: 'nope' })).toBeNull();
+    expect(parseUsageMessage({ type: 'set-tab', tab: 1 })).toBeNull();
   });
 
   it('rejects a malformed page or ticket id', () => {
@@ -73,12 +82,14 @@ describe('routeUsageAction', () => {
   it('dispatches each already-parsed message to its action', () => {
     const a = actions();
     routeUsageAction({ type: 'request-state' }, a);
+    routeUsageAction({ type: 'set-tab', tab: 'quota' }, a);
     routeUsageAction({ type: 'set-range', range: '24h' }, a);
     routeUsageAction({ type: 'set-sort', sort: 'output' }, a);
     routeUsageAction({ type: 'set-page', offset: 20 }, a);
     routeUsageAction({ type: 'open-dashboard', ticketId: 9 }, a);
     expect(a.calls).toEqual([
       'requestState',
+      'setTab:quota',
       'setRange:24h',
       'setSort:output',
       'setPage:20',
@@ -93,6 +104,7 @@ describe('routeUsageAction', () => {
     const pending = Promise.resolve();
     const a: UsageActions = {
       requestState: vi.fn(),
+      setTab: vi.fn(),
       setRange: vi.fn(() => pending),
       setSort: vi.fn(),
       setPage: vi.fn(),

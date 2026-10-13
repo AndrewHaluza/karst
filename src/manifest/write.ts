@@ -222,6 +222,10 @@ export function writeManifest(path: string, manifest: Manifest): void {
     uat: manifest.uat,
     // Same seam: Save must not drop the opt-in analysis block.
     analysis: manifest.analysis,
+    // Same seam, same failure mode: the General tab owns `quota`, and an
+    // explicit save must never drop the block. Always written (the validator
+    // defaults it), like `archiveDoneAfterDays`.
+    quota: manifest.quota,
     review: manifest.review,
     // Same seam, same failure mode: the Agents tab owns `processes`, and an
     // explicit save must never drop the block. Deprecated process.<key>.preset

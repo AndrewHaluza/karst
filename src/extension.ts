@@ -439,6 +439,10 @@ import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import { makeUsagePanelHost } from './ui/usage/host.js';
+import { QuotaService, defaultQuotaReaders } from './agent/quota/service.js';
+import type { QuotaSnapshot } from './agent/quota/types.js';
+import { QuotaOps } from './extension/ops/quotaOps.js';
+import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from './manifest/validate/quota.js';
 import {
   ResourcesPanelManager,
   type ResourcesPanel,
@@ -2670,14 +2674,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // until a panel actually opens.
   let binder: TerminalDashboardBinder;
 
+  // Per-core subscription quota (D163): local, provider-written usage read on a
+  // modest interval. The badge and the launch warning are decided in
+  // `ops/quotaOps.ts`; this is the binding. `onQuotaChange` is a holder because
+  // the service is built before the panel and the ops that consume a refresh.
+  const quotaWarnThresholdPct = (): number =>
+    currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
+  let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
+  const quotaService = new QuotaService({
+    readers: defaultQuotaReaders(),
+    debug: (message) => logger.debug(message),
+    onDidChange: (snapshots) => onQuotaChange(snapshots),
+  });
   // One token-usage panel per window (§ token consumption stats). Project-scoped
   // like every other query: the DB is global storage, shared by every window.
   const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context, brandIcon), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+    quota: () => quotaService.snapshots(),
+    quotaThresholdPct: quotaWarnThresholdPct,
     logError,
   });
+  const quotaStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 45);
+  quotaStatus.command = {
+    title: 'Open subscription quota',
+    command: 'karst.openTokenUsage',
+    arguments: ['quota'],
+  };
+  context.subscriptions.push(quotaStatus);
+  const quotaOps = new QuotaOps({
+    service: quotaService,
+    thresholdPct: () => currentManifest()?.quota?.warnThresholdPct,
+    coreLabel: (core) => AGENT_PROVIDER_LABELS[core] ?? core,
+    status: {
+      set: (text, tooltip, warning) => {
+        quotaStatus.text = text;
+        quotaStatus.tooltip = tooltip;
+        quotaStatus.backgroundColor = warning
+          ? new vscode.ThemeColor('statusBarItem.warningBackground')
+          : undefined;
+        quotaStatus.show();
+      },
+      hide: () => quotaStatus.hide(),
+    },
+    notify: (message) => void vscode.window.showWarningMessage(message),
+  });
+  onQuotaChange = (snapshots) => {
+    tokenUsagePanel.refresh();
+    quotaOps.applyStatus(snapshots);
+  };
+  quotaService.start();
+  context.subscriptions.push({ dispose: () => quotaService.dispose() });
+
 
   // The resource monitor (leak hunter): one slow-lane sample every 30 s for the
   // window's lifetime, a fast lane only while the Resources panel is visible.
@@ -6479,6 +6528,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         brandIcon,
       });
 
+      // View-only quota warning (D163): the resolved core is near a limit. Fired
+      // only for a real launch — a recovery re-launch is automatic and must not
+      // stack warnings. Never awaited, never blocking.
+      if (!options.recovery) quotaOps.warnBeforeLaunch(launchProvider);
+
         sessions.openSession(
           adapter,
           ticketId,
@@ -6805,7 +6859,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
     }),
-    vscode.commands.registerCommand('karst.openTokenUsage', () => tokenUsagePanel.open()),
+    vscode.commands.registerCommand('karst.openTokenUsage', (arg: unknown) =>
+      tokenUsagePanel.open(arg === 'quota' ? 'quota' : 'spend'),
+    ),
     vscode.commands.registerCommand('karst.openResources', () => resourcesPanel.open()),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {

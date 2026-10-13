@@ -44,6 +44,7 @@ export interface InputControl extends CommonControl {
   readOnly?: boolean;
   /** Native bounds for `type: 'number'` (spinner and keyboard constraint). */
   min?: number;
+  max?: number;
   step?: number;
   /**
    * Optional ref to the rendered element. A caret-aware helper (inserting a
@@ -327,6 +328,7 @@ function renderControl(
           placeholder={control.placeholder}
           readOnly={control.readOnly}
           min={control.min}
+          max={control.max}
           step={control.step}
           onValueChange={control.onChange}
         />

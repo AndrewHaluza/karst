@@ -233,6 +233,30 @@ describe('GeneralSection — edits land on exactly one claimed key', () => {
     expect(perParent.getAttribute('aria-invalid')).toBeNull();
   });
 
+  it('writes the quota warn threshold as a whole number from 1 to 100', () => {
+    const { probe } = mountGeneral();
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    expect(field.getAttribute('min')).toBe('1');
+    expect(field.getAttribute('max')).toBe('100');
+    fireEvent.change(field, { target: { value: '95' } });
+    expect(probe().draft).toMatchObject({ quota: { warnThresholdPct: 95 } });
+  });
+
+  it('snaps an out-of-range quota threshold back to blank and flags it', () => {
+    const { probe } = mountGeneral();
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    for (const bad of ['0', '101', '2.5']) {
+      fireEvent.change(field, { target: { value: '90' } });
+      fireEvent.change(field, { target: { value: bad } });
+      expect(field.getAttribute('aria-invalid')).toBe('true');
+      const errId = field.getAttribute('aria-describedby')?.split(' ').find((t) => t.endsWith('-error'));
+      expect(document.getElementById(errId ?? 'none')?.textContent).toMatch(/whole number from 1 to 100/);
+      expect(probe().draft).not.toHaveProperty('quota');
+    }
+    fireEvent.change(field, { target: { value: '80' } });
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+  });
+
   it('explains the cost of high or unlimited sub-task caps', () => {
     mountGeneral();
     expect(document.querySelector('#section-general')?.textContent).toContain(

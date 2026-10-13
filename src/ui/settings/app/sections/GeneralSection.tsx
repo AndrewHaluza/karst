@@ -23,9 +23,11 @@ import { useMemo, useRef, useState } from 'react';
 import type {
   AgentProvider,
   Manifest,
+  QuotaConfig,
   SubtaskLimits,
   WorktreePathDisplay,
 } from '../../../../manifest/types.js';
+import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../../../manifest/validate/quota.js';
 import {
   DEFAULT_TERMINAL_NAME_TEMPLATE,
   DEFAULT_TICKET_LABEL_TEMPLATE,
@@ -79,6 +81,11 @@ const SUBTASK_CAPS_DESC =
   'Each running sub-task is a full agent session with its own worktree, servers/ports and token spend. Higher limits finish wide work faster but multiply API cost and rate-limit risk, CPU/RAM and port usage, and raise merge conflicts between siblings on the same parent branch. Nesting multiplies sessions, which is what the project-wide limit bounds. 0 = unlimited — not recommended.';
 
 const SUBTASK_CAP_ERROR = 'Enter a whole number, 0 or more (0 = unlimited).';
+
+const QUOTA_THRESHOLD_ERROR = 'Enter a whole number from 1 to 100.';
+
+const QUOTA_DESC =
+  'Karst reads each agent core\'s provider-reported subscription usage (Claude 5-hour/weekly, Codex plan windows) and warns before a launch that would run a core near its limit. View-only: a warning never blocks a launch and never switches cores. A core with no readable usage source shows as unknown.';
 
 /** Placeholders mirror the loader defaults (`DEFAULT_SUBTASK_LIMITS`). */
 const SUBTASK_CAP_PLACEHOLDERS: Readonly<Record<keyof SubtaskLimits, string>> = {
@@ -164,6 +171,21 @@ export function GeneralSection() {
   };
   const subtaskCapText = (key: keyof SubtaskLimits): string =>
     subtasks?.[key] === undefined ? '' : String(subtasks[key]);
+
+  // The warn threshold is blankable, like `archiveDoneAfterDays`: anything
+  // outside 1–100 clears the block (which then loads as the default 80) and is
+  // flagged inline so the snap-back is never silent.
+  const quota = readField<Partial<QuotaConfig> | undefined>(draft, 'quota', undefined);
+  const [quotaError, setQuotaError] = useState<string | undefined>(undefined);
+  const setQuotaThreshold = (raw: string): void => {
+    const blank = raw.trim() === '';
+    const parsed = Number(raw);
+    const valid = !blank && Number.isInteger(parsed) && parsed >= 1 && parsed <= 100;
+    setQuotaError(blank || valid ? undefined : QUOTA_THRESHOLD_ERROR);
+    edit(set('quota', valid ? { warnThresholdPct: parsed } : undefined));
+  };
+  const quotaText =
+    quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
 
   const setToggle = (key: 'debug' | 'closeDoneTerminalsWithTicket' | 'diffsInSourceControl') =>
     (checked: boolean): void => {
@@ -363,6 +385,33 @@ export function GeneralSection() {
               value: subtaskCapText('maxConcurrentTotal'),
               placeholder: SUBTASK_CAP_PLACEHOLDERS.maxConcurrentTotal,
               onChange: setSubtaskCap('maxConcurrentTotal'),
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="section-block">
+        <div className="section-head">
+          <div>
+            <div className="section-title">Subscription quota</div>
+            <div className="section-desc">{QUOTA_DESC}</div>
+          </div>
+        </div>
+        <div className="form-grid">
+          <Field
+            label="Warn at used %"
+            error={quotaError}
+            help={`Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}. The tightest window across the launched core's subscription is compared against this.`}
+            control={{
+              kind: 'input',
+              name: 'quotaWarnThresholdPct',
+              type: 'number',
+              min: 1,
+              max: 100,
+              step: 1,
+              value: quotaText,
+              placeholder: String(DEFAULT_QUOTA_WARN_THRESHOLD_PCT),
+              onChange: setQuotaThreshold,
             }}
           />
         </div>

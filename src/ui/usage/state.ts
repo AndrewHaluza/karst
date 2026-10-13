@@ -18,6 +18,9 @@ import {
 import { aiCallSiteLabel } from '../../agent/aiCallSites.js';
 import { formatExactTokens, formatTokens, shareOfTotal } from '../../model/tokenFormat.js';
 import { formatId } from '../../model/entityId.js';
+import { buildQuotaView, type QuotaView } from './quotaState.js';
+import type { QuotaSnapshot } from '../../agent/quota/types.js';
+import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../manifest/validate/quota.js';
 
 /**
  * The token-usage view's read model (§ token consumption stats).
@@ -103,6 +106,9 @@ export interface UsageTotalsView {
 }
 
 export interface UsageState {
+  /** The active tab. `spend` is the token-usage view; `quota` is per-core. */
+  tab: UsageTab;
+  tabs: { id: UsageTab; label: string }[];
   /** Nothing recorded in range. The view shows its empty state, not zeroes. */
   empty: boolean;
   rangeId: string;
@@ -116,9 +122,19 @@ export interface UsageState {
   byProfile: UsageProfileRowView[];
   tickets: UsageTicketRowView[];
   page: { offset: number; limit: number; groups: number; hasPrev: boolean; hasNext: boolean };
+  /** Per-core subscription quota, independent of the spend range. */
+  quota: QuotaView;
   /** A rejected query, stated. Null when the query was well-formed. */
   error: string | null;
 }
+
+/** The usage panel's two tabs. */
+export type UsageTab = 'spend' | 'quota';
+
+export const USAGE_TABS: { id: UsageTab; label: string }[] = [
+  { id: 'spend', label: 'Spend' },
+  { id: 'quota', label: 'Quota' },
+];
 
 export interface UsageStateInput {
   /** The window's bound project. Absent = the all-projects recovery view. */
@@ -127,6 +143,12 @@ export interface UsageStateInput {
   sort?: UsageSort;
   offset?: number;
   limit?: number;
+  /** The active tab. Absent = spend. */
+  tab?: UsageTab;
+  /** Cached per-core quota snapshots from the service. */
+  quota?: readonly QuotaSnapshot[];
+  /** The manifest's warn threshold; absent = the loader default. */
+  quotaThresholdPct?: number;
   /** Injected clock — the rolling ranges are relative to it. */
   now?: () => Date;
 }
@@ -240,8 +262,17 @@ function profileRows(rows: UsageProfileRow[], freshTotal: number): UsageProfileR
 }
 
 /** The shell every state shares — also what an error or empty range renders. */
-function base(rangeId: string, sort: UsageSort, offset: number, limit: number): UsageState {
+function base(
+  tab: UsageTab,
+  quota: QuotaView,
+  rangeId: string,
+  sort: UsageSort,
+  offset: number,
+  limit: number,
+): UsageState {
   return {
+    tab,
+    tabs: USAGE_TABS.map((t) => ({ id: t.id, label: t.label })),
     empty: true,
     rangeId,
     ranges: USAGE_RANGES.map((r) => ({ id: r.id, label: r.label })),
@@ -253,6 +284,7 @@ function base(rangeId: string, sort: UsageSort, offset: number, limit: number): 
     byProfile: [],
     tickets: [],
     page: { offset, limit, groups: 0, hasPrev: offset > 0, hasNext: false },
+    quota,
     error: null,
   };
 }
@@ -268,8 +300,11 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   const sort = input.sort ?? 'total';
   const offset = input.offset ?? 0;
   const limit = input.limit ?? DEFAULT_USAGE_LIMIT;
+  const tab = input.tab ?? 'spend';
   const now = input.now?.() ?? new Date();
   const { from, to } = resolveUsageRange(rangeId, now);
+  const thresholdPct = input.quotaThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
+  const quota = buildQuotaView(input.quota ?? [], thresholdPct, now);
 
   const parsed = parseUsageQuery({
     ...(input.projectId != null ? { projectId: input.projectId } : {}),
@@ -279,7 +314,7 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
     offset,
     limit,
   });
-  if (!parsed.ok) return { ...base(rangeId, sort, offset, limit), error: parsed.error };
+  if (!parsed.ok) return { ...base(tab, quota, rangeId, sort, offset, limit), error: parsed.error };
 
   const stats = queryTokenUsageStats(store, parsed.query);
   // The share denominator is FRESH spend, matching the headline (`totalsView`),
@@ -288,7 +323,7 @@ export function buildUsageState(store: Store, input: UsageStateInput = {}): Usag
   const total = stats.totals.freshTokens;
 
   return {
-    ...base(rangeId, sort, offset, limit),
+    ...base(tab, quota, rangeId, sort, offset, limit),
     empty: stats.totals.calls === 0,
     totals: totalsView(stats),
     byStage: breakdown(stats.byCallSite, total, aiCallSiteLabel),

@@ -5,6 +5,8 @@ import type {
   UsageTicketRowView,
   UsageTotalsView,
 } from './state.js';
+import { USAGE_TABS } from './state.js';
+import type { QuotaRowView, QuotaView, QuotaWindowView } from './quotaState.js';
 import { USAGE_RANGES, USAGE_SORTS, type UsageSort } from '../../store/tokenUsageQuery.js';
 
 /**
@@ -25,7 +27,8 @@ export type UsageScenario =
   | 'paged-middle'
   | 'error'
   | 'all-sorts'
-  | 'hostile';
+  | 'hostile'
+  | 'quota';
 
 export const USAGE_SCENARIOS: readonly UsageScenario[] = [
   'empty',
@@ -34,6 +37,7 @@ export const USAGE_SCENARIOS: readonly UsageScenario[] = [
   'error',
   'all-sorts',
   'hostile',
+  'quota',
 ];
 
 export interface UsageRenderFixture {
@@ -129,8 +133,68 @@ function fixtureProfileRow(
   };
 }
 
+const QUOTA_THRESHOLD = 80;
+
+function fixtureWindow(overrides: Partial<QuotaWindowView> & { label: string }): QuotaWindowView {
+  return { usedPct: 10, level: 'ok', width: '10', resetsAt: null, resetsIn: null, ...overrides };
+}
+
+function fixtureQuotaRow(
+  overrides: Partial<QuotaRowView> & { core: QuotaRowView['core']; label: string },
+): QuotaRowView {
+  return { state: 'ok', windows: [], source: null, readAgo: null, reason: null, ...overrides };
+}
+
+function fixtureQuota(overrides: Partial<QuotaView> = {}): QuotaView {
+  return {
+    thresholdPct: QUOTA_THRESHOLD,
+    anyNear: false,
+    rows: [
+      fixtureQuotaRow({
+        core: 'claude',
+        label: 'Claude Code',
+        source: 'Claude statusline telemetry',
+        readAgo: '3m ago',
+        windows: [
+          fixtureWindow({ label: '5-hour', usedPct: 34, width: '34', resetsIn: '2h 13m' }),
+          fixtureWindow({ label: '7-day', usedPct: 12, width: '12', resetsIn: '5d 3h' }),
+        ],
+      }),
+      fixtureQuotaRow({
+        core: 'codex',
+        label: 'Codex',
+        source: 'Codex session rate limits',
+        readAgo: '1m ago',
+        windows: [fixtureWindow({ label: '7-day', usedPct: 76, width: '76', resetsIn: '4d 1h' })],
+      }),
+      fixtureQuotaRow({
+        core: 'antigravity',
+        label: 'Antigravity CLI',
+        state: 'unknown',
+        reason: 'no local quota source; agy exposes no zero-request usage endpoint',
+      }),
+      fixtureQuotaRow({
+        core: 'opencode',
+        label: 'OpenCode',
+        state: 'unknown',
+        reason: 'no local quota source; OpenCode Go has no public usage API',
+      }),
+      fixtureQuotaRow({
+        core: 'opencode2',
+        label: 'OpenCode v2',
+        state: 'unknown',
+        reason: 'no local quota source; OpenCode Go has no public usage API',
+      }),
+    ],
+    ...overrides,
+  };
+}
+
 function emptyState(): UsageState {
   return {
+    tab: 'spend',
+    tabs: USAGE_TABS,
+    quota: fixtureQuota(),
     empty: true,
     rangeId: RANGES[0]!.id,
     ranges: RANGES,
@@ -148,6 +212,9 @@ function emptyState(): UsageState {
 
 function singlePageState(): UsageState {
   return {
+    tab: 'spend',
+    tabs: USAGE_TABS,
+    quota: fixtureQuota(),
     empty: false,
     rangeId: RANGES[0]!.id,
     ranges: RANGES,
@@ -165,6 +232,9 @@ function singlePageState(): UsageState {
 
 function pagedMiddleState(): UsageState {
   return {
+    tab: 'spend',
+    tabs: USAGE_TABS,
+    quota: fixtureQuota(),
     empty: false,
     rangeId: RANGES[1]!.id,
     ranges: RANGES,
@@ -182,6 +252,9 @@ function pagedMiddleState(): UsageState {
 
 function errorState(): UsageState {
   return {
+    tab: 'spend',
+    tabs: USAGE_TABS,
+    quota: fixtureQuota(),
     empty: true,
     rangeId: RANGES[0]!.id,
     ranges: RANGES,
@@ -199,6 +272,9 @@ function errorState(): UsageState {
 
 function allSortsState(): UsageState {
   return {
+    tab: 'spend',
+    tabs: USAGE_TABS,
+    quota: fixtureQuota(),
     empty: false,
     rangeId: RANGES[0]!.id,
     ranges: RANGES,
@@ -220,6 +296,9 @@ const HOSTILE_LONG = 'Y'.repeat(300);
 
 function hostileState(): UsageState {
   return {
+    tab: 'spend',
+    tabs: USAGE_TABS,
+    quota: fixtureQuota(),
     empty: false,
     rangeId: RANGES[0]!.id,
     ranges: RANGES,
@@ -242,6 +321,31 @@ function hostileState(): UsageState {
   };
 }
 
+function quotaState(): UsageState {
+  const rows = fixtureQuota().rows;
+  return {
+    ...singlePageState(),
+    tab: 'quota',
+    quota: fixtureQuota({
+      anyNear: true,
+      rows: [
+        rows[0]!,
+        fixtureQuotaRow({
+          core: 'codex',
+          label: 'Codex',
+          source: 'Codex session rate limits',
+          readAgo: '1m ago',
+          windows: [
+            fixtureWindow({ label: '7-day', usedPct: 82, width: '82', level: 'near', resetsIn: '4d 1h' }),
+            fixtureWindow({ label: '30-day', usedPct: 100, width: '100', level: 'exhausted', resetsIn: 'resetting now' }),
+          ],
+        }),
+        ...rows.slice(2),
+      ],
+    }),
+  };
+}
+
 const BUILDERS: Readonly<Record<UsageScenario, () => UsageState>> = {
   empty: emptyState,
   'single-page': singlePageState,
@@ -249,6 +353,7 @@ const BUILDERS: Readonly<Record<UsageScenario, () => UsageState>> = {
   error: errorState,
   'all-sorts': allSortsState,
   hostile: hostileState,
+  quota: quotaState,
 };
 
 export function usageRenderFixtures(): UsageRenderFixture[] {

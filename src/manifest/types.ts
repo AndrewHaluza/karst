@@ -549,6 +549,20 @@ export interface AnalysisConfig {
   codePointers: boolean;
 }
 
+/**
+ * Per-core subscription-quota view config (`quota:` in karst.yml). View-only
+ * and warn-before-launch: karst reads each core's provider-reported usage
+ * windows and warns when the resolved core is near a limit — it never blocks a
+ * launch and never auto-routes to another core.
+ */
+export interface QuotaConfig {
+  /**
+   * Warn at or above this used-% of a core's TIGHTEST subscription window.
+   * Always set by `validateManifest` (default 80). Whole number, 1–100.
+   */
+  warnThresholdPct: number;
+}
+
 export interface UatConfig {
   testDir?: string;
   maxFixAttempts: number;
@@ -922,6 +936,12 @@ export interface Manifest {
   uat?: UatConfig;
   /** Ticket-analysis passes. Absent = defaults (code pointers off). */
   analysis?: AnalysisConfig;
+  /**
+   * Per-core subscription-quota warnings (`quota:`). Always set by
+   * `validateManifest` (default threshold 80). View-only — never blocks a
+   * launch and never auto-routes to another core.
+   */
+  quota?: QuotaConfig;
   /**
    * Review gates. Absent yields the default pipeline: karst probes
    * package.json for `REVIEW_PROBE_SCRIPTS` (`workflow/gates/scripts.ts`).

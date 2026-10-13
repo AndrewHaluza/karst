@@ -47,7 +47,13 @@ import { join } from 'node:path';
 // `agent/opencode2Auth.ts`; what stays here is the one binding the ops module
 // cannot own — the `vscode.window.showWarningMessage` seam, the login command,
 // the isolated-env-capable output probe, and the `karst.openSession` call site.
-const MAX_EXTENSION_LINES = 8580;
+// Raised by 58 (8580 -> 8638): the per-core subscription-quota binding (D163).
+// The decision half (badge text/warning) lives in `ops/quotaOps.ts` and the
+// reader service in `agent/quota/`; what stays here is the two vscode seams the
+// ops layer cannot own — the status-bar item and `window.showWarningMessage` —
+// plus the service lifecycle (construct, start, dispose) and the panel's two
+// quota deps.
+const MAX_EXTENSION_LINES = 8638;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

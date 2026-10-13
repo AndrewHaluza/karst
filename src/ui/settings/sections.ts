@@ -55,6 +55,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'closeDoneTerminalsWithTicket',
     'diffsInSourceControl',
     'subtasks',
+    'quota',
   ],
   git: ['conventions'],
   services: ['repositories'],

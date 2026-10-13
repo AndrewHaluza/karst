@@ -60,6 +60,7 @@ describe('settings sections — vocabulary', () => {
         'host',
         'portRange',
         'processes',
+        'quota',
         'repositories',
         'review',
         'subtasks',
