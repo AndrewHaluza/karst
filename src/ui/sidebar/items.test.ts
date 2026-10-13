@@ -459,6 +459,8 @@ describe('nestSubtasks', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      subtaskIsLast: false,
+      subtaskGuides: [],
       autostart: null,
       collapsible: true,
       ...over,
@@ -493,6 +495,28 @@ describe('nestSubtasks', () => {
     expect(byId.get(2)).toBe(1);
     expect(byId.get(3)).toBe(0);
     expect(byId.get(4)).toBe(0);
+  });
+
+  it('stamps which child is last and which ancestor guides continue', () => {
+    // 1 ⊃ 2 ⊃ 3, and 1 ⊃ 4 (last); roots 1 then 5.
+    const rows = [
+      node({ ticketId: 1 }),
+      node({ ticketId: 2, subtaskParentId: 1 }),
+      node({ ticketId: 3, subtaskParentId: 2 }),
+      node({ ticketId: 4, subtaskParentId: 1 }),
+      node({ ticketId: 5 }),
+    ];
+    const byId = new Map(nestSubtasks(rows).map((r) => [r.ticketId, r]));
+    expect(byId.get(1)!.subtaskIsLast).toBe(false);
+    expect(byId.get(1)!.subtaskGuides).toEqual([]);
+    expect(byId.get(2)!.subtaskIsLast).toBe(false); // 2 has sibling 4
+    expect(byId.get(2)!.subtaskGuides).toEqual([true]); // root 1 has sibling 5
+    expect(byId.get(3)!.subtaskIsLast).toBe(true); // 3 is 2's only child
+    expect(byId.get(3)!.subtaskGuides).toEqual([true, false]); // slot0 continues, slot1 elbow
+    expect(byId.get(4)!.subtaskIsLast).toBe(true); // 4 is 1's last child
+    expect(byId.get(4)!.subtaskGuides).toEqual([false]); // root 1 is last, no continuation
+    expect(byId.get(5)!.subtaskIsLast).toBe(false);
+    expect(byId.get(5)!.subtaskGuides).toEqual([]);
   });
 
   it('keeps a sub-task as a root when its parent is not in this list', () => {
@@ -556,6 +580,8 @@ describe('visibleTicketRows', () => {
       subtaskParentKey: null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      subtaskIsLast: false,
+      subtaskGuides: [],
       autostart: null,
       collapsible: true,
       ...over,
