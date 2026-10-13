@@ -39,6 +39,7 @@ const PROTECTED_FIELDS = [
   'artifacts',
   'subtasks',
   'debug',
+  'agentSandbox',
   'closeDoneTerminalsWithTicket',
   'diffsInSourceControl',
   'uat',

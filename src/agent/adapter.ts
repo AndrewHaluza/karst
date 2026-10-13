@@ -13,6 +13,7 @@ import type { TokenUsage } from './tokenUsage.js';
 import type { AdapterSurfaces } from './surfaces.js';
 import type { EntryBasename } from './workflowCommand.js';
 import type { SessionInstructions } from './instructions.js';
+import type { SandboxPolicy } from './sandbox.js';
 
 /**
  * A JSON Schema document describing the shape a core's FINAL response is asked
@@ -200,6 +201,12 @@ export interface InteractiveCommandOpts {
    * `karst mcp install` instead (see `AdapterSurfaces.mcpConfigInteractive`).
    */
   mcpConfigPath?: string;
+  /**
+   * The provider-native sandbox for this launch (`arch:AC-30`). Present ONLY
+   * when `resolveSandbox` found it enforceable; an adapter whose
+   * `surfaces.sandboxInteractive` is unsupported never receives it.
+   */
+  sandbox?: SandboxPolicy;
 }
 
 export interface HookChannel {

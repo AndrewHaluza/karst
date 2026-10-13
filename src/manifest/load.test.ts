@@ -1934,6 +1934,35 @@ describe('archiveDoneAfterDays', () => {
   });
 });
 
+describe('agentSandbox (AC-30: opt-in, default off)', () => {
+  it('is undefined when omitted (sessions stay prompted)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).agentSandbox).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses agentSandbox: true', () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentSandbox: true\n`);
+    try {
+      expect(loadManifest(path).agentSandbox).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean — a string "true" is a YAML typo', () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentSandbox: "true"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/agentSandbox must be a boolean/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('debug', () => {
   it('is undefined when omitted (debug logging off)', () => {
     const { path, cleanup } = fixture(VALID);

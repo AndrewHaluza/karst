@@ -78,6 +78,15 @@ function surfacesOf(provider: AgentProvider): AdapterSurfaces {
   return declared;
 }
 
+/** Flags that drop a core's prompts without a sandbox (AC-30). */
+const SANDBOX_BYPASS_FLAGS = [
+  '--dangerously-skip-permissions',
+  '--dangerously-bypass-approvals-and-sandbox',
+  '--full-auto',
+  '--yolo',
+  '--auto',
+];
+
 function reasonOf(support: SurfaceSupport): string {
   return support.supported ? '' : support.reason;
 }
@@ -105,6 +114,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'readOnlyInteractive',
       'addDirsInteractive',
       'mcpConfigInteractive',
+      'sandboxInteractive',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -276,6 +286,49 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
     }
     expect(launch.args.at(-1)).toBe('plan it');
+  });
+
+  // AC-30: the core's OWN sandbox, or nothing. A core that cannot enforce one
+  // never relaxes its prompts, and no launch ever carries a bypass flag.
+  it('translates a sandbox policy into the core sandbox, or ignores it when unsupported', () => {
+    const supported = surfacesOf(provider).sandboxInteractive.supported;
+    const policy = { writableRoots: ['/wt', '/repo/.git'], allowedDomains: ['api.example.com'] };
+    const adapter = resolveAdapter(provider);
+    const plain = adapter.buildInteractiveCommand({ cwd: '/wt' });
+    const boxed = adapter.buildInteractiveCommand({ cwd: '/wt', sandbox: policy });
+    for (const launch of [plain, boxed]) {
+      for (const flag of SANDBOX_BYPASS_FLAGS) expect(launch.args, `${provider} ${flag}`).not.toContain(flag);
+    }
+    if (!supported) {
+      expect(boxed.args).toEqual(plain.args);
+      expect(boxed.env).toEqual(plain.env);
+      return;
+    }
+    if (provider === 'claude') {
+      const settings = JSON.parse(boxed.args[boxed.args.indexOf('--settings') + 1]!);
+      expect(settings.sandbox).toEqual({
+        enabled: true,
+        failIfUnavailable: true,
+        autoAllowBashIfSandboxed: true,
+        allowUnsandboxedCommands: false,
+        filesystem: { allowWrite: ['/wt', '/repo/.git'] },
+        network: { allowedDomains: ['api.example.com'] },
+      });
+      expect(settings.permissions).toEqual({ defaultMode: 'acceptEdits' });
+    } else if (provider === 'codex') {
+      expect(boxed.args).toEqual(
+        expect.arrayContaining([
+          '--sandbox',
+          'workspace-write',
+          '--ask-for-approval',
+          'on-request',
+          'sandbox_workspace_write.writable_roots=["/repo/.git"]',
+          'sandbox_workspace_write.network_access=false',
+        ]),
+      );
+    } else {
+      throw new Error(`${provider} declares sandboxInteractive with no pinned mechanism`);
+    }
   });
 
   it('registers a launch-time MCP config on the cores that declare support', () => {

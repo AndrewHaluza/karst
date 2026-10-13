@@ -142,4 +142,11 @@ export interface AdapterSurfaces {
    * `karst mcp install` to register the server at user scope instead.
    */
   readonly mcpConfigInteractive: SurfaceSupport;
+  /**
+   * `InteractiveCommandOpts.sandbox` → the core's OWN enforced OS-level
+   * sandbox (`arch:AC-30`): writes limited to the policy's roots, network to
+   * its allowlist, and prompts relaxed only inside it. `unsupported` means the
+   * core has no enforced sandbox; the launch fails closed to prompted mode.
+   */
+  readonly sandboxInteractive: SurfaceSupport;
 }

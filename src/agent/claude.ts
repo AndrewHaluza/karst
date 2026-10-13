@@ -37,11 +37,13 @@ import {
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { writeHookSettings } from './settings.js';
+import { claudeSandboxSettings } from './claudeSandbox.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { refuseUnsandboxedBypass } from './sandbox.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
 
@@ -168,6 +170,7 @@ export class ClaudeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    sandboxInteractive: SUPPORTED,
   };
 
   /**
@@ -208,14 +211,15 @@ export class ClaudeAdapter implements AgentAdapter {
         writeFileSync(temporaryPath, HOOK_BRIDGE);
         renameSync(temporaryPath, bridgePath);
       }
-      args.push(
-        '--settings',
-        writeHookSettings(
-          opts.hookChannel.endpointUrl,
-          opts.hookChannel.configDir,
-          'claude',
-        ),
+      const hookSettingsPath = writeHookSettings(
+        opts.hookChannel.endpointUrl,
+        opts.hookChannel.configDir,
+        'claude',
       );
+      if (!opts.sandbox) args.push('--settings', hookSettingsPath);
+      else args.push('--settings', claudeSandboxSettings(opts.sandbox, readFileSync(hookSettingsPath, 'utf8')));
+    } else if (opts.sandbox) {
+      args.push('--settings', claudeSandboxSettings(opts.sandbox));
     }
     if (opts.resume && opts.resume.length > 0) {
       // Continue a previously-captured session instead of a cold start (§5.3).
@@ -577,7 +581,10 @@ export class ClaudeAdapter implements AgentAdapter {
     // resolved model is a deliberate, visible choice; the CLI default is not.
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--effort', opts.effort);
-    if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
+    // AC-30: a headless claude run has no enforced sandbox, so `bypassPermissions`
+    // is refused (logged); every other mode passes through.
+    const permissionMode = refuseUnsandboxedBypass('claude', opts.permissionMode, opts.debug);
+    if (permissionMode) args.push('--permission-mode', permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }
