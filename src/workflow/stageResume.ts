@@ -31,6 +31,10 @@ import { openGatingSubtasks } from './subtaskGate.js';
  *   confirm click", and once it's gone the merge click, the PR sweep and a
  *   teammate's merge on GitHub all lose the only signal that lets them
  *   recognize this ticket as theirs to settle.
+ * - the block's kind is `usage-limit` — the account is out of quota/allowance
+ *   (K11), so a retry would re-run the exhausted model and fail again. The
+ *   recovery is the user picking another agent/model (D159) or waiting for the
+ *   limit to reset, so a generic Resume only no-ops.
  *
  * An `approach-graph-failed` block returns the typed `graph-recovery` action
  * instead of clearing WHILE its run is still blocked: the graph needs
