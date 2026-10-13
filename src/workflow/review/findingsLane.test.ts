@@ -267,6 +267,21 @@ describe('runFindingsLane', () => {
     expect(seenTimeout).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
   });
 
+  it('runs under the gate sandbox policy', async () => {
+    let seen: { policy?: string } = {};
+    const runHeadless = vi.fn(async (headlessOpts: { policy?: string }) => {
+      seen = headlessOpts;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    expect(seen.policy).toBe('gate');
+  });
+
   it('honors an explicit headless deadline from the caller', async () => {
     let seenTimeout: number | undefined;
     const runHeadless = vi.fn(async (headlessOpts: { timeoutMs?: number }) => {

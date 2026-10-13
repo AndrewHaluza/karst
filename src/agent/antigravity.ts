@@ -206,6 +206,20 @@ export class AntigravityAdapter implements AgentAdapter {
       'agy manages MCP servers only through its own `agy mcp` state, with no per-launch ' +
         'config flag; run `karst mcp install` to register the server at user scope',
     ),
+    headlessPolicy: unsupported(
+      'agy has no sandbox or per-run permission flag: a headless `-p` run takes only ' +
+        '`--dangerously-skip-permissions`, and its rules live in the user-global settings file ' +
+        'karst never writes (AC-17); the gate roles rely on the prompt isolation rule here',
+    ),
+    interactiveGatePolicy: unsupported(
+      'agy has no sandbox or per-launch permission flag (`--mode` is accept-edits | plan only) ' +
+        'and its rules live in the user-global settings file karst never writes (AC-17); an ' +
+        'unattended graph node relies on the prompt isolation rule here',
+    ),
+    interactiveAttendedPolicy: unsupported(
+      'agy has no deny list or per-launch permission flag, and its rules live in the ' +
+        'user-global settings file karst never writes (AC-17); the instruction layer carries the rule',
+    ),
     processKillDeny: unsupported(
       'agy has no deny list: its command rules are `permissions.allow` in the user-global ' +
         '~/.gemini/antigravity-cli/settings.json, which karst never writes (AC-17); a rule ' +

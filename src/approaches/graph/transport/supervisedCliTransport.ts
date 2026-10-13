@@ -154,7 +154,10 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         request.cwd,
         deps.debug ? { debug: deps.debug } : undefined,
       );
+      // Every graph launch is unattended (D170): the karst-owned gate sandbox is
+      // the default, scoped to the node workspace. A caller may pass its own.
       const built = request.adapter.buildInteractiveCommand({
+        policy: 'gate',
         ...request.interactive,
         cwd: request.cwd,
       });

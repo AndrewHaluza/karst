@@ -263,6 +263,9 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const cmd = adapter.buildInteractiveCommand({
         cwd,
         readOnly: true,
+        // Read-only already blocks edits; `attended` adds the explicit kill and
+        // home-config denies on top (D170).
+        policy: 'attended',
         addDirs: planningAddDirs(manifest),
         ...(kickoff.length > 0 ? { initialPrompt: kickoff } : {}),
         ...(adapter.instructions && adapter.instructions.interactive !== 'n/a'

@@ -39,7 +39,7 @@ import {
   reconcileRequirementFindings,
   targetHasChanges,
 } from './requirements.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, reviewBlockingSeverityRule } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, GATE_ISOLATION_RULE, reviewBlockingSeverityRule } from '../../agent/promptText.js';
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
@@ -248,6 +248,8 @@ export function buildFindingsPrompt(
     // Never replaced by `instructions`, like the scope block above.
     ...conformance,
     ``,
+    GATE_ISOLATION_RULE,
+    ``,
     OUTPUT_RULES_HEADING,
     ...OUTPUT_RULES_BASE,
     `- No changes worth reporting → output exactly [].`,
@@ -392,6 +394,7 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           effort: opts.process?.assignment.effort,
           signal: opts.signal,
           timeoutMs: opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS,
+          policy: 'gate',
           onOutput: opts.onOutput,
           // Prompt 09: request the core's native structured output when it
           // declares the surface supported (claude `--json-schema`, codex

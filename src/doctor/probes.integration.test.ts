@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as p from './probes.js';
@@ -90,5 +90,39 @@ describe('doctor probes (real git)', () => {
     expect(p.linkExists(dangling)).toBe(true);
     expect(p.readLink(dangling)).toBe(join(root, 'gone'));
     expect(p.linkExists(join(root, 'none'))).toBe(false);
+  });
+
+  it('reads maxUserWatches from a proc file or returns undefined', () => {
+    const procFile = join(root, 'max_user_watches');
+    writeFileSync(procFile, '524288\n');
+    expect(p.maxUserWatches(procFile)).toBe(524288);
+    expect(p.maxUserWatches(join(root, 'nonexistent'))).toBeUndefined();
+
+    const invalidFile = join(root, 'invalid_watches');
+    writeFileSync(invalidFile, 'not-a-number');
+    expect(p.maxUserWatches(invalidFile)).toBeUndefined();
+  });
+
+  it('sums inotify watches across the uid\'s processes, skipping other uids and non-pid dirs', () => {
+    const proc = join(root, 'proc');
+    const wd = (n: number) => Array.from({ length: n }, (_, k) => `inotify wd:${k + 1} ino:1 sdev:1 mask:1`).join('\n') + '\n';
+    const mk = (pid: string, fds: Record<string, string>) => {
+      const d = join(proc, pid, 'fdinfo');
+      mkdirSync(d, { recursive: true });
+      for (const [fd, c] of Object.entries(fds)) writeFileSync(join(d, fd), c);
+    };
+    mk('100', { '0': 'pos:\t0\n', '3': wd(3) });
+    mk('200', { '4': wd(2) });
+    mk('self', { '3': wd(50) });
+    const uid = process.getuid!();
+    expect(p.countInotifyWatches(proc, uid)).toBe(5);
+    expect(p.countInotifyWatches(proc, uid + 1)).toBeUndefined();
+    expect(p.countInotifyWatches(join(root, 'nonexistent_proc'), uid)).toBeUndefined();
+  });
+
+  it('returns undefined when no fdinfo is readable', () => {
+    const proc = join(root, 'proc-empty');
+    mkdirSync(join(proc, '300'), { recursive: true });
+    expect(p.countInotifyWatches(proc, process.getuid!())).toBeUndefined();
   });
 });

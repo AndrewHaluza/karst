@@ -21,7 +21,8 @@ import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
-import { OpencodeAdapter, opencodeLaunchPermission } from './opencode.js';
+import { OpencodeAdapter, launchProfile, opencodeLaunchPermission } from './opencode.js';
+import type { InteractivePolicy } from './gatePolicy.js';
 import {
   opencode2Command,
   opencode2Config,
@@ -293,6 +294,11 @@ export function buildOpencode2ConfigContent(opts: {
   headless: boolean;
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
+  /** Headless gate profile cwd (`gatePolicy.ts`); absent → ordinary permission. */
+  gateCwd?: string | undefined;
+  /** Interactive launch profile (`gatePolicy.ts`); `gate` needs `cwd`. */
+  policy?: InteractivePolicy | undefined;
+  cwd?: string | undefined;
   /** The `mcp` section when a launch-time karst MCP config was supplied. */
   mcp?: Record<string, unknown> | undefined;
 }): string {
@@ -301,7 +307,11 @@ export function buildOpencode2ConfigContent(opts: {
     config['model'] = opts.effort ? `${opts.model}#${opts.effort}` : opts.model;
   }
   if (opts.headless) config['snapshot'] = false;
-  config['permission'] = opencodeLaunchPermission(opts);
+  config['permission'] = opencodeLaunchPermission({
+    ...opts,
+    ...(opts.policy && opts.cwd ? launchProfile(opts.policy, opts.cwd) : {}),
+    ...(opts.gateCwd ? { gate: { cwd: opts.gateCwd } } : {}),
+  });
   if (opts.mcp && Object.keys(opts.mcp).length > 0) config['mcp'] = opts.mcp;
   return JSON.stringify(config);
 }
@@ -371,6 +381,9 @@ export class Opencode2Adapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   readonly instructions: InstructionDelivery = {
@@ -423,6 +436,8 @@ export class Opencode2Adapter implements AgentAdapter {
         headless: false,
         readOnly: opts.readOnly,
         addDirs: opts.addDirs,
+        policy: opts.policy,
+        cwd: opts.cwd,
         ...(mcp ? { mcp } : {}),
       }),
     };
@@ -562,7 +577,10 @@ export class Opencode2Adapter implements AgentAdapter {
         // to KARST_* keys. The prompt still rides stdin.
         isolationEnv: {
           ...opencode2IsolationEnv(opencode2Config().home),
-          OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({ headless: true }),
+          OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
+            headless: true,
+            ...(opts.policy === 'gate' ? { gateCwd: opts.cwd } : {}),
+          }),
           // A headless `run` may discover a plugin an earlier interactive
           // session left in the worktree; the marker makes setup() return
           // immediately so the run emits no interactive hooks.

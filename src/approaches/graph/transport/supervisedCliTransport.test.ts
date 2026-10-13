@@ -173,6 +173,20 @@ describe('SupervisedCLITransport', () => {
     expect(order).toEqual(['trust', 'build']);
   });
 
+  it('launches every graph session under the unattended gate policy', async () => {
+    const h = harness();
+    const seen: Array<{ policy?: string; cwd: string }> = [];
+    const adapter = {
+      buildInteractiveCommand: (o: { policy?: string; cwd: string }) => {
+        seen.push(o);
+        return { command: 'claude', args: [], env: {} };
+      },
+    } as unknown as AgentAdapter;
+    const transport = createSupervisedCliTransport(h.deps);
+    await transport.start({ ...LAUNCH, adapter } as SupervisedLaunchRequest);
+    expect(seen).toEqual([expect.objectContaining({ policy: 'gate', cwd: '/wt/n1' })]);
+  });
+
   it('still launches when the trust hook meets a faulting .git (ELOOP)', async () => {
     const h = harness(4242);
     const cwd = mkdtempSync(join(tmpdir(), 'karst-eloop-'));

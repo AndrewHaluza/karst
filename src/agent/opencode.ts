@@ -45,6 +45,13 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { tmpdir } from 'node:os';
+import {
+  gitCommonDirRoots,
+  opencodeAttendedEdit,
+  opencodeGatePermission,
+  type InteractivePolicy,
+} from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -970,6 +977,9 @@ export class OpencodeAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   /**
@@ -1065,7 +1075,9 @@ export class OpencodeAdapter implements AgentAdapter {
     } else if (kickoff) {
       args.push('--prompt', kickoff);
     }
-    env.OPENCODE_PERMISSION = JSON.stringify(opencodeLaunchPermission(opts));
+    env.OPENCODE_PERMISSION = JSON.stringify(
+      opencodeLaunchPermission({ ...opts, ...launchProfile(opts.policy, opts.cwd) }),
+    );
     // v1 reads the same per-launch config blob v2 does (verified on 1.18.35:
     // `opencode mcp list` shows a server delivered only through this env).
     if (opts.mcpConfigPath) {
@@ -1386,7 +1398,11 @@ export class OpencodeAdapter implements AgentAdapter {
         // ONLY the permission — it never overrides HOME/XDG, so it cannot create
         // the nested-claude updater trap opencode2's isolation env guards
         // (AC-27); opencode2 remains the only core that rebases its state dirs.
-        isolationEnv: { OPENCODE_PERMISSION: JSON.stringify(opencodeLaunchPermission({})) },
+        isolationEnv: {
+          OPENCODE_PERMISSION: JSON.stringify(
+            opencodeLaunchPermission(opts.policy === 'gate' ? { gate: { cwd: opts.cwd } } : {}),
+          ),
+        },
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
       });
     } finally {
@@ -1453,16 +1469,39 @@ export class OpencodeAdapter implements AgentAdapter {
 export function opencodeLaunchPermission(opts: {
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
+  /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
+  gate?: { cwd: string } | undefined;
+  /** Interactive `attended` profile: deny-only edit rules for the operator's home config. */
+  attended?: boolean | undefined;
 }): Record<string, unknown> {
   const dirs = opts.addDirs ?? [];
   const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
+  if (opts.gate) {
+    const gate = opencodeGatePermission(
+      opts.gate.cwd,
+      tmpdir(),
+      undefined,
+      undefined,
+      [...dirs, ...gitCommonDirRoots(opts.gate.cwd)],
+    );
+    return { ...gate, ...(dirs.length > 0 ? { external_directory: external } : {}) };
+  }
   const killDeny = opencodeProcessKillDeny();
   return {
-    ...(opts.readOnly ? { edit: 'deny' } : {}),
+    ...(opts.readOnly ? { edit: 'deny' } : opts.attended ? { edit: opencodeAttendedEdit() } : {}),
     // `bash` as an object is last-match-wins: readOnly's catch-all `*` asks
     // first, then a matching kill pattern denies. Non-readOnly keeps just the
     // deny patterns, so every other command keeps opencode's permissive default.
     bash: opts.readOnly ? { '*': 'ask', ...killDeny } : killDeny,
     ...(dirs.length > 0 ? { external_directory: external } : {}),
   };
+}
+
+/** The `opencodeLaunchPermission` profile fields for an interactive `policy`. */
+export function launchProfile(
+  policy: InteractivePolicy | undefined,
+  cwd: string,
+): { gate?: { cwd: string }; attended?: boolean } {
+  if (policy === 'gate') return { gate: { cwd } };
+  return policy === 'attended' ? { attended: true } : {};
 }

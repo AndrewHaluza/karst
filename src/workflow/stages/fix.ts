@@ -4,6 +4,7 @@ import type { AgentAdapter } from '../../agent/adapter.js';
 import { getTicket } from '../../store/tickets.js';
 import { recordUsageLimitOpPark } from '../../store/usageLimitParks.js';
 import { transition } from '../machine.js';
+import { GATE_ISOLATION_RULE } from '../../agent/promptText.js';
 
 /**
  * Fix stage (§T4.4, §11, §5.3). Resumes the ticket's captured session so the
@@ -55,7 +56,8 @@ export async function runFix(
   opts.debug?.(`[driver] fix ticket ${opts.ticketId}: running headless resume`);
   try {
     await adapter.runHeadless({
-      prompt: 'Address the failing review gates, then stop.',
+      prompt: `Address the failing review gates, then stop. ${GATE_ISOLATION_RULE}`,
+      policy: 'gate',
       cwd: opts.cwd,
       resume: ticket.sessionId,
       tracking: { callSite: 'fix-resume', ticketId: opts.ticketId },

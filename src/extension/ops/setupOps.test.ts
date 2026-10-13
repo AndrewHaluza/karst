@@ -103,6 +103,13 @@ describe('setup ops', () => {
     expect(created[0]!.shown).toBe(1);
   });
 
+  it('launches the setup session under the attended policy (kill + home-config denies)', async () => {
+    await createSetupOps(deps).create();
+    const args = created[0]!.opts.shellArgs.join(' ');
+    expect(args).toContain('Bash(pkill *)');
+    expect(args).toContain('.claude.json');
+  });
+
   it('adds the workspace root and every enabled repo as a readable dir', async () => {
     await createSetupOps(deps).create();
     const args = created[0]!.opts.shellArgs;

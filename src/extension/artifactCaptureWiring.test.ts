@@ -45,18 +45,57 @@ describe('wireArtifactCapture', () => {
       .run();
   };
 
+  const addWorktreeOf = (id: number, stage: string | null, archived: boolean) => {
+    store.db
+      .prepare(`INSERT INTO tickets (id, title, project_id, stage_current, archived_at) VALUES (?, 't', 1, ?, ?)`)
+      .run(id, stage, archived ? 'now' : null);
+    store.db
+      .prepare(`INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, '/r', ?, 'b', 'develop')`)
+      .run(id, `/wt${id}`);
+  };
+
+  it('watches only the gsd prefix dir, not the worktree root', () => {
+    addWorktree();
+    const w = wire();
+    w.start();
+    expect(watched).toEqual(['/wt/.planning']);
+    w.dispose();
+  });
+
+  it('skips a done or archived ticket so its watch closes', () => {
+    addWorktree();
+    const w = wire();
+    w.start();
+    expect(watched).toEqual(['/wt/.planning']);
+    store.db.prepare(`UPDATE tickets SET stage_current = 'done' WHERE id = 5`).run();
+    vi.advanceTimersByTime(WATCHER_SYNC_MS);
+    expect(closed).toEqual(['/wt/.planning']); // the dead worktree's watch closed
+    expect(watched).toEqual(['/wt/.planning']); // and was not re-opened
+    w.dispose();
+  });
+
+  it('never watches a done or archived ticket worktree', () => {
+    addWorktreeOf(6, 'done', false);
+    addWorktreeOf(7, 'impl', true);
+    addWorktreeOf(8, 'impl', false);
+    const w = wire();
+    w.start();
+    expect(watched).toEqual(['/wt8/.planning']);
+    w.dispose();
+  });
+
   it('reconciles watchers on an interval and stops on dispose', () => {
     const w = wire();
     expect(watched).toEqual([]);
     addWorktree();
     vi.advanceTimersByTime(WATCHER_SYNC_MS);
-    expect(watched).toEqual(['/wt']);
+    expect(watched).toEqual(['/wt/.planning']);
     w.dispose();
-    expect(closed).toEqual(['/wt']);
+    expect(closed).toEqual(['/wt/.planning']);
     store.db.prepare(`DELETE FROM worktrees`).run();
     addWorktree2();
     vi.advanceTimersByTime(WATCHER_SYNC_MS * 2);
-    expect(watched).toEqual(['/wt']); // interval cleared
+    expect(watched).toEqual(['/wt/.planning']); // interval cleared
     function addWorktree2() {
       store.db
         .prepare(`INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (5, '/r', '/wt2', 'b', 'develop')`)
@@ -69,7 +108,26 @@ describe('wireArtifactCapture', () => {
     const w = wire();
     expect(watched).toEqual([]);
     w.start();
-    expect(watched).toEqual(['/wt']);
+    expect(watched).toEqual(['/wt/.planning']);
+    w.dispose();
+  });
+
+  it('wires watch errors to the injected debug (ENOSPC names the inotify limit)', () => {
+    addWorktree();
+    const errors: Array<(e: unknown) => void> = [];
+    const errorWatch = ((_dir: string) => ({
+      on: (event: string, cb: (e: unknown) => void) => { if (event === 'error') errors.push(cb); },
+      close: () => {},
+    })) as unknown as typeof watch;
+    const debug = vi.fn();
+    const w = wireArtifactCapture({
+      store, globalStorageRoot: '/nonexistent-gs', projectId: () => 1,
+      manifest: () => ({ approaches: [{ id: 'gsd' }] }) as never,
+      git, debug, fsWatch: errorWatch,
+    });
+    w.start();
+    errors[0]!({ code: 'ENOSPC' });
+    expect(debug.mock.calls.flat().join('\n')).toContain('inotify limit reached');
     w.dispose();
   });
 
