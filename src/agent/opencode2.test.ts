@@ -35,6 +35,7 @@ import {
 } from './opencode2Bridge.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
+import { usageFromError } from './tokenUsage.js';
 import type { HeadlessSpawnOptions } from './headlessSpawn.js';
 
 const fixture = (name: string): string =>
@@ -383,6 +384,25 @@ describe('Opencode2Adapter headless argv/env', () => {
     await expect(adapter.runHeadless({ prompt: 'go', cwd: '/wt' })).rejects.toThrow(
       /variant unavailable/i,
     );
+  });
+
+  // T663: a run the spawner KILLED (deadline/Stop) never reaches the exit-code
+  // path, so its step_finish usage would be lost and the meter would estimate.
+  // The adapter parses its own counts out of the partial stdout the spawner
+  // carries, so a runaway's real spend reaches the ledger and the budget.
+  it('attaches the streamed usage when the spawner kills the run', async () => {
+    const killed = Object.assign(new Error('headless agent run timed out after 1000ms'), {
+      name: 'TimeoutError',
+    });
+    Object.defineProperty(killed, 'capturedStdout', { value: RUN_TOOL_AUTO, enumerable: false });
+    const adapter = new Opencode2Adapter(async () => {
+      throw killed;
+    });
+    const error = await adapter
+      .runHeadless({ prompt: 'go', cwd: '/wt' })
+      .catch((e: unknown) => e);
+    expect(usageFromError(error)).toEqual(parseOpencode2JsonlUsage(RUN_TOOL_AUTO));
+    expect(usageFromError(error)?.inputTokens).toBeGreaterThan(0);
   });
 
   it('resolveResume drops a missing id and keeps a live one', async () => {

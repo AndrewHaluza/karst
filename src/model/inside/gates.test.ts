@@ -622,6 +622,29 @@ describe('uatProcesses', () => {
     expect(tester.detail).toContain('verifier failed');
   });
 
+  it('renders a partial Tester run with its named cause, never as a clean pass (T663)', () => {
+    const partial = uatProcesses(
+      qualityInput({
+        processRuns: [
+          processRun({
+            status: 'failed',
+            resultKind: 'partial',
+            failureDetail: 'tester exceeded budget (827.7k tok) — partial results recorded',
+          }),
+        ],
+      }),
+    ).find((p) => p.id === 'tester')!;
+    expect(partial.status).toBe('fail');
+    expect(partial.detail).toBe('tester exceeded budget (827.7k tok) — partial results recorded');
+  });
+
+  it('a partial Tester run with no stored detail still states that it did not finish (T663)', () => {
+    const partial = uatProcesses(
+      qualityInput({ processRuns: [processRun({ status: 'failed', resultKind: 'partial' })] }),
+    ).find((p) => p.id === 'tester')!;
+    expect(partial.detail).toBe('partial — the run did not finish');
+  });
+
   it('reads an execution crash as failed and interrupts as note', () => {
     const crashed = uatProcesses(
       qualityInput({
