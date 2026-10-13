@@ -292,6 +292,15 @@ export function headlessFailureError(failure: HeadlessFailure): Error {
   return new Error(describeHeadlessFailure(failure));
 }
 
+/**
+ * The one-line `blocked_reason` a usage-limit park carries (K11): which core and
+ * model exhausted. Kept here so the review/UAT stages and the op parks cannot
+ * drift on the wording.
+ */
+export function usageLimitReason(provider: string, model?: string | null): string {
+  return `usage limit — ${provider}${model ? ` ${model}` : ''}`;
+}
+
 /** agy's global settings file — the only place its permission allow-rules live. */
 const AGY_SETTINGS_HINT = '~/.gemini/antigravity-cli/settings.json';
 

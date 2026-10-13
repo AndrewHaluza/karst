@@ -8,6 +8,7 @@ import {
   isUsageLimitFailure,
   QUOTA_PHRASES,
   UsageLimitError,
+  usageLimitReason,
 } from './cliFailure.js';
 
 /** Verbatim `claude -p --output-format json` envelope for a 429 (from 869ea499g). */
@@ -304,6 +305,12 @@ describe('QUOTA_PHRASES / isQuotaExhausted / headlessFailureError', () => {
     });
     expect(error).not.toBeInstanceOf(UsageLimitError);
     expect(error.message).toBe('Codex failed (exit 1): boom');
+  });
+
+  it('names the core and model in the park reason (K11)', () => {
+    expect(usageLimitReason('claude', 'claude-sonnet-5')).toBe('usage limit — claude claude-sonnet-5');
+    expect(usageLimitReason('codex')).toBe('usage limit — codex');
+    expect(usageLimitReason('codex', null)).toBe('usage limit — codex');
   });
 
   it('returns a plain Error for a bare 429 with no quota wording', () => {
