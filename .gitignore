@@ -103,3 +103,6 @@ tests/visual/.layout-report.json
 tests/visual/.layout-shards/
 test-results/
 .vscode-test/
+
+# UAT probe evidence (scripts/uat-host --out)
+.uat-out/
