@@ -14,9 +14,14 @@ export interface Snapshot {
   notifications: Array<{ level: string; message: string }>;
   logTail: string[];
 }
+/** A wait that cannot change from a ticket/stage row must not read the store every poll. */
+export interface SnapshotScope {
+  tickets?: boolean;
+}
 export interface ProbeHost {
   execute(command: string, args: unknown[]): Promise<unknown>;
-  snapshot(): Snapshot;
+  /** No scope means the full snapshot (evidence); `tickets: false` skips the store read. */
+  snapshot(scope?: SnapshotScope): Snapshot;
 }
 export type StepStatus = 'pass' | 'fail' | 'timeout';
 export interface StepResult {
@@ -27,8 +32,8 @@ export interface StepResult {
 }
 export interface RunOptions {
   host: ProbeHost;
-  /** Persist one step's evidence; the runner never touches the filesystem. */
-  writeEvidence(index: number, evidence: unknown): void;
+  /** Persist one step's evidence; the runner never touches the filesystem. May be async. */
+  writeEvidence(index: number, evidence: unknown): void | Promise<void>;
   /** Hard cap for the whole script, so a wedged host can never hang the run. */
   totalTimeoutMs?: number;
   pollMs?: number;
@@ -71,8 +76,10 @@ async function runStep(step: Step, opts: RunOptions, budgetMs: number): Promise<
     }
   }
   const deadline = Date.now() + timeoutMs;
+  // Only a ticketStage wait can be moved by the store, so only it pays for the read.
+  const scope: SnapshotScope = { tickets: 'ticketStage' in step.for };
   for (;;) {
-    if (conditionMet(step.for, opts.host.snapshot())) return { status: 'pass' };
+    if (conditionMet(step.for, opts.host.snapshot(scope))) return { status: 'pass' };
     if (Date.now() >= deadline) return { status: 'timeout', detail: `wait ${stringify(step.for)} not met in ${timeoutMs}ms` };
     await sleep(opts.pollMs ?? 100);
   }
@@ -88,7 +95,7 @@ export async function runSteps(steps: Step[], opts: RunOptions): Promise<StepRes
       ? { status: 'timeout' as const, detail: 'script total timeout exceeded' }
       : await runStep(step, opts, budget);
     const result: StepResult = { index, type: step.type, ...outcome };
-    opts.writeEvidence(index, { step, result, snapshot: opts.host.snapshot() });
+    await opts.writeEvidence(index, { step, result, snapshot: opts.host.snapshot() });
     results.push(result);
     if (result.status !== 'pass') break;
   }

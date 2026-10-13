@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { probeEnabled } from './gate.js';
 import { ProbeRecorder, normalizeLogLine } from './recorder.js';
-import { conditionMet, runSteps, type ProbeHost, type Snapshot } from './runner.js';
+import { conditionMet, runSteps, type ProbeHost, type Snapshot, type SnapshotScope } from './runner.js';
 import { parseSteps } from './steps.js';
 
 const empty = (): Snapshot => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [] });
@@ -103,7 +103,7 @@ describe('runSteps', () => {
   });
   const run = (steps: unknown, host: ProbeHost, extra = {}) => {
     const evidence: Array<[number, unknown]> = [];
-    return runSteps(parseSteps(steps), { host, writeEvidence: (i, e) => evidence.push([i, e]), pollMs: 5, ...extra })
+    return runSteps(parseSteps(steps), { host, writeEvidence: (i, e) => { evidence.push([i, e]); }, pollMs: 5, ...extra })
       .then((results) => ({ results, evidence }));
   };
 
@@ -116,6 +116,18 @@ describe('runSteps', () => {
     expect(calls).toEqual([['c', [1]]]);
     expect(results.map((r) => r.status)).toEqual(['pass', 'pass', 'pass']);
     expect(evidence.map(([i]) => i)).toEqual([0, 1, 2]);
+  });
+  it('scopes the poll snapshot to what the wait needs, but takes a full snapshot for evidence', async () => {
+    const scopes: Array<SnapshotScope | undefined> = [];
+    await run([{ type: 'wait', for: { log: 'x' } }],
+      mkHost({ snapshot: (scope) => { scopes.push(scope); return { ...empty(), logTail: ['x'] }; } }));
+    expect(scopes[0]).toEqual({ tickets: false });
+    expect(scopes.at(-1)).toBeUndefined(); // evidence snapshot is unscoped (full)
+
+    const ticketScopes: Array<SnapshotScope | undefined> = [];
+    await run([{ type: 'wait', for: { ticketStage: { key: 'A', stage: 'impl' } }, timeoutMs: 20 }],
+      mkHost({ snapshot: (scope) => { ticketScopes.push(scope); return empty(); } }));
+    expect(ticketScopes).toContainEqual({ tickets: true });
   });
   it('reports a throwing command as fail and stops', async () => {
     const { results, evidence } = await run(

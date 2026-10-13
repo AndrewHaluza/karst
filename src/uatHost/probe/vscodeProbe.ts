@@ -91,10 +91,15 @@ export function registerProbeCommand(
   if (!rec) return;
   const host: ProbeHost = {
     execute: async (command, args) => { await vscode.commands.executeCommand(command, ...args); },
-    snapshot: () => {
+    snapshot: (scope) => {
       const view = rec.view();
       const sidebar = view.webviews.find((w) => w.id.startsWith(VIEW_PREFIX));
-      return { tickets: readTickets(store), sidebar: { lastMessage: sidebar?.lastMessage ?? null }, ...view };
+      // A wait that is not about tickets must not read the store on every poll.
+      return {
+        tickets: scope?.tickets === false ? [] : readTickets(store),
+        sidebar: { lastMessage: sidebar?.lastMessage ?? null },
+        ...view,
+      };
     },
   };
   context.subscriptions.push(
