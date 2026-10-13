@@ -181,6 +181,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // logging off".
     debug: manifest.debug,
     // Optional: written when set, dropped when cleared, so it falls back to
+    // "sessions stay prompted" (AC-30 opt-in).
+    agentSandbox: manifest.agentSandbox,
+    // Optional: written when set, dropped when cleared, so it falls back to
     // "closing a ticket leaves its done terminals alone".
     closeDoneTerminalsWithTicket: manifest.closeDoneTerminalsWithTicket,
     // Optional: written when set, dropped when cleared, so it falls back to

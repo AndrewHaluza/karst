@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
+import { formatSandboxMode, launchSandbox } from '../agent/sandbox.js';
 import { mcpServersConfig, type McpConnection } from '../agent/mcpConfig.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import {
@@ -167,6 +168,10 @@ export interface OpenSessionOptions {
   instructions?: SessionInstructions;
   /** Injected debug sink (no global logger in this vscode-free module). */
   debug?: (message: string) => void;
+  /** The manifest's `agentSandbox` opt-in (AC-30). Absent → prompted. Host-internal. */
+  sandbox?: boolean;
+  /** Receives the launch's effective sandbox mode line (`sandboxed …` / `prompted (<reason>)`). */
+  onSandboxMode?: (line: string) => void;
 }
 
 /**
@@ -548,6 +553,10 @@ export class SessionManager {
     const terminalName = naming?.name ?? `Karst: ${label?.key ?? formatId('ticket', ticketId)}`;
     const hookChannel = this.hookChannelFor(ticketId);
     const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
+    // AC-30: the core's own sandbox only when it can be enforced; otherwise the
+    // launch fails closed to prompted mode and the reason is reported.
+    const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true, worktreePath);
+    options.onSandboxMode?.(formatSandboxMode(sandbox));
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
       hookChannel,
@@ -561,6 +570,7 @@ export class SessionManager {
         ? { instructions: options.instructions }
         : {}),
       ...(mcpConfigPath ? { mcpConfigPath } : {}),
+      ...(sandbox.mode === 'sandboxed' ? { sandbox: sandbox.policy } : {}),
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 

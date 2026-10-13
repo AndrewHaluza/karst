@@ -457,6 +457,18 @@ function validateDebug(raw: unknown): boolean | undefined {
 }
 
 /**
+ * Parse `agentSandbox` (default undefined → sessions stay prompted). Must be a
+ * boolean when present, like `debug` — a typo must never switch it on.
+ */
+function validateAgentSandbox(raw: unknown): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'boolean') {
+    throw new ManifestError('agentSandbox must be a boolean');
+  }
+  return raw;
+}
+
+/**
  * Parse `closeDoneTerminalsWithTicket` (default undefined → closing a ticket
  * leaves its done terminals alone). Must be a boolean when present, like
  * `debug` — a string `"true"` is a YAML typo, and a non-boolean must fail
@@ -697,6 +709,7 @@ export function validateManifest(raw: unknown): Manifest {
     artifacts: validateArtifacts(raw.artifacts),
     subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),
+    agentSandbox: validateAgentSandbox(raw.agentSandbox),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),

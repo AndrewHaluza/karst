@@ -899,6 +899,14 @@ export interface Manifest {
    */
   debug?: boolean;
   /**
+   * Run interactive agent sessions inside the core's OWN OS-level sandbox
+   * (`arch:AC-30`): writes limited to the ticket worktree, network to provider
+   * APIs + package registries, prompts relaxed only inside it. Opt-in, default
+   * off. A core or platform that cannot enforce it fails closed to today's
+   * prompted behaviour; the effective mode is logged per launch.
+   */
+  agentSandbox?: boolean;
+  /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"
    * suffix. Defaults to off: dead tabs stay until the user closes them, and a

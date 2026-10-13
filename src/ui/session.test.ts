@@ -1,9 +1,11 @@
 import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, it, expect, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeAdapter } from '../agent/claude.js';
+import { CodexAdapter } from '../agent/codex.js';
+import { OpencodeAdapter } from '../agent/opencode.js';
 import {
   continueSessionInBackground,
   KARST_LAUNCH_ENV,
@@ -235,6 +237,55 @@ describe('SessionManager', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe('provider-native sandbox (AC-30)', () => {
+    const open = (adapter: AgentAdapter, cwd: string, extra: Record<string, unknown>) => {
+      const { host, terminals } = fakeHost();
+      const lines: string[] = [];
+      const configDir = mkdtempSync(join(tmpdir(), 'karst-sbx-cfg-'));
+      try {
+        const mgr = new DefaultedSessionManager(host, () => ({ ...channel, configDir }));
+        mgr.openSession(adapter, 7, cwd, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          onSandboxMode: (line: string) => lines.push(line),
+          ...extra,
+        });
+      } finally {
+        rmSync(configDir, { recursive: true, force: true });
+      }
+      return { args: terminals[0]!.shellArgs, lines };
+    };
+
+    it.runIf(process.platform !== 'win32')('sandboxes a supporting core with the worktree and its git dir writable', () => {
+      const wt = mkdtempSync(join(tmpdir(), 'karst-sbx-wt-'));
+      try {
+        writeFileSync(join(wt, '.git'), 'gitdir: /repo/.git/worktrees/x\n');
+        const { args, lines } = open(new CodexAdapter(), wt, { sandbox: true });
+        expect(args).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write', '--ask-for-approval', 'on-request']));
+        expect(args).toContain('sandbox_workspace_write.writable_roots=["/repo/.git/worktrees/x"]');
+        expect(lines).toEqual([`sandboxed (write: ${wt}, /repo/.git/worktrees/x)`]);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed on a core that cannot sandbox: prompted, reason logged, no policy', () => {
+      const wt = mkdtempSync(join(tmpdir(), 'karst-oc-wt-'));
+      try {
+        const { args, lines } = open(new OpencodeAdapter(), wt, { sandbox: true });
+        expect(args.join(' ')).not.toMatch(/sandbox|--auto|dangerously/);
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatch(/^prompted \(core cannot sandbox: opencode has no OS-level sandbox/);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    it('stays prompted and says so when the manifest did not opt in', () => {
+      const { args, lines } = open(new CodexAdapter(), '/wt/a', {});
+      expect(args).not.toContain('--sandbox');
+      expect(lines).toEqual(['prompted (sandbox not enabled (agentSandbox: false))']);
+    });
   });
 
   it('three reloads retain one provider-neutral restored terminal without relaunching', () => {

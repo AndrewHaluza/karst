@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   SANDBOX_NETWORK_ALLOWLIST,
   formatSandboxMode,
+  launchSandbox,
   refuseUnsandboxedBypass,
   resolveSandbox,
   worktreeGitCommonDir,
@@ -98,5 +99,33 @@ describe('worktreeGitCommonDir', () => {
 
   it('uses the gitdir itself when there is no commondir file', () => {
     expect(worktreeGitCommonDir('/wt', (p) => (p === '/wt/.git' ? 'gitdir: /g' : read(p)))).toBe('/g');
+  });
+});
+
+describe('launchSandbox', () => {
+  const gitFile = (p: string): string => {
+    if (p === '/wt/.git') return 'gitdir: /repo/.git';
+    throw new Error('ENOENT');
+  };
+
+  it('treats an adapter with no declared surface as unsupported', () => {
+    const e = launchSandbox(undefined, true, '/wt', 'darwin', gitFile);
+    expect(e).toEqual({
+      mode: 'prompted',
+      reason: 'core cannot sandbox: the adapter declares no sandboxInteractive surface',
+    });
+  });
+
+  it('adds the worktree git dir when sandboxing', () => {
+    const e = launchSandbox(SUPPORTED, true, '/wt', 'linux', gitFile);
+    expect(e.mode === 'sandboxed' && e.policy.writableRoots).toEqual(['/wt', '/repo/.git']);
+  });
+
+  it('never reads the disk when the sandbox is not requested', () => {
+    const read = (): string => {
+      throw new Error('must not read');
+    };
+    expect(launchSandbox(SUPPORTED, false, '/wt', 'linux', read).mode).toBe('prompted');
+    expect(launchSandbox(NO, true, '/wt', 'linux', read).mode).toBe('prompted');
   });
 });

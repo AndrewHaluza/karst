@@ -6,8 +6,9 @@
  * unsupported or unenforceable sandbox resolves to `prompted` — today's
  * behaviour — with the reason, never to host + bypass flags.
  */
+import { readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
-import type { SurfaceSupport } from './surfaces.js';
+import { unsupported, type SurfaceSupport } from './surfaces.js';
 
 /** The headless permission mode that turns prompts off (a bypass on an unsandboxed run). */
 export const BYPASS_PERMISSION_MODE = 'bypassPermissions';
@@ -108,4 +109,21 @@ export function worktreeGitCommonDir(cwd: string, readFile: (path: string) => st
     // No `commondir` file: the gitdir IS the shared dir.
     return gitDir;
   }
+}
+
+/**
+ * The launch-time resolution: the adapter's declared surface (a fake adapter
+ * with none counts as unsupported), the host platform, and the worktree's
+ * shared git dir read from disk.
+ */
+export function launchSandbox(
+  surface: SurfaceSupport | undefined,
+  requested: boolean,
+  cwd: string,
+  platform: string = process.platform,
+  readFile: (path: string) => string = (path) => readFileSync(path, 'utf8'),
+): EffectiveSandbox {
+  const declared = surface ?? unsupported('the adapter declares no sandboxInteractive surface');
+  const gitCommonDir = requested && declared.supported ? worktreeGitCommonDir(cwd, readFile) : undefined;
+  return resolveSandbox({ requested, surface: declared, platform, cwd, ...(gitCommonDir ? { gitCommonDir } : {}) });
 }
