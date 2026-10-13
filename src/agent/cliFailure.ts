@@ -39,16 +39,22 @@ export const LIMIT_PHRASES =
 
 /**
  * The QUOTA subset of `LIMIT_PHRASES`: the wording that means the ACCOUNT is
- * out of allowance for a while — the user must raise a limit, buy credit or
- * wait for a reset. Deliberately excludes `429`, `rate limit` and `too many
- * requests`, which are the transient, retryable forms of the same status: a
- * bare 429 with no quota wording is worth one more attempt, an exhausted quota
- * is not. `LIMIT_PHRASES` stays the union of both (it drives the human sentence
- * in `describeHeadlessFailure`); this narrower regex is what the classifier and
- * `headlessFailureError` key off.
+ * out of allowance — the user must raise a limit, buy credit or wait for a
+ * reset. Deliberately excludes `429`, `rate limit` and `too many requests`,
+ * which are the transient, retryable forms of the same status: a bare 429 with
+ * no quota wording is worth one more attempt, an exhausted quota is not.
+ *
+ * This is a HEURISTIC, and it is applied to the provider's OWN error text only
+ * (`analyze`'s `quotaEvidence`) — never to a run's stdout, which is the model's
+ * answer and may mention "quota" for any reason. A provider error CODE
+ * (`QUOTA_CODES`) and HTTP 402 are the structured forms of the same signal.
  */
 export const QUOTA_PHRASES =
-  /(quota[-_ ]?exceeded|usage limit|spend limit|limit reached|out of credits?|insufficient[_ ]quota|resource[-_ ]?exhausted)/i;
+  /(quota[-_ ]?exceeded|usage limit|spend limit|limit reached|out of credits?|insufficient[_ ]credits?|insufficient[_ ]quota|resource[-_ ]?exhausted|payment required|credit balance)/i;
+
+/** Provider error `code`/`type` values that name an exhausted allowance. */
+export const QUOTA_CODES =
+  /(insufficient[_ ]quota|quota[_ ]exceeded|quota[_ ]exhausted|resource[_ ]exhausted|billing[_ ]hard[_ ]limit)/i;
 
 export interface HeadlessFailure {
   /** Display name of the agent core, e.g. `Claude`. */
@@ -66,6 +72,8 @@ export interface HeadlessFailure {
 interface Structured {
   message?: string;
   status?: number;
+  /** The provider's machine error code/type, e.g. `insufficient_quota`. */
+  code?: string;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -100,7 +108,16 @@ function readEvent(record: Record<string, unknown>): Structured {
   const status =
     firstNumber(record, ['api_error_status', 'status', 'statusCode', 'status_code']) ??
     (nested ? firstNumber(nested, ['status', 'statusCode', 'status_code', 'code']) : undefined);
-  return { ...(message ? { message } : {}), ...(status !== undefined ? { status } : {}) };
+  const code =
+    firstString(record, ['code', 'type', 'error_type', 'errorType', 'reason', 'error_code']) ??
+    (nested
+      ? firstString(nested, ['code', 'type', 'error_type', 'errorType', 'reason'])
+      : undefined);
+  return {
+    ...(message ? { message } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(code ? { code } : {}),
+  };
 }
 
 /**
@@ -133,6 +150,7 @@ function extractStructured(text: string): Structured {
     const event = readEvent(candidate);
     if (found.message === undefined && event.message !== undefined) found.message = event.message;
     if (found.status === undefined && event.status !== undefined) found.status = event.status;
+    if (found.code === undefined && event.code !== undefined) found.code = event.code;
   }
   return found;
 }
@@ -169,9 +187,11 @@ function analyze(failure: HeadlessFailure): Analysis {
   const fromOut = extractStructured(stdout);
   const message = fromErr.message ?? fromOut.message;
   const statusCode = fromErr.status ?? fromOut.status;
+  const code = fromErr.code ?? fromOut.code;
   const structured: Structured = {
     ...(message !== undefined ? { message } : {}),
     ...(statusCode !== undefined ? { status: statusCode } : {}),
+    ...(code !== undefined ? { code } : {}),
   };
 
   const raw = stderr || stdout;
@@ -180,13 +200,20 @@ function analyze(failure: HeadlessFailure): Analysis {
     (structured.message !== undefined && LIMIT_PHRASES.test(structured.message)) ||
     (structured.message === undefined && (LIMIT_PHRASES.test(raw) || HTTP_429.test(raw)));
 
-  // Quota is the subset of `limited` whose wording means the account ran out —
-  // never a bare status. Checked against the structured message when there is
-  // one, and against the raw text as well so a quota phrase in a stream the
-  // envelope did not surface is still caught.
+  // Quota is the subset of `limited` whose wording names an exhausted ALLOWANCE.
+  // Its evidence is the provider's OWN error text — the structured envelope's
+  // message, or, when the envelope carries none, stderr (where a CLI reports a
+  // fault). NEVER a run's stdout: that stream is the model's answer, and a model
+  // may write "quota exceeded" for any reason; reading that as an account
+  // failure would park a healthy run (UAT observed exactly that). A provider
+  // error CODE or HTTP 402 (payment required) is the structured form of the
+  // same signal and needs no wording.
+  const quotaEvidence =
+    structured.message ?? (stderr !== '' ? stderr : '');
   const quota =
-    (structured.message !== undefined && QUOTA_PHRASES.test(structured.message)) ||
-    QUOTA_PHRASES.test(raw);
+    QUOTA_PHRASES.test(quotaEvidence) ||
+    (structured.code !== undefined && QUOTA_CODES.test(structured.code)) ||
+    structured.status === 402;
 
   const detail = structured.message ?? (limited ? limitLine(raw) : raw || undefined);
 
@@ -210,16 +237,21 @@ export function isUsageLimitFailure(failure: HeadlessFailure): boolean {
  * can act on.
  */
 export function describeHeadlessFailure(failure: HeadlessFailure): string {
-  const { limited, status, detail, raw } = analyze(failure);
+  const { limited, quota, status, detail, raw } = analyze(failure);
   const next = 'Retry once the limit resets, or switch the ticket to another model or agent core.';
 
   if (limited) {
+    // A QUOTA exhaustion and a transient RATE LIMIT are both "limited" but read
+    // differently to a person: only the first means the account is out of
+    // allowance. The wording names which, so the sentence never tells a user
+    // their quota is spent over a 429 they could simply retry (K11).
+    const label = quota ? 'usage limit reached' : 'rate limited';
     const said = detail ? cap(oneLine(detail), MAX_LIMIT_DETAIL_CHARS) : '';
     if (said === '') {
       const code = status !== undefined ? ` (HTTP ${status})` : '';
-      return `${failure.tool} usage limit reached${code}. ${next}`;
+      return `${failure.tool} ${label}${code}. ${next}`;
     }
-    return `${failure.tool} usage limit reached — ${endSentence(said)} ${next}`;
+    return `${failure.tool} ${label} — ${endSentence(said)} ${next}`;
   }
 
   const said = detail ? cap(oneLine(detail), MAX_DIAGNOSTIC_CHARS) : '';

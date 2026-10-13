@@ -62,11 +62,21 @@ describe('classifyFailure', () => {
     expect(isTimedOutFailure(new Error('spawn ENOENT'))).toBe(false);
   });
 
-  it('classifies a quota exhaustion as usage-limited (K11)', () => {
-    const error = new Error(
-      'Claude usage limit reached (HTTP 429). Retry once the limit resets, or switch the ticket to another model or agent core.',
-    );
-    expect(classifyFailure(error)).toBe('usage-limited');
+  it('does NOT read quota wording from a plain Error — only the typed error is usage-limited (K11)', () => {
+    // The adapter's own sentence for a BARE 429 says "rate limited", and its
+    // quota sentence says "usage limit reached". Neither is trusted as a
+    // classification signal: the ADAPTER decides, by throwing the typed
+    // `UsageLimitError`. A text rule here read transient rate limits as quota
+    // (UAT caught exactly that), so quota wording alone stays a limit → transient.
+    expect(
+      classifyFailure(
+        new Error('Claude rate limited (HTTP 429). Retry once the limit resets.'),
+      ),
+    ).toBe('transient');
+    expect(
+      classifyFailure(new Error('Codex usage limit reached — Try again in 3 hours.')),
+    ).toBe('transient');
+    expect(classifyFailure(new Error('provider said: insufficient_quota'))).toBe('transient');
   });
 
   it('classifies a typed UsageLimitError as usage-limited (K11)', () => {
@@ -75,11 +85,6 @@ describe('classifyFailure', () => {
       provider: 'claude',
     });
     expect(classifyFailure(error)).toBe('usage-limited');
-  });
-
-  it('classifies quota-only text as usage-limited without a typed error (K11)', () => {
-    expect(classifyFailure(new Error('provider said: insufficient_quota'))).toBe('usage-limited');
-    expect(classifyFailure(new Error('429 RESOURCE_EXHAUSTED'))).toBe('usage-limited');
   });
 
   it('keeps a bare 429 / rate-limit wording transient (K5)', () => {

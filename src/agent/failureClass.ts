@@ -10,7 +10,7 @@
  * which wins over `transient`, and the conservative default is `fatal`.
  */
 
-import { HTTP_429, LIMIT_PHRASES, QUOTA_PHRASES, UsageLimitError } from './cliFailure.js';
+import { HTTP_429, LIMIT_PHRASES, UsageLimitError } from './cliFailure.js';
 
 export type FailureClass = 'aborted' | 'transient' | 'model-rejected' | 'usage-limited' | 'fatal';
 
@@ -100,16 +100,19 @@ export function classifyFailure(error: unknown): FailureClass {
     return 'model-rejected';
   }
 
-  // 6. Quota exhaustion (K11) — the account, not the request. Checked BEFORE
-  // the rate-limit rule so a quota phrase never reads as retryable: a typed
-  // `UsageLimitError` is authoritative, and a bare quota phrase in the text
-  // (a core that wrapped it as a plain Error) is caught the same way. A bare
-  // 429 / `rate limit` / `too many requests` with NO quota wording falls
-  // through to rule 7 and stays transient.
+  // 6. Quota exhaustion (K11) — the account, not the request. The provider
+  // ADAPTER is the sole authority: it throws the typed `UsageLimitError` when
+  // its own quota heuristic (`isQuotaExhausted`) fires, so the class is read
+  // from the ERROR, never from the message text. A text rule here was both too
+  // broad and too narrow: the adapter's sentence for a BARE 429 says "usage
+  // limit reached" (a quota phrase), and a model's answer can mention "quota"
+  // for any reason — so it read transient rate limits as quota (UAT caught
+  // exactly that) and could read unrelated prose the same way. A bare 429 /
+  // `rate limit` / `too many requests` therefore falls through to rule 7 and
+  // stays transient.
   if (
     error instanceof UsageLimitError ||
-    (error instanceof Error && error.name === 'UsageLimitError') ||
-    QUOTA_PHRASES.test(text)
+    (error instanceof Error && error.name === 'UsageLimitError')
   ) {
     return 'usage-limited';
   }
