@@ -141,6 +141,15 @@ subtasks:
   maxConcurrentPerParent: 2
   maxConcurrentTotal: 4
 
+# Per-core subscription-quota warnings (Settings → Agents). Karst reads each
+# agent core's provider-reported subscription usage (Claude's 5-hour/weekly
+# windows, Codex's plan windows) and warns before a launch that would run a core
+# near its limit. View-only: a warning never blocks a launch and never switches
+# cores. A core with no readable usage source (Antigravity, OpenCode) shows as
+# unknown, never 0%. Omit for the 80% default; a whole number, 1-100.
+quota:
+  warnThresholdPct: 80
+
 # How an AI call recovers when the provider fails it (optional).
 #
 # A TRANSIENT failure — a 429, a 5xx, a dropped connection — is retried on

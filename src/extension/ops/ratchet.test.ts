@@ -47,11 +47,19 @@ import { join } from 'node:path';
 // `agent/opencode2Auth.ts`; what stays here is the one binding the ops module
 // cannot own — the `vscode.window.showWarningMessage` seam, the login command,
 // the isolated-env-capable output probe, and the `karst.openSession` call site.
+// Raised by 58 (8580 -> 8638): the per-core subscription-quota binding (D163).
+// The decision half (badge text/warning) lives in `ops/quotaOps.ts` and the
+// reader service in `agent/quota/`; what stays here is the two vscode seams the
+// ops layer cannot own — the status-bar item and `window.showWarningMessage` —
+// plus the service lifecycle (construct, start, dispose) and the panel's two
+// quota deps.
 // Raised by 4 (8580 -> 8584): UAT probe bindings (KARST_UAT_PROBE=1 only) — one
 // import plus the `installProbeRecorder()` call (it must patch vscode.window
 // before anything else is created) and the `registerProbeCommand()` line in
 // `activate()`. All probe logic lives in `src/uatHost/probe/*`.
-const MAX_EXTENSION_LINES = 8584;
+// Both raises branched from 8580; the merge carries them together (measured 8639
+// lines + 3 slack: 8580 + 58 + 4 = 8642).
+const MAX_EXTENSION_LINES = 8642;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

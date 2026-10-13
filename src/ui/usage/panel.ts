@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { LogError } from '../../logging/logger.js';
-import { buildUsageState, type UsageState } from './state.js';
+import { buildUsageState, type UsageState, type UsageTab } from './state.js';
+import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import {
   parseUsageMessage,
   routeUsageAction,
@@ -46,6 +47,10 @@ export interface UsagePanelDeps {
   projectId?: () => number | undefined;
   /** Open a ticket's dashboard from a row in the per-ticket table. */
   openDashboard?: (ticketId: number) => void;
+  /** Cached per-core quota snapshots — the quota tab's data. */
+  quota?: () => readonly QuotaSnapshot[];
+  /** The manifest's quota warn threshold. */
+  quotaThresholdPct?: () => number;
   logError?: LogError;
   /** Injected clock; the rolling ranges are relative to it. */
   now?: () => Date;
@@ -53,6 +58,7 @@ export interface UsagePanelDeps {
 
 export class UsagePanelManager {
   private panel: UsagePanel | undefined;
+  private tab: UsageTab = 'spend';
   private rangeId: string = DEFAULT_USAGE_RANGE;
   private sort: UsageSort = 'total';
   private offset = 0;
@@ -64,7 +70,8 @@ export class UsagePanelManager {
   ) {}
 
   /** Open (or reveal) the panel. Idempotent — never a second panel. */
-  open(): void {
+  open(tab: UsageTab = 'spend'): void {
+    this.tab = tab;
     if (this.panel) {
       this.panel.reveal();
       this.push();
@@ -98,10 +105,13 @@ export class UsagePanelManager {
   state(): UsageState {
     return buildUsageState(this.store, {
       projectId: this.deps.projectId?.() ?? null,
+      tab: this.tab,
       rangeId: this.rangeId,
       sort: this.sort,
       offset: this.offset,
       limit: DEFAULT_USAGE_LIMIT,
+      quota: this.deps.quota?.() ?? [],
+      ...(this.deps.quotaThresholdPct ? { quotaThresholdPct: this.deps.quotaThresholdPct() } : {}),
       ...(this.deps.now ? { now: this.deps.now } : {}),
     });
   }
@@ -109,6 +119,10 @@ export class UsagePanelManager {
   private actions(): UsageActions {
     return {
       requestState: () => this.push(),
+      setTab: (tab) => {
+        this.tab = tab;
+        this.push();
+      },
       setRange: (range) => {
         this.rangeId = range;
         // A new range has a different number of ticket groups, so the old page

@@ -287,6 +287,8 @@ In accordance with candidate preference order:
 - Secrets, bearer tokens, and API keys must NEVER be logged or written to the store; record only response SHAPES (captured in `scratch/quota-probes/fixtures.json`).
 - Probe scripts for each core reside in `scratch/quota-probes/` (`probe-codex.mjs`, `probe-claude.mjs`, `probe-agy.mjs`, `probe-opencode.mjs`).
 - Cores with an `unknown` verdict report `unknown` in the quota UI (D163), never `0%`.
+
+D163 implements the view. `src/agent/quota/` holds one reader per core behind the `QuotaReader` interface: `codex.ts` walks the newest session JSONL's tail for `rate_limits`; `claude.ts` reads the cached statusline payload (`~/.claude/cache/quota.json`, honoring `CLAUDE_CONFIG_DIR`); `unsupported.ts` reports `unknown` (with D162's reason) for antigravity/opencode/opencode2. `QuotaService` caches one snapshot per core, refreshing on a modest interval and on demand — the launch path reads the CACHE, so a quota read never blocks a launch. The usage panel's Quota tab (`src/ui/usage/`) renders one row per core with one bar per window; the status bar (`src/ui/quotaStatus.ts`) shows the tightest window's used-% per known core and turns amber at/above `quota.warnThresholdPct`; and a launch whose resolved core is at/above the threshold shows a NON-BLOCKING warning (`src/agent/quota/warn.ts`) — proceed allowed, karst never blocks or switches cores.
 END_DOC_BLOCK: [@arch:AC-29]
 
 ## [@arch:AC-30] Every launch in a karst-owned cwd PRE-TRUSTS it — claude and codex write their own record, the rest are explicit no-ops

@@ -91,10 +91,16 @@ const FOCUS_CAP = 12;
  * sidebar screenshot). Each row that owns children gains the `subchev`
  * collapse control: a real control that cannot fold into the row's expand
  * `chev`, since one expands the peek and the other hides the sub-tree.
+ *
+ * Updated an eleventh time by the per-core subscription-quota view (D163):
+ * `usage` +2 — the panel's Spend/Quota tab chips. They are net-new interactive
+ * controls (the ticket's Done-when: the usage panel gains a Quota tab) and
+ * neither folds into an existing focusable: the range chips are a different
+ * selection (which range of spend), these switch the whole panel's subject.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 47,
-  usage: 11,
+  usage: 13,
   resources: 17,
   serverLogs: 11,
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)

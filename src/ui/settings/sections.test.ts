@@ -60,6 +60,7 @@ describe('settings sections — vocabulary', () => {
         'host',
         'portRange',
         'processes',
+        'quota',
         'repositories',
         'review',
         'subtasks',
@@ -74,9 +75,10 @@ describe('settings sections — vocabulary', () => {
 
   it('owns the agent identity fields on the one Agents page, not General', () => {
     expect(SECTION_FIELDS.agents).toEqual(
-      expect.arrayContaining(['agentProvider', 'defaultModel', 'defaultEffort', 'processes', 'agentPresets', 'activeAgentPreset', 'defaultAgentPreset', 'agents']),
+      expect.arrayContaining(['agentProvider', 'defaultModel', 'defaultEffort', 'processes', 'agentPresets', 'activeAgentPreset', 'defaultAgentPreset', 'agents', 'quota']),
     );
     expect(SECTION_FIELDS.general).not.toContain('agentProvider');
+    expect(SECTION_FIELDS.general).not.toContain('quota');
     expect((SETTINGS_SECTIONS as readonly string[]).includes('presets')).toBe(false);
   });
 

@@ -241,6 +241,37 @@ describe('Agents page — agent profiles', () => {
   });
 });
 
+describe('Agents page — subscription quota', () => {
+  it('renders the warn threshold with the loader default as its placeholder', () => {
+    mount();
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    expect(field.getAttribute('type')).toBe('number');
+    expect(field.getAttribute('min')).toBe('1');
+    expect(field.getAttribute('max')).toBe('100');
+    expect(field.value).toBe('');
+    expect(field.placeholder).toBe('80');
+  });
+
+  it('writes the threshold as a whole number from 1 to 100', () => {
+    const { probe } = mount();
+    fireEvent.change(screen.getByLabelText('Warn at used %'), { target: { value: '95' } });
+    expect(draftOf(probe)).toMatchObject({ quota: { warnThresholdPct: 95 } });
+  });
+
+  it('snaps an out-of-range threshold back to blank and flags it inline', () => {
+    const { probe } = mount();
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    for (const bad of ['0', '101', '2.5']) {
+      fireEvent.change(field, { target: { value: '90' } });
+      fireEvent.change(field, { target: { value: bad } });
+      expect(field.getAttribute('aria-invalid')).toBe('true');
+      expect(probe().draft).not.toHaveProperty('quota');
+    }
+    fireEvent.change(field, { target: { value: '80' } });
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+  });
+});
+
 describe('Agents page — roles table layout markup', () => {
   const cells = (r: Element) => Array.from(r.children).map((c) => c.className);
   const mountCompare = () => {

@@ -102,6 +102,28 @@
   .pager{display:flex;align-items:center;gap:var(--k-space-5);padding:var(--k-space-4) var(--k-space-6);
     font-size:var(--k-text-xs);color:var(--k-text-dim)}
   .pager .spacer{margin-left:auto}
+
+  /* Tab bar: the same chip primitive the range presets use (UI-R08/R09). */
+  .utabs{display:flex;gap:var(--k-space-2);margin-bottom:var(--k-space-6)}
+
+  /* One quota row per core; one window block per subscription window. */
+  .qrow{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);
+    background:var(--k-surface);padding:var(--k-space-5) var(--k-space-6);margin-bottom:var(--k-space-5)}
+  .qrow .qhead{display:flex;align-items:baseline;gap:var(--k-space-4);margin-bottom:var(--k-space-3)}
+  .qrow .qname{font-weight:var(--k-weight-semibold);font-size:var(--k-text-md)}
+  .qrow .qmeta{margin-left:auto;font-size:var(--k-text-2xs);color:var(--k-text-faint);text-align:right}
+  .qrow .qreason{font-size:var(--k-text-sm);color:var(--k-text-dim)}
+  .qrow .qstate{font-size:var(--k-text-2xs);text-transform:uppercase;letter-spacing:.04em;color:var(--k-text-dim)}
+  .qwin + .qwin{margin-top:var(--k-space-4)}
+  .qwin .qline{display:flex;align-items:baseline;gap:var(--k-space-4)}
+  .qwin .qlbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .qwin .qpct{margin-left:auto;font-family:var(--k-font-mono);font-size:var(--k-text-md);flex:none}
+  .qwin .qpct.lvl-near,.qwin .qpct.lvl-exhausted{color:var(--k-warning)}
+  .qwin .qpct.lvl-exhausted{color:var(--k-danger)}
+  .qwin .qmeta{font-size:var(--k-text-2xs);color:var(--k-text-faint);margin-top:var(--k-space-1)}
+  .qbar{margin-top:var(--k-space-2)}
+  .qbar.lvl-near > i{background:var(--k-warning)}
+  .qbar.lvl-exhausted > i{background:var(--k-danger)}
 </style>
 
 <div class="uhead">
@@ -110,9 +132,12 @@
   <div class="ranges" id="ranges"></div>
 </div>
 
-<div class="err hidden" id="err"></div>
+<div class="utabs" id="tabs"></div>
 
-<div id="body" class="hidden">
+<div id="spend">
+  <div class="err hidden" id="err"></div>
+
+  <div id="body" class="hidden">
   <div class="stats" id="stats"></div>
   <div class="grid">
     <div class="panel stages">
@@ -143,6 +168,11 @@
 <div class="k-empty hidden" id="empty">
   <div class="k-empty-title">No AI token usage recorded yet</div>
   <div class="k-empty-hint" id="emptyHint"></div>
+</div>
+</div>
+
+<div id="quota" class="hidden">
+  <div id="qrows"></div>
 </div>
 
 <script>
@@ -187,6 +217,47 @@
     for (const btn of wrap.querySelectorAll('[data-range]')) {
       karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }));
     }
+  };
+
+  // The two tabs, built from state.tabs — never a hardcoded list. The active
+  // tab posts `set-tab`; the host owns which tab is showing, like every other
+  // selection in this view.
+  const renderTabs = (state) => {
+    const wrap = el('tabs');
+    wrap.innerHTML = state.tabs.map((t) =>
+      `<button type="button" class="k-chip" data-tab="${esc(t.id)}" aria-pressed="${t.id === state.tab}">${esc(t.label)}</button>`,
+    ).join('');
+    for (const btn of wrap.querySelectorAll('[data-tab]')) {
+      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }));
+    }
+  };
+
+  // One row per core; one bar per window. A core with no readable source shows
+  // its reason, never a 0% bar. Every number/label arrives pre-formatted.
+  const renderQuota = (quota) => {
+    el('qrows').innerHTML = quota.rows.map((r) => {
+      if (r.state === 'unknown') {
+        return '<div class="qrow">' +
+          `<div class="qhead"><span class="qname">${esc(r.label)}</span><span class="qstate">unknown</span></div>` +
+          `<div class="qreason">${esc(r.reason || 'no readable quota source')}</div>` +
+        '</div>';
+      }
+      const windows = r.windows.map((w) =>
+        '<div class="qwin">' +
+          '<div class="qline">' +
+            `<span class="qlbl">${esc(w.label)}</span>` +
+            `<span class="qpct lvl-${esc(w.level)}">${esc(w.usedPct)}%</span>` +
+          '</div>' +
+          `<div class="bar qbar lvl-${esc(w.level)}"><i style="width:${Number(w.width) || 0}%"></i></div>` +
+          `<div class="qmeta">${w.resetsIn ? `resets in ${esc(w.resetsIn)}` : 'no reset time reported'}</div>` +
+        '</div>',
+      ).join('');
+      return '<div class="qrow">' +
+        `<div class="qhead"><span class="qname">${esc(r.label)}</span>` +
+          `<span class="qmeta">${esc(r.source || '')}${r.readAgo ? ` · read ${esc(r.readAgo)}` : ''}</span></div>` +
+        windows +
+      '</div>';
+    }).join('');
   };
 
   const statCard = (label, value, note, flag) =>
@@ -285,6 +356,21 @@
   const render = (state) => {
     if (!state) return;
     lastState = state;
+    renderTabs(state);
+
+    const quotaTab = state.tab === 'quota';
+    el('spend').classList.toggle('hidden', quotaTab);
+    el('quota').classList.toggle('hidden', !quotaTab);
+    // The range only means anything for the spend numbers; on the quota tab it
+    // would sit over a table it does not filter, so it is hidden with the sub.
+    el('ranges').classList.toggle('hidden', quotaTab);
+
+    if (quotaTab) {
+      el('sub').textContent = `warn at ${state.quota.thresholdPct}% of the tightest window`;
+      renderQuota(state.quota);
+      return;
+    }
+
     renderRanges(state);
 
     el('err').textContent = state.error || '';
