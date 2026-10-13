@@ -267,6 +267,13 @@ export class AntigravityAdapter implements AgentAdapter {
     };
   }
 
+  /**
+   * Explicit no-op: antigravity (agy) has no per-directory folder-trust prompt —
+   * it groups sessions by PROJECT and never opens a trust dialog that can exit a
+   * launch — so this writes nothing. AC-08: every adapter answers, none silent.
+   */
+  ensureWorkspaceTrusted(): void {}
+
   materializeApproach(opts: MaterializeOpts): Materialized {
     const artifacts = opts.pkg.artifacts ?? [];
     const hasWorkflow = (opts.pkg.workflow?.length ?? 0) > 0;

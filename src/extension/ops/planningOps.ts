@@ -255,6 +255,11 @@ export function createPlanningOps(deps: PlanningOpsDeps): PlanningOps {
       const historyChars = historySection(history).join('\n').length;
       const kickoff = planningKickoff();
       const adapter = resolveAdapter(session.core as AgentProvider);
+      // Trust the scratch dir before the core starts; a fresh planning-scratch
+      // directory is untrusted too (T661). Passed the same `debug` the launch
+      // logs to, so a refusal is visible in the Karst output. Awaited: the wait
+      // is async, never a block.
+      await adapter.ensureWorkspaceTrusted?.(cwd, { debug });
       const cmd = adapter.buildInteractiveCommand({
         cwd,
         readOnly: true,

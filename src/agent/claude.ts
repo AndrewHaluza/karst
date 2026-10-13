@@ -45,6 +45,7 @@ import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
+import { ensureClaudeWorkspaceTrusted } from './workspaceTrust.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -307,6 +308,19 @@ export class ClaudeAdapter implements AgentAdapter {
       env: {},
       ...(opts.instructions ? { instructionsChannel: 'native-file' as const } : {}),
     };
+  }
+
+  /**
+   * Claude shows a per-directory folder-trust dialog on first launch and
+   * defaults to "No, exit"; a fresh graph workspace therefore killed the
+   * session ~1.5s in (T661). Record the acceptance for the realpath of `cwd`
+   * before the launch — see `workspaceTrust.ts` for the merge rules.
+   */
+  ensureWorkspaceTrusted(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void> {
+    return ensureClaudeWorkspaceTrusted(cwd, opts);
   }
 
   /**

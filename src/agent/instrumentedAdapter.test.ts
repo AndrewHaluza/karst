@@ -61,6 +61,30 @@ describe('instrumentAdapter', () => {
     expect(instrumentAdapter(inner, { sink: sink() }).instructions).toEqual(inner.instructions);
   });
 
+  it('pre-trusts the headless cwd through the seam before the run', async () => {
+    const trusted: string[] = [];
+    const inner = fakeAdapter({
+      ensureWorkspaceTrusted: (cwd) => void trusted.push(cwd),
+    });
+    const adapter = instrumentAdapter(inner, { sink: sink() });
+    await adapter.runHeadless({ prompt: 'hi', cwd: '/wt/headless' });
+    // The ONE headless seam calls the hook, so a graph/worktree cwd is trusted
+    // before any core starts headless there (T661).
+    expect(trusted).toEqual(['/wt/headless']);
+  });
+
+  it('forwards ensureWorkspaceTrusted to the wrapped core', () => {
+    const trusted: string[] = [];
+    const inner = fakeAdapter({ ensureWorkspaceTrusted: (cwd) => void trusted.push(cwd) });
+    const adapter = instrumentAdapter(inner, { sink: sink() });
+    adapter.ensureWorkspaceTrusted?.('/wt/x', { debug: () => {} });
+    expect(trusted).toEqual(['/wt/x']);
+  });
+
+  it('leaves ensureWorkspaceTrusted absent when the wrapped core has none', () => {
+    expect(instrumentAdapter(fakeAdapter(), { sink: sink() }).ensureWorkspaceTrusted).toBeUndefined();
+  });
+
   it('injects the host debug callback into every headless call', async () => {
     const s = sink();
     let seenDebug: ((message: string) => void) | undefined;

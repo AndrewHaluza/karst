@@ -439,6 +439,13 @@ export class Opencode2Adapter implements AgentAdapter {
     };
   }
 
+  /**
+   * Explicit no-op: opencode2 has no per-directory folder-trust prompt (it never
+   * opens a dialog and never exits on trust), so a launch needs no trust record
+   * written. AC-08 requires every adapter to answer, not to stay silent.
+   */
+  ensureWorkspaceTrusted(): void {}
+
   materializeApproach(opts: MaterializeOpts): Materialized {
     // v2 discovers the same `.opencode/` layout as v1, so the materialization
     // is shared verbatim rather than duplicated (owned-path and exclude rules

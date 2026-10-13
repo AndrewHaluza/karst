@@ -355,6 +355,18 @@ describe('resilientAdapter', () => {
     expect(adapter.resolveResume).toBeUndefined();
   });
 
+  it('forwards ensureWorkspaceTrusted when the inner adapter has one', () => {
+    const ensureWorkspaceTrusted = vi.fn();
+    const adapter = resilientAdapter(fakeAdapter({ ensureWorkspaceTrusted }), opts());
+    adapter.ensureWorkspaceTrusted?.('/wt', { debug: () => {} });
+    expect(ensureWorkspaceTrusted).toHaveBeenCalledWith('/wt', { debug: expect.any(Function) });
+  });
+
+  it('ensureWorkspaceTrusted is absent when the inner adapter has none', () => {
+    const adapter = resilientAdapter(fakeAdapter(), opts());
+    expect(adapter.ensureWorkspaceTrusted).toBeUndefined();
+  });
+
   it('notify is not called for a same-model retry', async () => {
     let calls = 0;
     const spy = vi.fn(async (): Promise<HeadlessResult> => {
