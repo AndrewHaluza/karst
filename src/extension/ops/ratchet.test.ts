@@ -78,7 +78,8 @@ import { join } from 'node:path';
 // Deliver to PR: +6 (tracker, runPrSync sweep, ciHost deliver seam, runShipSaga option, action binding): 8683 + 6 = 8689.
 // Sidebar "Send CI failure to agent" peek CTA (T742, +2: 8689 -> 8691): one binding line + its comment; logic is `ops/ciFailureOps.ts`.
 // Servers stop on done (T762, +14: 8691 -> 8705): serverLifecycleDeps wiring, onTicketDone, onTicketCompleted, settleShipGates.
-const MAX_EXTENSION_LINES = 8705;
+// Usage-limit park actions binding (D159, +2: 8705 -> 8707): one import plus the `makeUsageLimitParkActions` spread into `DashboardActions`.
+const MAX_EXTENSION_LINES = 8707;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

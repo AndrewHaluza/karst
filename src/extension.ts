@@ -65,6 +65,7 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
+import { makeUsageLimitParkActions } from './extension/ops/usageLimitParkOps.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
@@ -8416,6 +8417,7 @@ function makeDashboardActions(
     // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
     // all validation and effects live in ops/baselineDecisionOps.ts.
     ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
+    ...makeUsageLimitParkActions({ store, ticketId, notify: vscodeNotify, catalog: () => modelCatalog, manifest, redrive: driveAfterResume, refresh: afterServerChange, pickCore: (items) => vscode.window.showQuickPick(items, { title: 'Pick agent core' }), pickModel: (items) => vscode.window.showQuickPick(items, { title: 'Pick model' }), adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider), artifactDir: () => artifactDirFor(ticketId), cwd: () => rootPathOrThrow(), debug: (m) => logger.debug(m) }),
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads
