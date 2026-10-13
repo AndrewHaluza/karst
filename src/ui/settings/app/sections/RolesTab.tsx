@@ -153,9 +153,13 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
           {compare === null ? (
             <>
               <div role="columnheader">Agent profile</div>
-              <div role="columnheader">Core</div>
-              <div role="columnheader">Model</div>
-              <div role="columnheader">Effort</div>
+              <div role="columnheader" className="agents-cell-picker-head">
+                <span className="agents-picker-head-grid">
+                  <span>Core</span>
+                  <span>Model</span>
+                  <span>Effort</span>
+                </span>
+              </div>
               <div role="columnheader">Source</div>
               <div role="columnheader">Actions</div>
             </>

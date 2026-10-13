@@ -143,7 +143,7 @@ export function RoleRow(props: RoleRowProps) {
       <div className="agents-cell agents-cell-profile" role="cell">
         <ProfileCell {...props} />
       </div>
-      <div className="agents-cell agents-cell-picker">
+      <div className="agents-cell agents-cell-picker" role="cell">
         <AgentPickerIsland
           cores={cores}
           catalog={catalog}
@@ -172,7 +172,7 @@ export function RoleRow(props: RoleRowProps) {
             </IconButton>
           )
         ) : (
-          <span className="agents-pin-slot" aria-hidden="true" />
+          <span className="agents-slot" aria-hidden="true" />
         )}
         <IconButton label="Clear" disabled={effective.source === 'default'} onClick={props.onClear}>
           <TablerIcon name="eraser" />

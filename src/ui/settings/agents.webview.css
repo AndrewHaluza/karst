@@ -61,12 +61,14 @@
   color: var(--vscode-descriptionForeground);
 }
 
-/* Roles table: ONE track template shared by header and rows (UI-R41). Tracks:
-   switch | role | profile | core | model | effort | source | actions.
-   The picker cell, its island and .ap-compact are display: contents, so the three
-   compact .ap-field cells (role=cell) sit in the core/model/effort tracks themselves. */
+/* Roles table: ONE track template shared by header and rows (UI-R41). Columns:
+   switch | Role | Agent profile | picker (Core · Model · Effort) | Source | Actions.
+   The picker is ONE column; its compact grid splits it into Core/Model/Effort and
+   the header repeats that sub-template so the sub-columns line up (UI-R41). */
 #section-agents .agents-table {
-  --agents-cols: 40px minmax(84px, 1.1fr) minmax(104px, 1fr) minmax(110px, 150px) minmax(130px, 1.3fr) minmax(86px, 120px) 92px 72px;
+  --agents-cols: var(--k-hit-min) minmax(140px, 1fr) minmax(150px, 1fr)
+                 minmax(360px, 3fr) auto calc(2 * var(--k-hit-min) + var(--k-space-1));
+  --agents-picker-cols: minmax(0, 1fr) minmax(0, 1.6fr) minmax(96px, 0.8fr);
   display: flex;
   flex-direction: column;
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
@@ -78,7 +80,7 @@
   grid-template-columns: var(--agents-cols);
   column-gap: var(--k-space-2);
   align-items: center;
-  min-height: 44px;
+  min-height: calc(var(--k-control-h-lg) + 2 * var(--k-space-2));
   padding: 0 var(--k-space-3);
   border-left: 3px solid transparent;
   border-top: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
@@ -86,25 +88,31 @@
 
 #section-agents .agents-compare-row,
 #section-agents .agents-table .agents-head:has(+ .agents-compare-row) {
-  grid-template-columns: 40px minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 150px;
+  grid-template-columns: var(--k-hit-min) minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) calc(2 * var(--k-hit-min) + var(--k-space-1));
 }
 
-#section-agents .agents-cell.agents-cell-picker,
-#section-agents .agents-cell-picker > .agent-picker-island,
-#section-agents .agents-cell-picker .ap-compact { display: contents; }
 /* Cells fill their row height so an empty cell (no switch) and the sr-only "Enabled" heading still have a box. */
 #section-agents .agents-row > [role="cell"],
-#section-agents .agents-row > [role="columnheader"],
-#section-agents .agents-cell-picker .ap-field { align-self: stretch; min-width: 0; }
+#section-agents .agents-row > [role="columnheader"] { align-self: stretch; min-width: 0; }
 #section-agents .agents-row > [role="columnheader"] { display: flex; align-items: center; }
-#section-agents .agents-cell-picker .ap-field { justify-content: center; }
-#section-agents .agents-cell-picker .ap-effort,
-#section-agents .agents-cell-picker .ap-effort-placeholder { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+
+/* The picker cell stays ONE cell; its compact grid holds Core | Model | Effort. */
+#section-agents .agents-cell-picker { display: flex; align-items: center; }
+#section-agents .agents-cell-picker > .agent-picker-island { flex: 1 1 auto; min-width: 0; }
+#section-agents .agents-cell-picker .ap-compact { grid-template-columns: var(--agents-picker-cols); }
 #section-agents .agents-cell-picker .ap-shell { width: 100%; }
-#section-agents .agents-cell-picker .ap-trigger { min-width: 0; max-width: 100%; box-sizing: border-box; }
+#section-agents .agents-cell-picker .ap-trigger,
+#section-agents .agents-cell-picker .ap-effort { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
+/* The header repeats the picker sub-template so Core | Model | Effort align with the cells. */
+#section-agents .agents-cell-picker-head > .agents-picker-head-grid {
+  display: grid;
+  grid-template-columns: var(--agents-picker-cols);
+  gap: var(--k-space-3);
+  width: 100%;
+}
 #section-agents .agents-cell-source { justify-content: flex-start; }
 #section-agents .agents-cell-actions { display: flex; justify-content: flex-end; gap: var(--k-space-1); }
-#section-agents .agents-pin-slot { display: inline-block; width: var(--k-hit-min); height: var(--k-hit-min); flex: none; visibility: hidden; }
+#section-agents .agents-slot { display: inline-block; width: var(--k-hit-min); height: var(--k-hit-min); flex: none; visibility: hidden; }
 #section-agents .agents-field-label { display: none; font-size: var(--k-text-xs); color: var(--k-text-dim); }
 #section-agents .agents-cell-switch { justify-content: center; }
 #section-agents .agents-role-name { font-weight: 500; overflow-wrap: break-word; }
@@ -258,43 +266,42 @@
 /* Tiers: wide >= 1000, mid 700-999 (labelled cards), narrow <= 699 (src/ui/layout/layoutBreakpoints.ts). */
 @media (max-width: 999px) {
   #section-agents .agents-head { display: none; }
-  /* Card: top line = switch | name | source | actions, then Profile + Core/Model/Effort as 4 equal columns. */
+  /* Card: top line = switch | Role | Source | Actions, then Agent profile | Core | Model | Effort. */
   #section-agents .agents-row {
-    grid-template-columns: repeat(12, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-areas: 'sw role src act' 'f f f f';
     row-gap: var(--k-space-2);
     padding: var(--k-space-3);
   }
-  #section-agents .agents-cell-switch  { grid-column: span 1; }
-  #section-agents .agents-cell-role    { grid-column: span 5; }
-  #section-agents .agents-cell-source  { grid-column: span 3; }
-  #section-agents .agents-cell-actions { grid-column: span 3; }
-  #section-agents .agents-cell-profile { grid-column: span 3; }
-  #section-agents .agents-cell-picker .ap-field { grid-column: span 3; }
-  /* Room on cards: the core name wraps between words (never mid-word) instead of clipping. */
-  #section-agents .agents-cell-picker [data-ap-trigger="core"] .ap-trigger-label,
-  #section-agents .agents-cell-picker [data-ap-trigger="core"] .agent-identity-name { white-space: normal; }
-  #section-agents .agents-cell-picker [data-ap-trigger="core"] .agent-identity { flex-wrap: wrap; }
+  #section-agents .agents-cell-switch  { grid-area: sw; justify-content: flex-start; }
+  #section-agents .agents-cell-role    { grid-area: role; }
+  #section-agents .agents-cell-source  { grid-area: src; justify-content: flex-end; }
+  #section-agents .agents-cell-actions { grid-area: act; }
+  #section-agents .agents-cell-profile { grid-area: f; grid-column: 1 / span 1; }
+  #section-agents .agents-cell-picker  { grid-area: f; grid-column: 2 / -1; }
   #section-agents .agents-field-label { display: block; }
   #section-agents .agents-cell-picker .ap-compact .ap-label {
     position: static; width: auto; height: auto; overflow: visible; clip: auto; clip-path: none; white-space: normal;
   }
-  #section-agents .agents-cell-source { flex-direction: row; }
   #section-agents .agents-cell-source .agents-field-label { display: none; }
   /* compare rows: switch | name, then A and B side by side, actions last */
-  #section-agents .agents-compare-row .agents-cell-role { grid-column: span 11; }
-  #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) { grid-column: span 6; flex-direction: column; align-items: flex-start; }
-  #section-agents .agents-compare-row .agents-cell-actions { grid-column: 1 / -1; justify-content: flex-start; }
+  #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) {
+    grid-area: auto; grid-column: span 2; grid-row: 2; flex-direction: column; align-items: flex-start;
+  }
+  #section-agents .agents-compare-row .agents-cell-actions { grid-area: auto; grid-column: 1 / -1; grid-row: 3; justify-content: flex-start; }
 }
 @media (max-width: 699px) {
-  #section-agents .agents-row { grid-template-columns: auto minmax(0, 1fr) auto auto; }
-  #section-agents .agents-cell-switch { grid-column: 1; }
-  #section-agents .agents-cell-role { grid-column: 2; }
-  #section-agents .agents-cell-source { grid-column: 3; }
-  #section-agents .agents-cell-actions { grid-column: 4; }
-  #section-agents .agents-cell-profile,
-  #section-agents .agents-cell-picker .ap-field { grid-column: 1 / -1; }
-  #section-agents .agents-compare-row .agents-cell-role { grid-column: 2 / -1; }
-  #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) { grid-column: 1 / -1; }
+  #section-agents .agents-row {
+    grid-template-columns: var(--k-hit-min) minmax(0, 1fr) auto auto;
+    grid-template-areas: 'sw role src act';
+  }
+  #section-agents .agents-cell-profile { grid-area: auto; grid-column: 1 / -1; grid-row: 2; }
+  #section-agents .agents-cell-picker  { grid-area: auto; grid-column: 1 / -1; grid-row: 3; }
+  #section-agents .agents-cell-picker .ap-compact { grid-template-columns: minmax(0, 1fr); }
+  #section-agents .agents-compare-row > .agents-cell:not(.agents-cell-switch):not(.agents-cell-role):not(.agents-cell-actions) {
+    grid-area: auto; grid-column: 1 / -1; grid-row: auto;
+  }
+  #section-agents .agents-compare-row .agents-cell-actions { grid-area: auto; grid-column: 1 / -1; grid-row: auto; }
   #section-agents .agents-profiles { grid-template-columns: minmax(0, 1fr); }
   #section-agents .agents-profiles.has-selection .agents-list { display: none; }
   #section-agents .agents-profiles:not(.has-selection) .agents-detail { display: none; }
