@@ -8,7 +8,6 @@ import {
 function baseProbes(overrides: Partial<InotifyProbes> = {}): InotifyProbes {
   return {
     platform: 'linux',
-    pid: 12345,
     maxUserWatches: () => 100000,
     countInotifyWatches: () => 1000,
     ...overrides,
@@ -22,6 +21,12 @@ describe('checkInotifyWatches', () => {
 
     const checksWin32 = checkInotifyWatches(baseProbes({ platform: 'win32' }));
     expect(checksWin32).toEqual([]);
+  });
+
+  it('reports user-wide holders, not a single process', () => {
+    const [check] = checkInotifyWatches(baseProbes());
+    expect(check!.detail).toContain('Your processes hold');
+    expect(check!.detail).not.toContain('Extension host');
   });
 
   it('passes (status ok) when watch count is well below 80% of limit', () => {
@@ -119,7 +124,6 @@ describe('checkInotifyWatches', () => {
   it('warns when inotify watch count cannot be read', () => {
     const checks = checkInotifyWatches(
       baseProbes({
-        pid: 9999,
         maxUserWatches: () => 100000,
         countInotifyWatches: () => undefined,
       }),
@@ -128,6 +132,6 @@ describe('checkInotifyWatches', () => {
     const check = checks[0]!;
     expect(check.id).toBe(INOTIFY_CHECK_ID);
     expect(check.status).toBe('warn');
-    expect(check.detail).toContain('/proc/9999/fdinfo');
+    expect(check.detail).toContain('/proc/<pid>/fdinfo');
   });
 });

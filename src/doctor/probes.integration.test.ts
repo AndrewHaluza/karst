@@ -103,25 +103,26 @@ describe('doctor probes (real git)', () => {
     expect(p.maxUserWatches(invalidFile)).toBeUndefined();
   });
 
-  it('counts inotify watches across fdinfo files or returns undefined', () => {
-    const fakeFdinfo = join(root, 'fdinfo');
-    mkdirSync(fakeFdinfo, { recursive: true });
+  it('sums inotify watches across the uid\'s processes, skipping other uids and non-pid dirs', () => {
+    const proc = join(root, 'proc');
+    const wd = (n: number) => Array.from({ length: n }, (_, k) => `inotify wd:${k + 1} ino:1 sdev:1 mask:1`).join('\n') + '\n';
+    const mk = (pid: string, fds: Record<string, string>) => {
+      const d = join(proc, pid, 'fdinfo');
+      mkdirSync(d, { recursive: true });
+      for (const [fd, c] of Object.entries(fds)) writeFileSync(join(d, fd), c);
+    };
+    mk('100', { '0': 'pos:\t0\n', '3': wd(3) });
+    mk('200', { '4': wd(2) });
+    mk('self', { '3': wd(50) });
+    const uid = process.getuid!();
+    expect(p.countInotifyWatches(proc, uid)).toBe(5);
+    expect(p.countInotifyWatches(proc, uid + 1)).toBeUndefined();
+    expect(p.countInotifyWatches(join(root, 'nonexistent_proc'), uid)).toBeUndefined();
+  });
 
-    // File 1: not inotify (e.g. regular file fd)
-    writeFileSync(join(fakeFdinfo, '0'), 'pos:\t0\nflags:\t02\nmnt_id:\t15\n');
-    // File 2: inotify with 3 watches
-    writeFileSync(
-      join(fakeFdinfo, '3'),
-      'pos:\t0\nflags:\t02\nmnt_id:\t15\ninotify wd:1 ino:1234 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:01\ninotify wd:2 ino:5678 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:02\ninotify wd:3 ino:9012 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:03\n',
-    );
-    // File 3: inotify with 2 watches
-    writeFileSync(
-      join(fakeFdinfo, '4'),
-      'pos:\t0\nflags:\t02\nmnt_id:\t15\ninotify wd:1 ino:9999 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:04\ninotify wd:2 ino:8888 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:05\n',
-    );
-
-    expect(p.countInotifyWatches(1234, fakeFdinfo)).toBe(5);
-    expect(p.countInotifyWatches(1234, join(root, 'nonexistent_fdinfo'))).toBeUndefined();
+  it('returns undefined when no fdinfo is readable', () => {
+    const proc = join(root, 'proc-empty');
+    mkdirSync(join(proc, '300'), { recursive: true });
+    expect(p.countInotifyWatches(proc, process.getuid!())).toBeUndefined();
   });
 });
-

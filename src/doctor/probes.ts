@@ -123,37 +123,61 @@ export function toolVersion(binary: string): string | undefined {
   return r.ok ? r.out : undefined;
 }
 
+/** Parse a /proc sysctl integer; undefined when unreadable or not purely numeric. */
 export function maxUserWatches(procSysPath: string = '/proc/sys/fs/inotify/max_user_watches'): number | undefined {
   try {
     const content = readFileSync(procSysPath, 'utf8').trim();
-    const val = parseInt(content, 10);
-    return Number.isFinite(val) ? val : undefined;
+    return /^\d+$/.test(content) ? Number(content) : undefined;
   } catch {
     return undefined;
   }
 }
 
-export function countInotifyWatches(pid: number, fdinfoDir?: string): number | undefined {
-  const dir = fdinfoDir ?? `/proc/${pid}/fdinfo`;
+function inotifyWatchesInFdinfo(dir: string): number | undefined {
+  let fds: string[];
   try {
-    const entries = readdirSync(dir);
-    let total = 0;
-    for (const entry of entries) {
-      try {
-        const content = readFileSync(join(dir, entry), 'utf8');
-        const lines = content.split('\n');
-        for (const line of lines) {
-          if (line.startsWith('inotify wd:')) {
-            total++;
-          }
-        }
-      } catch {
-        // fd might have closed while reading; ignore
-      }
+    fds = readdirSync(dir);
+  } catch {
+    return undefined; // process gone or not ours to read
+  }
+  let readable = false;
+  let total = 0;
+  for (const fd of fds) {
+    try {
+      const content = readFileSync(join(dir, fd), 'utf8');
+      readable = true;
+      total += content.split('\n').filter((l) => l.startsWith('inotify wd:')).length;
+    } catch {
+      // fd closed while reading
     }
-    return total;
+  }
+  return readable ? total : undefined;
+}
+
+/**
+ * Total inotify watches across all processes owned by `uid` (fs.inotify.max_user_watches is a
+ * per-user limit). undefined when /proc is unreadable or no process's fdinfo could be read.
+ */
+export function countInotifyWatches(procRoot: string = '/proc', uid: number = process.getuid?.() ?? -1): number | undefined {
+  let entries: string[];
+  try {
+    entries = readdirSync(procRoot).filter((e) => /^\d+$/.test(e));
   } catch {
     return undefined;
   }
+  let total = 0;
+  let sawReadable = false;
+  for (const pid of entries) {
+    try {
+      if (statSync(join(procRoot, pid)).uid !== uid) continue;
+    } catch {
+      continue;
+    }
+    const n = inotifyWatchesInFdinfo(join(procRoot, pid, 'fdinfo'));
+    if (n !== undefined) {
+      sawReadable = true;
+      total += n;
+    }
+  }
+  return sawReadable || entries.length === 0 ? total : undefined;
 }
-

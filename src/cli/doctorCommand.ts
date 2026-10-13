@@ -163,9 +163,8 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
       }
       out.push(...checkInotifyWatches({
         platform: process.platform,
-        pid: process.pid,
         maxUserWatches: probes.maxUserWatches,
-        countInotifyWatches: probes.countInotifyWatches,
+        countInotifyWatches: () => probes.countInotifyWatches(),
       }));
     }
     if (areas.includes('manifest')) {
