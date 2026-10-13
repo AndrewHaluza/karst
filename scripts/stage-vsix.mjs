@@ -271,6 +271,9 @@ function fillStage(stage) {
     cpSync(source, join(stage, entry), { recursive: true });
   }
 
+  // Dev-only UAT host harness output (arch:UATHOST-01); never ships.
+  rmSync(join(stage, 'dist', 'uat-host'), { recursive: true, force: true });
+
   writeStageVscodeIgnore(stage);
   ensureDependencyStubs(stage);
 

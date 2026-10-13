@@ -1,0 +1,7 @@
+node_modules
+.git
+.karst
+.vscode-test
+.stryker-tmp
+reports
+dist

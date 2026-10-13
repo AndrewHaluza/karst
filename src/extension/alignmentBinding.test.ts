@@ -158,7 +158,8 @@ describe('makeAlignmentTrigger', () => {
         model: 'm-1',
       }),
     });
-    await t.fire(() => true);
+    // Wait for the park itself, not a fixed tick count: the check is async and a loaded runner needs more ticks.
+    await t.fire(() => listOpenParks(t.registry, t.id).length > 0);
     const open = listOpenParks(t.registry, t.id);
     expect(open).toHaveLength(1);
     expect(open[0]).toMatchObject({ kind: 'op', provider: 'claude', model: 'm-1', stage: 'scope' });
