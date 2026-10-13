@@ -17,7 +17,9 @@ import {
 import { nowIso } from '../model/time.js';
 import { runStageDriver, type StageOutcome, type DriverStatus } from './driver.js';
 import type { IntegrateOutcome } from './subtaskIntegration.js';
-import { runUat } from './stages/uat.js';
+import { runUat, type UatSpin, type UatStopServers } from './stages/uat.js';
+import { spinTicket } from '../runtime/spin.js';
+import { stopTicketServers } from '../runtime/supervisor.js';
 import { runReview, type OpenDiff } from './stages/review.js';
 import type { ReviewArtifacts } from './review/conformance.js';
 import {
@@ -120,6 +122,16 @@ export interface DriveTicketDeps {
    * adapter per call, so a second call would instrument twice.
    */
   uatTester?: (ticketId: number) => DriveProcessBundle | null;
+  /**
+   * The service spin/stop seams (D155): threaded into `UatDeps` so UAT starts
+   * the ticket's runnable services before the Tester and stops them after, on
+   * every exit path. Default to the real `runtime/spin.ts` /
+   * `runtime/supervisor.ts` implementations (exactly like `runUat`/`runReview`
+   * above, reached by module import because production has one of each); a test
+   * injects its own to assert ordering without a repository on disk.
+   */
+  spin?: UatSpin;
+  stopServers?: UatStopServers;
   /**
    * The Review findings process (Task 8): the same shape as `uatTester`,
    * resolving the `review` role's assignment and its instrumented adapter.
@@ -356,7 +368,12 @@ export async function driveTicket(
                 }
               },
             },
-            { tester, runVerifier: deps.runVerifier },
+            {
+              tester,
+              runVerifier: deps.runVerifier,
+              spin: deps.spin ?? spinTicket,
+              stopServers: deps.stopServers ?? stopTicketServers,
+            },
           );
         },
         // `runReview` reports its own StageRunResult too, so it is passed

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { StageRunResult } from '../../model/types.js';
 import type { Manifest, UatConfig } from '../../manifest/types.js';
-import { unitsOf } from '../../manifest/runnable.js';
+import { runnableSubset, unitsOf, unitsOfRepos } from '../../manifest/runnable.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
@@ -12,7 +12,11 @@ import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '.
 import { openGateRun } from '../gates/evidence.js';
 import { nowIso } from '../../model/time.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
-import { listWorktreesByTicket } from '../../store/dashboard.js';
+import {
+  listServersByTicket,
+  listWorktreesByTicket,
+  type ServerView,
+} from '../../store/dashboard.js';
 import { listGateRuns } from '../../store/gateRuns.js';
 import { listProcessRuns, setProcessRunResultKind } from '../../store/processRuns.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
@@ -24,7 +28,12 @@ import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
-import { runUatTester, type TesterTarget, type TesterRunResult } from '../uat/tester.js';
+import {
+  runUatTester,
+  type TesterRunningService,
+  type TesterTarget,
+  type TesterRunResult,
+} from '../uat/tester.js';
 import {
   runTesterVerifier,
   TESTER_VERIFIER_FAILURE_PREFIX,
@@ -46,6 +55,7 @@ import {
   type AggregateEntry,
   type GateIdentity,
 } from '../uat/aggregate.js';
+import { SpinCancelledError, type SpinResult } from '../../runtime/spin.js';
 
 /**
  * UAT stage — orchestration only.
@@ -116,6 +126,24 @@ export interface RunUatOpts {
   contextCommand?: string;
 }
 
+/**
+ * The injected spin seam — `runtime/spin.ts`'s `spinTicket` in production
+ * (wired by `workflow/driveTicket.ts`). A ticket's runnable services are started
+ * here, before the Tester, and stopped again afterwards (D155). Absent → no
+ * spin at all, exactly like an absent Tester: unit tests and the dashboard's
+ * gate-option resolver inject none.
+ */
+export type UatSpin = (
+  store: Store,
+  manifest: Manifest,
+  ticketId: number,
+  hot: string[],
+  opts?: { signal?: AbortSignal; debug?: (message: string) => void },
+) => Promise<SpinResult>;
+
+/** The injected stop seam — `runtime/supervisor.ts`'s `stopTicketServers`. */
+export type UatStopServers = (store: Store, ticketId: number) => Promise<void>;
+
 export interface UatDeps {
   planTargets?: typeof planUatTargets;
   probe?: (cwd: string, debug?: (message: string) => void) => ScriptProbe;
@@ -129,6 +157,22 @@ export interface UatDeps {
    * and the Tester's advisory observations are simply absent.
    */
   tester?: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
+  /**
+   * Start the ticket's runnable services before the Tester, so the Tester can
+   * exercise a live app instead of a bare worktree (D155). The worktrees
+   * already exist, so the spin adopts them. Absent, or no runnable repository
+   * in scope, or no Tester → no spin and no stop, and the stage runs exactly as
+   * before. A spin failure parks `boot-failed` (an environment fault, never a
+   * failed verdict); a cancel is a Stop.
+   */
+  spin?: UatSpin;
+  /**
+   * Stop every server of the ticket after the Tester, on every exit path
+   * (pass, fail, unreadable, throw). Only called when THIS run spun the stack —
+   * a stack the user already started is theirs and is left alone. Absent → no
+   * stop (unit tests, the dashboard's gate-option resolver).
+   */
+  stopServers?: UatStopServers;
   /**
    * The host gate boundary for the optional `uat.testerVerifier` (Task 8) —
    * `runProcess` from `workflow/gates/run.ts`. Absent with a configured
@@ -663,169 +707,278 @@ export async function runUat(
     }
   }
 
-  // ---- Tester + optional deterministic verifier (Task 8) ----
-  // The AI Tester contributes OBSERVATIONS only: its findings can never pass,
-  // fail, transition, or spend a recovery round by themselves. The optional
-  // `uat.testerVerifier` is the deterministic boundary whose COMPLETED exit
-  // code is the sole Tester-specific DETERMINISTIC verdict; the one way an
-  // observation itself becomes a verdict is the opt-in
-  // `uat.testerObservations.blockingSeverity` applied below. At its default
-  // `'none'` the observations are advisory and this gate verdict decides.
-  let testerResult: TesterRunResult | null = null;
-  if (deps.tester) {
-    // Source field: `Ticket.description` — the ticket's done-when criteria
-    // (Prompt 17). Read once, here, via the existing accessor: no new
-    // injected dependency, no `vscode` import (host-agnostic invariant intact).
-    const ticket = getTicket(store, opts.ticketId);
-    testerResult = await runUatTester(
-      store,
-      {
-        ticketId: opts.ticketId,
-        targets: testerTargets(opts.manifest, targets, worktrees),
-        assignment: deps.tester.assignment,
-        adapter: deps.tester.adapter,
-        stageRunId: evidence.runId,
-        attempt: evidence.attempt,
-        signal: opts.signal,
-        warn: deps.warn,
-        debug: opts.debug,
-        git,
-        criteria: ticket.description,
-        intent: ticket.intent,
-        ticketKey: ticket.key,
-        contextCommand: opts.contextCommand,
-        onOutput: opts.onTesterOutput,
-        onTargetProgress: opts.onTesterTargetProgress,
-        // The ONE knob that can make an observation a verdict. Coalesced at
-        // every read: the loader leaves the block undefined when absent but
-        // materializes `{ blockingSeverity: 'none' }` when it is present and
-        // empty, and both must read as the advisory default.
-        observationsBlockingSeverity:
-          opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
-        // T663: the per-target fresh-token budget. Absent → the Tester's own
-        // default, so a manifest that omits `uat.tester` is unchanged.
-        tokenBudget: opts.manifest?.uat?.tester?.tokenBudget,
-      },
-      { now },
-    );
-  } else {
-    opts.debug?.(
-      `[gate] uat ticket ${opts.ticketId}: gates passed — no Tester configured, gates alone decide`,
-    );
-  }
-  // The run was opened by `runUatTester` under the driver's single-flight;
-  // read the id back so the verifier trigger can name the exact Tester
-  // execution (a recovery round must never guess at its source process). Scope
-  // to THIS attempt's stage run: `listProcessRuns` spans the ticket's whole
-  // history, so an attempt that ran no Tester would otherwise attribute its
-  // verifier failure to a stale tester run from an earlier attempt.
-  for (const run of listProcessRuns(store, opts.ticketId).reverse()) {
-    if (run.processId === 'tester' && run.stageRunId === evidence.runId) {
-      testerRunId = run.id;
-      break;
+  // ---- Spin the ticket's services before the Tester (D155) ----
+  // Browser UAT is blocked on every multi-service ticket unless something
+  // starts the app the Tester exercises. The worktrees already exist, so the
+  // spin adopts them; the manifest's baseline dependencies come up through
+  // `ensureBaseline`. Read from the store, never from anything cached: a row a
+  // prior run stopped still reads `stopped` here.
+  //
+  // A ticket whose runnable services the user ALREADY started owns that stack:
+  // karst neither spins it nor stops it afterwards. Anything less than the whole
+  // stack is UAT's — the spin stops every ticket server first (spin.ts), so a
+  // partial user-started stack is not restored afterwards (deliberate).
+  const ticket = getTicket(store, opts.ticketId);
+  const spinFn = deps.spin;
+  const stopFn = deps.stopServers;
+  const spinManifest = opts.manifest;
+  // Set when THIS run starts the stack (or tries to): the `finally` below stops
+  // it on every exit path, INCLUDING a spin that failed partway — `spinTicket`
+  // leaves the services it already started running on a non-cancel failure, and
+  // an un-stopped stack is a leaked dev server on a port karst believes is free.
+  let ownsStack = false;
+  let spinHot: string[] = [];
+  // BOTH seams must be present: a spin with no way to stop would leak the
+  // stack it started, so an absent stop disables the capability entirely.
+  if (deps.tester && spinFn && stopFn && spinManifest !== undefined) {
+    const hot = runnableSubset(spinManifest, ticket.selectedRepos);
+    if (hot.length > 0) {
+      const running = new Set(
+        listServersByTicket(store, opts.ticketId)
+          .filter((s) => s.status === 'running')
+          .map((s) => s.service),
+      );
+      const needed = unitsOfRepos(spinManifest, hot).map((u) => u.key);
+      if (needed.length > 0 && needed.every((key) => running.has(key))) {
+        opts.debug?.(
+          `[gate] uat ticket ${opts.ticketId}: ${needed.length} service(s) already running — ` +
+            `reusing the user's stack, no spin and no stop`,
+        );
+      } else {
+        ownsStack = true;
+        spinHot = hot;
+      }
     }
   }
-  if (testerResult?.kind === 'interrupted') {
-    return finish({ kind: 'stopped' }, ['tester interrupted before it finished']);
-  }
-  if (testerResult?.kind === 'execution-failed') {
-    // Advisory absence, exactly like review's lane: a failed AI call must not
-    // break the run's gates — it is reported, and the gates decide.
-    deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
-  }
-  if (testerResult?.kind === 'partial') {
-    // T663: the run was stopped by a budget or the deadline and reported what
-    // it could. Advisory exactly like `observed` — the gates (and the verifier,
-    // and the observation threshold below) decide — but the user is told the
-    // result is partial, never left to read it as a clean pass.
-    deps.warn?.(`uat tester: ${testerResult.detail}`);
-  }
-  if (testerResult?.kind === 'unreadable-output') {
-    // NOT the same event as `execution-failed`. The call SUCCEEDED and the
-    // agent answered — it just answered in a shape no findings could be read
-    // out of. That answer may carry blocking observations nobody parsed, so
-    // treating it as an advisory absence discards evidence rather than noting
-    // one. By the time this branch runs, `runUatTester` has already given
-    // every unreadable target ONE reformat nudge (quoting its own prose back,
-    // asking only for the shape) — this is reached only when that retry also
-    // came back unreadable. Park instead of passing: no `maxFixAttempts`
-    // attempt is consumed and no recovery round opens for what may be a
-    // formatting failure by the agent core rather than a defect in the ticket
-    // — the ticket stops and waits for a human instead of advancing on
-    // evidence nobody read. Mirrors review's own park for the identical
-    // situation (`review.ts` ~line 675).
-    //
-    // This is a real, UNMEASURED-rate decision (UAT-19): the reformat-nudge
-    // rate this park's trigger reads from is zero rows at ship time. If it
-    // later reads high for one core (or the reformat nudge itself rarely
-    // recovers a readable answer), the fallback is reverting this park to
-    // advisory for that core — never tuning the nudge's wording first. See
-    // `docs/arch/prompt-metrics.md` ("UAT-19's park rollback trigger").
-    const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
-    sections.push(`# uat tester (unreadable output)\n${testerResult.preview}`);
-    return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
-  }
 
-  const verifierGate = opts.manifest?.uat?.testerVerifier;
-  if (verifierGate !== undefined) {
-    const verification = await runTesterVerifier(
-      { gate: verifierGate, cwd: targets[0]?.path ?? opts.cwd, signal: opts.signal, onDebug: opts.debug },
-      { run: deps.runVerifier },
-    );
-    switch (verification.kind) {
-      case 'passed':
+  /**
+   * The post-gates half of the stage: the Tester, its optional deterministic
+   * verifier, and the final verdict. Extracted so the WHOLE half runs under one
+   * `finally` that stops the services UAT started — on every exit path (pass,
+   * fail, unreadable, or a throw). A stack the user already started is not ours
+   * and is never stopped.
+   */
+  const finishAfterServices = async (): Promise<StageRunResult> => {
+    // ---- Tester + optional deterministic verifier (Task 8) ----
+    // The AI Tester contributes OBSERVATIONS only: its findings can never pass,
+    // fail, transition, or spend a recovery round by themselves. The optional
+    // `uat.testerVerifier` is the deterministic boundary whose COMPLETED exit
+    // code is the sole Tester-specific DETERMINISTIC verdict; the one way an
+    // observation itself becomes a verdict is the opt-in
+    // `uat.testerObservations.blockingSeverity` applied below. At its default
+    // `'none'` the observations are advisory and this gate verdict decides.
+    let testerResult: TesterRunResult | null = null;
+    if (deps.tester) {
+      // Source fields: `Ticket.description` / `intent` — the ticket's done-when
+      // criteria (Prompt 17). The ticket was read once, above, via the existing
+      // accessor: no new injected dependency, no `vscode` import (host-agnostic
+      // invariant intact).
+      testerResult = await runUatTester(
+        store,
+        {
+          ticketId: opts.ticketId,
+          targets: testerTargets(
+            opts.manifest,
+            targets,
+            worktrees,
+            listServersByTicket(store, opts.ticketId),
+          ),
+          assignment: deps.tester.assignment,
+          adapter: deps.tester.adapter,
+          stageRunId: evidence.runId,
+          attempt: evidence.attempt,
+          signal: opts.signal,
+          warn: deps.warn,
+          debug: opts.debug,
+          git,
+          criteria: ticket.description,
+          intent: ticket.intent,
+          ticketKey: ticket.key,
+          contextCommand: opts.contextCommand,
+          onOutput: opts.onTesterOutput,
+          onTargetProgress: opts.onTesterTargetProgress,
+          // The ONE knob that can make an observation a verdict. Coalesced at
+          // every read: the loader leaves the block undefined when absent but
+          // materializes `{ blockingSeverity: 'none' }` when it is present and
+          // empty, and both must read as the advisory default.
+          observationsBlockingSeverity:
+            opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
+          // T663: the per-target fresh-token budget. Absent → the Tester's own
+          // default, so a manifest that omits `uat.tester` is unchanged.
+          tokenBudget: opts.manifest?.uat?.tester?.tokenBudget,
+        },
+        { now },
+      );
+    } else {
+      opts.debug?.(
+        `[gate] uat ticket ${opts.ticketId}: gates passed — no Tester configured, gates alone decide`,
+      );
+    }
+    // The run was opened by `runUatTester` under the driver's single-flight;
+    // read the id back so the verifier trigger can name the exact Tester
+    // execution (a recovery round must never guess at its source process). Scope
+    // to THIS attempt's stage run: `listProcessRuns` spans the ticket's whole
+    // history, so an attempt that ran no Tester would otherwise attribute its
+    // verifier failure to a stale tester run from an earlier attempt.
+    for (const run of listProcessRuns(store, opts.ticketId).reverse()) {
+      if (run.processId === 'tester' && run.stageRunId === evidence.runId) {
+        testerRunId = run.id;
         break;
-      case 'absent':
-        // Unreachable when a gate was supplied; kept for exhaustiveness.
-        break;
-      case 'failed': {
-        // A completed nonzero exit is a DETERMINISTIC validation failure: the
-        // Tester's observation is disproven, the run records it, and the
-        // failed verdict opens a recovery round naming the Tester process.
-        if (testerRunId !== null) {
-          setProcessRunResultKind(store, testerRunId, 'verification-failed');
+      }
+    }
+    if (testerResult?.kind === 'interrupted') {
+      return finish({ kind: 'stopped' }, ['tester interrupted before it finished']);
+    }
+    if (testerResult?.kind === 'execution-failed') {
+      // Advisory absence, exactly like review's lane: a failed AI call must not
+      // break the run's gates — it is reported, and the gates decide.
+      deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
+    }
+    if (testerResult?.kind === 'partial') {
+      // T663: the run was stopped by a budget or the deadline and reported what
+      // it could. Advisory exactly like `observed` — the gates (and the verifier,
+      // and the observation threshold below) decide — but the user is told the
+      // result is partial, never left to read it as a clean pass.
+      deps.warn?.(`uat tester: ${testerResult.detail}`);
+    }
+    if (testerResult?.kind === 'unreadable-output') {
+      // NOT the same event as `execution-failed`. The call SUCCEEDED and the
+      // agent answered — it just answered in a shape no findings could be read
+      // out of. That answer may carry blocking observations nobody parsed, so
+      // treating it as an advisory absence discards evidence rather than noting
+      // one. By the time this branch runs, `runUatTester` has already given
+      // every unreadable target ONE reformat nudge (quoting its own prose back,
+      // asking only for the shape) — this is reached only when that retry also
+      // came back unreadable. Park instead of passing: no `maxFixAttempts`
+      // attempt is consumed and no recovery round opens for what may be a
+      // formatting failure by the agent core rather than a defect in the ticket
+      // — the ticket stops and waits for a human instead of advancing on
+      // evidence nobody read. Mirrors review's own park for the identical
+      // situation (`review.ts` ~line 675).
+      //
+      // This is a real, UNMEASURED-rate decision (UAT-19): the reformat-nudge
+      // rate this park's trigger reads from is zero rows at ship time. If it
+      // later reads high for one core (or the reformat nudge itself rarely
+      // recovers a readable answer), the fallback is reverting this park to
+      // advisory for that core — never tuning the nudge's wording first. See
+      // `docs/arch/prompt-metrics.md` ("UAT-19's park rollback trigger").
+      const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
+      sections.push(`# uat tester (unreadable output)\n${testerResult.preview}`);
+      return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+    }
+  
+    const verifierGate = opts.manifest?.uat?.testerVerifier;
+    if (verifierGate !== undefined) {
+      const verification = await runTesterVerifier(
+        { gate: verifierGate, cwd: targets[0]?.path ?? opts.cwd, signal: opts.signal, onDebug: opts.debug },
+        { run: deps.runVerifier },
+      );
+      switch (verification.kind) {
+        case 'passed':
+          break;
+        case 'absent':
+          // Unreachable when a gate was supplied; kept for exhaustiveness.
+          break;
+        case 'failed': {
+          // A completed nonzero exit is a DETERMINISTIC validation failure: the
+          // Tester's observation is disproven, the run records it, and the
+          // failed verdict opens a recovery round naming the Tester process.
+          if (testerRunId !== null) {
+            setProcessRunResultKind(store, testerRunId, 'verification-failed');
+          }
+          const reason = `${TESTER_VERIFIER_FAILURE_PREFIX}exit code ${verification.exitCode}`;
+          return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } });
         }
-        const reason = `${TESTER_VERIFIER_FAILURE_PREFIX}exit code ${verification.exitCode}`;
-        return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } });
+        case 'execution-failed': {
+          // A command that could not run is environmental: park, never a
+          // verdict — no attempt is consumed and no recovery round opens.
+          const reason =
+            `uat tester verifier "${verifierGate.name}" could not run: ${verification.message}`;
+          return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+        }
+        case 'interrupted':
+          return finish({ kind: 'stopped' }, ['uat tester verifier interrupted']);
+        default: {
+          const unreachable: never = verification;
+          throw new Error(`unrecognized verifier outcome: ${JSON.stringify(unreachable)}`);
+        }
       }
-      case 'execution-failed': {
-        // A command that could not run is environmental: park, never a
-        // verdict — no attempt is consumed and no recovery round opens.
+    }
+  
+    // ---- The opt-in observation threshold (Task 3.2) ----
+    // `uat.testerObservations.blockingSeverity` is the ONE way an OBSERVATION
+    // becomes a verdict. At the default `'none'` — and for every manifest that
+    // omits the block — `blocking` is 0 and this is dead code: the gates (and the
+    // verifier, when configured) decide exactly as before. Placed AFTER the
+    // verifier so the deterministic boundary keeps precedence, and expressed the
+    // same way the verifier's failure is: a failed verdict whose reason carries
+    // the shared prefix, which `recoveryTriggerFor` reads to attribute the
+    // recovery round to `sourceProcessId: 'tester'`.
+    if (
+      (testerResult?.kind === 'observed' || testerResult?.kind === 'partial') &&
+      testerResult.blocking > 0
+    ) {
+      const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${testerResult.blockingSummary ?? `${testerResult.blocking} blocking`}`;
+      opts.debug?.(
+        `[gate] uat ticket ${opts.ticketId}: gates passed but ${testerResult.blocking} tester ` +
+          `observation(s) are at or above the configured blocking severity — failing uat`,
+      );
+      return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } }, outcome.warnings);
+    }
+  
+    return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
+  };
+
+  try {
+    // The spin is INSIDE this try so its `finally` covers a partial failure too:
+    // `spinTicket` leaves the services it already started running when a later
+    // one fails (only a cancel tears its own run down), so a `boot-failed` park
+    // must still stop whatever came up. Idempotent, and a cancel already stopped
+    // its own run — stopping again is a no-op.
+    if (ownsStack && spinFn && spinManifest !== undefined) {
+      opts.debug?.(
+        `[gate] uat ticket ${opts.ticketId}: spinning ${spinHot.length} runnable repo(s) before the Tester`,
+      );
+      try {
+        await spinFn(store, spinManifest, opts.ticketId, spinHot, {
+          signal: opts.signal,
+          debug: opts.debug,
+        });
+      } catch (error) {
+        // A Stop is a cancel, never an environment fault.
+        if (error instanceof SpinCancelledError) {
+          opts.debug?.(`[gate] uat ticket ${opts.ticketId}: spin cancelled — stopped`);
+          return finish({ kind: 'stopped' }, ['spin cancelled before the services came up']);
+        }
+        // An environment fault is a BLOCK, never a failed verdict: the code was
+        // not judged, so a fix round would be spent on nothing. The reason
+        // carries startHot's health evidence (nothing listening, or a listener
+        // that never answered) plus the service's own log tail.
         const reason =
-          `uat tester verifier "${verifierGate.name}" could not run: ${verification.message}`;
-        return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+          `could not start the ticket's services: ` +
+          (error instanceof Error ? error.message : String(error));
+        opts.debug?.(`[gate] uat ticket ${opts.ticketId}: spin failed — parked boot-failed`);
+        sections.push(`# services (spin failed)\n${reason}`);
+        return finish({ kind: 'blocked', blocker: 'boot-failed', reason }, [reason]);
       }
-      case 'interrupted':
-        return finish({ kind: 'stopped' }, ['uat tester verifier interrupted']);
-      default: {
-        const unreachable: never = verification;
-        throw new Error(`unrecognized verifier outcome: ${JSON.stringify(unreachable)}`);
+    }
+    return await finishAfterServices();
+  } finally {
+    // Stop the services UAT started on every exit path — the rows stay offline
+    // so the dashboard offers Restart. Best-effort: a stop that cannot run must
+    // never replace the stage's own outcome. A stack the user owns is untouched.
+    if (ownsStack && stopFn) {
+      try {
+        await stopFn(store, opts.ticketId);
+        opts.debug?.(`[gate] uat ticket ${opts.ticketId}: stopped the ticket's services after UAT`);
+      } catch (error) {
+        opts.debug?.(
+          `[gate] uat ticket ${opts.ticketId}: stopping the ticket's services failed: ` +
+            (error instanceof Error ? error.message : String(error)),
+        );
       }
     }
   }
-
-  // ---- The opt-in observation threshold (Task 3.2) ----
-  // `uat.testerObservations.blockingSeverity` is the ONE way an OBSERVATION
-  // becomes a verdict. At the default `'none'` — and for every manifest that
-  // omits the block — `blocking` is 0 and this is dead code: the gates (and the
-  // verifier, when configured) decide exactly as before. Placed AFTER the
-  // verifier so the deterministic boundary keeps precedence, and expressed the
-  // same way the verifier's failure is: a failed verdict whose reason carries
-  // the shared prefix, which `recoveryTriggerFor` reads to attribute the
-  // recovery round to `sourceProcessId: 'tester'`.
-  if (
-    (testerResult?.kind === 'observed' || testerResult?.kind === 'partial') &&
-    testerResult.blocking > 0
-  ) {
-    const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${testerResult.blockingSummary ?? `${testerResult.blocking} blocking`}`;
-    opts.debug?.(
-      `[gate] uat ticket ${opts.ticketId}: gates passed but ${testerResult.blocking} tester ` +
-        `observation(s) are at or above the configured blocking severity — failing uat`,
-    );
-    return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } }, outcome.warnings);
-  }
-
-  return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
 }
 
 /**
@@ -839,6 +992,7 @@ export function testerTargets(
   manifest: Manifest | undefined,
   targets: readonly UatTarget[],
   worktrees: readonly { repo: string; baseRef: string | null; branch: string | null }[],
+  servers: readonly ServerView[] = [],
 ): TesterTarget[] {
   const baseRefByRepo = new Map(worktrees.map((w) => [w.repo, w.baseRef]));
   const branchByRepo = new Map(worktrees.map((w) => [w.repo, w.branch]));
@@ -847,32 +1001,29 @@ export function testerTargets(
     worktreePath: t.path,
     baseRef: baseRefByRepo.get(t.repo) ?? null,
     branch: branchByRepo.get(t.repo) ?? null,
-    ...(manifest === undefined ? { service: undefined } : serviceContextFor(manifest, t.names)),
+    runningServices: runningServicesFor(manifest, t.names, servers),
   }));
 }
 
 /**
- * The manifest-declared service context of a target's repository names. One
- * service keeps the single `service` shape; several (a multi-service repository)
- * list every one as `repo/service` with its start command and cwd when set.
+ * The services of a target's repository names that are RUNNING right now, each
+ * as `repo/service → http://host:port`, read from the ticket's server rows —
+ * never from the manifest's start commands (the Tester must not start anything,
+ * and a start command is not a live URL). A runnable repository with no running
+ * row contributes nothing, and the prompt says its change is not live.
  */
-function serviceContextFor(
-  manifest: Manifest,
+function runningServicesFor(
+  manifest: Manifest | undefined,
   names: readonly string[],
-): Pick<TesterTarget, 'service' | 'services'> {
-  const units = names.flatMap((name) => {
-    const repo = manifest.repositories[name];
-    return repo ? unitsOf(name, repo) : [];
-  });
-  if (units.length > 1) {
-    return {
-      service: null,
-      services: units.map((u) => ({
-        key: u.key,
-        start: u.def.start,
-        ...(u.def.cwd !== undefined ? { cwd: u.def.cwd } : {}),
-      })),
-    };
-  }
-  return { service: { start: units[0]?.def.start } };
+  servers: readonly ServerView[],
+): TesterRunningService[] {
+  const keys = new Set(
+    names.flatMap((name) => {
+      const repo = manifest?.repositories[name];
+      return repo ? unitsOf(name, repo).map((u) => u.key) : [];
+    }),
+  );
+  return servers
+    .filter((s) => s.status === 'running' && s.host !== null && s.port !== null && keys.has(s.service))
+    .map((s) => ({ key: s.service, url: `http://${s.host}:${s.port}` }));
 }

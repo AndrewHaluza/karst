@@ -18,6 +18,7 @@ const XDG = {
   XDG_CACHE_HOME: `${HOME}/cache`,
   XDG_STATE_HOME: `${HOME}/state`,
   OPENCODE_DISABLE_AUTOUPDATE: '1',
+  DISABLE_AUTOUPDATER: '1',
 };
 
 function deps(overrides: Partial<Parameters<typeof warnOpencode2AuthIfUnset>[0]> = {}) {

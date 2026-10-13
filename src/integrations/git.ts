@@ -511,7 +511,9 @@ export async function changedPathsMatching(
   if (out.exitCode !== 0) {
     throw new Error(describeGitFailure(`git diff --name-only ${range}`, out));
   }
-  return splitLines(out.stdout);
+  // `--name-only` C-quotes a non-ASCII path just like `status` does; unquote so
+  // the committed-match warning names the real path, not its octal form.
+  return splitLines(out.stdout).map(unquotePorcelain);
 }
 
 /** Split git's newline-separated path output, dropping blank lines. */
@@ -520,6 +522,162 @@ function splitLines(text: string): string[] {
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => line !== '');
+}
+
+/** One `git status --porcelain` entry: the two status columns and the path. */
+export interface PorcelainEntry {
+  /** The two-character `XY` status (`??` for untracked, `R ` for a rename). */
+  status: string;
+  /** Worktree-relative path, C-quoted forms undone, the DESTINATION of a rename. */
+  path: string;
+  /**
+   * The SOURCE path of a rename/copy (`R`/`C`), C-quoted forms undone; absent
+   * for every other entry. A sweep commit's exclude reset can keep the
+   * destination out while the source deletion still lands (`arch:SHIP-EXCLUDE`),
+   * so a caller that models the commit needs both ends of the pair.
+   */
+  from?: string;
+}
+
+/**
+ * Parse `git status --porcelain -uall` output into one entry per dirty path.
+ * The DESTINATION of a rename/copy (`R  old -> new`) answers `path` and the
+ * SOURCE answers `from` — a sweep commit records the destination, but an
+ * exclude reset of that destination can leave the source deletion to commit
+ * (`arch:SHIP-EXCLUDE`). C-quoted paths (`"a b"`, octal escapes) are undone. A
+ * blank or short line is skipped rather than guessed at.
+ *
+ * Shared by ship's deny scan and the read-only ship preview so both read the
+ * exact same dirty set from the exact same git output (`arch:SHIP-SECRET`).
+ */
+export function parsePorcelainEntries(porcelain: string): PorcelainEntry[] {
+  const entries: PorcelainEntry[] = [];
+  for (const line of porcelain.split('\n')) {
+    if (line.length < 4) continue;
+    const status = line.slice(0, 2);
+    const rest = line.slice(3);
+    const arrow = renameSeparator(rest);
+    const rawPath = arrow === -1 ? rest : rest.slice(arrow + 4);
+    const path = unquotePorcelain(rawPath);
+    if (path === '') continue;
+    if (arrow === -1) {
+      entries.push({ status, path });
+    } else {
+      const from = unquotePorcelain(rest.slice(0, arrow));
+      entries.push(from === '' ? { status, path } : { status, path, from });
+    }
+  }
+  return entries;
+}
+
+/**
+ * The index of the ` -> ` separator in a rename/copy entry, or -1. The search
+ * must respect git's quoting: a quoted path can itself contain ` -> `
+ * (`"a -> b.txt"`), and a naive `lastIndexOf` splits inside the quotes and
+ * returns a mangled path. The separator is always OUTSIDE the quotes, so scan
+ * with a quote toggle (skipping backslash-escaped characters) and take the
+ * first unquoted ` -> `.
+ */
+function renameSeparator(rest: string): number {
+  let inQuotes = false;
+  for (let i = 0; i < rest.length; i++) {
+    const ch = rest[i]!;
+    if (ch === '\\') {
+      i++; // the escaped character is literal; never a quote or separator
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = !inQuotes;
+      continue;
+    }
+    if (!inQuotes && rest.startsWith(' -> ', i)) return i;
+  }
+  return -1;
+}
+
+/** The dirty paths of a `git status --porcelain -uall` read, in git's order. */
+export function parsePorcelainPaths(porcelain: string): string[] {
+  return parsePorcelainEntries(porcelain).map((entry) => entry.path);
+}
+
+/**
+ * Undo git's C-style path quoting: `"`-wrapped, with the full C escape set
+ * (`\\`, `\"`, `\a`, `\b`, `\t`, `\n`, `\v`, `\f`, `\r`) and octal BYTES. The
+ * escapes are collected as raw bytes and decoded as UTF-8 — a per-escape
+ * `String.fromCharCode` reads each UTF-8 byte as Latin-1 and turns `näme`
+ * (quoted `n\303\244me`) into `nÃ¤me`.
+ */
+function unquotePorcelain(value: string): string {
+  if (value.length < 2 || !value.startsWith('"') || !value.endsWith('"')) return value;
+  const body = value.slice(1, -1);
+  const bytes: number[] = [];
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (ch !== '\\') {
+      bytes.push(ch.charCodeAt(0));
+      continue;
+    }
+    const escape = body[i + 1];
+    if (escape === undefined) {
+      bytes.push(0x5c); // trailing backslash — literal
+      break;
+    }
+    if (escape === '\\' || escape === '"') {
+      bytes.push(escape.charCodeAt(0));
+    } else if (escape === 'a') {
+      bytes.push(0x07);
+    } else if (escape === 'b') {
+      bytes.push(0x08);
+    } else if (escape === 't') {
+      bytes.push(0x09);
+    } else if (escape === 'n') {
+      bytes.push(0x0a);
+    } else if (escape === 'v') {
+      bytes.push(0x0b);
+    } else if (escape === 'f') {
+      bytes.push(0x0c);
+    } else if (escape === 'r') {
+      bytes.push(0x0d);
+    } else if (escape >= '0' && escape <= '7') {
+      // A byte git wrote as 1–3 octal digits (UTF-8 continuation bytes included).
+      let octal = escape;
+      let j = i + 2;
+      while (octal.length < 3 && j < body.length && body[j]! >= '0' && body[j]! <= '7') {
+        octal += body[j];
+        j++;
+      }
+      bytes.push(parseInt(octal, 8) & 0xff);
+      i = j - 1;
+      continue;
+    } else {
+      bytes.push(0x5c); // unknown escape — keep the backslash
+    }
+    i++;
+  }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/**
+ * The dirty paths (`git status --porcelain -uall`) that any exclude spec
+ * matches — ship's read-only mirror of the QUARANTINE reset it later performs,
+ * so the preview names exactly the paths the sweep commit will leave out. Empty
+ * when `specs` is empty (no git invocation). Throws on a git failure so the
+ * caller decides (the preview degrades the repo to an error).
+ */
+export async function dirtyPathsMatching(
+  git: GitRunner,
+  cwd: string,
+  specs: readonly string[],
+): Promise<string[]> {
+  if (specs.length === 0) return [];
+  const out = await git(
+    ['status', '--porcelain', '-uall', '--', ...specs.map(excludeGlobSpec)],
+    cwd,
+  );
+  if (out.exitCode !== 0) {
+    throw new Error(describeGitFailure('git status --porcelain -uall -- <exclude>', out));
+  }
+  return parsePorcelainPaths(out.stdout);
 }
 
 /** The two object ids that authorize `created-by-ship` provenance. */

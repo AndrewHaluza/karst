@@ -1,10 +1,20 @@
 import { spawn } from 'node:child_process';
 import { StringDecoder } from 'node:string_decoder';
+import type { AgentProvider } from '../manifest/types.js';
 import type { ModelOption } from './modelCatalog.js';
 import { validateModelList } from './modelCatalog.js';
+import { opencode2BinaryPath, opencode2Command } from './opencode2Binary.js';
 
 const COMMAND_TIMEOUT_MS = 3_000;
 const MAX_OUTPUT_BYTES = 256 * 1024;
+
+/**
+ * opencode2's `models` run starts a private server (`--standalone`) and reads
+ * the account's provider catalog, which routinely takes longer than the 3 s the
+ * other probes allow. Still bounded — a timeout leaves the bundled rows in
+ * place — but long enough that a normal cold run completes.
+ */
+const OPENCODE2_COMMAND_TIMEOUT_MS = 15_000;
 
 function truncateUtf8(text: string, maxBytes: number): string {
   const encoded = Buffer.from(text);
@@ -190,6 +200,11 @@ export function makeCommandRunner(
 
 const defaultCommandRunner = makeCommandRunner();
 
+/** The opencode2 probe's own default: same runner, a longer bound (see above). */
+const defaultOpencode2CommandRunner = makeCommandRunner(spawn, {
+  timeoutMs: OPENCODE2_COMMAND_TIMEOUT_MS,
+});
+
 function unavailable(code: DiscoveryUnavailableCode, reason: string): DiscoveryResult {
   return { status: 'unavailable', code, reason };
 }
@@ -364,13 +379,19 @@ export async function discoverClaudeModels(): Promise<DiscoveryResult> {
 const OPENCODE_MODEL_LINE = /^[A-Za-z0-9][A-Za-z0-9._:/~-]*$/;
 
 /**
- * Parse `opencode models` plain output into catalog rows.
+ * Parse an `opencode models`-shaped plain output into catalog rows for one
+ * provider.
  *
  * The plain format is one model ID per line (e.g. `opencode/big-pickle`,
  * `openrouter/anthropic/claude-opus-5`). No display names are available
- * without `--verbose`, so the ID is used as both id and label.
+ * without `--verbose`, so the ID is used as both id and label. The v1 and v2
+ * CLIs print the identical shape, so the parser takes the provider instead of
+ * being copied per core.
  */
-export function parseOpencodeModels(stdout: string): ModelOption[] | undefined {
+export function parseOpencodeModelList(
+  provider: AgentProvider,
+  stdout: string,
+): ModelOption[] | undefined {
   const lines = stdout.split(/\r?\n/);
   const ids = lines
     .map((line) => line.trim())
@@ -379,9 +400,14 @@ export function parseOpencodeModels(stdout: string): ModelOption[] | undefined {
   if (!ids.every((id) => OPENCODE_MODEL_LINE.test(id))) return undefined;
 
   return validateModelList(
-    'opencode',
+    provider,
     ids.map((id) => ({ id, label: id })),
   );
+}
+
+/** Parse v1 `opencode models` output into catalog rows. */
+export function parseOpencodeModels(stdout: string): ModelOption[] | undefined {
+  return parseOpencodeModelList('opencode', stdout);
 }
 
 /**
@@ -408,12 +434,42 @@ export async function discoverOpencodeModels(
 }
 
 /**
- * opencode2 (v2) reads its model catalog from models.dev over the network and
- * its launcher is a configured absolute path, not a PATH command, so karst has
- * no CLI probe to run. The bundled/feed `opencode2` section is the fallback —
- * `unsupported` (karst has no probe) rather than `command-unavailable` (the
- * user's machine is missing a tool it is not).
+ * Discover available opencode2 (v2) models by running the CONFIGURED v2
+ * binary with `models --standalone`.
+ *
+ * The v2 launcher is also named `opencode` but its contract differs from v1,
+ * so the command comes from `opencode2Command()` — the absolute path in
+ * `karst.opencode2.binaryPath` — never a PATH lookup. An unset setting is the
+ * normal "core not configured" state and returns `command-unavailable`
+ * without spawning: the sentinel `opencode2` must never be resolved on PATH.
+ *
+ * `--standalone` is NOT optional: a bare `models` reaches the shared managed
+ * service and fails when the user's own OpenCode already owns its port
+ * (`Managed service port 49374 … already in use`, live 2.0.27) — the same rule
+ * every opencode2 spawn follows (AC-27). Unlike a session spawn, this probe is
+ * deliberately NOT run under the karst-owned XDG dirs: the model list comes
+ * from the user's own config, and an isolated run reports only the handful of
+ * built-in `opencode/*` ids instead of the account's providers.
+ *
+ * v2 prints `provider/model` ids (the same shape v1 does), so the ids are
+ * passed through the shared parser. The CLI gives no effort vocabulary, so a
+ * discovered id that matches a bundled/feed `opencode2` row inherits that
+ * row's curated `efforts` and `label` in `loadModelCatalog`, keeping
+ * `#<effort>` working for the curated ids.
  */
-export async function discoverOpencode2Models(): Promise<DiscoveryResult> {
-  return unavailable('unsupported', 'opencode2 model discovery is unsupported');
+export async function discoverOpencode2Models(
+  run: CommandRunner = defaultOpencode2CommandRunner,
+): Promise<DiscoveryResult> {
+  if (opencode2BinaryPath() === '') {
+    return unavailable('command-unavailable', 'opencode2 binary is not configured');
+  }
+
+  const result = await run(opencode2Command(), ['models', '--standalone']);
+  const failure = commandFailure(result);
+  if (failure) return failure;
+
+  const models = parseOpencodeModelList('opencode2', result.stdout);
+  return models
+    ? { status: 'available', models }
+    : unavailable('invalid-output', 'opencode2 returned an invalid or empty model list');
 }

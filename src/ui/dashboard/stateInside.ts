@@ -19,7 +19,12 @@ import {
   type TypedInsideAction,
 } from '../../model/inside/types.js';
 import { scopeProcesses, implementationSessionProcess } from '../../model/inside/index.js';
-import { uatProcesses, reviewProcesses, type QualityProcessesInput } from '../../model/inside/gates.js';
+import {
+  uatProcesses,
+  reviewProcesses,
+  type QualityProcessesInput,
+  type ServiceStatusView,
+} from '../../model/inside/gates.js';
 import type { AttemptKey, GateAttemptView } from '../../model/inside/rounds.js';
 import type { CurrentAttempt } from '../../model/inside/currentAttempt.js';
 import { shipProcesses, type ShipProcessesInput } from '../../model/inside/ship.js';
@@ -75,7 +80,8 @@ export interface InsideViewsInput {
   findings: QualityProcessesInput['findings'];
   uatFindings: QualityProcessesInput['uatFindings'];
   rounds: QualityProcessesInput['rounds'];
-  services: readonly string[];
+  /** The ticket's server rows, projected for UAT's Services process. */
+  services: readonly ServiceStatusView[];
   resolvedGates?: {
     uat: readonly { name: string; disabled: boolean }[];
     review: readonly { name: string; disabled: boolean }[];

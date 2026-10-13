@@ -415,6 +415,36 @@ export interface AgentAdapter {
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand;
 
   /**
+   * Ensure this core's folder-trust state ACCEPTS `cwd` before a launch, so an
+   * interactive session cannot open on its folder-trust dialog (claude defaults
+   * to "No, exit") and die seconds in with no transcript — T661's graph-node
+   * launch failure. Each core merges its OWN record for the REALPATH-normalised
+   * absolute `cwd` (`workspaceTrust.ts`); a core with no trust prompt is an
+   * explicit no-op naming why (AC-08: every adapter answers, none is silently
+   * missing).
+   *
+   * Called at each launch path that spawns an agent in a karst-owned cwd —
+   * graph node workspace and planner (the supervised CLI transport), planning
+   * scratch, the setup session, the ticket worktree, and every headless run
+   * (the instrumented seam) — BEFORE the spawn.
+   *
+   * Returns `void` when the trust record is written (or already present): the
+   * common launch stays fully synchronous. Returns a `Promise<void>` ONLY when
+   * another process holds the config lock, so the caller awaits instead of
+   * blocking the extension host's event loop (T661 review). A caller that cannot
+   * await may ignore the promise — the write still completes — but should await
+   * when it must know the record landed before the spawn.
+   *
+   * Optional on the interface only so the many test fakes keep compiling; every
+   * adapter `registry.ts` can resolve MUST implement it, which
+   * `adapterConformance.test.ts` enforces.
+   */
+  ensureWorkspaceTrusted?(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void>;
+
+  /**
    * Translate a neutral approach package into this agent's on-disk format and
    * return the launch additions (e.g. Claude's `--plugin-dir`). Optional: an
    * adapter that has no notion of loadable approaches omits it → bare launch.

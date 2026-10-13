@@ -3,10 +3,14 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  changedPathsMatching,
   cleanupQuarantine,
   commitAllIfDirty,
   compareAndSwapHeadAndIndex,
   describeGitFailure,
+  dirtyPathsMatching,
+  parsePorcelainEntries,
+  parsePorcelainPaths,
   hasChangesFrom,
   headCommit,
   listCommitsFrom,
@@ -943,6 +947,121 @@ describe('ship quarantine commit primitives', () => {
       writeFileSync(join(dir, 'u.txt'), 'untracked');
       const untracked = (await workingTreeSummary(defaultGitRunner, dir)).fingerprint;
       expect(untracked).not.toBe(committed);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainPaths reads dirty, untracked, quoted and renamed paths', async () => {
+    const dir = await freshRepo('porcelain-paths');
+    try {
+      await writeAndCommit(dir, 'plain.txt', 'a', 'base');
+      await writeAndCommit(dir, 'a b.txt', 'a', 'base2');
+      writeFileSync(join(dir, 'plain.txt'), 'edited');
+      writeFileSync(join(dir, 'new file.txt'), 'untracked');
+      await runGit(['mv', 'a b.txt', 'c d.txt'], dir);
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      const paths = parsePorcelainPaths(status.stdout).sort();
+      expect(paths).toEqual(['c d.txt', 'new file.txt', 'plain.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainEntries exposes the rename SOURCE as `from`', async () => {
+    const dir = await freshRepo('porcelain-rename');
+    try {
+      await writeAndCommit(dir, 'a b.txt', 'a', 'base');
+      await runGit(['mv', 'a b.txt', 'c d.txt'], dir);
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainEntries(status.stdout)).toEqual([
+        { status: 'R ', path: 'c d.txt', from: 'a b.txt' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainPaths keeps a filename that itself contains " -> "', async () => {
+    // git quotes the path (`"a -> b.txt"`); a naive separator search splits
+    // inside the quotes and returns a mangled path.
+    const dir = await freshRepo('porcelain-arrow');
+    try {
+      writeFileSync(join(dir, 'a -> b.txt'), 'x');
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainPaths(status.stdout)).toEqual(['a -> b.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainEntries splits a rename whose paths contain " -> "', async () => {
+    const dir = await freshRepo('porcelain-arrow-rename');
+    try {
+      await writeAndCommit(dir, 'a -> b.txt', 'content', 'base');
+      await runGit(['mv', 'a -> b.txt', 'c -> d.txt'], dir);
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainEntries(status.stdout)).toEqual([
+        { status: 'R ', path: 'c -> d.txt', from: 'a -> b.txt' },
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainPaths decodes git C-escapes for control characters', async () => {
+    const dir = await freshRepo('porcelain-ctrl');
+    try {
+      writeFileSync(join(dir, 'ctrl\x08name.txt'), 'x');
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainPaths(status.stdout)).toEqual(['ctrl\x08name.txt']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('parsePorcelainPaths decodes non-ASCII octal escapes as UTF-8, not Latin-1', async () => {
+    const dir = await freshRepo('porcelain-utf8');
+    try {
+      writeFileSync(join(dir, 'näme-ünïcode.ts'), 'x');
+      writeFileSync(join(dir, 'plain.ts'), 'y');
+      const status = await runGit(['status', '--porcelain', '-uall'], dir);
+      expect(parsePorcelainPaths(status.stdout).sort()).toEqual(['näme-ünïcode.ts', 'plain.ts']);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('changedPathsMatching unquotes a non-ASCII path', async () => {
+    const dir = await freshRepo('changed-utf8');
+    try {
+      await writeAndCommit(dir, 'keep.ts', 'a', 'base');
+      const base = (await headCommit(defaultGitRunner, dir))!;
+      await writeAndCommit(dir, 'näme.ts', 'x', 'add unicode');
+      const head = (await headCommit(defaultGitRunner, dir))!;
+      expect(await changedPathsMatching(defaultGitRunner, dir, `${base}...${head}`, ['**'])).toEqual([
+        'näme.ts',
+      ]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('dirtyPathsMatching returns only the dirty paths an exclude spec matches', async () => {
+    const dir = await freshRepo('dirty-matching');
+    try {
+      mkdirSync(join(dir, 'src'), { recursive: true });
+      await writeAndCommit(dir, 'src/keep.ts', 'a', 'base');
+      mkdirSync(join(dir, 'dist'), { recursive: true });
+      await writeAndCommit(dir, 'dist/out.js', 'base', 'base2');
+      writeFileSync(join(dir, 'src/keep.ts'), 'edited');
+      writeFileSync(join(dir, 'dist/out.js'), 'rebuilt');
+      writeFileSync(join(dir, 'dist/new.js'), 'built');
+      expect((await dirtyPathsMatching(defaultGitRunner, dir, ['dist/**'])).sort()).toEqual([
+        'dist/new.js',
+        'dist/out.js',
+      ]);
+      expect(await dirtyPathsMatching(defaultGitRunner, dir, [])).toEqual([]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

@@ -17,6 +17,7 @@ import type { ServerLogsReader } from './serverLogsReader.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { GateOptionsLoader } from './gateOptions.js';
 import { withBaselines, type BaselineRowsLoader } from './baselineRows.js';
+import type { ShipPreviewLoader } from '../../workflow/shipPreview.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
 import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
 
@@ -244,6 +245,11 @@ export class DashboardManager {
     loadBaselines?: BaselineRowsLoader,
     /** The Artifacts view's data (T2 store): async git, so it rides the supplemental loaders. */
     loadStoredArtifacts?: StoredArtifactsLoader,
+    /**
+     * The advisory ship preview (D142): async git, read only while the ship slot
+     * is `confirm`/`retry`. Absent → no preview section, the pre-feature panel.
+     */
+    private readonly loadShipPreview?: ShipPreviewLoader,
   ) {
     this.loaders = new SupplementalLoaders(
       loadStats,
@@ -252,6 +258,7 @@ export class DashboardManager {
       logError,
       loadBaselines,
       loadStoredArtifacts,
+      loadShipPreview,
     );
     this.console = new DashboardConsole(
       store,
@@ -371,6 +378,19 @@ export class DashboardManager {
 
   private postBind(panel: DashboardPanel): void {
     panel.postMessage({ type: 'bind', enabled: this.binding?.enabled() ?? false });
+  }
+
+  /**
+   * Re-read the advisory ship preview and push the fresh snapshot. The explicit
+   * Refresh intent (D142): the awaited read happens FIRST, so the state push
+   * carries the new facts and settles the webview's Refresh pending — whether
+   * or not anything changed. No-op when the panel is not open.
+   */
+  async refreshShipPreview(ticketId: number): Promise<void> {
+    const panel = this.panels.get(ticketId);
+    if (!panel) return;
+    await this.loaders.reloadShipPreview(ticketId, panel, this.supplementalHost);
+    this.pushState(ticketId);
   }
 
   /** Push a fresh state snapshot to a ticket panel; no-op if not open. */
@@ -531,9 +551,17 @@ export class DashboardManager {
       })(),
     );
     const stored = this.loaders.storedArtifactsFor(ticketId);
+    // The ship preview rides ONLY while the ship slot is confirm/retry (D142):
+    // outside those states it is absent from the snapshot, so the webview has
+    // no empty card to render. The cache itself is kept, so re-entering the
+    // slot shows the last read until the fresh one lands.
+    const shipPreview = this.loaders.shipPreviewFor(ticketId);
     const state = {
       ...withBaselines(built, this.loaders.baselinesFor(ticketId)),
       ...(stored ? { storedArtifacts: stored } : {}),
+      ...(shipPreview && (built.ship.kind === 'confirm' || built.ship.kind === 'retry')
+        ? { shipPreview }
+        : {}),
     };
     // A key the new snapshot no longer resolved to is dropped from panel
     // memory: `selectedAttempt` reports what the builder actually rendered,
@@ -581,6 +609,12 @@ export class DashboardManager {
       this.loaders.pushGateOptions(ticketId, panel, settlesActions, this.supplementalHost);
       this.loaders.pushBaselines(ticketId, panel, settlesActions, this.supplementalHost);
       this.loaders.pushStoredArtifacts(ticketId, panel, settlesActions, this.supplementalHost);
+      // The preview is read only while ship waits for its Confirm click (D142):
+      // entering the confirm/retry slot — on open or on a real push — is what
+      // triggers the read. A live repaint never does.
+      if (state.ship.kind === 'confirm' || state.ship.kind === 'retry') {
+        this.loaders.pushShipPreview(ticketId, panel, settlesActions, this.supplementalHost);
+      }
     }
     this.scheduleLiveTick(ticketId, state);
   }

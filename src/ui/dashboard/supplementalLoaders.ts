@@ -6,6 +6,7 @@ import type { GateOptions, GateOptionsLoader } from './gateOptions.js';
 import type { WorktreeStatsLoader } from './worktreeStats.js';
 import type { BaselineReviewRow, BaselineRowsLoader } from './baselineRows.js';
 import type { StoredArtifactsView } from './storedArtifacts.js';
+import type { ShipPreview, ShipPreviewLoader } from '../../workflow/shipPreview.js';
 
 /** Read the ticket's stored-artifact view (T2 store); may reject. */
 export type StoredArtifactsLoader = (ticketId: number) => Promise<StoredArtifactsView>;
@@ -73,6 +74,10 @@ export class SupplementalLoaders {
   /** The last stored-artifact view per ticket; dies with the panel. */
   private readonly storedCache = new Map<number, StoredArtifactsView>();
   private readonly storedRequests = new Map<number, number>();
+  /** The last keyboard-advisory ship preview per ticket; dies with the panel. */
+  private readonly shipPreviewCache = new Map<number, ShipPreview>();
+  private readonly shipPreviewRequests = new Map<number, number>();
+  private readonly shipPreviewControllers = new Map<number, AbortController>();
 
   constructor(
     private readonly loadStats: WorktreeStatsLoader | undefined,
@@ -81,6 +86,7 @@ export class SupplementalLoaders {
     private readonly logError: LogError,
     private readonly loadBaselines?: BaselineRowsLoader,
     private readonly loadStoredArtifacts?: StoredArtifactsLoader,
+    private readonly loadShipPreview?: ShipPreviewLoader,
   ) {}
 
   /** The last resolved gate options for a ticket, if any. */
@@ -150,6 +156,79 @@ export class SupplementalLoaders {
         if (live()) this.logError('karst: dashboard stored artifacts failed', error);
       },
     );
+  }
+
+  /** The last loaded ship preview for a ticket, if any. */
+  shipPreviewFor(ticketId: number): ShipPreview | undefined {
+    return this.shipPreviewCache.get(ticketId);
+  }
+
+  /**
+   * Read the advisory ship preview and re-push ONLY when it changed — a
+   * follow-up to a `confirm`/`retry` snapshot, never polled. Only the latest
+   * request for a live panel may land (a slower earlier read must not overwrite
+   * a newer one), and the read is abandoned when the panel goes away.
+   */
+  pushShipPreview(
+    ticketId: number,
+    panel: DashboardPanel,
+    settlesActions: boolean,
+    host: SupplementalHost,
+  ): void {
+    if (!this.loadShipPreview) return;
+    this.shipPreviewControllers.get(ticketId)?.abort();
+    const controller = new AbortController();
+    this.shipPreviewControllers.set(ticketId, controller);
+    const request = (this.shipPreviewRequests.get(ticketId) ?? 0) + 1;
+    this.shipPreviewRequests.set(ticketId, request);
+    void this.loadShipPreview(ticketId, controller.signal).then(
+      (preview) => {
+        if (!host.isCurrentPanel(ticketId, panel)) return;
+        if (this.shipPreviewRequests.get(ticketId) !== request) return;
+        this.shipPreviewControllers.delete(ticketId);
+        const previous = this.shipPreviewCache.get(ticketId);
+        this.shipPreviewCache.set(ticketId, preview);
+        if (JSON.stringify(previous) !== JSON.stringify(preview)) {
+          host.repush(ticketId, settlesActions);
+        }
+      },
+      (error) => {
+        if (!host.isCurrentPanel(ticketId, panel)) return;
+        if (this.shipPreviewRequests.get(ticketId) !== request) return;
+        this.shipPreviewControllers.delete(ticketId);
+        this.logError('karst: dashboard ship preview failed', error);
+      },
+    );
+  }
+
+  /**
+   * Await one preview read and cache it, WITHOUT re-pushing — the explicit
+   * Refresh path: the caller pushes the whole snapshot after, which is what
+   * settles the Refresh pending (UI-R11/R12) even when nothing changed.
+   */
+  async reloadShipPreview(
+    ticketId: number,
+    panel: DashboardPanel,
+    host: SupplementalHost,
+  ): Promise<void> {
+    if (!this.loadShipPreview) return;
+    this.shipPreviewControllers.get(ticketId)?.abort();
+    const controller = new AbortController();
+    this.shipPreviewControllers.set(ticketId, controller);
+    const request = (this.shipPreviewRequests.get(ticketId) ?? 0) + 1;
+    this.shipPreviewRequests.set(ticketId, request);
+    try {
+      const preview = await this.loadShipPreview(ticketId, controller.signal);
+      if (!host.isCurrentPanel(ticketId, panel)) return;
+      if (this.shipPreviewRequests.get(ticketId) !== request) return;
+      this.shipPreviewCache.set(ticketId, preview);
+    } catch (error) {
+      if (host.isCurrentPanel(ticketId, panel) && this.shipPreviewRequests.get(ticketId) === request) {
+        this.logError('karst: dashboard ship preview refresh failed', error);
+      }
+    } finally {
+      this.shipPreviewControllers.delete(ticketId);
+    }
   }
 
   /** Cached base-branch candidates for a repoPath; `[]` until fetched. */
@@ -268,6 +347,7 @@ export class SupplementalLoaders {
   clear(ticketId: number): void {
     this.statsControllers.get(ticketId)?.abort();
     this.gateControllers.get(ticketId)?.abort();
+    this.shipPreviewControllers.get(ticketId)?.abort();
     this.statsRequests.delete(ticketId);
     this.statsControllers.delete(ticketId);
     this.gateRequests.delete(ticketId);
@@ -277,5 +357,8 @@ export class SupplementalLoaders {
     this.baselineRequests.delete(ticketId);
     this.storedCache.delete(ticketId);
     this.storedRequests.delete(ticketId);
+    this.shipPreviewCache.delete(ticketId);
+    this.shipPreviewRequests.delete(ticketId);
+    this.shipPreviewControllers.delete(ticketId);
   }
 }

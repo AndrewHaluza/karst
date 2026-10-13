@@ -17,17 +17,20 @@ export interface ModelOption {
    * resolution). Absent → the model accepts NO effort value — an explicitly
    * configured effort is then a configuration failure at Save, never silently
    * discarded. Mirrored into `model-catalog.json` (the equality test pins both
-   * copies). A custom user-typed model id is not in the catalog, so it has no
-   * efforts — intended conservative behavior.
+   * copies). A cli-discovered row inherits the curated efforts of a matching
+   * bundled/feed entry in `loadModelCatalog`, so the resolved catalog keeps
+   * `#<effort>` working for a curated id. A custom user-typed model id is not
+   * in the catalog, so it has no efforts — intended conservative behavior.
    */
   efforts?: readonly string[];
   /**
    * Model capability tags (closed vocabulary, see `MODEL_TAGS`). Absent →
    * the model's capabilities are unknown, which is a claim of nothing.
    * CLI discovery tiers report id/label only, but `loadModelCatalog` overlays
-   * curated tags onto resolved models whose id matches a bundled or feed entry;
-   * an unmatched id still carries none. Mirrored into `model-catalog.json`
-   * (the equality test pins both copies).
+   * the curated metadata (tags, efforts, and the human label) onto resolved
+   * models whose id matches a bundled or feed entry; an unmatched id still
+   * carries none. Mirrored into `model-catalog.json` (the equality test pins
+   * both copies).
    */
   tags?: readonly ModelTag[];
 }
@@ -84,10 +87,13 @@ const BUNDLED_CATALOG: ModelCatalog = {
   ],
   opencode: [],
   // opencode2 (v2) ids are `provider/model` and, in the same way, ultimately
-  // account-dependent. The v2 CLI also reads its catalog from models.dev, so
-  // `cli` discovery is unsupported; these curated rows are the offline fallback
-  // and mirror the published feed's `opencode2` section. Effort rides as the
-  // `#<effort>` suffix on the launch model, never a separate flag.
+  // account-dependent. The cli tier probes the configured v2 launcher with
+  // `models` (`discoverOpencode2Models`); these curated rows are the offline
+  // fallback and agree on the ids that reach the picker without a configured
+  // binary. They also supply the `#<effort>` vocabulary and the human label
+  // that a matching cli-discovered id inherits by id in `loadModelCatalog`.
+  // Effort rides as the `#<effort>` suffix on the launch model, never a
+  // separate flag.
   opencode2: [
     // mimo-v2.5 has no effort variants (live `session export` reports
     // `variant: "default"`; `--model …#high` → provider.no-route "Variant

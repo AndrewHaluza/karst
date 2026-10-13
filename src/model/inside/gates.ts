@@ -230,8 +230,12 @@ export interface QualityProcessesInput {
   processRuns: readonly ProcessRun[];
   /** Every recovery round recorded for the ticket; filtered to the stage here. */
   rounds: readonly RecoveryRound[];
-  /** The manifest's service names — host-known read-only context, never a verdict. */
-  services: readonly string[];
+  /**
+   * The ticket's server rows, as the Services process renders them —
+   * host-known read-only context, never a verdict. A projection of
+   * `store/dashboard.ts`'s `ServerView`; the reducer never reads the store.
+   */
+  services: readonly ServiceStatusView[];
   /** Injected so a running process's elapsed time is testable. */
   now: string;
   /**
@@ -609,15 +613,42 @@ function gatesProcess(
 }
 
 /**
- * The services process: host-known read-only context. It contributes the
- * configured service names to the stage's picture and can never pass or fail —
- * there is no recorded row that would authorize a verdict. When the host
- * resolved no names, the cause is not knowable here (an unresolved manifest, a
- * repo outside the ticket's scope, a non-runnable repo), so the row says
- * "not checked" — it must never claim a manifest fact the reducer did not
- * read (B6).
+ * One of the ticket's server rows, as the Services process renders it. A
+ * projection of `store/dashboard.ts`'s `ServerView`, narrowed to what the row
+ * shows.
  */
-function servicesProcess(cell: StepperCell, services: readonly string[]): InsideProcessView {
+export interface ServiceStatusView {
+  /** The unit key: `repo`, or `repo/service` for a multi-service repository. */
+  service: string;
+  status: 'running' | 'stopped' | 'failed';
+  host: string | null;
+  port: number | null;
+  /** Why a failed row failed (UAT's `boot-failed` reason), when the host has one. */
+  reason?: string | null;
+}
+
+/**
+ * The services process: host-known read-only context, read from the ticket's
+ * server rows. It states what UAT started (a live URL), what failed (the health
+ * reason), what was stopped after UAT, and — when the ticket has no rows at all
+ * — that there is nothing to spin. It NEVER contributes a verdict: the process
+ * status stays neutral whatever the rows say, because a service is an
+ * environment, not a gate.
+ */
+function servicesProcess(
+  cell: StepperCell,
+  services: readonly ServiceStatusView[],
+): InsideProcessView {
+  const rows: EvidenceRow[] = services.map((s) => {
+    if (s.status === 'running' && s.host !== null && s.port !== null) {
+      return { status: 'pass', label: s.service, detail: `http://${s.host}:${s.port}` };
+    }
+    if (s.status === 'failed') {
+      const reason = s.reason?.trim() ?? '';
+      return { status: 'fail', label: s.service, detail: reason === '' ? 'failed to start' : reason };
+    }
+    return { status: 'note', label: s.service, detail: 'stopped after UAT' };
+  });
   return {
     id: 'services',
     kind: 'services',
@@ -625,8 +656,9 @@ function servicesProcess(cell: StepperCell, services: readonly string[]): Inside
     status: cell.status === 'pending' ? 'pending' : 'note',
     detail:
       services.length > 0
-        ? services.join(' · ')
-        : 'not checked — no services reported for this ticket',
+        ? services.map((s) => s.service).join(' · ')
+        : 'no services — nothing to spin',
+    evidence: { kind: 'rows', rows },
   };
 }
 
@@ -930,7 +962,10 @@ export function uatProcesses(input: QualityProcessesInput): InsideProcessView[] 
   return insertCausalFix(processes, stageRecovery(input, 'uat'));
 }
 
-/** The review stage's processes: gates, services, review — plus a causal fix. */
+/**
+ * The review stage's processes: gates, review — plus a causal fix. No Services
+ * row: review never spins or stops services (D155), so it has nothing to show.
+ */
 export function reviewProcesses(input: QualityProcessesInput): InsideProcessView[] {
   const eff = effectiveAttempt(input);
   const processes = [
@@ -944,7 +979,6 @@ export function reviewProcesses(input: QualityProcessesInput): InsideProcessView
       input.processRuns,
       eff,
     ),
-    servicesProcess(input.cell, input.services),
     reviewProcess(input),
   ];
   return insertCausalFix(processes, stageRecovery(input, 'review'));

@@ -7,7 +7,12 @@ import type { UatFinding } from '../../store/uatFindings.js';
 import type { Severity } from '../../manifest/types.js';
 import type { StepperCell } from '../stepper.js';
 import type { StageKey, StageStatus } from '../types.js';
-import { reviewProcesses, uatProcesses, type QualityProcessesInput } from './gates.js';
+import {
+  reviewProcesses,
+  uatProcesses,
+  type QualityProcessesInput,
+  type ServiceStatusView,
+} from './gates.js';
 import { attemptKey } from './rounds.js';
 import { formatTime, type EvidenceRow, type InsideProcessView } from './types.js';
 
@@ -135,6 +140,14 @@ function uatFinding(severity: Severity, extra: Partial<UatFinding> = {}): UatFin
   };
 }
 
+function serviceView(
+  service: string,
+  status: ServiceStatusView['status'],
+  extra: Partial<ServiceStatusView> = {},
+): ServiceStatusView {
+  return { service, status, host: '127.0.0.1', port: 4100, ...extra };
+}
+
 function qualityInput(extra: Partial<QualityProcessesInput> = {}): QualityProcessesInput {
   return {
     cell: cell('uat', 'passed', {
@@ -146,7 +159,7 @@ function qualityInput(extra: Partial<QualityProcessesInput> = {}): QualityProces
     uatFindings: [],
     processRuns: [],
     rounds: [],
-    services: ['web', 'api'],
+    services: [serviceView('web', 'running'), serviceView('api', 'stopped')],
     now: NOW,
     ...extra,
   };
@@ -726,37 +739,70 @@ describe('uatProcesses', () => {
     expect(measured.tokens).toEqual({ state: 'measured', total: '150', exact: '150' });
   });
 
-  it('keeps services as pending config before the stage runs, naming the configured services after', () => {
+  it('keeps services pending before the stage runs, naming the server rows after', () => {
     const before = uatProcesses(
-      qualityInput({ cell: cell('uat', 'pending'), services: ['web', 'api'] }),
+      qualityInput({
+        cell: cell('uat', 'pending'),
+        services: [serviceView('web', 'running'), serviceView('api', 'stopped')],
+      }),
     ).find((p) => p.id === 'services')!;
     expect(before.status).toBe('pending');
     expect(before.detail).toBe('web · api');
 
     const after = uatProcesses(
-      qualityInput({ services: ['web'] }),
+      qualityInput({ services: [serviceView('web', 'running')] }),
     ).find((p) => p.id === 'services')!;
     expect(after.status).toBe('note');
     expect(after.detail).toBe('web');
   });
 
-  it('reports the empty services list as not checked, never a manifest fact (B6)', () => {
-    // The empty list is host-resolved (manifest × scope × runnable), so its
-    // cause is not knowable here. The old "no service blocks in the manifest"
-    // claimed a manifest fact the reducer never read — false for a project
-    // whose karst.yml DOES declare services that merely fell outside the
-    // ticket's scope. Absence is not a claim: it is "not checked".
-    const views = uatProcesses(qualityInput({ services: [] }));
+  it('renders a running service as its live URL, a failed one as its health reason, a stopped one as stopped after UAT', () => {
+    const views = uatProcesses(
+      qualityInput({
+        services: [
+          serviceView('web', 'running', { host: '127.0.0.1', port: 4123 }),
+          serviceView('api', 'failed', { reason: 'nothing is listening on 127.0.0.1:4100' }),
+          serviceView('db', 'stopped'),
+        ],
+      }),
+    );
     const services = views.find((p) => p.id === 'services')!;
+    // The process NEVER contributes a verdict: its status stays neutral however
+    // the rows read.
     expect(services.status).toBe('note');
-    expect(services.detail).toContain('not checked');
-    expect(services.detail).not.toContain('manifest');
+    const rows = rowsOf(services);
+    expect(rows).toEqual([
+      { status: 'pass', label: 'web', detail: 'http://127.0.0.1:4123' },
+      { status: 'fail', label: 'api', detail: 'nothing is listening on 127.0.0.1:4100' },
+      { status: 'note', label: 'db', detail: 'stopped after UAT' },
+    ]);
   });
 
-  it('names the configured services without claiming they ran (B6)', () => {
-    // The names are host-known config; nothing here verifies they are up, so
-    // the row stays `note` — a service list is context, never a pass.
-    const views = uatProcesses(qualityInput({ services: ['api', 'web'] }));
+  it('states a failed service with no recorded reason plainly, never a blank detail', () => {
+    const services = uatProcesses(
+      qualityInput({ services: [serviceView('api', 'failed', { reason: null })] }),
+    ).find((p) => p.id === 'services')!;
+    expect(rowsOf(services)[0]).toEqual({
+      status: 'fail',
+      label: 'api',
+      detail: 'failed to start',
+    });
+  });
+
+  it('reports no server rows as "no services — nothing to spin"', () => {
+    const services = uatProcesses(qualityInput({ services: [] })).find(
+      (p) => p.id === 'services',
+    )!;
+    expect(services.status).toBe('note');
+    expect(services.detail).toBe('no services — nothing to spin');
+  });
+
+  it('names every server row in order without claiming they ran', () => {
+    const views = uatProcesses(
+      qualityInput({
+        services: [serviceView('api', 'stopped'), serviceView('web', 'running')],
+      }),
+    );
     const services = views.find((p) => p.id === 'services')!;
     expect(services.status).toBe('note');
     expect(services.detail).toBe('api · web');
@@ -842,14 +888,14 @@ describe('reviewProcesses', () => {
     expect(fix?.detail).toBe('Fix completed; Review revalidation is running');
   });
 
-  it('emits gates, services, review in registry order when nothing triggered recovery', () => {
+  it('emits gates, review in registry order when nothing triggered recovery', () => {
     const views = reviewProcesses(
       qualityInput({
         cell: reviewCell,
         processRuns: [processRun({ stageKey: 'review', processId: 'review', status: 'passed', resultKind: 'validated' })],
       }),
     );
-    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+    expect(views.map((p) => p.id)).toEqual(['gates', 'review']);
   });
 
   it('inserts the fix process after review for a findings-triggered round', () => {
@@ -865,7 +911,7 @@ describe('reviewProcesses', () => {
         ],
       }),
     );
-    expect(views.map((p) => p.id)).toEqual(['gates', 'services', 'review', 'fix']);
+    expect(views.map((p) => p.id)).toEqual(['gates', 'review', 'fix']);
   });
 
   it('inserts the fix process after gates for a review gate-triggered round', () => {
@@ -875,7 +921,7 @@ describe('reviewProcesses', () => {
         rounds: [round({ sourceStage: 'review', sourceProcessId: 'gates' })],
       }),
     );
-    expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'services', 'review']);
+    expect(views.map((p) => p.id)).toEqual(['gates', 'fix', 'review']);
   });
 
   it('ships the blocking count as the review process-row aggregate (B4)', () => {
@@ -1282,7 +1328,7 @@ describe('finding rows carry a level key and a linkable location', () => {
         processRuns: [processRun({ stageKey: 'review', processId: 'review', resultKind: 'blocking' })],
       }),
     );
-    expect(rowsOf(views[2]!)[0]).toMatchObject({
+    expect(rowsOf(views[1]!)[0]).toMatchObject({
       label: 'high',
       severity: 'high',
       detail: 'SQL injection',
@@ -1298,7 +1344,7 @@ describe('finding rows carry a level key and a linkable location', () => {
         processRuns: [processRun({ stageKey: 'review', processId: 'review' })],
       }),
     );
-    expect(rowsOf(views[2]!)[0]!.location).toBe('src/a.ts');
+    expect(rowsOf(views[1]!)[0]!.location).toBe('src/a.ts');
   });
 
   it('attaches no open-file action to a finding that names no file', () => {
@@ -1310,7 +1356,7 @@ describe('finding rows carry a level key and a linkable location', () => {
         attach: () => ({ actionId: 'a', kind: 'open-file' }),
       }),
     );
-    const row = rowsOf(views[2]!)[0]!;
+    const row = rowsOf(views[1]!)[0]!;
     expect(row.location).toBeUndefined();
     expect(row.action).toBeUndefined();
   });

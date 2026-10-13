@@ -8,16 +8,19 @@ import type { InsideStageKey, ProcessEvidenceView } from './types.js';
  * nowhere because it is projected onto the stage it returns to
  * (`insideStageForRuntimeStage`).
  *
- * `gates`/`services` legitimately appear in both uat and review: both stages
- * resolve and run the same per-repository gates against the same services, so
- * a process listed twice is one process observed from two stages, never a
- * collision.
+ * `gates` legitimately appears in both uat and review: both stages resolve and
+ * run the same per-repository gates, so a process listed twice is one process
+ * observed from two stages, never a collision. `services` is UAT's alone (D155):
+ * only UAT starts the ticket's services (before the Tester) and stops them
+ * after, so only UAT presents a Services row.
  */
 export const INSIDE_PROCESSES: Readonly<Record<InsideStageKey, readonly string[]>> = {
   scope: ['hot-set', 'worktrees'],
   impl: ['session'],
   uat: ['gates', 'services', 'tester'],
-  review: ['gates', 'services', 'review'],
+  // Review does not spin or stop services (D155) — its lint/build gates need no
+  // running app — so it presents no Services row.
+  review: ['gates', 'review'],
   ship: ['commit', 'push', 'pr', 'merge'],
   done: ['delivery-receipt'],
 };

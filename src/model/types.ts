@@ -81,7 +81,14 @@ export type BlockerKind =
   | 'nothing-to-run'        // Phase 1: every gate returned null
   | 'capability-missing'    // Phase 1: permission/IO error; Phase 2: Playwright, auth digest
   | 'no-independent-signal' // Phase 2 only — a warning in Phase 1
-  | 'boot-failed'           // Phase 2
+  // UAT could not bring the ticket's services up before the Tester (D155): a
+  // service never became healthy (nothing listening, or a listener that never
+  // answered), so the app the Tester would exercise does not exist. An
+  // ENVIRONMENT fault, never a verdict about the code — a failed verdict here
+  // would route to fix and spend a round on nothing. The reason carries the
+  // start failure's health evidence plus the service's log tail; a generic
+  // Resume re-drives uat and retries the spin.
+  | 'boot-failed'
   | 'lease-lost'            // Phase 2
   // Not "karst could not ask" like the rest of this union — the question WAS
   // asked (ship opened its PRs) and answered "not yet". Reused here because it

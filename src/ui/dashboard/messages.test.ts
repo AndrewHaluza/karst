@@ -47,6 +47,7 @@ function actions(): DashboardActions {
     dismissPr: vi.fn(),
     undismissPr: vi.fn(),
     refreshPrs: vi.fn(),
+    refreshShipPreview: vi.fn(),
     toggleBind: vi.fn(),
     switchAgent: vi.fn(),
     copyTicketKey: vi.fn(),
@@ -413,6 +414,18 @@ describe('routeAction', () => {
     const a = actions();
     routeAction({ type: 'refresh-prs' }, a);
     expect(a.refreshPrs).toHaveBeenCalledOnce();
+  });
+
+  // The Ship preview's Refresh (D142). Payload-free for the same reason: the
+  // host re-reads the ticket it already owns, so a companion `repo`/`ticketId`
+  // is dropped rather than honoured.
+  it('dispatches refresh-ship-preview, carrying no target of its own', () => {
+    expect(parseWebviewMessage({ type: 'refresh-ship-preview', repo: 'api' })).toEqual({
+      type: 'refresh-ship-preview',
+    });
+    const a = actions();
+    routeAction({ type: 'refresh-ship-preview' }, a);
+    expect(a.refreshShipPreview).toHaveBeenCalledOnce();
   });
 
   it('dispatches toggle-bind, carrying no state of its own', () => {

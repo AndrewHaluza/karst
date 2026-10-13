@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -7,6 +7,7 @@ import type { CreateTerminalOpts, SessionTerminal, TerminalHost } from '../../ui
 import { KARST_TERMINAL_ICON_ID } from '../../ui/terminalNaming.js';
 import { hashInstructions } from '../../agent/instructions.js';
 import { createSetupOps, type SetupOpsDeps } from './setupOps.js';
+import { trustKeyFor } from '../../agent/workspaceTrust.js';
 
 interface Recorded {
   opts: CreateTerminalOpts;
@@ -35,9 +36,14 @@ describe('setup ops', () => {
   let scratch: string;
   let created: Recorded[];
   let deps: SetupOpsDeps;
+  let home: string;
   const messages: string[] = [];
   beforeEach(() => {
     scratch = mkdtempSync(join(tmpdir(), 'karst-setup-'));
+    // The launch pre-trusts the scan dir in the core's USER config. Point HOME
+    // at a temp dir so no test mutates the operator's real config.
+    home = mkdtempSync(join(tmpdir(), 'karst-setup-home-'));
+    vi.stubEnv('HOME', home);
     const fake = fakeHost();
     created = fake.created;
     deps = {
@@ -56,7 +62,24 @@ describe('setup ops', () => {
       notify: { info: (m) => void messages.push(m), warn: (m) => void messages.push(m), error: async () => undefined },
     };
   });
-  afterEach(() => rmSync(scratch, { recursive: true, force: true }));
+  afterEach(() => {
+    rmSync(scratch, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    rmSync(home, { recursive: true, force: true });
+  });
+
+  it('pre-trusts the setup scratch dir before launching a core that prompts', async () => {
+    const logs: string[] = [];
+    const ops = createSetupOps({ ...deps, debug: (m) => logs.push(m) });
+    expect(await ops.create()).toBe(true);
+    // The real claude adapter writes the record through the seam — proof the
+    // launch site calls the hook with the cwd it spawns in (T661).
+    const claude = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8')) as {
+      projects: Record<string, { hasTrustDialogAccepted?: boolean }>;
+    };
+    expect(claude.projects[trustKeyFor(join(scratch, 'abc123'))]?.hasTrustDialogAccepted).toBe(true);
+    expect(logs.join('\n')).toContain('[trust] claude: recorded folder trust');
+  });
 
   it('launches a read-only agent in the scratch dir with the setup env', async () => {
     const ops = createSetupOps(deps);
