@@ -357,7 +357,7 @@ export interface NodeRunEvidence {
 /**
  * Graph runs owned by a ticket's `impl` stage, with the active revision's
  * number and fingerprint attached — never the canonical graph document itself
- * (G6, `docs/arch/graph-run-reliability.md`). Read-only, ticket-scoped, same
+ * (G6, `docs/issues/graph-run-reliability.md`). Read-only, ticket-scoped, same
  * bounded-row shape as every other evidence reader in this module.
  */
 export function readGraphRuns(store: Store, ticketId: number, cap: number): BoundedRows<GraphRunEvidence> {

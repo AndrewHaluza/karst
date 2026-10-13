@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex, lintDoc, MAX_BLOCK_BYTES } from './docsKeys.mjs';
+import { buildIndex, keyIndex, lintDoc, lintRefs, MAX_BLOCK_BYTES } from './docsKeys.mjs';
 
 const header = (p) => `<!-- AGENT INSTRUCTIONS:
 1. TOC:
@@ -90,5 +90,53 @@ describe('buildIndex', () => {
       '[@a:A-01] docs/a.md — Title a:A-01',
       '[@b:B-01] docs/b.md — Title b:B-01',
     ]);
+  });
+
+  it('indexes @issue: keys from docs/issues/', () => {
+    const out = buildIndex([doc('docs/issues/2026-01-01-x.md', block('issue:X-01'))]);
+    expect(out).toContain('[@issue:X-01] docs/issues/2026-01-01-x.md — Title issue:X-01');
+  });
+});
+
+describe('lintRefs', () => {
+  const src = (path, text) => ({ path, text });
+
+  it('accepts a bare reference to a key defined in exactly one doc', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    expect(lintRefs([src('src/x.ts', '// see @arch:A-01')], index)).toEqual([]);
+  });
+
+  it('flags a reference to a key no doc defines', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    const errs = lintRefs([src('src/x.ts', '// see @arch:NOPE')], index);
+    expect(errs.join()).toMatch(/src\/x\.ts:1: unresolved reference @arch:NOPE/);
+  });
+
+  it('flags a bare reference to a key defined in more than one doc', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:CONTENTS')), doc('docs/arch/b.md', block('arch:CONTENTS'))]);
+    const errs = lintRefs([src('docs/arch/c.md', 'see @arch:CONTENTS')], index);
+    expect(errs.join()).toMatch(/ambiguous reference @arch:CONTENTS \(defined in 2 files/);
+  });
+
+  it('accepts a qualified reference to a key defined in more than one doc', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:CONTENTS')), doc('docs/arch/b.md', block('arch:CONTENTS'))]);
+    expect(lintRefs([src('docs/arch/c.md', 'see docs/arch/a.md#@arch:CONTENTS')], index)).toEqual([]);
+  });
+
+  it('flags a qualified reference naming a doc that does not define the key', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    const errs = lintRefs([src('docs/arch/c.md', 'see docs/arch/b.md#@arch:A-01')], index);
+    expect(errs.join()).toMatch(/unresolved reference docs\/arch\/b\.md#@arch:A-01/);
+  });
+
+  it('does not treat a block definition or the header recipe as a reference', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:CONTENTS')), doc('docs/arch/b.md', block('arch:CONTENTS'))]);
+    expect(lintRefs([doc('docs/arch/a.md', block('arch:CONTENTS'))], index)).toEqual([]);
+  });
+
+  it('skips the @arch:KEY metavariable and fenced code', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    const text = 'see `@arch:KEY`\n```\n@arch:NOPE\n```\n';
+    expect(lintRefs([src('docs/x.md', text)], index)).toEqual([]);
   });
 });
