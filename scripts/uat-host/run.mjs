@@ -10,11 +10,10 @@ const FIXTURES = ['empty', 'ticket-mid-stage', 'blocked'];
 const version = process.env.UAT_VSCODE_VERSION ?? '1.126.0';
 const cachePath = resolve(process.env.UAT_VSCODE_CACHE ?? join(repoRoot, '.vscode-test'));
 
-const { downloadAndUnzipVSCode, runTests } = await import('@vscode/test-electron');
-
 // `--print-vscode`: download (cached) and print the VS Code binary path, so the
 // Docker entrypoint can rebuild the addon for that exact Electron ABI first.
 if (process.argv.includes('--print-vscode')) {
+  const { downloadAndUnzipVSCode } = await import('@vscode/test-electron');
   console.log(await downloadAndUnzipVSCode({ version, cachePath }));
   process.exit(0);
 }
@@ -25,6 +24,9 @@ if (!fixture || !FIXTURES.includes(fixture)) {
   console.error(`usage: run.mjs --fixture <${FIXTURES.join('|')}>`);
   process.exit(2);
 }
+
+// Loaded after arg validation so a bad fixture exits 2 without loading the module.
+const { downloadAndUnzipVSCode, runTests } = await import('@vscode/test-electron');
 
 const root = mkdtempSync(join(tmpdir(), 'karst-uat-host-'));
 let code = 1;

@@ -11,6 +11,13 @@ const build = spawnSync('docker', ['build', '-t', IMAGE, '-f', 'docker/uat-host/
 });
 if (build.status !== 0) process.exit(build.status ?? 1);
 
+const forceRemove = () => { spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' }); };
+for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  process.on(sig, () => { forceRemove(); process.exit(130); });
+}
+
+// Runs must not be concurrent against one checkout (shared karst-uat-vscode volume and bind-mounted dist/).
+forceRemove(); // a stale container from PID reuse must not collide
 const child = spawn('docker', [
   'run', '--rm', '--init', '--name', name,
   '-v', `${repoRoot}:/work`,
@@ -19,8 +26,5 @@ const child = spawn('docker', [
   IMAGE, ...process.argv.slice(2),
 ], { cwd: repoRoot, stdio: 'inherit' });
 
-const forceRemove = () => { spawnSync('docker', ['rm', '-f', name], { stdio: 'ignore' }); };
-for (const sig of ['SIGINT', 'SIGTERM']) {
-  process.on(sig, () => { forceRemove(); process.exit(130); });
-}
+child.on('error', (err) => { console.error(`docker run failed: ${err.message}`); forceRemove(); process.exit(1); });
 child.on('exit', (code) => { forceRemove(); process.exit(code ?? 1); });
