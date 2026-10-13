@@ -1,5 +1,8 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeGateDeny, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
+import { claudeGateDeny, gitCommonDirRoots, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 describe('gatePolicy', () => {
@@ -30,5 +33,28 @@ describe('gatePolicy', () => {
     expect(p.edit['/wt/**']).toBe('allow');
     expect(p.edit['/h/.claude.json']).toBe('deny');
     expect(p.bash['pkill *']).toBe('deny');
+  });
+});
+
+describe('gate policy: worktree git + extra roots', () => {
+  it('allows extra roots in the opencode edit map', () => {
+    const p = opencodeGatePermission('/wt', '/tmp', {}, '/h', ['/extra']);
+    expect(p.edit['/extra/**']).toBe('allow');
+  });
+
+  it('resolves a linked worktree to the shared .git dir; plain checkout gives none', () => {
+    const root = mkdtempSync(join(tmpdir(), 'karst-gitroots-'));
+    try {
+      mkdirSync(join(root, 'main/.git/worktrees/w'), { recursive: true });
+      mkdirSync(join(root, 'wt'));
+      writeFileSync(join(root, 'wt/.git'), `gitdir: ${join(root, 'main/.git/worktrees/w')}\n`);
+      expect(gitCommonDirRoots(join(root, 'wt'))).toEqual([join(root, 'main/.git')]);
+      writeFileSync(join(root, 'main/.git/worktrees/w/commondir'), '../..\n');
+      expect(gitCommonDirRoots(join(root, 'wt'))).toEqual([join(root, 'main/.git')]);
+      expect(gitCommonDirRoots(join(root, 'main'))).toEqual([]);
+      expect(gitCommonDirRoots(join(root, 'missing'))).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

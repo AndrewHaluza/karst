@@ -17,7 +17,7 @@ import {
   join,
 } from 'node:path';
 import { tmpdir } from 'node:os';
-import type { HeadlessPolicy } from './gatePolicy.js';
+import { gitCommonDirRoots, type HeadlessPolicy } from './gatePolicy.js';
 import { toStrictSchema } from './strictSchema.js';
 import type {
   AgentAdapter,
@@ -287,12 +287,21 @@ function appendPolicyArgs(
   args: string[],
   permissionMode?: string,
   policy?: HeadlessPolicy,
+  cwd?: string,
 ): void {
   if (policy === 'gate') {
     // workspace-write confines writes to cwd + tmp (the operator's ~/.codex and
     // ~/.claude are read-only); approval never so a denied write fails instead
     // of waiting on a prompt nobody answers. Overrides ~/.codex/config.toml.
     args.push('--sandbox', 'workspace-write', '--config', 'approval_policy="never"');
+    // The tester/fix roles need the network (the app under test, package
+    // fetches) and git in a LINKED worktree, whose index and refs live in the
+    // main checkout's `.git` — outside workspace-write's default writable set.
+    args.push('--config', 'sandbox_workspace_write.network_access=true');
+    const roots = cwd ? gitCommonDirRoots(cwd) : [];
+    if (roots.length > 0) {
+      args.push('--config', `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`);
+    }
     return;
   }
   if (permissionMode === 'bypassPermissions') {
@@ -720,7 +729,7 @@ export class CodexAdapter implements AgentAdapter {
     args.push('--config', 'mcp_servers={}');
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
-    appendPolicyArgs(args, opts.permissionMode, opts.policy);
+    appendPolicyArgs(args, opts.permissionMode, opts.policy, opts.cwd);
     // Native structured output (Prompt 09): codex reads its JSON Schema from a
     // FILE (`--output-schema <FILE>`), so when a caller supplies one, materialize
     // it to a temp dir this adapter created and clean it up the moment the run

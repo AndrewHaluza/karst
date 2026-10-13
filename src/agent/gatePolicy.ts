@@ -16,7 +16,9 @@
  *
  * Pure data: no store, no spawn.
  */
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 /** The only profile today; a union so a second one is a type-checked addition. */
@@ -68,6 +70,7 @@ export function opencodeGatePermission(
   tmp: string,
   env?: NodeJS.ProcessEnv,
   home?: string,
+  extraRoots: readonly string[] = [],
 ): { bash: Record<string, 'deny'>; edit: Record<string, 'allow' | 'deny'> } {
   return {
     bash: Object.fromEntries(gateDeniedCommands().map((c) => [c, 'deny' as const])),
@@ -75,7 +78,32 @@ export function opencodeGatePermission(
       '*': 'deny',
       [`${cwd}/**`]: 'allow',
       [`${tmp}/**`]: 'allow',
+      ...Object.fromEntries(extraRoots.map((d) => [`${d}/**`, 'allow' as const])),
       ...Object.fromEntries(gateProtectedPaths(env, home).map((p) => [p, 'deny' as const])),
     },
   };
+}
+
+/**
+ * The shared git dir of a LINKED worktree (`<main>/.git`), where `git add` /
+ * `commit` write index, refs and objects. A sandbox rooted at the worktree
+ * alone cannot run git there. `[]` for a plain checkout (its `.git` is inside
+ * cwd) or when the pointer cannot be read.
+ */
+export function gitCommonDirRoots(cwd: string): string[] {
+  try {
+    const dotGit = resolve(cwd, '.git');
+    if (!existsSync(dotGit) || statSync(dotGit).isDirectory()) return [];
+    const match = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'));
+    if (!match) return [];
+    const raw = match[1]!.trim();
+    const gitDir = isAbsolute(raw) ? raw : resolve(cwd, raw);
+    const commonFile = resolve(gitDir, 'commondir');
+    if (existsSync(commonFile)) {
+      return [resolve(gitDir, readFileSync(commonFile, 'utf8').trim())];
+    }
+    return [dirname(dirname(gitDir))];
+  } catch {
+    return [];
+  }
 }

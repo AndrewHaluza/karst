@@ -46,7 +46,7 @@ import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { tmpdir } from 'node:os';
-import { opencodeGatePermission } from './gatePolicy.js';
+import { gitCommonDirRoots, opencodeGatePermission } from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -1466,7 +1466,13 @@ export function opencodeLaunchPermission(opts: {
   const dirs = opts.addDirs ?? [];
   const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
   if (opts.gate) {
-    const gate = opencodeGatePermission(opts.gate.cwd, tmpdir());
+    const gate = opencodeGatePermission(
+      opts.gate.cwd,
+      tmpdir(),
+      undefined,
+      undefined,
+      [...dirs, ...gitCommonDirRoots(opts.gate.cwd)],
+    );
     return { ...gate, ...(dirs.length > 0 ? { external_directory: external } : {}) };
   }
   const killDeny = opencodeProcessKillDeny();
