@@ -37,12 +37,29 @@ export const HTTP_429 = /(?<![\w.:])429(?![\w.:])/;
 export const LIMIT_PHRASES =
   /(rate[-_ ]?limit|usage limit|spend limit|limit reached|quota[-_ ]?exceeded|quota exceeded|resource[-_ ]?exhausted|too many requests|out of credits?|insufficient[_ ]quota)/i;
 
+/**
+ * The QUOTA subset of `LIMIT_PHRASES`: the wording that means the ACCOUNT is
+ * out of allowance for a while — the user must raise a limit, buy credit or
+ * wait for a reset. Deliberately excludes `429`, `rate limit` and `too many
+ * requests`, which are the transient, retryable forms of the same status: a
+ * bare 429 with no quota wording is worth one more attempt, an exhausted quota
+ * is not. `LIMIT_PHRASES` stays the union of both (it drives the human sentence
+ * in `describeHeadlessFailure`); this narrower regex is what the classifier and
+ * `headlessFailureError` key off.
+ */
+export const QUOTA_PHRASES =
+  /(quota[-_ ]?exceeded|usage limit|spend limit|limit reached|out of credits?|insufficient[_ ]quota|resource[-_ ]?exhausted)/i;
+
 export interface HeadlessFailure {
   /** Display name of the agent core, e.g. `Claude`. */
   tool: string;
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** The core's provider id (`claude` | `codex` | …), when known. */
+  provider?: string;
+  /** The model the failed run was launched with, when known. */
+  model?: string;
 }
 
 /** What could be read out of a JSON / JSONL envelope. */
@@ -136,6 +153,8 @@ function limitLine(text: string): string | undefined {
 
 interface Analysis {
   limited: boolean;
+  /** The account is out of quota/allowance — a subset of `limited`. */
+  quota: boolean;
   status?: number;
   detail?: string;
   raw: string;
@@ -161,10 +180,19 @@ function analyze(failure: HeadlessFailure): Analysis {
     (structured.message !== undefined && LIMIT_PHRASES.test(structured.message)) ||
     (structured.message === undefined && (LIMIT_PHRASES.test(raw) || HTTP_429.test(raw)));
 
+  // Quota is the subset of `limited` whose wording means the account ran out —
+  // never a bare status. Checked against the structured message when there is
+  // one, and against the raw text as well so a quota phrase in a stream the
+  // envelope did not surface is still caught.
+  const quota =
+    (structured.message !== undefined && QUOTA_PHRASES.test(structured.message)) ||
+    QUOTA_PHRASES.test(raw);
+
   const detail = structured.message ?? (limited ? limitLine(raw) : raw || undefined);
 
   return {
     limited,
+    quota,
     ...(structured.status !== undefined ? { status: structured.status } : {}),
     ...(detail !== undefined ? { detail } : {}),
     raw,
@@ -196,6 +224,72 @@ export function describeHeadlessFailure(failure: HeadlessFailure): string {
 
   const said = detail ? cap(oneLine(detail), MAX_DIAGNOSTIC_CHARS) : '';
   return `${failure.tool} failed (exit ${failure.exitCode}): ${said || (raw ? cap(oneLine(raw), MAX_DIAGNOSTIC_CHARS) : 'no output.')}`;
+}
+
+/**
+ * True when the CLI refused because the ACCOUNT is out of quota/allowance (a
+ * subset of `isUsageLimitFailure`) — the case a retry cannot clear and the user
+ * must resolve. A bare 429 or `rate limit`/`too many requests` wording without a
+ * quota phrase is NOT exhaustion and stays retryable.
+ */
+export function isQuotaExhausted(failure: HeadlessFailure): boolean {
+  return analyze(failure).quota;
+}
+
+/**
+ * A headless run that died because the account is out of quota/allowance
+ * (K11). Typed so `classifyFailure` never has to guess from prose, and so the
+ * provider/model that exhausted is available to the park that records it.
+ *
+ * The message is exactly `describeHeadlessFailure`'s sentence, so every surface
+ * that renders a failed run reads the same words as before; the class identity
+ * is what changed.
+ */
+export class UsageLimitError extends Error {
+  readonly tool: string;
+  readonly provider: string | undefined;
+  readonly model: string | undefined;
+  readonly status: number | undefined;
+  readonly detail: string | undefined;
+
+  constructor(
+    message: string,
+    fields: {
+      tool: string;
+      provider?: string | undefined;
+      model?: string | undefined;
+      status?: number | undefined;
+      detail?: string | undefined;
+    },
+  ) {
+    super(message);
+    this.name = 'UsageLimitError';
+    this.tool = fields.tool;
+    this.provider = fields.provider;
+    this.model = fields.model;
+    this.status = fields.status;
+    this.detail = fields.detail;
+  }
+}
+
+/**
+ * The ONE error an adapter throws for a failed headless run. Quota exhaustion
+ * becomes a typed `UsageLimitError` (so the resilience layer fails fast); every
+ * other failure is the same plain `Error` whose message `describeHeadlessFailure`
+ * already produced.
+ */
+export function headlessFailureError(failure: HeadlessFailure): Error {
+  const analysis = analyze(failure);
+  if (analysis.quota) {
+    return new UsageLimitError(describeHeadlessFailure(failure), {
+      tool: failure.tool,
+      provider: failure.provider,
+      model: failure.model,
+      status: analysis.status,
+      detail: analysis.detail,
+    });
+  }
+  return new Error(describeHeadlessFailure(failure));
 }
 
 /** agy's global settings file — the only place its permission allow-rules live. */
