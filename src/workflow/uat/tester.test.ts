@@ -973,12 +973,14 @@ describe('runUatTester', () => {
 });
 
 /**
- * T663: a Tester run ALWAYS ends with a recorded result. When a target burns
- * its fresh-token budget or its soft time budget, the lane stops the call and
- * re-asks ONCE for the observations the agent already has; when even that
- * fails, it salvages whatever stdout it captured. A run so stopped is recorded
- * as `partial` — advisory like `observed`, but it can never read as a clean
- * pass.
+ * T663: a Tester run ALWAYS ends with a recorded result. When a target's call
+ * is STOPPED (the soft time budget fires, or the hard deadline lands), the lane
+ * salvages the stdout the run had already streamed and, only when that stream
+ * held something but no findings array, re-asks ONCE with the agent's own
+ * output quoted back. A call that FINISHED is recorded exactly as it answered —
+ * never partial, never re-asked — whatever it spent; the token budget only
+ * NAMES a stopped run's cause. A stopped run is recorded as `partial` —
+ * advisory like `observed`, but it can never read as a clean pass.
  */
 describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
   let store: Store;
@@ -1029,53 +1031,61 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     return err;
   };
 
-  it('stops a target that exceeded the token budget and re-asks it exactly once, with the wrap-up nudge', async () => {
+  it('records a COMPLETED over-budget target normally — never partial, never re-asked', async () => {
+    // The usage is only known once the call settles, so a finished call is
+    // recorded exactly as it answered. It is NOT re-asked: a fresh contextless
+    // call cannot report what THIS run observed and its answer would replace a
+    // real one.
     const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
       recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
-      return { sessionId: '', verdict: null, raw: '' };
+      return {
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([{ severity: 'high', title: 'the real answer', detail: '' }]),
+      };
     });
     const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
-    // Exactly ONE re-ask — not the silence nudge, not the reformat nudge.
-    expect(calls).toHaveLength(2);
-    expect(calls[0]!.prompt).not.toContain(TESTER_WRAP_UP_NUDGE);
-    expect(calls[1]!.prompt).toContain(TESTER_WRAP_UP_NUDGE);
-    expect(calls[1]!.timeoutMs).toBe(UAT_TESTER_WRAP_UP_TIMEOUT_MS);
-    expect(res.kind).toBe('partial');
+    expect(calls).toHaveLength(1);
+    expect(res).toMatchObject({ kind: 'observed' });
+    expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['the real answer']);
+    expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
+      resultKind: 'observed',
+      status: 'passed',
+    });
   });
 
-  it('records the wrap-up findings as partial, and names the spend that tripped the budget', async () => {
+  it('names the spend that tripped the token budget when a STOPPED run exceeded it', async () => {
+    // A stopped run has no answer; the token budget labels WHY it stopped and
+    // its own streamed output is quoted back for the ONE contextual re-ask.
+    const prose = 'I was still exercising the login flow when the run stopped';
     let n = 0;
-    const { adapter } = fakeAdapter(async (headlessOpts) => {
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
       n += 1;
       recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
-      return n === 1
-        ? { sessionId: '', verdict: null, raw: '' }
-        : {
-            sessionId: '',
-            verdict: null,
-            raw: JSON.stringify([{ severity: 'high', title: 'recovered late', detail: '' }]),
-          };
+      if (n === 1) {
+        headlessOpts.onOutput?.({ stream: 'stdout', text: prose });
+        throw timeoutError();
+      }
+      return {
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([{ severity: 'high', title: 'recovered late', detail: '' }]),
+      };
     });
     const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
     const detail = 'tester exceeded budget (500k tok) — partial results recorded';
     expect(res).toMatchObject({ kind: 'partial', blocking: 0, detail });
+    // The ONE re-ask quotes the run's own output back — it is not contextless.
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.prompt).toContain(TESTER_WRAP_UP_NUDGE);
+    expect(calls[1]!.prompt).toContain(prose);
+    expect(calls[1]!.timeoutMs).toBe(UAT_TESTER_WRAP_UP_TIMEOUT_MS);
     expect(listUatFindings(store, ticketId).map((f) => f.title)).toEqual(['recovered late']);
     expect(listProcessRuns(store, ticketId)[0]).toMatchObject({
       resultKind: 'partial',
       status: 'failed',
       failureDetail: detail,
     });
-  });
-
-  it('sends exactly ONE wrap-up re-ask even when the first answer was already usable', async () => {
-    const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
-      recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
-      return { sessionId: '', verdict: null, raw: '[]' };
-    });
-    const res = await runUatTester(store, opts({ adapter, tokenBudget: 100_000 }), { now });
-    // The wrap-up still fires (the budget was hit), but only once.
-    expect(calls).toHaveLength(2);
-    expect(res.kind).toBe('partial');
   });
 
   it('salvages the observations a timed-out target had already streamed, marked partial', async () => {
@@ -1096,21 +1106,17 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
     });
   });
 
-  it('keeps the observations a timed-out target streamed even when the wrap-up answers []', async () => {
-    // The run wrote its observations to the stream, then timed out; the wrap-up
-    // re-ask came back with an explicit [] — an empty LATER answer must not
+  it('records a stopped run’s streamed observations with NO re-ask, keeping them over any empty answer', async () => {
+    // The run wrote its observations to the stream, then timed out. Those
+    // findings are recorded directly — no contextless re-ask can answer [] and
     // discard what the agent had already reported (the T663 RED case).
     const body = JSON.stringify([{ severity: 'high', title: 'written before the cut', detail: '' }]);
-    let n = 0;
-    const { adapter } = fakeAdapter(async (headlessOpts) => {
-      n += 1;
-      if (n === 1) {
-        headlessOpts.onOutput?.({ stream: 'stdout', text: body });
-        throw timeoutError();
-      }
-      return { sessionId: '', verdict: null, raw: '[]' };
+    const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
+      headlessOpts.onOutput?.({ stream: 'stdout', text: body });
+      throw timeoutError();
     });
     const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(calls).toHaveLength(1);
     expect(res).toMatchObject({
       kind: 'partial',
       detail: 'timed out — 1 partial observation recorded',
@@ -1154,10 +1160,12 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
   });
 
   it('stops a call at the soft time budget and re-asks once — a Stop is the only thing that interrupts', async () => {
+    const prose = 'still probing the API when the soft budget fired';
     let n = 0;
     const { adapter, calls } = fakeAdapter(async (headlessOpts) => {
       n += 1;
       if (n === 1) {
+        headlessOpts.onOutput?.({ stream: 'stdout', text: prose });
         return await new Promise<never>((_resolve, reject) => {
           headlessOpts.signal?.addEventListener('abort', () => {
             const err = new Error('headless agent run aborted');
@@ -1166,32 +1174,30 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
           });
         });
       }
-      return { sessionId: '', verdict: null, raw: '[]' };
+      return {
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([{ severity: 'low', title: 'late note', detail: '' }]),
+      };
     });
     const res = await runUatTester(store, opts({ adapter, softTimeoutMs: 5 }), { now });
     expect(calls).toHaveLength(2);
     expect(calls[1]!.prompt).toContain(TESTER_WRAP_UP_NUDGE);
-    expect(res).toMatchObject({ kind: 'partial', detail: 'timed out — no observations recovered' });
+    expect(calls[1]!.prompt).toContain(prose);
+    expect(res).toMatchObject({ kind: 'partial', detail: 'timed out — 1 partial observation recorded' });
   });
 
   it('a partial run that recovered a blocking observation still fails UAT through the stage threshold', async () => {
     // The verdict knob is unchanged: partial observations count exactly like
     // complete ones (the stage owns the verdict, not this module).
-    let n = 0;
+    const body = JSON.stringify([{ severity: 'critical', title: 'broken', detail: '' }]);
     const { adapter } = fakeAdapter(async (headlessOpts) => {
-      n += 1;
-      recordSpend(headlessOpts.tracking!.processRunId!, 500_000);
-      return n === 1
-        ? { sessionId: '', verdict: null, raw: '' }
-        : {
-            sessionId: '',
-            verdict: null,
-            raw: JSON.stringify([{ severity: 'critical', title: 'broken', detail: '' }]),
-          };
+      headlessOpts.onOutput?.({ stream: 'stdout', text: body });
+      throw timeoutError();
     });
     const res = await runUatTester(
       store,
-      opts({ adapter, tokenBudget: 100_000, observationsBlockingSeverity: 'high' }),
+      opts({ adapter, observationsBlockingSeverity: 'high' }),
       { now },
     );
     expect(res).toMatchObject({ kind: 'partial', blocking: 1, blockingSummary: '1 critical' });

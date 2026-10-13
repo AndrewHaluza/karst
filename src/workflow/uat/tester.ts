@@ -250,20 +250,22 @@ export interface RunUatTesterOpts {
    */
   observationsBlockingSeverity?: Severity | 'none';
   /**
-   * T663: the FRESH-token budget ONE target may spend before the lane stops
-   * its call and re-asks once for what the agent already observed. Absent →
-   * `UAT_TESTER_TOKEN_BUDGET`. The count is read from the same ledger the
-   * Inside row's token pill reads (`token_usage` by this run's id), so a core
-   * that reports nothing measurable never trips it.
+   * T663: the FRESH-token budget one target's run may report before the lane
+   * NAMES the cause of its partial result. Absent → `UAT_TESTER_TOKEN_BUDGET`.
+   * The count is read from the same ledger the Inside row's token pill reads
+   * (`token_usage` by this run's id), so a core that reports nothing measurable
+   * never trips it. It is a POST-HOC report, not a live stop: usage is only
+   * known once a call settles, so the soft time budget below is what actually
+   * cuts a call off. It never marks a call that finished partial.
    */
   tokenBudget?: number;
   /**
    * T663: the SOFT time budget for one call, in ms — the point the lane arms
    * its own abort, below the hard `timeoutMs`. Absent → 75% of the hard
-   * deadline (45 min of the 60), leaving room for the wrap-up re-ask.
+   * deadline (45 min of the 60), leaving room for the contextual wrap-up re-ask.
    */
   softTimeoutMs?: number;
-  /** T663: the deadline for the ONE wrap-up re-ask. Absent → 5 minutes. */
+  /** T663: the deadline for the ONE contextual wrap-up re-ask. Absent → 5 minutes. */
   wrapUpTimeoutMs?: number;
   /** The ticket's done-when criteria (`Ticket.description`), read once by the stage. Absent/blank → no criteria block. */
   criteria?: string | null;
@@ -309,12 +311,13 @@ export type TesterRunResult =
     }
   | {
       /**
-       * T663: the run was STOPPED by a budget (the soft time budget or the
-       * fresh-token budget) or by the hard deadline, and the observations that
-       * could still be recovered — from the ONE wrap-up re-ask or from the
-       * stdout already captured — were recorded. Advisory like `observed` (the
-       * verdict knob applies unchanged), but the run is MARKED partial so it can
-       * never read as a clean pass: `detail` names the cause for the Inside row.
+       * T663: the run was STOPPED (the soft time budget fired or the hard
+       * deadline landed), and the observations that could still be recovered —
+       * from the stdout already captured, or from the ONE contextual re-ask —
+       * were recorded. Advisory like `observed` (the verdict knob applies
+       * unchanged), but the run is MARKED partial so it can never read as a
+       * clean pass: `detail` names the cause for the Inside row. A call that
+       * FINISHED is never partial, whatever it spent.
        */
       kind: 'partial';
       findingIds: number[];
@@ -357,18 +360,19 @@ export const TESTER_SILENCE_NUDGE =
   'nothing worth reporting. Output the array and nothing else.';
 
 /**
- * T663: the ONE re-ask a target whose budget ran out gets. It is the SILENCE
- * nudge's sibling — same prompt, same output contract — but its reason is
- * different: the core did the work and then kept going, so the run is being
- * stopped and the agent is asked to write down what it already observed before
- * the deadline takes it. A run that ends with a partial report is worth far
- * more than an interruption that discarded every observation.
+ * T663: the instruction half of the ONE re-ask a STOPPED target gets. It is the
+ * SILENCE nudge's sibling — same output contract — but its reason is different:
+ * the run was cut off, so the agent is asked to write down what it already
+ * produced. It is only ever sent WITH the run's own partial output quoted back
+ * ({@link buildWrapUpNudge}): a fresh headless call has no session memory, so a
+ * bare "report what you observed" would ask an agent to report observations it
+ * never made in THIS call and could return a fresh, unrelated test result.
  */
 export const TESTER_WRAP_UP_NUDGE =
-  'You have reached the testing budget for this run. STOP testing NOW — do not ' +
-  'run another command, read another file, or start another check. Report the ' +
-  'observations you have made so far as the JSON array described above, and ' +
-  'nothing else — output exactly [] if there is nothing worth reporting.';
+  'You have reached the testing budget for this run and it has been stopped. Do ' +
+  'not run any more commands, read any more files, or start any more checks. ' +
+  'Report the observations in your output so far as the JSON array described ' +
+  'above, and nothing else — output exactly [] if there is nothing worth reporting.';
 
 /**
  * The default soft time budget for one Tester call, as a FRACTION of the hard
@@ -410,6 +414,20 @@ function buildReformatNudge(raw: string): string {
     'reported above as the JSON array described earlier — output exactly [] ' +
     'if there was nothing worth reporting. Output the array and nothing else.'
   );
+}
+
+/**
+ * The ONE re-ask a STOPPED target gets, quoting the partial output it had
+ * already streamed back into the prompt ({@link TESTER_WRAP_UP_NUDGE} + the
+ * bounded, fence-safe quote `buildReformatNudge` uses). The quote is what makes
+ * the fresh call usable: it gives the agent the context it would otherwise have
+ * lost, so the re-ask reformats what was already observed instead of running a
+ * new test. Never built without a non-empty quote — a stopped run that produced
+ * nothing is not re-asked at all.
+ */
+function buildWrapUpNudge(captured: string): string {
+  const quoted = collapseDiagnostic(captured, REFORMAT_NUDGE_QUOTE_MAX).replaceAll('"""', "'''");
+  return `${TESTER_WRAP_UP_NUDGE}\nYour output so far:\n"""${quoted}"""`;
 }
 
 /**
@@ -520,40 +538,46 @@ function linkedAbort(outer: AbortSignal | undefined, timeoutMs: number): BudgetA
   };
 }
 
+/** A sink that drops warnings — the captured stream is console text, not the agent's answer. */
+const SILENT_WARN: WarnFn = () => {};
+
 /**
- * Recover the observations from a run a budget stopped, over the agent's
- * answers in order (the first, then the wrap-up's) and the raw stdout captured
- * while it streamed.
+ * Recover the observations a STOPPED run already produced.
  *
- * An answer that CARRIES observations wins over one that only says `[]`: a run
- * the budget cut short can have written its observations to the stream and then
- * answered `[]` (or been cut again before the wrap-up), and an empty later
- * answer must not discard what the agent had already reported. Only when NO
- * candidate carries observations does an explicit `[]` stand (a genuinely clean
- * stop), and only when every candidate is unreadable does the last parse win
- * (so the unreadable log keeps what the agent actually said).
- *
- * The agent's own answers warn through `warn`; the captured stdout is parsed
- * SILENTLY — it is console text, not the agent's answer, so the shared parser's
- * "unrecognizable" warning there is noise a budget stop does not deserve.
+ * The run's own streamed stdout is the evidence, so it is parsed first — and
+ * silently, because console text is not the agent's answer and the shared
+ * parser's "unrecognizable" warning there would be noise a budget stop does not
+ * deserve. Only when that stream held something but no findings-shaped array
+ * does the ONE contextual re-ask fire: the agent's own output is quoted back
+ * ({@link buildWrapUpNudge}) so the fresh call has the context to reformat it.
+ * A stopped run that produced NOTHING is not re-asked — a contextless agent
+ * cannot report observations it never made, and a new run would be a different
+ * test, not a report.
  */
-function parseFirstUsable(
-  answers: readonly string[],
+async function recoverStoppedTarget(
   captured: string,
   context: { repo: string; worktreePath: string; max: number },
-  warn?: WarnFn,
-): { parse: ReturnType<typeof parseFindingsResult>; raw: string } {
-  const candidates = answers
-    .filter((raw) => raw.trim() !== '')
-    .map((raw) => ({ raw, parse: parseFindingsResult(raw, context, warn) }));
-  if (captured.trim() !== '') {
-    candidates.push({ raw: captured, parse: parseFindingsResult(captured, context, () => {}) });
+  reask: (text: string) => Promise<{ raw: string }>,
+  warn: WarnFn | undefined,
+  outerSignal: AbortSignal | undefined,
+): Promise<{ parse: ReturnType<typeof parseFindingsResult>; raw: string }> {
+  const salvaged = parseFindingsResult(captured, context, SILENT_WARN);
+  if (salvaged.findings.length > 0 || captured.trim() === '') {
+    return { parse: salvaged, raw: captured };
   }
-  if (candidates.length === 0) return { parse: parseFindingsResult('', context, warn), raw: '' };
-  const withFindings = candidates.find((c) => c.parse.findings.length > 0);
-  if (withFindings) return withFindings;
-  const usable = candidates.find((c) => c.parse.shape !== 'unreadable');
-  return usable ?? candidates[candidates.length - 1]!;
+  try {
+    const answer = await reask(buildWrapUpNudge(captured));
+    const reparsed = parseFindingsResult(answer.raw, context, warn);
+    // A still-unreadable re-ask keeps the salvage's record of what the run said.
+    return reparsed.shape === 'unreadable' && reparsed.findings.length === 0
+      ? { parse: salvaged, raw: captured }
+      : { parse: reparsed, raw: answer.raw };
+  } catch (error) {
+    // A user Stop is terminal; anything else (the re-ask's own deadline, a
+    // crash) leaves the salvage of the captured stream standing.
+    if (outerSignal?.aborted) throw error;
+    return { parse: salvaged, raw: captured };
+  }
 }
 
 /**
@@ -856,7 +880,7 @@ export async function runUatTester(
       // caller's signal is the authority, this timer is only the budget.
       const soft = linkedAbort(opts.signal, softTimeoutMs);
       let result: { raw: string } = { raw: '' };
-      let timedOutByBudget = false;
+      let stopped = false;
       try {
         result = await ask(prompt, soft.signal, hardTimeoutMs);
       } catch (error) {
@@ -865,7 +889,7 @@ export async function runUatTester(
         // Anything that is neither our soft timer nor the spawner's deadline is
         // a genuine failure — the outer catch reports it exactly as before.
         if (!soft.fired() && !isTimedOutFailure(error)) throw error;
-        timedOutByBudget = true;
+        stopped = true;
       } finally {
         soft.dispose();
       }
@@ -874,30 +898,7 @@ export async function runUatTester(
       // what it burned (the spawner carries the partial stream's counts on the
       // error), so the budget sees the runaway a timeout ended.
       const targetFresh = Math.max(0, recordedFreshTokens(store, run.id) - freshBefore);
-      const overTokenBudget = targetFresh >= tokenBudget;
-      const budgetHit = timedOutByBudget || overTokenBudget;
       const firstRaw = result.raw;
-      if (budgetHit) {
-        // STOP testing for this target and re-ask ONCE — the observations this
-        // run exists to record, not the full testing instruction. This is the
-        // whole point: a run that ends with a partial report beats an
-        // interruption that discards everything the agent did.
-        partial = true;
-        if (overTokenBudget) budgetPeak = Math.max(budgetPeak, targetFresh);
-        debug?.(
-          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} budget hit ` +
-            `(${timedOutByBudget ? 'soft time deadline' : `${formatTokens(targetFresh)} tok`}) — wrap-up re-ask`,
-        );
-        try {
-          result = await ask(`${prompt}\n${TESTER_WRAP_UP_NUDGE}`, opts.signal, wrapUpTimeoutMs);
-        } catch (error) {
-          if (opts.signal?.aborted) throw error;
-          // The wrap-up itself failed (deadline or crash): fall back to what the
-          // first call and the streamed stdout already hold, below.
-          result = { raw: '' };
-        }
-      }
-      if (opts.signal?.aborted) break;
       // Parse at most the execution cap from this one response — a single
       // target can never blow memory past the cap, whatever it returns.
       // Finding 13 follow-up: the budget is NOT a reason to skip a target;
@@ -905,16 +906,26 @@ export async function runUatTester(
       // after collection.
       const parseContext = { repo: target.repo, worktreePath: target.worktreePath, max: cap };
       let parseResult: ReturnType<typeof parseFindingsResult>;
-      if (budgetHit) {
-        // Prefer the first answer, then the wrap-up's, then the raw stdout the
-        // run streamed: a budget stop must never lose an observation the agent
-        // had already written. The silence/reformat nudges are SKIPPED here —
-        // the budget already spent its ONE re-ask.
-        const recovered = parseFirstUsable(
-          [firstRaw, result.raw],
+      if (stopped) {
+        // The call was CUT OFF — the soft time budget fired or the hard deadline
+        // landed — so this target is PARTIAL. Only a stopped call can be: a call
+        // that FINISHED is recorded exactly as it answered, whatever it spent.
+        // The token budget is a post-hoc REPORT (the usage is only known once a
+        // call settles, so it can never cut a call short) and never a reason to
+        // discard a real answer or to spend another call on it.
+        partial = true;
+        if (targetFresh >= tokenBudget) budgetPeak = Math.max(budgetPeak, targetFresh);
+        debug?.(
+          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} stopped ` +
+            `(${soft.fired() ? 'soft time budget' : 'deadline'}; ${formatTokens(targetFresh)} tok) — ` +
+            'salvaging the output it streamed',
+        );
+        const recovered = await recoverStoppedTarget(
           captured.join(''),
           parseContext,
+          (text) => ask(text, opts.signal, wrapUpTimeoutMs),
           opts.warn,
+          opts.signal,
         );
         parseResult = recovered.parse;
         result = { raw: recovered.raw };
@@ -992,16 +1003,16 @@ export async function runUatTester(
         line: f.line,
         title: f.title,
       }));
-      if (budgetHit) partialObservations += parsed.length;
+      if (stopped) partialObservations += parsed.length;
       debug?.(
         `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} returned ` +
-          `${parsed.length} observation(s) (${parseResult.shape}${budgetHit ? ', partial' : ''})`,
+          `${parsed.length} observation(s) (${parseResult.shape}${stopped ? ', partial' : ''})`,
       );
       opts.onTargetProgress?.({
         repo: target.repo,
         status: 'completed',
         detail: `${parsed.length} observation${parsed.length === 1 ? '' : 's'}${
-          budgetHit ? ' — partial (budget hit)' : ''
+          stopped ? ' — partial (run stopped)' : ''
         }`,
       });
       collected.push(...parsed);
