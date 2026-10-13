@@ -161,7 +161,7 @@ describe('makeAlignmentTrigger', () => {
     await t.fire(() => true);
     const open = listOpenParks(t.registry, t.id);
     expect(open).toHaveLength(1);
-    expect(open[0]).toMatchObject({ kind: 'op', provider: 'claude', model: 'm-1' });
+    expect(open[0]).toMatchObject({ kind: 'op', provider: 'claude', model: 'm-1', stage: 'scope' });
     t.trigger.dispose();
   });
 });
