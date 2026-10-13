@@ -134,6 +134,19 @@ export function railNeeds(input: RailNeedsInput): RailNeeds | null {
     };
   }
 
+  // A quota exhaustion (K11, D158): the AI op could not run because the account
+  // is out of allowance. Nothing is asked of the agent — the user must raise the
+  // limit, wait for a reset, or pick another agent/model (D159) — so this reads
+  // needs-you at whatever stage parked. It outranks the stage-specific waits
+  // below: an out-of-quota review is not "ready to ship".
+  if (input.blockedKind === 'usage-limit') {
+    return {
+      detail: 'the provider is out of quota',
+      action: 'Open session',
+      cta: { kind: 'open-session' },
+    };
+  }
+
   // A graph has two distinct user-owned waits. They share the Inside graph
   // view as their owner: its recovery controls make the first decision, while
   // its completed row gives the exact impl-marker instruction for the second.

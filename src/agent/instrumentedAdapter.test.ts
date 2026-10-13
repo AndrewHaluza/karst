@@ -8,6 +8,7 @@ import type {
 } from './adapter.js';
 import { instrumentAdapter, type UsageSink } from './instrumentedAdapter.js';
 import { attachUsage } from './tokenUsage.js';
+import { UsageLimitError } from './cliFailure.js';
 import type { TokenUsageEntry } from '../store/tokenUsage.js';
 
 const CLAUDE_ENVELOPE_USAGE = {
@@ -206,6 +207,31 @@ describe('instrumentAdapter', () => {
     expect(lines).toContainEqual(
       expect.stringMatching(/\[agent\] instrumented runHeadless \(ticket-analysis\): call failed — recording usage as error/),
     );
+  });
+
+  it('preserves a typed UsageLimitError across the meter seam (K11)', async () => {
+    const s = sink();
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const inner = fakeAdapter({
+      runHeadless: async () => {
+        throw limitErr;
+      },
+    });
+    const adapter = instrumentAdapter(inner, { sink: s, provider: 'claude' });
+
+    const caught = await adapter
+      .runHeadless({ prompt: 'hi', cwd: '.' })
+      .then(() => new Error('expected a rejection'), (e: unknown) => e as Error);
+    // The meter rethrows the ORIGINAL error untouched, so the type that drives
+    // the classifier's fail-fast rule survives instrumentation.
+    expect(caught).toBe(limitErr);
+    expect(caught).toBeInstanceOf(UsageLimitError);
+    expect(s.entries).toHaveLength(1);
+    expect(s.entries[0]!.outcome).toBe('error');
   });
 
   it('records the provider-reported counts under the declared call site and ticket', async () => {

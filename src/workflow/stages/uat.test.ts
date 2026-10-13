@@ -12,6 +12,8 @@ import { listGateRuns, recordGateRun } from '../../store/gateRuns.js';
 import { listProcessRuns, openProcessRun, finishProcessRun } from '../../store/processRuns.js';
 import { listUatFindings } from '../../store/uatFindings.js';
 import { stageBlock } from '../../store/stageBlocks.js';
+import { listOpenParks } from '../../store/usageLimitParks.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import { manifest, repo, svc, uat as uatConfig } from '../../manifest/fixtures.js';
 import type { Manifest } from '../../manifest/types.js';
 import { resolveProcessAssignment } from '../../agent/processAssignment.js';
@@ -1448,6 +1450,43 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     );
     expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  // K11: a quota exhaustion is a PARK, not an advisory failure — the account
+  // cannot run the op, so the stage blocks and records a park row. No attempt.
+  it('a quota-exhausted Tester parks the stage blocked:usage-limit and writes a park row (K11)', async () => {
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        tester: {
+          assignment: { agentName: 'UAT Agent', provider: 'claude' },
+          adapter: {
+            ...testerAgent('[]'),
+            runHeadless: async () => {
+              throw limitErr;
+            },
+          },
+        },
+      }),
+    );
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'usage-limit' });
+    if (res.kind === 'blocked') {
+      expect(res.reason).toBe('usage limit — claude claude-sonnet-5');
+    }
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('usage-limit');
+    const open = listOpenParks(store, id);
+    expect(open).toHaveLength(1);
+    expect(open[0]!.lane).toBe('uat');
+    expect(open[0]!.provider).toBe('claude');
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+    expect(getTicket(store, id).stageCurrent).toBe('uat');
+    expect(uatStage(store, id).attempt).toBe(0);
   });
 
   // One target unreadable, another with observations: no park, observations

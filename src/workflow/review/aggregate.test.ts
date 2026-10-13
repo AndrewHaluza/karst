@@ -240,6 +240,35 @@ describe('aggregateReview', () => {
     });
   });
 
+  // K11 — a quota-exhausted lane parks, before any gate/findings rule, and the
+  // park payload rides the blocked outcome so the stage can write the park row.
+  it('K11: a usage-limited lane parks blocked:usage-limit, before R5', () => {
+    const lane: FindingsLaneOutcome = {
+      kind: 'usage-limited',
+      target: '/web',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      detail: 'Claude usage limit reached — out of credits.',
+      keptOutcome: '{"findings":0,"targets":[]}',
+    };
+    // A red gate on a target whose review never ran is NOT a review of anything:
+    // the usage-limited rule outranks R5.
+    const result = aggregateReview([testWebRed], [], lane, REQUIRED);
+    expect(result).toEqual({
+      kind: 'blocked',
+      blocker: 'usage-limit',
+      reason: 'usage limit — claude claude-sonnet-5',
+      park: {
+        provider: 'claude',
+        model: 'claude-sonnet-5',
+        lane: 'review',
+        target: '/web',
+        detail: 'Claude usage limit reached — out of credits.',
+        keptOutcome: '{"findings":0,"targets":[]}',
+      },
+    });
+  });
+
   it('R6: a finding at the configured threshold fails, naming the severities', () => {
     const lane: FindingsLaneOutcome = {
       kind: 'ran',

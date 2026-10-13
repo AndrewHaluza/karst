@@ -1531,7 +1531,7 @@ describe('CodexAdapter headless execution', () => {
     }
   });
 
-  it('names a usage limit instead of echoing the CLI failure', async () => {
+  it('names a bare 429 as a rate limit instead of echoing the CLI failure', async () => {
     const adapter = new CodexAdapter(
       fakeSpawn({
         stdout: '',
@@ -1541,7 +1541,7 @@ describe('CodexAdapter headless execution', () => {
     );
     await expect(
       adapter.runHeadless({ cwd: '/wt', prompt: 'go' }),
-    ).rejects.toThrow(/Codex usage limit reached/);
+    ).rejects.toThrow(/Codex rate limited/);
   });
 });
 

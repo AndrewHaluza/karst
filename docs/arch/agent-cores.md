@@ -128,14 +128,17 @@ END_DOC_BLOCK: [@arch:AC-12]
 
 The seam carries TWO decorators and the order is load-bearing: `resilientAdapter(instrumentAdapter(adapter))` (K6). Each retried or fallback attempt passes through the meter on its own and lands its own `token_usage` row; the reverse order would report one row for N attempts and under-count a run that burned three of them.
 
-`resilientAdapter` (`agent/resilientAdapter.ts`) wraps `runHeadless` only, delegating every other adapter surface verbatim. It classifies each thrown failure into one of four classes via `classifyFailure` (`agent/failureClass.ts`), which judges by MESSAGE TEXT (K1) — anything it does not recognise is `fatal`, so an unrecognised failure behaves exactly as it does today:
+`resilientAdapter` (`agent/resilientAdapter.ts`) wraps `runHeadless` only, delegating every other adapter surface verbatim. It classifies each thrown failure into one of five classes via `classifyFailure` (`agent/failureClass.ts`), which judges by MESSAGE TEXT (K1) — except quota exhaustion, whose typed `UsageLimitError` is also recognized by instance/name. Anything it does not recognise is `fatal`, so an unrecognised failure behaves exactly as it does today:
 
 | class | source | behavior |
 |---|---|---|
 | `aborted` | `err.name === 'AbortError'` | rethrown at once — the user pressed Stop |
-| `transient` | 429, 5xx, network reset, "overloaded" | retried on the same model, `backoffMs` doubling, ±20% jitter, SILENT |
+| `transient` | a bare 429 with NO quota wording, 5xx, network reset, "overloaded" | retried on the same model, `backoffMs` doubling, ±20% jitter, SILENT |
 | `model-rejected` | a 400/404 naming the model, "unknown model" | no retry — the chain advances immediately, and the user is WARNED |
+| `usage-limited` | a typed `UsageLimitError` (K11) | rethrown at once — no retry, no chain hop |
 | `fatal` | 401/403, a timeout, anything unrecognized | rethrown at once |
+
+**Quota exhaustion is user-resolved, never retried or hopped (K11).** A provider that reports the ACCOUNT is out of allowance (`quota exceeded`, `insufficient_quota`, `resource_exhausted`, `usage`/`spend limit`, …) cannot be helped by another attempt — retrying spends the same exhausted allowance (and, since fallback is off by default, usually the same model), and hopping runs a model the operator did not pick. `cliFailure.ts` names this subset `QUOTA_PHRASES` (narrower than `LIMIT_PHRASES`, which also matches the transient `rate limit`/`429`/`too many requests`/`limit reached` wording) and every adapter throws a typed `UsageLimitError { tool, provider, model, status, detail }` for it; `resilientAdapter` rethrows it at once. The class is read from the TYPED error, NEVER from message text. `isQuotaExhausted` reads only the provider's OWN error text — a structured ERROR envelope's message (stderr or stdout), else stderr — never an unstructured run's stdout (the model's answer), plus a structured quota `code` or HTTP 402. A BARE 429 with no allowance wording is still `transient`.
 
 A TIMEOUT is deliberately not transient (K3): gate lanes run at `GATE_LANE_HEADLESS_TIMEOUT_MS` (60 minutes); retrying a timeout twice turns one lane into a three-hour lane.
 

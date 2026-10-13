@@ -12,6 +12,7 @@ import {
   type ResilienceOptions,
   type ModelFallbackEvent,
 } from './resilientAdapter.js';
+import { UsageLimitError } from './cliFailure.js';
 
 function fakeAdapter(overrides: Partial<AgentAdapter> = {}): AgentAdapter {
   return {
@@ -269,6 +270,29 @@ describe('resilientAdapter', () => {
 
     await expect(adapter.runHeadless({ prompt: 'hi', cwd: '.' })).rejects.toThrow('401');
     expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it('usage-limited is never retried and never hops (K11)', async () => {
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+    });
+    const spy = vi.fn(async () => { throw limitErr; });
+    const inner = fakeAdapter({ runHeadless: spy });
+    const notify = vi.fn();
+    const sleep = vi.fn(async () => {});
+    // A fallback chain AND retries are configured: both must be skipped.
+    const adapter = resilientAdapter(inner, opts({
+      retries: 2,
+      chain: () => ['a', 'b'],
+      notify,
+      sleep,
+    }));
+
+    await expect(adapter.runHeadless({ prompt: 'hi', cwd: '.' })).rejects.toBe(limitErr);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(notify).not.toHaveBeenCalled();
+    expect(sleep).not.toHaveBeenCalled();
   });
 
   it('chain exhausted rethrows the LAST error', async () => {

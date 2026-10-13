@@ -87,6 +87,10 @@ export function needsUser(t: TicketWithStages): boolean {
   const current = t.stages.find((s) => s.stageKey === stage);
   return (
     current?.blockedKind === 'awaiting-merge' ||
+    // The provider is out of quota/allowance (K11, D158): the question was
+    // asked and answered "not now", so it needs the user (raise the limit,
+    // wait for a reset, or pick another agent/model) — amber like awaiting-merge.
+    current?.blockedKind === 'usage-limit' ||
     // A blocked implementation graph is parked on the user (Slice-3 T9): the
     // graph needs a human decision (recover/replan/discard), never a silent
     // generic retry — amber everywhere, like awaiting-merge.

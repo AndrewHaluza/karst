@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentAdapter, RunHeadlessOpts } from '../../agent/adapter.js';
 import { buildAlignmentPrompt, renderAlignmentReport, runAlignment } from './alignment.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 
 function adapter(run: (o: RunHeadlessOpts) => Promise<string>): AgentAdapter {
   return {
@@ -55,6 +56,22 @@ describe('runAlignment', () => {
     expect(r.findings).toEqual([]);
     expect(r.report).toMatch(/could not run/);
     expect(logs.join('\n')).toMatch(/boom/);
+  });
+  it('hands a quota failure to onUsageLimit so the caller can park it (K11)', async () => {
+    const limit = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+    });
+    const a = adapter(async () => {
+      throw limit;
+    });
+    const seen: unknown[] = [];
+    const r = await runAlignment(
+      { adapter: a, onUsageLimit: (e) => seen.push(e) },
+      { ticketId: 7, edge: 'spec-plan', parentText: 'S', childText: 'P' },
+    );
+    expect(r.failed).toBe(true);
+    expect(seen).toEqual([limit]);
   });
   it('keeps a finding the model attached a file to (file stripped)', async () => {
     const a = adapter(async () => '[{"severity":"high","title":"S2 not planned","detail":"d","file":"src/a.ts"}]');

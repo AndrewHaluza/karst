@@ -31,6 +31,10 @@ import { openGatingSubtasks } from './subtaskGate.js';
  *   confirm click", and once it's gone the merge click, the PR sweep and a
  *   teammate's merge on GitHub all lose the only signal that lets them
  *   recognize this ticket as theirs to settle.
+ * - the block's kind is `usage-limit` — the account is out of quota/allowance
+ *   (K11), so a retry would re-run the exhausted model and fail again. The
+ *   recovery is the user picking another agent/model (D159) or waiting for the
+ *   limit to reset, so a generic Resume only no-ops.
  *
  * An `approach-graph-failed` block returns the typed `graph-recovery` action
  * instead of clearing WHILE its run is still blocked: the graph needs
@@ -55,6 +59,12 @@ export function resumeBlockedStage(
   // Same reasoning: the question was asked and the answer is the user's. A
   // generic Resume would re-run UAT straight back into the same park.
   if (block.kind === 'baseline-review') return { kind: 'refused' };
+  // A quota exhaustion (K11) is user-resolved, like awaiting-merge: a generic
+  // Resume would re-run the model that is out of allowance and spend nothing
+  // but fail again, bypassing the agent/model pick that actually clears it. The
+  // dashboard derives its "pick another agent/model" hint from blocked_kind, so
+  // refusing here needs no caller change.
+  if (block.kind === 'usage-limit') return { kind: 'refused' };
   // Same reasoning as `awaiting-merge`: the question was asked (the graph
   // finished) and answered "not yet". Clearing it here would strand the
   // ticket the same way — `markGraphAwaitingImplMarker`'s own guard clears it

@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { describeHeadlessFailure, describePermissionDenial, isPermissionDenialDetail, isUsageLimitFailure } from './cliFailure.js';
+import {
+  describeHeadlessFailure,
+  describePermissionDenial,
+  headlessFailureError,
+  isPermissionDenialDetail,
+  isQuotaExhausted,
+  isUsageLimitFailure,
+  QUOTA_PHRASES,
+  UsageLimitError,
+  usageLimitReason,
+} from './cliFailure.js';
 
 /** Verbatim `claude -p --output-format json` envelope for a 429 (from 869ea499g). */
 const CLAUDE_429 = JSON.stringify({
@@ -63,14 +73,14 @@ describe('describeHeadlessFailure — usage limits', () => {
     );
   });
 
-  it('reads a plain-text 429 on stderr', () => {
+  it('reads a plain-text 429 on stderr as a RATE limit, not a quota (K11)', () => {
     const message = describeHeadlessFailure({
       tool: 'Codex',
       exitCode: 1,
       stdout: '',
       stderr: 'stream error: exceeded retry limit, last status: 429; retrying not possible\n',
     });
-    expect(message).toContain('Codex usage limit reached');
+    expect(message).toContain('Codex rate limited');
     expect(message).toContain('last status: 429');
   });
 
@@ -88,15 +98,16 @@ describe('describeHeadlessFailure — usage limits', () => {
     expect(message).not.toContain('panic:');
   });
 
-  it('says the limit was hit even when the CLI gave no prose', () => {
+  it('says "rate limited" when the CLI gave no prose for a bare 429 (K11)', () => {
     const message = describeHeadlessFailure({
       tool: 'Claude',
       exitCode: 1,
       stdout: JSON.stringify({ is_error: true, api_error_status: 429 }),
       stderr: '',
     });
-    expect(message).toContain('Claude usage limit reached');
+    expect(message).toContain('Claude rate limited');
     expect(message).toContain('HTTP 429');
+    expect(message).not.toContain('usage limit reached');
   });
 
   it('collapses a multi-line limit message onto one line', () => {
@@ -227,6 +238,165 @@ describe('describePermissionDenial', () => {
       'tool(s) required approval that headless mode cannot prompt for, so they were auto-denied.',
     );
     expect(message).toContain('a tool permission');
+  });
+});
+
+describe('QUOTA_PHRASES / isQuotaExhausted / headlessFailureError', () => {
+  it('flags the allowance wording every provider uses, and not the transient rate-limit forms', () => {
+    for (const phrase of [
+      'quota exceeded',
+      'quota_exceeded',
+      'insufficient_quota',
+      'RESOURCE_EXHAUSTED',
+      'usage limit reached',
+      'monthly spend limit',
+      'out of credits',
+      'payment required',
+      'credit balance',
+    ]) {
+      expect(QUOTA_PHRASES.test(phrase), phrase).toBe(true);
+    }
+    // `limit reached` matches "Rate limit reached" — a transient rate limit
+    // must NOT read as quota (UAT caught this).
+    for (const transient of [
+      '429 Too Many Requests',
+      'rate limit exceeded',
+      'rate limit reached',
+      'too many requests',
+    ]) {
+      expect(QUOTA_PHRASES.test(transient), transient).toBe(false);
+    }
+  });
+
+  it('treats a quota-worded envelope as exhausted and a bare 429 as not', () => {
+    expect(isQuotaExhausted({ tool: 'Claude', exitCode: 1, stdout: CLAUDE_429, stderr: '' })).toBe(
+      true,
+    );
+    expect(
+      isQuotaExhausted({
+        tool: 'Codex',
+        exitCode: 1,
+        stdout: '',
+        stderr: 'stream error: exceeded retry limit, last status: 429; retrying not possible',
+      }),
+    ).toBe(false);
+  });
+
+  it('does not read a run\'s stdout prose as quota evidence (K11)', () => {
+    // No envelope, empty stderr: stdout is the model's ANSWER. A model that
+    // writes "quota exceeded" must not make us park a healthy-looking run.
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: 'The quota exceeded handler lives in src/foo.ts.',
+        stderr: '',
+      }),
+    ).toBe(false);
+    // The same phrase on stderr (where a CLI reports a fault) IS evidence.
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: '',
+        stderr: 'Error: quota exceeded for this account',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not read a non-error stdout JSON result as quota evidence (K11)', () => {
+    // A model that answers with structured JSON carrying a `result`/`message`
+    // must not turn that text into quota evidence unless the envelope is an
+    // ERROR document (UAT observed this).
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: JSON.stringify({ result: 'quota exceeded in src/foo.ts' }),
+        stderr: '',
+      }),
+    ).toBe(false);
+    // The SAME text in an ERROR envelope IS the provider speaking.
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: JSON.stringify({ is_error: true, result: 'quota exceeded' }),
+        stderr: '',
+      }),
+    ).toBe(true);
+  });
+
+  it('types a structured quota CODE or HTTP 402 even without the wording (K11)', () => {
+    expect(
+      isQuotaExhausted({
+        tool: 'OpenCode',
+        exitCode: 1,
+        stdout: JSON.stringify({ error: { type: 'insufficient_quota' } }),
+        stderr: '',
+      }),
+    ).toBe(true);
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: JSON.stringify({ api_error_status: 402 }),
+        stderr: '',
+      }),
+    ).toBe(true);
+  });
+
+  it('returns a typed UsageLimitError for quota, carrying tool/provider/model/status/detail', () => {
+    const error = headlessFailureError({
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      exitCode: 1,
+      stdout: CLAUDE_429,
+      stderr: '',
+    });
+    expect(error).toBeInstanceOf(UsageLimitError);
+    const limit = error as UsageLimitError;
+    expect(limit.name).toBe('UsageLimitError');
+    expect(limit.tool).toBe('Claude');
+    expect(limit.provider).toBe('claude');
+    expect(limit.model).toBe('claude-sonnet-5');
+    expect(limit.status).toBe(429);
+    expect(limit.detail).toContain('monthly spend limit');
+    // The sentence is unchanged from `describeHeadlessFailure`.
+    expect(error.message).toBe(
+      describeHeadlessFailure({ tool: 'Claude', exitCode: 1, stdout: CLAUDE_429, stderr: '' }),
+    );
+  });
+
+  it('returns a plain Error with the unchanged sentence for a non-quota failure', () => {
+    const error = headlessFailureError({
+      tool: 'Codex',
+      exitCode: 1,
+      stdout: '',
+      stderr: 'boom',
+    });
+    expect(error).not.toBeInstanceOf(UsageLimitError);
+    expect(error.message).toBe('Codex failed (exit 1): boom');
+  });
+
+  it('names the core and model in the park reason (K11)', () => {
+    expect(usageLimitReason('claude', 'claude-sonnet-5')).toBe('usage limit — claude claude-sonnet-5');
+    expect(usageLimitReason('codex')).toBe('usage limit — codex');
+    expect(usageLimitReason('codex', null)).toBe('usage limit — codex');
+  });
+
+  it('returns a plain Error for a bare 429 with no quota wording', () => {
+    const error = headlessFailureError({
+      tool: 'Codex',
+      provider: 'codex',
+      exitCode: 1,
+      stdout: '',
+      stderr: 'stream error: exceeded retry limit, last status: 429; retrying not possible',
+    });
+    expect(error).not.toBeInstanceOf(UsageLimitError);
+    // Still the rate-limit sentence `describeHeadlessFailure` produced before.
+    expect(error.message).toContain('Codex rate limited');
   });
 });
 
