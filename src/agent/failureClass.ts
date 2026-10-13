@@ -1,16 +1,18 @@
 /**
- * Classify a thrown agent-call failure into one of four recovery classes by
- * inspecting the error's MESSAGE TEXT (K1). Anything the classifier does not
- * recognise is `fatal` — no retry, today's exact behavior preserved.
+ * Classify a thrown agent-call failure into one of five recovery classes by
+ * inspecting the error's MESSAGE TEXT (K1) — except quota exhaustion, whose
+ * typed `UsageLimitError` is also recognized by instance/name. Anything the
+ * classifier does not recognise is `fatal` — no retry, today's exact behavior
+ * preserved.
  *
- * The four classes are intentionally small and the precedence is fixed:
- * `aborted` wins over everything, `model-rejected` wins over `transient`,
- * and the conservative default is `fatal`.
+ * The classes are intentionally small and the precedence is fixed:
+ * `aborted` wins over everything, `model-rejected` wins over `usage-limited`,
+ * which wins over `transient`, and the conservative default is `fatal`.
  */
 
-import { HTTP_429, LIMIT_PHRASES } from './cliFailure.js';
+import { HTTP_429, LIMIT_PHRASES, QUOTA_PHRASES, UsageLimitError } from './cliFailure.js';
 
-export type FailureClass = 'aborted' | 'transient' | 'model-rejected' | 'fatal';
+export type FailureClass = 'aborted' | 'transient' | 'model-rejected' | 'usage-limited' | 'fatal';
 
 /** A provider refusing the model id itself: the id is named in the refusal. */
 const MODEL_REJECTED =
@@ -98,10 +100,24 @@ export function classifyFailure(error: unknown): FailureClass {
     return 'model-rejected';
   }
 
-  // 6. Rate limit / usage limit (K5).
+  // 6. Quota exhaustion (K11) — the account, not the request. Checked BEFORE
+  // the rate-limit rule so a quota phrase never reads as retryable: a typed
+  // `UsageLimitError` is authoritative, and a bare quota phrase in the text
+  // (a core that wrapped it as a plain Error) is caught the same way. A bare
+  // 429 / `rate limit` / `too many requests` with NO quota wording falls
+  // through to rule 7 and stays transient.
+  if (
+    error instanceof UsageLimitError ||
+    (error instanceof Error && error.name === 'UsageLimitError') ||
+    QUOTA_PHRASES.test(text)
+  ) {
+    return 'usage-limited';
+  }
+
+  // 7. Rate limit / usage limit (K5).
   if (HTTP_429.test(text) || LIMIT_PHRASES.test(text)) return 'transient';
 
-  // 7. Network / server-side / provider prose.
+  // 8. Network / server-side / provider prose.
   if (
     TRANSIENT_NETWORK.test(text) ||
     TRANSIENT_STATUS.test(text) ||
@@ -110,6 +126,6 @@ export function classifyFailure(error: unknown): FailureClass {
     return 'transient';
   }
 
-  // 8. Conservative default: fatal (no retry).
+  // 9. Conservative default: fatal (no retry).
   return 'fatal';
 }

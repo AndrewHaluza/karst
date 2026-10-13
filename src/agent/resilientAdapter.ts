@@ -144,7 +144,7 @@ export function resilientAdapter(
             lastError = error;
             const cls = classifyFailure(error);
 
-            if (cls === 'aborted' || cls === 'fatal') {
+            if (cls === 'aborted' || cls === 'fatal' || cls === 'usage-limited') {
               options.debug?.(`[agent] resilient: ${cls} failure — not retrying`);
               throw error;
             }

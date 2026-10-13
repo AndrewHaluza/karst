@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { classifyFailure, failureText, isTimedOutFailure, type FailureClass } from './failureClass.js';
+import { UsageLimitError } from './cliFailure.js';
 
 describe('failureText', () => {
   it('returns String(error) when error is not an Error', () => {
@@ -61,11 +62,40 @@ describe('classifyFailure', () => {
     expect(isTimedOutFailure(new Error('spawn ENOENT'))).toBe(false);
   });
 
-  it('classifies a usage limit as transient (K5)', () => {
+  it('classifies a quota exhaustion as usage-limited (K11)', () => {
     const error = new Error(
-      'Claude usage limit reached (HTTP 429). Retry once the limit resets.',
+      'Claude usage limit reached (HTTP 429). Retry once the limit resets, or switch the ticket to another model or agent core.',
     );
-    expect(classifyFailure(error)).toBe('transient');
+    expect(classifyFailure(error)).toBe('usage-limited');
+  });
+
+  it('classifies a typed UsageLimitError as usage-limited (K11)', () => {
+    const error = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+    });
+    expect(classifyFailure(error)).toBe('usage-limited');
+  });
+
+  it('classifies quota-only text as usage-limited without a typed error (K11)', () => {
+    expect(classifyFailure(new Error('provider said: insufficient_quota'))).toBe('usage-limited');
+    expect(classifyFailure(new Error('429 RESOURCE_EXHAUSTED'))).toBe('usage-limited');
+  });
+
+  it('keeps a bare 429 / rate-limit wording transient (K5)', () => {
+    expect(
+      classifyFailure(new Error('OpenCode failed (exit 1): 429 Too Many Requests')),
+    ).toBe('transient');
+    expect(classifyFailure(new Error('codex: rate limit exceeded, try again later'))).toBe(
+      'transient',
+    );
+    expect(classifyFailure(new Error('upstream said: too many requests'))).toBe('transient');
+  });
+
+  it('recognizes a typed UsageLimitError by name across a module boundary (K11)', () => {
+    const error = new Error('out of credits');
+    error.name = 'UsageLimitError';
+    expect(classifyFailure(error)).toBe('usage-limited');
   });
 
   it('classifies a 503 upstream error as transient', () => {
