@@ -13,7 +13,7 @@ describe('FakeAdapter', () => {
   });
 
   it('builds an inert interactive command', () => {
-    const cmd = new FakeAdapter().buildInteractiveCommand({} as never);
+    const cmd = new FakeAdapter().buildInteractiveCommand();
     expect(cmd.command).toBe('node');
     expect(cmd.env).toEqual({});
   });

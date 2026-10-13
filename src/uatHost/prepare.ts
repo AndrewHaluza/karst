@@ -17,8 +17,8 @@ if (!isFixtureName(fixture)) {
   console.error(`uat-host prepare: unknown fixture "${fixture}"`);
   process.exit(2);
 }
-const ws = buildWorkspace(flag('root'));
 const dbPath = flag('db');
+const ws = buildWorkspace(flag('root'));
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
 const ids = seedStore(store, fixtureSpec(fixture));

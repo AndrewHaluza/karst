@@ -106,8 +106,19 @@ describe('KARST_FAKE_CORE', () => {
       expect(resolveAdapter(p)).toBeInstanceOf(FakeAdapter);
     }
   });
+  it('warns once per process when honored', async () => {
+    vi.resetModules();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    const fresh = await import('./registry.js');
+    fresh.resolveAdapter('claude');
+    fresh.resolveAdapter('codex');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain('fake agent core');
+    warn.mockRestore();
+  });
   it('is off by default', () => {
     vi.stubEnv('KARST_FAKE_CORE', '');
-    expect(resolveAdapter('claude')).not.toBeInstanceOf(FakeAdapter);
+    expect(resolveAdapter('claude')).toBeInstanceOf(ClaudeAdapter);
   });
 });

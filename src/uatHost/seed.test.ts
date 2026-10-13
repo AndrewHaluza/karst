@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../store/db.js';
 import { getTicketByKey } from '../store/tickets.js';
+import { getStage } from '../store/stages.js';
 import { stageBlock } from '../store/stageBlocks.js';
 import { fixtureSpec } from './fixtures.js';
 import { seedStore } from './seed.js';
@@ -20,6 +21,8 @@ describe('seedStore', () => {
   it('seeds the mid-stage ticket at impl', () => {
     const store = openStore(':memory:');
     seedStore(store, fixtureSpec('ticket-mid-stage'));
-    expect(getTicketByKey(store, 'FIX-MID')).toBeDefined();
+    const t = getTicketByKey(store, 'FIX-MID');
+    expect(t?.stageCurrent).toBe('impl');
+    expect(getStage(store, t!.id, 'impl')?.status).toBe('running');
   });
 });

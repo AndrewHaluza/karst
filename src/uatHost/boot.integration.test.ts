@@ -2,9 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
 import { FIXTURE_NAMES } from './fixtures.js';
 
-const hasDocker = spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0;
+// Opt-in: three container boots are too slow for the default `integration` job.
+// Run: UAT_HOST_DOCKER=1 npx vitest run --config vitest.integration.config.ts src/uatHost/boot.integration.test.ts
+const enabled =
+  process.env['UAT_HOST_DOCKER'] === '1' && spawnSync('docker', ['info'], { stdio: 'ignore' }).status === 0;
 
-describe.skipIf(!hasDocker)('uat:host:docker', () => {
+describe.skipIf(!enabled)('uat:host:docker', () => {
   it.each(FIXTURE_NAMES)('boots and activates on fixture %s with a clean teardown', (fixture) => {
     const run = spawnSync('npm', ['run', '-s', 'uat:host:docker', '--', '--fixture', fixture], {
       encoding: 'utf8',

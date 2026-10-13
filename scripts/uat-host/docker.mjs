@@ -20,6 +20,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 forceRemove(); // a stale container from PID reuse must not collide
 const child = spawn('docker', [
   'run', '--rm', '--init', '--name', name,
+  '-e', `HOST_UID=${process.getuid?.() ?? 0}`, '-e', `HOST_GID=${process.getgid?.() ?? 0}`,
   '-v', `${repoRoot}:/work`,
   '-v', '/work/node_modules',          // container-private addon (arch:ABI-01/ABI-03)
   '-v', 'karst-uat-vscode:/vscode-cache',

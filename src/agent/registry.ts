@@ -24,11 +24,22 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
   opencode2: () => new Opencode2Adapter(),
 };
 
+let fakeCoreWarned = false;
+// No injected debug seam exists in this module, so a single console.warn per process.
+function warnFakeCoreOnce(): void {
+  if (fakeCoreWarned) return;
+  fakeCoreWarned = true;
+  console.warn(`karst: ${FAKE_CORE_ENV}=1, fake agent core is active (no real agent runs).`);
+}
+
 /**
  * Resolve the adapter for a validated provider.
  */
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
-  if (process.env[FAKE_CORE_ENV] === '1') return new FakeAdapter();
+  if (process.env[FAKE_CORE_ENV] === '1') {
+    warnFakeCoreOnce();
+    return new FakeAdapter();
+  }
   return FACTORIES[provider]();
 }
 
