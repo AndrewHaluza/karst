@@ -13,6 +13,7 @@ import {
   checkClaudeInstall,
   claudeLinkProbe,
 } from '../doctor/claudeInstallCheck.js';
+import { checkInotifyWatches } from '../doctor/inotifyWatchCheck.js';
 import { checkManifest } from '../doctor/manifestChecks.js';
 import { checkState } from '../doctor/stateChecks.js';
 import { checkStuckTickets } from '../doctor/stuckCheck.js';
@@ -160,6 +161,12 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
         const settingsPath = join(homedir(), '.gemini', 'antigravity-cli', 'settings.json');
         out.push(...checkAgyPermissions({ settingsPath, allow: readAgyAllowRules(settingsPath) }));
       }
+      out.push(...checkInotifyWatches({
+        platform: process.platform,
+        pid: process.pid,
+        maxUserWatches: probes.maxUserWatches,
+        countInotifyWatches: probes.countInotifyWatches,
+      }));
     }
     if (areas.includes('manifest')) {
       const live = new Set((store.db.prepare("SELECT pid FROM servers WHERE status = 'running' AND pid IS NOT NULL").all() as { pid: number }[]).map((r) => r.pid));

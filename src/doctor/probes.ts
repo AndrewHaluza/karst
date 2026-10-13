@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 /**
  * Real machine probes for `karst doctor`. This runs in the short-lived CLI
@@ -121,3 +122,38 @@ export function toolVersion(binary: string): string | undefined {
   const r = run(binary, ['--version']);
   return r.ok ? r.out : undefined;
 }
+
+export function maxUserWatches(procSysPath: string = '/proc/sys/fs/inotify/max_user_watches'): number | undefined {
+  try {
+    const content = readFileSync(procSysPath, 'utf8').trim();
+    const val = parseInt(content, 10);
+    return Number.isFinite(val) ? val : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function countInotifyWatches(pid: number, fdinfoDir?: string): number | undefined {
+  const dir = fdinfoDir ?? `/proc/${pid}/fdinfo`;
+  try {
+    const entries = readdirSync(dir);
+    let total = 0;
+    for (const entry of entries) {
+      try {
+        const content = readFileSync(join(dir, entry), 'utf8');
+        const lines = content.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('inotify wd:')) {
+            total++;
+          }
+        }
+      } catch {
+        // fd might have closed while reading; ignore
+      }
+    }
+    return total;
+  } catch {
+    return undefined;
+  }
+}
+

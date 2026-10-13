@@ -113,4 +113,21 @@ describe('karst doctor command', () => {
     expect(ids).not.toContain('state.stuck.T-3');
     expect(ids).not.toContain('state.stuck.T-4');
   });
+
+  it('tools: inotify watch check is emitted on linux and skipped on non-linux', () => {
+    const store = seed();
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
+      const darwinReport = JSON.parse(run(store, ['--json', '--area', 'tools']).output);
+      expect(darwinReport.checks.some((c: { id: string }) => c.id === 'tools.inotify-watches')).toBe(false);
+
+      Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+      const linuxReport = JSON.parse(run(store, ['--json', '--area', 'tools']).output);
+      expect(linuxReport.checks.some((c: { id: string }) => c.id === 'tools.inotify-watches')).toBe(true);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform, configurable: true });
+    }
+  });
 });
+

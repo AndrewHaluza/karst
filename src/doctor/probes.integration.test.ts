@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as p from './probes.js';
@@ -91,4 +91,37 @@ describe('doctor probes (real git)', () => {
     expect(p.readLink(dangling)).toBe(join(root, 'gone'));
     expect(p.linkExists(join(root, 'none'))).toBe(false);
   });
+
+  it('reads maxUserWatches from a proc file or returns undefined', () => {
+    const procFile = join(root, 'max_user_watches');
+    writeFileSync(procFile, '524288\n');
+    expect(p.maxUserWatches(procFile)).toBe(524288);
+    expect(p.maxUserWatches(join(root, 'nonexistent'))).toBeUndefined();
+
+    const invalidFile = join(root, 'invalid_watches');
+    writeFileSync(invalidFile, 'not-a-number');
+    expect(p.maxUserWatches(invalidFile)).toBeUndefined();
+  });
+
+  it('counts inotify watches across fdinfo files or returns undefined', () => {
+    const fakeFdinfo = join(root, 'fdinfo');
+    mkdirSync(fakeFdinfo, { recursive: true });
+
+    // File 1: not inotify (e.g. regular file fd)
+    writeFileSync(join(fakeFdinfo, '0'), 'pos:\t0\nflags:\t02\nmnt_id:\t15\n');
+    // File 2: inotify with 3 watches
+    writeFileSync(
+      join(fakeFdinfo, '3'),
+      'pos:\t0\nflags:\t02\nmnt_id:\t15\ninotify wd:1 ino:1234 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:01\ninotify wd:2 ino:5678 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:02\ninotify wd:3 ino:9012 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:03\n',
+    );
+    // File 3: inotify with 2 watches
+    writeFileSync(
+      join(fakeFdinfo, '4'),
+      'pos:\t0\nflags:\t02\nmnt_id:\t15\ninotify wd:1 ino:9999 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:04\ninotify wd:2 ino:8888 sdev:800001 mask:800afff ignored_mask:0 fhandle-bytes:8 fhandle-type:1 f_handle:05\n',
+    );
+
+    expect(p.countInotifyWatches(1234, fakeFdinfo)).toBe(5);
+    expect(p.countInotifyWatches(1234, join(root, 'nonexistent_fdinfo'))).toBeUndefined();
+  });
 });
+
