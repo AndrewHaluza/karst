@@ -122,6 +122,10 @@ describe('opencode2 binary + version', () => {
     expect(env.XDG_CACHE_HOME).toBe('/gs/opencode2/cache');
     expect(env.XDG_STATE_HOME).toBe('/gs/opencode2/state');
     expect(env.OPENCODE_DISABLE_AUTOUPDATE).toBe('1');
+    // A nested `claude` the tester runs inherits these XDG dirs; without this
+    // switch Claude's native auto-updater installs under karst storage and
+    // relinks the user's global `~/.local/bin/claude` at it (see the incident).
+    expect(env.DISABLE_AUTOUPDATER).toBe('1');
     expect(opencode2IsolationEnv('')).toEqual({});
   });
 
@@ -331,6 +335,7 @@ describe('Opencode2Adapter headless argv/env', () => {
       XDG_CACHE_HOME: '/gs/opencode2/cache',
       XDG_STATE_HOME: '/gs/opencode2/state',
       OPENCODE_DISABLE_AUTOUPDATE: '1',
+      DISABLE_AUTOUPDATER: '1',
     });
     // Headless-only config: snapshot:false removes the shadow-git cost; the
     // permission blob carries the process kill deny.
