@@ -932,6 +932,16 @@ describe('SessionManager', () => {
     );
   });
 
+  it('launches a ticket session under the attended policy', () => {
+    const { adapter, calls } = fakeAdapter();
+    const { host } = fakeHost();
+    const mgr = new DefaultedSessionManager(host, channelFor);
+
+    mgr.openSession(adapter, 1, '/wt', { key: 'K-1', title: 't' });
+
+    expect(calls[0]).toEqual(expect.objectContaining({ policy: 'attended' }));
+  });
+
   it('threads extraArgs (materialized approach) to buildInteractiveCommand', () => {
     const { adapter, calls } = fakeAdapter();
     const { host } = fakeHost();

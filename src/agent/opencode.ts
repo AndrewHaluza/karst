@@ -46,7 +46,12 @@ import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { tmpdir } from 'node:os';
-import { gitCommonDirRoots, opencodeGatePermission } from './gatePolicy.js';
+import {
+  gitCommonDirRoots,
+  opencodeAttendedEdit,
+  opencodeGatePermission,
+  type InteractivePolicy,
+} from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -973,6 +978,8 @@ export class OpencodeAdapter implements AgentAdapter {
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   /**
@@ -1068,7 +1075,9 @@ export class OpencodeAdapter implements AgentAdapter {
     } else if (kickoff) {
       args.push('--prompt', kickoff);
     }
-    env.OPENCODE_PERMISSION = JSON.stringify(opencodeLaunchPermission(opts));
+    env.OPENCODE_PERMISSION = JSON.stringify(
+      opencodeLaunchPermission({ ...opts, ...launchProfile(opts.policy, opts.cwd) }),
+    );
     // v1 reads the same per-launch config blob v2 does (verified on 1.18.35:
     // `opencode mcp list` shows a server delivered only through this env).
     if (opts.mcpConfigPath) {
@@ -1462,6 +1471,8 @@ export function opencodeLaunchPermission(opts: {
   addDirs?: string[] | undefined;
   /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
   gate?: { cwd: string } | undefined;
+  /** Interactive `attended` profile: deny-only edit rules for the operator's home config. */
+  attended?: boolean | undefined;
 }): Record<string, unknown> {
   const dirs = opts.addDirs ?? [];
   const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
@@ -1477,11 +1488,20 @@ export function opencodeLaunchPermission(opts: {
   }
   const killDeny = opencodeProcessKillDeny();
   return {
-    ...(opts.readOnly ? { edit: 'deny' } : {}),
+    ...(opts.readOnly ? { edit: 'deny' } : opts.attended ? { edit: opencodeAttendedEdit() } : {}),
     // `bash` as an object is last-match-wins: readOnly's catch-all `*` asks
     // first, then a matching kill pattern denies. Non-readOnly keeps just the
     // deny patterns, so every other command keeps opencode's permissive default.
     bash: opts.readOnly ? { '*': 'ask', ...killDeny } : killDeny,
     ...(dirs.length > 0 ? { external_directory: external } : {}),
   };
+}
+
+/** The `opencodeLaunchPermission` profile fields for an interactive `policy`. */
+export function launchProfile(
+  policy: InteractivePolicy | undefined,
+  cwd: string,
+): { gate?: { cwd: string }; attended?: boolean } {
+  if (policy === 'gate') return { gate: { cwd } };
+  return policy === 'attended' ? { attended: true } : {};
 }

@@ -42,7 +42,7 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { sanitizeSessionName } from './sessionName.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
-import { claudeGateDeny } from './gatePolicy.js';
+import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
@@ -173,6 +173,8 @@ export class ClaudeAdapter implements AgentAdapter {
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   /**
@@ -278,6 +280,12 @@ export class ClaudeAdapter implements AgentAdapter {
       // only channel, and a writable session must still be unable to `pkill`.
       args.push('--disallowedTools', ...claudeProcessKillDeny());
     }
+    // Karst-owned launch profile. DENY rules ride `--disallowedTools` (deny beats
+    // the project `.claude/settings.json` allow rules T661 pre-trust activates,
+    // and holds in every permission mode). No second `--settings` layer: the hook
+    // channel already owns that flag, and a deny list needs no more.
+    if (opts.policy === 'gate') args.push('--disallowedTools', ...claudeGateDeny());
+    else if (opts.policy === 'attended') args.push('--disallowedTools', ...claudeAttendedDeny());
     // `--add-dir` is variadic in claude; one flag per dir keeps each value
     // unambiguous, and the `--` below stops it swallowing the prompt.
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
