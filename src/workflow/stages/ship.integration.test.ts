@@ -10,6 +10,8 @@ import { listPrsByTicket } from '../../store/dashboard.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import { listShipEvidence, openShipRun, closeShipRun, openShipRepoStep, beginShipOperationPreparation, finalizeShipOperationIntent } from '../../store/shipRuns.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import { listOpenParks } from '../../store/usageLimitParks.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import { transition } from '../machine.js';
 import { shipTicket, hasCompletedShipRun, type ShipStepEvent } from './ship.js';
 import type { InsideProgressEvent } from '../../model/inside/progress.js';
@@ -2053,6 +2055,39 @@ setTimeout(() => {
         status: 'passed',
       });
       expect(actualModel).toBe('sol');
+    });
+
+    it('a quota-exhausted pr-description records a re-runnable op park (K11)', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      const { gh } = recordingCreateGh();
+      const adapter: AgentAdapter = {
+        ...fakeAdapter(),
+        runHeadless: async () => {
+          throw new UsageLimitError('Codex usage limit reached — out of credits.', {
+            tool: 'Codex',
+            provider: 'codex',
+            model: 'sol',
+          });
+        },
+      };
+      const process = {
+        assignment: { agentName: 'PR Scribe', provider: 'codex' as const, model: 'sol' },
+        adapter,
+      };
+
+      // Ship may surface the description failure as it does today; the park row
+      // is what this test pins.
+      await shipTicket(
+        store,
+        { ticketId: id, prDescriptionProcess: process },
+        gh,
+        undefined,
+        fakeGit().git,
+      ).catch(() => {});
+
+      const open = listOpenParks(store, id);
+      expect(open).toHaveLength(1);
+      expect(open[0]).toMatchObject({ kind: 'op', stage: 'ship', provider: 'codex', model: 'sol' });
     });
 
     it('a null pr-description process performs no model call, opens no process run, and falls back to the deterministic branch-facts body', async () => {
