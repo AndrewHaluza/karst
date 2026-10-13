@@ -1,5 +1,9 @@
-import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { chmod, mkdir, open, readdir, rm, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+
+const EVENTS_FLAGS =
+  fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
 
 /** Where the per-ticket dir appears INSIDE the sandbox (arch:AC-34). */
 export const SANDBOX_BRIDGE_MOUNT_ROOT = '/karst-bridge';
@@ -26,11 +30,32 @@ export function bridgePaths(root: string, ticketId: number): BridgePaths {
 export async function ensureBridgeDir(paths: BridgePaths): Promise<void> {
   await mkdir(paths.dir, { recursive: true, mode: 0o777 });
   await mkdir(dirname(paths.stateFile), { recursive: true });
-  // 'a' never truncates: an existing log (a restart) is kept.
-  await writeFile(paths.eventsFile, '', { flag: 'a', mode: 0o666 });
-  // mode is masked by umask and ignored for pre-existing files: enforce explicitly.
+  await prepareEventsFile(paths.eventsFile);
+  // mode is masked by umask: enforce explicitly.
   await chmod(paths.dir, 0o777);
-  await chmod(paths.eventsFile, 0o666);
+}
+
+/**
+ * Opens without following symlinks or blocking on FIFOs, then chmods through the
+ * handle so a planted symlink can never make a host file writable. Never truncates.
+ */
+async function prepareEventsFile(file: string): Promise<void> {
+  let handle: FileHandle;
+  try {
+    handle = await open(file, EVENTS_FLAGS, 0o666);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ELOOP') {
+      throw new Error(`bridge: refusing symlinked events file ${file}`);
+    }
+    throw err;
+  }
+  try {
+    const stat = await handle.stat();
+    if (!stat.isFile()) throw new Error(`bridge: events file is not a regular file: ${file}`);
+    await handle.chmod(0o666);
+  } finally {
+    await handle.close();
+  }
 }
 
 export async function removeBridgeDir(paths: BridgePaths): Promise<void> {

@@ -33,6 +33,15 @@ describe('bridgeDir', () => {
     expect((await stat(p.dir)).mode & 0o777).toBe(0o777);
     expect((await stat(p.eventsFile)).mode & 0o777).toBe(0o666);
   });
+  it('refuses a pre-planted symlink at the events file and leaves its target mode alone', async () => {
+    const p = bridgePaths(root, 5);
+    await mkdir(p.dir, { recursive: true });
+    const target = join(root, 'host-file');
+    await writeFile(target, 'host', { mode: 0o600 });
+    await symlink(target, p.eventsFile);
+    await expect(ensureBridgeDir(p)).rejects.toThrow(/symlink|regular file/);
+    expect((await stat(target)).mode & 0o777).toBe(0o600);
+  });
   it('remove deletes dir and state, tolerating absence', async () => {
     const p = bridgePaths(root, 7);
     await ensureBridgeDir(p);

@@ -4,7 +4,8 @@ import { MAX_BRIDGE_LINE_BYTES } from './bridgeVerifier.js';
 
 const MAX_READ_BYTES = 1024 * 1024;
 const NEWLINE = 0x0a;
-const OPEN_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
+// O_NONBLOCK: a planted FIFO must not block open(); the isFile() check then refuses it.
+const OPEN_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
 
 export interface BridgePoller {
   start(): void;
