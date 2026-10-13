@@ -115,9 +115,10 @@ export function keyIndex(docs) {
 /**
  * Lint `@arch:`/`@issue:` cross-references in `sources` against `index`. A bare
  * reference must resolve to exactly one defining doc; `path#@ns:KEY` must
- * resolve to the doc it names. Definitions (`## [@ns:ID] …` and its
- * `END_DOC_BLOCK`) and the per-file AGENT INSTRUCTIONS header are not
- * references. `KEY` is the docs' own metavariable for "any key" and is skipped.
+ * resolve to the doc it names (a leading `./` is accepted). A block's definition
+ * marker and the per-file AGENT INSTRUCTIONS header are not references, though a
+ * reference in a block heading's title still is. `KEY` is the docs' own
+ * metavariable for "any key" and is skipped.
  */
 export function lintRefs(sources, index) {
   const out = [];
@@ -141,17 +142,22 @@ export function lintRefs(sources, index) {
         if (f && f[0] === fence[0] && f.length >= fence.length && line.trim() === f) fence = null;
         continue;
       }
-      if (OPEN.test(line) || END.test(line)) continue;
-      const qualified = [...line.matchAll(QUALIFIED_REF)];
+      // A block definition is not a reference — but a reference may sit in its
+      // heading title, so mask only the definition marker and keep the offset.
+      let scan = line;
+      const open = OPEN.exec(line);
+      if (open) scan = ' '.repeat(line.length - open[2].length) + open[2];
+      if (END.test(line)) scan = ' '.repeat(line.length);
+      const qualified = [...scan.matchAll(QUALIFIED_REF)];
       for (const m of qualified) {
         const [, path, ns, id] = m;
         if (PLACEHOLDER_IDS.has(id)) continue;
-        if (!index.get(`${ns}:${id}`)?.has(path)) {
+        if (!index.get(`${ns}:${id}`)?.has(path.replace(/^\.\//, ''))) {
           out.push(`${s.path}:${i + 1}: unresolved reference ${path}#@${ns}:${id}`);
         }
       }
       const spans = qualified.map((m) => [m.index, m.index + m[0].length]);
-      for (const m of line.matchAll(BARE_REF)) {
+      for (const m of scan.matchAll(BARE_REF)) {
         if (spans.some(([a, b]) => m.index >= a && m.index < b)) continue;
         const [, ns, id] = m;
         if (PLACEHOLDER_IDS.has(id)) continue;
@@ -166,12 +172,12 @@ export function lintRefs(sources, index) {
   return out;
 }
 
-function collect(dir = DOCS_DIR) {
+function collect(dir = DOCS_DIR, skipDirs = SKIP_DIRS) {
   const files = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name)) files.push(...collect(p));
+      if (!skipDirs.has(e.name)) files.push(...collect(p, skipDirs));
     } else if (e.name.endsWith('.md')) {
       const rel = relative(ROOT, p).split(sep).join('/');
       if (!SKIP_FILES.has(rel)) files.push({ path: rel, text: readFileSync(p, 'utf8') });
@@ -198,11 +204,20 @@ function collectSrc(dir = SRC_DIR) {
   return files;
 }
 
+/**
+ * Everything the reference lint reads: every doc under `docs/` plus `src/`.
+ * This deliberately covers `plans/` and `superpowers/`, which the FORMAT lint
+ * and the index skip — working notes do not follow the keyed-block format, but
+ * a reference written in one still has to resolve.
+ */
+export function collectRefSources() {
+  return [...collect(DOCS_DIR, new Set()), ...collectSrc()];
+}
+
 function main(cmd, flags) {
   const docs = collect();
   if (cmd === 'lint') {
-    const index = keyIndex(docs);
-    const errs = [...docs.flatMap(lintDoc), ...lintRefs([...docs, ...collectSrc()], index)];
+    const errs = [...docs.flatMap(lintDoc), ...lintRefs(collectRefSources(), keyIndex(docs))];
     if (errs.length) console.error(errs.join('\n'));
     process.exitCode = errs.length ? 1 : 0;
   } else if (cmd === 'index') {

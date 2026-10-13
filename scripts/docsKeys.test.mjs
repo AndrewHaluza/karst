@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex, keyIndex, lintDoc, lintRefs, MAX_BLOCK_BYTES } from './docsKeys.mjs';
+import { buildIndex, collectRefSources, keyIndex, lintDoc, lintRefs, MAX_BLOCK_BYTES } from './docsKeys.mjs';
 
 const header = (p) => `<!-- AGENT INSTRUCTIONS:
 1. TOC:
@@ -138,5 +138,31 @@ describe('lintRefs', () => {
     const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
     const text = 'see `@arch:KEY`\n```\n@arch:NOPE\n```\n';
     expect(lintRefs([src('docs/x.md', text)], index)).toEqual([]);
+  });
+
+  it('checks a reference sitting in a block-definition heading title', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    const text = '## [@arch:A-01] see also @arch:NOPE\nbody\nEND_DOC_BLOCK: [@arch:A-01]\n';
+    expect(lintRefs([src('docs/x.md', text)], index).join()).toMatch(/unresolved reference @arch:NOPE/);
+  });
+
+  it('accepts a qualified reference written with a leading ./', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    expect(lintRefs([src('docs/x.md', 'see ./docs/arch/a.md#@arch:A-01')], index)).toEqual([]);
+  });
+
+  it('checks references in working notes (docs/plans, docs/superpowers)', () => {
+    const index = keyIndex([doc('docs/arch/a.md', block('arch:A-01'))]);
+    const errs = lintRefs([src('docs/plans/2026-01-01-x.md', 'see @arch:NOPE')], index);
+    expect(errs.join()).toMatch(/unresolved reference @arch:NOPE/);
+  });
+});
+
+describe('collectRefSources', () => {
+  it('covers docs/plans, docs/superpowers and src/, which the format lint skips', () => {
+    const paths = collectRefSources().map((s) => s.path);
+    expect(paths.some((p) => p.startsWith('docs/plans/'))).toBe(true);
+    expect(paths.some((p) => p.startsWith('docs/superpowers/'))).toBe(true);
+    expect(paths.some((p) => p.startsWith('src/'))).toBe(true);
   });
 });
