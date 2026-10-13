@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { QuotaOps, type QuotaStatusSink } from './quotaOps.js';
+import { QuotaOps, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 
 function sink(): QuotaStatusSink & { sets: Array<[string, string, boolean]>; hides: number } {
@@ -17,6 +17,8 @@ function sink(): QuotaStatusSink & { sets: Array<[string, string, boolean]>; hid
   };
 }
 
+const NOW = new Date('2026-01-01T00:00:00.000Z');
+
 const ok = (core: QuotaSnapshot['core'], used: number): QuotaSnapshot => ({
   core,
   state: 'ok',
@@ -25,14 +27,34 @@ const ok = (core: QuotaSnapshot['core'], used: number): QuotaSnapshot => ({
   readAt: '2026-01-01T00:00:00.000Z',
 });
 
+const expired = (core: QuotaSnapshot['core'], used: number): QuotaSnapshot => ({
+  core,
+  state: 'ok',
+  windows: [{ label: '7-day', usedPct: used, resetsAt: '2025-12-25T00:00:00.000Z' }],
+  source: 'test',
+  readAt: '2025-12-25T00:00:00.000Z',
+});
+
+// A window still open relative to NOW, but long expired relative to the real
+// clock — so a test with it only passes when the INJECTED clock is honored.
+const openAtNow = (core: QuotaSnapshot['core'], used: number): QuotaSnapshot => ({
+  core,
+  state: 'ok',
+  windows: [{ label: '7-day', usedPct: used, resetsAt: '2026-01-02T00:00:00.000Z' }],
+  source: 'test',
+  readAt: '2026-01-01T00:00:00.000Z',
+});
+
 function make(over: {
   snapshots?: QuotaSnapshot[];
   get?: (core: string) => QuotaSnapshot | undefined;
   thresholdPct?: () => number | undefined;
+  /** `null` omits the clock, exercising the real-`Date` default. */
+  now?: (() => Date) | null;
 }) {
   const status = sink();
   const notify = vi.fn();
-  const ops = new QuotaOps({
+  const deps: QuotaOpsDeps = {
     service: {
       snapshots: () => over.snapshots ?? [],
       get: (core) => over.get?.(core),
@@ -41,7 +63,10 @@ function make(over: {
     coreLabel: (core) => core,
     status,
     notify,
-  });
+  };
+  const now = over.now === undefined ? () => NOW : over.now;
+  if (now) deps.now = now;
+  const ops = new QuotaOps(deps);
   return { ops, status, notify };
 }
 
@@ -74,6 +99,21 @@ describe('QuotaOps.applyStatus', () => {
     ops.applyStatus();
     expect(status.sets[0]![2]).toBe(true);
   });
+
+  it('hides the badge when the only readable window has already expired (real clock)', () => {
+    const { ops, status } = make({ snapshots: [expired('codex', 95)], now: null });
+    ops.applyStatus();
+    expect(status.hides).toBe(1);
+    expect(status.sets).toHaveLength(0);
+  });
+
+  it('honors the injected clock: a window open at `now` still shows', () => {
+    const { ops, status } = make({ snapshots: [openAtNow('codex', 95)] });
+    ops.applyStatus();
+    expect(status.sets).toHaveLength(1);
+    expect(status.sets[0]![0]).toContain('codex 95%');
+    expect(status.sets[0]![2]).toBe(true);
+  });
 });
 
 describe('QuotaOps.warnBeforeLaunch', () => {
@@ -91,5 +131,17 @@ describe('QuotaOps.warnBeforeLaunch', () => {
     const unknown = make({ get: () => undefined });
     unknown.ops.warnBeforeLaunch('codex');
     expect(unknown.notify).not.toHaveBeenCalled();
+  });
+
+  it('stays silent when the core window has already expired (real clock)', () => {
+    const { ops, notify } = make({ get: () => expired('codex', 95), now: null });
+    ops.warnBeforeLaunch('codex');
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('honors the injected clock: a window open at `now` still warns', () => {
+    const { ops, notify } = make({ get: () => openAtNow('codex', 95) });
+    ops.warnBeforeLaunch('codex');
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('codex is at 95%'));
   });
 });

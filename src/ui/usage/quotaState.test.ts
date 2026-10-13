@@ -63,6 +63,15 @@ describe('buildQuotaView', () => {
     expect(view.anyNear).toBe(true);
   });
 
+  it('does not flag anyNear when the tightest window has already expired', () => {
+    const view = buildQuotaView(
+      [ok({ windows: [{ label: '5-hour', usedPct: 95, resetsAt: '2025-12-25T00:00:00.000Z' }] })],
+      80,
+      NOW,
+    );
+    expect(view.anyNear).toBe(false);
+  });
+
   it('renders an unknown core with its reason and no windows', () => {
     const view = buildQuotaView([{ core: 'opencode', state: 'unknown', reason: 'no source' }], 80, NOW);
     expect(view.rows[0]).toMatchObject({

@@ -21,15 +21,21 @@ interface KnownEntry {
   window: QuotaWindow;
 }
 
-/** The tooltip shows one line per core with a readable window. */
+/**
+ * The tooltip shows one line per core with a readable window.
+ *
+ * `now` drops an already-expired window: a reset window's recorded used-% is
+ * stale, so it must neither keep the badge amber nor show a bogus percentage.
+ */
 export function buildQuotaIndicator(
   snapshots: readonly QuotaSnapshot[],
   thresholdPct: number,
   coreLabel: (core: AgentProvider) => string,
+  now: Date,
 ): QuotaIndicator | null {
   const known: KnownEntry[] = [];
   for (const snapshot of snapshots) {
-    const window = tightestWindow(snapshot);
+    const window = tightestWindow(snapshot, now);
     if (window) known.push({ snapshot, window });
   }
   if (known.length === 0) return null;

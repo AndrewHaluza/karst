@@ -96,7 +96,7 @@ export async function readClaudeQuota(deps: ClaudeQuotaDeps = {}): Promise<Quota
     return {
       core,
       state: 'unknown',
-      reason: 'no Claude statusline quota cache (~/.claude/cache/quota.json)',
+      reason: `no Claude statusline quota cache (${cachePath})`,
     };
   }
   // `readAt` is the DATA's age, not the read's: the cache is only rewritten when

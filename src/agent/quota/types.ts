@@ -55,15 +55,37 @@ export interface QuotaReader {
   read(): Promise<QuotaSnapshot>;
 }
 
-/** The used-% of a core's TIGHTEST (highest-usage) window, or null when unknown. */
-export function tightestUsedPct(snapshot: QuotaSnapshot): number | null {
-  return tightestWindow(snapshot)?.usedPct ?? null;
+/**
+ * True when a window's reset instant has already passed: the window has reset,
+ * so its recorded used-% describes a period that no longer applies. A window
+ * with no reset stamp (or an unparseable one) cannot be shown to have expired,
+ * so it stays eligible — only a definite past instant excludes a window.
+ */
+export function isWindowExpired(window: QuotaWindow, now: Date): boolean {
+  if (window.resetsAt === null) return false;
+  const at = new Date(window.resetsAt).getTime();
+  return !Number.isNaN(at) && at <= now.getTime();
 }
 
-/** The window with the highest used-% — the one a warning is about. */
-export function tightestWindow(snapshot: QuotaSnapshot): QuotaWindow | null {
-  if (snapshot.state !== 'ok' || snapshot.windows.length === 0) return null;
-  let best = snapshot.windows[0]!;
-  for (const w of snapshot.windows) if (w.usedPct > best.usedPct) best = w;
+/** The used-% of a core's TIGHTEST still-open window, or null when unknown. */
+export function tightestUsedPct(snapshot: QuotaSnapshot, now: Date): number | null {
+  return tightestWindow(snapshot, now)?.usedPct ?? null;
+}
+
+/**
+ * The still-open window with the highest used-% — the one a warning is about.
+ *
+ * An EXPIRED window is skipped: its reset already passed, so the provider's
+ * recorded used-% is stale and must not keep the badge amber or the launch
+ * warning firing until a new session refreshes the read. Null when the core is
+ * unknown or every window has expired.
+ */
+export function tightestWindow(snapshot: QuotaSnapshot, now: Date): QuotaWindow | null {
+  if (snapshot.state !== 'ok') return null;
+  let best: QuotaWindow | null = null;
+  for (const w of snapshot.windows) {
+    if (isWindowExpired(w, now)) continue;
+    if (best === null || w.usedPct > best.usedPct) best = w;
+  }
   return best;
 }

@@ -9,14 +9,20 @@ import { tightestWindow, type QuotaSnapshot } from './types.js';
  * cores. An unknown core never warns (there is nothing measured to warn about).
  */
 
-/** The warning sentence for a core at/above the threshold, or null. */
+/**
+ * The warning sentence for a core at/above the threshold, or null.
+ *
+ * `now` excludes an already-expired window: the provider's recorded used-%
+ * describes a period that has reset, so it must not warn until a fresh read.
+ */
 export function quotaLaunchWarning(
   snapshot: QuotaSnapshot | undefined,
   thresholdPct: number,
   coreLabel: string,
+  now: Date,
 ): string | null {
   if (!snapshot) return null;
-  const tightest = tightestWindow(snapshot);
+  const tightest = tightestWindow(snapshot, now);
   if (!tightest || tightest.usedPct < thresholdPct) return null;
   const reset = tightest.resetsAt ? ` Resets at ${tightest.resetsAt}.` : '';
   return (

@@ -137,7 +137,7 @@ export function buildQuotaView(
 ): QuotaView {
   const rows = snapshots.map((snapshot) => rowView(snapshot, thresholdPct, now));
   const anyNear = snapshots.some((snapshot) => {
-    const tightest = tightestUsedPct(snapshot);
+    const tightest = tightestUsedPct(snapshot, now);
     return tightest !== null && tightest >= thresholdPct;
   });
   return { thresholdPct, rows, anyNear };

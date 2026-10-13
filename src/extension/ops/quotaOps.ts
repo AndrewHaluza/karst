@@ -28,6 +28,8 @@ export interface QuotaOpsDeps {
   status: QuotaStatusSink;
   /** The non-blocking warning seam (`vscode.window.showWarningMessage`). */
   notify: (message: string) => void;
+  /** Injected clock — an expired window must not drive the badge or the warning. */
+  now?: () => Date;
 }
 
 export class QuotaOps {
@@ -37,12 +39,17 @@ export class QuotaOps {
     return this.deps.thresholdPct() ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   }
 
+  private now(): Date {
+    return this.deps.now?.() ?? new Date();
+  }
+
   /** Push the status badge from the given (or freshly cached) snapshots. */
   applyStatus(snapshots?: readonly QuotaSnapshot[]): void {
     const indicator = buildQuotaIndicator(
       snapshots ?? this.deps.service.snapshots(),
       this.threshold(),
       this.deps.coreLabel,
+      this.now(),
     );
     if (!indicator) {
       this.deps.status.hide();
@@ -60,6 +67,7 @@ export class QuotaOps {
       this.deps.service.get(provider),
       this.threshold(),
       this.deps.coreLabel(provider),
+      this.now(),
     );
     if (message) this.deps.notify(message);
   }
