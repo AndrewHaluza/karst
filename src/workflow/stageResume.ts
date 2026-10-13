@@ -55,6 +55,12 @@ export function resumeBlockedStage(
   // Same reasoning: the question was asked and the answer is the user's. A
   // generic Resume would re-run UAT straight back into the same park.
   if (block.kind === 'baseline-review') return { kind: 'refused' };
+  // A quota exhaustion (K11) is user-resolved, like awaiting-merge: a generic
+  // Resume would re-run the model that is out of allowance and spend nothing
+  // but fail again, bypassing the agent/model pick that actually clears it. The
+  // dashboard derives its "pick another agent/model" hint from blocked_kind, so
+  // refusing here needs no caller change.
+  if (block.kind === 'usage-limit') return { kind: 'refused' };
   // Same reasoning as `awaiting-merge`: the question was asked (the graph
   // finished) and answered "not yet". Clearing it here would strand the
   // ticket the same way — `markGraphAwaitingImplMarker`'s own guard clears it

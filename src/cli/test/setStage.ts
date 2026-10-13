@@ -31,6 +31,7 @@ const BLOCK_KINDS: readonly BlockerKind[] = [
   'lease-lost',
   'awaiting-merge',
   'unmapped-repository',
+  'usage-limit',
 ];
 
 export interface ParsedSetStage {
