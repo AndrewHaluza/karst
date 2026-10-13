@@ -1,3 +1,4 @@
+import { createHostSessionRunner } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -140,7 +141,7 @@ export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
     spawnHeadlessCli(command, args, cwd, opts, spawnImpl);
 }
 
-const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
+const defaultSpawn: SpawnHeadless = createHostSessionRunner(makeDefaultSpawn(spawn)).runHeadless;
 
 export class AntigravityAdapter implements AgentAdapter {
   // agy 1.1.12 persists per-call token usage in the conversation DB's

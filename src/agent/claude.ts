@@ -1,3 +1,4 @@
+import { createHostSessionRunner } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, renameSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
@@ -132,7 +133,7 @@ export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
 }
 
 /** Default spawner: run `claude` in `cwd`, buffering stdout/stderr. */
-const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
+const defaultSpawn: SpawnHeadless = createHostSessionRunner(makeDefaultSpawn(spawn)).runHeadless;
 
 /**
  * Claude Code implementation of the agent boundary (MVP's one adapter, §2.6).

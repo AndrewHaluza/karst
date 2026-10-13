@@ -16,6 +16,7 @@ import { submitDelayFor } from '../agent/registry.js';
 import { NudgeQueue, type NudgeHooks } from './nudgeQueue.js';
 import { formatId } from '../model/entityId.js';
 import type { DeliveryChannel } from '../workflow/messageDelivery.js';
+import { HOST_SESSION_RUNNER, type SessionRunner } from '../agent/sessionRunner.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -408,6 +409,8 @@ export class SessionManager {
      * rethrown so the caller still sees the launch failure.
      */
     private readonly onLaunchFailed?: OnLaunchFailed,
+    /** Where a session runs (Docker plan Increment 1); the host by default. */
+    private readonly runner: SessionRunner = HOST_SESSION_RUNNER,
   ) {}
 
   private trackTerminal(
@@ -621,12 +624,11 @@ export class SessionManager {
     );
     let terminal: SessionTerminal;
     try {
-      terminal = this.host.createTerminal({
-        name: terminalName,
-        description: naming ? undefined : (label?.title ?? undefined),
-        cwd: worktreePath,
-        shellPath: cmd.command,
-        shellArgs: cmd.args,
+      const placed = this.runner.placeInteractive({
+        ticketId,
+        hostWorktreePath: worktreePath,
+        command: cmd.command,
+        args: cmd.args,
         env: {
           ...cmd.env,
           [KARST_TICKET_ENV]: String(ticketId),
@@ -634,6 +636,14 @@ export class SessionManager {
           ...cliEnv,
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
+      });
+      terminal = this.host.createTerminal({
+        name: terminalName,
+        description: naming ? undefined : (label?.title ?? undefined),
+        cwd: placed.cwd,
+        shellPath: placed.shellPath,
+        shellArgs: placed.shellArgs,
+        env: placed.env,
         ...(identity ? { identity } : {}),
         ...(mcpConfigPath ? { mcp: true } : {}),
         ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
