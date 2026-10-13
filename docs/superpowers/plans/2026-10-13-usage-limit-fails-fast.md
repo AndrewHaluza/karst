@@ -18,7 +18,7 @@
 - `usage-limited` rethrows at once: no same-model retry, no chain advance, no `notify`.
 - Park = status + `stages.blocked_*` written via `setStage` (`@arch:SINGLE-WRITER`). No new `StageStatus`.
 - `setStage` remains the single writer: it now also resolves an open `usage_limit_parks` row inside its `stage_write` savepoint.
-- All new timestamps are caller-supplied ISO strings (injectable clock); never `Date.now()` in store code.
+- New timestamps are caller-supplied ISO strings where the caller holds a clock (every park writer passes `parkedAt`/`runAt`); the one store-side default — `setStage`'s park resolve — is centralised in `nowIso()` and overridable via `SetStageOptions.parkResolvedAt` so a test can pin `resolved_at`.
 - New schema: `schema.sql` (fresh DBs) + guarded migration + `SCHEMA_VERSION` bump + `db.integration.test.ts` update (`@arch:SCHEMA-CHECK`).
 - Files small (<400 lines typical). Commands: `npx vitest run <file>`, `npm run -s typecheck`. Never `--reporter`.
 
@@ -145,10 +145,11 @@
 
 ### Task 10: Op parks for non-stage AI ops
 
-**Files:**
-- Modify: `src/workflow/stages/fix.ts`, `src/workflow/stages/shipDescription.ts`, `src/workflow/artifacts/alignment.ts`, `src/workflow/classify/{analyze,intent,improve,suggest,codePointers}.ts` (surface the typed failure), plus their binding/caller seams where a store is in scope (`src/extension/alignmentBinding.ts`, `src/ui/ticketForm/actions.ts`)
-- Create: `src/store/usageLimitParks.ts` op helper `recordOpPark(store, input)` (Task 5 file)
-- Test: per-op test that a `UsageLimitError` writes one open `op` park row with `stage` set and `lane` NULL, and the op still fails as today with the typed message.
+**Files (exactly what the diff changes):**
+- Modify: `src/workflow/stages/fix.ts`, `src/workflow/stages/shipDescription.ts`, `src/workflow/artifacts/alignment.ts` (catch → `recordUsageLimitOpPark` / `onUsageLimit`); `src/workflow/classify/runAnalysis.ts` (threads `onUsageLimit` to every pass and calls it from the `classify`/`improve` catches); `src/workflow/classify/intent.ts` and `src/workflow/classify/codePointers.ts` (own catch → `onUsageLimit`); caller seams `src/extension/alignmentBinding.ts` and `src/ui/ticketForm/actions.ts` (own the store, so they write the park row).
+- Create: `src/store/usageLimitParks.ts` — `recordUsageLimitOpPark(store, error, input)` (Task 5 file).
+- **No edit needed** in `classify/improve.ts` or `classify/suggest.ts`: `improve` is wrapped by `runAnalysis` (which calls `onUsageLimit`), and `suggest` is caught by `actions.ts`'s `suggestSignals`. Both write one open `op` row (stage set, lane NULL).
+- Test: one test per seam (fix, PR description, alignment, runAnalysis→improve, ticketForm→suggest) that a `UsageLimitError` writes one open `op` park row and the op still fails as today.
 
 - [ ] **Step 1** failing test.
 - [ ] **Step 2/3/4** → pass.

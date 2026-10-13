@@ -115,6 +115,11 @@ export interface SetStageOptions {
    * Defaults to `'cleared'`; injectable so a test can pin the value.
    */
   parkResolution?: string;
+  /**
+   * The ISO time stamped as the resolved park's `resolved_at`. Caller-supplied
+   * so a test can pin it; the clear seam otherwise stamps `nowIso()`.
+   */
+  parkResolvedAt?: string;
 }
 
 /**
@@ -160,7 +165,7 @@ export function setStage(
         ticketId,
         stage: stageKey,
         resolution: opts.parkResolution ?? 'cleared',
-        at: nowIso(),
+        at: opts.parkResolvedAt ?? nowIso(),
       });
     }
     // Leaving scope ends any autostart lifecycle (queued or starting) — the

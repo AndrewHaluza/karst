@@ -168,10 +168,18 @@ describe('usage_limit_parks', () => {
       keptOutcome: null,
       parkedAt: '2026-10-13T10:00:00.000Z',
     });
-    setStage(store, ticketId, 'review', {
-      blockedKind: 'nothing-to-run',
-      blockedReason: 'nothing',
-    });
+    setStage(
+      store,
+      ticketId,
+      'review',
+      { blockedKind: 'nothing-to-run', blockedReason: 'nothing' },
+      { parkResolution: 'superseded', parkResolvedAt: '2026-10-13T12:34:56.000Z' },
+    );
     expect(listOpenParks(store, ticketId)).toHaveLength(0);
+    // The clear seam takes the time (and resolution) from the caller, so a test
+    // can pin them; it never reads the wall clock for a resolved park.
+    const resolved = listParks(store, ticketId)[0]!;
+    expect(resolved.resolvedAt).toBe('2026-10-13T12:34:56.000Z');
+    expect(resolved.resolution).toBe('superseded');
   });
 });
