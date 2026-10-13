@@ -159,10 +159,12 @@ export function instrumentAdapter(
       // a contended lock returns a promise (the wait is async, never a block),
       // and the spawn must not race the record. A fake adapter without the
       // method is a no-op (`?.`).
-      await adapter.ensureWorkspaceTrusted?.(
-        opts.cwd,
-        options.debug ? { debug: options.debug } : undefined,
-      );
+      if (opts.trustCwd !== false) {
+        await adapter.ensureWorkspaceTrusted?.(
+          opts.cwd,
+          options.debug ? { debug: options.debug } : undefined,
+        );
+      }
       const hostEnv = options.env?.(opts.tracking);
       const env = hostEnv ? { ...hostEnv, ...opts.env } : opts.env;
       let result: HeadlessResult;

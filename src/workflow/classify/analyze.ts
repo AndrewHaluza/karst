@@ -231,6 +231,7 @@ export async function analyzeTicket(
     adapter.runHeadless({
       prompt: p,
       cwd,
+      trustCwd: false,
       model: input.model,
       effort: input.effort,
       tracking: {

@@ -55,6 +55,12 @@ export interface UsageTracking {
 export interface RunHeadlessOpts {
   prompt: string;
   cwd: string;
+  /**
+   * `false` skips the pre-launch folder-trust record for `cwd`. Set by callers
+   * that run in a throwaway directory (`withEmptyCwd`): trusting it would leave
+   * a permanent dead entry in the CLI's config. Absent → trust as usual.
+   */
+  trustCwd?: boolean;
   allowedTools?: string[];
   permissionMode?: string;
   resume?: string; // session_id to continue

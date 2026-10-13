@@ -716,9 +716,9 @@ function mergeAndWriteCodex(path: string, cwd: string, debug: (message: string) 
  * Promise the caller awaits — the extension host's event loop is never blocked
  * (T661 review, medium). `void` means done; a Promise means "await me".
  */
-export function ensureClaudeWorkspaceTrusted(
+function recordClaudeTrust(
   cwd: string,
-  opts: TrustOptions = {},
+  opts: TrustOptions,
 ): void | Promise<void> {
   const debug = opts.debug ?? (() => {});
   const path = claudeConfigPath(opts);
@@ -765,9 +765,9 @@ export function ensureClaudeWorkspaceTrusted(
  * is logged and the launch continues. Same opportunistic lock as claude: a free
  * lock is taken synchronously, a held one is awaited as a Promise.
  */
-export function ensureCodexWorkspaceTrusted(
+function recordCodexTrust(
   cwd: string,
-  opts: TrustOptions = {},
+  opts: TrustOptions,
 ): void | Promise<void> {
   const debug = opts.debug ?? (() => {});
   const path = codexConfigPath(opts);
@@ -805,4 +805,40 @@ export function ensureCodexWorkspaceTrusted(
       releaseTrustLock(path);
     }
   });
+}
+
+export function ensureClaudeWorkspaceTrusted(
+  cwd: string,
+  opts: TrustOptions = {},
+): void | Promise<void> {
+  return neverThrow('claude', opts, () => recordClaudeTrust(cwd, opts));
+}
+
+export function ensureCodexWorkspaceTrusted(
+  cwd: string,
+  opts: TrustOptions = {},
+): void | Promise<void> {
+  return neverThrow('codex', opts, () => recordCodexTrust(cwd, opts));
+}
+
+/**
+ * Run a trust write so that no fault escapes: the hook is best-effort and a
+ * launch must proceed whatever the config or the workspace looks like (e.g.
+ * `repositoryRootFor` hitting ELOOP on a self-looping `.git`). Covers both the
+ * synchronous part and the awaited lock wait.
+ */
+function neverThrow(
+  core: string,
+  opts: TrustOptions,
+  run: () => void | Promise<void>,
+): void | Promise<void> {
+  const debug = opts.debug ?? (() => {});
+  const log = (error: unknown): void =>
+    debug(`[trust] ${core}: trust skipped (${describeError(error)}) — launch continues`);
+  try {
+    const result = run();
+    return result instanceof Promise ? result.catch(log) : result;
+  } catch (error) {
+    log(error);
+  }
 }
