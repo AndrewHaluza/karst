@@ -78,6 +78,19 @@ describe('resumeBlockedStage', () => {
     expect(stageBlock(store, t.id, 'uat')?.kind).toBe('baseline-review');
   });
 
+  it('refuses to clear a usage-limit block — a retry cannot reset a quota (K11)', () => {
+    const t = createTicket(store, { key: 'RB-UL', title: 'thing' });
+    setStage(store, t.id, 'review', {
+      status: 'running',
+      blockedKind: 'usage-limit',
+      blockedReason: 'usage limit — claude claude-sonnet-5',
+      blockedAt: '2026-10-13T10:00:00.000Z',
+    });
+    store.db.prepare("UPDATE tickets SET stage_current = 'review' WHERE id = ?").run(t.id);
+    expect(resumeBlockedStage(store, t.id, t.id, 'review')).toEqual({ kind: 'refused' });
+    expect(stageBlock(store, t.id, 'review')?.kind).toBe('usage-limit');
+  });
+
   it('an approach-graph-failed block returns the typed graph-recovery action, never clears', () => {
     const id = blockedTicket('RB-6', 'impl', 'approach-graph-failed');
     const runId = Number(

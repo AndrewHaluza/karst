@@ -14,6 +14,8 @@ import { openProcessRun } from '../../store/processRuns.js';
 import { listRecoveryRounds, type RecoveryTriggerKind } from '../../store/recoveryRounds.js';
 import { completeFixExecution } from '../../store/recoveryRounds.js';
 import { runUat } from '../stages/uat.js';
+import { stageBlock } from '../../store/stageBlocks.js';
+import { listOpenParks } from '../../store/usageLimitParks.js';
 
 const now = () => '2026-07-30T10:00:00.000Z';
 
@@ -143,6 +145,34 @@ describe('commitGateOutcome — recovery trigger', () => {
     expect(() =>
       commit('uat', { kind: 'blocked', blocker: 'nothing-to-run', reason: 'no gates' }, () => trigger()),
     ).toThrow(/recovery trigger/i);
+    expect(listRecoveryRounds(store, id)).toEqual([]);
+  });
+
+  it('K11: a blocked usage-limit outcome writes the park row with the block', () => {
+    commit(
+      'review',
+      {
+        kind: 'blocked',
+        blocker: 'usage-limit',
+        reason: 'usage limit — claude claude-sonnet-5',
+        park: {
+          provider: 'claude',
+          model: 'claude-sonnet-5',
+          lane: 'review',
+          target: '/web',
+          detail: 'Claude usage limit reached — out of credits.',
+          keptOutcome: '{"findings":0,"targets":[]}',
+        },
+      },
+      () => undefined,
+    );
+    expect(stageBlock(store, id, 'review')?.kind).toBe('usage-limit');
+    const open = listOpenParks(store, id);
+    expect(open).toHaveLength(1);
+    expect(open[0]!.provider).toBe('claude');
+    expect(open[0]!.lane).toBe('review');
+    expect(open[0]!.keptOutcome).toBe('{"findings":0,"targets":[]}');
+    // No fix attempt was spent — the block is a park, not a failed verdict.
     expect(listRecoveryRounds(store, id)).toEqual([]);
   });
 

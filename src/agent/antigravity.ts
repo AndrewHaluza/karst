@@ -44,7 +44,7 @@ import {
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
-import { describeHeadlessFailure, describePermissionDenial } from './cliFailure.js';
+import { describePermissionDenial, headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -519,14 +519,14 @@ export class AntigravityAdapter implements AgentAdapter {
         `[agent:antigravity] exit ${r.exitCode} — stdout: ${headlessPreview(r.stdout)}; stderr: ${headlessPreview(r.stderr)}`,
       );
       throw attachUsage(
-        new Error(
-          describeHeadlessFailure({
-            tool: 'Antigravity',
-            exitCode: r.exitCode,
-            stdout: r.stdout,
-            stderr: r.stderr,
-          }),
-        ),
+        headlessFailureError({
+          tool: 'Antigravity',
+          provider: 'antigravity',
+          model: opts.model,
+          exitCode: r.exitCode,
+          stdout: r.stdout,
+          stderr: r.stderr,
+        }),
         extractTokenUsage(r.stdout),
       );
     }

@@ -9,7 +9,7 @@ import {
   type Materialized,
   type RunHeadlessOpts,
 } from './adapter.js';
-import { describeHeadlessFailure } from './cliFailure.js';
+import { headlessFailureError } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import {
   spawnHeadlessCli,
@@ -612,14 +612,14 @@ export class Opencode2Adapter implements AgentAdapter {
       const structured = findOpencode2ErrorEvent(result.stdout);
       throw attachUsage(
         structured ??
-          new Error(
-            describeHeadlessFailure({
-              tool: OPENCODE2_TOOL_LABEL,
-              exitCode: result.exitCode,
-              stdout: result.stdout,
-              stderr: result.stderr,
-            }),
-          ),
+          headlessFailureError({
+            tool: OPENCODE2_TOOL_LABEL,
+            provider: 'opencode2',
+            model: opts.model,
+            exitCode: result.exitCode,
+            stdout: result.stdout,
+            stderr: result.stderr,
+          }),
         parseOpencode2JsonlUsage(result.stdout),
       );
     }

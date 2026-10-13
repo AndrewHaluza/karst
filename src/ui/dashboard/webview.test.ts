@@ -1477,6 +1477,26 @@ describe('dashboard webview.html', () => {
     expect(HTML).not.toMatch(/\.fault\.waiting/);
   });
 
+  it('renders the blocked banner for a non-resumable usage-limit park, with no Resume control (K11)', () => {
+    const renderBlockedBody = HTML.slice(
+      HTML.indexOf('function renderBlocked(state)'),
+      HTML.indexOf('let toastTimer = 0;'),
+    );
+    // The host verdict still gates the box, and the park is one of the kinds
+    // that keeps it visible (like baseline-review) so the user can see WHY the
+    // stage stopped. It carries the reason and NO Resume — a retry cannot reset
+    // a quota; D159 adds the pick/retry actions.
+    expect(renderBlockedBody).toMatch(/blocked\.kind === 'usage-limit'/);
+    expect(renderBlockedBody).toMatch(/blocked\.resumable !== false \|\| review \|\| usageLimit/);
+    const branch = renderBlockedBody.slice(
+      renderBlockedBody.indexOf('if (usageLimit)'),
+      renderBlockedBody.indexOf('if (review)'),
+    );
+    expect(branch).toContain('Provider out of quota');
+    expect(branch).toMatch(/esc\(blocked\.reason\)/);
+    expect(branch).not.toMatch(/data-act="stage-resume"/);
+  });
+
   it('posts stage-resume with the ticket id and the button\'s own stage key', () => {
     // The generic path routes through SEND_BY_ACT; stage-resume's entry carries
     // ITS OWN ticketId/stageKey (the host re-validates both) via the typed sender.

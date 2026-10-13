@@ -1386,3 +1386,32 @@ CREATE INDEX IF NOT EXISTS idx_fix_deliveries_ticket
   ON fix_deliveries(ticket_id, superseded_at, read_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_deliveries_round
   ON fix_deliveries(ticket_id, recovery_round_id) WHERE recovery_round_id IS NOT NULL;
+
+-- v82 usage-limit parks (kept in sync with USAGE_LIMIT_PARKS_DDL in usageLimitParks.ts;
+-- @arch:V82). One row per AI op that stopped because the provider account is out
+-- of quota; the partial unique index keeps at most one OPEN park per key.
+CREATE TABLE IF NOT EXISTS usage_limit_parks (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  stage        TEXT,
+  kind         TEXT NOT NULL CHECK (kind IN ('stage-block', 'op', 'interactive')),
+  lane         TEXT,
+  target       TEXT,
+  session_id   TEXT,
+  stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  provider     TEXT NOT NULL,
+  model        TEXT,
+  detail       TEXT NOT NULL,
+  kept_outcome TEXT,
+  parked_at    TEXT NOT NULL,
+  resolved_at  TEXT,
+  resolution   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_usage_limit_parks_ticket
+  ON usage_limit_parks(ticket_id, resolved_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_limit_parks_open
+  ON usage_limit_parks(
+    ticket_id, COALESCE(stage, ''), kind, COALESCE(lane, ''),
+    COALESCE(target, ''), COALESCE(session_id, '')
+  )
+  WHERE resolved_at IS NULL;
