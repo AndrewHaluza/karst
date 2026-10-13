@@ -18,7 +18,7 @@
 - `usage-limited` rethrows at once: no same-model retry, no chain advance, no `notify`.
 - Park = status + `stages.blocked_*` written via `setStage` (`@arch:SINGLE-WRITER`). No new `StageStatus`.
 - `setStage` remains the single writer: it now also resolves an open `usage_limit_parks` row inside its `stage_write` savepoint.
-- New timestamps are caller-supplied ISO strings where the caller holds a clock (every park writer passes `parkedAt`/`runAt`); the one store-side default — `setStage`'s park resolve — is centralised in `nowIso()` and overridable via `SetStageOptions.parkResolvedAt` so a test can pin `resolved_at`.
+- New timestamps are caller-supplied ISO strings where the caller holds a clock (every park writer passes `parkedAt`/`runAt`). The two store-side defaults — an omitted op-park `parkedAt`, and `setStage`'s park resolve time — are centralised in `nowIso()`, and the resolve time is overridable via `SetStageOptions.parkResolvedAt` so a test can pin `resolved_at`.
 - New schema: `schema.sql` (fresh DBs) + guarded migration + `SCHEMA_VERSION` bump + `db.integration.test.ts` update (`@arch:SCHEMA-CHECK`).
 - Files small (<400 lines typical). Commands: `npx vitest run <file>`, `npm run -s typecheck`. Never `--reporter`.
 
