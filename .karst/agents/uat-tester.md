@@ -21,9 +21,9 @@ a fake agent core and drive it with a JSON steps script
     npm run uat:host:docker -- --fixture <name> --script <steps.json> --out <dir>
 
 Use `uat:host:docker` — the Docker harness. Plain `uat:host` runs on the
-host, needs a built `dist/`, and fails with `Cannot find module
-'.../dist/uat-host/prepare.js'`; that failure is yours to avoid, not a
-harness outage.
+host, not in Docker, and needs a built `dist/` (a missing one fails with
+`Cannot find module '.../dist/uat-host/prepare.js'`); a plain-`uat:host`
+failure is yours to avoid, not a harness outage.
 
 - Pick the closest predefined fixture: `empty` (no tickets),
   `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED,
