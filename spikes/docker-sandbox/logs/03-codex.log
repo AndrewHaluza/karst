@@ -1,0 +1,36 @@
+$ time_cmd sbx create --name karst-spike-codex codex /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-b
+
+SANDBOX
+  Name:       karst-spike-codex
+  Agent:      codex
+  Workspace:  /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b (rw)
+  Skills:     0 entries · linked, read-only
+    Source:   /Users/nd/Library/Application Support/com.docker.sandboxes/sandboxes/agent-skills
+    Target:   /home/agent/.agents/skills
+  Image:      docker/sandbox-templates:codex-docker
+  CPU:        10
+  Memory:     8 GiB
+
+IMAGE
+  ○ image — pulling…
+      8b4cd0a46c8b already present
+      4478aac4b542 already present
+      4caad438b9ed already present
+      f2fa53ce37dd already present
+      6db24c2c2317 already present
+      69eddaf8acd5 already present
+      ef1af6345ed8 already present
+  ✓ image — ready
+  ✓ OpenAI — using stored OAuth credentials
+
+  ✓ Created sandbox karst-spike-codex
+[elapsed 4s]
+[exit 0]
+$ sbx ls
+SANDBOX              AGENT    STATUS      PORTS   WORKSPACE                                                              CREATED
+karst-spike-claude   claude   ○ stopped           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a   15m
+karst-spike-codex    codex    ● running           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b   2s
+[exit 0]
+MANUAL: same a-f as 02-claude with `sbx run --name karst-spike-codex` (ChatGPT subscription OAuth),
+ g. record final codex argv via sbx exec ... ps -eo args | grep codex
+NOTE: codex uses wt-b, so exp 4 sibling test must target wt-b from the claude sandbox.

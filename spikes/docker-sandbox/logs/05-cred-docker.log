@@ -1,0 +1,20 @@
+$ sbx exec karst-spike-claude sh -c env | grep -iE 'anthropic|openai|token|key' || echo none
+GH_TOKEN=gho_sbxproxymanaged000000000000000000000
+MCP_SENTINEL_TOKEN_NAME=proxy-managed
+SBX_CRED_ANTHROPIC_MODE=none
+[exit 0]
+$ sbx exec karst-spike-claude sh -c find / -xdev \( -name '.credentials.json' -o -name auth.json \) 2>/dev/null | head
+[exit 0]
+$ sbx exec karst-spike-claude sh -c docker info --format '{{.Name}} {{.ID}}' 2>&1 | head -3
+karst-spike-claude 38f2660e-afef-41a9-836a-51a8880a7972
+[exit 0]
+$ docker info --format {{.Name}} {{.ID}}
+docker-desktop 71902dfa-3d8c-432c-9a98-7c8f3f8d22f0
+[exit 0]
+$ sbx exec karst-spike-claude sh -c ls -l /var/run/docker.sock 2>&1
+srw-rw---- 1 root docker 0 Oct 13 17:38 /var/run/docker.sock
+[exit 0]
+$ sbx exec karst-spike-claude sh -c curl -s --max-time 3 -o /dev/null -w '%{http_code}\n' http://192.168.0.1/ 2>&1; curl -s --max-time 3 -o /dev/null -w '%{http_code}\n' http://host.docker.internal/ 2>&1
+403
+403
+[exit 0]

@@ -1,0 +1,452 @@
+$ uname -srm
+Darwin 25.6.0 arm64
+[exit 0]
+$ sw_vers
+ProductName:		macOS
+ProductVersion:		26.6.2
+BuildVersion:		25G83
+[exit 0]
+$ docker --version
+Docker version 29.1.3, build f52814d
+[exit 0]
+$ which sbx
+/opt/homebrew/bin/sbx
+[exit 0]
+$ sbx version
+sbx version v0.48.0 5caf923e0587d376848f6f388eca3e0f5ca00e2d
+[exit 0]
+$ sbx --help
+Description:
+  Docker Sandboxes creates isolated sandbox environments for AI agents, powered by Docker.
+
+  Run without a command to launch interactive mode, or pass a command for CLI usage.
+
+Usage:
+  sbx COMMAND
+
+Sandbox Commands:
+  attach      Attach to a cloud sandbox, starting it first if it is stopped
+  cp          Copy files or directories between a sandbox and the host
+  create      Create a sandbox for an agent
+  exec        Execute a command inside a sandbox
+  ls          List sandboxes
+  move        Move a sandbox between local and cloud
+  ports       Manage sandbox port publishing
+  prune       Remove all stopped sandboxes
+  rm          Remove one or more sandboxes
+  run         Run an agent in a sandbox
+  stop        Stop one or more sandboxes without removing them
+  ttl         Show or extend a cloud sandbox's TTL
+
+Management Commands:
+  daemon      Manage sandboxd daemon
+  diagnose    Diagnose common issues with your sbx installation
+  mcp         Manage MCP servers
+  policy      Manage sandbox policies
+  reset       Reset all sandboxes and clean up state
+  secret      Manage stored secrets
+  settings    Manage Docker Sandboxes settings
+  template    Manage sandbox templates
+  tui         Open the interactive TUI dashboard
+  volume      Manage persistent volumes (cloud-only)
+
+Experimental Commands:
+  env         (Experimental) Manage sandboxes declaratively from an sbxenv.yaml file
+  kit         (Experimental) Manage kit artifacts
+  setup       (Experimental) Detect host configuration and prepare Docker Sandboxes
+  skills      (Experimental) Manage skills available in sandboxes
+
+Other Commands:
+  completion  Generate the autocompletion script for the specified shell
+  help        Help about any command
+  login       Sign in to Docker
+  logout      Stop running local sandboxes and sign out of Docker
+  version     Show Docker Sandboxes version information
+
+Flags:
+      --cloud   Dispatch to Docker Cloud Sandboxes API instead of local sandboxd (supported by a growing set of verbs — run 'sbx --cloud --help' for the current list)
+  -D, --debug   Enable debug logging
+  -h, --help    help for sbx
+
+Use "sbx COMMAND --help" for more information about a command.
+[exit 0]
+$ sbx ls
+error: not signed in to Docker
+  try: sbx login
+[exit 1]
+$ sbx create --help
+Description:
+  Create a sandbox with access to a host workspace for an agent.
+
+  The first positional argument may be a built-in agent name or a sandbox kit
+  reference. Sandbox kit references may be local directories, ZIP files, git
+  repositories, or OCI references. Relative local references must be explicit
+  paths such as ./my-kit or ../my-kit.zip.
+
+  Omit the path to create a sandbox without a workspace bind mount: the agent
+  then works in the container's own filesystem instead of on your files.
+
+  Use "sbx run --name SANDBOX" to attach to the agent after creation.
+
+  Available agents: claude, codex, copilot, cursor, devin, docker-agent, droid, gemini, kiro, opencode, shell
+
+  With --cloud:
+  Create a cloud sandbox for an agent.
+
+  Cloud sandboxes have no host workspace, so no path follows the agent. Sizing
+  comes from --cpus and --memory and must land on a billable shape; without them
+  a cloud sandbox gets 2 CPUs and 4 GiB. A template named with -t / --template
+  must already exist in the cloud registry.
+
+  Cloud sandboxes use cloud network policies. Host network and HTTP policies
+  do not apply. Set cloud account defaults with
+  "sbx --cloud policy init <allow-all|balanced|deny-all>".
+
+  Use "sbx --cloud run --name SANDBOX" to attach to the agent after creation.
+
+Usage:
+  sbx create AGENT|SANDBOX_KIT [PATH...] [flags]
+  sbx create COMMAND
+
+Examples:
+  # Create a sandbox for Claude in the current directory
+  sbx create claude .
+
+  # Create a sandbox with a custom name
+  sbx create --name my-project claude /path/to/project
+
+  # Create with additional read-only workspaces
+  sbx create claude . /path/to/docs:ro
+
+  # Create without a workspace bind mount
+  sbx create claude
+
+  # Create from a local sandbox kit
+  sbx create ../path/to/my-agent/
+
+  # Add a mixin to a built-in agent
+  sbx create claude --kit ./my-mixin/
+
+  # Run the agent on an in-container clone of the host repo, wired back via a git-daemon
+  sbx create --clone claude .
+
+  # Create a cloud sandbox for claude
+  sbx --cloud create claude
+
+  # Create a named cloud sandbox with a mixin baked in
+  sbx --cloud create --name my-project claude --kit ./my-mixin/
+
+  # Create from a template that already exists in the cloud registry
+  sbx --cloud create -t TEMPLATE
+
+Available Commands:
+  claude         Create a sandbox for claude
+  codex          Create a sandbox for codex
+  cursor         Create a sandbox for cursor
+  devin          Create a sandbox for devin
+  docker-agent   Create a sandbox for docker-agent
+  gemini         Create a sandbox for gemini
+  opencode       Create a sandbox for opencode
+  shell          Create a sandbox for shell
+
+Flags:
+      --allow-network strings       Network pattern to allow for cloud sandbox egress (cloud only; can be specified multiple times)
+      --clone                       Run the agent on a private in-container clone of the host Git repository (mounted read-only) instead of bind-mounting the workspace; the agent's commits are accessible via the sandbox-<name> git remote on the host
+      --cpus int                    Number of CPUs to allocate to the sandbox (0 = auto: all host CPUs, at most 16 on Linux arm64)
+      --deny-network strings        Add a per-sandbox network deny rule at creation time. Can be specified multiple times. The rule applies only to the new sandbox and can be listed or removed later with 'sbx policy ls <NAME>' or 'sbx policy rm network --sandbox <NAME> --resource <HOST>'. Safe under centralized governance because a local deny can only narrow, never widen, egress.
+  -e, --env stringArray             Set an environment variable in the sandbox (can be repeated): KEY=VALUE, or a bare KEY to take the value from the current environment
+      --env-file stringArray        Read environment variables from a file (can be repeated). --env wins over any file; a later file wins over an earlier one
+  -h, --help                        help for create
+      --image-ref string            OCI image reference for inline-mode cloud create (mutually exclusive with --template; requires --cpus and --memory)
+      --kit strings                 (Experimental) Additional kit reference (must be a mixin; directory, ZIP, git, or OCI). Can be specified multiple times
+      --kit-arg stringArray         (Experimental) Value for an argument the kit declares, as name=value for every kit or kit.name=value for one (can be repeated)
+      --kit-args-file stringArray   (Experimental) File of name=value kit arguments, one per line (can be repeated); --kit-arg overrides
+  -m, --memory string               Memory limit in binary units (e.g., 512m, 8g). Minimum: 512 MiB. Default: 50% of host memory, clamped to 512 MiB–32 GiB. Maximum: max(75% of host memory, 512 MiB)
+      --name string                 Name for the sandbox (defaults to <agent>-<workdir>; at least two characters, starting with a letter or number, containing only letters, numbers, hyphens and periods (periods are rejected with --cloud); 'default' is reserved)
+      --no-progress                 Suppress progress output
+      --on-timeout string           What happens when --ttl lapses: 'stop' stops the sandbox in place so it can be started again later, 'restart' keeps it running by stopping and immediately starting it, or 'delete' removes it. Omit the flag and the server stops the sandbox when it can be started again later, and deletes it otherwise. With 'restart' a supplied --ttl must be at least 1h (cloud only).
+      --platform string             Target platform: linux/amd64 or linux/arm64 (cloud only). With --image-ref, omitting it lets the server resolve the platform from the image and the CLI sends the local CPU as a hint for multi-platform images. With --template, omitting it inherits the template platform. With a sandbox kit, the kit's template is built for this platform and cached apart from other platforms; omitting it keeps the server's choice.
+      --profile string              Governance profile to assign to the sandbox
+  -p, --publish stringArray         Publish a sandbox port to the host (can be repeated): [[HOST_IP:]HOST_PORT:]SANDBOX_PORT[/PROTOCOL]
+      --pull string                 Image pull policy (always|missing|never; default: never for saved local snapshots, missing for v3 kit compositions, otherwise always)
+      --skills string               Shared skills store mode for the agent's skills directory (e.g. ~/.claude/skills): off, readonly (store linked in read-only, directory stays writable), or readwrite (store mounted over it, writes are shared). Default: readonly, or the configured skills.defaultMode setting.
+      --static-mcp strings          MCP server names that form the sandbox's fixed (static) MCP set. Accepts a comma-separated list (--static-mcp notion,atlassian), repeated flags (--static-mcp notion --static-mcp atlassian), or a mix; all forms accumulate into the same set. The set is chosen once at creation time. Local sandboxes take names registered with 'sbx mcp add'. Cloud sandboxes resolve names on the cloud MCP gateway.
+  -t, --template string             Container image to use for the sandbox (default: agent-specific image)
+      --ttl duration                Cloud sandbox time-to-live before it times out (e.g. 30m, 2h, 1h30m; units are case-insensitive; cloud only; default: server-side)
+  -v, --volume stringArray          (Experimental) Attach an existing persistent volume, NAME:MOUNTPATH (cloud only, experimental; repeatable)
+
+Global Flags:
+      --cloud   Dispatch to Docker Cloud Sandboxes API instead of local sandboxd (supported by a growing set of verbs — run 'sbx --cloud --help' for the current list)
+  -D, --debug   Enable debug logging
+
+Use "sbx create COMMAND --help" for more information about a command.
+[exit 0]
+$ sbx run --help
+Description:
+  Run an agent in a sandbox, creating the sandbox if it does not already exist.
+
+  The first positional argument identifies the agent to run. It may be a built-in
+  agent name or a sandbox kit reference. Sandbox kit references may be local
+  directories, ZIP files, git repositories, or OCI references. Relative local
+  references must be explicit paths such as ./my-kit or ../my-kit.zip; bare values
+  retain their agent or sandbox-name meaning. To re-attach to an existing sandbox
+  by name, use --name; the agent positional is optional when the named sandbox
+  already exists and is read from its spec.
+
+  Pass agent arguments after the "--" separator. Additional workspaces can be
+  provided as extra arguments. Append ":ro" to mount them read-only; a read-only
+  argument may name a single file, which holds that one path out of reach inside a
+  workspace the sandbox can otherwise write.
+
+  Omit the path to mount the current directory. Pass a path to mount a different
+  workspace.
+
+  To create a sandbox without attaching, use "sbx create" instead, or
+  pass --detach (-d) to print the sandbox ID and exit without opening an
+  interactive session.
+
+  Available agents: claude, codex, copilot, cursor, devin, docker-agent, droid, gemini, kiro, opencode, shell
+
+  With --cloud:
+  Run an agent in a cloud sandbox, creating the sandbox if it does not already exist.
+
+  The first positional argument identifies the agent to run: a built-in agent
+  name or a sandbox kit reference (a local directory, ZIP file, git repository,
+  or OCI reference). Relative local references must be explicit paths such as
+  ./my-kit or ../my-kit.zip. Cloud sandboxes have no host workspace, so no path
+  follows the agent. Pass agent arguments after the "--" separator.
+
+  Running an agent that has existing sandboxes, running or stopped, prompts you
+  to pick one to reuse or to create a new one. Pass --new to skip the prompt and
+  always create a fresh sandbox. --name NAME reuses and restarts the sandbox of
+  that name when it exists and creates it otherwise. A sandbox kit launch always
+  creates fresh, as does a launch that bakes a mixin with build content.
+  --detach skips the prompt: with --name it restarts that sandbox when it
+  exists, otherwise it creates a new one. A non-interactive run without
+  --detach is refused, so scripts pass --detach (e.g.
+  sbx --cloud run -d claude && sbx --cloud exec ...).
+
+  Sizing comes from --cpus and --memory and must land on a billable shape; without
+  them a cloud sandbox gets 2 CPUs and 4 GiB. A template named with -t / --template
+  must already exist in the cloud registry; the CLI does not upload it. See
+  https://docs.docker.com/ai/sandboxes/ for the cloud sandbox model.
+
+Usage:
+  sbx run [flags] [AGENT|SANDBOX_KIT] [PATH...] [-- AGENT_ARGS...]
+
+Examples:
+  # Create and run a sandbox with claude in the current directory
+  sbx run claude
+
+  # Create and run from a local sandbox kit
+  sbx run ../path/to/my-agent/
+
+  # Create and run from an OCI sandbox kit
+  sbx run ghcr.io/foo/my-agent:latest
+
+  # Add a mixin to a built-in agent
+  sbx run claude --kit ./my-mixin/
+
+  # Create and run with additional workspaces (read-only)
+  sbx run claude . /path/to/docs:ro
+
+  # Re-attach to an existing sandbox by name (agent read from its spec)
+  sbx run --name existing-sandbox
+
+  # Re-attach to an existing sandbox by name and verify the expected agent
+  sbx run claude --name existing-sandbox
+
+  # Run a sandbox with agent arguments
+  sbx run claude -- --continue
+
+  # Run claude in a new cloud sandbox
+  sbx --cloud run claude
+
+  # Create a cloud sandbox non-interactively and print its ID
+  sbx --cloud run --detach claude
+
+  # Reuse the cloud sandbox of that name, creating it when it does not exist
+  sbx --cloud run --name my-project claude
+
+  # Run with agent arguments
+  sbx --cloud run claude -- --continue
+
+Flags:
+      --allow-network strings       Network pattern to allow for cloud sandbox egress (cloud only; can be specified multiple times)
+      --clone                       Run the agent on a private in-container clone of the host Git repository; must be set at sandbox creation time (no-op when re-attaching to an existing clone-mode sandbox)
+      --cpus int                    Number of CPUs to allocate to the sandbox (0 = auto: all host CPUs, at most 16 on Linux arm64)
+      --deny-network strings        Add a per-sandbox network deny rule at creation time. Can be specified multiple times. The rule applies only to the new sandbox and can be listed or removed later with 'sbx policy ls <NAME>' or 'sbx policy rm network --sandbox <NAME> --resource <HOST>'. Safe under centralized governance because a local deny can only narrow, never widen, egress.
+  -d, --detach                      Start the sandbox and print its ID without opening an agent session
+      --detach-keys string          Override the detach gesture that leaves the session running (Docker-style, e.g. "ctrl-\", "ctrl-x,ctrl-d"). Default: Ctrl-\. Use this when the default collides with an agent's keymap (cloud only).
+  -e, --env stringArray             Set an environment variable in the sandbox (can be repeated): KEY=VALUE, or a bare KEY to take the value from the current environment. Applies to the agent session, so it takes effect on a re-attach too; also baked into the sandbox when this run creates it
+      --env-file stringArray        Read environment variables from a file (can be repeated). --env wins over any file; a later file wins over an earlier one. Applies to the agent session, so it takes effect on a re-attach too; also baked into the sandbox when this run creates it
+  -h, --help                        help for run
+      --image-ref string            OCI image reference for inline-mode cloud create (mutually exclusive with --template; requires --cpus and --memory)
+      --kit strings                 (Experimental) Additional kit reference (must be a mixin; directory, ZIP, git, or OCI). Can be specified multiple times
+      --kit-arg stringArray         (Experimental) Value for an argument the kit declares, as name=value for every kit or kit.name=value for one (can be repeated)
+      --kit-args-file stringArray   (Experimental) File of name=value kit arguments, one per line (can be repeated); --kit-arg overrides
+  -m, --memory string               Memory limit in binary units (e.g., 512m, 8g). Minimum: 512 MiB. Default: 50% of host memory, clamped to 512 MiB–32 GiB. Maximum: max(75% of host memory, 512 MiB)
+      --name string                 Name for the sandbox (default: <agent>-<workdir>)
+      --new                         Always create a new cloud sandbox instead of prompting to reuse an existing one (cloud only)
+      --on-timeout string           What happens when --ttl lapses: 'stop' stops the sandbox in place so it can be started again later, 'restart' keeps it running by stopping and immediately starting it, or 'delete' removes it. Omit the flag and the server stops the sandbox when it can be started again later, and deletes it otherwise. With 'restart' a supplied --ttl must be at least 1h (cloud only).
+      --platform string             Target platform: linux/amd64 or linux/arm64 (cloud only). With --image-ref, omitting it lets the server resolve the platform from the image and the CLI sends the local CPU as a hint for multi-platform images. With --template, omitting it inherits the template platform. With a sandbox kit, the kit's template is built for this platform and cached apart from other platforms; omitting it keeps the server's choice.
+      --profile string              Governance profile to assign to the sandbox
+  -p, --publish stringArray         Publish a sandbox port to the host (can be repeated): [[HOST_IP:]HOST_PORT:]SANDBOX_PORT[/PROTOCOL]. Applied when the sandbox is created; ignored when re-attaching (use "sbx ports")
+      --pull string                 Image pull policy (always|missing|never; default: never for saved local snapshots, missing for v3 kit compositions, otherwise always)
+      --rm                          Remove the sandbox after the agent session exits
+      --skills string               Shared skills store mode for the agent's skills directory (e.g. ~/.claude/skills): off, readonly (store linked in read-only, directory stays writable), or readwrite (store mounted over it, writes are shared). Default: readonly, or the configured skills.defaultMode setting. Can only be used when creating a new sandbox.
+      --static-mcp strings          MCP server names that form the sandbox's fixed (static) MCP set. Accepts a comma-separated list (--static-mcp notion,atlassian), repeated flags (--static-mcp notion --static-mcp atlassian), or a mix; all forms accumulate into the same set. The set is chosen once at creation time and cannot be changed when re-attaching to an existing sandbox. Local sandboxes take names registered with 'sbx mcp add'. Cloud sandboxes resolve names on the cloud MCP gateway.
+  -t, --template string             Container image to use for the sandbox (default: agent-specific image)
+      --ttl duration                Cloud sandbox time-to-live before it times out (e.g. 30m, 2h, 1h30m; units are case-insensitive; cloud only; default: server-side)
+  -v, --volume stringArray          (Experimental) Attach an existing persistent volume, NAME:MOUNTPATH (cloud only, experimental; repeatable)
+
+Global Flags:
+      --cloud   Dispatch to Docker Cloud Sandboxes API instead of local sandboxd (supported by a growing set of verbs — run 'sbx --cloud --help' for the current list)
+  -D, --debug   Enable debug logging
+[exit 0]
+$ sbx exec --help
+Description:
+  Execute a command in a sandbox. If the sandbox is stopped, it is started first. Or — with --cloud — the cloud sandbox
+  ID (sbx_*) or name from "sbx --cloud ls".
+
+  Flags match the behavior of "docker exec", except detached exec (-d/--detach)
+  is not supported. Some flags (-d, --user, --privileged)
+  are not supported with --cloud and are rejected rather than silently ignored.
+  --detach-keys applies only to an interactive (-i/-t) cloud exec.
+
+[exit 0]
+$ sbx ports --help
+Description:
+  Manage sandbox port publishing.
+
+  List, publish, or unpublish sandbox ports. Publishing a local port starts a
+  stopped sandbox before creating the host binding. Without --publish or
+  --unpublish flags, lists all published ports.
+
+  Port spec format: [[HOST_IP:]HOST_PORT:]SANDBOX_PORT[/PROTOCOL]
+  If HOST_PORT is omitted, an ephemeral port is allocated automatically.
+  If HOST_IP is omitted, the port is bound on loopback, expanded based on
+  PROTOCOL and the sandbox's address families: tcp/udp binds both 127.0.0.1
+  and ::1 (or only 127.0.0.1 if the sandbox is IPv4-only); tcp4/udp4 binds
+  only 127.0.0.1; tcp6/udp6 binds only ::1.
+  Supported protocols: tcp, tcp4, tcp6, udp, udp4, udp6.
+
+  When publishing without a PROTOCOL, tcp4 is used — so a sandbox service
+  listening only on IPv4 is reachable without a host client having to avoid
+  ::1 — or tcp6 when HOST_IP is an IPv6 address. Publish tcp explicitly to
+  bind both families.
+
+  When unpublishing without a PROTOCOL, the mapping is removed whether it was
+  published with that same default or as dual-stack tcp. Name the protocol to
+  remove a tcp6 or udp mapping; anything left behind is reported.
+
+  With --cloud:
+  Manage the exposed ports of a cloud sandbox.
+
+  List, publish, or unpublish ports on a cloud sandbox given by ID (sbx_*) or
+  name. Without --publish or --unpublish flags, lists the exposed ports.
+
+  A port is the sandbox port number alone or with a /tcp suffix; UDP and host
+  bindings are refused. The cloud control plane assigns a publicly reachable URL
+  for each exposed port.
+
+Usage:
+  sbx ports SANDBOX [flags]
+
+Examples:
+  # List published ports
+  sbx ports my-sandbox
+
+  # Publish sandbox port 8080 to an ephemeral host port
+  sbx ports my-sandbox --publish 8080
+
+  # Publish with a specific host port
+  sbx ports my-sandbox --publish 3000:8080
+
+  # Unpublish a port
+  sbx ports my-sandbox --unpublish 3000:8080
+
+  # Expose port 8080 on a cloud sandbox
+  sbx --cloud ports sbx_abc123 --publish 8080
+
+  # Remove an exposed port from a cloud sandbox
+  sbx --cloud ports sbx_abc123 --unpublish 8080
+
+Flags:
+      --format string           Output format: table, json or yaml
+  -h, --help                    help for ports
+      --json                    Output in JSON format
+      --publish stringArray     Publish a port (can be repeated): [[HOST_IP:]HOST_PORT:]SANDBOX_PORT[/PROTOCOL] (local) or SANDBOX_PORT[/tcp] (cloud)
+      --unpublish stringArray   Unpublish a port (can be repeated): [HOST_IP:]HOST_PORT:SANDBOX_PORT[/PROTOCOL] (local) or SANDBOX_PORT[/tcp] (cloud)
+
+Global Flags:
+      --cloud   Dispatch to Docker Cloud Sandboxes API instead of local sandboxd (supported by a growing set of verbs — run 'sbx --cloud --help' for the current list)
+  -D, --debug   Enable debug logging
+[exit 0]
+$ sbx stop --help
+Description:
+  Stop one or more running sandboxes without removing them. Or — with --cloud — the cloud sandbox
+  ID (sbx_*) or name from "sbx --cloud ls".
+
+  Stopped sandboxes retain their state and can be restarted with "sbx run".
+
+  With --cloud, stop suspends each sandbox in place: its full state (memory +
+  disk) is preserved, the host is released, and the sandbox keeps its ID. Stop
+  returns once the request is accepted. Watch the sandbox reach the stopped
+  state with "sbx --cloud ls".
+  Restart it — same ID — with "sbx --cloud attach SANDBOX", with
+  "sbx --cloud run AGENT --name NAME" (also non-interactively with --detach),
+  or by running its agent again and picking it from the prompt.
+
+  Stop does not create a template and does not delete the sandbox. To capture
+  a durable, shareable template from a running sandbox instead, use
+  "sbx --cloud template save SANDBOX TAG" (which leaves the sandbox
+  running).
+
+Usage:
+  sbx stop SANDBOX... [flags]
+
+Examples:
+  sbx stop my-sandbox
+
+  # Stop several at once
+  sbx stop one two
+
+Flags:
+      --format string   Output format: table, json or yaml
+  -h, --help            help for stop
+      --json            Output in JSON format
+
+Global Flags:
+      --cloud   Dispatch to Docker Cloud Sandboxes API instead of local sandboxd (supported by a growing set of verbs — run 'sbx --cloud --help' for the current list)
+  -D, --debug   Enable debug logging
+[exit 0]
+$ sbx rm --help
+Description:
+  Remove one or more sandboxes and all associated resources. Or — with --cloud — the cloud sandbox
+  ID (sbx_*) or name from "sbx --cloud ls".
+
+  For local sandboxes, stops them, removes their containers, cleans up any Git
+  worktrees, deletes sandbox state, and deletes secrets scoped to each removed
+  sandbox. This action cannot be undone. With --cloud, deletes
+  the sandbox in Docker Sandboxes Cloud. This action cannot be undone. Once the
+  server accepts the request, rm waits up to 60 seconds per sandbox for the
+  deletion. A removal still completing after that exits 0. Verify it later with
+  "sbx --cloud ls".
+
+  Removal requires confirmation; use --force to skip confirmation prompts
+  (for non-interactive scripts) and to delete a sandbox that is in use
+  (e.g. an open SSH connection). Use --all to remove every sandbox. With --cloud, --all is
+  intentionally disabled as a safety gate — the blast radius covers every
+  sandbox the credential can see, which may include shared or production
+  workloads. Pass IDs explicitly in --cloud mode.
+
+[exit 0]
+$ sbx login --help
+Description:
+  Sign in to Docker
+
+[exit 0]
+$ docker info --format {{.OperatingSystem}} {{.ServerVersion}}
+Docker Desktop 29.1.3
+[exit 0]

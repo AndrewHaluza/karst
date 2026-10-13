@@ -1,0 +1,59 @@
+$ sbx create --name karst-spike-gitmount claude /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git
+
+SANDBOX
+  Name:       karst-spike-gitmount
+  Agent:      claude
+  Workspace:  /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a (rw)
+              /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git (rw)
+  Skills:     0 entries · linked, read-only
+    Source:   /Users/nd/Library/Application Support/com.docker.sandboxes/sandboxes/agent-skills
+    Target:   /home/agent/.claude/skills
+  Image:      docker/sandbox-templates:claude-code-docker
+  CPU:        10
+  Memory:     8 GiB
+
+IMAGE
+  ○ image — pulling…
+      549730947ed8 already present
+      89645b6ca94f already present
+      987b186b8f1d already present
+      beedd5fd60fd already present
+      742e9238c102 already present
+      ad73f53ff794 already present
+      e1a8a653f761 already present
+  ✓ image — ready
+
+  ✓ Created sandbox karst-spike-gitmount
+[exit 0]
+$ sbx exec karst-spike-gitmount sh -c cd '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a' && git status --short | head -3; git log --oneline -1
+?? .karst-spike/
+?? written-in-sandbox.txt
+64cd5b5 seed
+[exit 0]
+$ sbx exec karst-spike-gitmount sh -c cd '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a' && echo mounted > m.txt && git add m.txt && git -c user.email=a@a -c user.name=a commit -qm via-mount && git log --oneline -2
+b518e47 via-mount
+64cd5b5 seed
+[exit 0]
+-- host view of branch a (commit should be visible):
+$ git -C /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo log --oneline -2 a
+b518e47 via-mount
+64cd5b5 seed
+[exit 0]
+-- exposure: can the sandbox modify shared metadata (other branch, hooks, config)?
+$ sbx exec karst-spike-gitmount sh -c cd '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a' && git branch -f b HEAD && echo hook > '/private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit' && echo wrote-hook
+fatal: cannot force update the branch 'b' used by worktree at '/private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b'
+[exit 128]
+$ git -C /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo log --oneline -1 b
+64cd5b5 seed
+[exit 0]
+$ ls -l /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit
+ls: /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit: No such file or directory
+[exit 1]
+$ sbx exec karst-spike-gitmount sh -c echo '#!/bin/sh' > '/private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit' && chmod +x '/private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit' && echo wrote-hook
+wrote-hook
+$ ls -l /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit
+-rwxr-xr-x@ 1 nd  staff  10 Oct 13 20:15 /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/hooks/post-commit
+$ sbx exec karst-spike-gitmount sh -c cd '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a' && git branch -f other HEAD && echo moved-other-branch
+moved-other-branch
+$ git -C /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo log --oneline -1 other
+b518e47 via-mount

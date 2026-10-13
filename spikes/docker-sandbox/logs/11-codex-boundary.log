@@ -1,0 +1,37 @@
+$ sbx exec karst-spike-codex sh -c echo inside-codex > '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b/written-by-codex-sandbox.txt'
+  ✓ sandbox karst-spike-codex — started
+[exit 0]
+$ test -f /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b/written-by-codex-sandbox.txt
+[exit 0]
+$ sbx exec karst-spike-codex sh -c cat '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/seed.txt'
+cat: /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/seed.txt: No such file or directory
+[exit 1]
+$ sbx exec karst-spike-codex sh -c echo x > '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/pwn-codex.txt'
+sh: 1: cannot create /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/pwn-codex.txt: Directory nonexistent
+[exit 2]
+$ sbx exec karst-spike-codex sh -c ls /Users 2>&1; ls "$HOME"
+ls: cannot access '/Users': No such file or directory
+workspace
+[exit 0]
+$ sbx exec karst-spike-codex sh -c env | grep -iE 'openai|anthropic|token|key' | sed -E 's/=.{6}.*/=<redacted>/' || echo none
+GH_TOKEN=<redacted>
+MCP_SENTINEL_TOKEN_NAME=<redacted>
+SBX_CRED_OPENAI_MODE=oauth
+[exit 0]
+$ sbx exec karst-spike-codex sh -c docker info --format '{{.Name}} {{.ID}}' 2>&1 | head -2
+karst-spike-codex ba4343dd-dfbd-48a6-a077-6d02b40fb340
+[exit 0]
+$ sbx exec karst-spike-codex sh -c curl -s --max-time 3 -o /dev/null -w '%{http_code}\n' http://host.docker.internal/ 2>&1
+403
+[exit 0]
+$ sbx exec karst-spike-codex sh -c ls -l "$HOME/.codex/auth.json"; wc -c < "$HOME/.codex/auth.json"
+-rw-r--r-- 1 agent agent 40 Oct 13 17:54 /home/agent/.codex/auth.json
+40
+[exit 0]
+$ ps -o args= -p 1
+/sbin/launchd
+[exit 0]
+$ sbx exec karst-spike-codex sh -c ps -eo args | grep -E 'codex' | grep -v grep | head -3 || echo no-codex-process
+[exit 0]
+$ test ! -e /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/pwn-codex.txt
+[exit 0]
