@@ -3,7 +3,14 @@ import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
 import { parkGateStage, clearStageBlock, stageBlock } from './stageBlocks.js';
-import { insertOpenPark, listOpenParks, listParks, recordUsageLimitOpPark, resolveOpenParks } from './usageLimitParks.js';
+import {
+  claimUsageLimitPark,
+  insertOpenPark,
+  listOpenParks,
+  listParks,
+  recordUsageLimitOpPark,
+  resolveOpenParks,
+} from './usageLimitParks.js';
 import { UsageLimitError } from '../agent/cliFailure.js';
 
 describe('usage_limit_parks', () => {
@@ -181,5 +188,87 @@ describe('usage_limit_parks', () => {
     const resolved = listParks(store, ticketId)[0]!;
     expect(resolved.resolvedAt).toBe('2026-10-13T12:34:56.000Z');
     expect(resolved.resolution).toBe('superseded');
+  });
+
+  describe('claimUsageLimitPark', () => {
+    it('claims an open stage-block park and clears the stage block atomically', () => {
+      setStage(store, ticketId, 'review', {
+        status: 'running',
+        blockedKind: 'usage-limit',
+        blockedReason: 'usage limit',
+        blockedAt: '2026-10-13T10:00:00.000Z',
+      });
+      const parkId = insertOpenPark(store, payload('test-claim'));
+      const res = claimUsageLimitPark(store, parkId, 'pick', '2026-10-13T12:00:00.000Z');
+
+      expect(res.claimed).toBe(true);
+      expect(res.park).not.toBeNull();
+      expect(res.park?.id).toBe(parkId);
+      expect(res.park?.resolution).toBe('pick');
+      expect(res.park?.resolvedAt).toBe('2026-10-13T12:00:00.000Z');
+
+      // The stage block is now cleared
+      const block = stageBlock(store, ticketId, 'review');
+      expect(block).toBeNull();
+      // No open parks remain
+      expect(listOpenParks(store, ticketId)).toHaveLength(0);
+    });
+
+    it('refuses claim when the park row is already resolved (concurrent claim race)', () => {
+      setStage(store, ticketId, 'review', {
+        status: 'running',
+        blockedKind: 'usage-limit',
+        blockedReason: 'usage limit',
+        blockedAt: '2026-10-13T10:00:00.000Z',
+      });
+      const parkId = insertOpenPark(store, payload('test-claim-race'));
+      const first = claimUsageLimitPark(store, parkId, 'pick', '2026-10-13T12:00:00.000Z');
+      expect(first.claimed).toBe(true);
+
+      // Second claim sees already resolved
+      const second = claimUsageLimitPark(store, parkId, 'retry', '2026-10-13T12:01:00.000Z');
+      expect(second.claimed).toBe(false);
+      expect(second.park).toBeNull();
+    });
+
+    it('refuses claim when the stage block was replaced or cleared concurrently', () => {
+      setStage(store, ticketId, 'review', {
+        status: 'running',
+        blockedKind: 'usage-limit',
+        blockedReason: 'usage limit',
+        blockedAt: '2026-10-13T10:00:00.000Z',
+      });
+      const parkId = insertOpenPark(store, payload('test-stage-race'));
+
+      // Concurrently, e.g. sendBack or retryGate replaced or cleared the block
+      setStage(store, ticketId, 'review', {
+        blockedKind: 'nothing-to-run',
+        blockedReason: 'nothing',
+      });
+
+      // Now attempting to claim must abort because stage is not blocked on usage-limit
+      const res = claimUsageLimitPark(store, parkId, 'pick', '2026-10-13T12:00:00.000Z');
+      expect(res.claimed).toBe(false);
+      expect(res.park).toBeNull();
+    });
+
+    it('claims an op park without touching stage blocks', () => {
+      const parkId = insertOpenPark(store, {
+        ticketId,
+        stage: 'scope',
+        kind: 'op',
+        lane: null,
+        target: null,
+        provider: 'claude',
+        model: null,
+        detail: 'quota exceeded',
+        keptOutcome: null,
+        parkedAt: '2026-10-13T10:00:00.000Z',
+      });
+      const res = claimUsageLimitPark(store, parkId, 'dismiss', '2026-10-13T12:00:00.000Z');
+      expect(res.claimed).toBe(true);
+      expect(res.park?.resolution).toBe('dismiss');
+      expect(listOpenParks(store, ticketId)).toHaveLength(0);
+    });
   });
 });

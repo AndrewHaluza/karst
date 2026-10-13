@@ -236,6 +236,81 @@ export function resolveOpenParks(
   return info.changes;
 }
 
+export interface ClaimParkResult {
+  claimed: boolean;
+  park: UsageLimitParkRow | null;
+}
+
+/**
+ * Claim an open usage-limit park atomically.
+ *
+ * One transaction:
+ * 1. Conditionally updates `usage_limit_parks SET resolved_at=?, resolution=? WHERE id=? AND resolved_at IS NULL RETURNING *`.
+ * 2. If 0 rows updated, returns `{ claimed: false, park: null }`.
+ * 3. For `stage-block` parks, verifies the stage is currently blocked on `'usage-limit'`.
+ *    If not (e.g. concurrent sendBack or retryGate cleared/replaced it), roll back and return `{ claimed: false, park: null }`.
+ * 4. For `stage-block` parks, clears the stage block via `setStage`. Since the park row
+ *    was already resolved in step 1, `setStage`'s clear seam is a no-op.
+ * 5. Returns `{ claimed: true, park }`.
+ */
+export function claimUsageLimitPark(
+  store: Store,
+  parkId: number,
+  resolution: string,
+  at?: string,
+): ClaimParkResult {
+  const resolvedAt = at ?? nowIso();
+  const apply = store.db.transaction(() => {
+    const raw = store.db
+      .prepare(
+        `UPDATE usage_limit_parks
+         SET resolved_at = ?, resolution = ?
+         WHERE id = ? AND resolved_at IS NULL
+         RETURNING *`,
+      )
+      .get(resolvedAt, resolution, parkId) as RawParkRow | undefined;
+
+    if (!raw) {
+      return { claimed: false, park: null };
+    }
+
+    const park = rowToPark(raw);
+    if (park.kind === 'stage-block') {
+      const stageKey = park.stage as StageKey;
+      const stageRow = store.db
+        .prepare('SELECT blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = ?')
+        .get(park.ticketId, stageKey) as { blocked_kind: string | null } | undefined;
+
+      if (!stageRow || stageRow.blocked_kind !== 'usage-limit') {
+        // Roll back the update inside the transaction by throwing a sentinel or returning abort
+        // In SQLite/better-sqlite3, to abort the transaction we can throw or we can revert.
+        // But throwing rolls back the transaction.
+        throw new Error('STAGE_BLOCK_NOT_USAGE_LIMIT');
+      }
+
+      // Clear the stage block. Since the park row is already resolved, setStage won't double-resolve.
+      store.db
+        .prepare(
+          `UPDATE stages
+           SET blocked_kind = NULL, blocked_reason = NULL, blocked_at = NULL
+           WHERE ticket_id = ? AND stage_key = ?`,
+        )
+        .run(park.ticketId, stageKey);
+    }
+
+    return { claimed: true, park };
+  });
+
+  try {
+    return apply();
+  } catch (e) {
+    if (e instanceof Error && e.message === 'STAGE_BLOCK_NOT_USAGE_LIMIT') {
+      return { claimed: false, park: null };
+    }
+    throw e;
+  }
+}
+
 /** Every park (open and resolved) for a ticket, newest first. */
 export function listParks(store: Store, ticketId: number): UsageLimitParkRow[] {
   const rows = store.db
