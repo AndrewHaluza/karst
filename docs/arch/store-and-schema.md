@@ -161,6 +161,19 @@ Two creation points, one writer `upsertFixDelivery`: the LIVE path (`deliverLive
 Every transition is a conditional UPDATE claim (`… WHERE col IS NULL`): `armed_at` (hook may point), `enqueued_at` (a typed line in flight), `pointed_at` (the pointer reached the agent), `repointed_at` (typed re-send), `pointer_failed_at` (unbuildable pointer, needs-you once), `read_at` + `delivered_via` (`pointer` from `--ack`, `seed` from `confirmFixLaunch` 'confirmed' in the same transaction). Two windows or a reload never double-act. `rearmFixDelivery` is a compare-and-swap on the old `launch_id` (NULL-safe). Delivery is `extension/ops/fixDeliveryOps.ts` (live path, eligibility) and `fixDeliverySweep.ts` (typed first send, re-arm, 60 s armed fallback, typed re-send at 5 min, needs-you at 15 min); see `@arch:MAILBOX` for the shared per-core route.
 END_DOC_BLOCK: [@arch:V77]
 
+## [@arch:V82] Usage-limit parks (v82)
+
+`usage_limit_parks` (`src/store/usageLimitParks.ts`, DDL `USAGE_LIMIT_PARKS_DDL`) records every AI op that stopped because the provider ACCOUNT is out of quota/allowance (K11, D158) — the durable half of the `blocked_kind = 'usage-limit'` park. It is NOT a verdict: nothing about the code was learned, so no attempt is consumed and no recovery round opens. Columns: `ticket_id`, `stage` (NULL for an op with no stage), `kind` (`'stage-block'` for review/UAT, `'op'` for fix/PR-description/alignment/classify, `'interactive'` reserved for D160), `lane` (`review`/`uat`), `target` (the repo whose call hit the limit), `session_id`, `stage_run_id`, `provider`, `model`, `detail` (the bounded `UsageLimitError` sentence), `kept_outcome` (JSON of sibling targets' outcomes, for D159's merge), `parked_at`, `resolved_at`, `resolution`.
+
+Three writers, one per kind, and exactly one clear seam:
+- `parkGateStage` (`store/stageBlocks.ts`) inserts a `stage-block` row INSIDE its transaction, from `ParkGateStageInput.park`, so the block, its evidence and the park commit atomically. Review/UAT reach it through `commitGateOutcome` (`workflow/gates/commit.ts`), which carries `park` on the blocked outcome.
+- `recordUsageLimitOpPark` inserts an `op` row from a caught `UsageLimitError` at each non-stage call site (fix, PR description, alignment, classify); it returns null for any non-quota error, so a caller may call it unconditionally in a catch.
+- `setStage` (`store/stages.ts`) is the ONE clear seam: when a stage's PRIOR `blocked_kind` was `usage-limit` and the patch sets `blockedKind` to anything else, it resolves the open row in the same savepoint (`@arch:SINGLE-WRITER`).
+
+At most one OPEN row per `(ticket_id, COALESCE(stage,''), kind, COALESCE(lane,''), COALESCE(target,''), COALESCE(session_id,''))` — an expression PARTIAL UNIQUE INDEX `WHERE resolved_at IS NULL` (SQLite NULLs are distinct, hence the COALESCEs). `insertOpenPark` upserts on that key, so a re-park refreshes the open row instead of failing and one analysis' several passes collapse to one row. `resolveOpenParks`/`listOpenParks`/`listParks` read it back; D159 (picker/re-run) is the consumer.
+
+END_DOC_BLOCK: [@arch:V82]
+
 ## [@arch:SCHEMA-CHECK] New schema column checklist
 
 New schema column checklist: `schema.sql` (fresh DBs) + a guarded ALTER in `migrations.ts` + bump `SCHEMA_VERSION` + update db.integration.test.ts's version/table-count assertions. Migrations never backfill data they can't derive — defer that to the host (see project adoption). Guards read the CURRENT columns (`tableColumns`), so a fresh DB skips the step and a re-open is a no-op — that is what keeps v10's `service`→`repo` RENAME (the one non-additive step) idempotent.
