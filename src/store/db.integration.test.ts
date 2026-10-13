@@ -72,6 +72,7 @@ const EXPECTED_TABLES = [
   'baseline_decisions',
   'uat_gate_passes',
   'fix_deliveries',
+  'usage_limit_parks',
 ] as const;
 
 function tableNames(store: Store): string[] {

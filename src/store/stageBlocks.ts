@@ -1,6 +1,7 @@
 import type { Store } from './db.js';
 import type { BlockerKind, StageKey } from '../model/types.js';
 import { setStage, stageAttempt } from './stages.js';import { recordGateRun, type GateRunBatch } from './gateRuns.js';
+import { insertOpenPark, type UsageLimitParkPayload } from './usageLimitParks.js';
 
 /** A stage's persisted "karst could not ask" state. */
 export interface StageBlock {
@@ -25,6 +26,12 @@ export interface ParkGateStageInput {
   artifactPath?: string;
   /** v25: the invocation these gates belong to, when the caller opened one. */
   stageRunId?: number | null;
+  /**
+   * The usage-limit park payload (K11). Present ONLY with `kind: 'usage-limit'`
+   * and written in the SAME transaction as the block, so the block and the
+   * durable record of what stopped commit together or not at all.
+   */
+  park?: UsageLimitParkPayload;
 }
 
 /**
@@ -67,6 +74,18 @@ export function parkGateStage(store: Store, input: ParkGateStageInput): void {
       // so a park that wrote no log never erases the last run's.
       artifactPath: input.artifactPath,
     });
+    // The durable park record is written with the block — one transaction, one
+    // writer. Only a usage-limit park has anything to record.
+    if (input.kind === 'usage-limit' && input.park) {
+      insertOpenPark(store, {
+        ticketId: input.ticketId,
+        stage: input.stageKey,
+        kind: 'stage-block',
+        stageRunId: input.stageRunId ?? null,
+        parkedAt: input.runAt,
+        ...input.park,
+      });
+    }
   });
   apply();
 }

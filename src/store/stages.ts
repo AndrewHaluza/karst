@@ -3,6 +3,8 @@ import { subtaskStageEvent } from './stageEvents.js';
 import { blockerLandedEvents } from './blockerOutcome.js';
 import { clearAutostartOnScopePass } from './autostart.js';
 import { postMessage, type PostMessageInput } from './ticketMessages.js';
+import { resolveOpenParks } from './usageLimitParks.js';
+import { nowIso } from '../model/time.js';
 import type { BlockerKind, StageKey, StageStatus } from '../model/types.js';
 
 export interface Stage {
@@ -104,6 +106,15 @@ export interface SetStageOptions {
    * The stage write still stands. Injected, never a global logger.
    */
   onEventError?: (err: unknown) => void;
+  /**
+   * The `resolution` recorded on any open `usage_limit_parks` row this write
+   * resolves (K11): when the stage's PRIOR blocked kind was `usage-limit` and
+   * this patch sets `blockedKind` to anything else, the park is stale and is
+   * marked resolved here — the single clear seam every clear path runs through
+   * (`clearStageBlock`, a re-run, send-back, a sub-task integration overwrite).
+   * Defaults to `'cleared'`; injectable so a test can pin the value.
+   */
+  parkResolution?: string;
 }
 
 /**
@@ -132,11 +143,26 @@ export function setStage(
   // would reject a nested BEGIN.
   exec(store, 'SAVEPOINT stage_write');
   try {
+    const priorBlockedKind = readBlockedKind(store, ticketId, stageKey);
     const event = subtaskStageEvent(store, ticketId, stageKey, patch);
     const dependentEvents = blockerLandedEvents(store, ticketId, stageKey, patch);
     store.db
       .prepare(`UPDATE stages SET ${assignments} WHERE ticket_id = ? AND stage_key = ?`)
       .run(...values, ticketId, stageKey);
+    // K11 clear seam: leaving a usage-limit block resolves the open park in the
+    // SAME savepoint as the block write, so no separate caller can strand it.
+    if (
+      priorBlockedKind === 'usage-limit' &&
+      patch.blockedKind !== undefined &&
+      patch.blockedKind !== 'usage-limit'
+    ) {
+      resolveOpenParks(store, {
+        ticketId,
+        stage: stageKey,
+        resolution: opts.parkResolution ?? 'cleared',
+        at: nowIso(),
+      });
+    }
     // Leaving scope ends any autostart lifecycle (queued or starting) — the
     // single place it is cleared, so a CLI start and a host start agree.
     if (stageKey === 'scope' && (patch.status === 'passed' || patch.status === 'bypassed')) clearAutostartOnScopePass(store, ticketId);
@@ -147,6 +173,18 @@ export function setStage(
     throw err;
   }
   exec(store, 'RELEASE stage_write');
+}
+
+/** The stage row's current `blocked_kind`, or null when there is no row. */
+function readBlockedKind(
+  store: Store,
+  ticketId: number,
+  stageKey: StageKey,
+): string | null {
+  const row = store.db
+    .prepare('SELECT blocked_kind FROM stages WHERE ticket_id = ? AND stage_key = ?')
+    .get(ticketId, stageKey) as { blocked_kind: string | null } | undefined;
+  return row?.blocked_kind ?? null;
 }
 
 function exec(store: Store, sql: string): void {
