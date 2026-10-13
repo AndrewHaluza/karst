@@ -42,6 +42,7 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { sanitizeSessionName } from './sessionName.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
 
@@ -168,6 +169,7 @@ export class ClaudeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    processKillDeny: SUPPORTED,
   };
 
   /**
@@ -214,6 +216,14 @@ export class ClaudeAdapter implements AgentAdapter {
           opts.hookChannel.endpointUrl,
           opts.hookChannel.configDir,
           'claude',
+          // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
+          // EVERY permission mode, including `bypassPermissions`
+          // (docs.claude.com/en/docs/claude-code/permissions). The process
+          // kill deny rides the session's own settings file, so an ordinary
+          // ticket session (which always has this channel) cannot `pkill` a
+          // sibling agent. `--disallowedTools` carries the same rules on the
+          // read-only and headless paths, which take no settings file.
+          { permissions: { deny: claudeProcessKillDeny() } },
         ),
       );
     }
@@ -251,8 +261,19 @@ export class ClaudeAdapter implements AgentAdapter {
       // Not `plan`: plan mode refuses the `draft propose` shell command, and
       // leaving it makes the session writable. `default` overrides a user's
       // saved acceptEdits/bypass mode; the edit tools are denied outright and
-      // every other shell command asks — filing is one approval.
-      args.push('--permission-mode', 'default', '--disallowedTools', 'Edit', 'Write', 'NotebookEdit');
+      // every other shell command asks — filing is one approval. The process
+      // kill deny rides along (`processKillGuard`).
+      args.push(
+        '--permission-mode', 'default', '--disallowedTools',
+        'Edit', 'Write', 'NotebookEdit', ...claudeProcessKillDeny(),
+      );
+    } else if (!opts.hookChannel) {
+      // A WRITABLE launch with no hook channel — a graph node/planner session
+      // (`supervisedCliTransport`) or any bare `buildInteractiveCommand` — has
+      // no `--settings` file to carry the deny, so it rides argv here. With a
+      // hook channel the deny is in that settings file; without one this is the
+      // only channel, and a writable session must still be unable to `pkill`.
+      args.push('--disallowedTools', ...claudeProcessKillDeny());
     }
     // `--add-dir` is variadic in claude; one flag per dir keeps each value
     // unambiguous, and the `--` below stops it swallowing the prompt.
@@ -581,6 +602,10 @@ export class ClaudeAdapter implements AgentAdapter {
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }
+    // The process kill deny is a DENY rule (`--disallowedTools`), so it holds
+    // even when a caller asks for `bypassPermissions`. Every headless lane
+    // (review, UAT Tester, fix, classify) carries it — never a caller opt.
+    args.push('--disallowedTools', ...claudeProcessKillDeny());
     // Native structured output (Prompt 09): when a caller (the findings / UAT
     // tester lane) supplies a JSON Schema, hand it to `--json-schema` so the CLI
     // constrains its FINAL response to that shape — the salvage parser then

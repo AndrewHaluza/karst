@@ -21,12 +21,18 @@ import {
   type SpawnHeadless,
 } from './opencode.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
+import { opencodeProcessKillDeny } from './processKillGuard.js';
 
 const okNdjson = [
   JSON.stringify({ type: 'step_start', timestamp: 1, sessionID: 'ses_abc', part: { id: 'p1', messageID: 'm1', sessionID: 'ses_abc', type: 'step-start' } }),
   JSON.stringify({ type: 'text', timestamp: 2, sessionID: 'ses_abc', part: { id: 'p2', type: 'text', text: 'HELLO', time: { start: 1, end: 2 } } }),
   JSON.stringify({ type: 'step_finish', timestamp: 3, sessionID: 'ses_abc', part: { id: 'p3', reason: 'stop', type: 'step-finish', tokens: { total: 16318, input: 16312, output: 6, reasoning: 0, cache: { write: 0, read: 0 } }, cost: 0.012261 } }),
 ].join('\n');
+
+/** The adapter-owned env every opencode v1 headless run now carries. */
+const killIsolationEnv = {
+  OPENCODE_PERMISSION: JSON.stringify({ bash: opencodeProcessKillDeny() }),
+};
 
 function fakeSpawn(r: { stdout: string; stderr?: string; exitCode: number }): SpawnHeadless {
   return async () => ({ stdout: r.stdout, stderr: r.stderr ?? '', exitCode: r.exitCode });
@@ -83,7 +89,10 @@ describe('OpencodeAdapter interactive commands', () => {
     });
     expect(cmd.command).toBe('opencode');
     expect(cmd.args).toEqual(['--model', 'openrouter/~openai/gpt-mini-latest', '--prompt', '/rpi KARST-1']);
-    expect(cmd.env).toEqual({});
+    // The permission env carries the process kill deny on every launch.
+    expect(cmd.env).toEqual({
+      OPENCODE_PERMISSION: JSON.stringify({ bash: opencodeProcessKillDeny() }),
+    });
   });
 
   it('drops an effort for the interactive TUI (opencode TUI has no --variant flag)', () => {
@@ -1167,7 +1176,7 @@ describe('OpencodeAdapter headless execution', () => {
     const result = await new OpencodeAdapter(spawn).runHeadless({
       cwd: '/wt', prompt: '- inspect', permissionMode: 'bypassPermissions', model: 'openrouter/~openai/gpt-mini-latest',
     });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined });
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--auto', '--model', 'openrouter/~openai/gpt-mini-latest', '--', '- inspect'], '/wt', { signal: undefined, isolationEnv: killIsolationEnv });
     expect(result).toEqual({ sessionId: 'ses_abc', verdict: null, raw: 'HELLO', usage: expect.objectContaining({ inputTokens: 16312 }) });
   });
 
@@ -1225,7 +1234,7 @@ describe('OpencodeAdapter headless execution', () => {
   it('runs a resumed headless run via --session', async () => {
     const spawn = vi.fn(fakeSpawn({ stdout: okNdjson, exitCode: 0 }));
     await new OpencodeAdapter(spawn).runHeadless({ cwd: '/wt', prompt: 'continue', resume: 'ses_abc' });
-    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined });
+    expect(spawn).toHaveBeenCalledWith('opencode', ['run', '--format', 'json', '--pure', '--dir', '/wt', '--session', 'ses_abc', '--', 'continue'], '/wt', { signal: undefined, isolationEnv: killIsolationEnv });
   });
 
   it('reports bounded diagnostics + usage on a nonzero exit', async () => {

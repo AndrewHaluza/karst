@@ -44,7 +44,7 @@ import { recordUatFindings, type UatFindingInput } from '../../store/uatFindings
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
-import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT } from '../../agent/promptText.js';
+import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT, PROCESS_KILL_RULE } from '../../agent/promptText.js';
 import { TESTER_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
@@ -482,6 +482,10 @@ export function buildTesterPrompt(
   ];
   return [
     ...strategy,
+    // Never displaced by `instructions` and never part of the strict output
+    // contract: the deny is a hard stop, but the agent must also know the RIGHT
+    // way to stop its own child (`kill $!`) so it does not reach for `pkill`.
+    PROCESS_KILL_RULE,
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.

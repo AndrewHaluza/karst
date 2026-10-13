@@ -34,6 +34,7 @@ import {
   writeOpencode2Bridge,
 } from './opencode2Bridge.js';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
+import { opencodeProcessKillDeny } from './processKillGuard.js';
 import type { HeadlessSpawnOptions } from './headlessSpawn.js';
 
 const fixture = (name: string): string =>
@@ -135,8 +136,9 @@ describe('opencode2 binary + version', () => {
 
 describe('buildOpencode2ConfigContent', () => {
   it('adds the model with the #effort suffix', () => {
-    expect(JSON.parse(buildOpencode2ConfigContent({ model: 'opencode-go/mimo-v2.5', headless: false })))
-      .toEqual({ model: 'opencode-go/mimo-v2.5' });
+    expect(
+      JSON.parse(buildOpencode2ConfigContent({ model: 'opencode-go/mimo-v2.5', headless: false })).model,
+    ).toBe('opencode-go/mimo-v2.5');
     expect(
       JSON.parse(
         buildOpencode2ConfigContent({
@@ -144,18 +146,20 @@ describe('buildOpencode2ConfigContent', () => {
           effort: 'high',
           headless: false,
         }),
-      ),
-    ).toEqual({ model: 'opencode-go/mimo-v2.5#high' });
+      ).model,
+    ).toBe('opencode-go/mimo-v2.5#high');
   });
 
   it('sets snapshot:false for headless only', () => {
-    expect(JSON.parse(buildOpencode2ConfigContent({ headless: true }))).toEqual({ snapshot: false });
-    expect(JSON.parse(buildOpencode2ConfigContent({ headless: false }))).toEqual({});
+    expect(JSON.parse(buildOpencode2ConfigContent({ headless: true })).snapshot).toBe(false);
+    expect(JSON.parse(buildOpencode2ConfigContent({ headless: false })).snapshot).toBeUndefined();
   });
 
   it('nests a read-only ruleset under the singular `permission` key', () => {
     const config = JSON.parse(buildOpencode2ConfigContent({ headless: false, readOnly: true }));
-    expect(config).toEqual({ permission: { edit: 'deny', bash: 'ask' } });
+    expect(config.permission).toMatchObject({ edit: 'deny' });
+    // readOnly asks for every shell command, with the kill deny after the catch-all.
+    expect(config.permission.bash).toMatchObject({ '*': 'ask', ...opencodeProcessKillDeny() });
     expect(config.permissions).toBeUndefined();
   });
 
@@ -170,14 +174,18 @@ describe('buildOpencode2ConfigContent', () => {
           '/repos/api/**': 'allow',
           '/repos/web/**': 'allow',
         },
+        bash: opencodeProcessKillDeny(),
       },
     });
   });
 
-  it('carries no permission key when neither readOnly nor addDirs applies', () => {
-    expect(JSON.parse(buildOpencode2ConfigContent({ headless: false }))).toEqual({});
+  it('carries the kill deny but no read-only policy when neither readOnly nor addDirs applies', () => {
+    expect(JSON.parse(buildOpencode2ConfigContent({ headless: false }))).toEqual({
+      permission: { bash: opencodeProcessKillDeny() },
+    });
     expect(JSON.parse(buildOpencode2ConfigContent({ model: 'a/b', headless: false }))).toEqual({
       model: 'a/b',
+      permission: { bash: opencodeProcessKillDeny() },
     });
   });
 });
@@ -328,8 +336,12 @@ describe('Opencode2Adapter headless argv/env', () => {
       XDG_STATE_HOME: '/gs/opencode2/state',
       OPENCODE_DISABLE_AUTOUPDATE: '1',
       DISABLE_AUTOUPDATER: '1',
-      // Headless-only config: snapshot:false removes the shadow-git cost.
-      OPENCODE_CONFIG_CONTENT: JSON.stringify({ snapshot: false }),
+    });
+    // Headless-only config: snapshot:false removes the shadow-git cost; the
+    // permission blob carries the process kill deny.
+    expect(JSON.parse(run.opts!.isolationEnv!.OPENCODE_CONFIG_CONTENT!)).toEqual({
+      snapshot: false,
+      permission: { bash: opencodeProcessKillDeny() },
     });
   });
 
@@ -402,6 +414,7 @@ describe('Opencode2Adapter interactive argv/env', () => {
     expect(cmd.args[i + 1]).toBe('kick off');
     expect(JSON.parse(cmd.env.OPENCODE_CONFIG_CONTENT!)).toEqual({
       model: 'opencode-go/space-bunny#high',
+      permission: { bash: opencodeProcessKillDeny() },
     });
     expect(cmd.env.XDG_DATA_HOME).toBe('/gs/opencode2/data');
   });
@@ -432,7 +445,7 @@ describe('Opencode2Adapter interactive argv/env', () => {
     expect(config.permissions).toBeUndefined();
     expect(config.permission).toEqual({
       edit: 'deny',
-      bash: 'ask',
+      bash: { '*': 'ask', ...opencodeProcessKillDeny() },
       external_directory: { '*': 'ask', '/repos/api/**': 'allow' },
     });
   });
