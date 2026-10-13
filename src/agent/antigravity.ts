@@ -206,6 +206,11 @@ export class AntigravityAdapter implements AgentAdapter {
       'agy manages MCP servers only through its own `agy mcp` state, with no per-launch ' +
         'config flag; run `karst mcp install` to register the server at user scope',
     ),
+    processKillDeny: unsupported(
+      'agy has no deny list: its command rules are `permissions.allow` in the user-global ' +
+        '~/.gemini/antigravity-cli/settings.json, which karst never writes (AC-17); a rule ' +
+        'outside that file is not expressible, and a headless `-p` run cannot prompt',
+    ),
   };
 
   /**

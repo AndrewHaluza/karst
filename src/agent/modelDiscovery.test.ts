@@ -1,16 +1,19 @@
 import { EventEmitter } from 'node:events';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   discoverAntigravityModels,
   discoverClaudeModels,
   discoverCodexModels,
+  discoverOpencode2Models,
   discoverOpencodeModels,
   makeCommandRunner,
   parseAntigravityModels,
+  parseOpencodeModelList,
   parseOpencodeModels,
   type CommandRunner,
   type SpawnImpl,
 } from './modelDiscovery.js';
+import { configureOpencode2, resetOpencode2Config } from './opencode2Binary.js';
 
 type FakeChild = EventEmitter & {
   stdout: EventEmitter;
@@ -92,6 +95,14 @@ describe('parseOpencodeModels', () => {
     ['nothing at all', '\n\n'],
   ])('refuses to read %s as a model list', (_case, stdout) => {
     expect(parseOpencodeModels(stdout)).toBeUndefined();
+  });
+});
+
+describe('parseOpencodeModelList', () => {
+  it('tags parsed rows with the requested provider', () => {
+    expect(parseOpencodeModelList('opencode2', 'opencode-go/space-bunny\n')).toEqual([
+      { id: 'opencode-go/space-bunny', label: 'opencode-go/space-bunny', providers: ['opencode2'] },
+    ]);
   });
 });
 
@@ -248,6 +259,61 @@ describe('provider discovery', () => {
         { id: 'openrouter/anthropic/claude-opus-5', label: 'openrouter/anthropic/claude-opus-5', providers: ['opencode'] },
       ],
     });
+  });
+});
+
+describe('discoverOpencode2Models', () => {
+  afterEach(() => resetOpencode2Config());
+
+  it('runs the configured v2 binary with `models --standalone`, never a PATH lookup', async () => {
+    configureOpencode2({ binaryPath: '/opt/opencode2/bin/opencode' });
+    const run = vi.fn(completed('opencode-go/space-bunny\nopencode-go/mimo-v2.5\n'));
+
+    const result = await discoverOpencode2Models(run);
+
+    expect(run).toHaveBeenCalledWith('/opt/opencode2/bin/opencode', ['models', '--standalone']);
+    expect(result).toEqual({
+      status: 'available',
+      models: [
+        { id: 'opencode-go/space-bunny', label: 'opencode-go/space-bunny', providers: ['opencode2'] },
+        { id: 'opencode-go/mimo-v2.5', label: 'opencode-go/mimo-v2.5', providers: ['opencode2'] },
+      ],
+    });
+  });
+
+  it('reports an unconfigured binary as command-unavailable without spawning the sentinel on PATH', async () => {
+    configureOpencode2({ binaryPath: '' });
+    const run = vi.fn(completed('opencode-go/space-bunny\n'));
+
+    const result = await discoverOpencode2Models(run);
+
+    expect(run).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'unavailable', code: 'command-unavailable' });
+  });
+
+  it('reports a configured-but-missing binary as command-unavailable', async () => {
+    configureOpencode2({ binaryPath: '/nope/opencode' });
+    const run: CommandRunner = async () => ({ stdout: '', stderr: 'no', exitCode: 1, failure: 'command unavailable' });
+
+    await expect(discoverOpencode2Models(run))
+      .resolves.toMatchObject({ status: 'unavailable', code: 'command-unavailable' });
+  });
+
+  it('reports a non-zero exit as nonzero-exit', async () => {
+    configureOpencode2({ binaryPath: '/opt/opencode' });
+
+    await expect(discoverOpencode2Models(completed('', 2, 'boom')))
+      .resolves.toMatchObject({ status: 'unavailable', code: 'nonzero-exit' });
+  });
+
+  it.each([
+    ['an empty list', '\n\n'],
+    ['prose instead of ids', 'error: no provider selected\n'],
+  ])('reports %s as invalid-output', async (_case, stdout) => {
+    configureOpencode2({ binaryPath: '/opt/opencode' });
+
+    await expect(discoverOpencode2Models(completed(stdout)))
+      .resolves.toMatchObject({ status: 'unavailable', code: 'invalid-output' });
   });
 });
 

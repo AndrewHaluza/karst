@@ -22,6 +22,7 @@ import {
   MARKER_REFUSED,
   GUIDE_POINTER_INTRO,
   SERVERS_VIA_CLI_RULE,
+  PROCESS_KILL_RULE,
   MCP_TOOLS_PREFERRED,
 } from '../agent/promptText.js';
 import { quoteArg } from '../agent/cliEnv.js';
@@ -296,6 +297,7 @@ ticket would park with no way out.
 5. \`nothing-to-merge\` is a genuine pass: a ticket whose work produced no
    diff opens no PR and has delivered everything it had.
 6. ${SERVERS_VIA_CLI_RULE}
+7. ${PROCESS_KILL_RULE}
 `;
 
 /**

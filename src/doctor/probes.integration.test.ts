@@ -66,4 +66,29 @@ describe('doctor probes (real git)', () => {
     expect(p.fileBytes(join(root, 'none'))).toBe(0);
     expect(p.listeningPids(1)).toEqual([]);
   });
+
+  it('resolveCommand returns the on-PATH path, realpath follows a symlink', () => {
+    expect(p.resolveCommand('git')).toMatch(/git$/);
+    expect(p.resolveCommand('definitely-not-a-binary-xyz')).toBeUndefined();
+    expect(p.resolveCommand(process.execPath)).toBe(process.execPath);
+    expect(p.resolveCommand(join(root, 'none'))).toBeUndefined();
+
+    const link = join(root, 'claude');
+    execFileSync('ln', ['-sfn', join(repo, 'a.txt'), link]);
+    expect(p.realpath(link)).toBe(p.realpath(join(repo, 'a.txt')));
+    expect(p.realpath(join(root, 'none'))).toBeUndefined();
+    expect(p.linkExists(link)).toBe(true);
+    expect(p.readLink(link)).toBe(join(repo, 'a.txt'));
+    expect(p.readLink(join(repo, 'a.txt'))).toBeUndefined();
+
+    // A DANGLING link: `existsSync`/`realpath` say no, but the entry is there
+    // and its raw target is readable — the post-cleanup state doctor must see.
+    const dangling = join(root, 'dangling');
+    execFileSync('ln', ['-sfn', join(root, 'gone'), dangling]);
+    expect(p.pathExists(dangling)).toBe(false);
+    expect(p.realpath(dangling)).toBeUndefined();
+    expect(p.linkExists(dangling)).toBe(true);
+    expect(p.readLink(dangling)).toBe(join(root, 'gone'));
+    expect(p.linkExists(join(root, 'none'))).toBe(false);
+  });
 });

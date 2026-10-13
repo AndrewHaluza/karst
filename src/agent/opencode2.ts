@@ -300,8 +300,7 @@ export function buildOpencode2ConfigContent(opts: {
     config['model'] = opts.effort ? `${opts.model}#${opts.effort}` : opts.model;
   }
   if (opts.headless) config['snapshot'] = false;
-  const permission = opencodeLaunchPermission(opts);
-  if (permission) config['permission'] = permission;
+  config['permission'] = opencodeLaunchPermission(opts);
   if (opts.mcp && Object.keys(opts.mcp).length > 0) config['mcp'] = opts.mcp;
   return JSON.stringify(config);
 }
@@ -370,6 +369,7 @@ export class Opencode2Adapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    processKillDeny: SUPPORTED,
   };
 
   readonly instructions: InstructionDelivery = {

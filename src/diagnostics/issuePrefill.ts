@@ -255,10 +255,16 @@ export function coreLines(snapshot: FinalizedDiagnosticReport): string[] {
   return parts.length > 0 ? [`- Cores used: ${parts.join(', ')}`] : []
 }
 
+function omittedByClassSuffix(byClass?: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(byClass ?? {})
+  if (entries.length === 0) return ''
+  return `: ${entries.map(([name, count]) => `${name} ${count}`).join(', ')}`
+}
+
 function noticeLines(snapshot: FinalizedDiagnosticReport): string[] {
   const notices = Object.entries(snapshot.report.metadata).flatMap(([name, section]) => {
     if (section?.status === 'truncated') {
-      return [`${name} truncated (${section.omitted} omitted by ${section.reason})`]
+      return [`${name} truncated (${section.omitted} omitted by ${section.reason}${omittedByClassSuffix(section.omittedByClass)})`]
     }
     return section?.status === 'unavailable' ? [`${name} unavailable (${section.reason})`] : []
   })

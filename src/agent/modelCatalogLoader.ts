@@ -378,30 +378,39 @@ export async function loadModelCatalog(
       throw new Error(`No valid model catalog is available for ${provider}`);
     }
 
-    // Curated-tag overlay: CLI discovery reports id/label only, so discovered
-    // models lack tags that the bundled catalog and feed already declare. Any
-    // resolved row whose id matches a curated entry inherits that entry's tags;
-    // a row that already carries tags is never overridden. Feed entries win over
-    // bundled entries on conflict. The overlay runs before the cache write so
-    // CLI-discovered lists persist with tags.
-    const curatedTags = new Map<string, readonly ModelTag[]>();
-    const bundledRow = bundledList;
-    if (bundledRow) {
-      for (const m of bundledRow) {
-        if (m.tags) curatedTags.set(m.id, m.tags);
-      }
-    }
-    const feedRow = feedRaw;
-    if (feedRow) {
-      for (const m of feedRow) {
-        if (m.tags) curatedTags.set(m.id, m.tags);
+    // Curated overlay: CLI discovery reports id + label only (for opencode,
+    // a bare id as the label), so a discovered row carries none of the curated
+    // metadata the bundled catalog and feed already declare. Any resolved row
+    // whose id matches a curated entry inherits that entry's curated label,
+    // and — when it declares none itself — its tags and efforts. Capability
+    // claims (tags/efforts) a row already carries are never overridden; the
+    // label is. Feed entries win over bundled entries on conflict. The overlay
+    // runs before the cache write so CLI-discovered lists persist enriched.
+    const curated = new Map<string, {
+      label: string;
+      tags?: readonly ModelTag[];
+      efforts?: readonly string[];
+    }>();
+    for (const source of [bundledList, feedRaw] as const) {
+      if (!source) continue;
+      for (const m of source) {
+        curated.set(m.id, {
+          label: m.label,
+          ...(m.tags ? { tags: m.tags } : {}),
+          ...(m.efforts ? { efforts: m.efforts } : {}),
+        });
       }
     }
     const enriched = models === cli || models === fromFeed || models === cached
       ? models.map((m) => {
-        if (m.tags !== undefined) return m;
-        const tags = curatedTags.get(m.id);
-        return tags ? { ...m, tags } : m;
+        const entry = curated.get(m.id);
+        if (!entry) return m;
+        return {
+          ...m,
+          label: entry.label,
+          ...(m.tags === undefined && entry.tags ? { tags: entry.tags } : {}),
+          ...(m.efforts === undefined && entry.efforts ? { efforts: entry.efforts } : {}),
+        };
       })
       : models;
 

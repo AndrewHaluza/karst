@@ -220,3 +220,151 @@ describe('makeBoundedLogBuffer — debug retention', () => {
     expect(capture.snapshot()).toHaveLength(4); // no new capture while disabled
   });
 });
+
+describe('makeBoundedLogBuffer — level-aware eviction', () => {
+  it('evicts the oldest debug entry before any info or warn', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 3, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'warn', message: 'keep me' });
+    capture.capture({ timestamp: '1', level: 'info', message: 'i1' });
+    capture.capture({ timestamp: '2', level: 'debug', message: 'd1' });
+    capture.capture({ timestamp: '3', level: 'debug', message: 'd2' });
+    // Over the 3-entry cap: the oldest debug (d1) yields, never the warn.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['keep me', 'i1', 'd2']);
+  });
+
+  it('falls back to the oldest info once no debug remains', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 2, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'info', message: 'i1' });
+    capture.capture({ timestamp: '1', level: 'warn', message: 'w1' });
+    capture.capture({ timestamp: '2', level: 'error', message: 'e1' });
+    // No debug in the buffer: the oldest info goes before the warn/error pair.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['w1', 'e1']);
+  });
+
+  it('an earlier warn survives a full debug flood at the default limits', () => {
+    const capture = makeBoundedLogBuffer();
+    capture.capture({ timestamp: '2026-07-13T09:00:00.000Z', level: 'warn', message: 'UAT spin failed' });
+    for (let i = 0; i < 2000; i += 1) {
+      capture.capture({
+        timestamp: `2026-07-13T10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`,
+        level: 'debug',
+        message: `[driver] delivery T${i}: notes deferred`,
+      });
+    }
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('UAT spin failed');
+    expect(capture.snapshot().length).toBeLessThanOrEqual(500);
+  });
+
+  it('keeps the newest warn/error entries when only those overflow', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 2, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'warn', message: 'w1' });
+    capture.capture({ timestamp: '1', level: 'error', message: 'e1' });
+    capture.capture({ timestamp: '2', level: 'error', message: 'e2' });
+    // No lower level available: FIFO applies to warn/error too.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['e1', 'e2']);
+  });
+
+  it('protects ticket-evidence debug lines from a plain debug flood', () => {
+    // The spin/gate/merge evidence a report needs is emitted at debug level,
+    // so level alone would lose it to `[driver]` chatter.
+    const capture = makeBoundedLogBuffer();
+    capture.capture({ timestamp: '2026-07-13T09:00:00.000Z', level: 'debug', message: '[gate] test:unit failed' });
+    capture.capture({ timestamp: '2026-07-13T09:00:01.000Z', level: 'debug', message: '[merge] pr feedback: changes_requested' });
+    capture.capture({ timestamp: '2026-07-13T09:00:02.000Z', level: 'debug', message: '[runtime] service came up' });
+    for (let i = 0; i < 2000; i += 1) {
+      capture.capture({
+        timestamp: `2026-07-13T10:${String(Math.floor(i / 60) % 60).padStart(2, '0')}:${String(i % 60).padStart(2, '0')}.000Z`,
+        level: 'debug',
+        message: `[driver] delivery T${i}: notes deferred`,
+      });
+    }
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[gate] test:unit failed');
+    expect(messages).toContain('[merge] pr feedback: changes_requested');
+    expect(messages).toContain('[runtime] service came up');
+  });
+
+  it('evicts evidence debug lines once no plain debug line remains', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 2, maxBytes: 4096 });
+    capture.capture({ timestamp: '0', level: 'debug', message: '[runtime] one' });
+    capture.capture({ timestamp: '1', level: 'debug', message: '[runtime] two' });
+    capture.capture({ timestamp: '2', level: 'debug', message: '[runtime] three' });
+    // Nothing but evidence debug: FIFO within the level applies.
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['[runtime] two', '[runtime] three']);
+  });
+
+  it('admits fresh evidence when the buffer is saturated with warn/error', () => {
+    // A repeating warning must not pin the buffer: the fresh evidence is newer
+    // and the oldest warning yields, rather than the evidence self-evicting.
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'warn', message: `warn ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[runtime] fresh spin evidence' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[runtime] fresh spin evidence');
+    expect(messages).not.toContain('warn 0');
+    expect(messages).toHaveLength(5);
+  });
+
+  it('keeps incoming evidence when the buffer is full of plain info', () => {
+    // Evidence is emitted at debug, so a buffer full of ordinary info must
+    // evict its oldest info, not the just-captured runtime/gate evidence.
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'info', message: `info ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[runtime] the spin evidence' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('[runtime] the spin evidence');
+    expect(messages).not.toContain('info 0');
+  });
+
+  it('never drops fresh evidence when the byte cap needs several evictions', () => {
+    // Two warns (24 bytes each) leave 48/54 bytes; the 37-byte [runtime] line
+    // cannot fit without evicting BOTH warnings, so an index-based guard would
+    // go stale and let the incoming evidence evict itself.
+    const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 54 });
+    capture.capture({ timestamp: '', level: 'warn', message: 'w'.repeat(20) });
+    capture.capture({ timestamp: '', level: 'warn', message: 'w'.repeat(20) });
+    capture.capture({ timestamp: '', level: 'debug', message: `[runtime] ${'e'.repeat(22)}` });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.startsWith('[runtime] ')).toBe(true);
+  });
+
+  it('admits every freshly captured evidence line under sustained byte pressure', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 20, maxBytes: 500 });
+    for (let i = 0; i < 2000; i += 1) {
+      capture.capture({ timestamp: '', level: 'warn', message: 'w'.repeat(30) });
+      const message = `[runtime] evidence ${i}`;
+      capture.capture({ timestamp: '', level: 'debug', message });
+      // The entry just captured must be present in the snapshot right after,
+      // however many older entries had to yield.
+      expect(capture.snapshot().some((entry) => entry.message === message)).toBe(true);
+    }
+  });
+
+  it('drops fresh plain debug rather than displacing a warn', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 5, maxBytes: 4096 });
+    for (let i = 0; i < 5; i += 1) {
+      capture.capture({ timestamp: String(i), level: 'warn', message: `warn ${i}` });
+    }
+    capture.capture({ timestamp: '5', level: 'debug', message: '[driver] delivery T1: notes deferred' });
+    const messages = capture.snapshot().map((entry) => entry.message);
+    expect(messages).toContain('warn 0');
+    expect(messages).not.toContain('[driver] delivery T1: notes deferred');
+  });
+
+  it('drops older debug before newer debug and accounts the released bytes', () => {
+    const capture = makeBoundedLogBuffer({ maxEntries: 10, maxBytes: 26 });
+    // Empty timestamp + level + 4-char message: info 8 bytes, debug 9 bytes.
+    capture.capture({ timestamp: '', level: 'info', message: 'aaaa' });
+    capture.capture({ timestamp: '', level: 'debug', message: 'dddd' });
+    capture.capture({ timestamp: '', level: 'debug', message: 'eeee' });
+    // 26 bytes fit these three; the fourth must drop the oldest debug, not the info.
+    capture.capture({ timestamp: '', level: 'debug', message: 'ffff' });
+    expect(capture.snapshot().map((entry) => entry.message)).toEqual(['aaaa', 'eeee', 'ffff']);
+  });
+});

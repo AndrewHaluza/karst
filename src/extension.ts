@@ -56,6 +56,7 @@ import { makeWorktreeActions } from './ui/dashboard/worktreeActions.js';
 import { loadWorktreeStats } from './ui/dashboard/worktreeStats.js';
 import { buildGateOptionsLoader } from './ui/dashboard/gateOptions.js';
 import { baselineReviewRoot, buildBaselineRowsLoader } from './ui/dashboard/baselineRows.js';
+import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
@@ -2891,7 +2892,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fallbackProjectId: () => currentProject()?.id, manifest: currentManifest,
   });
   context.subscriptions.push(storedArtifacts);
-  const dashboard = new DashboardManager(
+  const dashboard: DashboardManager = new DashboardManager(
     localStore,
     makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
     (ticketId) =>
@@ -2958,6 +2959,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // mutually referential); read only when a panel is actually open, which
         // is long after activation has run.
         () => runPrSync(true),
+        () => dashboard.refreshShipPreview(ticketId),
         // Same deferred-reference pattern as `runPrSync` above: `maybeDrive` is
         // declared further down `activate`, read only once a panel is open.
         (id) => maybeDrive(id, 'stage-resume'),
@@ -3205,6 +3207,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
     buildBaselineRowsLoader({ store: localStore, manifest: currentManifest, storageRoot: baselineReviewRoot(context.globalStorageUri.fsPath) }),
     storedArtifacts.load,
+    makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner),
   );
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),
@@ -7927,6 +7930,7 @@ function makeDashboardActions(
   // background tick respects. Project-scoped like the tick itself, so it takes no
   // ticket: the panel is asking for a fresher answer, not a narrower one.
   refreshPrs: () => Promise<void>,
+  refreshShipPreview: () => Promise<void> | void,
   // Kick the §5.4-safe driver nudge (`maybeDrive`) after a block is cleared.
   // Passed in rather than reached from here because it lives in `activate`'s
   // scope, alongside every other driver trigger (hook, sweep, session close) —
@@ -8510,6 +8514,7 @@ function makeDashboardActions(
         }
       })();
     },
+    refreshShipPreview: () => refreshShipPreview(),
     toggleBind,
     // Returns a promise, so the button reports a REAL terminal outcome rather
     // than a bare ack (UI-R13): the write is fast and local, so there is no

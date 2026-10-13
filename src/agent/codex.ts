@@ -378,6 +378,11 @@ export class CodexAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    processKillDeny: unsupported(
+      'codex has no per-invocation command deny: its execpolicy rules live in ' +
+        '`rules/` files next to a config layer that karst may not own (AC-17), ' +
+        'and a headless `exec` has no approval channel to gate a shell command on',
+    ),
   };
 
   /**

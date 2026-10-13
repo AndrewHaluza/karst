@@ -5,7 +5,9 @@ import { buildTicketContext, renderTicketContext } from '../context/ticketContex
 import { AGENT_GUIDE, renderGuideInstruction } from '../cli/guide.js';
 import { planningInstructions } from '../planning/preamble.js';
 import { renderDoneMarkerInstruction } from './workflowCommand.js';
-import { MARKER_REFUSED, MCP_TOOLS_PREFERRED, SERVERS_VIA_CLI_RULE } from './promptText.js';
+import { MARKER_REFUSED, MCP_TOOLS_PREFERRED, PROCESS_KILL_RULE, SERVERS_VIA_CLI_RULE } from './promptText.js';
+import { buildTesterPrompt } from '../workflow/uat/tester.js';
+import { renderFixBrief } from './fixBrief.js';
 
 /**
  * PROMPT-06 — single source of truth for reused agent prompt text.
@@ -54,6 +56,26 @@ describe('promptText — marker rule by identity', () => {
   it('binds a session to the CLI for running ticket services', () => {
     expect(SERVERS_VIA_CLI_RULE).toContain('servers spin');
     expect(SERVERS_VIA_CLI_RULE).toContain('npm run dev');
+  });
+
+  it('states the process-kill rule by identity in the Tester and Fix prompts and the instruction layer', () => {
+    // The UAT Tester prompt — always, even when user instructions replace the strategy.
+    const target = { repo: 'web', worktreePath: '/wt' };
+    expect(buildTesterPrompt(target)).toContain(PROCESS_KILL_RULE);
+    expect(buildTesterPrompt(target, 'custom strategy')).toContain(PROCESS_KILL_RULE);
+    // The Fix brief.
+    const brief = renderFixBrief('PROJ-9', [{ stageKey: 'uat', status: 'failed' }]);
+    expect(brief).toContain(PROCESS_KILL_RULE);
+    // The resident impl/fix instruction (the done-marker instruction) and the guide.
+    const marker = renderDoneMarkerInstruction('node x stage impl pass --ticket', 'PROJ-9');
+    expect(marker).toContain(PROCESS_KILL_RULE);
+    expect(AGENT_GUIDE).toContain(PROCESS_KILL_RULE);
+  });
+
+  it('tells the agent to kill by PID, not by name', () => {
+    expect(PROCESS_KILL_RULE).toContain('Stop only processes you started');
+    expect(PROCESS_KILL_RULE).toContain('$!');
+    expect(PROCESS_KILL_RULE).toContain('pkill');
   });
 
   it('states the MCP preference by identity in the guide, the guide pointer, and the planning preamble', () => {

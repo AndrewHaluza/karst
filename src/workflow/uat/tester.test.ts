@@ -20,7 +20,12 @@ import { SEED_BUDGETS } from '../../agent/seedBudget.js';
 const now = () => '2026-08-08T10:00:00.000Z';
 
 const TARGETS: readonly TesterTarget[] = [
-  { repo: '/web', worktreePath: '/wt/web', baseRef: 'develop', service: { start: 'npm run dev' } },
+  {
+    repo: '/web',
+    worktreePath: '/wt/web',
+    baseRef: 'develop',
+    runningServices: [{ key: 'web', url: 'http://127.0.0.1:4100' }],
+  },
 ];
 
 const ASSIGNMENT = { agentName: 'UAT Agent', provider: 'claude' as const, model: 'claude-sonnet-5' };
@@ -969,35 +974,42 @@ describe('runUatTester', () => {
 });
 
 describe('buildTesterPrompt', () => {
-  it('names the target repository, its base branch and its host-known service context', () => {
+  it('names the target repository, its base branch and the running services with their live URLs', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!);
     expect(prompt).toContain('/web');
     expect(prompt).toContain('develop');
-    expect(prompt).toContain('npm run dev');
+    expect(prompt).toContain('These services are already running for this ticket');
+    expect(prompt).toContain('- web → http://127.0.0.1:4100');
+    // D155: the prompt no longer offers to stand anything up — UAT owns the
+    // stack, and a raw start command contradicts SERVERS_VIA_CLI_RULE.
+    expect(prompt).not.toContain('You may stand it up');
+    expect(prompt).not.toContain('service starts with');
     expect(prompt).toContain('JSON array');
   });
 
-  it('lists every service of a multi-service repository with its cwd when set', () => {
+  it('lists every running service of a multi-service repository, keyed repo/service', () => {
     const prompt = buildTesterPrompt({
       repo: '/mono',
       worktreePath: '/wt/mono',
       baseRef: 'develop',
-      service: null,
-      services: [
-        { key: 'mono/web', start: 'npm run dev', cwd: 'apps/web' },
-        { key: 'mono/api', start: 'go run .' },
+      runningServices: [
+        { key: 'mono/web', url: 'http://127.0.0.1:4100' },
+        { key: 'mono/api', url: 'http://127.0.0.1:4200' },
       ],
     });
-    expect(prompt).toContain("The repository's services start with:");
-    expect(prompt).toContain('- mono/web: `npm run dev` (cwd: apps/web)');
-    expect(prompt).toContain('- mono/api: `go run .`');
-    expect(prompt).not.toContain('(cwd: undefined)');
+    expect(prompt).toContain('These services are already running for this ticket');
+    expect(prompt).toContain('- mono/web → http://127.0.0.1:4100');
+    expect(prompt).toContain('- mono/api → http://127.0.0.1:4200');
+    expect(prompt).not.toContain('undefined');
   });
 
-  it('falls back to generic wording when no base ref or service is known', () => {
+  it('tells a serviceless target its change is not live in any running app', () => {
     const prompt = buildTesterPrompt({ repo: '/web', worktreePath: '/wt/web' });
     expect(prompt).not.toContain('undefined');
     expect(prompt).toContain('its base branch.');
+    expect(prompt).toContain('This repository has no running service');
+    expect(prompt).toContain('Its change is NOT live in any running app of this ticket.');
+    expect(prompt).not.toContain('You may stand it up');
   });
 
   // fu1: "review agent xterm log shows no changes, but diffs are present". The
@@ -1017,10 +1029,10 @@ describe('buildTesterPrompt', () => {
     expect(prompt).toContain(
       'Focus on API endpoint behavior.\nTest edge cases around authentication and rate limiting.',
     );
-    // The facts the agent needs survive — repo, base branch, service context.
+    // The facts the agent needs survive — repo, base branch, running services.
     expect(prompt).toContain('Repository: /web');
     expect(prompt).toContain('develop');
-    expect(prompt).toContain('npm run dev');
+    expect(prompt).toContain('- web → http://127.0.0.1:4100');
     // The default role/strategy lines are replaced...
     expect(prompt).not.toContain('black-box UAT tester');
     expect(prompt).not.toContain('Try to BREAK');

@@ -91,11 +91,31 @@ function assertPositiveInt(n: number, what: string): void {
  */
 export type DeliveryChannel = 'mcp' | 'cli-env';
 
-/** Fixed wording, the CLI command and MCP tool (same name) per pointer kind. */
+/**
+ * Fixed wording, the CLI command and MCP tool (same name) per pointer kind.
+ * `follow` is appended after the fetch instruction for a kind whose arrival
+ * must not end the recipient's turn: a project note is informational, so the
+ * notes pointer says so and tells the agent to continue its current task.
+ */
 const POINTER_TEXT = {
-  mail: { lead: (p: { unread: number }) => `${p.unread} new message(s)`, command: 'inbox', ack: false },
-  notes: { lead: (p: { unread: number }) => `${p.unread} new project note(s)`, command: 'notes', ack: false },
-  fix: { lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`, command: 'fix-brief', ack: true },
+  mail: {
+    lead: (p: { unread: number }) => `${p.unread} new message(s)`,
+    command: 'inbox',
+    ack: false,
+    follow: '',
+  },
+  notes: {
+    lead: (p: { unread: number }) => `${p.unread} new project note(s)`,
+    command: 'notes',
+    ack: false,
+    follow: '; informational, then continue your current task - a note never ends your turn',
+  },
+  fix: {
+    lead: (p: { deliveryId: number }) => `fix brief #${p.deliveryId} ready`,
+    command: 'fix-brief',
+    ack: true,
+    follow: '',
+  },
 } as const;
 
 function pointerLead(pointer: MessagePointer): string {
@@ -115,18 +135,20 @@ function pointerLead(pointer: MessagePointer): string {
 /**
  * The pointer line: fixed text, the unread count, and how to fetch the body —
  * the karst MCP tool when the session registered it, otherwise the CLI command
- * through the session's `"$KARST_*"` env refs. Never a host path.
+ * through the session's `"$KARST_*"` env refs. Never a host path. A notes
+ * pointer also carries its `follow` clause: a note is informational, so the
+ * agent keeps working instead of ending its turn.
  */
 export function messagePointer(pointer: MessagePointer, channel: DeliveryChannel): string {
-  const { command, ack } = POINTER_TEXT[pointer.kind];
+  const { command, ack, follow } = POINTER_TEXT[pointer.kind];
   const lead = pointerLead(pointer);
   if (channel === 'mcp') {
-    return printable(`karst: ${lead} - call the karst MCP tool "${command}"${ack ? ' with ack: true' : ''}`);
+    return printable(`karst: ${lead} - call the karst MCP tool "${command}"${ack ? ' with ack: true' : ''}${follow}`);
   }
   // Only refs every ticket terminal exports: the key and manifest are optional at launch.
   const refs = karstCliRefs();
   const parts = ['node', refs.cli, command, ...(ack ? ['--ack'] : []), '--db', refs.db, '--ticket', envRef(KARST_TICKET_ID_ENV)];
-  return printable(`karst: ${lead} - run ${parts.join(' ')}`);
+  return printable(`karst: ${lead} - run ${parts.join(' ')}${follow}`);
 }
 
 export interface TerminalDeliveryDeps {

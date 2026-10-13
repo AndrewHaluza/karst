@@ -314,7 +314,7 @@ describe('quality process reducers (re-exported)', () => {
     uatFindings: [],
     processRuns: [],
     rounds: [],
-    services: ['web'],
+    services: [{ service: 'web', status: 'running' as const, host: '127.0.0.1', port: 4100 }],
     now: NOW,
   };
 
@@ -322,8 +322,8 @@ describe('quality process reducers (re-exported)', () => {
     expect(uatProcesses(input).map((p) => p.id)).toEqual(['gates', 'services', 'tester']);
   });
 
-  it('reviewProcesses emits the registry order', () => {
-    expect(reviewProcesses({ ...input, cell: { stageKey: 'review' as const, status: 'passed' as const } }).map((p) => p.id)).toEqual(['gates', 'services', 'review']);
+  it('reviewProcesses emits the registry order without a Services row (D155)', () => {
+    expect(reviewProcesses({ ...input, cell: { stageKey: 'review' as const, status: 'passed' as const } }).map((p) => p.id)).toEqual(['gates', 'review']);
   });
 });
 

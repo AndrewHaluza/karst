@@ -7,12 +7,18 @@ function fencedJson(value: string): string {
   return `${fence}json\n${value}\n${fence}`
 }
 
+function omittedByClassSuffix(byClass?: Readonly<Record<string, number>>): string {
+  const entries = Object.entries(byClass ?? {})
+  if (entries.length === 0) return ''
+  return `: ${entries.map(([name, count]) => `${name} ${count}`).join(', ')}`
+}
+
 function renderSection(name: string, section: DiagnosticSection): string {
   if (section.status === 'unavailable') {
     return `## ${name}\n\nStatus: unavailable (${section.reason})\n`
   }
   const qualifier = section.status === 'truncated'
-    ? `truncated by ${section.reason} (${section.omitted} omitted)`
+    ? `truncated by ${section.reason} (${section.omitted} omitted${omittedByClassSuffix(section.omittedByClass)})`
     : 'available'
   return `## ${name}\n\nStatus: ${qualifier}\n\n${fencedJson(renderStableJsonValue(section.data))}\n`
 }

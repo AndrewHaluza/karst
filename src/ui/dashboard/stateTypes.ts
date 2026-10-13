@@ -4,6 +4,7 @@ import type { BaselineReviewRow } from './baselineRows.js';
 import type { StoredArtifactsView } from './storedArtifacts.js';
 import type { StepperCell } from '../../model/stepper.js';
 import type { ShipSlot } from '../../model/shipSlot.js';
+import type { ShipPreview } from '../../workflow/shipPreview.js';
 import type { AgentDefaults } from '../../agent/agentPresets.js';
 import type { StageRail } from '../../model/stageRail.js';
 import type { MergeCheckPanelRow } from '../../model/mergeCheckPanel.js';
@@ -172,6 +173,15 @@ export interface DashboardState {
    * ship branch, lifted to the header. The states are mutually exclusive.
    */
   ship: ShipSlot;
+  /**
+   * The advisory ship preview (D142), present ONLY while `ship.kind` is
+   * `confirm`/`retry`. Overlaid from the async loader (like `storedArtifacts`),
+   * because it reads git: it names per repo what ship's sweep commit will carry,
+   * what `ship.exclude` keeps out, what the deny scan refuses, and the commit
+   * subject / PR title ship would render. A read failure is per repo; the
+   * preview never blocks Confirm ship.
+   */
+  shipPreview?: ShipPreview;
   /**
    * The agent-switch choices the header popover renders: every implemented core
    * (canonical label) and each core's model choices, keyed by provider id. The

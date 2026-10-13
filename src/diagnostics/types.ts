@@ -11,6 +11,13 @@ export type DiagnosticSection<T extends JsonValue = JsonValue> =
     readonly data: T
     readonly omitted: number
     readonly reason: 'rows' | 'age' | 'bytes'
+    /**
+     * Additive, v1-compatible breakdown of `omitted` by why an entry was
+     * dropped: `warnError` / `ticket` / `other` (which priority class lost the
+     * row/byte cap race) and `age` (outside the retention window). Producers
+     * that do not classify omit the field rather than invent zeros.
+     */
+    readonly omittedByClass?: Readonly<Record<string, number>>
   }
   | { readonly status: 'unavailable'; readonly reason: string }
 

@@ -228,7 +228,7 @@ describe('loadModelCatalog diagnostics', () => {
       { provider: 'codex', tier: 'cli', category: code },
       { provider: 'opencode', tier: 'cli', category: 'command-unavailable' },
       { provider: 'opencode', tier: 'feed', category: 'empty' },
-      { provider: 'opencode2', tier: 'cli', category: 'unsupported' },
+      { provider: 'opencode2', tier: 'cli', category: 'command-unavailable' },
       { provider: 'opencode2', tier: 'feed', category: 'empty' },
     ]);
     expect(JSON.stringify(result.diagnostics)).not.toContain('SECRET_');
@@ -690,6 +690,88 @@ describe('loadModelCatalog curated-tag overlay', () => {
 
     expect(result.sources.opencode).toBe('bundled');
     expect(result.catalog.opencode).toEqual([]);
+  });
+});
+
+describe('loadModelCatalog curated effort and label overlay', () => {
+  function curatedOpencode2Catalog(): ModelCatalog {
+    return {
+      claude: models('claude', 'bundled-claude'),
+      codex: models('codex', 'bundled-codex'),
+      antigravity: models('antigravity', 'bundled-antigravity'),
+      opencode: [],
+      opencode2: [
+        {
+          id: 'opencode-go/space-bunny',
+          label: 'OpenCode Go · Space Bunny',
+          providers: ['opencode2'],
+          efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+        },
+        { id: 'opencode-go/mimo-v2.5', label: 'OpenCode Go · MiMo v2.5', providers: ['opencode2'] },
+      ],
+    };
+  }
+
+  it('resolves opencode2 from the cli tier and inherits curated efforts and label by id', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      bundledCatalog: curatedOpencode2Catalog(),
+      cliLoaders: {
+        claude: unavailable,
+        codex: unavailable,
+        antigravity: unavailable,
+        opencode: unavailable,
+        opencode2: async () => ({
+          status: 'available',
+          models: [
+            { id: 'opencode-go/space-bunny', label: 'opencode-go/space-bunny', providers: ['opencode2'] },
+            { id: 'opencode-go/mimo-v2.5', label: 'opencode-go/mimo-v2.5', providers: ['opencode2'] },
+            { id: 'newvendor/new-model', label: 'newvendor/new-model', providers: ['opencode2'] },
+          ],
+        }),
+      },
+    });
+
+    expect(result.sources.opencode2).toBe('cli');
+    expect(result.catalog.opencode2).toEqual([
+      {
+        id: 'opencode-go/space-bunny',
+        label: 'OpenCode Go · Space Bunny',
+        providers: ['opencode2'],
+        efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
+      },
+      { id: 'opencode-go/mimo-v2.5', label: 'OpenCode Go · MiMo v2.5', providers: ['opencode2'] },
+      { id: 'newvendor/new-model', label: 'newvendor/new-model', providers: ['opencode2'] },
+    ]);
+  });
+
+  it('takes the curated label but never overrides a discovered row\u2019s own efforts', async () => {
+    const result = await loadModelCatalog({
+      ...baseDeps(new MemoryCache(), completeFeed()),
+      bundledCatalog: curatedOpencode2Catalog(),
+      cliLoaders: {
+        claude: unavailable,
+        codex: unavailable,
+        antigravity: unavailable,
+        opencode: unavailable,
+        opencode2: async () => ({
+          status: 'available',
+          models: [{
+            id: 'opencode-go/space-bunny',
+            label: 'Space Bunny',
+            providers: ['opencode2'],
+            efforts: ['high'],
+          }],
+        }),
+      },
+    });
+
+    expect(result.catalog.opencode2).toEqual([{
+      id: 'opencode-go/space-bunny',
+      label: 'OpenCode Go · Space Bunny',
+      providers: ['opencode2'],
+      efforts: ['high'],
+    }]);
   });
 });
 
