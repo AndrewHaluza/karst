@@ -29,6 +29,7 @@ import { GRAPH_HARD_CEILINGS } from '../../../manifest/graphConfig.js';
 import {
   recoverGraphRun,
   recoveryCategoryFor,
+  launchFailureStreak,
   type RecoveryCategory,
   type RecoveryDeps,
   type RecoveryResult,
@@ -287,6 +288,65 @@ describe('recoverGraphRun', () => {
       .prepare('SELECT status FROM approach_graph_tokens ORDER BY id')
       .all() as { status: string }[];
     expect(tokens.map((t) => t.status)).toEqual(['claimed', 'claimed']);
+  });
+
+  it('refuses a plain Resume once the same visit has failed at launch twice, and Force retry relaunches it', () => {
+    const { ticketId, graphRunId } = blockedGraph('failed-to-launch: node run 7', [
+      { id: 7, status: 'blocked' },
+    ]);
+    claimToken(7);
+    // `launch_attempt` counts RETRIES: 1 means this reserved visit has been
+    // launched twice and its last recorded failure is a launch failure.
+    store.db
+      .prepare(
+        `UPDATE approach_node_runs
+            SET launch_attempt = 1, failure_category = 'failed-to-launch',
+                reason = 'launched twice and exited before starting: trust this folder'
+          WHERE id = 7`,
+      )
+      .run();
+
+    const refused = recoverGraphRun(makeDeps(), { ticketId, graphRunId });
+    expect(refused).toEqual({ kind: 'refused', reason: 'launch-loop' });
+    // Nothing moved: the run stays blocked, the stage block stays parked, and
+    // the reserved visit is untouched — a plain Resume cannot loop.
+    expect(runRow(graphRunId).status).toBe('blocked');
+    expect(stageBlock(store, ticketId, 'impl')).not.toBeNull();
+    expect(nodeRow(7).status).toBe('blocked');
+
+    const forced = recoverGraphRun(makeDeps(), { ticketId, graphRunId, mode: 'force-resume' });
+    expect(forced).toEqual({ kind: 'retried', retried: [7], resnapshotted: [] });
+    expect(nodeRow(7).status).toBe('launching');
+  });
+
+  it('still retries the FIRST launch failure of a visit', () => {
+    const { ticketId, graphRunId } = blockedGraph('failed-to-launch: node run 7', [
+      { id: 7, status: 'blocked' },
+    ]);
+    claimToken(7);
+    store.db
+      .prepare(
+        `UPDATE approach_node_runs SET launch_attempt = 0, failure_category = 'failed-to-launch' WHERE id = 7`,
+      )
+      .run();
+    expect(recoverGraphRun(makeDeps(), { ticketId, graphRunId })).toEqual({
+      kind: 'retried',
+      retried: [7],
+      resnapshotted: [],
+    });
+  });
+
+  it('launchFailureStreak counts the retries of node runs whose last failure was a launch failure', () => {
+    const { graphRunId } = blockedGraph('failed-to-launch: node run 7', [
+      { id: 7, status: 'blocked' },
+    ]);
+    expect(launchFailureStreak(store.db, graphRunId)).toBe(0);
+    store.db
+      .prepare(
+        `UPDATE approach_node_runs SET launch_attempt = 2, failure_category = 'failed-to-launch' WHERE id = 7`,
+      )
+      .run();
+    expect(launchFailureStreak(store.db, graphRunId)).toBe(2);
   });
 
   it('resource-claim-violated requires corrected claims + explicit Resume, never auto-retry', () => {

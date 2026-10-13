@@ -4,6 +4,8 @@ import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import {
   compileExpertSpend,
   graphRecoveryRefusalNotice,
+  graphRefusalHandling,
+  parkGraphLaunchFailure,
   projectMaxReplans,
 } from './graphRecovery.js';
 
@@ -104,5 +106,90 @@ describe('graphRecoveryRefusalNotice', () => {
     const notice = graphRecoveryRefusalNotice(7, 'resume', 'discard-required');
     expect(notice).toContain('Discard');
     expect(notice).toContain('Resume');
+  });
+
+  it('names the folder trust and the Force retry escape for a launch-loop refusal', () => {
+    const notice = graphRecoveryRefusalNotice(7, 'resume', 'launch-loop');
+    expect(notice).toContain('launched twice');
+    expect(notice).toContain('folder trust');
+    expect(notice).toContain('Force a retry');
+  });
+});
+
+describe('graphRefusalHandling', () => {
+  it('offers the Force retry only for a launch-loop refusal on a plain Resume', () => {
+    expect(graphRefusalHandling(1, 'resume', 'launch-loop')).toEqual({
+      message: graphRecoveryRefusalNotice(1, 'resume', 'launch-loop'),
+      offerForce: true,
+    });
+    // A Replan is never the loop's control, and no other refusal is forcible.
+    expect(graphRefusalHandling(1, 'replan', 'launch-loop').offerForce).toBe(false);
+    expect(graphRefusalHandling(1, 'resume', 'explicit-resolution').offerForce).toBe(false);
+    expect(graphRefusalHandling(1, 'force-resume', 'launch-loop').offerForce).toBe(false);
+  });
+
+  it('reports a replan attempt as a replan in the notice', () => {
+    expect(graphRefusalHandling(3, 'replan', 'config-then-resume').message).toContain(
+      'cannot replan itself',
+    );
+  });
+});
+
+describe('parkGraphLaunchFailure', () => {
+  it('parks the node the launch died on with its captured line', () => {
+    const store = openStore(':memory:');
+    store.db.prepare("INSERT INTO tickets (id, key) VALUES (1, 'T-1')").run();
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_runs (id, ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+         VALUES (2, 1, 'impl', 0, 'x', 'running', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run();
+    store.db
+      .prepare(
+        `INSERT INTO approach_graph_revisions (id, graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+         VALUES (3, 2, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z')`,
+      )
+      .run();
+    store.db
+      .prepare(
+        `INSERT INTO approach_node_runs (id, graph_run_id, revision_id, node_id, node_kind, visit_number, status, launch_attempt)
+         VALUES (11, 2, 3, 'n', 'agent', 1, 'running', 0)`,
+      )
+      .run();
+    const reported: string[] = [];
+    const handler = parkGraphLaunchFailure(
+      () =>
+        ({
+          db: store.db,
+          transaction: <T>(fn: () => T): T => fn(),
+          now: () => '2026-08-12T00:00:00.000Z',
+          debug: () => undefined,
+        }) as never,
+      (message) => reported.push(message),
+    );
+    handler({
+      request: { graphRunId: 2, nodeRunId: 11 },
+      outputLine: 'Folder trust required',
+    } as never);
+
+    const node = store.db
+      .prepare('SELECT status, reason FROM approach_node_runs WHERE id = 11')
+      .get() as { status: string; reason: string };
+    expect(node.status).toBe('blocked');
+    expect(node.reason).toBe('failed-to-launch: Folder trust required');
+    expect(reported).toEqual([]);
+  });
+
+  it('reports a throwing park instead of letting it escape the launch path', () => {
+    const reported: string[] = [];
+    const handler = parkGraphLaunchFailure(
+      () => {
+        throw new Error('database is locked');
+      },
+      (message) => reported.push(message),
+    );
+    handler({ request: { graphRunId: 1, nodeRunId: 2 }, outputLine: '' } as never);
+    expect(reported).toEqual(['karst: parking a failed graph launch failed']);
   });
 });

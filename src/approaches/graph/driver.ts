@@ -78,6 +78,7 @@ import {
   type WorkspaceDomain,
 } from './workspace/provider.js';
 import { domainKeyOf } from './integration/domains.js';
+import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import type {
   SupervisedAgentSession,
   SupervisedCliTransport,
@@ -1064,11 +1065,14 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
   });
 }
 
-/** Park a node whose launch could not proceed: `ready | launching → blocked`
- *  with a reason, blocking the run so the graph-aware Resume owns the retry.
- *  `ready → blocked` is not a legal edge, so a node parked before it claimed
- *  passes through `launching` — the same two steps a claimed launch takes. */
-function parkLaunchFailure(
+/** Park a node whose launch could not proceed: `ready | launching | running →
+ *  blocked` with a reason, blocking the run so the graph-aware Resume owns the
+ *  retry. `ready → blocked` is not a legal edge, so a node parked before it
+ *  claimed passes through `launching` — the same two steps a claimed launch
+ *  takes. A node the driver already moved to `running` (a provider that exited
+ *  a moment after spawn, before any session existed) parks straight from
+ *  `running`. */
+export function parkLaunchFailure(
   deps: GraphDriverDeps,
   graphRunId: number,
   nodeRunId: number,
@@ -1078,13 +1082,25 @@ function parkLaunchFailure(
   deps.transaction(() => {
     const status = nodeRunStatus(deps.db, nodeRunId);
     if (status === undefined) return;
-    if (
-      status === 'ready' &&
-      !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'ready', 'launching')
-    ) {
-      return;
+    if (status === 'ready') {
+      if (
+        !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'ready', 'launching')
+      ) {
+        return;
+      }
+    } else if (status === 'launching') {
+      // fall through to the `launching → blocked` CAS below
+    } else if (status === 'running') {
+      if (
+        !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'running', 'blocked')
+      ) {
+        return;
+      }
+    } else {
+      return; // already a rest state (another parker / window won)
     }
     if (
+      status !== 'running' &&
       !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, nodeRunId, 'launching', 'blocked')
     ) {
       return;
@@ -1099,6 +1115,41 @@ function parkLaunchFailure(
     }
     releaseGraphProcessSlot(deps.db, graphRunId, deps.now());
   });
+}
+
+/** Cap for the captured provider line recorded as a launch-failure reason,
+ *  after the untrusted CLI text is collapsed to one line. */
+export const LAUNCH_FAILURE_LINE_MAX = 200;
+
+/**
+ * Record a provider process that exited before its session started (the
+ * supervised transport's `LAUNCH_EXIT_WINDOW_MS` early exit). The node parks
+ * `failed-to-launch` with the captured line as its reason, so the dashboard
+ * names the cause and the reconcile sweep no longer records the anonymous
+ * "dead at reconcile". On the SECOND launch failure of the same reserved visit
+ * it records the launch-loop message instead — the text the dashboard shows
+ * and the state the recovery's launch-loop guard reads — plus the folder-trust
+ * hint that fits the T661/D146 failure.
+ */
+export function parkNodeLaunchExit(
+  deps: GraphDriverDeps,
+  graphRunId: number,
+  nodeRunId: number,
+  outputLine: string,
+): void {
+  const row = deps.db
+    .prepare('SELECT launch_attempt FROM approach_node_runs WHERE id = ?')
+    .get(nodeRunId) as { launch_attempt: number } | undefined;
+  if (row === undefined) return;
+  const captured = collapseDiagnostic(outputLine, LAUNCH_FAILURE_LINE_MAX);
+  const line = captured === '' ? '' : `: ${captured}`;
+  // `launch_attempt` counts RETRIES (a fresh visit is 0), so >= 1 means this is
+  // the second launch of the same reserved visit that died before starting.
+  const reason =
+    row.launch_attempt >= 1
+      ? `launched twice and exited before starting${line} — the agent CLI is probably not trusting this folder; check its folder trust`
+      : `failed-to-launch${line}`;
+  parkLaunchFailure(deps, graphRunId, nodeRunId, reason);
 }
 
 /* ------------------------------------------------------------------ */

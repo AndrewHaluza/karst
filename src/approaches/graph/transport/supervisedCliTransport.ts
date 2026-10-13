@@ -64,6 +64,32 @@ export type {
   TransportTerminalHost,
 } from './agentTransport.js';
 
+/**
+ * How long after spawn an exit still reads as "never started". A provider that
+ * exits inside this window never reached its prompt (T661's folder-trust
+ * dialog, a missing binary, a bad flag), so the close is a LAUNCH failure; an
+ * exit after it belongs to the reconcile sweep as a session that died.
+ */
+export const LAUNCH_EXIT_WINDOW_MS = 10_000;
+
+/** Cap for a captured output line kept in memory for the launch-failure
+ *  reason, before the consumer sanitizes and bounds it. */
+export const LAUNCH_EXIT_LINE_MAX = 500;
+
+/** One launch whose provider process exited before its session started. */
+export interface LaunchFailure {
+  request: SupervisedLaunchRequest;
+  session: SupervisedAgentSession;
+  /** The terminal's exit code, when the host reported one. */
+  exitCode: number | undefined;
+  /**
+   * The last non-empty line the provider wrote to the terminal, RAW (untrusted
+   * CLI text). '' when nothing was captured. The consumer bounds and sanitizes
+   * it before it is recorded (@arch:AC-06).
+   */
+  outputLine: string;
+}
+
 export interface SupervisedTransportDeps {
   terminalHost: TransportTerminalHost;
   /** Register the session in the `servers` registry (cwd-keyed). */
@@ -99,6 +125,15 @@ export interface SupervisedTransportDeps {
   closeProcessRun?: (processRunId: number, status: 'passed' | 'failed' | 'interrupted', now: string) => void;
   now: () => string;
   debug?: (message: string) => void;
+  /**
+   * A provider process that exited INSIDE `LAUNCH_EXIT_WINDOW_MS` of its spawn
+   * — before any session started — is a launch failure, not a session death.
+   * The host parks the node `failed-to-launch` with the captured line as its
+   * reason (driver.ts `parkNodeLaunchExit`), so the dashboard names the cause
+   * and the Resume loop stops. Absent → the early exit is left to the
+   * reconcile sweep (the pre-T661 "dead at reconcile" behaviour).
+   */
+  onLaunchFailed?: (failure: LaunchFailure) => void;
   /** Resolve a graph run's ticket identity (project slug, ticket key, stage
    *  attempt) for the structured launch diagnostic. Absent → the launch line
    *  is skipped (an unattributed run is not keyed). */
@@ -136,6 +171,9 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
   const killTree = deps.killTree ?? systemKillTree;
   /** Graph sessions bypass SessionManager — keyed (ticketId, nodeRunId). */
   const sessions = new Map<string, SupervisedAgentSession>();
+  /** Sessions this window is stopping — their close is a Stop, not a launch
+   *  failure, so the early-exit report is suppressed for them. */
+  const terminating = new Set<string>();
 
   return {
     capabilities: () => SUPERVISED_CLI_TRANSPORT_CAPABILITIES,
@@ -209,6 +247,21 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // out: the 869ed2n50 detached-process class, re-opened one line below
       // the guard that closes it.
       sessions.set(key, session);
+      // The provider's last non-empty output line, kept for the launch-failure
+      // reason. Bounded per line so a hostile/garbage stream can never grow
+      // this in memory; the consumer sanitizes the text before it is recorded.
+      let lastOutputLine = '';
+      const capture = terminal.onDidWriteData;
+      if (capture) {
+        capture((data) => {
+          for (const line of data.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed.length > 0) lastOutputLine = trimmed.slice(0, LAUNCH_EXIT_LINE_MAX);
+          }
+        });
+      }
+      const startedAtMs = startedAt === null ? undefined : Date.parse(startedAt);
+      let closed = false;
       // The terminal's close is the session's end: close the accounting row
       // with the exit verdict, exactly once (the terminal close handler fires
       // once per terminal, and the store's guarded close ignores anything
@@ -230,6 +283,28 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
               `[graph] node ${request.nodeRunId}: closing the process_runs row failed (${String(error)})`,
             );
           }
+        }
+        // An exit before the session ever started (inside the launch window)
+        // is a LAUNCH failure, not a session death — unless this window is
+        // STOPPING the session (Stop), which is a deliberate end, never a
+        // failure to launch.
+        if (
+          closed ||
+          terminating.has(key) ||
+          deps.onLaunchFailed === undefined ||
+          startedAtMs === undefined
+        ) {
+          return;
+        }
+        const closedAtMs = Date.parse(deps.now());
+        if (!Number.isFinite(closedAtMs) || closedAtMs - startedAtMs >= LAUNCH_EXIT_WINDOW_MS) return;
+        closed = true;
+        try {
+          deps.onLaunchFailed({ request, session, exitCode, outputLine: lastOutputLine });
+        } catch (error) {
+          deps.debug?.(
+            `[graph] node ${request.nodeRunId}: reporting the launch failure failed (${String(error)})`,
+          );
         }
       });
       try {
@@ -263,6 +338,8 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
     },
 
     async terminate(session: SupervisedAgentSession): Promise<TerminationProof> {
+      // A close that follows this call is a Stop, never a launch failure.
+      terminating.add(`${session.ticketId}:${session.nodeRunId}`);
       if (session.pid === null) {
         deps.debug?.('[graph] terminate for a session that never started — nothing to signal');
         return { kind: 'unknown' };

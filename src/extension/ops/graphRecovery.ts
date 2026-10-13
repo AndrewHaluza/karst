@@ -10,8 +10,59 @@ import { DEFAULT_GRAPH_LIMITS } from '../../manifest/graphConfig.js';
 import { graphRunStatusReplanCount } from '../../store/graph/graphRuns.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import type { CompileContext } from '../../approaches/graph/compile.js';
-import type { RecoveryRefusalReason } from '../../approaches/graph/coordinator/recovery.js';
+import { parkNodeLaunchExit, type GraphDriverDeps } from '../../approaches/graph/driver.js';
+import type { LaunchFailure } from '../../approaches/graph/transport/supervisedCliTransport.js';
+import type {
+  GraphRecoveryMode,
+  RecoveryRefusalReason,
+} from '../../approaches/graph/coordinator/recovery.js';
 import { formatId } from '../../model/entityId.js';
+
+/**
+ * The supervised transport's early-exit callback (T693): a provider that exited
+ * before its session started parks the node `failed-to-launch` with the
+ * captured line as its reason. The driver deps are read lazily — the callback
+ * fires long after activation builds the transport.
+ */
+export function parkGraphLaunchFailure(
+  deps: () => GraphDriverDeps,
+  report: (message: string, err: unknown) => void,
+): (failure: LaunchFailure) => void {
+  return (failure) => {
+    try {
+      parkNodeLaunchExit(
+        deps(),
+        failure.request.graphRunId,
+        failure.request.nodeRunId,
+        failure.outputLine,
+      );
+    } catch (err) {
+      report('karst: parking a failed graph launch failed', err);
+    }
+  };
+}
+
+/** What the Resume control shows after `recoverGraphRun` refused. */
+export interface GraphRefusalHandling {
+  message: string;
+  /**
+   * A plain Resume on a launch loop is refused — its only exit is the explicit
+   * Force retry, which the host offers as a modal. Every other refusal is a
+   * plain notice.
+   */
+  offerForce: boolean;
+}
+
+export function graphRefusalHandling(
+  ticketId: number,
+  mode: GraphRecoveryMode,
+  reason: RecoveryRefusalReason,
+): GraphRefusalHandling {
+  return {
+    message: graphRecoveryRefusalNotice(ticketId, mode === 'replan' ? 'replan' : 'resume', reason),
+    offerForce: reason === 'launch-loop' && mode === 'resume',
+  };
+}
 
 /** The project's hard replan cap: `limits.maxReplans`, with the packaged
  *  default fallback. Raising config can lift it; it is never the revision
@@ -71,5 +122,11 @@ export function graphRecoveryRefusalNotice(
       return `${head} Correct the flagged artifacts or claims — or Replan — then Resume.`;
     case 'discard-required':
       return `${head} Discard the unknown process, then Resume.`;
+    case 'launch-loop':
+      return (
+        `${head} The same node launched twice and exited before starting — the agent ` +
+        `CLI is probably not trusting this folder; check its folder trust. ` +
+        `Force a retry to launch it once more anyway, or Replan.`
+      );
   }
 }

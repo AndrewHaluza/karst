@@ -364,7 +364,11 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(nodeRow(ctx, 106).status).toBe('stale');
     const run = runRow(ctx);
     expect(run.status).toBe('blocked');
+    // A session that started and then died is the reconcile sweep's to record:
+    // the early-exit launch-failure path (T693) only claims a death inside its
+    // launch window, so the post-start wording is unchanged.
     expect(run.blocked_reason).toMatch(/node-blocked/);
+    expect(run.blocked_reason).toContain('is gone (dead at reconcile)');
     expect(result.transitions).toBe(1);
   });
 

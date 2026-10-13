@@ -30,6 +30,7 @@ import {
   sha256Hex,
   nodeWorkspaceDirective,
   resolveGraphNodeProfile,
+  parkNodeLaunchExit,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -2311,5 +2312,87 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
     await driveReadyNodeRuns(h.deps, graphRunId);
     expect(promptOf(h)).not.toContain('karst inbox');
     expect(promptOf(h)).not.toContain('karst notes post');
+  });
+});
+
+describe('parkNodeLaunchExit', () => {
+  /** A `running` graph with one agent node run the driver already moved to
+   *  `running` — the state a provider that exited moments after spawn leaves. */
+  function graphWithRunningNode(
+    h: Harness,
+    launchAttempt: number,
+  ): { graphRunId: number; nodeRunId: number } {
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (graph_run_id, revision_id, node_id, node_kind, visit_number, status, launch_attempt)
+           VALUES (?, ?, 'n', 'agent', 1, 'running', ?)`,
+        )
+        .run(graphRunId, revisionId, launchAttempt)
+        .lastInsertRowid,
+    );
+    return { graphRunId, nodeRunId };
+  }
+
+  function nodeOf(h: Harness, nodeRunId: number): {
+    status: string;
+    failure_category: string | null;
+    reason: string | null;
+  } {
+    return h.db
+      .prepare('SELECT status, failure_category, reason FROM approach_node_runs WHERE id = ?')
+      .get(nodeRunId) as { status: string; failure_category: string | null; reason: string | null };
+  }
+
+  it('parks a node already `running` as failed-to-launch with the captured line', () => {
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0);
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, 'Folder trust required');
+
+    const node = nodeOf(h, nodeRunId);
+    expect(node.status).toBe('blocked');
+    expect(node.failure_category).toBe('failed-to-launch');
+    expect(node.reason).toBe('failed-to-launch: Folder trust required');
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toBe(`failed-to-launch: node run ${nodeRunId}`);
+  });
+
+  it('names the loop on the second launch failure of the same reserved visit', () => {
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 1);
+    // Untrusted terminal text: collapsed to one line, controls stripped.
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, '\u0000trust\n  this   folder?  ');
+
+    const node = nodeOf(h, nodeRunId);
+    expect(node.status).toBe('blocked');
+    expect(node.failure_category).toBe('failed-to-launch');
+    expect(node.reason).toContain('launched twice and exited before starting: trust this folder?');
+    expect(node.reason).toContain('folder trust');
+  });
+
+  it('records no line when the host captured none', () => {
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0);
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, '');
+    expect(nodeOf(h, nodeRunId).reason).toBe('failed-to-launch');
   });
 });

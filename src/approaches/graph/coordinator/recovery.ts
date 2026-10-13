@@ -121,10 +121,53 @@ export type RecoveryCategory =
 export type RecoveryRefusalReason =
   | 'discard-required'
   | 'config-then-resume'
-  | 'explicit-resolution';
+  | 'explicit-resolution'
+  | 'launch-loop';
 
 /** How a user-triggered graph recovery should treat the recorded block. */
-export type GraphRecoveryMode = 'resume' | 'replan';
+export type GraphRecoveryMode = 'resume' | 'replan' | 'force-resume';
+
+/**
+ * The number of consecutive launch failures recorded on a run's node runs —
+ * the streak the launch-loop guard reads, DERIVED from node-run history (no new
+ * column). A reserved visit is retried in place, so `launch_attempt` counts its
+ * RETRIES: a node whose last recorded failure is a launch failure and which
+ * carries at least one retry has been launched twice in a row and exited
+ * before starting. `nodeRunId` scopes the read to the visit the run's blocked
+ * reason names; absent, the highest such retry count on the run.
+ */
+export function launchFailureStreak(
+  db: Store['db'],
+  graphRunId: number,
+  nodeRunId?: number,
+): number {
+  const row = (
+    nodeRunId === undefined
+      ? db
+          .prepare(
+            `SELECT MAX(launch_attempt) AS streak FROM approach_node_runs
+              WHERE graph_run_id = ? AND failure_category = 'failed-to-launch'`,
+          )
+          .get(graphRunId)
+      : db
+          .prepare(
+            `SELECT launch_attempt AS streak FROM approach_node_runs
+              WHERE graph_run_id = ? AND id = ? AND failure_category = 'failed-to-launch'`,
+          )
+          .get(graphRunId, nodeRunId)
+  ) as { streak: number | null } | undefined;
+  return row?.streak ?? 0;
+}
+
+/** The node run a `failed-to-launch` blocked reason names — the visit the
+ *  launch-loop guard scopes to. `parkLaunchFailure` is the only writer of that
+ *  prefix, and it always names the node run. */
+const FAILED_LAUNCH_NODE = /^failed-to-launch: node run (\d+)/;
+
+function failedLaunchNodeRunId(reason: string | null): number | undefined {
+  const match = reason === null ? null : FAILED_LAUNCH_NODE.exec(reason);
+  return match ? Number(match[1]) : undefined;
+}
 
 export interface RecoveryDeps {
   store: Store;
@@ -717,6 +760,27 @@ export function recoverGraphRun(
   deps.debug?.(
     `[graph] recovery: run ${input.graphRunId} blocked_reason "${run.blocked_reason ?? 'none'}" → category ${category}`,
   );
+
+  // The launch-loop guard: the SAME reserved visit that already failed at
+  // launch twice must not be relaunched by a plain Resume — that is the loop
+  // the user was stuck in, with no cause shown. The node's own reason names
+  // the loop and the folder-trust hint; the explicit Force retry
+  // (`mode: 'force-resume'`) is the user's escape hatch, never automatic.
+  if (
+    input.mode !== 'force-resume' &&
+    run.blocked_reason?.startsWith('failed-to-launch') &&
+    launchFailureStreak(store.db, input.graphRunId, failedLaunchNodeRunId(run.blocked_reason)) >= 1
+  ) {
+    emitGraphDiagnostic({ db: store.db, debug: deps.debug }, {
+      category: 'recovery',
+      graphRunId: input.graphRunId,
+      detail:
+        'refused (launch-loop): the same node launched twice and exited before starting — ' +
+        'check the agent CLI’s folder trust, or Force a retry',
+    });
+    return { kind: 'refused', reason: 'launch-loop' };
+  }
+
   switch (category) {
     case 'launch-retry':
     case 'prompt-resnapshot':

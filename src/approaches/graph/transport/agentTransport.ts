@@ -41,6 +41,13 @@ export interface TransportTerminal {
   sendText(text: string): void;
   dispose(): void;
   onDidClose(handler: (exitCode?: number) => void): void;
+  /**
+   * Observe the bytes the provider writes to the terminal, when the host can.
+   * Optional: VS Code exposes terminal output only through a proposed API, so
+   * a host that cannot observe leaves this absent — the launch-failure reason
+   * then carries no captured line rather than a fabricated one.
+   */
+  onDidWriteData?(handler: (data: string) => void): void;
 }
 
 export interface TransportTerminalHost {
