@@ -50,7 +50,7 @@ export type SyncResult =
   | { readonly ok: false; readonly reason: string };
 
 export interface SessionRunner {
-  readonly kind: 'host' | 'sbx';
+  readonly kind: 'host' | 'sbx' | 'docker';
   /**
    * True only when the runner itself enforces a sandbox boundary. Autonomous
    * permissions may only be granted when this is true (arch:AC-31, fail closed).
