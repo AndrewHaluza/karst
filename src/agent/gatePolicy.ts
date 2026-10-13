@@ -21,8 +21,18 @@ import { homedir } from 'node:os';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
-/** The only profile today; a union so a second one is a type-checked addition. */
+/** The only HEADLESS profile today; a union so a second one is a type-checked addition. */
 export type HeadlessPolicy = 'gate';
+
+/**
+ * The INTERACTIVE launch profiles (`InteractiveCommandOpts.policy`) — the same
+ * vocabulary, one translation per adapter, never a second mechanism. `gate`
+ * is the unattended profile (graph nodes/planner): exactly the headless one.
+ * `attended` is the light profile for a session a human watches: the core's
+ * normal approval prompts stay; only pattern kills and writes to the
+ * operator's agent home config are always denied.
+ */
+export type InteractivePolicy = HeadlessPolicy | 'attended';
 
 /** Build/clean/rebuild scripts that mutate the worktree's toolchain. */
 export const GATE_BUILD_COMMANDS = [
@@ -58,6 +68,20 @@ export function gateProtectedPaths(
 export function claudeGateDeny(env?: NodeJS.ProcessEnv, home?: string): string[] {
   const paths = gateProtectedPaths(env, home).flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]);
   return [...gateDeniedCommands().map((c) => `Bash(${c})`), ...paths];
+}
+
+/** claude deny rules for the `attended` profile: pattern kills + home-config writes. */
+export function claudeAttendedDeny(env?: NodeJS.ProcessEnv, home?: string): string[] {
+  const paths = gateProtectedPaths(env, home).flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]);
+  return [...PROCESS_WIDE_KILL_COMMANDS.map((c) => `Bash(${c})`), ...paths];
+}
+
+/** opencode-family `edit` rules for `attended`: deny-only, so every other edit keeps its normal rule. */
+export function opencodeAttendedEdit(
+  env?: NodeJS.ProcessEnv,
+  home?: string,
+): Record<string, 'deny'> {
+  return Object.fromEntries(gateProtectedPaths(env, home).map((p) => [p, 'deny' as const]));
 }
 
 /**

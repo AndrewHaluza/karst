@@ -150,6 +150,10 @@ export interface AdapterSurfaces {
    * home config. `unsupported` names why the core cannot express it.
    */
   readonly headlessPolicy: SurfaceSupport;
+  /** `InteractiveCommandOpts.policy: 'gate'` (unattended graph node/planner) → the core's sandbox channel. */
+  readonly interactiveGatePolicy: SurfaceSupport;
+  /** `InteractiveCommandOpts.policy: 'attended'` (ticket session) → pattern-kill + home-config-write denies. */
+  readonly interactiveAttendedPolicy: SurfaceSupport;
   /**
    * `InteractiveCommandOpts.mcpConfigPath` → the core's launch-time MCP config
    * flag (`claude --mcp-config <file>`), so the karst MCP tools are registered

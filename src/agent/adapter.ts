@@ -7,7 +7,7 @@
  * rewrite. MVP ships one implementation (ClaudeAdapter).
  */
 
-import type { HeadlessPolicy } from './gatePolicy.js';
+import type { HeadlessPolicy, InteractivePolicy } from './gatePolicy.js';
 import type { AiCallSite } from './aiCallSites.js';
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
@@ -217,6 +217,17 @@ export interface InteractiveCommandOpts {
    * `karst mcp install` instead (see `AdapterSurfaces.mcpConfigInteractive`).
    */
   mcpConfigPath?: string;
+  /**
+   * Karst-owned sandbox profile for this launch (`gatePolicy.ts`), translated
+   * by each adapter into its own channel so it overrides on-disk config.
+   * `gate`: unattended graph node/planner — writes only in `cwd` + tmp, no
+   * pattern kills, no rebuild/clean scripts, no home-config writes.
+   * `attended`: a human-watched ticket session — normal approval prompts stay,
+   * pattern kills and home-config writes are always denied. A core that cannot
+   * declares `AdapterSurfaces.interactiveGatePolicy` /
+   * `interactiveAttendedPolicy` unsupported with a reason. Absent → none.
+   */
+  policy?: InteractivePolicy;
 }
 
 export interface HookChannel {

@@ -110,6 +110,8 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'mcpConfigInteractive',
       'processKillDeny',
       'headlessPolicy',
+      'interactiveGatePolicy',
+      'interactiveAttendedPolicy',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -375,6 +377,47 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       expect(text).toContain('npm rebuild*');
       expect(text).toContain('.claude.json');
     }
+  });
+
+  it.each([
+    ['gate', 'interactiveGatePolicy'],
+    ['attended', 'interactiveAttendedPolicy'],
+  ] as const)(
+    'translates interactive policy %s into its own channel, or declares why not',
+    (policy, key) => {
+      const support = surfacesOf(provider)[key];
+      if (!support.supported) {
+        expect(reasonOf(support).length, `${provider}.${key} reason`).toBeGreaterThan(20);
+        return;
+      }
+      const adapter = resolveAdapter(provider);
+      const plain = adapter.buildInteractiveCommand({ cwd: '/ws', initialPrompt: 'go' });
+      const scoped = adapter.buildInteractiveCommand({ cwd: '/ws', initialPrompt: 'go', policy });
+      const text = (c: typeof plain): string => JSON.stringify({ args: c.args, env: c.env });
+      expect(text(scoped), `${provider} ${policy} launch must differ from a bare one`).not.toBe(
+        text(plain),
+      );
+      if (provider === 'codex') {
+        expect(text(scoped)).toContain('workspace-write');
+      } else {
+        expect(text(scoped)).toContain('.claude.json');
+        expect(text(scoped)).toMatch(/pkill/);
+      }
+      if (policy === 'gate' && provider !== 'codex') expect(text(scoped)).toContain('npm rebuild*');
+      if (policy === 'attended') expect(text(scoped)).not.toContain('npm rebuild*');
+    },
+  );
+
+  it('a read-only planning/setup launch already blocks home-config writes', () => {
+    const launch = resolveAdapter(provider).buildInteractiveCommand({
+      cwd: '/scratch',
+      readOnly: true,
+    });
+    const text = JSON.stringify({ args: launch.args, env: launch.env });
+    if (provider === 'claude') expect(text).toContain('"Edit","Write"');
+    else if (provider === 'codex') expect(text).toContain('workspace-write');
+    else if (provider === 'antigravity') expect(text).toContain('plan');
+    else expect(text).toMatch(/"edit\\*":\\*"deny/);
   });
 
   it('makes every extra directory readable', () => {

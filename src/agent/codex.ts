@@ -400,6 +400,12 @@ export class CodexAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: unsupported(
+      'codex has no deny list and its only per-launch guard is the sandbox: `attended` keeps the ' +
+        'core\'s normal approvals and a writable session, which no sandbox mode expresses while ' +
+        'also denying ~/.codex writes (workspace-write would also change what the human may do)',
+    ),
     processKillDeny: unsupported(
       'codex has no per-invocation command deny: its execpolicy rules live in ' +
         '`rules/` files next to a config layer that karst may not own (AC-17), ' +
@@ -450,6 +456,8 @@ export class CodexAdapter implements AgentAdapter {
         'sandbox_workspace_write.writable_roots=[]',
       );
     } else {
+      // Unattended graph node/planner: the headless gate sandbox, verbatim.
+      if (opts.policy === 'gate') appendPolicyArgs(args, undefined, 'gate', opts.cwd);
       for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
     }
     // The karst server rides as per-launch `--config mcp_servers.karst.*` keys

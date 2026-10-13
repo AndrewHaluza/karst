@@ -561,6 +561,9 @@ export class SessionManager {
     if (trust) await trust;
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
+      // A human watches: normal approvals stay, pattern kills and home-config
+      // writes are always denied (D170).
+      policy: 'attended',
       hookChannel,
       sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),

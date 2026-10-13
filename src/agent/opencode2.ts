@@ -21,7 +21,8 @@ import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
-import { OpencodeAdapter, opencodeLaunchPermission } from './opencode.js';
+import { OpencodeAdapter, launchProfile, opencodeLaunchPermission } from './opencode.js';
+import type { InteractivePolicy } from './gatePolicy.js';
 import {
   opencode2Command,
   opencode2Config,
@@ -295,6 +296,9 @@ export function buildOpencode2ConfigContent(opts: {
   addDirs?: string[] | undefined;
   /** Headless gate profile cwd (`gatePolicy.ts`); absent → ordinary permission. */
   gateCwd?: string | undefined;
+  /** Interactive launch profile (`gatePolicy.ts`); `gate` needs `cwd`. */
+  policy?: InteractivePolicy | undefined;
+  cwd?: string | undefined;
   /** The `mcp` section when a launch-time karst MCP config was supplied. */
   mcp?: Record<string, unknown> | undefined;
 }): string {
@@ -305,7 +309,8 @@ export function buildOpencode2ConfigContent(opts: {
   if (opts.headless) config['snapshot'] = false;
   config['permission'] = opencodeLaunchPermission({
     ...opts,
-    gate: opts.gateCwd ? { cwd: opts.gateCwd } : undefined,
+    ...(opts.policy && opts.cwd ? launchProfile(opts.policy, opts.cwd) : {}),
+    ...(opts.gateCwd ? { gate: { cwd: opts.gateCwd } } : {}),
   });
   if (opts.mcp && Object.keys(opts.mcp).length > 0) config['mcp'] = opts.mcp;
   return JSON.stringify(config);
@@ -377,6 +382,8 @@ export class Opencode2Adapter implements AgentAdapter {
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   readonly instructions: InstructionDelivery = {
@@ -429,6 +436,8 @@ export class Opencode2Adapter implements AgentAdapter {
         headless: false,
         readOnly: opts.readOnly,
         addDirs: opts.addDirs,
+        policy: opts.policy,
+        cwd: opts.cwd,
         ...(mcp ? { mcp } : {}),
       }),
     };

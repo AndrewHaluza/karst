@@ -135,6 +135,13 @@ describe('planning ops', () => {
     for (const key of ['KARST_TICKET_ID', 'KARST_DB', 'KARST_MANIFEST']) expect(opts.env).not.toHaveProperty(key);
   });
 
+  it('launches the planning session under the attended policy (kill + home-config denies)', async () => {
+    await createPlanningOps(deps).create('Auth rework');
+    const args = created[0]!.opts.shellArgs.join(' ');
+    expect(args).toContain('Bash(pkill *)');
+    expect(args).toContain('.claude.json');
+  });
+
   it('launches the planner core/model the defaultAgent resolved', async () => {
     const ops = createPlanningOps({
       ...deps,
