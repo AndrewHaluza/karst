@@ -1,6 +1,7 @@
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 import { nowIso } from '../model/time.js';
+import { setStage } from './stages.js';
 import { classifyFailure } from '../agent/failureClass.js';
 import { UsageLimitError } from '../agent/cliFailure.js';
 
@@ -288,14 +289,12 @@ export function claimUsageLimitPark(
         throw new Error('STAGE_BLOCK_NOT_USAGE_LIMIT');
       }
 
-      // Clear the stage block. Since the park row is already resolved, setStage won't double-resolve.
-      store.db
-        .prepare(
-          `UPDATE stages
-           SET blocked_kind = NULL, blocked_reason = NULL, blocked_at = NULL
-           WHERE ticket_id = ? AND stage_key = ?`,
-        )
-        .run(park.ticketId, stageKey);
+      // Clear the stage block via setStage (single-writer invariant).
+      setStage(store, park.ticketId, stageKey, {
+        blockedKind: null,
+        blockedReason: null,
+        blockedAt: null,
+      });
     }
 
     return { claimed: true, park };

@@ -11,6 +11,8 @@ import { listRecoveryRounds } from '../store/recoveryRounds.js';
 import { getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { dismissUsageLimitPark, rerunParkedStage, type RerunParkOptions } from './usageLimitRerun.js';
+import { listFindings, recordFindings } from '../store/reviewFindings.js';
+import { listUatFindings } from '../store/uatFindings.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { Manifest } from '../manifest/types.js';
 import type { GateRunInput } from '../store/gateRuns.js';
@@ -586,6 +588,246 @@ describe('rerunParkedStage', () => {
 
     expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
+  });
+
+  it('review re-run does not duplicate existing sibling findings in review_findings table', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-REV-DEDUP', title: 'Test review dedup' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    // Record an existing sibling finding for this ticket & attempt
+    recordFindings(store, {
+      ticketId: ticket.id,
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      findings: [
+        {
+          severity: 'medium',
+          title: 'Existing sibling issue',
+          detail: 'Sibling issue detail',
+          repo: 'api',
+          file: 'src/api.ts',
+          line: 20,
+          source: 'agent',
+        },
+      ],
+    });
+
+    const initialFindings = listFindings(store, ticket.id);
+    expect(initialFindings).toHaveLength(1);
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [
+        {
+          gateName: 'test',
+          exitCode: 0,
+          command: 'npm',
+          args: ['test'],
+        },
+      ],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({
+          findings: 1,
+          targets: [{ repo: 'api', status: 'completed', findings: 1 }],
+        }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({
+        findings: 1,
+        targets: [{ repo: 'api', status: 'completed', findings: 1 }],
+      }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    // New re-run target reports 1 finding
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([
+          {
+            severity: 'low',
+            title: 'New web issue',
+            file: 'src/web.ts',
+            line: 5,
+          },
+        ]),
+      }),
+    };
+
+    const manifest: Manifest = {
+      review: {
+        requireIndependentSignal: false,
+        findings: { blockingSeverity: 'high' },
+      },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    const allFindings = listFindings(store, ticket.id);
+    // Should contain exactly the 1 existing sibling finding + the 1 newly discovered finding, NOT duplicates
+    expect(allFindings).toHaveLength(2);
+    expect(allFindings.map((f) => f.title)).toEqual(['Existing sibling issue', 'New web issue']);
+  });
+
+  it('uat re-run merges sibling observations from keptOutcome', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-MERGE', title: 'Test uat merge' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    const gateRun: GateRunInput = {
+      gateName: 'test',
+      exitCode: 0,
+      command: 'npm',
+      args: ['run', 'test'],
+    };
+
+    // Sibling target 'api' had a high severity blocking observation before the park
+    const siblingObservation = {
+      severity: 'high',
+      title: 'Sibling API endpoint returns 500',
+      repo: 'api',
+      file: 'src/server.ts',
+      line: 42,
+    };
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [gateRun],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({
+          observations: [siblingObservation],
+          targets: [{ repo: 'api', status: 'completed', observations: 1 }],
+        }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'uat',
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({
+        observations: [siblingObservation],
+        targets: [{ repo: 'api', status: 'completed', observations: 1 }],
+      }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    // The re-run target 'web' produces 0 observations (clean pass on web)
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([]),
+      }),
+    };
+
+    const manifest: Manifest = {
+      uat: {
+        testerObservations: { blockingSeverity: 'high' },
+        maxFixAttempts: 2,
+      },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    // Even though web had 0 observations, the merged sibling observation is high severity, so stage transitions to fix
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
+
+    const uatFindings = listUatFindings(store, ticket.id);
+    expect(uatFindings).toHaveLength(1);
+    expect(uatFindings[0]?.title).toBe('Sibling API endpoint returns 500');
   });
 });
 

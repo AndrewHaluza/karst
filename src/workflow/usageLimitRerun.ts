@@ -16,7 +16,7 @@ import {
   type FindingsLaneTarget,
   type FindingsProcessInput,
 } from './review/findingsLane.js';
-import { listFindings, type FindingInput } from '../store/reviewFindings.js';
+import { listFindings, findingsForAttempt, type FindingInput } from '../store/reviewFindings.js';
 import {
   aggregateReview,
   DEFAULT_REVIEW_FINDINGS,
@@ -30,8 +30,14 @@ import { finishProcessRun, listProcessRuns } from '../store/processRuns.js';
 import { collapseDiagnostic } from '../model/diagnosticText.js';
 import {
   runUatTester,
+  countBlockingObservations,
   type TesterTarget,
 } from './uat/tester.js';
+import {
+  listUatFindings,
+  recordUatFindings,
+  type UatFindingInput,
+} from '../store/uatFindings.js';
 import { TESTER_OBSERVATIONS_FAILURE_PREFIX } from './uat/testerVerifier.js';
 
 export interface DismissParkOptions {
@@ -244,8 +250,8 @@ async function rerunReviewParkedStage(
   const siblingCount = keptTargets.filter((t) => t.repo !== targetRepo).length;
   const totalTargetCount = siblingCount + 1;
 
-  // Retrieve sibling findings from store (from previous target runs under this ticket/attempt)
-  const existingFindings = listFindings(store, parkRow.ticketId);
+  // Retrieve sibling findings from store for this specific attempt (so we don't query across all historical attempts)
+  const existingFindings = findingsForAttempt(store, parkRow.ticketId, attempt);
   // Current newly found findings
   const newFindings = laneOutcome.kind === 'ran' ? laneOutcome.findings : [];
   const mergedFindings: FindingInput[] = [
@@ -374,7 +380,7 @@ async function rerunReviewParkedStage(
       summary: r.summary ?? undefined,
     })),
     outcome: aggregateOutcome,
-    findings: mergedFindings,
+    findings: newFindings,
     stageRunId: newStageRunId,
     recoveryTrigger,
     now,
@@ -470,11 +476,67 @@ async function rerunUatParkedStage(
     summary: r.summary ?? undefined,
   }));
 
+  // Parse sibling observations from keptOutcome
+  const siblingObservations: UatFindingInput[] = [];
+  try {
+    if (parkRow.keptOutcome) {
+      const parsed = JSON.parse(parkRow.keptOutcome);
+      if (Array.isArray(parsed.observations)) {
+        for (const obs of parsed.observations) {
+          if (obs && typeof obs === 'object' && typeof obs.severity === 'string' && typeof obs.title === 'string') {
+            siblingObservations.push({
+              severity: obs.severity,
+              title: obs.title,
+              repo: obs.repo ?? null,
+              file: obs.file ?? null,
+              line: obs.line ?? null,
+            });
+          }
+        }
+      }
+    }
+  } catch {
+    // Ignore malformed keptOutcome
+  }
+
+  // If there are sibling observations and we have a tester process run, record them into uat_findings
+  if (siblingObservations.length > 0 && testerRunId !== null) {
+    recordUatFindings(store, {
+      ticketId: parkRow.ticketId,
+      processRunId: testerRunId,
+      findings: siblingObservations,
+      createdAt: now(),
+    });
+  }
+
+  // Calculate merged blocking count across newly observed findings and sibling observations
+  let combinedBlocking = 0;
+  let combinedSummary: string | undefined;
+  if (testerResult.kind === 'observed' || testerResult.kind === 'partial') {
+    const newlyObservedFindings = listUatFindings(store, parkRow.ticketId)
+      .filter((f) => testerRunId !== null && f.processRunId === testerRunId)
+      .map((f) => ({
+        severity: f.severity,
+        repo: f.repo,
+        file: f.filePath,
+        line: f.line,
+        title: f.title,
+      }));
+    const allObservations = [...newlyObservedFindings];
+    const counted = countBlockingObservations(allObservations, blockingSeverity);
+    combinedBlocking = counted.blocking;
+    combinedSummary = counted.blockingSummary;
+  } else if (siblingObservations.length > 0) {
+    const counted = countBlockingObservations(siblingObservations, blockingSeverity);
+    combinedBlocking = counted.blocking;
+    combinedSummary = counted.blockingSummary;
+  }
+
   if (
     (testerResult.kind === 'observed' || testerResult.kind === 'partial') &&
-    testerResult.blocking > 0
+    combinedBlocking > 0
   ) {
-    const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${testerResult.blockingSummary ?? `${testerResult.blocking} blocking`}`;
+    const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${combinedSummary ?? `${combinedBlocking} blocking`}`;
     const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
     return commitGateOutcome(store, {
       ticketId: parkRow.ticketId,

@@ -842,7 +842,7 @@ export async function runUatTester(
       model,
       detail,
       keptOutcome: JSON.stringify({
-        observations: collected.length,
+        observations: collected,
         targets: [...targetOutcomes, { repo: target, status: 'usage-limited', observations: 0 }],
       }),
     };
