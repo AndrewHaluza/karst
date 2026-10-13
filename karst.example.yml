@@ -141,7 +141,7 @@ subtasks:
   maxConcurrentPerParent: 2
   maxConcurrentTotal: 4
 
-# Per-core subscription-quota warnings (Settings → General). Karst reads each
+# Per-core subscription-quota warnings (Settings → Agents). Karst reads each
 # agent core's provider-reported subscription usage (Claude's 5-hour/weekly
 # windows, Codex's plan windows) and warns before a launch that would run a core
 # near its limit. View-only: a warning never blocks a launch and never switches

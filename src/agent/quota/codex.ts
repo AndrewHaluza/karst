@@ -134,7 +134,7 @@ export interface CodexQuotaDeps {
 /** Read Codex quota from the newest local session file. */
 export function readCodexQuota(deps: CodexQuotaDeps = {}): QuotaSnapshot {
   const core = 'codex' as const;
-  const readAt = (deps.now?.() ?? new Date()).toISOString();
+  const now = deps.now?.() ?? new Date();
   const baseDir = join(deps.homeDir ?? homedir(), '.codex', 'sessions');
   const file = findLatestCodexSessionFile(baseDir);
   if (!file) {
@@ -143,6 +143,15 @@ export function readCodexQuota(deps: CodexQuotaDeps = {}): QuotaSnapshot {
       state: 'unknown',
       reason: 'no Codex session files found under ~/.codex/sessions',
     };
+  }
+  // `readAt` is the DATA's age, not the read's: a week-old session file means a
+  // week-old window, so the view must say "read 7d ago" rather than "just now"
+  // and must not trust an expired window. Fall back to now when mtime is unknown.
+  let dataAt = now;
+  try {
+    dataAt = new Date(statSync(file).mtimeMs);
+  } catch {
+    // file vanished between the listing and the stat — keep `now`
   }
   let text: string;
   try {
@@ -166,7 +175,7 @@ export function readCodexQuota(deps: CodexQuotaDeps = {}): QuotaSnapshot {
       reason: 'the newest Codex session reported no usable quota window',
     };
   }
-  return { core, state: 'ok', windows, source: SOURCE, readAt };
+  return { core, state: 'ok', windows, source: SOURCE, readAt: dataAt.toISOString() };
 }
 
 /** The `QuotaReader` the service registers for Codex. */

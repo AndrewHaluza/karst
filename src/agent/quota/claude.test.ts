@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { claudeConfigDir, parseClaudeRateLimits, readClaudeQuota } from './claude.js';
@@ -81,6 +81,15 @@ describe('readClaudeQuota', () => {
     const snap = readClaudeQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({ core: 'claude', state: 'ok', source: 'Claude statusline telemetry' });
     expect(snap.state === 'ok' && snap.windows.map((w) => w.label)).toEqual(['5-hour', '7-day']);
+  });
+
+  it("stamps readAt from the cache file's age, never the read time", () => {
+    const sixWeeksAgo = new Date(NOW.getTime() - 6 * 7 * 24 * 3_600_000);
+    writeCache(STATUSLINE);
+    const cachePath = join(home, '.claude', 'cache', 'quota.json');
+    utimesSync(cachePath, sixWeeksAgo, sixWeeksAgo);
+    const snap = readClaudeQuota({ homeDir: home, now: () => NOW });
+    expect(snap.state === 'ok' && snap.readAt).toBe(sixWeeksAgo.toISOString());
   });
 
   it('honors CLAUDE_CONFIG_DIR for the cache location', () => {

@@ -106,9 +106,14 @@ export interface DefaultQuotaReadersDeps {
 /** The production reader set — D162's verdicts, one reader per core. */
 export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaReader[] {
   const homeDir = deps.homeDir ?? homedir();
+  // Default the reader env to the PROCESS env: the Claude reader honors
+  // `CLAUDE_CONFIG_DIR`, and an operator who sets it (the reason the override
+  // exists) would otherwise read `~/.claude` and see Claude permanently
+  // unknown. An injected `env` still wins for tests.
+  const env = deps.env ?? process.env;
   const now = deps.now ?? (() => new Date());
   return [
-    claudeQuotaReader({ homeDir, ...(deps.env ? { env: deps.env } : {}), now }),
+    claudeQuotaReader({ homeDir, env, now }),
     codexQuotaReader({ homeDir, now }),
     unsupportedQuotaReader('antigravity'),
     unsupportedQuotaReader('opencode'),

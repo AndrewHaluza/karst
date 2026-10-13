@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { QuotaService, defaultQuotaReaders } from './service.js';
 import type { QuotaReader, QuotaSnapshot } from './types.js';
 
@@ -92,6 +95,45 @@ describe('defaultQuotaReaders', () => {
       const snap = readers.find((r) => r.core === core)!.read();
       expect(snap).toMatchObject({ core, state: 'unknown' });
       expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+    }
+  });
+
+  function claudeCache(): string {
+    const configDir = mkdtempSync(join(tmpdir(), 'karst-quota-env-'));
+    mkdirSync(join(configDir, 'cache'), { recursive: true });
+    writeFileSync(
+      join(configDir, 'cache', 'quota.json'),
+      JSON.stringify({ rate_limits: { five_hour: { used_percentage: 90, resets_at: 1746540000 } } }),
+    );
+    return configDir;
+  }
+
+  it('honors an injected CLAUDE_CONFIG_DIR for the claude reader', () => {
+    const configDir = claudeCache();
+    try {
+      const readers = defaultQuotaReaders({
+        homeDir: '/nope',
+        env: { CLAUDE_CONFIG_DIR: configDir },
+        now: () => new Date(0),
+      });
+      const snap = readers.find((r) => r.core === 'claude')!.read();
+      expect(snap.state).toBe('ok');
+      expect(snap.state === 'ok' && snap.windows[0]!.usedPct).toBe(90);
+    } finally {
+      rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
+  it('defaults the reader env to process.env, so a real CLAUDE_CONFIG_DIR is honored', () => {
+    const configDir = claudeCache();
+    try {
+      vi.stubEnv('CLAUDE_CONFIG_DIR', configDir);
+      const readers = defaultQuotaReaders({ homeDir: '/nope', now: () => new Date(0) });
+      const snap = readers.find((r) => r.core === 'claude')!.read();
+      expect(snap.state).toBe('ok');
+    } finally {
+      vi.unstubAllEnvs();
+      rmSync(configDir, { recursive: true, force: true });
     }
   });
 });

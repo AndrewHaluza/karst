@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
@@ -84,7 +84,7 @@ export interface ClaudeQuotaDeps {
 /** Read Claude quota from the cached statusline payload, if present. */
 export function readClaudeQuota(deps: ClaudeQuotaDeps = {}): QuotaSnapshot {
   const core = 'claude' as const;
-  const readAt = (deps.now?.() ?? new Date()).toISOString();
+  const now = deps.now?.() ?? new Date();
   const cachePath = join(claudeConfigDir(deps.env, deps.homeDir ?? homedir()), RELATIVE_CACHE);
   if (!existsSync(cachePath)) {
     return {
@@ -92,6 +92,15 @@ export function readClaudeQuota(deps: ClaudeQuotaDeps = {}): QuotaSnapshot {
       state: 'unknown',
       reason: 'no Claude statusline quota cache (~/.claude/cache/quota.json)',
     };
+  }
+  // `readAt` is the DATA's age, not the read's: the cache is only rewritten when
+  // a Claude session runs, so a stale cache must read as stale — an expired
+  // window must not drive the amber badge or the launch warning.
+  let dataAt = now;
+  try {
+    dataAt = new Date(statSync(cachePath).mtimeMs);
+  } catch {
+    // vanished between the existence check and the stat — keep `now`
   }
   let parsed: unknown;
   try {
@@ -107,7 +116,7 @@ export function readClaudeQuota(deps: ClaudeQuotaDeps = {}): QuotaSnapshot {
       reason: 'the Claude quota cache carries no rate-limit windows',
     };
   }
-  return { core, state: 'ok', windows, source: SOURCE, readAt };
+  return { core, state: 'ok', windows, source: SOURCE, readAt: dataAt.toISOString() };
 }
 
 /** The `QuotaReader` the service registers for Claude. */

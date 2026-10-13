@@ -125,14 +125,23 @@ describe('readCodexQuota', () => {
   });
 
   it('reports the windows with provenance and readAt', () => {
-    writeSession([sessionLine({ rate_limits: RATE_LIMITS })]);
+    const file = writeSession([sessionLine({ rate_limits: RATE_LIMITS })]);
+    utimesSync(file, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
     const snap = readCodexQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({
       core: 'codex',
       state: 'ok',
       source: 'Codex session rate limits',
-      readAt: NOW.toISOString(),
+      readAt: new Date(1_700_000_000_000).toISOString(),
     });
     expect(snap.state === 'ok' && snap.windows.map((w) => w.usedPct)).toEqual([76, 24]);
+  });
+
+  it("stamps readAt from the session file's age, never the read time", () => {
+    const sixWeeksAgo = new Date(NOW.getTime() - 6 * 7 * 24 * 3_600_000);
+    const file = writeSession([sessionLine({ rate_limits: RATE_LIMITS })]);
+    utimesSync(file, sixWeeksAgo, sixWeeksAgo);
+    const snap = readCodexQuota({ homeDir: home, now: () => NOW });
+    expect(snap.state === 'ok' && snap.readAt).toBe(sixWeeksAgo.toISOString());
   });
 });
