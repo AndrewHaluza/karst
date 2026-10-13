@@ -12,7 +12,7 @@ With `agentBackend: docker`, an `opencode` or `opencode2` ticket session runs in
 2. **Image:** `karst/opencode-sandbox:<opencodeVersion>` built from a checked-in `Dockerfile` (`node` base, git, pinned opencode). Data dirs pre-created and owned by `node` (ST2B blocker 3). Built locally on first use; never pulled from an unpinned tag.
 3. **Network:** per-ticket `--internal` network + CONNECT-proxy sidecar enforcing `SANDBOX_NETWORK_ALLOWLIST` (ST2B blocker 4, exp 8). No route out except the proxy.
 4. **Credentials:** opencode v1 — read-only mount of the opencode `auth.json` into the data volume. opencode2 — `opencode auth export` piped to `opencode auth import` inside the container on first create; the stream is never logged or written to disk (ST2B blocker 2). Doc note: an env key is visible to the agent — prefer a scoped key (blocker 7).
-5. **Linux:** `--user $(id -u):$(id -g)` with a writable `HOME` tmpfs (blocker 5).
+5. **Linux:** `--user <uid>:<gid>` (resolved with `process.getuid()`/`process.getgid()`, never shell expansion) with a writable `HOME` tmpfs (blocker 5).
 6. **Never** `--privileged`, never mount `/var/run/docker.sock`, argv arrays only.
 
 ## Components

@@ -12,7 +12,8 @@ A ticket session for the `claude` or `codex` core can run inside a Docker `sbx` 
 2. **Workspace model: clone mode** (ST2 exp 10). `sbx create --clone`. Never direct-mount the worktree, never mount the shared `.git` (ST2 exp 12: hooks → host code execution).
 3. **Edits are not live.** The agent commits inside the sandbox. The host gets them as remote `sandbox-<name>/<branch>`. A host-side `syncFromSandbox` fast-forwards the ticket branch in the host worktree. Non-fast-forward → refuse, report, never force.
 4. **Never pass** `--mount-docker-socket`, and never compose a shell string: executable + argv array only.
-5. Credentials: sbx proxy only (`sbx secret set` is a user step, documented, never run by karst).
+5. Credentials: sbx proxy only. Codex: `sbx secret set openai --oauth` (user step, documented, never run by karst). Claude: subscription OAuth login inside the sandbox on first `sbx run` (ST2 exp 2). Manual F5 covers both paths.
+6. **Creation stays in-terminal.** `placeInteractive` stays synchronous: the terminal runs `sbx run` (creates on first use). Preflight runs async BEFORE `placeInteractive`; a creation failure after launch is detected by the existing launch-exit detection, which never marks the agent live.
 
 ## Components
 
