@@ -23,6 +23,9 @@ import { hashInstructions } from '../agent/instructions.js';
 import { HOST_SESSION_RUNNER, type InteractiveLaunchSpec, type SessionRunner } from '../agent/sessionRunner.js';
 import { createSbxSessionRunner } from '../agent/sbx/sbxRunner.js';
 import { fakeSbxProcess } from '../agent/sbx/fakeSbxProcess.js';
+import { createDockerSessionRunner } from '../agent/docker/dockerRunner.js';
+import { dockerNames } from '../agent/docker/dockerNames.js';
+import { fakeDockerProcess } from '../agent/docker/fakeDockerProcess.js';
 
 // `openSession` pre-trusts the worktree by writing the core's USER config
 // (claude's `~/.claude.json`, codex's `~/.codex/config.toml`). Point HOME at a
@@ -279,6 +282,36 @@ describe('SessionManager', () => {
       expect(terminals[0]!.shellPath).toBe('sbx');
       expect(terminals[0]!.shellArgs.slice(0, 3)).toEqual(['run', '--clone', '--name']);
       // Host-path channels and the core's own sandbox stay off inside sbx.
+      expect(calls[0]!.hookChannel).toBeUndefined();
+      expect(calls[0]!.mcpConfigPath).toBeUndefined();
+      expect(calls[0]!.sandbox).toBeUndefined();
+    });
+
+    it('a docker resolution runs the opencode launch in the container, sandboxed, with no bypass flag', async () => {
+      const { adapter, calls } = fakeAdapter('opencode');
+      const { host, terminals } = fakeHost();
+      const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' });
+      const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined });
+      const lines: string[] = [];
+      const modes: string[] = [];
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        sandbox: true,
+        resolveRunner: () => Promise.resolve({ runner, line: `docker (${names.container})` }),
+        onBackend: (line) => lines.push(line),
+        onSandboxMode: (line) => modes.push(line),
+      });
+
+      expect(lines).toEqual([`docker (${names.container})`]);
+      expect(modes).toEqual(['sandboxed (runner: docker)']);
+      expect(terminals[0]!.shellPath).toBe('docker');
+      expect(terminals[0]!.shellArgs.slice(0, 6)).toEqual(['run', '--interactive', '--tty', '--rm', '--name', names.container]);
+      for (const flag of ['--privileged', '--auto', '--yolo', '--dangerously-skip-permissions']) {
+        expect(terminals[0]!.shellArgs).not.toContain(flag);
+      }
+      expect(terminals[0]!.shellArgs.join(' ')).not.toContain('docker.sock');
       expect(calls[0]!.hookChannel).toBeUndefined();
       expect(calls[0]!.mcpConfigPath).toBeUndefined();
       expect(calls[0]!.sandbox).toBeUndefined();

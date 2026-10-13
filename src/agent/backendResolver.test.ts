@@ -35,9 +35,30 @@ describe('resolveBackend', () => {
     expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (sbx not signed in (run `sbx login`))' });
   });
 
-  it('resolves docker to host until it is implemented', async () => {
-    const out = await resolveBackend({ ...base, backend: 'docker', preflight: ok });
-    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (docker backend not implemented)' });
+  const dockerDeps = { preflight: vi.fn().mockResolvedValue({ ok: true }), prepare: vi.fn().mockResolvedValue({ ok: true }), hostAuthFile: () => Promise.resolve(undefined) };
+  const worktree = { hostWorktreePath: '/w/t7', branch: 'feat/x' };
+
+  it.each(['opencode', 'opencode2'])('picks docker for %s when preflight and prepare pass', async (core) => {
+    const out = await resolveBackend({ ...base, core, backend: 'docker', worktree, docker: dockerDeps });
+    expect(out.runner.kind).toBe('docker');
+    expect(out.runner.enforcesSandbox).toBe(true);
+    expect(out.line).toMatch(new RegExp(`^docker \\(karst-[0-9a-f]{8}-7-${core}\\)$`));
+  });
+
+  it.each(['claude', 'codex', 'antigravity'])('keeps %s on host under docker with a reason', async (core) => {
+    const out = await resolveBackend({ ...base, core, backend: 'docker', worktree, docker: dockerDeps });
+    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: `host (${core}: docker backend unsupported)` });
+  });
+
+  it('falls back to host with the docker reason', async () => {
+    const docker = { ...dockerDeps, preflight: vi.fn().mockResolvedValue({ ok: false, reason: 'docker not installed (not on PATH)' }) };
+    const out = await resolveBackend({ ...base, core: 'opencode', backend: 'docker', worktree, docker });
+    expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (docker not installed (not on PATH))' });
+  });
+
+  it('keeps docker on host without a worktree branch', async () => {
+    const out = await resolveBackend({ ...base, core: 'opencode', backend: 'docker', docker: dockerDeps });
+    expect(out.line).toBe('host (docker: ticket has no worktree branch to clone)');
   });
 
   it('falls back to host when no valid name can be built', async () => {

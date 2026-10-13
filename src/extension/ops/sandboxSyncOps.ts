@@ -3,6 +3,13 @@ import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolve
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from '../../agent/sbx/sbxRunner.js';
+import type { TempDirs } from '../../agent/docker/dockerClone.js';
+import { isDockerCore } from '../../agent/docker/dockerImage.js';
+import { dockerNames } from '../../agent/docker/dockerNames.js';
+import { NODE_DOCKER_PROCESS, type DockerProcess } from '../../agent/docker/dockerProcess.js';
+import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
+import { linuxUser } from '../../agent/docker/resolveDocker.js';
+import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { Notify } from './notify.js';
 
 export interface BackendSessionInput {
@@ -12,6 +19,9 @@ export interface BackendSessionInput {
   readonly ticketId: number;
   readonly ticketLabel: string;
   readonly info: (line: string) => void;
+  /** The ticket worktree; the docker backend clones its branch. */
+  readonly worktree?: { readonly path: string; readonly branch: string | null };
+  readonly debug?: (message: string) => void;
   readonly resolve?: typeof resolveBackend;
 }
 
@@ -27,7 +37,11 @@ export function backendSessionOptions(input: BackendSessionInput): {
   const resolve = input.resolve ?? resolveBackend;
   return {
     resolveRunner: () =>
-      resolve({ backend: input.backend, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId }),
+      resolve({
+        backend: input.backend, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
+        ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
+        ...(input.debug ? { docker: { debug: input.debug } } : {}),
+      }),
     onBackend: (line) => input.info(`[session] ticket ${input.ticketLabel} backend: ${line}`),
   };
 }
@@ -44,6 +58,27 @@ export interface SandboxSyncDeps {
   readonly notify: Notify;
   readonly projectRoot: string;
   readonly proc?: SbxProcess;
+  readonly dockerProc?: DockerProcess;
+  readonly temp?: TempDirs;
+  readonly platform?: NodeJS.Platform;
+}
+
+/** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
+function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
+  if (isSbxCore(core)) {
+    const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [] });
+  }
+  if (core !== null && isDockerCore(core)) {
+    return createDockerSessionRunner({
+      proc: deps.dockerProc ?? NODE_DOCKER_PROCESS,
+      core,
+      names: dockerNames({ projectRoot: deps.projectRoot, ticketId, core }),
+      user: linuxUser(deps.platform ?? process.platform, process.getuid?.(), process.getgid?.()),
+      ...(deps.temp ? { temp: deps.temp } : {}),
+    });
+  }
+  return undefined;
 }
 
 /**
@@ -56,13 +91,12 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
     await deps.notify.error(`Karst: ${target.ticketLabel} has no worktree branch to sync into.`);
     return false;
   }
-  if (!isSbxCore(target.core)) {
-    await deps.notify.error(`Karst: ${target.ticketLabel} has no sbx sandbox (core ${target.core ?? 'unknown'}).`);
+  const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+  if (!runner?.sync) {
+    await deps.notify.error(`Karst: ${target.ticketLabel} has no sandbox (core ${target.core ?? 'unknown'}).`);
     return false;
   }
-  const name = sbxName({ projectRoot: deps.projectRoot, ticketId: target.ticketId, core: target.core });
-  const runner = createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core: target.core, name, existing: [] });
-  const result = await runner.sync!({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+  const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
   if (!result.ok) {
     await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: ${result.reason}`);
     return false;

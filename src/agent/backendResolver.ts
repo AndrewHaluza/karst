@@ -3,7 +3,8 @@ import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from './sbx/sbxRunner.js';
-import { HOST_SESSION_RUNNER, type SessionRunner } from './sessionRunner.js';
+import { resolveDocker, type DockerResolveDeps } from './docker/resolveDocker.js';
+import { HOST_SESSION_RUNNER, type SandboxTicketRef, type SessionRunner } from './sessionRunner.js';
 
 
 export interface ResolveBackendInput {
@@ -14,17 +15,20 @@ export interface ResolveBackendInput {
   readonly proc?: SbxProcess;
   readonly preflight?: (proc: SbxProcess) => Promise<SbxPreflight>;
   readonly host?: SessionRunner;
+  /** The ticket worktree and branch; the docker backend clones it. */
+  readonly worktree?: SandboxTicketRef;
+  readonly docker?: DockerResolveDeps;
 }
 
 export interface ResolvedBackend {
   readonly runner: SessionRunner;
-  /** One diagnostics line: `sbx (<name>)` or `host (<reason>)`. */
+  /** One diagnostics line: `sbx (<name>)`, `docker (<container>)` or `host (<reason>)`. */
   readonly line: string;
 }
 
 /**
  * The only place that picks a session runner. Fails closed (arch:AC-31): any
- * reason sbx cannot be used resolves to the host runner — prompted, no bypass —
+ * reason a sandbox cannot be used resolves to the host runner — prompted, no bypass —
  * with that reason. Never throws.
  */
 export async function resolveBackend(input: ResolveBackendInput): Promise<ResolvedBackend> {
@@ -32,7 +36,13 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const onHost = (reason: string): ResolvedBackend => ({ runner: host, line: `host (${reason})` });
   const backend = input.backend ?? 'host';
   if (backend === 'host') return onHost('agentBackend: host');
-  if (backend === 'docker') return onHost('docker backend not implemented');
+  if (backend === 'docker') {
+    const docker = await resolveDocker({
+      core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,
+      ...(input.docker ? { deps: input.docker } : {}),
+    });
+    return docker.ok ? { runner: docker.runner, line: `docker (${docker.names.container})` } : onHost(docker.reason);
+  }
   if (!isSbxCore(input.core)) return onHost(`${input.core}: sbx backend unsupported`);
   let name: string;
   try {

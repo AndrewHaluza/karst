@@ -72,6 +72,16 @@ const cliOpts = {
   banner: { js: '#!/usr/bin/env node' },
 };
 
+// The docker sandbox's allowlist proxy (src/agent/docker/proxySidecar.ts):
+// its own tiny bundle, mounted read-only into the sidecar container, so it
+// must be self-contained (node builtins only) and sit next to the Dockerfile.
+/** @type {import('esbuild').BuildOptions} */
+const proxyOpts = {
+  ...base,
+  entryPoints: ['src/agent/docker/allowlistProxyMain.ts'],
+  outfile: 'dist/sandbox/opencode/allowlist-proxy.mjs',
+};
+
 // If the CLI banner and a preserved source shebang both land at the top of
 // dist/cli/main.js, drop the duplicate — the file must start with exactly
 // one `#!/usr/bin/env node` line to be valid JS and directly executable.
@@ -91,11 +101,12 @@ function dedupeShebang(outfile) {
 await buildWebviewBundles({ prod });
 
 if (watch) {
-  const [extCtx, cliCtx] = await Promise.all([context(extensionOpts), context(cliOpts)]);
-  await Promise.all([extCtx.watch(), cliCtx.watch()]);
+  const ctxs = await Promise.all([context(extensionOpts), context(cliOpts), context(proxyOpts)]);
+  await Promise.all(ctxs.map((ctx) => ctx.watch()));
   console.log('watching for changes…');
 } else {
   await build(extensionOpts);
   await build(cliOpts);
+  await build(proxyOpts);
   dedupeShebang(cliOpts.outfile);
 }

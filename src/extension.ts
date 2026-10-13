@@ -6501,7 +6501,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
-            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m) }), // AC-32
+            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m) }), // AC-32
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

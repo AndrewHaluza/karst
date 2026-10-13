@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
 import { backendSessionOptions, syncSandboxOp } from './sandboxSyncOps.js';
@@ -54,14 +55,46 @@ describe('syncSandboxOp', () => {
     const proc = fakeSbxProcess();
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, worktree: undefined })).resolves.toBe(false);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, worktree: { path: '/wt/a', branch: null } })).resolves.toBe(false);
-    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: 'opencode' })).resolves.toBe(false);
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: 'antigravity' })).resolves.toBe(false);
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toBe(false);
     expect(r.errors).toEqual([
       'Karst: K-7 has no worktree branch to sync into.',
       'Karst: K-7 has no worktree branch to sync into.',
-      'Karst: K-7 has no sbx sandbox (core opencode).',
-      'Karst: K-7 has no sbx sandbox (core unknown).',
+      'Karst: K-7 has no sandbox (core antigravity).',
+      'Karst: K-7 has no sandbox (core unknown).',
     ]);
     expect(proc.calls).toEqual([]);
+  });
+
+  it.each(['opencode', 'opencode2'])('syncs a %s ticket from its docker clone', async (core) => {
+    const r = recorder();
+    const dockerProc = fakeDockerProcess();
+    const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
+    await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', dockerProc, temp, platform: 'darwin' }, { ...target, core })).resolves.toBe(true);
+    expect(r.infos).toEqual(["Karst: K-7 fast-forwarded feat/x to the docker sandbox's commits."]);
+    const bundle = dockerProc.calls[0]!;
+    expect(bundle.command).toBe('docker');
+    expect(bundle.args.some((a) => new RegExp(`^type=volume,source=karst-[0-9a-f]{8}-7-${core}-repo,target=/work,readonly$`).test(a))).toBe(true);
+    expect(bundle.args.join(' ')).not.toContain('--user');
+  });
+
+  it('runs the docker sync helpers as the host uid on linux', async () => {
+    const dockerProc = fakeDockerProcess();
+    const temp = { make: () => Promise.resolve('/tmp/k1'), remove: () => Promise.resolve() };
+    await syncSandboxOp({ notify: recorder().notify, projectRoot: '/p', dockerProc, temp, platform: 'linux' }, { ...target, core: 'opencode' });
+    expect(dockerProc.calls[0]!.args).toContain('--user');
+  });
+});
+
+describe('backendSessionOptions worktree', () => {
+  it('passes the worktree branch and debug to the resolver only when present', async () => {
+    const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'x' });
+    const debug = vi.fn();
+    const opts = backendSessionOptions({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: 'b' }, debug, resolve });
+    await opts.resolveRunner!();
+    expect(resolve).toHaveBeenCalledWith({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, docker: { debug } });
+    const bare = backendSessionOptions({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
+    await bare.resolveRunner!();
+    expect(resolve).toHaveBeenLastCalledWith({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7 });
   });
 });
