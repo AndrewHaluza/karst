@@ -123,3 +123,16 @@ describe('headless exec', () => {
     expect(containerCommand('opencode', 'git')).toBe('git');
   });
 });
+
+describe('interactiveRunArgs bridge mount', () => {
+  it('adds exactly one rw bind for the bridge dir at /karst-bridge/<id>', () => {
+    const plain = interactiveRunArgs(base);
+    const withBridge = interactiveRunArgs({ ...base, ticketId: 7, bridgeDir: '/g/events/7' });
+    expect(withBridge).toContain('type=bind,source=/g/events/7,target=/karst-bridge/7');
+    expect(withBridge.join(' ')).not.toContain('readonly,target=/karst-bridge');
+    expect(withBridge.length).toBe(plain.length + 2);
+  });
+  it('omits the bridge mount without bridgeDir', () => {
+    expect(interactiveRunArgs(base).join(' ')).not.toContain('karst-bridge');
+  });
+});

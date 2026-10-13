@@ -49,9 +49,11 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       shellArgs: interactiveRunArgs({
         names: opts.names, core: opts.core, user: opts.user, authFile: opts.authFile,
         hostWorktreePath: spec.hostWorktreePath, args: spec.args, env: spec.env,
+        ticketId: spec.ticketId, bridgeDir: spec.bridgeDir,
       }),
       env: { ...spec.env },
     }),
+    bridgeRunDir: (paths) => paths.runDir,
     runHeadless: async (command, args, cwd, headlessOpts) => {
       const runId = newRunId();
       // Killing the `docker exec` client leaves the process running in the
