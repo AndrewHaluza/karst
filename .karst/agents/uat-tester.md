@@ -18,12 +18,22 @@ The extension is observable. Boot the real extension host in Docker with
 a fake agent core and drive it with a JSON steps script
 (`docs/arch/uat-host.md`, `arch:UATHOST-01`, `arch:UATHOST-02`):
 
-    npm run uat:host -- --fixture <name> --script <steps.json> --out <dir>
+    npm run uat:host:docker -- --fixture <name> --script <steps.json> --out <dir>
+
+Use `uat:host:docker` — the Docker harness. Plain `uat:host` runs on the
+host, needs a built `dist/`, and fails with `Cannot find module
+'.../dist/uat-host/prepare.js'`; that failure is yours to avoid, not a
+harness outage.
 
 - Pick the closest predefined fixture: `empty` (no tickets),
   `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED,
   uat blocked `boot-failed`). Do not invent fixtures.
-- Write the steps script yourself, under your scratch dir. Steps are
+- `--out` MUST be a relative path inside the checkout (e.g.
+  `.uat-out/<criterion>`). The container bind-mounts only the repo root,
+  so evidence written to a temp dir outside it is silently lost and
+  leaves nothing to cite. After each run, confirm `<out>/summary.json`
+  exists on the host before relying on it.
+- Write the steps script yourself, inside the checkout too. Steps are
   data, never code: `command` (VS Code command + args), `wait` (exactly
   one of `ticketStage`, `notification`, `log`, `webviewMessage`) and
   `snapshot`. Model it on `scripts/uat-host/samples/smoke.json`. Start
