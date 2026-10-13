@@ -72,7 +72,9 @@
      buttons plus their gap (UI-R45: nothing escapes its cell). */
   --agents-cols: var(--k-space-9) minmax(140px, 1fr) minmax(150px, 1fr)
                  minmax(360px, 3fr) minmax(92px, 1fr) calc(2 * var(--k-hit-min) + var(--k-space-2));
-  --agents-picker-cols: minmax(0, 1fr) minmax(0, 1.6fr) minmax(96px, 0.8fr);
+  /* Core carries the canonical core name ("Claude Code"), so it needs more than the
+     ticket's 1fr to avoid hard-clipping it in the fixed cell (UI-R44, UI-R41). */
+  --agents-picker-cols: minmax(0, 1.3fr) minmax(0, 1.6fr) minmax(96px, 0.8fr);
   display: flex;
   flex-direction: column;
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));

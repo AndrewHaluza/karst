@@ -461,7 +461,7 @@ describe('compact effort placeholder', () => {
   });
   it('pins the compact Core | Model | Effort template', () => {
     expect(agentPickerCss()).toContain(
-      '.ap-compact{grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) minmax(96px,0.8fr)',
+      '.ap-compact{grid-template-columns:minmax(0,1.3fr) minmax(0,1.6fr) minmax(96px,0.8fr)',
     );
   });
 });
