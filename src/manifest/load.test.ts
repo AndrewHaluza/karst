@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
+import { ManifestError } from './error.js';
 import { PRESET_CAPABILITIES, type Manifest } from './types.js';
 
 /** Write YAML to a temp file, return its path; caller cleans the dir. */
@@ -1973,6 +1974,36 @@ describe('archiveDoneAfterDays', () => {
     const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: -1\n`);
     try {
       expect(() => loadManifest(path)).toThrow(/archiveDoneAfterDays/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('agentBackend (AC-32: default host)', () => {
+  it('is undefined when omitted (sessions run on the host)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).agentBackend).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['host', 'sbx', 'docker'])('parses agentBackend: %s', (value) => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
+    try {
+      expect(loadManifest(path).agentBackend).toBe(value);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['Sbx', 'true', '1'])('throws ManifestError on %s', (value) => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(ManifestError);
+      expect(() => loadManifest(path)).toThrow(/agentBackend must be one of host, sbx, docker/);
     } finally {
       cleanup();
     }

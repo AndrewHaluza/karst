@@ -1,5 +1,6 @@
 import { CHAIN_EDGES } from './types.js';
 import type {
+  AgentBackend,
   Manifest,
   ChainEdge,
   RepositoryDef,
@@ -456,6 +457,17 @@ function validateDebug(raw: unknown): boolean | undefined {
   return raw;
 }
 
+const AGENT_BACKENDS: readonly AgentBackend[] = ['host', 'sbx', 'docker'];
+
+/** Parse `agentBackend` (default undefined → host). A typo must never pick a backend. */
+function validateAgentBackend(raw: unknown): AgentBackend | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || !(AGENT_BACKENDS as readonly string[]).includes(raw)) {
+    throw new ManifestError(`agentBackend must be one of ${AGENT_BACKENDS.join(', ')}`);
+  }
+  return raw as AgentBackend;
+}
+
 /**
  * Parse `agentSandbox` (default undefined → sessions stay prompted). Must be a
  * boolean when present, like `debug` — a typo must never switch it on.
@@ -710,6 +722,7 @@ export function validateManifest(raw: unknown): Manifest {
     subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),
     agentSandbox: validateAgentSandbox(raw.agentSandbox),
+    agentBackend: validateAgentBackend(raw.agentBackend),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),

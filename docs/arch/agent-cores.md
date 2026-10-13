@@ -317,3 +317,16 @@ Residual risk (accepted, not contained by any sandbox): the agent can still dama
 
 Rejected: bypass flags on the host to cut prompts (unbounded blast radius); jumping straight to a Docker runner (weeks, sbx OAuth/TTY/resume unproven); a generic OCI/microVM runtime (non-goal of the plan); hosted platforms (E2B/Daytona/Modal, rejected in the 2026-07-28 design).
 END_DOC_BLOCK: [@arch:AC-31]
+
+## [@arch:AC-32] Sandbox backends — where a session runs (`agentBackend`)
+
+Manifest `agentBackend: host | sbx | docker`, default `host` (absent → no resolver runs, byte-identical host launch). `agent/backendResolver.ts` is the ONLY place that picks a `SessionRunner`; it never throws and fails closed (`arch:AC-31`): any reason a sandbox cannot be used resolves to the host runner — prompted, no bypass — and the reason. Each launch logs `[session] ticket <key> backend: sbx (<name>)` or `host (<reason>)` at INFO. `agentSandbox` (ST1) is independent; inside a runner-enforced sandbox it is not applied (`agent mode: sandboxed (runner: sbx)`).
+
+- **sbx** (claude, codex only; any other core → `host (<core>: sbx backend unsupported)`). Preflight (`sbx/sbxPreflight.ts`, async, before `placeInteractive`): binary, `sbx version`, signed in (`sbx ls`, no `not signed in`), a network policy (`sbx policy ls`). Name `karst-<sha256(projectRoot)[0..8]>-<ticketId>-<core>` (`sbx/sbxName.ts`, `[a-z0-9-]`, ≤ 63) — the only handle `sbx rm` ever gets.
+- **Clone mode** (ST2 exp 10): the terminal runs `sbx run --clone --name <n> <core> <worktree> -- <args>` on first use and `sbx run --name <n> <core> -- <args>` after. Never a direct worktree mount, never the shared `.git` (exp 12: hooks → host code execution), never `--mount-docker-socket`; argv arrays only, async spawn only. Creation stays in-terminal; a creation failure is caught by the existing launch-exit detection and never marks the agent live. Closing the terminal does NOT dispose the sandbox.
+- **Permissions**: `autonomousPermissionArgs(core, runner)` adds `--dangerously-skip-permissions` (claude) / `--dangerously-bypass-approvals-and-sandbox` (codex) after `--` ONLY when `runner.enforcesSandbox === true`; on the host runner it returns `[]` (conformance-tested). Adapters still never emit a bypass flag.
+- **Edits are not live**: the agent commits inside; the host sees remote `sandbox-<name>/<branch>`. `karst.sandbox.sync` (`ops/sandboxSyncOps.ts`) fetches and fast-forwards the ticket branch in the host worktree; a non-fast-forward is refused and reported, never forced. `dispose` = `sbx stop` + `sbx rm --force <exact name>` + remove the host remote.
+- **Credentials**: the sbx proxy only. Codex needs the user step `sbx secret set openai --oauth` (never run by karst); claude logs in inside the sandbox on first `sbx run`.
+- **Known gaps (later increments)**: the hook channel and launch MCP config are host paths, so an sbx launch carries neither (no live hook events / MCP tools in the sandbox until the evidence bridge, Increment 3); ports, services and gates stay on the host (Increment 4+).
+- **docker**: reserved for the opencode plan; resolves to `host (docker backend not implemented)`. agy is out of scope (no spike).
+END_DOC_BLOCK: [@arch:AC-32]

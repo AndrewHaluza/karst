@@ -20,7 +20,9 @@ import {
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
 import { KARST_INSTRUCTIONS_ENV } from '../agent/cliEnv.js';
 import { hashInstructions } from '../agent/instructions.js';
-import type { InteractiveLaunchSpec, SessionRunner } from '../agent/sessionRunner.js';
+import { HOST_SESSION_RUNNER, type InteractiveLaunchSpec, type SessionRunner } from '../agent/sessionRunner.js';
+import { createSbxSessionRunner } from '../agent/sbx/sbxRunner.js';
+import { fakeSbxProcess } from '../agent/sbx/fakeSbxProcess.js';
 
 // `openSession` pre-trusts the worktree by writing the core's USER config
 // (claude's `~/.claude.json`, codex's `~/.codex/config.toml`). Point HOME at a
@@ -243,6 +245,75 @@ describe('SessionManager', () => {
     expect(specs[0]!.env[KARST_TICKET_ENV]).toBe('7');
     expect(terminals).toHaveLength(1);
     expect(terminals[0]).toMatchObject({ cwd: '/workspace', shellPath: 'wrapped', shellArgs: ['run', 'fake-agent'], env: { W: '1' } });
+  });
+
+  describe('per-launch backend (AC-32)', () => {
+    const sbxRunner = () => {
+      const dispose = vi.fn().mockResolvedValue(undefined);
+      const runner: SessionRunner = {
+        ...createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: 'karst-ab12cd34-7-claude', existing: [] }),
+        dispose,
+      };
+      return { runner, dispose };
+    };
+    const cli = { cliEntry: '/cli/main.js', dbPath: '/db' };
+
+    it('takes the runner from the resolver and logs the backend line', async () => {
+      const { adapter, calls } = fakeAdapter('claude');
+      const { host, terminals } = fakeHost();
+      const { runner } = sbxRunner();
+      const lines: string[] = [];
+      const modes: string[] = [];
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        sandbox: true,
+        resolveRunner: () => Promise.resolve({ runner, line: 'sbx (karst-ab12cd34-7-claude)' }),
+        onBackend: (line) => lines.push(line),
+        onSandboxMode: (line) => modes.push(line),
+      });
+
+      expect(lines).toEqual(['sbx (karst-ab12cd34-7-claude)']);
+      expect(modes).toEqual(['sandboxed (runner: sbx)']);
+      expect(terminals[0]!.shellPath).toBe('sbx');
+      expect(terminals[0]!.shellArgs.slice(0, 3)).toEqual(['run', '--clone', '--name']);
+      // Host-path channels and the core's own sandbox stay off inside sbx.
+      expect(calls[0]!.hookChannel).toBeUndefined();
+      expect(calls[0]!.mcpConfigPath).toBeUndefined();
+      expect(calls[0]!.sandbox).toBeUndefined();
+    });
+
+    it('a host resolution keeps the hook channel and never relaxes permissions', async () => {
+      const { adapter, calls } = fakeAdapter('claude');
+      const { host, terminals } = fakeHost();
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        resolveRunner: () => Promise.resolve({ runner: HOST_SESSION_RUNNER, line: 'host (agentBackend: host)' }),
+      });
+
+      expect(calls[0]!.hookChannel).toBeDefined();
+      expect(terminals[0]!.shellPath).toBe('claude');
+      expect(terminals[0]!.shellArgs).not.toContain('--dangerously-skip-permissions');
+    });
+
+    it('a failed sbx creation (terminal exits) leaves the ticket not live and never disposes', async () => {
+      const { adapter } = fakeAdapter('claude');
+      const { host, terminals } = fakeHost();
+      const { runner, dispose } = sbxRunner();
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        resolveRunner: () => Promise.resolve({ runner, line: 'sbx (karst-ab12cd34-7-claude)' }),
+      });
+      terminals[0]!.disposeHandler?.(1);
+
+      expect(mgr.isLive(7)).toBe(false);
+      expect(dispose).not.toHaveBeenCalled();
+    });
   });
 
   it('writes a launch-time MCP config in host storage for a supporting core, never a repo file', () => {

@@ -173,6 +173,13 @@ export interface OpenSessionOptions {
   sandbox?: boolean;
   /** Receives the launch's effective sandbox mode line (`sandboxed …` / `prompted (<reason>)`). */
   onSandboxMode?: (line: string) => void;
+  /**
+   * Picks this launch's runner (`arch:AC-32`, the backend resolver). Absent →
+   * the manager's own runner, synchronously (host behaviour unchanged).
+   */
+  resolveRunner?: () => Promise<{ runner: SessionRunner; line: string }>;
+  /** Receives the launch's effective backend line (`sbx (<name>)` / `host (<reason>)`). */
+  onBackend?: (line: string) => void;
 }
 
 /**
@@ -554,12 +561,20 @@ export class SessionManager {
     // read exactly like the terminal it ran in, or it can't be matched back to
     // its ticket. Adapters whose CLI has no naming flag ignore it.
     const terminalName = naming?.name ?? `Karst: ${label?.key ?? formatId('ticket', ticketId)}`;
+    // AC-32: the runner is chosen per launch. Awaited only when a resolver is
+    // given, so a plain host launch stays synchronous.
+    const resolved = options.resolveRunner ? await options.resolveRunner() : undefined;
+    const runner = resolved?.runner ?? this.runner;
+    if (resolved) options.onBackend?.(resolved.line);
+    // Inside a runner-enforced sandbox the host-path channels (hook settings,
+    // MCP config) do not exist, and the core's own OS sandbox is redundant.
+    const inSandbox = runner.enforcesSandbox;
     const hookChannel = this.hookChannelFor(ticketId);
-    const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
+    const mcpConfigPath = inSandbox ? undefined : this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     // AC-31: the core's own sandbox only when it can be enforced; otherwise the
     // launch fails closed to prompted mode and the reason is reported.
-    const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true, worktreePath);
-    options.onSandboxMode?.(formatSandboxMode(sandbox));
+    const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true && !inSandbox, worktreePath);
+    options.onSandboxMode?.(inSandbox ? `sandboxed (runner: ${runner.kind})` : formatSandboxMode(sandbox));
     // Trust the ticket worktree before the core starts: a fresh worktree is
     // untrusted, and claude would open on its folder-trust dialog and exit
     // (T661). Done here, at the one launch site, never as a UI action. The hook
@@ -576,7 +591,7 @@ export class SessionManager {
       // A human watches: normal approvals stay, pattern kills and home-config
       // writes are always denied (D170).
       policy: 'attended',
-      hookChannel,
+      ...(inSandbox ? {} : { hookChannel }),
       sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
@@ -624,7 +639,7 @@ export class SessionManager {
     );
     let terminal: SessionTerminal;
     try {
-      const placed = this.runner.placeInteractive({
+      const placed = runner.placeInteractive({
         ticketId,
         hostWorktreePath: worktreePath,
         command: cmd.command,

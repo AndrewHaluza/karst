@@ -178,6 +178,11 @@
         "icon": "$(archive)"
       },
       {
+        "command": "karst.sandbox.sync",
+        "title": "Karst: Sync Sandbox Commits",
+        "icon": "$(repo-pull)"
+      },
+      {
         "command": "karst.unarchiveTicket",
         "title": "Karst: Unarchive Ticket",
         "icon": "$(history)"
