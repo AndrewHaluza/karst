@@ -9,7 +9,7 @@ import type { DockerProcess } from './dockerProcess.js';
 import { bindMount, CONTAINER_DATA, CONTAINER_REPO, CONTAINER_WORK, HARDENING, type LinuxUser, userArgs, volumeMounts } from './dockerRunArgs.js';
 
 /**
- * Clone mode over `git bundle` files (arch:AC-32, plan task 6). Neither the
+ * Clone mode over `git bundle` files (arch:AC-33, plan task 6). Neither the
  * host worktree nor its shared `.git` is ever mounted into the container: a
  * bundle of the ticket branch goes in once, a bundle of the clone's branch
  * comes out on sync, and the host fast-forwards from it. The host only ever

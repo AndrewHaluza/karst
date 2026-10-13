@@ -1,5 +1,5 @@
 /**
- * The opencode sandbox image (arch:AC-32, docker backend). Built locally from
+ * The opencode sandbox image (arch:AC-33, docker backend). Built locally from
  * the checked-in `sandbox/opencode/Dockerfile`; never pulled. The TS constants
  * are the one source of the pinned versions: the build passes them as build
  * args, so the tag can never name a different install than the image holds.

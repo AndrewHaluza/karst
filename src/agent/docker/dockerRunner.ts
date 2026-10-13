@@ -30,7 +30,7 @@ export interface DockerRunnerOptions {
 }
 
 /**
- * The plain-docker runner (arch:AC-32, opencode + opencode2). Clone mode: the
+ * The plain-docker runner (arch:AC-33, opencode + opencode2). Clone mode: the
  * agent works in a clone on a named volume, behind an `--internal` network
  * whose only exit is the allowlist proxy. Interactive = `docker run -it`,
  * headless = `docker exec` into that container. Never `--privileged`, never
