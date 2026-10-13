@@ -44,6 +44,15 @@ describe('agents.webview.css — roles table', () => {
     expect(css).toMatch(/@media \(max-width: 999px\)[\s\S]*grid-template-areas:\s*'sw role src act' 'f f f f'/);
     expect(css).toMatch(/@media \(max-width: 699px\)[\s\S]*\.agents-cell-picker[\s\S]*grid-column:\s*1 \/ -1/);
   });
+  it('sizes the compare Actions track to a content-independent slot that fits its text button', () => {
+    const tmpl = /\.agents-compare-row,[\s\S]*?grid-template-columns:\s*([^;]+);/.exec(css);
+    const tracks = tmpl![1]!.replace(/\s+/g, ' ').trim();
+    // Content-dependent tracks would size the empty header cell differently from
+    // the body cell and break header/row alignment (UI-R41).
+    expect(tracks).not.toMatch(/(^|\s)(max-content|min-content|auto)(\s|$)/);
+    expect(tracks).toContain('calc(5 * var(--k-hit-min))');
+    expect(css).toMatch(/\.agents-compare-row \.agents-cell-actions \.k-btn\s*\{[^}]*white-space:\s*nowrap/);
+  });
   it('never scrolls the page sideways', () => {
     expect(css).not.toMatch(/\.agents-table\s*\{[^}]*overflow-x:\s*(auto|scroll)/);
   });

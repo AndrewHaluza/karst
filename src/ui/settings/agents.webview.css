@@ -94,8 +94,14 @@
 
 #section-agents .agents-compare-row,
 #section-agents .agents-table .agents-head:has(+ .agents-compare-row) {
-  grid-template-columns: var(--k-space-9) minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) calc(2 * var(--k-hit-min) + var(--k-space-2));
+  /* The compare Actions cell holds the text button "← Copy from B", not two icon
+     buttons: give it a fixed slot wide enough for that label on one line. It must
+     be content-independent — every row is its own grid, so `auto`/`max-content`
+     would size the empty header cell differently and break header/row alignment
+     (UI-R41, UI-R44, UI-R45). The roles table keeps its two-icon-slot track. */
+  grid-template-columns: var(--k-space-9) minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) calc(5 * var(--k-hit-min));
 }
+#section-agents .agents-compare-row .agents-cell-actions .k-btn { white-space: nowrap; }
 
 /* Cells fill their row height so an empty cell (no switch) and the sr-only "Enabled" heading still have a box. */
 #section-agents .agents-row > [role="cell"],
