@@ -39,8 +39,18 @@ export type RunHeadless = (
   opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
+/** Host-side handle of a ticket's sandbox: where its edits land, and on which branch. */
+export interface SandboxTicketRef {
+  readonly hostWorktreePath: string;
+  readonly branch: string;
+}
+
+export type SyncResult =
+  | { readonly ok: true; readonly summary: string }
+  | { readonly ok: false; readonly reason: string };
+
 export interface SessionRunner {
-  readonly kind: 'host';
+  readonly kind: 'host' | 'sbx';
   /**
    * True only when the runner itself enforces a sandbox boundary. Autonomous
    * permissions may only be granted when this is true (arch:AC-31, fail closed).
@@ -48,6 +58,10 @@ export interface SessionRunner {
   readonly enforcesSandbox: boolean;
   placeInteractive(spec: InteractiveLaunchSpec): PlacedInteractiveLaunch;
   runHeadless: RunHeadless;
+  /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
+  sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
+  /** Sandbox runners only: remove the sandbox and everything it left on the host. */
+  dispose?(ticket: SandboxTicketRef): Promise<void>;
 }
 
 export function createHostSessionRunner(

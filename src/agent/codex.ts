@@ -461,9 +461,13 @@ export class CodexAdapter implements AgentAdapter {
       );
     } else {
       // Unattended graph node/planner: the headless gate sandbox, verbatim.
+      // Gate and sandbox are exclusive: each sets --sandbox, approval, network
+      // and writable_roots, and codex would take whichever came last. An
+      // unattended gate run must never wait on an `on-request` prompt, so the
+      // gate policy wins and the interactive sandbox is not added.
       if (opts.policy === 'gate') appendPolicyArgs(args, undefined, 'gate', opts.cwd);
       for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
-      if (opts.sandbox) args.push(...codexSandboxArgs(opts.cwd, opts.sandbox));
+      if (opts.sandbox && opts.policy !== 'gate') args.push(...codexSandboxArgs(opts.cwd, opts.sandbox));
     }
     // The karst server rides as per-launch `--config mcp_servers.karst.*` keys
     // (the interactive counterpart of headless `mcp_servers={}` isolation).

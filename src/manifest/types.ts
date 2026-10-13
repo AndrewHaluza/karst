@@ -785,6 +785,9 @@ export interface ResilienceConfig {
   fallbackModels: readonly string[];
 }
 
+/** `Manifest.agentBackend` values (arch:AC-32). */
+export type AgentBackend = 'host' | 'sbx' | 'docker';
+
 export interface Manifest {
   /**
    * Stable project identity (§ projects / multi-window). Scopes tickets to a
@@ -924,6 +927,14 @@ export interface Manifest {
    * prompted behaviour; the effective mode is logged per launch.
    */
   agentSandbox?: boolean;
+  /**
+   * Where interactive agent sessions run (`arch:AC-32`): `host` (default),
+   * `sbx` (a Docker sbx microVM in clone mode; claude/codex only) or `docker`
+   * (reserved, not implemented). Anything that cannot run in the requested
+   * backend fails closed to the host, prompted; the effective backend is logged
+   * per launch. Independent of `agentSandbox`.
+   */
+  agentBackend?: AgentBackend;
   /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"

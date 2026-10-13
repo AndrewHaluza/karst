@@ -488,6 +488,20 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     }
   });
 
+  // Gate and sandbox are exclusive: a launch carrying both must not emit two
+  // contradictory sandbox / approval / network / writable-roots settings.
+  it('never emits contradictory sandbox settings for policy "gate" plus a sandbox', () => {
+    const policy = { writableRoots: ['/wt', '/repo/.git'], allowedDomains: ['api.example.com'] };
+    const { args } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', policy: 'gate', sandbox: policy });
+    const count = (match: (arg: string) => boolean) => args.filter(match).length;
+    expect(count((a) => a === '--sandbox'), provider).toBeLessThanOrEqual(1);
+    expect(count((a) => a.startsWith('sandbox_workspace_write.network_access=')), provider).toBeLessThanOrEqual(1);
+    expect(count((a) => a.startsWith('sandbox_workspace_write.writable_roots=')), provider).toBeLessThanOrEqual(1);
+    expect(count((a) => a === '--ask-for-approval') + count((a) => a.startsWith('approval_policy=')), provider)
+      .toBeLessThanOrEqual(1);
+    for (const flag of SANDBOX_BYPASS_FLAGS) expect(args, `${provider} ${flag}`).not.toContain(flag);
+  });
+
   it('registers a launch-time MCP config on the cores that declare support', () => {
     const supported = surfacesOf(provider).mcpConfigInteractive.supported;
     const dir = mkdtempSync(join(tmpdir(), 'karst-mcp-conf-'));

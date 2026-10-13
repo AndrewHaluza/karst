@@ -47,7 +47,10 @@ import { join } from 'node:path';
 // `agent/opencode2Auth.ts`; what stays here is the one binding the ops module
 // cannot own — the `vscode.window.showWarningMessage` seam, the login command,
 // the isolated-env-capable output probe, and the `karst.openSession` call site.
-const MAX_EXTENSION_LINES = 8580;
+// Raised by 7 (8580 -> 8587): sbx backend (AC-32) — one import, the
+// `backendSessionOptions` spread at the launch site and the `karst.sandbox.sync`
+// registration; logic is in `ops/sandboxSyncOps.ts` and `agent/backendResolver.ts`.
+const MAX_EXTENSION_LINES = 8587;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

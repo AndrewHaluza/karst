@@ -342,6 +342,7 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
+import { backendSessionOptions, syncSandboxOp } from './extension/ops/sandboxSyncOps.js';
 import {
   LAUNCH_BUILD_SCRIPT,
   LAUNCH_BUILD_TIMEOUT_MS,
@@ -6500,6 +6501,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
+            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m) }), // AC-32
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
@@ -6734,6 +6736,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
       await archiveTicketOp(archiveDeps, ticketId);
+    }),
+    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg); if (ticketId === undefined) return;
+      const t = getTicket(localStore, ticketId), wt = listWorktreesByTicket(localStore, ticketId)[0];
+      await syncSandboxOp({ notify: vscodeNotify, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
     }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
