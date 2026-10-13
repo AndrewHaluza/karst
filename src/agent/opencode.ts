@@ -45,6 +45,8 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { tmpdir } from 'node:os';
+import { gitCommonDirRoots, opencodeGatePermission } from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -970,6 +972,7 @@ export class OpencodeAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
   };
 
   /**
@@ -1386,7 +1389,11 @@ export class OpencodeAdapter implements AgentAdapter {
         // ONLY the permission — it never overrides HOME/XDG, so it cannot create
         // the nested-claude updater trap opencode2's isolation env guards
         // (AC-27); opencode2 remains the only core that rebases its state dirs.
-        isolationEnv: { OPENCODE_PERMISSION: JSON.stringify(opencodeLaunchPermission({})) },
+        isolationEnv: {
+          OPENCODE_PERMISSION: JSON.stringify(
+            opencodeLaunchPermission(opts.policy === 'gate' ? { gate: { cwd: opts.cwd } } : {}),
+          ),
+        },
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
       });
     } finally {
@@ -1453,9 +1460,21 @@ export class OpencodeAdapter implements AgentAdapter {
 export function opencodeLaunchPermission(opts: {
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
+  /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
+  gate?: { cwd: string } | undefined;
 }): Record<string, unknown> {
   const dirs = opts.addDirs ?? [];
   const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
+  if (opts.gate) {
+    const gate = opencodeGatePermission(
+      opts.gate.cwd,
+      tmpdir(),
+      undefined,
+      undefined,
+      [...dirs, ...gitCommonDirRoots(opts.gate.cwd)],
+    );
+    return { ...gate, ...(dirs.length > 0 ? { external_directory: external } : {}) };
+  }
   const killDeny = opencodeProcessKillDeny();
   return {
     ...(opts.readOnly ? { edit: 'deny' } : {}),

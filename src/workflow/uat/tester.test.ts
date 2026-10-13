@@ -381,6 +381,13 @@ describe('runUatTester', () => {
     expect(calls[0]!.timeoutMs).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
   });
 
+  it('runs under the karst gate sandbox policy and carries the isolation rule', async () => {
+    const { adapter, calls } = rawAdapter('[]');
+    await runUatTester(store, opts({ adapter }), { now });
+    expect(calls[0]!.policy).toBe('gate');
+    expect(calls[0]!.prompt).toContain('Environment isolation');
+  });
+
   it('honors an explicit headless deadline from the caller', async () => {
     const { adapter, calls } = rawAdapter('[]');
     await runUatTester(store, opts({ adapter, timeoutMs: 42_000 }), { now });

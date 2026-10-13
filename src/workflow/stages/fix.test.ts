@@ -48,6 +48,12 @@ describe('runFix', () => {
     expect(getTicket(store, id).stageCurrent).toBe('uat');
   });
 
+  it('runs the resumed fix under the gate sandbox policy', async () => {
+    const { adapter, calls } = fakeAdapter();
+    await runFix(store, { ticketId: id, cwd: '/wt' }, adapter);
+    expect((calls[0] as { policy?: string }).policy).toBe('gate');
+  });
+
   it('throws when there is no captured session to resume', async () => {
     store.db.prepare('UPDATE tickets SET session_id = NULL WHERE id = ?').run(id);
     const { adapter } = fakeAdapter();

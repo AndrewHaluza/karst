@@ -109,6 +109,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'addDirsInteractive',
       'mcpConfigInteractive',
       'processKillDeny',
+      'headlessPolicy',
     ];
     for (const key of keys) {
       const support = surfaces[key];
@@ -349,6 +350,30 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     const text = JSON.stringify({ args: calls[0]!.args, env: calls[0]!.opts?.isolationEnv });
     for (const command of PROCESS_WIDE_KILL_COMMANDS) {
       expect(text, `${provider} headless run must deny ${command}`).toContain(command);
+    }
+  });
+
+  it('translates policy "gate" into its own sandbox channel, or declares why not', async () => {
+    const support = surfacesOf(provider).headlessPolicy;
+    if (!support.supported) {
+      expect(reasonOf(support).length, `${provider}.headlessPolicy reason`).toBeGreaterThan(20);
+      return;
+    }
+    const adapter = resolveAdapter(provider);
+    const calls = withRecordedSpawn(adapter, { stdout: OK_STDOUT[provider], exitCode: 0 });
+    await adapter.runHeadless(baseOpts());
+    await adapter.runHeadless({ ...baseOpts(), policy: 'gate' });
+    // opencode2 follows a run with a `session export` read; only the runs count.
+    const [plain, gated] = calls.filter((c) => c.args[0] !== 'session');
+    const text = JSON.stringify({ args: gated!.args, env: gated!.opts?.isolationEnv });
+    const base = JSON.stringify({ args: plain!.args, env: plain!.opts?.isolationEnv });
+    expect(text, `${provider} gate run must differ from an ordinary run`).not.toBe(base);
+    if (provider === 'codex') {
+      expect(text).toContain('workspace-write');
+      expect(text).toContain('approval_policy');
+    } else {
+      expect(text).toContain('npm rebuild*');
+      expect(text).toContain('.claude.json');
     }
   });
 

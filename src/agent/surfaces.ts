@@ -144,6 +144,13 @@ export interface AdapterSurfaces {
    */
   readonly processKillDeny: SurfaceSupport;
   /**
+   * `RunHeadlessOpts.policy: 'gate'` → the core's own sandbox channel
+   * (`gatePolicy.ts`), so a headless gate role cannot write outside its
+   * worktree/tmp, run rebuild/clean scripts, or touch the operator's agent
+   * home config. `unsupported` names why the core cannot express it.
+   */
+  readonly headlessPolicy: SurfaceSupport;
+  /**
    * `InteractiveCommandOpts.mcpConfigPath` → the core's launch-time MCP config
    * flag (`claude --mcp-config <file>`), so the karst MCP tools are registered
    * for the session from a scratch file and no repo `.mcp.json` is committed.
