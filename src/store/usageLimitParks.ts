@@ -1,6 +1,8 @@
 import type { Store } from './db.js';
 import type { StageKey } from '../model/types.js';
 import { nowIso } from '../model/time.js';
+import { classifyFailure } from '../agent/failureClass.js';
+import { UsageLimitError } from '../agent/cliFailure.js';
 
 /**
  * `usage_limit_parks` (v82, @arch:V82) — one row per AI operation that stopped
@@ -250,4 +252,42 @@ export function listOpenParks(store: Store, ticketId: number): UsageLimitParkRow
     )
     .all(ticketId) as RawParkRow[];
   return rows.map(rowToPark);
+}
+
+/**
+ * Record an op park (kind `op`) for a caught non-stage AI failure — the
+ * fix/ship-description/alignment/classify call sites that have no stage-block
+ * path. Returns the row id, or null when `error` is NOT a quota exhaustion (so
+ * a caller can call it unconditionally in a catch). Idempotent per key via
+ * `insertOpenPark`, so two passes of one analysis collapse to one open row.
+ */
+export function recordUsageLimitOpPark(
+  store: Store,
+  error: unknown,
+  input: {
+    ticketId: number;
+    stage: StageKey | null;
+    provider?: string | null;
+    model?: string | null;
+    target?: string | null;
+    sessionId?: string | null;
+    parkedAt?: string;
+  },
+): number | null {
+  if (classifyFailure(error) !== 'usage-limited') return null;
+  const limit = error instanceof UsageLimitError ? error : null;
+  return insertOpenPark(store, {
+    ticketId: input.ticketId,
+    stage: input.stage,
+    kind: 'op',
+    lane: null,
+    target: input.target ?? null,
+    sessionId: input.sessionId ?? null,
+    stageRunId: null,
+    provider: limit?.provider ?? input.provider ?? 'unknown',
+    model: limit?.model ?? input.model ?? null,
+    detail: limit?.message ?? (error instanceof Error ? error.message : String(error)),
+    keptOutcome: null,
+    parkedAt: input.parkedAt,
+  });
 }

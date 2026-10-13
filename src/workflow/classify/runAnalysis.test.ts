@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { runAnalysis } from './runAnalysis.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 
 type Call = { site: string; cwd: string; prompt: string };
 function routed(answers: Partial<Record<string, string | Error>>) {
@@ -55,6 +56,32 @@ describe('runAnalysis', () => {
     expect(calls.find((c) => c.site === 'ticket-improve')!.prompt).toContain('PROFILE');
     expect(r.intent).toBe(INTENT);
     expect(r.degraded).toEqual([]);
+  });
+
+  it('reports a quota failure from a degrading pass via onUsageLimit (K11)', async () => {
+    const limit = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+    });
+    const { adapter } = routed({
+      'ticket-analysis': CLASSIFY,
+      'ticket-improve': limit,
+      'ticket-intent': INTENT,
+    });
+    const seen: unknown[] = [];
+    const r = await runAnalysis(adapter, input({ onUsageLimit: (e: unknown) => seen.push(e) }));
+    expect(seen).toEqual([limit]);
+    expect(r.degraded).toContain('improve');
+  });
+
+  it('reports a quota failure from classify and still rethrows (K11)', async () => {
+    const limit = new UsageLimitError('quota exceeded', { tool: 'Claude', provider: 'claude' });
+    const { adapter } = routed({ 'ticket-analysis': limit });
+    const seen: unknown[] = [];
+    await expect(
+      runAnalysis(adapter, input({ onUsageLimit: (e: unknown) => seen.push(e) })),
+    ).rejects.toBe(limit);
+    expect(seen).toEqual([limit]);
   });
 
   it('improve throws → description falls back to the classify prompt, degraded has improve', async () => {

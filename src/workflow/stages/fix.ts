@@ -2,6 +2,7 @@ import type { Store } from '../../store/db.js';
 import type { StageKey } from '../../model/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import { getTicket } from '../../store/tickets.js';
+import { recordUsageLimitOpPark } from '../../store/usageLimitParks.js';
 import { transition } from '../machine.js';
 
 /**
@@ -52,12 +53,20 @@ export async function runFix(
   }
 
   opts.debug?.(`[driver] fix ticket ${opts.ticketId}: running headless resume`);
-  await adapter.runHeadless({
-    prompt: 'Address the failing review gates, then stop.',
-    cwd: opts.cwd,
-    resume: ticket.sessionId,
-    tracking: { callSite: 'fix-resume', ticketId: opts.ticketId },
-  });
+  try {
+    await adapter.runHeadless({
+      prompt: 'Address the failing review gates, then stop.',
+      cwd: opts.cwd,
+      resume: ticket.sessionId,
+      tracking: { callSite: 'fix-resume', ticketId: opts.ticketId },
+    });
+  } catch (error) {
+    // K11: a quota exhaustion is a re-runnable park, not a failed fix. Record
+    // the op park (stage `fix`, no lane) so a later session can offer Pick /
+    // Retry same; the failure still propagates as today with the typed message.
+    recordUsageLimitOpPark(store, error, { ticketId: opts.ticketId, stage: 'fix' });
+    throw error;
+  }
 
   // Revalidate: fix pass re-enters uat (the deterministic re-gate).
   opts.debug?.(`[driver] fix ticket ${opts.ticketId}: resume done — transition fix→uat`);

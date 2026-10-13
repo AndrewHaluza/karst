@@ -12,6 +12,7 @@ import {
   type GhRunner,
 } from '../../integrations/github.js';
 import { openProcessRun, finishProcessRun } from '../../store/processRuns.js';
+import { recordUsageLimitOpPark } from '../../store/usageLimitParks.js';
 import {
   finalizeShipOperationIntent,
   finishShipRepoStep,
@@ -163,6 +164,16 @@ export async function generateDescription(
     return body;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
+    // K11: a quota exhaustion is a re-runnable park — record the op park (stage
+    // `ship`) so a later session can offer Pick / Retry same. The failure still
+    // propagates as today, with the typed message.
+    recordUsageLimitOpPark(store, err, {
+      ticketId,
+      stage: 'ship',
+      provider: assignment?.provider ?? null,
+      model: assignment?.model ?? null,
+      target: repo,
+    });
     finishProcessRun(store, processRun.id, 'failed', nowIso());
     finishShipRepoStep(store, step.id, { status: 'failed', detail, endedAt: nowIso() });
     onInsideProgress({

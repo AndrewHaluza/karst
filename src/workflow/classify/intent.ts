@@ -20,6 +20,8 @@ export interface IntentInput {
   effort?: string;
   ticketId?: number | null;
   processRunId?: number | null;
+  /** K11: called with a caught quota failure so the caller can record an op park. */
+  onUsageLimit?: (error: unknown) => void;
 }
 export interface IntentResult {
   text: string | null;
@@ -112,6 +114,7 @@ export async function generateIntent(
     return { text, degraded: text === null };
   } catch (e) {
     debug?.(`[agent:intent] adapter failed: ${e instanceof Error ? e.message : 'unknown'}`);
+    input.onUsageLimit?.(e);
     return { text: null, degraded: true };
   }
 }

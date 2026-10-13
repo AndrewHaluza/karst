@@ -21,6 +21,12 @@ export interface RunAnalysisInput {
   improve: { instructions: string; cwd: string; resolveRepoPath: (repos: string[]) => string | undefined };
   codePointers: { enabled: boolean };
   warn?: (msg: string) => void;
+  /**
+   * K11: called with any caught quota failure (classify/improve/intent/pointers)
+   * so the caller — which owns the store — can record one re-runnable op park.
+   * Absent → nothing is recorded; the passes degrade exactly as before.
+   */
+  onUsageLimit?: (error: unknown) => void;
 }
 
 export interface RunAnalysisResult {
@@ -42,7 +48,12 @@ export async function runAnalysis(adapter: AgentAdapter, input: RunAnalysisInput
     ...(analyze.effort !== undefined ? { effort: analyze.effort } : {}),
   };
 
-  const classification = await analyzeTicket(adapter, analyze);
+  const classification = await analyzeTicket(adapter, analyze).catch((error: unknown) => {
+    // classify propagates (the caller degrades the whole analysis); report the
+    // quota park before it does.
+    input.onUsageLimit?.(error);
+    throw error;
+  });
   const degraded: AnalysisPass[] = classification.degraded ? ['classify'] : [];
   const effectiveType = ticketType ?? classification.type;
 
@@ -61,6 +72,7 @@ export async function runAnalysis(adapter: AgentAdapter, input: RunAnalysisInput
       ...tuning,
     });
   } catch (error) {
+    input.onUsageLimit?.(error);
     warn?.(`description improve failed: ${error instanceof Error ? error.message : String(error)}`);
     degraded.push('improve');
   }
@@ -74,13 +86,21 @@ export async function runAnalysis(adapter: AgentAdapter, input: RunAnalysisInput
     improvedDescription: description,
     ...ids,
     ...tuning,
+    ...(input.onUsageLimit ? { onUsageLimit: input.onUsageLimit } : {}),
   });
   if (intent.degraded) degraded.push('intent');
 
   // Runs LAST so pointers can never feed intent.
   let codePointers: string | null = null;
   if (input.codePointers.enabled && repoPath) {
-    const pointers = await generateCodePointers(adapter, { title, description, repoPath, ...ids, ...tuning });
+    const pointers = await generateCodePointers(adapter, {
+      title,
+      description,
+      repoPath,
+      ...ids,
+      ...tuning,
+      ...(input.onUsageLimit ? { onUsageLimit: input.onUsageLimit } : {}),
+    });
     codePointers = pointers.text;
     if (pointers.degraded) degraded.push('code-pointers');
   }

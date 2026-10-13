@@ -3,7 +3,8 @@ import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { setStage } from './stages.js';
 import { parkGateStage, clearStageBlock, stageBlock } from './stageBlocks.js';
-import { insertOpenPark, listOpenParks, listParks, resolveOpenParks } from './usageLimitParks.js';
+import { insertOpenPark, listOpenParks, listParks, recordUsageLimitOpPark, resolveOpenParks } from './usageLimitParks.js';
+import { UsageLimitError } from '../agent/cliFailure.js';
 
 describe('usage_limit_parks', () => {
   let store: Store;
@@ -123,6 +124,29 @@ describe('usage_limit_parks', () => {
     });
     clearStageBlock(store, ticketId, 'review');
     expect(listOpenParks(store, ticketId)).toHaveLength(0);
+  });
+
+  it('records an op park from a quota error and ignores every other failure (K11)', () => {
+    const limit = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    expect(recordUsageLimitOpPark(store, limit, { ticketId, stage: 'fix' })).not.toBeNull();
+    const open = listOpenParks(store, ticketId);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({
+      kind: 'op',
+      stage: 'fix',
+      lane: null,
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+
+    // A non-quota error records nothing, and a repeat collapses to one open row.
+    expect(recordUsageLimitOpPark(store, new Error('boom'), { ticketId, stage: 'fix' })).toBeNull();
+    recordUsageLimitOpPark(store, limit, { ticketId, stage: 'fix' });
+    expect(listOpenParks(store, ticketId)).toHaveLength(1);
   });
 
   it('overwriting blockedKind with another kind resolves the park', () => {
