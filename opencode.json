@@ -4,12 +4,18 @@
   "permissions": [
     { "action": "read", "resource": "*", "effect": "allow" },
     { "action": "edit", "resource": "*", "effect": "allow" },
-    { "action": "shell", "resource": "*", "effect": "allow" },
     { "action": "glob", "resource": "*", "effect": "allow" },
     { "action": "grep", "resource": "*", "effect": "allow" },
     { "action": "list", "resource": "*", "effect": "allow" },
     { "action": "subagent", "resource": "*", "effect": "allow" },
     { "action": "skill", "resource": "*", "effect": "allow" },
-    { "action": "external_directory", "resource": "*", "effect": "allow" }
+    { "action": "shell", "resource": "*", "effect": "ask" },
+    { "action": "shell", "resource": "npm run -s *", "effect": "allow" },
+    { "action": "shell", "resource": "npx vitest *", "effect": "allow" },
+    { "action": "shell", "resource": "npx tsc *", "effect": "allow" },
+    { "action": "shell", "resource": "git status*", "effect": "allow" },
+    { "action": "shell", "resource": "git diff*", "effect": "allow" },
+    { "action": "shell", "resource": "git log*", "effect": "allow" },
+    { "action": "external_directory", "resource": "*", "effect": "ask" }
   ]
 }

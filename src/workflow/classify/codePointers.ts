@@ -18,6 +18,8 @@ export interface CodePointersInput {
   effort?: string;
   ticketId?: number | null;
   processRunId?: number | null;
+  /** K11: called with a caught quota failure so the caller can record an op park. */
+  onUsageLimit?: (error: unknown) => void;
 }
 /** `degraded` is true ONLY when the adapter threw; "found nothing" is a valid answer. */
 export interface CodePointersResult {
@@ -64,6 +66,7 @@ export async function generateCodePointers(
     return { text: parseCodePointers(r.raw), degraded: false };
   } catch (e) {
     debug?.(`[agent:code-pointers] adapter failed: ${e instanceof Error ? e.message : 'unknown'}`);
+    input.onUsageLimit?.(e);
     return { text: null, degraded: true };
   }
 }

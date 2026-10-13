@@ -44,7 +44,7 @@ import {
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
-import { describeHeadlessFailure, describePermissionDenial } from './cliFailure.js';
+import { describePermissionDenial, headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
@@ -206,6 +206,25 @@ export class AntigravityAdapter implements AgentAdapter {
       'agy manages MCP servers only through its own `agy mcp` state, with no per-launch ' +
         'config flag; run `karst mcp install` to register the server at user scope',
     ),
+    headlessPolicy: unsupported(
+      'agy has no sandbox or per-run permission flag: a headless `-p` run takes only ' +
+        '`--dangerously-skip-permissions`, and its rules live in the user-global settings file ' +
+        'karst never writes (AC-17); the gate roles rely on the prompt isolation rule here',
+    ),
+    interactiveGatePolicy: unsupported(
+      'agy has no sandbox or per-launch permission flag (`--mode` is accept-edits | plan only) ' +
+        'and its rules live in the user-global settings file karst never writes (AC-17); an ' +
+        'unattended graph node relies on the prompt isolation rule here',
+    ),
+    interactiveAttendedPolicy: unsupported(
+      'agy has no deny list or per-launch permission flag, and its rules live in the ' +
+        'user-global settings file karst never writes (AC-17); the instruction layer carries the rule',
+    ),
+    processKillDeny: unsupported(
+      'agy has no deny list: its command rules are `permissions.allow` in the user-global ' +
+        '~/.gemini/antigravity-cli/settings.json, which karst never writes (AC-17); a rule ' +
+        'outside that file is not expressible, and a headless `-p` run cannot prompt',
+    ),
   };
 
   /**
@@ -261,6 +280,13 @@ export class AntigravityAdapter implements AgentAdapter {
       ...(opts.instructions ? { instructionsChannel: 'pointer' as const } : {}),
     };
   }
+
+  /**
+   * Explicit no-op: antigravity (agy) has no per-directory folder-trust prompt —
+   * it groups sessions by PROJECT and never opens a trust dialog that can exit a
+   * launch — so this writes nothing. AC-08: every adapter answers, none silent.
+   */
+  ensureWorkspaceTrusted(): void {}
 
   materializeApproach(opts: MaterializeOpts): Materialized {
     const artifacts = opts.pkg.artifacts ?? [];
@@ -493,14 +519,14 @@ export class AntigravityAdapter implements AgentAdapter {
         `[agent:antigravity] exit ${r.exitCode} — stdout: ${headlessPreview(r.stdout)}; stderr: ${headlessPreview(r.stderr)}`,
       );
       throw attachUsage(
-        new Error(
-          describeHeadlessFailure({
-            tool: 'Antigravity',
-            exitCode: r.exitCode,
-            stdout: r.stdout,
-            stderr: r.stderr,
-          }),
-        ),
+        headlessFailureError({
+          tool: 'Antigravity',
+          provider: 'antigravity',
+          model: opts.model,
+          exitCode: r.exitCode,
+          stdout: r.stdout,
+          stderr: r.stderr,
+        }),
         extractTokenUsage(r.stdout),
       );
     }

@@ -26,6 +26,7 @@ import { partitionDisabled, type StageGateResolution } from '../gates/disable.js
 import { runGateList } from '../gates/runList.js';
 import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
+import { usageLimitReason } from '../../agent/cliFailure.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import {
@@ -803,6 +804,9 @@ export async function runUat(
           // empty, and both must read as the advisory default.
           observationsBlockingSeverity:
             opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
+          // T663: the per-target fresh-token budget. Absent → the Tester's own
+          // default, so a manifest that omits `uat.tester` is unchanged.
+          tokenBudget: opts.manifest?.uat?.tester?.tokenBudget,
         },
         { now },
       );
@@ -831,6 +835,13 @@ export async function runUat(
       // break the run's gates — it is reported, and the gates decide.
       deps.warn?.(`uat tester: call failed, contributing no observations: ${testerResult.message}`);
     }
+    if (testerResult?.kind === 'partial') {
+      // T663: the run was stopped by a budget or the deadline and reported what
+      // it could. Advisory exactly like `observed` — the gates (and the verifier,
+      // and the observation threshold below) decide — but the user is told the
+      // result is partial, never left to read it as a clean pass.
+      deps.warn?.(`uat tester: ${testerResult.detail}`);
+    }
     if (testerResult?.kind === 'unreadable-output') {
       // NOT the same event as `execution-failed`. The call SUCCEEDED and the
       // agent answered — it just answered in a shape no findings could be read
@@ -855,6 +866,31 @@ export async function runUat(
       const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
       sections.push(`# uat tester (unreadable output)\n${testerResult.preview}`);
       return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+    }
+    if (testerResult?.kind === 'usage-limited') {
+      // K11: the provider account is out of quota/allowance. NOT an advisory
+      // absence and NOT a T663 partial — the op could not run, so the stage
+      // parks `blocked:usage-limit` (no verdict, no fix attempt) with the park
+      // payload that rides into `usage_limit_parks`. The observations a sibling
+      // target already produced are kept on the park row for D159's merge.
+      const reason = usageLimitReason(testerResult.provider, testerResult.model);
+      sections.push(`# uat tester (usage limit)\n${testerResult.detail}`);
+      return finish(
+        {
+          kind: 'blocked',
+          blocker: 'usage-limit',
+          reason,
+          park: {
+            provider: testerResult.provider,
+            model: testerResult.model,
+            lane: 'uat',
+            target: testerResult.target,
+            detail: testerResult.detail,
+            keptOutcome: testerResult.keptOutcome,
+          },
+        },
+        [reason, testerResult.detail],
+      );
     }
   
     const verifierGate = opts.manifest?.uat?.testerVerifier;
@@ -904,7 +940,10 @@ export async function runUat(
     // same way the verifier's failure is: a failed verdict whose reason carries
     // the shared prefix, which `recoveryTriggerFor` reads to attribute the
     // recovery round to `sourceProcessId: 'tester'`.
-    if (testerResult?.kind === 'observed' && testerResult.blocking > 0) {
+    if (
+      (testerResult?.kind === 'observed' || testerResult?.kind === 'partial') &&
+      testerResult.blocking > 0
+    ) {
       const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${testerResult.blockingSummary ?? `${testerResult.blocking} blocking`}`;
       opts.debug?.(
         `[gate] uat ticket ${opts.ticketId}: gates passed but ${testerResult.blocking} tester ` +

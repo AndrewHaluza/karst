@@ -161,6 +161,7 @@ describe('sub-task events from the stage writer', () => {
       'approach-graph-failed': true,
       'subtask-integration-conflict': true,
       'baseline-review': true,
+      'usage-limit': true,
       'awaiting-merge': false,
       'awaiting-impl-marker': false,
       'awaiting-subtask': false,

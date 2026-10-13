@@ -50,6 +50,7 @@ export function buildHookSettings(
   endpointUrl: string,
   configDir?: string,
   provider?: BridgeProvider,
+  extraSettings?: Record<string, unknown>,
 ): string {
   const parsed = new URL(endpointUrl);
   if (
@@ -122,7 +123,7 @@ export function buildHookSettings(
   // inconsequential (PROMPT-16 measured cost: bridging = ~6 s/session).
   hooks.PostToolUse = [{ matcher: '', hooks: [httpHook] }];
 
-  return JSON.stringify({ hooks });
+  return JSON.stringify({ ...extraSettings, hooks });
 }
 
 /**
@@ -138,6 +139,7 @@ export function writeHookSettings(
   endpointUrl: string,
   dir: string,
   provider?: BridgeProvider,
+  extraSettings?: Record<string, unknown>,
 ): string {
   const endpoint = new URL(endpointUrl);
   const port = endpoint.port;
@@ -149,6 +151,6 @@ export function writeHookSettings(
     dir,
     `karst-hooks.${port}${generation}.settings.json`,
   );
-  writeFileSync(path, buildHookSettings(endpointUrl, dir, provider));
+  writeFileSync(path, buildHookSettings(endpointUrl, dir, provider, extraSettings));
   return path;
 }

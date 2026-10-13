@@ -32,7 +32,7 @@ export interface ArtifactCaptureWiring {
 export function wireArtifactCapture(
   deps: Omit<ArtifactCaptureServiceDeps, 'watch'> & { fsWatch: typeof nodeWatch },
 ): ArtifactCaptureWiring {
-  const service = createArtifactCaptureService({ ...deps, watch: nodeFsWatch(deps.fsWatch) });
+  const service = createArtifactCaptureService({ ...deps, watch: nodeFsWatch(deps.fsWatch, deps.debug) });
   const onSessionEnd = (ticketId: number): void => {
     void service.captureTicket(ticketId).catch((err: unknown) => {
       deps.debug(`[artifacts] session-end capture failed for ticket ${ticketId}: ${String(err)}`);

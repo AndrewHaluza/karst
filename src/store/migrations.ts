@@ -9,6 +9,7 @@ import { BULLETIN_DDL } from './bulletinNotes.js';
 import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
 import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
+import { USAGE_LIMIT_PARKS_DDL } from './usageLimitParks.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -2662,6 +2663,13 @@ function migrateLocked(db: Database): void {
     if (cols81.size > 0 && !cols81.has('failure_detail')) {
       db.exec('ALTER TABLE process_runs ADD COLUMN failure_detail TEXT');
     }
+  }
+
+  if (current < 82) {
+    // v82: `usage_limit_parks` — one row per AI op that stopped because the
+    // provider account is out of quota/allowance (K11, @arch:V82). A whole new
+    // table (IF NOT EXISTS DDL), nothing backfilled: no park existed before it.
+    db.exec(USAGE_LIMIT_PARKS_DDL);
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

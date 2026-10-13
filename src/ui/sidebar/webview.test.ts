@@ -94,32 +94,59 @@ describe('sidebar webview.html', () => {
     }
   });
 
-  it('renders the sub-task marker ⊂ <parentKey> distinctly from the follow-up ↳ (NDL-76)', () => {
+  it('shows the ⊂ parent ref only for an orphan sub-task — parent not in this list (NDL-76, guides carry the visible case)', () => {
     // Two ORTHOGONAL relations, two markers: a sub-task row shows its
-    // composition parent (`⊂`), a follow-up its temporal parent (`↳`). The
-    // sub-task marker is preferred when a row somehow carries both, and its
-    // tooltip names the sub-task relation, never "Follow-up".
+    // composition parent (`⊂`) only when that parent is NOT in the same
+    // rendered list (`nestSubtasks` keeps it a root, depth 0); when the parent
+    // IS visible the tree guides carry the relation instead. The follow-up
+    // (`↳`) is unchanged.
     expect(HTML).toContain('class="parentref subtaskref"');
-    expect(HTML).toContain('Sub-task of ${esc(row.subtaskParentKey)}');
+    expect(HTML).toContain('row.subtaskParentKey && !row.subtaskDepth');
     expect(HTML).toContain('⊂ ${esc(row.subtaskParentKey)}');
-    expect(HTML).toMatch(/row\.subtaskParentKey\s*\n?\s*\?\s*`<span class="parentref subtaskref"/);
+    expect(HTML).toContain('Sub-task of ${esc(row.subtaskParentKey)}');
     expect(HTML).toContain('Follow-up of ${esc(row.parentKey)}');
     expect(HTML).toContain('↳ ${esc(row.parentKey)}');
   });
 
-  it('indents nested sub-task rows by depth via token-spaced nest classes (NDL-76)', () => {
+  it('indents nested sub-task rows a fixed 12px per depth via token-spaced nest classes (UI-R04)', () => {
     // Depth comes from the host (`nestSubtasks`); the view only paints it, and
     // clamps to MAX_SUBTASK_INDENT (the writer's MAX_SUBTASK_DEPTH, via
-    // ui/sidebar/items.ts). Each step uses a shared spacing token.
+    // ui/sidebar/items.ts). Each step is one --k-space-6 (12px) per level.
     expect(HTML).toContain('nest${Math.min(row.subtaskDepth, MAX_SUBTASK_INDENT)}');
-    expect(HTML).toMatch(/\.ticket\.nest1>\.row\{padding-left:var\(--k-space-6\)\}/);
-    expect(HTML).toMatch(/\.ticket\.nest2>\.row\{padding-left:var\(--k-space-8\)\}/);
-    expect(HTML).toMatch(/\.ticket\.nest3>\.row\{padding-left:var\(--k-space-9\)\}/);
+    expect(HTML).toMatch(/\.ticket\.nest1>\.row\{padding-left:calc\(var\(--k-space-6\) \* 1\)\}/);
+    expect(HTML).toMatch(/\.ticket\.nest2>\.row\{padding-left:calc\(var\(--k-space-6\) \* 2\)\}/);
+    expect(HTML).toMatch(/\.ticket\.nest3>\.row\{padding-left:calc\(var\(--k-space-6\) \* 3\)\}/);
     // The writer allows 4 levels below a root; the deepest one still indents.
-    expect(HTML).toContain('.ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}');
+    expect(HTML).toContain('.ticket.nest4>.row{padding-left:calc(var(--k-space-6) * 4)}');
     // Exactly MAX_SUBTASK_INDENT (4) nest rules — a nest5 would be unreachable
     // and would mean the view and the writer's depth cap had drifted.
     expect(HTML).not.toContain('.ticket.nest5');
+  });
+
+  it('centres the ticket chevron on the Planning twistie (SIDEBAR-ALIGN-TICKET-ROW-CHEVRON)', () => {
+    // The ticket row drops its left padding and pulls the chevron left by
+    // --k-space-1 - (--k-hit-min - --k-space-7) / 2, so the chevron centre is
+    // 4 (ticket margin) + 0 + -2 + 12 = 14px — the Planning twistie's centre
+    // (4 + 2 + 16/2). Token arithmetic only; the chevron's hit box stays at the
+    // .k-iconbtn default --k-hit-min (UI-R29).
+    expect(HTML).toMatch(
+      /\.row\{[^}]*padding:var\(--k-space-2\) var\(--k-space-3\) var\(--k-space-2\) 0;[^}]*overflow:hidden\}/,
+    );
+    expect(HTML).toMatch(
+      /\.chev\{[^}]*margin-left:calc\(var\(--k-space-1\) - \(var\(--k-hit-min\) - var\(--k-space-7\)\) \/ 2\)/,
+    );
+    // The chevron keeps its hit box: no local width/min-width override.
+    expect(HTML).not.toMatch(/\.chev\{[^}]*min-width/);
+  });
+
+  it('paints one aria-hidden hairline guide per ancestor slot with an elbow/tee (UI-R28)', () => {
+    // The decorative tree guides are host-arithmetic (`subtaskGuides` /
+    // `subtaskIsLast`) painted CSS-only; they never enter the a11y tree.
+    expect(HTML).toContain('class="guides" aria-hidden="true"');
+    expect(HTML).toContain('guide--elbow');
+    expect(HTML).toContain('guide--tee');
+    expect(HTML).toContain('guide--line');
+    expect(HTML).toContain('border-left:var(--k-border-w) solid var(--k-border)');
   });
 
   it('pins the webview indent constant to the writer depth (TS→HTML constant, UI-R34)', () => {
@@ -143,6 +170,16 @@ describe('sidebar webview.html', () => {
     // The filter hides descendants of a collapsed row, recursively.
     expect(HTML).toContain('function visibleRows(rows)');
     expect(HTML).toMatch(/collapsedSubtrees\.has\(ancestors\[d\]\)/);
+  });
+
+  it('gives the collapse control its own sub-tree glyph, not the row chevron (ICONS-02)', () => {
+    // The row-detail disclosure and the sub-tree disclosure must never look
+    // alike: the collapse control uses the Tabler tree/flat-list pair, never
+    // the shared `chev` (chevron-right).
+    expect(HTML).toContain("karstIcon('list-tree', 13)");
+    expect(HTML).toContain("karstIcon('layout-list', 13)");
+    expect(HTML).toContain('${collapsed ? ic.subFlat : ic.subTree}</button>');
+    expect(HTML).not.toMatch(/class="k-iconbtn subchev"[^`]*\$\{chev\}/);
   });
 
   it('keeps the sub-tree collapse control clear of the hover action strip (NDL-86)', () => {

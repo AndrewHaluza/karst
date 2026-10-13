@@ -72,6 +72,13 @@ const cliOpts = {
   banner: { js: '#!/usr/bin/env node' },
 };
 
+/** @type {import('esbuild').BuildOptions} */
+const uatHostOpts = {
+  ...base,
+  entryPoints: ['src/uatHost/prepare.ts'],
+  outfile: 'dist/uat-host/prepare.js',
+};
+
 // If the CLI banner and a preserved source shebang both land at the top of
 // dist/cli/main.js, drop the duplicate — the file must start with exactly
 // one `#!/usr/bin/env node` line to be valid JS and directly executable.
@@ -91,11 +98,12 @@ function dedupeShebang(outfile) {
 await buildWebviewBundles({ prod });
 
 if (watch) {
-  const [extCtx, cliCtx] = await Promise.all([context(extensionOpts), context(cliOpts)]);
-  await Promise.all([extCtx.watch(), cliCtx.watch()]);
+  const [extCtx, cliCtx, uatCtx] = await Promise.all([context(extensionOpts), context(cliOpts), context(uatHostOpts)]);
+  await Promise.all([extCtx.watch(), cliCtx.watch(), uatCtx.watch()]);
   console.log('watching for changes…');
 } else {
   await build(extensionOpts);
   await build(cliOpts);
+  await build(uatHostOpts);
   dedupeShebang(cliOpts.outfile);
 }

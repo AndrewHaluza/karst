@@ -610,7 +610,9 @@ export async function runReview(
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.
   findingsProcessRunId =
-    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+    findingsLane.kind === 'ran' || findingsLane.kind === 'usage-limited'
+      ? (findingsLane.processRunId ?? null)
+      : null;
 
   // Finding 3: a Stop during the findings lane is not a review of anything —
   // the open Review process is closed interrupted, and the run returns stopped
@@ -675,7 +677,9 @@ export async function runReview(
   const unreadableTargets: readonly string[] =
     findingsLane.kind === 'ran' ? (findingsLane.unreadable ?? []) : [];
   const processRunId =
-    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+    findingsLane.kind === 'ran' || findingsLane.kind === 'usage-limited'
+      ? (findingsLane.processRunId ?? null)
+      : null;
   if (processRunId !== null) {
     const blocking =
       outcome.kind === 'verdict' &&
@@ -687,8 +691,12 @@ export async function runReview(
       findingsLane.findings.length === 0 &&
       outcome.kind === 'blocked' &&
       outcome.blocker === 'capability-missing';
+    // K11: a quota-exhausted lane is a failed run, not a clean one — its detail
+    // is the typed sentence, so the inside Review row names the cause exactly
+    // like a crash does.
+    const usageLimited = findingsLane.kind === 'usage-limited';
     const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
-    if (crashes.length > 0 || unreadableBlock) {
+    if (crashes.length > 0 || unreadableBlock || usageLimited) {
       // The bounded failure sentence — the lane's already-collapsed crash
       // messages (deduped: a multi-repo review repeats the SAME denial per
       // target), re-collapsed so joining cannot exceed the cap — rides onto the
@@ -698,7 +706,11 @@ export async function runReview(
       // the generic wording stands.
       const uniqueCrashes = [...new Set(crashes)];
       const failureDetail =
-        uniqueCrashes.length > 0 ? collapseDiagnostic(uniqueCrashes.join('; ')) : null;
+        usageLimited && findingsLane.kind === 'usage-limited'
+          ? findingsLane.detail
+          : uniqueCrashes.length > 0
+            ? collapseDiagnostic(uniqueCrashes.join('; '))
+            : null;
       finishProcessRun(
         store,
         processRunId,
@@ -719,10 +731,15 @@ export async function runReview(
   const crashNotes = crashes.map((c) => `review findings lane failed: ${c}`);
 
   if (outcome.kind === 'blocked') {
-    return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
-      outcome.reason,
-      ...crashNotes,
-    ]);
+    return finish(
+      {
+        kind: 'blocked',
+        blocker: outcome.blocker,
+        reason: outcome.reason,
+        ...(outcome.park ? { park: outcome.park } : {}),
+      },
+      [outcome.reason, ...crashNotes],
+    );
   }
   return finish({ kind: 'verdict', verdict: outcome.verdict }, [
     ...outcome.warnings,

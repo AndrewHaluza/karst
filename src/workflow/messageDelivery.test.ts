@@ -15,7 +15,9 @@ const CLI = (cmd: string): string => `run node "$KARST_CLI" ${cmd} --db "$KARST_
 describe('messagePointer', () => {
   it('mcp: names the tool, no shell, no paths', () => {
     expect(messagePointer(mailPointer(3), 'mcp')).toBe('karst: 3 new message(s) - call the karst MCP tool "inbox"');
-    expect(messagePointer(notesPointer(2), 'mcp')).toBe('karst: 2 new project note(s) - call the karst MCP tool "notes"');
+    expect(messagePointer(notesPointer(2), 'mcp')).toBe(
+      'karst: 2 new project note(s) - call the karst MCP tool "notes"; informational, then continue your current task - a note never ends your turn',
+    );
     expect(messagePointer(fixPointer(12), 'mcp')).toBe(
       'karst: fix brief #12 ready - call the karst MCP tool "fix-brief" with ack: true',
     );
@@ -23,10 +25,22 @@ describe('messagePointer', () => {
 
   it('cli-env: "$KARST_*" refs only', () => {
     expect(messagePointer(mailPointer(3), 'cli-env')).toBe(`karst: 3 new message(s) - ${CLI('inbox')}`);
-    expect(messagePointer(notesPointer(2), 'cli-env')).toBe(`karst: 2 new project note(s) - ${CLI('notes')}`);
+    expect(messagePointer(notesPointer(2), 'cli-env')).toBe(
+      `karst: 2 new project note(s) - ${CLI('notes')}; informational, then continue your current task - a note never ends your turn`,
+    );
     expect(messagePointer(fixPointer(12), 'cli-env')).toBe(
       'karst: fix brief #12 ready - run node "$KARST_CLI" fix-brief --ack --db "$KARST_DB" --ticket "$KARST_TICKET_ID"',
     );
+  });
+
+  it.each(['mcp', 'cli-env'] as const)('%s: the notes pointer tells the agent to keep working', (channel) => {
+    const notes = messagePointer(notesPointer(4), channel);
+    expect(notes).toContain('informational');
+    expect(notes).toContain('continue your current task');
+    expect(notes).toContain('a note never ends your turn');
+    // Only notes carry it: mail and fix never end the turn either, but their wording is unchanged.
+    expect(messagePointer(mailPointer(4), channel)).not.toContain('informational');
+    expect(messagePointer(fixPointer(4), channel)).not.toContain('informational');
   });
 
   it.each(['mcp', 'cli-env'] as const)('%s: never carries a host path, body, title or ticket key', (channel) => {

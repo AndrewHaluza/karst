@@ -1,5 +1,6 @@
 import type { Store } from '../../store/db.js';
 import type { BlockerKind, StageKey, StageRunResult, Verdict } from '../../model/types.js';
+import type { UsageLimitParkPayload } from '../../store/usageLimitParks.js';
 import { setStage, stageAttempt } from '../../store/stages.js';
 import { recordGateRun, type GateRunInput } from '../../store/gateRuns.js';
 import { recordFindings, type FindingInput } from '../../store/reviewFindings.js';
@@ -18,7 +19,7 @@ import { nowIso } from '../../model/time.js';
 /** What a gate run decided, before any of it is written down. */
 export type RunOutcome =
   | { kind: 'verdict'; verdict: Exclude<Verdict, null> }
-  | { kind: 'blocked'; blocker: BlockerKind; reason: string }
+  | { kind: 'blocked'; blocker: BlockerKind; reason: string; park?: UsageLimitParkPayload }
   | { kind: 'stopped' };
 
 /**
@@ -174,6 +175,9 @@ export function commitGateOutcome(
         gates,
         artifactPath,
         stageRunId,
+        // K11: the park payload rides the blocked outcome into the SAME
+        // transaction as the block, so the durable park row cannot be lost.
+        ...(outcome.park ? { park: outcome.park } : {}),
       });
       recordFindingsIfAny();
       closeRun('blocked');

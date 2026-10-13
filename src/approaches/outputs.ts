@@ -41,6 +41,19 @@ export const DEFAULT_OUTPUTS: Readonly<Record<string, readonly OutputDef[]>> = {
 const GLOB_CHARS = /[*?[{]/;
 const ENTRY_KEYS = new Set(['glob', 'kind']);
 
+/**
+ * The repo-relative directory before the first glob character — the literal
+ * prefix of a glob (e.g. two path segments, then `**`, gives those two
+ * segments; a glob that starts with a glob char gives `''`). Used to validate
+ * the prefix and to scope the artifact watcher to the dirs an approach can
+ * actually write to.
+ */
+export function outputPrefix(glob: string): string {
+  const segments = glob.split('/');
+  const firstGlob = segments.findIndex((s) => GLOB_CHARS.test(s));
+  return (firstGlob === -1 ? segments : segments.slice(0, firstGlob)).join('/');
+}
+
 function isKind(v: unknown): v is OutputKind {
   return typeof v === 'string' && (OUTPUT_KINDS as readonly string[]).includes(v);
 }
@@ -64,8 +77,7 @@ function globFault(glob: string): string | undefined {
     return 'must not contain ".." or "." segments';
   }
   if (segments.some((s) => s.startsWith('~'))) return 'must not start a segment with "~"';
-  const firstGlob = segments.findIndex((s) => GLOB_CHARS.test(s));
-  const prefix = (firstGlob === -1 ? segments : segments.slice(0, firstGlob)).join('/');
+  const prefix = outputPrefix(glob);
   if (prefix !== '' && !normalizeGraphPath(prefix).ok) {
     return `has an unsafe literal prefix "${prefix}"`;
   }

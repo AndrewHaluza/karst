@@ -1,7 +1,9 @@
 import type { BlockerKind, Verdict } from '../../model/types.js';
 import type { GateRun } from '../../store/gateRuns.js';
 import type { FindingInput } from '../../store/reviewFindings.js';
+import type { UsageLimitParkPayload } from '../../store/usageLimitParks.js';
 import type { Severity } from '../../manifest/types.js';
+import { usageLimitReason } from '../../agent/cliFailure.js';
 import type { AggregateEntry } from '../uat/aggregate.js';
 
 export type { AggregateEntry };
@@ -27,7 +29,7 @@ export interface GateIdentity {
 
 export type AggregateOutcome =
   | { kind: 'verdict'; verdict: Exclude<Verdict, null>; warnings: string[] }
-  | { kind: 'blocked'; blocker: BlockerKind; reason: string };
+  | { kind: 'blocked'; blocker: BlockerKind; reason: string; park?: UsageLimitParkPayload };
 
 /**
  * What the findings lane (Lane B) contributed to THIS run, as an argument
@@ -67,6 +69,25 @@ export type AggregateOutcome =
 export type FindingsLaneOutcome =
   | { kind: 'not-run' }
   | { kind: 'capability-missing'; reason: string }
+  | {
+      /**
+       * A target's call died because the provider account is out of quota (K11).
+       * No sibling outcome is judged: the lane stops at the first exhausted
+       * target, keeps whatever earlier targets already answered on the park row
+       * (`keptOutcome`, JSON), and the stage parks `blocked:usage-limit` — never
+       * a crash, never a pass, never a fix round.
+       */
+      kind: 'usage-limited';
+      /** The repo whose call hit the limit. */
+      target: string;
+      provider: string;
+      model: string | null;
+      detail: string;
+      /** JSON of the siblings' outcomes so a later session can merge them (D159). */
+      keptOutcome: string;
+      /** The Review process run this invocation opened; absent = none was opened. */
+      processRunId?: number | null;
+    }
   | {
       kind: 'ran';
       findings: readonly FindingInput[];
@@ -382,6 +403,26 @@ export function aggregateReview(
   findingsLane: FindingsLaneOutcome,
   opts: AggregateReviewOpts,
 ): AggregateOutcome {
+  // K11 — a quota-exhausted findings lane parks, before any gate/findings rule.
+  // The lane stopped at the first exhausted target and JUDGED NO sibling, so no
+  // rule below has a verdict to state: a red gate on a target whose review never
+  // ran is not a review of anything. The stage consumes no fix attempt.
+  if (findingsLane.kind === 'usage-limited') {
+    return {
+      kind: 'blocked',
+      blocker: 'usage-limit',
+      reason: usageLimitReason(findingsLane.provider, findingsLane.model),
+      park: {
+        provider: findingsLane.provider,
+        model: findingsLane.model,
+        lane: 'review',
+        target: findingsLane.target,
+        detail: findingsLane.detail,
+        keptOutcome: findingsLane.keptOutcome,
+      },
+    };
+  }
+
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
   // R3/R4/R5 — see `gatesOutcomeBeforeFindings`.

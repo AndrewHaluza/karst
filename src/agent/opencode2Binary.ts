@@ -154,6 +154,14 @@ export function opencode2Availability(
  * live under `<globalStorage>/opencode2/`, are per-window, and also keep the
  * operator's personal plugins/config out of a ticket run. Empty `home` (the
  * host has not configured one yet) yields no overlay rather than the real dirs.
+ *
+ * `DISABLE_AUTOUPDATER` is Claude Code's documented switch, set here because
+ * an agent that runs the real `claude` binary from inside a karst-isolated
+ * shell inherits these XDG dirs: Claude's native installer resolves its data
+ * dir from `XDG_DATA_HOME`, installs a copy under karst storage, and RELINKS
+ * the user's global `~/.local/bin/claude` at it. Cleaning karst storage then
+ * breaks `claude` for the whole machine. Disabling the auto-updater stops that
+ * relink; `doctor` (`tools.claude-install`) catches one already written.
  */
 export function opencode2IsolationEnv(home: string): Record<string, string> {
   if (home.trim() === '') return {};
@@ -163,5 +171,6 @@ export function opencode2IsolationEnv(home: string): Record<string, string> {
     XDG_CACHE_HOME: `${home}/cache`,
     XDG_STATE_HOME: `${home}/state`,
     OPENCODE_DISABLE_AUTOUPDATE: '1',
+    DISABLE_AUTOUPDATER: '1',
   };
 }

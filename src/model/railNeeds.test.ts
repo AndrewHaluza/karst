@@ -33,6 +33,16 @@ describe('railNeeds', () => {
     });
   });
 
+  it('reads a quota exhaustion as needs-you at whatever stage parked (K11)', () => {
+    for (const stage of ['impl', 'uat', 'review', 'fix', 'ship']) {
+      expect(railNeeds(input({ stage, blockedKind: 'usage-limit' })), stage).toEqual({
+        detail: 'the provider is out of quota',
+        action: 'Open session',
+        cta: { kind: 'open-session' },
+      });
+    }
+  });
+
   it('points a failed implementation graph at its recovery controls', () => {
     expect(
       railNeeds(input({ stage: 'impl', blockedKind: 'approach-graph-failed' })),

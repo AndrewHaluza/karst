@@ -2,8 +2,10 @@ import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import { createArtifactStore, type ArtifactStore, type ArtifactStoreOptions } from '../artifacts/store.js';
 import type { Manifest } from '../manifest/types.js';
 import type { Store } from '../store/db.js';
+import type { StageKey } from '../model/types.js';
 import { postMessage } from '../store/ticketMessages.js';
 import { getTicket } from '../store/tickets.js';
+import { recordUsageLimitOpPark } from '../store/usageLimitParks.js';
 import { runAlignment } from '../workflow/artifacts/alignment.js';
 import { recordAlignmentOutcome } from '../workflow/artifacts/alignmentRecord.js';
 import { createAlignmentTrigger } from '../workflow/artifacts/alignmentTrigger.js';
@@ -50,7 +52,21 @@ export function makeAlignmentTrigger(deps: {
         return { findings: [], report: '', failed: true };
       }
       return runAlignment(
-        { adapter: process.adapter, model: process.assignment.model, effort: process.assignment.effort, debug: deps.debug },
+        {
+          adapter: process.adapter,
+          model: process.assignment.model,
+          effort: process.assignment.effort,
+          debug: deps.debug,
+          // K11: the alignment check is warn-only; a quota exhaustion still gets
+          // a re-runnable op park so D159 can offer Pick / Retry same.
+          onUsageLimit: (error) =>
+            void recordUsageLimitOpPark(deps.registry, error, {
+              ticketId: input.ticketId,
+              stage: getTicket(deps.registry, input.ticketId).stageCurrent as StageKey | null,
+              provider: process.assignment.provider,
+              model: process.assignment.model ?? null,
+            }),
+        },
         input,
       );
     },

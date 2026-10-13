@@ -102,12 +102,14 @@ describe('guide-attribution terminal env (Task 4)', () => {
     ['cliEntry', { dbPath: '/storage/karst.db' }],
     ['dbPath', { cliEntry: '/ext/dist/cli/main.js' }],
     ['both', {}],
-  ])('missing %s → launch fails, no terminal', (_what, options) => {
+  ])('missing %s → launch fails, no terminal', async (_what, options) => {
     const { host, opts } = recordingHost();
     const mgr = new SessionManager(host, channelFor);
-    expect(() =>
+    // `openSession` is async (its trust hook may await a contended lock), so a
+    // pre-launch refusal surfaces as a rejection.
+    await expect(
       mgr.openSession(adapter, 7, '/wt/a', undefined, 'seed', undefined, undefined, undefined, undefined, [], options),
-    ).toThrow(/CLI entry or database path/);
+    ).rejects.toThrow(/CLI entry or database path/);
     expect(opts).toHaveLength(0);
     expect(mgr.isLive(7)).toBe(false);
   });

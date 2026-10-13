@@ -8,6 +8,7 @@ import type {
 } from './adapter.js';
 import { instrumentAdapter, type UsageSink } from './instrumentedAdapter.js';
 import { attachUsage } from './tokenUsage.js';
+import { UsageLimitError } from './cliFailure.js';
 import type { TokenUsageEntry } from '../store/tokenUsage.js';
 
 const CLAUDE_ENVELOPE_USAGE = {
@@ -59,6 +60,40 @@ describe('instrumentAdapter', () => {
     // `instructions.interactive` off the RUNTIME (instrumented) adapter, so this
     // declaration must survive the wrapper like `surfaces` does.
     expect(instrumentAdapter(inner, { sink: sink() }).instructions).toEqual(inner.instructions);
+  });
+
+  it('skips the trust hook when the run opts out with trustCwd:false', async () => {
+    const trusted: string[] = [];
+    const inner = fakeAdapter({
+      ensureWorkspaceTrusted: (cwd) => void trusted.push(cwd),
+    });
+    const adapter = instrumentAdapter(inner, { sink: sink() });
+    await adapter.runHeadless({ prompt: 'hi', cwd: '/tmp/karst-analysis-x', trustCwd: false });
+    expect(trusted).toEqual([]);
+  });
+
+  it('pre-trusts the headless cwd through the seam before the run', async () => {
+    const trusted: string[] = [];
+    const inner = fakeAdapter({
+      ensureWorkspaceTrusted: (cwd) => void trusted.push(cwd),
+    });
+    const adapter = instrumentAdapter(inner, { sink: sink() });
+    await adapter.runHeadless({ prompt: 'hi', cwd: '/wt/headless' });
+    // The ONE headless seam calls the hook, so a graph/worktree cwd is trusted
+    // before any core starts headless there (T661).
+    expect(trusted).toEqual(['/wt/headless']);
+  });
+
+  it('forwards ensureWorkspaceTrusted to the wrapped core', () => {
+    const trusted: string[] = [];
+    const inner = fakeAdapter({ ensureWorkspaceTrusted: (cwd) => void trusted.push(cwd) });
+    const adapter = instrumentAdapter(inner, { sink: sink() });
+    adapter.ensureWorkspaceTrusted?.('/wt/x', { debug: () => {} });
+    expect(trusted).toEqual(['/wt/x']);
+  });
+
+  it('leaves ensureWorkspaceTrusted absent when the wrapped core has none', () => {
+    expect(instrumentAdapter(fakeAdapter(), { sink: sink() }).ensureWorkspaceTrusted).toBeUndefined();
   });
 
   it('injects the host debug callback into every headless call', async () => {
@@ -172,6 +207,31 @@ describe('instrumentAdapter', () => {
     expect(lines).toContainEqual(
       expect.stringMatching(/\[agent\] instrumented runHeadless \(ticket-analysis\): call failed — recording usage as error/),
     );
+  });
+
+  it('preserves a typed UsageLimitError across the meter seam (K11)', async () => {
+    const s = sink();
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const inner = fakeAdapter({
+      runHeadless: async () => {
+        throw limitErr;
+      },
+    });
+    const adapter = instrumentAdapter(inner, { sink: s, provider: 'claude' });
+
+    const caught = await adapter
+      .runHeadless({ prompt: 'hi', cwd: '.' })
+      .then(() => new Error('expected a rejection'), (e: unknown) => e as Error);
+    // The meter rethrows the ORIGINAL error untouched, so the type that drives
+    // the classifier's fail-fast rule survives instrumentation.
+    expect(caught).toBe(limitErr);
+    expect(caught).toBeInstanceOf(UsageLimitError);
+    expect(s.entries).toHaveLength(1);
+    expect(s.entries[0]!.outcome).toBe('error');
   });
 
   it('records the provider-reported counts under the declared call site and ticket', async () => {

@@ -1,7 +1,7 @@
 import type { WorkflowPhase } from '../manifest/types.js';
 import { PREFIX } from '../model/entityId.js';
 import type { MarkerStage } from './markerStage.js';
-import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO } from './promptText.js';
+import { MARKER_REFUSED, GATE_DECIDED_BY_EXIT_CODES, GUIDE_POINTER_INTRO, PROCESS_KILL_RULE } from './promptText.js';
 
 const TICKET_ID = `${PREFIX.ticket}<n>`;
 
@@ -143,7 +143,12 @@ export function renderDoneMarkerInstruction(
     `user is not complete, and the ${MARKER_REFUSED}. The marker is also refused when no ` +
     'repository has changes from its base branch — at least one target must differ, so commit your ' +
     'work to the ticket branch first.' +
-    sandboxTail;
+    sandboxTail +
+    // Resident karst rule for every impl/fix session (and the generated
+    // workflow command): stop only what you started. The hard stop is the
+    // per-core permission deny (`processKillGuard.ts`); this is the correct
+    // way, stated where the agent is told the stage's rules.
+    ` ${PROCESS_KILL_RULE}`;
   const marker = ' stage impl pass ';
   if (!stageCommand.includes(marker)) return base;
   const notesCommand = `${stageCommand.replace(marker, ' notes post ')} ${ticketArg}`;
@@ -182,7 +187,8 @@ export function renderGateOnlyInstruction(): string {
     `This stage is ${GATE_DECIDED_BY_EXIT_CODES}, not by anything you report — ` +
     'there is no marker command to run here. Your job is to make the gates pass: ' +
     'do the work the gate is checking for, and Karst will detect the result and ' +
-    'advance the ticket on its own once the checks are green.'
+    'advance the ticket on its own once the checks are green. ' +
+    PROCESS_KILL_RULE
   );
 }
 

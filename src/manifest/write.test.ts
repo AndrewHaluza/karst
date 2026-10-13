@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeRepoSignals, writeManifest } from './write.js';
 import { loadManifest } from './load.js';
+import { uat as uatConfig } from './fixtures.js';
 import type { Manifest, PresetSlot } from './types.js';
 
 const VALID = `
@@ -169,6 +170,22 @@ repositories:
       const loaded = loadManifest(path);
       writeManifest(path, { ...loaded, analysis: { codePointers: true } });
       expect(loadManifest(path).analysis).toEqual({ codePointers: true });
+    } finally {
+      cleanup();
+    }
+  });
+
+  // T663: a Save must never silently drop the Tester's budget block — the
+  // failure mode the FIELDCHK checklist's round-trip guard exists to catch.
+  it('round-trips uat.tester.tokenBudget', () => {
+    const { path, cleanup } = manifestFixture();
+    try {
+      const loaded = loadManifest(path);
+      writeManifest(path, {
+        ...loaded,
+        uat: uatConfig({ tester: { tokenBudget: 250_000 } }),
+      });
+      expect(loadManifest(path).uat?.tester?.tokenBudget).toBe(250_000);
     } finally {
       cleanup();
     }

@@ -65,7 +65,7 @@
   .ticket{margin:0 var(--k-space-2);border-radius:var(--k-radius-md)}
   .ticket.arch{opacity:.6}
   .row{display:flex;align-items:center;gap:var(--k-space-3);
-    padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) var(--k-space-2);
+    padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) 0;
     border-radius:var(--k-radius-md);position:relative;overflow:hidden}
   .row:hover{background:var(--k-surface-hover)}
   /* Opening a ticket is a handoff — the dashboard panel IS the answer — so the
@@ -115,9 +115,20 @@
      (the mini-dashboard redesign) WITHOUT shrinking the hit target — the
      glyph pulls closer while the control keeps its full box. The follow-up
      tightened it further (--k-space-2 instead of --k-space-1): the collapsed
-     row keeps the chevron and the status icon visually adjacent. */
+     row keeps the chevron and the status icon visually adjacent.
+
+     The left margin lines the chevron's centre up with the Planning tree
+     twistie's centre (SIDEBAR-ALIGN-TICKET-ROW-CHEVRON). Both rows sit at the
+     same list inset; the ticket row's padding-left is 0, so the chevron needs
+     `--k-space-1 - (--k-hit-min - --k-space-7) / 2` to centre its --k-hit-min
+     box one twistie half-width from the row edge — the same centre the
+     twistie's half-width box produces. The row's `overflow:hidden` clips a
+     hair of the hit box's left edge; nothing interactive sits left of the
+     chevron, so the WCAG 2.5.8 spacing exception holds (no adjacent target
+     within the target circle). */
   .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard);
-    padding:0;margin-right:calc(-1 * var(--k-space-2))}
+    padding:0;margin-right:calc(-1 * var(--k-space-2));
+    margin-left:calc(var(--k-space-1) - (var(--k-hit-min) - var(--k-space-7)) / 2)}
   .ticket.open .chev{transform:rotate(90deg)}
 
   /* The row's main click target — opens the ticket dashboard. A real <button>
@@ -168,20 +179,46 @@
   .parentref.subtaskref{color:inherit;opacity:.75}
   /* Sub-task nesting: the row indents by its depth (nestSubtasks) so a
      sub-task reads as belonging to the row above it. Whole-row indent (the
-     expanded body and hover actions move with it), stepping through the
-     shared spacing tokens. The classes stop at MAX_SUBTASK_INDENT (4), which
-     `ui/sidebar/items.ts` sets to the writer's MAX_SUBTASK_DEPTH (4 levels
-     below a root); the host clamps `subtaskDepth` to it, so there is no nest5. */
-  .ticket.nest1>.row{padding-left:var(--k-space-6)}
-  .ticket.nest2>.row{padding-left:var(--k-space-8)}
-  .ticket.nest3>.row{padding-left:var(--k-space-9)}
-  .ticket.nest4>.row{padding-left:calc(var(--k-space-9) + var(--k-space-3))}
+     expanded body and hover actions move with it), a fixed step of one
+     --k-space-6 repeated per level. The classes stop at MAX_SUBTASK_INDENT
+     (4), which `ui/sidebar/items.ts` sets to the writer's MAX_SUBTASK_DEPTH
+     (4 levels below a root); the host clamps `subtaskDepth` to it, so there is
+     no nest5. */
+  .ticket.nest1>.row{padding-left:calc(var(--k-space-6) * 1)}
+  .ticket.nest2>.row{padding-left:calc(var(--k-space-6) * 2)}
+  .ticket.nest3>.row{padding-left:calc(var(--k-space-6) * 3)}
+  .ticket.nest4>.row{padding-left:calc(var(--k-space-6) * 4)}
+  /* Tree guides: one hairline per ancestor indent slot plus an elbow/tee into
+     the row. The host stamps the arithmetic (`subtaskGuides`/`subtaskIsLast`);
+     the view paints, CSS-only and decorative (`aria-hidden`), so the guides
+     never enter the accessibility tree. Each slot sits at the CENTRE of its
+     indent step (left = k * --k-space-6 + --k-space-3) and reaches the next
+     step's edge (--k-space-3 wide), so the horizontal arm lands exactly on the
+     indented content. Consecutive rows paint abutting segments with no gap, so
+     a run of `.guide--line`/`.guide--tee` reads as one continuous line. */
+  .guides{position:absolute;left:0;top:0;bottom:0;width:0;pointer-events:none}
+  .guide{position:absolute;top:0;bottom:0;width:var(--k-space-3)}
+  .guide::before{content:"";position:absolute;left:0;top:0;bottom:0;
+    border-left:var(--k-border-w) solid var(--k-border)}
+  .guide::after{content:"";position:absolute;left:0;top:50%;width:var(--k-space-3);
+    border-top:var(--k-border-w) solid var(--k-border)}
+  /* A continuing ancestor: vertical only, no arm. */
+  .guide--line::after{content:none}
+  /* The elbow into a last child: vertical stops at the arm. */
+  .guide--elbow::before{bottom:50%}
+  /* A slot with no continuing ancestor draws nothing (structure preserved so
+     the nth-child positions stay stable). */
+  .guide--off::before,.guide--off::after{content:none}
+  .guides>.guide:nth-child(1){left:calc(var(--k-space-6) * 0 + var(--k-space-3))}
+  .guides>.guide:nth-child(2){left:calc(var(--k-space-6) * 1 + var(--k-space-3))}
+  .guides>.guide:nth-child(3){left:calc(var(--k-space-6) * 2 + var(--k-space-3))}
+  .guides>.guide:nth-child(4){left:calc(var(--k-space-6) * 3 + var(--k-space-3))}
   /* The collapse control for a row that has sub-tasks. Sits at the row's right
-     edge (after the open control), a small chevron rotating with its state —
-     the same glyph language as the row's own expand chevron, but a SEPARATE
-     control (UI-R09: two independent disclosures are two buttons). */
-  .subchev{margin-left:auto;flex:0 0 auto;transition:transform var(--k-dur-fast) var(--k-ease-standard)}
-  .subchev[aria-expanded="false"]{transform:rotate(-90deg)}
+     edge (after the open control), its OWN sub-tree glyph (Tabler `list-tree`,
+     or the flat-list glyph when collapsed) — never the row's expand chevron, so
+     the two disclosures never look alike. Still a SEPARATE control (UI-R09:
+     two independent disclosures are two buttons). */
+  .subchev{margin-left:auto;flex:0 0 auto}
   /* The stage pill carries the shared stg-<stage> token (model/stagePalette),
      so its text IS the stage color and its fill is that color washed out — the
      same token the dashboard rail paints with. The fill prefers the stage's
@@ -220,10 +257,10 @@
   .ticket.open .row:hover .stage{opacity:1}
 
   /* expanded body — the compact mini-dashboard. Left padding matches the
-     collapsed row's own left padding (--k-space-2, the same slot the expand
-     chevron occupies), so the minidashboard starts aligned with the expand
-     chevron rather than indented under the glyph. */
-  .body{display:none;padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) var(--k-space-2)}
+     collapsed row's own left padding (now 0 after the chevron alignment), so
+     the minidashboard starts at the chevron's visible left edge rather than
+     indented under the glyph. */
+  .body{display:none;padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) 0}
   .ticket.open .body{display:block}
 
   .nextact{font-size:var(--k-text-sm);margin:var(--k-space-2) 0 var(--k-space-1);color:var(--k-text)}
@@ -523,6 +560,12 @@
     x: karstIcon('x', 13),
     plus: karstIcon('plus', 13),
     fold: karstIcon('chevrons-up', 13),
+    // The sub-tree collapse control's own identity (ICONS-02): a tree glyph
+    // when the descendants are shown, the flat-list glyph when they are hidden
+    // — deliberately NOT the row's `chevron-right`, so the two disclosures
+    // never share a glyph language.
+    subTree: karstIcon('list-tree', 13),
+    subFlat: karstIcon('layout-list', 13),
   };
 
   function renderFacets() {
@@ -802,7 +845,7 @@
       + `<span class="k-id" title="Ticket ${esc(row.idLabel)}">${esc(row.idLabel)}</span>`
       + `<span class="name">${esc(row.label)}</span>`
       + ((row.blockedBy || []).length ? `<span class="k-chip" title="Blocked by ${(row.blockedBy || []).map(esc).join(', ')}">Blocked by ${(row.blockedBy || []).map(esc).join(', ')}</span>` : '')
-      + (row.subtaskParentKey
+      + (row.subtaskParentKey && !row.subtaskDepth
         ? `<span class="parentref subtaskref" title="Sub-task of ${esc(row.subtaskParentKey)}">⊂ ${esc(row.subtaskParentKey)}</span>`
         : (row.parentKey ? `<span class="parentref" title="Follow-up of ${esc(row.parentKey)}">↳ ${esc(row.parentKey)}</span>` : ''))
       + (compact
@@ -825,10 +868,23 @@
       ? `Show ${row.subtaskChildCount} nested sub-task${row.subtaskChildCount === 1 ? '' : 's'}`
       : `Hide ${row.subtaskChildCount} nested sub-task${row.subtaskChildCount === 1 ? '' : 's'}`;
     const collapseControl = canCollapse
-      ? `<button type="button" class="k-iconbtn subchev" data-collapse="${row.ticketId}" aria-expanded="${!collapsed}" aria-label="${collapseLabel}" title="${collapseLabel}">${chev}</button>`
+      ? `<button type="button" class="k-iconbtn subchev" data-collapse="${row.ticketId}" aria-expanded="${!collapsed}" aria-label="${collapseLabel}" title="${collapseLabel}">${collapsed ? ic.subFlat : ic.subTree}</button>`
+      : '';
+    // Tree guides (decorative, aria-hidden): one span per ancestor indent slot,
+    // painted CSS-only over the row's indented padding. `subtaskGuides` is the
+    // host-stamped "this slot continues below" flag; the innermost slot is this
+    // row's own tee (more siblings follow) or elbow (last child). One span is
+    // always emitted per slot — even an off slot keeps its nth-child position.
+    const guidesHtml = row.subtaskDepth
+      ? `<span class="guides" aria-hidden="true">${(row.subtaskGuides || []).map((cont, i, all) =>
+          i === all.length - 1
+            ? `<span class="guide ${row.subtaskIsLast ? 'guide--elbow' : 'guide--tee'}"></span>`
+            : `<span class="guide ${cont ? 'guide--line' : 'guide--off'}"></span>`,
+        ).join('')}</span>`
       : '';
     return `<div class="ticket${isOpen ? ' open' : ''}${row.archived ? ' arch' : ''}${row.isActive ? ' active' : ''}${compact ? ' done' : ''}${opts.older ? ' older' : ''}${nestClass}" data-id="${row.ticketId}">`
       + `<div class="row">`
+      + guidesHtml
       + `<button type="button" class="k-iconbtn chev" data-toggle="${row.ticketId}" aria-expanded="${isOpen}" aria-label="${toggleLabel}" title="${toggleLabel}">${chev}</button>`
       + openControl
       + collapseControl

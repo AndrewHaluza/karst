@@ -47,6 +47,12 @@ export interface AlignmentDeps {
   model?: string;
   effort?: string;
   debug?: (message: string) => void;
+  /**
+   * K11: called with the caught failure when the run died because the provider
+   * account is out of quota, so the caller (which owns the registry store) can
+   * record a re-runnable op park. Absent → nothing is recorded.
+   */
+  onUsageLimit?: (error: unknown) => void;
 }
 
 export interface AlignmentResult {
@@ -79,6 +85,7 @@ export async function runAlignment(
       deps.adapter.runHeadless({
         prompt: buildAlignmentPrompt(input.edge, input.parentText, input.childText, input.paths),
         cwd,
+        trustCwd: false,
         model: deps.model,
         effort: deps.effort,
         ...(deps.adapter.surfaces?.structuredOutput?.supported === true
@@ -98,6 +105,7 @@ export async function runAlignment(
     return { findings: clean, report: renderAlignmentReport(input.edge, clean), failed: false };
   } catch (err) {
     deps.debug?.(`[alignment] run failed: ${err instanceof Error ? err.message : String(err)}`);
+    deps.onUsageLimit?.(err);
     return { findings: [], report: renderAlignmentReport(input.edge, [], 'the agent call failed'), failed: true };
   }
 }

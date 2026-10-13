@@ -144,7 +144,7 @@ export function resilientAdapter(
             lastError = error;
             const cls = classifyFailure(error);
 
-            if (cls === 'aborted' || cls === 'fatal') {
+            if (cls === 'aborted' || cls === 'fatal' || cls === 'usage-limited') {
               options.debug?.(`[agent] resilient: ${cls} failure — not retrying`);
               throw error;
             }
@@ -191,6 +191,16 @@ export function resilientAdapter(
       sessionId: string,
       opts: { cwd: string; debug?: (message: string) => void },
     ) => inner.resolveResume!(sessionId, opts);
+  }
+
+  // The folder-trust hook must survive BOTH decorators: a launch path calls it
+  // on the runtime adapter (`resilientAdapter(instrumentAdapter(core))`), and
+  // dropping it here would skip the trust write on every real launch (T661).
+  if (inner.ensureWorkspaceTrusted) {
+    adapter.ensureWorkspaceTrusted = (
+      cwd: string,
+      opts?: { debug?: (message: string) => void },
+    ) => inner.ensureWorkspaceTrusted!(cwd, opts);
   }
 
   return adapter;

@@ -112,7 +112,12 @@ function blockedDetail(row?: StepperStageRow): Record<'blocked', StepperCell['bl
         // Only a recorded Approve/Reject decision clears it (@arch:BASELINE-REVIEW);
         // its banner action is 'Review baselines', never Resume.
         row.blockedKind !== 'baseline-review' &&
-        row.blockedKind !== 'awaiting-subtask',
+        row.blockedKind !== 'awaiting-subtask' &&
+        // A quota exhaustion (K11) is user-resolved like awaiting-merge: a
+        // generic Resume would re-run the exhausted model, so `stageResume.ts`
+        // refuses it and the dashboard must offer no Resume button — the
+        // recovery is picking another agent/model (D159).
+        row.blockedKind !== 'usage-limit',
     },
   };
 }

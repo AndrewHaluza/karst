@@ -135,6 +135,26 @@ export interface AdapterSurfaces {
   /** `InteractiveCommandOpts.addDirs` → the core's extra-workspace-directory flag. */
   readonly addDirsInteractive: SurfaceSupport;
   /**
+   * The adapter translates the shared process-wide kill deny list
+   * (`processKillGuard.ts`) into its own launch permission channel, on every
+   * launch path (interactive, headless, planning), so an agent cannot
+   * `pkill`/`killall` another session on this machine. `unsupported` names the
+   * core's own reason — a core with no deny list, or one whose rules live in a
+   * user-global file karst may not own (AC-17).
+   */
+  readonly processKillDeny: SurfaceSupport;
+  /**
+   * `RunHeadlessOpts.policy: 'gate'` → the core's own sandbox channel
+   * (`gatePolicy.ts`), so a headless gate role cannot write outside its
+   * worktree/tmp, run rebuild/clean scripts, or touch the operator's agent
+   * home config. `unsupported` names why the core cannot express it.
+   */
+  readonly headlessPolicy: SurfaceSupport;
+  /** `InteractiveCommandOpts.policy: 'gate'` (unattended graph node/planner) → the core's sandbox channel. */
+  readonly interactiveGatePolicy: SurfaceSupport;
+  /** `InteractiveCommandOpts.policy: 'attended'` (ticket session) → pattern-kill + home-config-write denies. */
+  readonly interactiveAttendedPolicy: SurfaceSupport;
+  /**
    * `InteractiveCommandOpts.mcpConfigPath` → the core's launch-time MCP config
    * flag (`claude --mcp-config <file>`), so the karst MCP tools are registered
    * for the session from a scratch file and no repo `.mcp.json` is committed.

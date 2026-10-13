@@ -4,6 +4,7 @@ import type { Finding } from '../store/reviewFindings.js';
 import type { GateRun } from '../store/gateRuns.js';
 import type { PrFeedbackRow } from '../store/prFeedback.js';
 import { lastFailedGate } from '../workflow/fixAttempts.js';
+import { PROCESS_KILL_RULE } from './promptText.js';
 
 /** "src/db.ts:42" or "src/db.ts" or "" — never a bare ":42" with nothing to attach it to. */
 function findingLocation(f: Finding): string {
@@ -100,6 +101,10 @@ export function renderFixBrief(
         'Address every point below, then stop.'
       : `The ${gate.stageKey} gate failed for ticket ${ticketLabel}. Fix what it reported, ` +
         'then re-run the checks yourself to confirm they pass.',
+    // A fix session runs shell commands to reproduce and re-run checks; it must
+    // stop only what it started (`kill $!`), never a process-wide `pkill`.
+    '',
+    PROCESS_KILL_RULE,
   ];
   if (gate.verdict) lines.push('', `It reported: ${gate.verdict}`);
   const failures = latestFailingGates(gate.stageKey, gateRuns);

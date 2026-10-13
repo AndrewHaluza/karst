@@ -7,14 +7,23 @@ import { fileURLToPath } from 'node:url';
 export const MAX_BLOCK_BYTES = 6200;
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DOCS_DIR = join(ROOT, 'docs');
+const SRC_DIR = join(ROOT, 'src');
 const INDEX_PATH = join(ROOT, 'docs/INDEX.md');
 const INDEX_REL = 'docs/INDEX.md';
 const SKIP_DIRS = new Set(['plans', 'superpowers']);
-const SKIP_FILES = new Set(['docs/extension-inventory.md', 'docs/arch/extension-inventory.md', INDEX_REL]);
+const SKIP_FILES = new Set(['docs/extension-inventory.md', 'docs/issues/extension-inventory.md', INDEX_REL]);
 const OPEN = /^## \[@([^\]]+)\] (.*)$/;
 const END = /^END_DOC_BLOCK: \[@([^\]]+)\]\s*$/;
 const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
 const HEADER = /^<!-- AGENT INSTRUCTIONS:[\s\S]*?-->/;
+// Cross-references to a keyed block. Only the `arch` and `issue` namespaces are
+// linted here; the other namespaces (`ui:`, `core:`, `gloss:`, `ts:`, …) are a
+// separate concern. `KEY` is the docs' own metavariable for "any key" (see
+// `docs/arch/cli.md`), so it is never a real reference.
+const REF_NS = 'arch|issue';
+const BARE_REF = new RegExp(`@(${REF_NS}):([A-Za-z0-9_-]+)`, 'g');
+const QUALIFIED_REF = new RegExp(`([A-Za-z0-9_./-]+\\.md)#@(${REF_NS}):([A-Za-z0-9_-]+)`, 'g');
+const PLACEHOLDER_IDS = new Set(['KEY']);
 
 function parse(text) {
   const header = HEADER.exec(text)?.[0] ?? null;
@@ -85,12 +94,90 @@ export function buildIndex(docs) {
   ].join('\n');
 }
 
-function collect(dir = DOCS_DIR) {
+/**
+ * Every keyed block in the collected docs, mapped to the docs that define it.
+ * Keys are not globally unique (e.g. `arch:CONTENTS` is defined in several
+ * files), so a bare reference to a key with more than one defining doc is
+ * ambiguous and must use the qualified form.
+ */
+export function keyIndex(docs) {
+  const index = new Map();
+  for (const d of docs) {
+    for (const b of parse(d.text).blocks) {
+      const files = index.get(b.id);
+      if (files) files.add(d.path);
+      else index.set(b.id, new Set([d.path]));
+    }
+  }
+  return index;
+}
+
+/**
+ * Lint `@arch:`/`@issue:` cross-references in `sources` against `index`. A bare
+ * reference must resolve to exactly one defining doc; `path#@ns:KEY` must
+ * resolve to the doc it names (a leading `./` is accepted). A block's definition
+ * marker and the per-file AGENT INSTRUCTIONS header are not references, though a
+ * reference in a block heading's title still is. `KEY` is the docs' own
+ * metavariable for "any key" and is skipped.
+ */
+export function lintRefs(sources, index) {
+  const out = [];
+  for (const s of sources) {
+    const lines = s.text.split(/\r?\n/);
+    let fence = null;
+    let inHeader = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (inHeader) {
+        if (line.includes('-->')) inHeader = false;
+        continue;
+      }
+      if (line.startsWith('<!-- AGENT INSTRUCTIONS')) {
+        if (!line.includes('-->')) inHeader = true;
+        continue;
+      }
+      const f = FENCE.exec(line)?.[1];
+      if (f && !fence) { fence = f; continue; }
+      if (fence) {
+        if (f && f[0] === fence[0] && f.length >= fence.length && line.trim() === f) fence = null;
+        continue;
+      }
+      // A block definition is not a reference — but a reference may sit in its
+      // heading title, so mask only the definition marker and keep the offset.
+      let scan = line;
+      const open = OPEN.exec(line);
+      if (open) scan = ' '.repeat(line.length - open[2].length) + open[2];
+      if (END.test(line)) scan = ' '.repeat(line.length);
+      const qualified = [...scan.matchAll(QUALIFIED_REF)];
+      for (const m of qualified) {
+        const [, path, ns, id] = m;
+        if (PLACEHOLDER_IDS.has(id)) continue;
+        if (!index.get(`${ns}:${id}`)?.has(path.replace(/^\.\//, ''))) {
+          out.push(`${s.path}:${i + 1}: unresolved reference ${path}#@${ns}:${id}`);
+        }
+      }
+      const spans = qualified.map((m) => [m.index, m.index + m[0].length]);
+      for (const m of scan.matchAll(BARE_REF)) {
+        if (spans.some(([a, b]) => m.index >= a && m.index < b)) continue;
+        const [, ns, id] = m;
+        if (PLACEHOLDER_IDS.has(id)) continue;
+        const files = index.get(`${ns}:${id}`);
+        if (!files) out.push(`${s.path}:${i + 1}: unresolved reference @${ns}:${id}`);
+        else if (files.size > 1) {
+          out.push(`${s.path}:${i + 1}: ambiguous reference @${ns}:${id} (defined in ${files.size} files: ${[...files].sort().join(', ')})`);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function collect(dir = DOCS_DIR, skipDirs = SKIP_DIRS) {
   const files = [];
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) {
-      if (!SKIP_DIRS.has(e.name)) files.push(...collect(p));
+      if (!skipDirs.has(e.name)) files.push(...collect(p, skipDirs));
     } else if (e.name.endsWith('.md')) {
       const rel = relative(ROOT, p).split(sep).join('/');
       if (!SKIP_FILES.has(rel)) files.push({ path: rel, text: readFileSync(p, 'utf8') });
@@ -99,10 +186,38 @@ function collect(dir = DOCS_DIR) {
   return files;
 }
 
+/**
+ * The TypeScript sources a `@arch:`/`@issue:` reference may live in. Test files
+ * are excluded: their fixtures assert the runtime's handling of keys that are
+ * deliberately unknown, which are not doc references to resolve.
+ */
+function collectSrc(dir = SRC_DIR) {
+  const files = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = join(dir, e.name);
+    if (e.isDirectory()) files.push(...collectSrc(p));
+    else if (/\.tsx?$/.test(e.name) && !e.name.includes('.test.')) {
+      const rel = relative(ROOT, p).split(sep).join('/');
+      files.push({ path: rel, text: readFileSync(p, 'utf8') });
+    }
+  }
+  return files;
+}
+
+/**
+ * Everything the reference lint reads: every doc under `docs/` plus `src/`.
+ * This deliberately covers `plans/` and `superpowers/`, which the FORMAT lint
+ * and the index skip — working notes do not follow the keyed-block format, but
+ * a reference written in one still has to resolve.
+ */
+export function collectRefSources() {
+  return [...collect(DOCS_DIR, new Set()), ...collectSrc()];
+}
+
 function main(cmd, flags) {
   const docs = collect();
   if (cmd === 'lint') {
-    const errs = docs.flatMap(lintDoc);
+    const errs = [...docs.flatMap(lintDoc), ...lintRefs(collectRefSources(), keyIndex(docs))];
     if (errs.length) console.error(errs.join('\n'));
     process.exitCode = errs.length ? 1 : 0;
   } else if (cmd === 'index') {

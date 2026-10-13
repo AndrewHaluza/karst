@@ -5,6 +5,8 @@ import { createTicketFlow } from '../stages/create.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { RunHeadlessOpts } from '../../agent/adapter.js';
+import type { HeadlessResult } from '../../agent/adapter.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import type { AggregateEntry } from './aggregate.js';
 import { buildFindingsPrompt, planAndRunFindingsLane, runFindingsLane } from './findingsLane.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
@@ -125,6 +127,65 @@ describe('runFindingsLane', () => {
     expect(stopped.some((l) => l.includes('stopped'))).toBe(true);
   });
 
+  it('a quota-exhausted target yields usage-limited, never a crash (K11)', async () => {
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: adapter(() => Promise.reject(limitErr)),
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    expect(outcome.kind).toBe('usage-limited');
+    if (outcome.kind !== 'usage-limited') throw new Error('unreachable');
+    expect(outcome.target).toBe('/web');
+    expect(outcome.provider).toBe('claude');
+    expect(outcome.model).toBe('claude-sonnet-5');
+    expect(outcome.detail).toContain('out of credits');
+    expect(JSON.parse(outcome.keptOutcome).targets).toContainEqual({
+      repo: '/web',
+      status: 'usage-limited',
+      findings: 0,
+    });
+  });
+
+  it('stops at the exhausted target and keeps earlier siblings on the park row (K11)', async () => {
+    let call = 0;
+    const runHeadless = vi.fn(async (): Promise<HeadlessResult> => {
+      call++;
+      if (call === 2) {
+        throw new UsageLimitError('quota exceeded', { tool: 'Claude', provider: 'claude' });
+      }
+      return {
+        sessionId: '',
+        verdict: null,
+        raw: JSON.stringify([{ severity: 'medium', title: 'x', detail: 'y' }]),
+      };
+    });
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [
+        { repo: '/a', worktreePath: '/wt/a' },
+        { repo: '/b', worktreePath: '/wt/b' },
+      ],
+      ticketId: 1,
+    });
+    expect(outcome.kind).toBe('usage-limited');
+    if (outcome.kind !== 'usage-limited') throw new Error('unreachable');
+    // The exhausted target is the SECOND — the first target's finding is kept
+    // for D159 to merge, never judged by review.
+    expect(outcome.target).toBe('/b');
+    expect(JSON.parse(outcome.keptOutcome).targets).toEqual([
+      { repo: '/a', status: 'parsed', findings: 1 },
+      { repo: '/b', status: 'usage-limited', findings: 0 },
+    ]);
+    expect(runHeadless).toHaveBeenCalledTimes(2);
+  });
+
   it('debug lines name the not-run and capability-missing decisions', async () => {
     const disabled: string[] = [];
     await runFindingsLane({
@@ -204,6 +265,21 @@ describe('runFindingsLane', () => {
       ticketId: 1,
     });
     expect(seenTimeout).toBe(GATE_LANE_HEADLESS_TIMEOUT_MS);
+  });
+
+  it('runs under the gate sandbox policy', async () => {
+    let seen: { policy?: string } = {};
+    const runHeadless = vi.fn(async (headlessOpts: { policy?: string }) => {
+      seen = headlessOpts;
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [TARGET],
+      ticketId: 1,
+    });
+    expect(seen.policy).toBe('gate');
   });
 
   it('honors an explicit headless deadline from the caller', async () => {

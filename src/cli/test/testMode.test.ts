@@ -221,6 +221,20 @@ describe('set-stage', () => {
     expect(stage.blockedReason).toBe('blocked: PR open');
   });
 
+  it('accepts a usage-limit block so a test can drive the parked path (K11)', () => {
+    const t = createTicketJson('T-1');
+    runSetStage(
+      store,
+      t.id,
+      parseSetStageArgs([
+        '--stage', 'review', '--status', 'running',
+        '--block', 'usage-limit', '--block-reason', 'usage limit — claude x',
+      ]),
+    );
+    const stage = getTicket(store, t.id).stages.find((s) => s.stageKey === 'review')!;
+    expect(stage.blockedKind).toBe('usage-limit');
+  });
+
   it('requires --block-reason when --block is given', () => {
     const t = createTicketJson('T-1');
     expect(() => runSetStage(store, t.id, parseSetStageArgs(['--stage', 'ship', '--status', 'passed', '--block', 'awaiting-merge']))).toThrow(

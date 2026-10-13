@@ -7,6 +7,8 @@ import type { Manifest } from '../manifest/types.js';
 import { openStore, type Store } from '../store/db.js';
 import { upsertProject } from '../store/projects.js';
 import { listInbox } from '../store/ticketMessages.js';
+import { listOpenParks } from '../store/usageLimitParks.js';
+import { UsageLimitError } from '../agent/cliFailure.js';
 import { updateTicketFields } from '../store/tickets.js';
 import { ALIGNMENT_DEBOUNCE_MS } from '../workflow/artifacts/alignmentTrigger.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
@@ -18,7 +20,7 @@ afterEach(() => vi.useRealTimers());
 
 const FINDING = '[{"severity":"high","title":"Scenario 2 not planned","detail":"d"}]';
 
-function setup(opts: { own?: boolean; fallback?: boolean; approaches?: unknown[]; noManifest?: boolean; bareManifest?: boolean; process?: 'off' | 'on'; raw?: string } = {}) {
+function setup(opts: { own?: boolean; fallback?: boolean; approaches?: unknown[]; noManifest?: boolean; bareManifest?: boolean; process?: 'off' | 'on'; raw?: string; throwErr?: Error } = {}) {
   const registry: Store = openStore(':memory:');
   const own = upsertProject(registry, { slug: 'own' }).id;
   const other = upsertProject(registry, { slug: 'other' }).id;
@@ -38,6 +40,7 @@ function setup(opts: { own?: boolean; fallback?: boolean; approaches?: unknown[]
       },
       runHeadless: async (o) => {
         runs.push(o);
+        if (opts.throwErr) throw opts.throwErr;
         return { sessionId: '', verdict: null, raw: opts.raw ?? FINDING };
       },
     },
@@ -144,6 +147,22 @@ describe('makeAlignmentTrigger', () => {
     const t = setup({ own: true, bareManifest: true });
     await t.fire();
     expect(t.runs).toHaveLength(1);
+    t.trigger.dispose();
+  });
+  it('a quota-exhausted check records a re-runnable op park (K11)', async () => {
+    const t = setup({
+      own: true,
+      throwErr: new UsageLimitError('Claude usage limit reached — out of credits.', {
+        tool: 'Claude',
+        provider: 'claude',
+        model: 'm-1',
+      }),
+    });
+    // Wait for the park itself, not a fixed tick count: the check is async and a loaded runner needs more ticks.
+    await t.fire(() => listOpenParks(t.registry, t.id).length > 0);
+    const open = listOpenParks(t.registry, t.id);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ kind: 'op', provider: 'claude', model: 'm-1', stage: 'scope' });
     t.trigger.dispose();
   });
 });

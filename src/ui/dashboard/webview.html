@@ -3658,9 +3658,19 @@
     // `baseline-review` is likewise non-resumable (only the user's decision clears
     // it) but IS the user's to act on, so it keeps the banner with its own action.
     const review = blocked && blocked.kind === 'baseline-review';
-    const show = blocked && (blocked.resumable !== false || review);
+    // K11: a quota exhaustion is non-resumable — a retry would re-run the model
+    // that is out of allowance. It is still the user's to resolve (raise the
+    // limit, wait for a reset, or pick another agent/model), so it keeps the
+    // banner carrying the reason; D159 adds its pick/retry actions.
+    const usageLimit = blocked && blocked.kind === 'usage-limit';
+    const show = blocked && (blocked.resumable !== false || review || usageLimit);
     box.classList.toggle('hidden', !show);
     if (!show) { box.innerHTML = ''; return; }
+    if (usageLimit) {
+      box.innerHTML = `<div class="ftitle">Provider out of quota</div>`
+        + `<div class="freason">${esc(blocked.reason)}</div>`;
+      return;
+    }
     // A resumable block is a real fault — the banner carries the reason and
     // the Resume action that can clear it.
     if (review) {
