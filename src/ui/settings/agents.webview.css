@@ -66,8 +66,12 @@
    The picker is ONE column; its compact grid splits it into Core/Model/Effort and
    the header repeats that sub-template so the sub-columns line up (UI-R41). */
 #section-agents .agents-table {
-  --agents-cols: var(--k-hit-min) minmax(140px, 1fr) minmax(150px, 1fr)
-                 minmax(360px, 3fr) auto calc(2 * var(--k-hit-min) + var(--k-space-1));
+  /* Track sizes use tokens and fit their controls (UI-R39: the rule/design system
+     wins on spacing): the switch slot is the switch's own width (--k-space-9), each
+     fr track keeps header and rows aligned (UI-R41), and Actions fits two hit-min
+     buttons plus their gap (UI-R45: nothing escapes its cell). */
+  --agents-cols: var(--k-space-9) minmax(140px, 1fr) minmax(150px, 1fr)
+                 minmax(360px, 3fr) minmax(92px, 1fr) calc(2 * var(--k-hit-min) + var(--k-space-2));
   --agents-picker-cols: minmax(0, 1fr) minmax(0, 1.6fr) minmax(96px, 0.8fr);
   display: flex;
   flex-direction: column;
@@ -88,7 +92,7 @@
 
 #section-agents .agents-compare-row,
 #section-agents .agents-table .agents-head:has(+ .agents-compare-row) {
-  grid-template-columns: var(--k-hit-min) minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) calc(2 * var(--k-hit-min) + var(--k-space-1));
+  grid-template-columns: var(--k-space-9) minmax(120px, 1.1fr) minmax(0, 1.4fr) minmax(0, 1.4fr) calc(2 * var(--k-hit-min) + var(--k-space-2));
 }
 
 /* Cells fill their row height so an empty cell (no switch) and the sr-only "Enabled" heading still have a box. */
@@ -259,7 +263,9 @@
 #section-agents .agents-cell-picker .ap-trigger-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 #section-agents .agents-cell-picker .agent-identity { flex-wrap: nowrap; }
 #section-agents .agents-cell-picker .agent-identity-icon { flex: none; }
-#section-agents .agents-cell-picker .agent-identity-name { white-space: nowrap; }
+/* The name shrinks into its box (min-width:0); the ancestor .ap-trigger-label clips it and carries
+   the aria-describedby that exposes the full text (UI-R44), so it is not flagged as clipped text. */
+#section-agents .agents-cell-picker .agent-identity-name { white-space: nowrap; min-width: 0; }
 #section-agents .agents-cell-picker .agent-identity-model { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #section-agents .agents-muted { min-width: 0; }
 
@@ -292,7 +298,7 @@
 }
 @media (max-width: 699px) {
   #section-agents .agents-row {
-    grid-template-columns: var(--k-hit-min) minmax(0, 1fr) auto auto;
+    grid-template-columns: var(--k-space-9) minmax(0, 1fr) auto auto;
     grid-template-areas: 'sw role src act';
   }
   #section-agents .agents-cell-profile { grid-area: auto; grid-column: 1 / -1; grid-row: 2; }

@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 const css = readFileSync('src/ui/settings/agents.webview.css', 'utf8');
 const pickerCss = readFileSync('src/model/agentPicker.webview.css', 'utf8');
 
-const COLS = 'var(--k-hit-min) minmax(140px, 1fr) minmax(150px, 1fr) minmax(360px, 3fr) auto calc(2 * var(--k-hit-min) + var(--k-space-1))';
+const COLS = 'var(--k-space-9) minmax(140px, 1fr) minmax(150px, 1fr) minmax(360px, 3fr) minmax(92px, 1fr) calc(2 * var(--k-hit-min) + var(--k-space-2))';
 const PICKER_COLS = 'minmax(0,1fr) minmax(0,1.6fr) minmax(96px,0.8fr)';
 
 describe('agents.webview.css — roles table', () => {
