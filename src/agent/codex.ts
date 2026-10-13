@@ -54,6 +54,7 @@ import { codexMcpConfigArgs, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer } from './instructions.js';
+import { codexSandboxArgs } from './codexSandbox.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -377,6 +378,7 @@ export class CodexAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    sandboxInteractive: SUPPORTED,
   };
 
   /**
@@ -423,6 +425,7 @@ export class CodexAdapter implements AgentAdapter {
       );
     } else {
       for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
+      if (opts.sandbox) args.push(...codexSandboxArgs(opts.cwd, opts.sandbox));
     }
     // The karst server rides as per-launch `--config mcp_servers.karst.*` keys
     // (the interactive counterpart of headless `mcp_servers={}` isolation).

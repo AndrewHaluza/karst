@@ -45,6 +45,7 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { refuseUnsandboxedBypass } from './sandbox.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
@@ -942,7 +943,10 @@ export class OpencodeAdapter implements AgentAdapter {
     allowedTools: unsupported(
       'opencode narrows tools through its own permissions config, not a per-run CLI flag',
     ),
-    permissionMode: SUPPORTED,
+    permissionMode: unsupported(
+      'the only mode karst passes is bypassPermissions, and opencode has no enforced sandbox ' +
+        'to contain it, so it is refused (AC-30) and the run keeps its prompted default',
+    ),
     resume: SUPPORTED,
     sessionName: unsupported('the opencode TUI has no launch-time session-name flag'),
     consoleStream: SUPPORTED,
@@ -968,6 +972,10 @@ export class OpencodeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    sandboxInteractive: unsupported(
+      'opencode has no OS-level sandbox: its permission config only allows, asks or denies a ' +
+        'tool, and an allowed bash command runs uncontained on the host',
+    ),
   };
 
   /**
@@ -1337,7 +1345,9 @@ export class OpencodeAdapter implements AgentAdapter {
     // "wrong checkout" finding for code never read. The flag is `run`-only —
     // NOT a top-level `opencode` flag — so the interactive path is unaffected.
     args.push('--dir', opts.cwd);
-    if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
+    // AC-30: the bypass (`--auto`) is never added — no enforced sandbox contains
+    // this run, so it keeps the core's prompted default. The refusal is logged.
+    refuseUnsandboxedBypass('opencode', opts.permissionMode, opts.debug);
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--variant', opts.effort);
     if (opts.resume) args.push('--session', opts.resume);

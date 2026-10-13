@@ -19,6 +19,7 @@ import {
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { refuseUnsandboxedBypass } from './sandbox.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 import { OpencodeAdapter, opencodeLaunchPermission } from './opencode.js';
 import {
@@ -347,7 +348,10 @@ export class Opencode2Adapter implements AgentAdapter {
     allowedTools: unsupported(
       'opencode2 narrows tools through its `permission` config object, not a per-run CLI flag',
     ),
-    permissionMode: SUPPORTED,
+    permissionMode: unsupported(
+      'the only mode karst passes is bypassPermissions, and opencode v2 has no enforced sandbox ' +
+        'to contain it, so it is refused (AC-30) and the run keeps its prompted default',
+    ),
     resume: SUPPORTED,
     sessionName: unsupported('the opencode2 TUI has no launch-time session-name flag'),
     consoleStream: SUPPORTED,
@@ -370,6 +374,10 @@ export class Opencode2Adapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    sandboxInteractive: unsupported(
+      'opencode v2 has no OS-level sandbox: its permission config only allows, asks or denies a ' +
+        'tool, and an allowed bash command runs uncontained on the host',
+    ),
   };
 
   readonly instructions: InstructionDelivery = {
@@ -526,7 +534,9 @@ export class Opencode2Adapter implements AgentAdapter {
     }
 
     const args = ['run', '--format', 'json', '--standalone'];
-    if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
+    // AC-30: the bypass (`--auto`) is never added — no enforced sandbox contains
+    // this run, so it keeps the core's prompted default. The refusal is logged.
+    refuseUnsandboxedBypass('opencode2', opts.permissionMode, opts.debug);
     if (opts.model) args.push('--model', modelArg(opts.model, opts.effort));
     if (resume) args.push('--session', resume);
     // The prompt rides STDIN only — positional/`--`/`--file` all mangle it.

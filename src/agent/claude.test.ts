@@ -1021,6 +1021,41 @@ describe('ClaudeAdapter.materializeApproach', () => {
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
+  it('refuses an unsandboxed bypassPermissions but keeps other modes (AC-30)', async () => {
+    const seen: string[][] = [];
+    const spawn: SpawnHeadless = async (_cmd, args) => {
+      seen.push(args);
+      return { stdout: JSON.stringify({ session_id: 's', result: 'x' }), stderr: '', exitCode: 0 };
+    };
+    const adapter = new ClaudeAdapter(spawn);
+    const debug = vi.fn();
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt', permissionMode: 'bypassPermissions', debug });
+    await adapter.runHeadless({ prompt: 'go', cwd: '/wt', permissionMode: 'acceptEdits' });
+    expect(seen[0]).not.toContain('--permission-mode');
+    expect(seen[0]).not.toContain('bypassPermissions');
+    expect(debug).toHaveBeenCalledWith(
+      '[agent:claude] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-30)',
+    );
+    expect(seen[1]).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits']));
+  });
+
+  it('merges the hook settings and the sandbox into ONE --settings value', () => {
+    const configDir = mkdtempSync(join(tmpdir(), 'karst-claude-sbx-'));
+    try {
+      const cmd = new ClaudeAdapter().buildInteractiveCommand({
+        cwd: '/wt',
+        hookChannel: { endpointUrl: 'http://127.0.0.1:4555/hook', configDir },
+        sandbox: { writableRoots: ['/wt'], allowedDomains: ['api.anthropic.com'] },
+      });
+      expect(cmd.args.filter((a) => a === '--settings')).toHaveLength(1);
+      const settings = JSON.parse(cmd.args[cmd.args.indexOf('--settings') + 1]!);
+      expect(settings.hooks).toBeDefined();
+      expect(settings.sandbox.enabled).toBe(true);
+    } finally {
+      rmSync(configDir, { recursive: true, force: true });
+    }
+  });
+
   it('forwards the abort signal into the headless spawn', async () => {
     let seenOpts: { signal?: AbortSignal } | undefined;
     const spawn: SpawnHeadless = async (_cmd, _args, _cwd, opts) => {
