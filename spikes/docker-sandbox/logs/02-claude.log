@@ -1,0 +1,77 @@
+$ time_cmd sbx create --name karst-spike-claude claude /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a
+
+SANDBOX
+  Name:       karst-spike-claude
+  Agent:      claude
+  Workspace:  /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a (rw)
+  Skills:     0 entries · linked, read-only
+    Source:   /Users/nd/Library/Application Support/com.docker.sandboxes/sandboxes/agent-skills
+    Target:   /home/agent/.claude/skills
+  Image:      docker/sandbox-templates:claude-code-docker
+  CPU:        10
+  Memory:     8 GiB
+
+IMAGE
+  ○ image — pulling…
+      549730947ed8 downloaded
+      beedd5fd60fd downloaded
+      987b186b8f1d downloaded
+      89645b6ca94f downloaded
+      742e9238c102 downloaded
+      e1a8a653f761 downloaded
+      2b5245e529fd downloaded
+      ad73f53ff794 downloaded
+      ab3ee8061fc1 downloaded
+      db7874ec8640 downloaded
+      10aa754f78dc downloaded
+      f8f8ecffa9c3 downloaded
+      4c2d5b4f47ef downloaded  106.2 MB
+      6b675093af40 downloaded  93.3 MB
+      2fc637dc7f36 downloaded  40.2 MB
+      08bc113e92f5 downloaded
+      87d8ef431c26 downloaded  62.0 MB
+      70624a8d6970 downloaded
+      7cb168fccdd2 downloaded  40.8 MB
+      e5e86281ec08 downloaded  21.2 MB
+      39c066998ee3 downloaded
+      0f8bbe7021b6 downloaded  323.0 MB
+  ✓ image — ready
+
+  ✓ Created sandbox karst-spike-claude
+[elapsed 103s]
+[exit 0]
+$ sbx ls
+SANDBOX              AGENT    STATUS      PORTS   WORKSPACE                                                              CREATED
+karst-spike-claude   claude   ● running           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a   9s
+[exit 0]
+$ sbx inspect karst-spike-claude
+
+  Name:            karst-spike-claude
+  Agent:           claude
+  Kits:            none
+  State:           running (10s)
+  CPUs:            auto
+  Memory:          auto
+  Image:           docker/sandbox-templates:claude-code-docker
+  Image digest:    sha256:549730947ed8a43182547bb5628245fe6d6c089564dd73d2194e899f791d970f
+  Auth mode:       none · anthropic
+  Workspace:       /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a
+  Clone source:    -
+  Network policy:  global (local policy)
+  Mount policy:    allowed
+  Runtime mounts:  none
+  Proxy:           172.17.0.0:3128
+  Secrets:         mcpgateway (uploaded)
+  MCP gateway:     configured
+  Ports:           none published
+  Sessions:        0
+  Daemon:          v0.48.0   uptime 2m
+[exit 0]
+MANUAL (record PASS/FAIL + timing in logs/02-claude.notes.md):
+ a. sbx run --name karst-spike-claude   -> subscription OAuth login completes (no API key)
+ b. type a prompt; output streams
+ c. resize terminal; UI reflows
+ d. Ctrl-C interrupts a turn, session survives
+ e. exit; re-run same command; reattach works
+ f. sbx exec karst-spike-claude pkill claude; re-run with `-- --continue`; conversation resumes
+ g. sbx exec karst-spike-claude ps -eo args | grep claude  -> record final argv (open question 4)

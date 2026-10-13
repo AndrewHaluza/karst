@@ -1,0 +1,24 @@
+$ sbx exec karst-spike-claude sh -c echo inside > '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a/written-in-sandbox.txt'
+[exit 0]
+$ test -f /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a/written-in-sandbox.txt
+[exit 0]
+$ sbx exec karst-spike-claude sh -c cat '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-b/seed.txt'
+cat: /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-b/seed.txt: No such file or directory
+[exit 1]
+$ sbx exec karst-spike-claude sh -c echo x > '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-b/pwn.txt'
+sh: 1: cannot create /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-b/pwn.txt: Directory nonexistent
+[exit 2]
+$ sbx exec karst-spike-claude sh -c ln -s / '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a/escape' && ls '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a/escape/Users'
+ls: cannot access '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a/escape/Users': No such file or directory
+[exit 2]
+$ sbx exec karst-spike-claude sh -c ls "$HOME"; ls /Users 2>&1; ls '/Users/nd/Library/Application Support/Code/User/globalStorage/karst.karst' 2>&1
+workspace
+ls: cannot access '/Users': No such file or directory
+ls: cannot access '/Users/nd/Library/Application Support/Code/User/globalStorage/karst.karst': No such file or directory
+[exit 2]
+$ sbx exec karst-spike-claude sh -c cat '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a/.git'; git -C '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-a' log --oneline -1 2>&1
+gitdir: /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/worktrees/wt-a
+fatal: not a git repository: /private/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo/.git/worktrees/wt-a
+[exit 128]
+$ test ! -e /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T//karst-spike-ws/wt-b/pwn.txt
+[exit 0]
