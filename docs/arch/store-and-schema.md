@@ -221,8 +221,12 @@ Three writers, one per kind, and exactly one clear seam:
 - `recordUsageLimitOpPark` inserts an `op` row from a caught `UsageLimitError` at each non-stage call site (fix, PR description, alignment, classify); it returns null for any non-quota error, so a caller may call it unconditionally in a catch.
 - `setStage` (`store/stages.ts`) is the ONE clear seam: when a stage's PRIOR `blocked_kind` was `usage-limit` and the patch sets `blockedKind` to anything else, it resolves the open row in the same savepoint (`@arch:SINGLE-WRITER`).
 
-At most one OPEN row per `(ticket_id, COALESCE(stage,''), kind, COALESCE(lane,''), COALESCE(target,''), COALESCE(session_id,''))` — an expression PARTIAL UNIQUE INDEX `WHERE resolved_at IS NULL` (SQLite NULLs are distinct, hence the COALESCEs). `insertOpenPark` upserts on that key, so a re-park refreshes the open row instead of failing and one analysis' several passes collapse to one row. `resolveOpenParks`/`listOpenParks`/`listParks` read it back; D159 (picker/re-run) is the consumer.
+At most one OPEN row per `(ticket_id, COALESCE(stage,''), kind, COALESCE(lane,''), COALESCE(target,''), COALESCE(session_id,''))` — an expression PARTIAL UNIQUE INDEX `WHERE resolved_at IS NULL` (SQLite NULLs are distinct, hence the COALESCEs). `insertOpenPark` upserts on that key, so a re-park refreshes the open row instead of failing and one analysis' several passes collapse to one row. `resolveOpenParks`/`listOpenParks`/`listParks` read it back.
 
+Resolution and one-shot re-run (D159):
+- `claimUsageLimitPark` (`store/usageLimitParks.ts`) claims an open park row atomically in one transaction (`UPDATE … SET resolved_at=?, resolution=? WHERE id=? AND resolved_at IS NULL RETURNING *`), verifying `blocked_kind = 'usage-limit'` inside the transaction for stage blocks, and clearing the block. Concurrent callers receive `claimed: false` and notify 'already handled'.
+- One-shot override re-run (`workflow/usageLimitRerun.ts`): re-runs only the parked lane/target with an ephemeral adapter and model, merges with sibling outcomes preserved in `kept_outcome`, and runs normal aggregation.
+- Dismiss: for stage blocks, opens its own stage run via `openStageRun` and commits a failed verdict via `commitGateOutcome` with `RecoveryTrigger` kind `'usage-limit-dismissed'`, moving the ticket into fix.
 END_DOC_BLOCK: [@arch:V82]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
