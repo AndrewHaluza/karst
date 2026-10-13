@@ -1,8 +1,10 @@
-import { lstat, open, readFile, rename, writeFile } from 'node:fs/promises';
+import { constants as fsConstants } from 'node:fs';
+import { open, readFile, rename, writeFile, type FileHandle } from 'node:fs/promises';
 import { MAX_BRIDGE_LINE_BYTES } from './bridgeVerifier.js';
 
 const MAX_READ_BYTES = 1024 * 1024;
 const NEWLINE = 0x0a;
+const OPEN_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW;
 
 export interface BridgePoller {
   start(): void;
@@ -49,34 +51,46 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
   let discarding = false;
   let inFlight: Promise<void> = Promise.resolve();
 
-  async function readNew(): Promise<void> {
-    if (offset === undefined) offset = await loadOffset(opts.stateFile);
-    let stat;
+  /**
+   * Opens with O_NOFOLLOW so a symlink swapped in at any time is refused
+   * (no lstat-then-open TOCTOU), then sizes and reads through the handle.
+   * Returns undefined when there is nothing new or the file is refused.
+   */
+  async function readChunk(): Promise<Buffer | undefined> {
+    let handle: FileHandle;
     try {
-      stat = await lstat(opts.file);
-    } catch {
-      return;
+      handle = await open(opts.file, OPEN_FLAGS);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') log(`refusing ${opts.file}: symlink or unreadable (${code ?? 'error'})`);
+      return undefined;
     }
-    if (stat.isSymbolicLink() || !stat.isFile()) {
-      log(`refusing ${opts.file}: symlink or not a regular file`);
-      return;
-    }
-    if (stat.size < offset) {
-      log(`events file truncated (${stat.size} < ${offset}); restarting from 0`);
-      offset = 0;
-      carry = Buffer.alloc(0);
-    }
-    if (stat.size === offset) return;
-    const length = Math.min(stat.size - offset, MAX_READ_BYTES);
-    const handle = await open(opts.file, 'r');
-    let chunk: Buffer;
     try {
-      chunk = Buffer.alloc(length);
-      const { bytesRead } = await handle.read(chunk, 0, length, offset);
-      chunk = chunk.subarray(0, bytesRead);
+      const stat = await handle.stat();
+      if (!stat.isFile()) {
+        log(`refusing ${opts.file}: not a regular file`);
+        return undefined;
+      }
+      if (stat.size < (offset ?? 0)) {
+        log(`events file truncated (${stat.size} < ${offset}); restarting from 0`);
+        offset = 0;
+        carry = Buffer.alloc(0);
+        discarding = false;
+      }
+      if (stat.size === offset) return undefined;
+      const length = Math.min(stat.size - (offset ?? 0), MAX_READ_BYTES);
+      const buf = Buffer.alloc(length);
+      const { bytesRead } = await handle.read(buf, 0, length, offset);
+      return buf.subarray(0, bytesRead);
     } finally {
       await handle.close();
     }
+  }
+
+  async function readNew(): Promise<void> {
+    if (offset === undefined) offset = await loadOffset(opts.stateFile);
+    const chunk = await readChunk();
+    if (chunk === undefined) return;
     offset += chunk.length;
     let buf: Buffer = Buffer.concat([carry, chunk]);
     if (discarding) {

@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /** Where the per-ticket dir appears INSIDE the sandbox (arch:AC-34). */
@@ -28,6 +28,9 @@ export async function ensureBridgeDir(paths: BridgePaths): Promise<void> {
   await mkdir(dirname(paths.stateFile), { recursive: true });
   // 'a' never truncates: an existing log (a restart) is kept.
   await writeFile(paths.eventsFile, '', { flag: 'a', mode: 0o666 });
+  // mode is masked by umask and ignored for pre-existing files: enforce explicitly.
+  await chmod(paths.dir, 0o777);
+  await chmod(paths.eventsFile, 0o666);
 }
 
 export async function removeBridgeDir(paths: BridgePaths): Promise<void> {

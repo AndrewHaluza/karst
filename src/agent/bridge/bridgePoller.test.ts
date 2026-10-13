@@ -75,6 +75,15 @@ describe('bridgePoller', () => {
     expect(lines).toEqual(['ok']);
     expect(logs.some((m) => m.includes('oversized'))).toBe(true);
   });
+  it('clears discard mode on truncation so the next line after reset is kept', async () => {
+    await writeFile(file, 'x'.repeat(MAX_BRIDGE_LINE_BYTES + 10));
+    const p = make();
+    await p.pollOnce();
+    await truncate(file, 0);
+    await appendFile(file, 'fresh\n');
+    await p.pollOnce();
+    expect(lines).toEqual(['fresh']);
+  });
   it('ignores a corrupt state file and starts from 0', async () => {
     await writeFile(stateFile, '{"offset":"x"}');
     await writeFile(file, 'a\n');

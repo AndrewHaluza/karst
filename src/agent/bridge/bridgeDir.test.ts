@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -24,6 +24,14 @@ describe('bridgeDir', () => {
     await ensureBridgeDir(p);
     expect(await readFile(p.eventsFile, 'utf8')).toBe('');
     expect((await stat(p.stateFile.replace(/7\.json$/, ''))).isDirectory()).toBe(true);
+  });
+  it('enforces 0777 dir and 0666 events file regardless of umask or a pre-existing file', async () => {
+    const p = bridgePaths(root, 9);
+    await mkdir(p.dir, { recursive: true });
+    await writeFile(p.eventsFile, '', { mode: 0o644 });
+    await ensureBridgeDir(p);
+    expect((await stat(p.dir)).mode & 0o777).toBe(0o777);
+    expect((await stat(p.eventsFile)).mode & 0o777).toBe(0o666);
   });
   it('remove deletes dir and state, tolerating absence', async () => {
     const p = bridgePaths(root, 7);
