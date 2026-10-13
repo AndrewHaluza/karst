@@ -61,6 +61,16 @@ describe('instrumentAdapter', () => {
     expect(instrumentAdapter(inner, { sink: sink() }).instructions).toEqual(inner.instructions);
   });
 
+  it('skips the trust hook when the run opts out with trustCwd:false', async () => {
+    const trusted: string[] = [];
+    const inner = fakeAdapter({
+      ensureWorkspaceTrusted: (cwd) => void trusted.push(cwd),
+    });
+    const adapter = instrumentAdapter(inner, { sink: sink() });
+    await adapter.runHeadless({ prompt: 'hi', cwd: '/tmp/karst-analysis-x', trustCwd: false });
+    expect(trusted).toEqual([]);
+  });
+
   it('pre-trusts the headless cwd through the seam before the run', async () => {
     const trusted: string[] = [];
     const inner = fakeAdapter({

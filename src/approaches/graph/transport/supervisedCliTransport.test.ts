@@ -12,7 +12,9 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdtempSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { ensureClaudeWorkspaceTrusted } from '../../../agent/workspaceTrust.js';
 import { join, dirname } from 'node:path';
 import { openStore } from '../../../store/db.js';
 import { stopServersUnder, reapStaleServers } from '../../../runtime/worktreeServers.js';
@@ -169,6 +171,24 @@ describe('SupervisedCLITransport', () => {
     // here, so the hook must run with exactly the cwd it spawns in.
     expect(trusted).toEqual(['/wt/n1']);
     expect(order).toEqual(['trust', 'build']);
+  });
+
+  it('still launches when the trust hook meets a faulting .git (ELOOP)', async () => {
+    const h = harness(4242);
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-eloop-'));
+    symlinkSync(join(cwd, '.git'), join(cwd, '.git'));
+    const home = mkdtempSync(join(tmpdir(), 'karst-home-'));
+    const adapter = {
+      requiredBinary: 'fake',
+      runHeadless: async () => {
+        throw new Error('unused');
+      },
+      ensureWorkspaceTrusted: (dir: string) => ensureClaudeWorkspaceTrusted(dir, { home }),
+      buildInteractiveCommand: () => ({ command: 'claude', args: [], env: {} }),
+    } as unknown as AgentAdapter;
+    const request: SupervisedLaunchRequest = { ...LAUNCH, cwd, adapter };
+    const session = await createSupervisedCliTransport(h.deps).start(request);
+    expect(session.pid).toBe(4242);
   });
 
   it('merges the graph environment onto the adapter-built environment', async () => {

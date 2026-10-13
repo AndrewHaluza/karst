@@ -79,6 +79,7 @@ export async function runAlignment(
       deps.adapter.runHeadless({
         prompt: buildAlignmentPrompt(input.edge, input.parentText, input.childText, input.paths),
         cwd,
+        trustCwd: false,
         model: deps.model,
         effort: deps.effort,
         ...(deps.adapter.surfaces?.structuredOutput?.supported === true

@@ -554,3 +554,30 @@ describe('config file permissions', () => {
     expect(statSync(join(home, '.codex', 'config.toml')).mode & 0o777).toBe(0o600);
   });
 });
+
+describe('trust hook never throws', () => {
+  /** A repo whose `.git` is a self-looping symlink: statSync throws ELOOP. */
+  function loopingRepo(): string {
+    const dir = tempDir();
+    symlinkSync(join(dir, '.git'), join(dir, '.git'));
+    return dir;
+  }
+
+  it('claude: a faulting .git logs and returns instead of throwing', () => {
+    const home = tempDir();
+    const logs: string[] = [];
+    expect(() =>
+      ensureClaudeWorkspaceTrusted(loopingRepo(), { home, debug: (m) => logs.push(m) }),
+    ).not.toThrow();
+    expect(logs.join('\n')).toContain('launch continues');
+  });
+
+  it('codex: a faulting .git logs and returns instead of throwing', () => {
+    const home = tempDir();
+    const logs: string[] = [];
+    expect(() =>
+      ensureCodexWorkspaceTrusted(loopingRepo(), { home, debug: (m) => logs.push(m) }),
+    ).not.toThrow();
+    expect(logs.join('\n')).toContain('launch continues');
+  });
+});

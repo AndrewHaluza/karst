@@ -19,7 +19,15 @@ import { trustKeyFor } from './workspaceTrust.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const modulePath = resolve(here, 'workspaceTrust.ts');
-const tsxBin = resolve(here, '../../node_modules/.bin/tsx');
+/** The nearest `node_modules/.bin/tsx` walking up: a ticket worktree keeps its deps in the main checkout. */
+function findTsx(from: string): string {
+  for (let dir = from; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', '.bin', 'tsx');
+    if (existsSync(candidate)) return candidate;
+    if (dirname(dir) === dir) return candidate;
+  }
+}
+const tsxBin = findTsx(here);
 
 function runTrust(cwd: string, home: string, startAt: number): Promise<void> {
   // The barrier spins every child until the same instant, so all of them read
