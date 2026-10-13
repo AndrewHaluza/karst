@@ -55,7 +55,6 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'closeDoneTerminalsWithTicket',
     'diffsInSourceControl',
     'subtasks',
-    'quota',
   ],
   git: ['conventions'],
   services: ['repositories'],
@@ -65,6 +64,9 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
   // the preset vocabulary (the map, the active selection and the deprecated
   // alias it renames on Save) and the agent profiles. An edit there always lands
   // in the layer that wins, so nothing is claimed by General or a Presets tab.
+  // `quota` rides here too: the per-core subscription-quota warn threshold is an
+  // agent-core setting, and the Agents page is the only place agent-core knobs
+  // are edited.
   agents: [
     'agentProvider',
     'defaultModel',
@@ -74,6 +76,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'agentPresets',
     'activeAgentPreset',
     'defaultAgentPreset',
+    'quota',
   ],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],
