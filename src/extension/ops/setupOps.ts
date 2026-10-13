@@ -94,6 +94,7 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
         const cmd = adapter.buildInteractiveCommand({
           cwd,
           readOnly: true,
+          policy: 'attended',
           addDirs,
           ...(adapter.instructions && adapter.instructions.interactive !== 'n/a' ? { instructions } : {}),
           ...(model ? { model } : {}),
