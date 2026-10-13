@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveInsideCheckout } from './args.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
@@ -45,8 +46,22 @@ if (!fixture || !FIXTURES.includes(fixture) || Boolean(scriptArg) !== Boolean(ou
   process.exit(2);
 }
 // Probe only when a script is given; the flag is what registers the command in the host.
+// Both paths must stay inside the checkout: the Docker harness bind-mounts only
+// the repo root, so a path outside it is discarded with the container and leaves
+// nothing to cite. Resolve (and refuse) before the env below is built.
+let probeScriptPath;
+let probeOutPath;
+if (scriptArg) {
+  try {
+    probeScriptPath = resolveInsideCheckout(scriptArg, repoRoot);
+    probeOutPath = resolveInsideCheckout(outArg, repoRoot);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(2);
+  }
+}
 const probeEnv = scriptArg
-  ? { KARST_UAT_PROBE: '1', UAT_PROBE_SCRIPT: resolve(scriptArg), UAT_PROBE_OUT: resolve(outArg) }
+  ? { KARST_UAT_PROBE: '1', UAT_PROBE_SCRIPT: probeScriptPath, UAT_PROBE_OUT: probeOutPath }
   : {};
 // runTests has no timeout of its own: this is the backstop so a wedged host can never hang the run.
 const hardTimeoutMs = Number(process.env.UAT_PROBE_HARD_TIMEOUT_MS ?? 300_000);
