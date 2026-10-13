@@ -42,6 +42,7 @@ import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './
 import { sanitizeSessionName } from './sessionName.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { claudeGateDeny } from './gatePolicy.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
@@ -171,6 +172,7 @@ export class ClaudeAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
   };
 
   /**
@@ -620,6 +622,15 @@ export class ClaudeAdapter implements AgentAdapter {
     // even when a caller asks for `bypassPermissions`. Every headless lane
     // (review, UAT Tester, fix, classify) carries it — never a caller opt.
     args.push('--disallowedTools', ...claudeProcessKillDeny());
+    // Gate roles add the karst sandbox profile: the same deny rules ride a
+    // `--settings` layer too, so the sandbox is karst-owned rather than
+    // inherited from a project `.claude/settings.json` (T661 pre-trust makes
+    // those project allow rules live for headless runs). Deny beats allow.
+    if (opts.policy === 'gate') {
+      const deny = claudeGateDeny();
+      args.push('--disallowedTools', ...deny);
+      args.push('--settings', JSON.stringify({ permissions: { deny } }));
+    }
     // Native structured output (Prompt 09): when a caller (the findings / UAT
     // tester lane) supplies a JSON Schema, hand it to `--json-schema` so the CLI
     // constrains its FINAL response to that shape — the salvage parser then

@@ -7,6 +7,7 @@
  * rewrite. MVP ships one implementation (ClaudeAdapter).
  */
 
+import type { HeadlessPolicy } from './gatePolicy.js';
 import type { AiCallSite } from './aiCallSites.js';
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
@@ -63,6 +64,16 @@ export interface RunHeadlessOpts {
   trustCwd?: boolean;
   allowedTools?: string[];
   permissionMode?: string;
+  /**
+   * Karst-owned sandbox profile for a headless GATE role (tester, review, fix):
+   * read anywhere, write only in `cwd` + OS tmp, no process-wide kills, no
+   * rebuild/clean scripts, no writes to the operator's agent home config. Each
+   * adapter translates it into its own channel so it overrides on-disk config
+   * (`gatePolicy.ts`); a core that cannot declares
+   * `AdapterSurfaces.headlessPolicy` unsupported with a reason. Absent → no
+   * extra profile (classify / PR-description calls).
+   */
+  policy?: HeadlessPolicy;
   resume?: string; // session_id to continue
   model?: string;
   /**
