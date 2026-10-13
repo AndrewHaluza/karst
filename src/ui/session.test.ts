@@ -20,6 +20,7 @@ import {
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
 import { KARST_INSTRUCTIONS_ENV } from '../agent/cliEnv.js';
 import { hashInstructions } from '../agent/instructions.js';
+import type { InteractiveLaunchSpec, SessionRunner } from '../agent/sessionRunner.js';
 
 // `openSession` pre-trusts the worktree by writing the core's USER config
 // (claude's `~/.claude.json`, codex's `~/.codex/config.toml`). Point HOME at a
@@ -215,6 +216,33 @@ describe('SessionManager', () => {
       [KARST_LAUNCH_ENV]: launchId,
     });
     expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
+  });
+
+  it('routes the launch through the session runner and creates the terminal it places', async () => {
+    const { adapter } = fakeAdapter('fake-agent');
+    const { host, terminals } = fakeHost();
+    const specs: InteractiveLaunchSpec[] = [];
+    const runner: SessionRunner = {
+      kind: 'host',
+      enforcesSandbox: false,
+      placeInteractive: (spec) => {
+        specs.push(spec);
+        return { cwd: '/workspace', shellPath: 'wrapped', shellArgs: ['run', spec.command], env: { W: '1' } };
+      },
+      runHeadless: () => Promise.reject(new Error('not used')),
+    };
+    const mgr = new DefaultedSessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined, undefined, undefined, runner,
+    );
+
+    await mgr.openSession(adapter, 7, '/wt/a');
+    await mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({ ticketId: 7, hostWorktreePath: '/wt/a', command: 'fake-agent', args: [] });
+    expect(specs[0]!.env[KARST_TICKET_ENV]).toBe('7');
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]).toMatchObject({ cwd: '/workspace', shellPath: 'wrapped', shellArgs: ['run', 'fake-agent'], env: { W: '1' } });
   });
 
   it('writes a launch-time MCP config in host storage for a supporting core, never a repo file', () => {

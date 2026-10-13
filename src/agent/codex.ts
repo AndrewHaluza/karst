@@ -1,3 +1,4 @@
+import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
   cpSync,
@@ -47,7 +48,7 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
-import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
+import { headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
 import { resolveNodeExecutable } from './nodeExecutable.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
@@ -226,8 +227,9 @@ export type SpawnHeadless = (
   opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
+// Every headless launch goes through the session runner seam (host today).
 const defaultSpawn: SpawnHeadless = (command, args, cwd, opts) =>
-  spawnHeadlessCli(command, args, cwd, opts);
+  HOST_SESSION_RUNNER.runHeadless(command, args, cwd, opts);
 
 function diagnostic(text: string): string {
   return text.length <= MAX_DIAGNOSTIC_CHARS
