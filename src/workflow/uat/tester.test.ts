@@ -18,6 +18,7 @@ import { recordTokenUsage } from '../../store/tokenUsage.js';
 import * as reviewSnapshot from '../reviewSnapshot.js';
 import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 import type { GitRunner } from '../../integrations/git.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import { GATE_LANE_HEADLESS_TIMEOUT_MS } from '../../agent/headlessSpawn.js';
 import { SEED_BUDGETS } from '../../agent/seedBudget.js';
 
@@ -147,6 +148,33 @@ describe('runUatTester', () => {
     // Tester process run, so spend lands on the process that produced it.
     expect(calls[0]!.tracking).toEqual({ callSite: 'uat-tester', ticketId, processRunId: run.id });
     expect(calls[0]!.model).toBe('claude-sonnet-5');
+  });
+
+  it('parks a quota-exhausted target as usage-limited, not execution-failed (K11)', async () => {
+    const limitErr = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    const { adapter } = fakeAdapter(async () => {
+      throw limitErr;
+    });
+    const res = await runUatTester(store, opts({ adapter }), { now });
+    expect(res.kind).toBe('usage-limited');
+    if (res.kind !== 'usage-limited') throw new Error('unreachable');
+    expect(res.target).toBe('/web');
+    expect(res.provider).toBe('claude');
+    expect(res.model).toBe('claude-sonnet-5');
+    expect(res.detail).toContain('out of credits');
+    expect(JSON.parse(res.keptOutcome).targets).toEqual([
+      { repo: '/web', status: 'usage-limited', observations: 0 },
+    ]);
+    // The process run is closed failed with the named diagnostic, so the Inside
+    // row names the cause — never a clean pass.
+    const run = listProcessRuns(store, ticketId)[0]!;
+    expect(run.status).toBe('failed');
+    expect(run.resultKind).toBe('execution-failed');
+    expect(run.failureDetail).toContain('out of credits');
   });
 
   it('keeps blocking-severity observations — the Tester never filters by severity', async () => {

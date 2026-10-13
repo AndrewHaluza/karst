@@ -53,6 +53,8 @@ import { truncateToBudget, keylessTruncationPointer, SEED_BUDGETS } from '../../
 import { nowIso } from '../../model/time.js';
 import { formatTokens } from '../../model/tokenFormat.js';
 import { isTimedOutFailure } from '../../agent/failureClass.js';
+import { classifyFailure } from '../../agent/failureClass.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
 
 /**
@@ -333,6 +335,22 @@ export type TesterRunResult =
       detail: string;
     }
   | { kind: 'execution-failed'; message: string }
+  /**
+   * K11: a target's call died because the provider account is out of
+   * quota/allowance. NOT an advisory absence and NOT a T663 partial — the
+   * account cannot run the op, so the UAT stage parks `blocked:usage-limit`
+   * (no verdict, no fix round). Targets that already answered are kept on the
+   * park row (`keptOutcome`).
+   */
+  | {
+      kind: 'usage-limited';
+      /** The repo whose call hit the limit. */
+      target: string;
+      provider: string;
+      model: string | null;
+      detail: string;
+      keptOutcome: string;
+    }
   /**
    * Every target answered, and not one answer carried a findings-shaped
    * container we could read. Distinct from `observed` with zero findings: a
@@ -776,6 +794,34 @@ export async function runUatTester(
   const debug = opts.debug;
   const git = opts.git ?? defaultGitRunner;
   const snapshotted: { repo: string; worktreePath: string }[] = [];
+  // K11: per-target outcome, kept so a quota park can carry what its siblings
+  // already answered; `currentRepo` names the target in flight when a quota
+  // error surfaces from a re-ask outside the inner try.
+  const targetOutcomes: { repo: string; status: string; observations: number }[] = [];
+  let currentRepo = '';
+  const usageLimited = (error: unknown, target: string): TesterRunResult => {
+    const provider =
+      (error instanceof UsageLimitError ? error.provider : undefined) ?? opts.assignment.provider;
+    const model =
+      (error instanceof UsageLimitError ? error.model : undefined) ?? opts.assignment.model ?? null;
+    const detail = collapseDiagnostic(error instanceof Error ? error.message : String(error));
+    close('failed', 'execution-failed', detail);
+    debug?.(
+      `[gate] uat tester ticket ${opts.ticketId}: target ${target} hit a quota limit ` +
+        `(${provider}${model ? `/${model}` : ''}) — parking`,
+    );
+    return {
+      kind: 'usage-limited',
+      target,
+      provider,
+      model,
+      detail,
+      keptOutcome: JSON.stringify({
+        observations: collected.length,
+        targets: [...targetOutcomes, { repo: target, status: 'usage-limited', observations: 0 }],
+      }),
+    };
+  };
   debug?.(
     `[gate] uat tester ticket ${opts.ticketId}: starting — ${opts.targets.length} target(s), ` +
       `cap ${cap}, token budget ${tokenBudget}, soft deadline ${softTimeoutMs}ms of ${hardTimeoutMs}ms, ` +
@@ -785,6 +831,7 @@ export async function runUatTester(
   try {
     for (const target of opts.targets) {
       if (opts.signal?.aborted) break;
+      currentRepo = target.repo;
       debug?.(
         `[gate] uat tester ticket ${opts.ticketId}: asking target ${target.repo} ` +
           `(worktree ${target.worktreePath})`,
@@ -891,6 +938,11 @@ export async function runUatTester(
       } catch (error) {
         // A user Stop is terminal and wins over any budget.
         if (opts.signal?.aborted) throw error;
+        // K11: the account is out of quota — not a budget stop, not a crash.
+        // Keep the siblings already asked and let the stage park the ticket.
+        if (classifyFailure(error) === 'usage-limited') {
+          return usageLimited(error, target.repo);
+        }
         // Anything that is neither our soft timer nor the spawner's deadline is
         // a genuine failure — the outer catch reports it exactly as before.
         if (!soft.fired() && !isTimedOutFailure(error)) throw error;
@@ -1021,6 +1073,7 @@ export async function runUatTester(
         }`,
       });
       collected.push(...parsed);
+      targetOutcomes.push({ repo: target.repo, status: parseResult.shape, observations: parsed.length });
     }
     // Record how many targets needed the silence nudge (v57 prompt metrics) onto
     // the run the tester opened — a late fact written before every close path, so
@@ -1112,6 +1165,11 @@ export async function runUatTester(
       debug?.(`[gate] uat tester ticket ${opts.ticketId}: stopped — interrupted`);
       close('interrupted', 'interrupted');
       return { kind: 'interrupted' };
+    }
+    // K11: a quota error can surface from the silence/reformat re-ask, which is
+    // outside the inner try. Park rather than report `execution-failed`.
+    if (classifyFailure(error) === 'usage-limited') {
+      return usageLimited(error, currentRepo || 'unknown');
     }
     // See the doc comment: a crash is reported, never thrown — the ordinary
     // UAT gates must decide the run whatever the Tester did.
