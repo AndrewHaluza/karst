@@ -97,37 +97,37 @@ describe('readCodexRateLimitsFrom', () => {
 });
 
 describe('findLatestCodexSessionFile', () => {
-  it('picks the newest rollout file by mtime', () => {
+  it('picks the newest rollout file by mtime', async () => {
     const first = writeSession([sessionLine({})], 'rollout-old.jsonl');
     const second = writeSession([sessionLine({})], 'rollout-new.jsonl');
     // mtime resolution can tie; pin the two explicitly.
     utimesSync(first, new Date(1_000_000), new Date(1_000_000));
     utimesSync(second, new Date(2_000_000), new Date(2_000_000));
-    expect(findLatestCodexSessionFile(join(home, '.codex', 'sessions'))).toBe(second);
+    expect(await findLatestCodexSessionFile(join(home, '.codex', 'sessions'))).toBe(second);
   });
 
-  it('returns null when the sessions dir is absent', () => {
-    expect(findLatestCodexSessionFile(join(home, 'nope'))).toBeNull();
+  it('returns null when the sessions dir is absent', async () => {
+    expect(await findLatestCodexSessionFile(join(home, 'nope'))).toBeNull();
   });
 });
 
 describe('readCodexQuota', () => {
-  it('reports unknown when no session file exists', () => {
-    const snap = readCodexQuota({ homeDir: home, now: () => NOW });
+  it('reports unknown when no session file exists', async () => {
+    const snap = await readCodexQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({ core: 'codex', state: 'unknown' });
     expect(snap.state === 'unknown' && snap.reason).toMatch(/no Codex session files/);
   });
 
-  it('reports unknown when the session carries no rate limits yet', () => {
+  it('reports unknown when the session carries no rate limits yet', async () => {
     writeSession([sessionLine({ type: 'token_count' })]);
-    const snap = readCodexQuota({ homeDir: home, now: () => NOW });
+    const snap = await readCodexQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({ core: 'codex', state: 'unknown' });
   });
 
-  it('reports the windows with provenance and readAt', () => {
+  it('reports the windows with provenance and readAt', async () => {
     const file = writeSession([sessionLine({ rate_limits: RATE_LIMITS })]);
     utimesSync(file, new Date(1_700_000_000_000), new Date(1_700_000_000_000));
-    const snap = readCodexQuota({ homeDir: home, now: () => NOW });
+    const snap = await readCodexQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({
       core: 'codex',
       state: 'ok',
@@ -137,11 +137,20 @@ describe('readCodexQuota', () => {
     expect(snap.state === 'ok' && snap.windows.map((w) => w.usedPct)).toEqual([76, 24]);
   });
 
-  it("stamps readAt from the session file's age, never the read time", () => {
+  it("stamps readAt from the session file's age, never the read time", async () => {
     const sixWeeksAgo = new Date(NOW.getTime() - 6 * 7 * 24 * 3_600_000);
     const file = writeSession([sessionLine({ rate_limits: RATE_LIMITS })]);
     utimesSync(file, sixWeeksAgo, sixWeeksAgo);
-    const snap = readCodexQuota({ homeDir: home, now: () => NOW });
+    const snap = await readCodexQuota({ homeDir: home, now: () => NOW });
     expect(snap.state === 'ok' && snap.readAt).toBe(sixWeeksAgo.toISOString());
+  });
+
+  it('honors CODEX_HOME for the sessions root', async () => {
+    const custom = join(home, 'custom-codex');
+    const dir = join(custom, 'sessions', '2026', '01', '01');
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'rollout-x.jsonl'), sessionLine({ rate_limits: RATE_LIMITS }) + '\n');
+    const snap = await readCodexQuota({ homeDir: home, env: { CODEX_HOME: custom }, now: () => NOW });
+    expect(snap.state).toBe('ok');
   });
 });

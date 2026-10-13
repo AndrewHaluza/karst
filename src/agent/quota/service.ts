@@ -10,9 +10,11 @@ import type { QuotaReader, QuotaSnapshot } from './types.js';
  * on a modest interval and on demand.
  *
  * Reads are LOCAL (a session JSONL tail, a cached statusline payload) — never a
- * model request and never a network call — so a refresh cannot block the
- * extension host, and the launch path reads the CACHE synchronously rather than
- * waiting on a read. That is what "never blocks launch" means here.
+ * model request and never a network call — and every read is ASYNC, so a refresh
+ * never blocks the extension host's event loop (activation, the 5-minute poll,
+ * and an on-demand refresh all stay non-blocking). The launch path reads the
+ * CACHE synchronously rather than waiting on a read. That is what "never blocks
+ * launch" means here.
  *
  * Nothing is persisted: snapshots live for the window's lifetime only. No
  * reader sees or logs a token (`arch:AC-29` redaction rule).
@@ -52,12 +54,13 @@ export class QuotaService {
   /**
    * Read every core NOW and replace the cache. A reader that throws is reported
    * as that core's `unknown` — one broken reader must not blank the others.
+   * Async: every read is async file I/O, so this never blocks the host.
    */
-  refresh(): QuotaSnapshot[] {
+  async refresh(): Promise<QuotaSnapshot[]> {
     for (const reader of this.deps.readers) {
       let snapshot: QuotaSnapshot;
       try {
-        snapshot = reader.read();
+        snapshot = await reader.read();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         snapshot = { core: reader.core, state: 'unknown', reason: `read failed: ${message}` };
@@ -70,11 +73,11 @@ export class QuotaService {
     return snapshots;
   }
 
-  /** Begin polling. Idempotent. Refreshes once immediately. */
+  /** Begin polling. Idempotent. Kicks one refresh off, unawaited. */
   start(): void {
     if (this.timer !== undefined) return;
-    this.refresh();
-    this.timer = setInterval(() => this.refresh(), this.deps.pollMs ?? DEFAULT_QUOTA_POLL_MS);
+    void this.refresh();
+    this.timer = setInterval(() => void this.refresh(), this.deps.pollMs ?? DEFAULT_QUOTA_POLL_MS);
   }
 
   dispose(): void {
@@ -114,7 +117,7 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
   const now = deps.now ?? (() => new Date());
   return [
     claudeQuotaReader({ homeDir, env, now }),
-    codexQuotaReader({ homeDir, now }),
+    codexQuotaReader({ homeDir, env, now }),
     unsupportedQuotaReader('antigravity'),
     unsupportedQuotaReader('opencode'),
     unsupportedQuotaReader('opencode2'),

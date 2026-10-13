@@ -24,6 +24,6 @@ export function unsupportedQuotaReader(core: AgentProvider): QuotaReader {
   const reason = UNSUPPORTED_REASONS[core] ?? 'no readable quota source for this core';
   return {
     core,
-    read: (): QuotaSnapshot => ({ core, state: 'unknown', reason }),
+    read: async (): Promise<QuotaSnapshot> => ({ core, state: 'unknown', reason }),
   };
 }

@@ -62,40 +62,40 @@ describe('parseClaudeRateLimits', () => {
 });
 
 describe('readClaudeQuota', () => {
-  it('reports unknown when no cache exists', () => {
-    const snap = readClaudeQuota({ homeDir: home, now: () => NOW });
+  it('reports unknown when no cache exists', async () => {
+    const snap = await readClaudeQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({ core: 'claude', state: 'unknown' });
     expect(snap.state === 'unknown' && snap.reason).toMatch(/statusline quota cache/);
   });
 
-  it('reports unknown for an unparseable cache', () => {
+  it('reports unknown for an unparseable cache', async () => {
     const dir = join(home, '.claude', 'cache');
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'quota.json'), '{ not json');
-    const snap = readClaudeQuota({ homeDir: home, now: () => NOW });
+    const snap = await readClaudeQuota({ homeDir: home, now: () => NOW });
     expect(snap.state === 'unknown' && snap.reason).toMatch(/could not be parsed/);
   });
 
-  it('reports the windows from the cached statusline payload', () => {
+  it('reports the windows from the cached statusline payload', async () => {
     writeCache(STATUSLINE);
-    const snap = readClaudeQuota({ homeDir: home, now: () => NOW });
+    const snap = await readClaudeQuota({ homeDir: home, now: () => NOW });
     expect(snap).toMatchObject({ core: 'claude', state: 'ok', source: 'Claude statusline telemetry' });
     expect(snap.state === 'ok' && snap.windows.map((w) => w.label)).toEqual(['5-hour', '7-day']);
   });
 
-  it("stamps readAt from the cache file's age, never the read time", () => {
+  it("stamps readAt from the cache file's age, never the read time", async () => {
     const sixWeeksAgo = new Date(NOW.getTime() - 6 * 7 * 24 * 3_600_000);
     writeCache(STATUSLINE);
     const cachePath = join(home, '.claude', 'cache', 'quota.json');
     utimesSync(cachePath, sixWeeksAgo, sixWeeksAgo);
-    const snap = readClaudeQuota({ homeDir: home, now: () => NOW });
+    const snap = await readClaudeQuota({ homeDir: home, now: () => NOW });
     expect(snap.state === 'ok' && snap.readAt).toBe(sixWeeksAgo.toISOString());
   });
 
-  it('honors CLAUDE_CONFIG_DIR for the cache location', () => {
+  it('honors CLAUDE_CONFIG_DIR for the cache location', async () => {
     const custom = join(home, 'custom-claude');
     writeCache(STATUSLINE, custom);
-    const snap = readClaudeQuota({ homeDir: home, env: { CLAUDE_CONFIG_DIR: custom }, now: () => NOW });
+    const snap = await readClaudeQuota({ homeDir: home, env: { CLAUDE_CONFIG_DIR: custom }, now: () => NOW });
     expect(snap.state).toBe('ok');
   });
 });

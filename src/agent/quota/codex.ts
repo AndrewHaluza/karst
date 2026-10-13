@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { open, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
@@ -9,14 +9,20 @@ import type { QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
  * Codex appends a `token_count` event carrying `rate_limits` on every model
  * turn, so the newest session file's last such line is the freshest
  * provider-reported window state. Zero model requests, zero network calls, no
- * credentials touched (it is a plain file under `~/.codex`).
+ * credentials touched (it is a plain file under `$CODEX_HOME`/`~/.codex`).
  *
- * The file is unbounded, so the read walks the tail BACKWARDS and stops at the
- * first parseable line carrying `rate_limits`; a corrupt line is skipped rather
- * than failing the read.
+ * ALL I/O here is async: the reader runs on the extension host's event loop
+ * (activation and every poll), so a synchronous walk of a heavy user's
+ * thousands of rollouts, or a synchronous read of a tens-of-MB JSONL, would
+ * freeze webviews, terminals and gate callbacks. The newest rollout is read
+ * from its TAIL only (bounded), scanned backwards for the last `rate_limits`
+ * line — a corrupt or truncated line is skipped, never fatal.
  */
 
 const SOURCE = 'Codex session rate limits';
+
+/** How much of a rollout's tail to scan. The last `token_count` sits at the end. */
+const TAIL_BYTES = 1 << 20; // 1 MiB
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -70,26 +76,31 @@ export function parseCodexRateLimits(raw: unknown): QuotaWindow[] {
   return windows;
 }
 
-/** The newest `rollout-*.jsonl` under a sessions tree, or null. */
-export function findLatestCodexSessionFile(baseDir: string): string | null {
-  if (!existsSync(baseDir)) return null;
+/** The Codex config root: `CODEX_HOME` override, else `<home>/.codex`. */
+export function codexHome(env?: NodeJS.ProcessEnv, home: string = homedir()): string {
+  const override = env?.CODEX_HOME;
+  return typeof override === 'string' && override.length > 0 ? override : join(home, '.codex');
+}
+
+/** The newest `rollout-*.jsonl` under a sessions tree, or null. Async walk. */
+export async function findLatestCodexSessionFile(baseDir: string): Promise<string | null> {
   let newest: string | null = null;
   let newestMtime = -Infinity;
-  const walk = (dir: string, depth: number): void => {
+  const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > 4) return;
     let entries;
     try {
-      entries = readdirSync(dir, { withFileTypes: true });
+      entries = await readdir(dir, { withFileTypes: true });
     } catch {
       return; // unreadable dir — skip
     }
     for (const entry of entries) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
-        walk(full, depth + 1);
+        await walk(full, depth + 1);
       } else if (entry.isFile() && entry.name.startsWith('rollout-') && entry.name.endsWith('.jsonl')) {
         try {
-          const mtime = statSync(full).mtimeMs;
+          const mtime = (await stat(full)).mtimeMs;
           if (mtime > newestMtime) {
             newestMtime = mtime;
             newest = full;
@@ -100,13 +111,28 @@ export function findLatestCodexSessionFile(baseDir: string): string | null {
       }
     }
   };
-  walk(baseDir, 0);
+  await walk(baseDir, 0);
   return newest;
 }
 
+/** The last `maxBytes` of a file as UTF-8 text (async, bounded). */
+async function readTail(path: string, maxBytes: number): Promise<string> {
+  const handle = await open(path, 'r');
+  try {
+    const { size } = await handle.stat();
+    const length = Math.min(size, maxBytes);
+    const start = size - length;
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, start);
+    return buffer.toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
- * The last `rate_limits` object in a Codex rollout JSONL, read from the tail.
- * Returns null when no line carries one.
+ * The last `rate_limits` object in a Codex rollout JSONL text, read from the
+ * tail. Returns null when no line carries one.
  */
 export function readCodexRateLimitsFrom(text: string): unknown | null {
   const lines = text.split('\n');
@@ -117,7 +143,7 @@ export function readCodexRateLimitsFrom(text: string): unknown | null {
     try {
       parsed = JSON.parse(line);
     } catch {
-      continue; // truncated mid-write line
+      continue; // truncated mid-write line (or the tail's cut first line)
     }
     const payload = asRecord(asRecord(parsed)?.['payload']);
     const rateLimits = payload?.['rate_limits'];
@@ -128,20 +154,21 @@ export function readCodexRateLimitsFrom(text: string): unknown | null {
 
 export interface CodexQuotaDeps {
   homeDir?: string;
+  env?: NodeJS.ProcessEnv;
   now?: () => Date;
 }
 
 /** Read Codex quota from the newest local session file. */
-export function readCodexQuota(deps: CodexQuotaDeps = {}): QuotaSnapshot {
+export async function readCodexQuota(deps: CodexQuotaDeps = {}): Promise<QuotaSnapshot> {
   const core = 'codex' as const;
   const now = deps.now?.() ?? new Date();
-  const baseDir = join(deps.homeDir ?? homedir(), '.codex', 'sessions');
-  const file = findLatestCodexSessionFile(baseDir);
+  const baseDir = join(codexHome(deps.env, deps.homeDir ?? homedir()), 'sessions');
+  const file = await findLatestCodexSessionFile(baseDir);
   if (!file) {
     return {
       core,
       state: 'unknown',
-      reason: 'no Codex session files found under ~/.codex/sessions',
+      reason: 'no Codex session files found under $CODEX_HOME/sessions',
     };
   }
   // `readAt` is the DATA's age, not the read's: a week-old session file means a
@@ -149,13 +176,13 @@ export function readCodexQuota(deps: CodexQuotaDeps = {}): QuotaSnapshot {
   // and must not trust an expired window. Fall back to now when mtime is unknown.
   let dataAt = now;
   try {
-    dataAt = new Date(statSync(file).mtimeMs);
+    dataAt = new Date((await stat(file)).mtimeMs);
   } catch {
     // file vanished between the listing and the stat — keep `now`
   }
   let text: string;
   try {
-    text = readFileSync(file, 'utf8');
+    text = await readTail(file, TAIL_BYTES);
   } catch {
     return { core, state: 'unknown', reason: 'the newest Codex session file could not be read' };
   }

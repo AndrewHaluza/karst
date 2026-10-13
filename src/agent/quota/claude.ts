@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import type { QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
@@ -81,12 +81,18 @@ export interface ClaudeQuotaDeps {
   now?: () => Date;
 }
 
-/** Read Claude quota from the cached statusline payload, if present. */
-export function readClaudeQuota(deps: ClaudeQuotaDeps = {}): QuotaSnapshot {
+/**
+ * Read Claude quota from the cached statusline payload, if present. Async: this
+ * runs on the extension host's event loop, so no synchronous file I/O.
+ */
+export async function readClaudeQuota(deps: ClaudeQuotaDeps = {}): Promise<QuotaSnapshot> {
   const core = 'claude' as const;
   const now = deps.now?.() ?? new Date();
   const cachePath = join(claudeConfigDir(deps.env, deps.homeDir ?? homedir()), RELATIVE_CACHE);
-  if (!existsSync(cachePath)) {
+  let raw: string;
+  try {
+    raw = await readFile(cachePath, 'utf8');
+  } catch {
     return {
       core,
       state: 'unknown',
@@ -98,13 +104,13 @@ export function readClaudeQuota(deps: ClaudeQuotaDeps = {}): QuotaSnapshot {
   // window must not drive the amber badge or the launch warning.
   let dataAt = now;
   try {
-    dataAt = new Date(statSync(cachePath).mtimeMs);
+    dataAt = new Date((await stat(cachePath)).mtimeMs);
   } catch {
-    // vanished between the existence check and the stat — keep `now`
+    // vanished between the read and the stat — keep `now`
   }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(cachePath, 'utf8'));
+    parsed = JSON.parse(raw);
   } catch {
     return { core, state: 'unknown', reason: 'the Claude quota cache could not be parsed' };
   }
