@@ -23,3 +23,13 @@ Related: `docs/arch/ABI.md` (`arch:ABI-01`, `ABI-03`).
 - **Teardown.** `docker.mjs` force-removes the named container on exit and on SIGINT/SIGTERM/SIGHUP.
 
 END_DOC_BLOCK: [@arch:UATHOST-01]
+
+## [@arch:UATHOST-02] The probe runs a JSON step script in the host and dumps evidence per step
+
+`npm run uat:host:docker -- --fixture <name> --script <steps.json> --out <dir>` adds the probe to a harness run. Only a given `--script` sets `KARST_UAT_PROBE=1`; without that flag `installProbeRecorder` returns undefined, nothing patches `vscode.window`, and `karst.uatProbe.run` is never registered (it is not in `package.json` either). Pins: `src/uatHost/probe/gating.test.ts`.
+
+- **Steps are data.** `steps.ts` validates `command` (VS Code command + args), `wait` (exactly one of `ticketStage`, `notification`, `log`, `webviewMessage`) and `snapshot`; unknown types are refused. Timeouts default to 10s and clamp to 60s.
+- **Evidence.** After each step `<out>/step-NNN.json` holds `{step, result, snapshot}`; `<out>/summary.json` lists per-step `pass|fail|timeout` with the step index. The snapshot is tickets and stages from the store (no ids or timestamps), the sidebar's last posted message, open webview panels with their last posted message, notifications shown, and a 40-line log tail with timestamps and the workspace hash stripped. Same fixture and script give byte-identical JSON. The sidebar webview only appears once VS Code resolves it (it is not resolved while hidden).
+- **Never hangs.** Per-step timeout, a 120s script total, and a `UAT_PROBE_HARD_TIMEOUT_MS` (default 300s) backstop in `run.mjs`. The run stops at the first non-pass step and exits nonzero, printing `uat-probe: step <i> (<type>) PASS|FAIL|TIMEOUT` and the evidence path. `--out` is relative to the checkout when run through Docker. A sample is `scripts/uat-host/samples/smoke.json`.
+
+END_DOC_BLOCK: [@arch:UATHOST-02]

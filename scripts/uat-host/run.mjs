@@ -18,12 +18,23 @@ if (process.argv.includes('--print-vscode')) {
   process.exit(0);
 }
 
-const i = process.argv.indexOf('--fixture');
-const fixture = i >= 0 ? process.argv[i + 1] : undefined;
-if (!fixture || !FIXTURES.includes(fixture)) {
-  console.error(`usage: run.mjs --fixture <${FIXTURES.join('|')}>`);
+const argValue = (name) => {
+  const at = process.argv.indexOf(name);
+  return at >= 0 ? process.argv[at + 1] : undefined;
+};
+const fixture = argValue('--fixture');
+const scriptArg = argValue('--script');
+const outArg = argValue('--out');
+if (!fixture || !FIXTURES.includes(fixture) || Boolean(scriptArg) !== Boolean(outArg)) {
+  console.error(`usage: run.mjs --fixture <${FIXTURES.join('|')}> [--script <steps.json> --out <dir>]`);
   process.exit(2);
 }
+// Probe only when a script is given; the flag is what registers the command in the host.
+const probeEnv = scriptArg
+  ? { KARST_UAT_PROBE: '1', UAT_PROBE_SCRIPT: resolve(scriptArg), UAT_PROBE_OUT: resolve(outArg) }
+  : {};
+// runTests has no timeout of its own: this is the backstop so a wedged host can never hang the run.
+const hardTimeoutMs = Number(process.env.UAT_PROBE_HARD_TIMEOUT_MS ?? 300_000);
 
 // Loaded after arg validation so a bad fixture exits 2 without loading the module.
 const { downloadAndUnzipVSCode, runTests } = await import('@vscode/test-electron');
@@ -50,7 +61,7 @@ try {
   if (prep.status !== 0) throw new Error(`prepare failed (${prep.status}): ${prep.stderr}`);
   const { workspaceDir, tickets } = JSON.parse(prep.stdout.trim().split('\n').pop());
 
-  await runTests({
+  const tests = runTests({
     vscodeExecutablePath,
     extensionDevelopmentPath: repoRoot,
     extensionTestsPath: join(here, 'testRunner.cjs'),
@@ -58,6 +69,7 @@ try {
       KARST_FAKE_CORE: '1',
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,
+      ...probeEnv,
     },
     launchArgs: [
       workspaceDir,
@@ -69,6 +81,15 @@ try {
       '--disable-gpu',
     ],
   });
+  let timer;
+  const deadline = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`hard timeout after ${hardTimeoutMs}ms`)), hardTimeoutMs);
+  });
+  try {
+    await Promise.race([tests, deadline]);
+  } finally {
+    clearTimeout(timer);
+  }
   code = 0;
 } catch (err) {
   console.error('uat-host: FAILED —', err instanceof Error ? err.message : err);
