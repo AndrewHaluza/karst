@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import {
   resolveAdapter,
   resolveProvider,
@@ -12,6 +12,7 @@ import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
 import { Opencode2Adapter } from './opencode2.js';
+import { FakeAdapter } from './fakeCore.js';
 
 describe('resolveAdapter', () => {
   it('resolves claude to a ClaudeAdapter instance', () => {
@@ -94,5 +95,19 @@ describe('isKnownProvider', () => {
   it('rejects non-string values', () => {
     expect(isKnownProvider(42)).toBe(false);
     expect(isKnownProvider(undefined)).toBe(false);
+  });
+});
+
+describe('KARST_FAKE_CORE', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  it('returns FakeAdapter for every provider when set to 1', () => {
+    vi.stubEnv('KARST_FAKE_CORE', '1');
+    for (const p of ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'] as const) {
+      expect(resolveAdapter(p)).toBeInstanceOf(FakeAdapter);
+    }
+  });
+  it('is off by default', () => {
+    vi.stubEnv('KARST_FAKE_CORE', '');
+    expect(resolveAdapter('claude')).not.toBeInstanceOf(FakeAdapter);
   });
 });

@@ -6,6 +6,7 @@ import { AntigravityAdapter } from './antigravity.js';
 import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
 import { Opencode2Adapter } from './opencode2.js';
+import { FAKE_CORE_ENV, FakeAdapter } from './fakeCore.js';
 
 // Pure provider facts live in `provider.ts` so read-only consumers can use the
 // precedence rule without importing the adapters (and their process spawns).
@@ -27,6 +28,7 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
  * Resolve the adapter for a validated provider.
  */
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
+  if (process.env[FAKE_CORE_ENV] === '1') return new FakeAdapter();
   return FACTORIES[provider]();
 }
 
