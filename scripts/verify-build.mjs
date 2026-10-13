@@ -11,6 +11,8 @@ import { spawnSync } from 'node:child_process';
 const REQUIRED_ARTIFACTS = [
   'dist/extension.js',
   'dist/cli/main.js',
+  'dist/sandbox/opencode/allowlist-proxy.mjs',
+  'dist/sandbox/opencode/Dockerfile',
   // The generated, type-checked webview message-sender bundles. A missing one
   // means every control in that webview silently no-ops at runtime, so the
   // shipped VSIX must never omit it. The dashboard sender is its own bundle;

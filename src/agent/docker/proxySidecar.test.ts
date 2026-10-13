@@ -1,0 +1,71 @@
+import { describe, expect, it } from 'vitest';
+import { SANDBOX_NETWORK_ALLOWLIST } from '../sandbox.js';
+import { OPENCODE_IMAGE } from './dockerImage.js';
+import { fakeDockerProcess } from './fakeDockerProcess.js';
+import { DOCKER_ALLOWLIST, PROXY_URL, sidecarRunArgs, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+
+const SPEC = { proxy: 'k-proxy', network: 'k-net', scriptPath: '/ext dir/allowlist-proxy.mjs' };
+const lines = (proc: ReturnType<typeof fakeDockerProcess>) => proc.calls.map((c) => [c.command, ...c.args].join(' '));
+
+describe('proxySidecar', () => {
+  it('allowlists the ST1 domains plus the opencode providers', () => {
+    expect(DOCKER_ALLOWLIST).toEqual([...SANDBOX_NETWORK_ALLOWLIST, 'opencode.ai', 'openrouter.ai', 'models.dev']);
+    expect(PROXY_URL).toBe('http://karst-proxy:3128');
+  });
+
+  it('runs the proxy unprivileged on the ticket network with the script read-only', () => {
+    const args = sidecarRunArgs({ ...SPEC, allow: ['a.io', 'b.io'] });
+    expect(args).toEqual([
+      'run', '--detach', '--name', 'k-proxy',
+      '--network', 'k-net', '--network-alias', 'karst-proxy',
+      '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+      '--env', 'ALLOW=a.io,b.io',
+      '--mount', 'type=bind,source=/ext dir/allowlist-proxy.mjs,target=/opt/karst/allowlist-proxy.mjs,readonly',
+      OPENCODE_IMAGE, 'node', '/opt/karst/allowlist-proxy.mjs',
+    ]);
+    expect(args.join(' ')).not.toMatch(/privileged|docker\.sock/);
+  });
+
+  it('defaults to the docker allowlist', () => {
+    expect(sidecarRunArgs(SPEC)).toContain(`ALLOW=${DOCKER_ALLOWLIST.join(',')}`);
+  });
+
+  it('starts a missing proxy and connects only it to the bridge', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });
+    await expect(startProxySidecar(proc, SPEC)).resolves.toEqual({ ok: true });
+    expect(lines(proc).slice(1)).toEqual([
+      ['docker', ...sidecarRunArgs(SPEC)].join(' '),
+      'docker network connect bridge k-proxy',
+    ]);
+  });
+
+  it('keeps a running proxy', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true\n' } });
+    await expect(startProxySidecar(proc, SPEC)).resolves.toEqual({ ok: true });
+    expect(proc.calls).toHaveLength(1);
+  });
+
+  it('replaces a stopped proxy', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false\n' } });
+    await startProxySidecar(proc, SPEC);
+    expect(lines(proc)[1]).toBe('docker rm --force k-proxy');
+    expect(lines(proc)[2]).toMatch(/^docker run --detach/);
+  });
+
+  it('reports a failed start', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 }, 'docker run': { code: 125, stderr: 'no such network' } });
+    await expect(startProxySidecar(proc, SPEC)).resolves.toEqual({ ok: false, reason: 'proxy sidecar failed to start: no such network' });
+  });
+
+  it('removes the proxy again when it cannot get egress', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 }, 'docker network connect': { code: 1, stderr: 'denied' } });
+    await expect(startProxySidecar(proc, SPEC)).resolves.toEqual({ ok: false, reason: 'proxy sidecar has no egress network: denied' });
+    expect(lines(proc).at(-1)).toBe('docker rm --force k-proxy');
+  });
+
+  it('stops by exact name', async () => {
+    const proc = fakeDockerProcess();
+    await stopProxySidecar(proc, 'k-proxy');
+    expect(lines(proc)).toEqual(['docker rm --force k-proxy']);
+  });
+});
