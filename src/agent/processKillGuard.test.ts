@@ -113,6 +113,14 @@ describe('claude permission config', () => {
     expectAllCommands(JSON.stringify(settings['permissions']), 'claude settings');
   });
 
+  it('denies the commands on a writable launch with NO hook channel (graph nodes/planners)', () => {
+    // `supervisedCliTransport` launches graph nodes with no hook channel and no
+    // readOnly, so the settings file never exists — the deny must ride argv.
+    const { args } = adapter.buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
+    expect(args).toContain('--disallowedTools');
+    expectAllCommands(args.join(' '), 'claude writable no-hook');
+  });
+
   it('keeps the edit-tool denial AND adds the kill deny on a read-only launch', () => {
     const { args } = adapter.buildInteractiveCommand({ cwd: '/wt', readOnly: true, initialPrompt: 'go' });
     expect(args).toContain('--permission-mode');

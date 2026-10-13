@@ -267,11 +267,17 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     for (const token of ['workspace-write', '--mode', '--permission-mode']) {
       expect(args, `${provider} ordinary launch must not carry ${token}`).not.toContain(token);
     }
-    // claude's kill deny rides its `--settings` deny list (this launch has no
-    // hook channel), so an ordinary claude launch carries no `--disallowedTools`
-    // at all; opencode/2 carry the deny in their permission blob below, never
-    // the read-only ask.
-    expect(args).not.toContain('--disallowedTools');
+    // claude's kill deny rides argv when there is no hook channel (and the
+    // settings file when there is), so `--disallowedTools` is present — but
+    // never the read-only edit tools. opencode/2 carry the deny in their
+    // permission blob below, never the read-only ask.
+    if (provider === 'claude') {
+      const i = args.indexOf('--disallowedTools');
+      expect(i).toBeGreaterThan(-1);
+      expect(args.slice(i + 1)).not.toContain('Edit');
+    } else {
+      expect(args).not.toContain('--disallowedTools');
+    }
     // The opencode blobs carry the kill deny, never an edit-deny or a bash-ask catch-all.
     for (const blob of [env.OPENCODE_PERMISSION, env.OPENCODE_CONFIG_CONTENT]) {
       if (!blob) continue;

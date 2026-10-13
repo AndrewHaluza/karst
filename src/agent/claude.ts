@@ -267,6 +267,13 @@ export class ClaudeAdapter implements AgentAdapter {
         '--permission-mode', 'default', '--disallowedTools',
         'Edit', 'Write', 'NotebookEdit', ...claudeProcessKillDeny(),
       );
+    } else if (!opts.hookChannel) {
+      // A WRITABLE launch with no hook channel — a graph node/planner session
+      // (`supervisedCliTransport`) or any bare `buildInteractiveCommand` — has
+      // no `--settings` file to carry the deny, so it rides argv here. With a
+      // hook channel the deny is in that settings file; without one this is the
+      // only channel, and a writable session must still be unable to `pkill`.
+      args.push('--disallowedTools', ...claudeProcessKillDeny());
     }
     // `--add-dir` is variadic in claude; one flag per dir keeps each value
     // unambiguous, and the `--` below stops it swallowing the prompt.

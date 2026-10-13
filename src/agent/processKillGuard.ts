@@ -16,6 +16,15 @@
  * express a deny declares its reason on `AdapterSurfaces.processKillDeny`
  * (AC-08) instead of silently dropping it here.
  *
+ * The list is a best-effort PATTERN deny, not a security boundary: claude's
+ * Bash rules and opencode's patterns match the command text as written, so an
+ * absolute path (`/usr/bin/pkill`), a `sh -c '…'` wrapper, an unusual signal
+ * spelling (`kill -TERM -1`), or `pgrep … | xargs kill` is NOT covered. That is
+ * by design — a pattern cannot enumerate every spelling, and a false sense of a
+ * boundary is worse than none. The deny stops the common DIRECT forms a cheap
+ * model reaches for; `PROCESS_KILL_RULE` (`promptText.ts`) tells the agent the
+ * correct way (`kill $!`) and is the guard for everything the patterns miss.
+ *
  * Pure text/JSON data: no store, no fs. Consumed by every adapter's launch
  * paths (interactive AND headless/planning) via `opencodeLaunchPermission` and
  * the claude deny flags.
