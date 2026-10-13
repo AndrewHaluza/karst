@@ -38,19 +38,23 @@ export const LIMIT_PHRASES =
   /(rate[-_ ]?limit|usage limit|spend limit|limit reached|quota[-_ ]?exceeded|quota exceeded|resource[-_ ]?exhausted|too many requests|out of credits?|insufficient[_ ]quota)/i;
 
 /**
- * The QUOTA subset of `LIMIT_PHRASES`: the wording that means the ACCOUNT is
- * out of allowance — the user must raise a limit, buy credit or wait for a
- * reset. Deliberately excludes `429`, `rate limit` and `too many requests`,
- * which are the transient, retryable forms of the same status: a bare 429 with
- * no quota wording is worth one more attempt, an exhausted quota is not.
+ * The QUOTA subset of `LIMIT_PHRASES`: the wording that names an exhausted
+ * ALLOWANCE — the account is out of quota/credit, so the user must raise a
+ * limit, buy credit or wait for a reset. Deliberately excludes the generic
+ * limit words (`429`, `rate limit`, `too many requests`, `limit reached`),
+ * which describe a TRANSIENT rate limit retrying CAN clear: `limit reached`
+ * in particular matches "Rate limit reached", so reading it as quota would
+ * fast-fail a retryable 429 (UAT caught exactly that). `LIMIT_PHRASES` stays
+ * the union of both (it drives the human sentence in `describeHeadlessFailure`).
  *
- * This is a HEURISTIC, and it is applied to the provider's OWN error text only
- * (`analyze`'s `quotaEvidence`) — never to a run's stdout, which is the model's
- * answer and may mention "quota" for any reason. A provider error CODE
- * (`QUOTA_CODES`) and HTTP 402 are the structured forms of the same signal.
+ * This is a HEURISTIC, applied only to the provider's OWN error text
+ * (`analyze`'s `quotaEvidence` — an error envelope's message, or stderr), never
+ * to an unstructured run's stdout, which is the model's answer. A provider
+ * error CODE (`QUOTA_CODES`) and HTTP 402 are the structured forms of the same
+ * signal.
  */
 export const QUOTA_PHRASES =
-  /(quota[-_ ]?exceeded|usage limit|spend limit|limit reached|out of credits?|insufficient[_ ]credits?|insufficient[_ ]quota|resource[-_ ]?exhausted|payment required|credit balance)/i;
+  /(quota[-_ ]?(exceeded|exhausted)|usage limit|spend limit|out of credits?|insufficient[_ ]credits?|insufficient[_ ]quota|resource[-_ ]?exhausted|payment required|credit balance)/i;
 
 /** Provider error `code`/`type` values that name an exhausted allowance. */
 export const QUOTA_CODES =
@@ -74,6 +78,12 @@ interface Structured {
   status?: number;
   /** The provider's machine error code/type, e.g. `insufficient_quota`. */
   code?: string;
+  /**
+   * Whether this envelope is a provider ERROR document (not the model's own
+   * structured answer that happens to carry a `result`/`message`). Only an
+   * error document's message is trusted as quota evidence.
+   */
+  isError?: boolean;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -113,10 +123,18 @@ function readEvent(record: Record<string, unknown>): Structured {
     (nested
       ? firstString(nested, ['code', 'type', 'error_type', 'errorType', 'reason'])
       : undefined);
+  // A document that names an error is the PROVIDER speaking; a bare `result`
+  // on an otherwise clean envelope is the model's answer.
+  const isError =
+    record['is_error'] === true ||
+    record['error'] !== undefined ||
+    (typeof record['type'] === 'string' && /error/i.test(record['type'])) ||
+    (status !== undefined && status >= 400);
   return {
     ...(message ? { message } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(code ? { code } : {}),
+    ...(isError ? { isError: true } : {}),
   };
 }
 
@@ -151,6 +169,7 @@ function extractStructured(text: string): Structured {
     if (found.message === undefined && event.message !== undefined) found.message = event.message;
     if (found.status === undefined && event.status !== undefined) found.status = event.status;
     if (found.code === undefined && event.code !== undefined) found.code = event.code;
+    if (event.isError === true) found.isError = true;
   }
   return found;
 }
@@ -200,20 +219,24 @@ function analyze(failure: HeadlessFailure): Analysis {
     (structured.message !== undefined && LIMIT_PHRASES.test(structured.message)) ||
     (structured.message === undefined && (LIMIT_PHRASES.test(raw) || HTTP_429.test(raw)));
 
-  // Quota is the subset of `limited` whose wording names an exhausted ALLOWANCE.
-  // Its evidence is the provider's OWN error text — the structured envelope's
-  // message, or, when the envelope carries none, stderr (where a CLI reports a
-  // fault). NEVER a run's stdout: that stream is the model's answer, and a model
-  // may write "quota exceeded" for any reason; reading that as an account
-  // failure would park a healthy run (UAT observed exactly that). A provider
-  // error CODE or HTTP 402 (payment required) is the structured form of the
-  // same signal and needs no wording.
+  // Quota evidence is the provider's OWN error text: a structured ERROR
+  // envelope's message (stderr or stdout — claude puts its JSON error envelope
+  // on stdout), or, when there is none, stderr (where a CLI reports a fault).
+  // An UNSTRUCTURED run's stdout is the model's answer and is NEVER evidence: a
+  // model may write "quota exceeded" for any reason, and reading that as an
+  // account failure would park a healthy run (UAT observed exactly that). A
+  // provider error CODE or HTTP 402 (payment required) is the structured form
+  // of the same signal and needs no wording.
   const quotaEvidence =
-    structured.message ?? (stderr !== '' ? stderr : '');
+    fromErr.message ??
+    (fromOut.isError === true ? fromOut.message : undefined) ??
+    (stderr !== '' ? stderr : '');
+  const quotaCode =
+    fromErr.code ?? (fromOut.isError === true ? fromOut.code : undefined);
   const quota =
     QUOTA_PHRASES.test(quotaEvidence) ||
-    (structured.code !== undefined && QUOTA_CODES.test(structured.code)) ||
-    structured.status === 402;
+    (quotaCode !== undefined && QUOTA_CODES.test(quotaCode)) ||
+    statusCode === 402;
 
   const detail = structured.message ?? (limited ? limitLine(raw) : raw || undefined);
 

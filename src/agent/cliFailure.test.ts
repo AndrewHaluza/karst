@@ -242,7 +242,7 @@ describe('describePermissionDenial', () => {
 });
 
 describe('QUOTA_PHRASES / isQuotaExhausted / headlessFailureError', () => {
-  it('flags the quota wording every provider uses, and not the transient forms', () => {
+  it('flags the allowance wording every provider uses, and not the transient rate-limit forms', () => {
     for (const phrase of [
       'quota exceeded',
       'quota_exceeded',
@@ -251,11 +251,19 @@ describe('QUOTA_PHRASES / isQuotaExhausted / headlessFailureError', () => {
       'usage limit reached',
       'monthly spend limit',
       'out of credits',
-      'limit reached',
+      'payment required',
+      'credit balance',
     ]) {
       expect(QUOTA_PHRASES.test(phrase), phrase).toBe(true);
     }
-    for (const transient of ['429 Too Many Requests', 'rate limit exceeded', 'too many requests']) {
+    // `limit reached` matches "Rate limit reached" — a transient rate limit
+    // must NOT read as quota (UAT caught this).
+    for (const transient of [
+      '429 Too Many Requests',
+      'rate limit exceeded',
+      'rate limit reached',
+      'too many requests',
+    ]) {
       expect(QUOTA_PHRASES.test(transient), transient).toBe(false);
     }
   });
@@ -292,6 +300,29 @@ describe('QUOTA_PHRASES / isQuotaExhausted / headlessFailureError', () => {
         exitCode: 1,
         stdout: '',
         stderr: 'Error: quota exceeded for this account',
+      }),
+    ).toBe(true);
+  });
+
+  it('does not read a non-error stdout JSON result as quota evidence (K11)', () => {
+    // A model that answers with structured JSON carrying a `result`/`message`
+    // must not turn that text into quota evidence unless the envelope is an
+    // ERROR document (UAT observed this).
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: JSON.stringify({ result: 'quota exceeded in src/foo.ts' }),
+        stderr: '',
+      }),
+    ).toBe(false);
+    // The SAME text in an ERROR envelope IS the provider speaking.
+    expect(
+      isQuotaExhausted({
+        tool: 'Claude',
+        exitCode: 1,
+        stdout: JSON.stringify({ is_error: true, result: 'quota exceeded' }),
+        stderr: '',
       }),
     ).toBe(true);
   });
