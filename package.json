@@ -22,6 +22,7 @@
   ],
   "scripts": {
     "uat:host": "node scripts/uat-host/run.mjs",
+    "uat:host:docker": "node scripts/uat-host/docker.mjs",
     "lint": "tsc --noEmit",
     "lint:react": "eslint src/ui/settings/app",
     "test:unit": "vitest run",
