@@ -59,8 +59,9 @@ describe('checkInotifyWatches', () => {
     expect(check80.fix).toBeDefined();
     expect(check80.fix?.tier).toBe('report');
     expect(check80.fix?.summary).toContain('inotify watch limit');
-    expect(check80.fix?.nextStep).toContain('sysctl');
-    expect(check80.fix?.nextStep).toContain('/etc/sysctl.d');
+    const fix80 = check80.fix?.tier === 'report' ? check80.fix : undefined;
+    expect(fix80?.nextStep).toContain('sysctl');
+    expect(fix80?.nextStep).toContain('/etc/sysctl.d');
 
     const checks94 = checkInotifyWatches(
       baseProbes({
@@ -88,8 +89,9 @@ describe('checkInotifyWatches', () => {
     expect(check95.detail).toContain('recursive watchers on worktrees with node_modules');
     expect(check95.fix).toBeDefined();
     expect(check95.fix?.tier).toBe('report');
-    expect(check95.fix?.nextStep).toContain('sysctl');
-    expect(check95.fix?.nextStep).toContain('/etc/sysctl.d');
+    const fix95 = check95.fix?.tier === 'report' ? check95.fix : undefined;
+    expect(fix95?.nextStep).toContain('sysctl');
+    expect(fix95?.nextStep).toContain('/etc/sysctl.d');
 
     const checks100 = checkInotifyWatches(
       baseProbes({
