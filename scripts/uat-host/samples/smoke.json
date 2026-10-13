@@ -1,0 +1,7 @@
+{
+  "steps": [
+    { "type": "wait", "for": { "log": "Karst activated" }, "timeoutMs": 20000 },
+    { "type": "command", "command": "workbench.action.closeAllEditors" },
+    { "type": "snapshot", "label": "after-close" }
+  ]
+}

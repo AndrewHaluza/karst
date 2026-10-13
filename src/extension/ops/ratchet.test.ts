@@ -47,7 +47,11 @@ import { join } from 'node:path';
 // `agent/opencode2Auth.ts`; what stays here is the one binding the ops module
 // cannot own — the `vscode.window.showWarningMessage` seam, the login command,
 // the isolated-env-capable output probe, and the `karst.openSession` call site.
-const MAX_EXTENSION_LINES = 8580;
+// Raised by 4 (8580 -> 8584): UAT probe bindings (KARST_UAT_PROBE=1 only) — one
+// import plus the `installProbeRecorder()` call (it must patch vscode.window
+// before anything else is created) and the `registerProbeCommand()` line in
+// `activate()`. All probe logic lives in `src/uatHost/probe/*`.
+const MAX_EXTENSION_LINES = 8584;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

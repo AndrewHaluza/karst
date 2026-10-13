@@ -123,6 +123,7 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
+import { installProbeRecorder, registerProbeCommand } from './uatHost/probe/vscodeProbe.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
 import { resolvePlanningDefaults } from './agent/planningDefaults.js';
@@ -706,6 +707,8 @@ function agentStarterTemplate(name: string): string {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
+  const probeRecorder = installProbeRecorder();
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -726,6 +729,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
   const localStore = store;
+  registerProbeCommand(context, probeRecorder, localStore);
 
   // One "Karst" output channel is the sink for every caught error.
   // Managers/endpoint get `logError`; the extension itself uses `logger`.
