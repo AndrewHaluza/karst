@@ -17,7 +17,12 @@ export type RecoveryTriggerKind =
    * opened. The ship twin of `blocking-review-findings`: the findings come from
    * people upstream rather than from karst's own review lane.
    */
-  | 'upstream-changes-requested';
+  | 'upstream-changes-requested'
+  /**
+   * The user dismissed a usage/quota-limit park (D159). The failed verdict
+   * enters recovery with the limitation detail as the cause.
+   */
+  | 'usage-limit-dismissed';
 export type RecoveryStatus =
   | 'pending'
   | 'fixing'
@@ -83,6 +88,7 @@ const TRIGGER_KINDS: readonly string[] = [
   'blocking-tester-observations',
   'blocking-review-findings',
   'upstream-changes-requested',
+  'usage-limit-dismissed',
 ];
 const STATUSES: readonly string[] = [
   'pending',

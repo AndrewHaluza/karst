@@ -331,7 +331,7 @@ CREATE TABLE IF NOT EXISTS recovery_rounds (
   source_process_id TEXT NOT NULL,  -- 'gates' | 'tester' | 'review' | 'pr-review' (closed)
   source_stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
   source_process_run_id INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
-  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' | 'upstream-changes-requested' (closed)
+  trigger_kind TEXT NOT NULL,  -- 'gate-failure' | 'tester-verifier-failure' | 'blocking-tester-observations' | 'blocking-review-findings' | 'upstream-changes-requested' | 'usage-limit-dismissed' (closed)
   trigger_detail TEXT NOT NULL, -- the causal detail captured at failure time
   episode INTEGER NOT NULL DEFAULT 1,
   round INTEGER NOT NULL,

@@ -109,6 +109,18 @@ describe('recovery rounds — store', () => {
     expect(readBack?.triggerKind).toBe('upstream-changes-requested');
   });
 
+  it('round-trips a recovery round with usage-limit-dismissed triggerKind', () => {
+    const opened = round({
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      triggerKind: 'usage-limit-dismissed' as any,
+      triggerDetail: 'usage limit — claude claude-sonnet-5',
+    });
+    expect(opened.triggerKind).toBe('usage-limit-dismissed');
+    const readBack = activeRecoverySeries(store, ticketId, 'review');
+    expect(readBack?.triggerKind).toBe('usage-limit-dismissed');
+  });
+
   it('the active series and the decision read the COMMITTED max_rounds, never the live manifest', () => {
     // The review failure committed under a manifest that allowed 2 attempts.
     round({ sourceStage: 'review', maxRounds: 2, triggerDetail: 'gates failed: lint' });
