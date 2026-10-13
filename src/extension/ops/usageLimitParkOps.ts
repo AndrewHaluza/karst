@@ -61,7 +61,7 @@ export function formatModelChoices(
       model: choice.model,
       label: choice.label,
       description: isParked
-        ? `${choice.description ?? ''} (usage limit)`.trim()
+        ? choice.description ? `${choice.description} (usage limit)` : '(usage limit)'
         : choice.description,
     };
   });
@@ -156,7 +156,7 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
   await rerunParkedStage({
     store: deps.store,
     parkRow: claimResult.park,
-    provider: claimResult.park.provider,
+    provider: claimResult.park.provider as AgentProvider,
     model: claimResult.park.model,
     adapter,
     manifest,
@@ -204,7 +204,13 @@ export interface UsageLimitParkActionsDeps {
   debug?: (msg: string) => void;
 }
 
-export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps) {
+export interface UsageLimitParkActions {
+  usageLimitPick: (ticketId: number, stageKey: StageKey) => Promise<void>;
+  usageLimitRetry: (ticketId: number, stageKey: StageKey) => Promise<void>;
+  usageLimitDismiss: (ticketId: number, stageKey: StageKey) => Promise<void>;
+}
+
+export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): UsageLimitParkActions {
   return {
     usageLimitPick: (ticketId: number, stageKey: StageKey) =>
       handleUsageLimitPick({

@@ -200,8 +200,7 @@ async function rerunReviewParkedStage(
   const overrideProcess: FindingsProcessInput = {
     assignment: {
       provider,
-      model,
-      role: 'review',
+      ...(model !== null ? { model } : {}),
     },
     adapter,
     stageRunId: newStageRunId,
@@ -287,9 +286,9 @@ async function rerunReviewParkedStage(
     },
     identity: {
       name: r.gateName,
-      repo: r.repo ?? undefined,
-      command: r.command ?? undefined,
-      args: r.args ?? undefined,
+      repo: r.repo ?? '',
+      command: r.command ?? r.gateName,
+      args: r.args ?? [],
     },
   }));
 
@@ -318,8 +317,9 @@ async function rerunReviewParkedStage(
     mkdirSync(artifactDir, { recursive: true });
     const logPath = join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`);
 
-    if ((laneOutcome.crashes?.length ?? 0) > 0 || unreadableBlock) {
-      const uniqueCrashes = [...new Set(laneOutcome.crashes ?? [])];
+    const crashes = laneOutcome.kind === 'ran' ? laneOutcome.crashes : undefined;
+    if ((crashes?.length ?? 0) > 0 || unreadableBlock) {
+      const uniqueCrashes = [...new Set(crashes ?? [])];
       finishProcessRun(
         store,
         processRunId,
@@ -422,8 +422,7 @@ async function rerunUatParkedStage(
       targets: [target],
       assignment: {
         provider,
-        model,
-        role: 'tester',
+        ...(model !== null ? { model } : {}),
       },
       adapter,
       stageRunId: newStageRunId,

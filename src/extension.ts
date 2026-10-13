@@ -65,7 +65,7 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
-import { makeUsageLimitParkActions } from './extension/ops/usageLimitParkOps.js';
+import { createUsageLimitParkBinding, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
@@ -2981,6 +2981,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
   });
   let serverLifecycleDeps!: ServerLifecycleDeps;
+  const usageLimitParks = createUsageLimitParkBinding({
+    store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest,
+    redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
+    adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
+    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)),
+    cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m),
+  });
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
@@ -3071,6 +3078,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (message) => logger.debug(message),
         storedArtifacts.forTicket(ticketId, () => dashboard.pushState(ticketId)),
         ciHost(ticketId),
+        usageLimitParks.forTicket(ticketId),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -8086,6 +8094,7 @@ function makeDashboardActions(
   debug: (message: string) => void,
   storedArtifacts: StoredArtifactActions,
   ciHost: CiHost,
+  usageLimitParks: UsageLimitParkActions,
 ): DashboardActions {
   const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
@@ -8417,7 +8426,7 @@ function makeDashboardActions(
     // The user's Approve/Reject on changed baselines (@arch:BASELINE-REVIEW);
     // all validation and effects live in ops/baselineDecisionOps.ts.
     ...makeBaselineActions({ store, manifest, ticketId, notify: vscodeNotify, redrive: driveAfterResume, refresh: afterServerChange }),
-    ...makeUsageLimitParkActions({ store, ticketId, notify: vscodeNotify, catalog: () => modelCatalog, manifest, redrive: driveAfterResume, refresh: afterServerChange, pickCore: (items) => vscode.window.showQuickPick(items, { title: 'Pick agent core' }), pickModel: (items) => vscode.window.showQuickPick(items, { title: 'Pick model' }), adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider), artifactDir: () => artifactDirFor(ticketId), cwd: () => rootPathOrThrow(), debug: (m) => logger.debug(m) }),
+    ...usageLimitParks,
     // Open one artifact resource in a normal VS Code editor — the deliberate
     // escape from the semantic artifact UI into the file model (spec §12). The
     // webview names ONLY the artifact id and a resource index, so this re-reads

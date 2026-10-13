@@ -13,6 +13,7 @@ import { transition } from './machine.js';
 import { dismissUsageLimitPark, rerunParkedStage, type RerunParkOptions } from './usageLimitRerun.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { Manifest } from '../manifest/types.js';
+import type { GateRunInput } from '../store/gateRuns.js';
 
 describe('dismissUsageLimitPark', () => {
   let store: Store;
@@ -28,11 +29,14 @@ describe('dismissUsageLimitPark', () => {
   });
 
   it('dismisses an op park without creating stage runs or recovery rounds', () => {
-    const ticket = createTicketFlow(store, { title: 'Test ticket' });
+    const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
     const parkId = insertOpenPark(store, {
       ticketId: ticket.id,
       kind: 'op',
       stage: 'scope',
+      lane: null,
+      target: null,
+      keptOutcome: null,
       provider: 'anthropic',
       model: 'claude-3-7-sonnet',
       detail: 'Monthly quota exhausted',
@@ -66,7 +70,7 @@ describe('dismissUsageLimitPark', () => {
   });
 
   it('dismisses a stage-block park by opening its own stage run and committing a failed verdict with usage-limit-dismissed recovery trigger', () => {
-    const ticket = createTicketFlow(store, { title: 'Test stage park ticket' });
+    const ticket = createTicketFlow(store, { key: 'TEST-2', title: 'Test stage park ticket' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' });
     transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
@@ -169,7 +173,7 @@ describe('rerunParkedStage', () => {
   });
 
   it('re-runs a parked review target with override adapter and advances stage when clean', async () => {
-    const ticket = createTicketFlow(store, { title: 'Test review rerun ticket' });
+    const ticket = createTicketFlow(store, { key: 'TEST-3', title: 'Test review rerun ticket' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' });
     transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
@@ -249,7 +253,7 @@ describe('rerunParkedStage', () => {
     const res = await rerunParkedStage({
       store,
       parkRow: park,
-      provider: 'openai',
+      provider: 'codex',
       model: 'gpt-4o',
       adapter: mockAdapter,
       manifest,
@@ -258,13 +262,12 @@ describe('rerunParkedStage', () => {
       now: () => '2026-10-13T10:10:00.000Z',
     });
 
-    expect(res.kind).toBe('advanced');
-    expect(res.next).toBe('ship');
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('ship');
   });
 
   it('re-runs a parked uat target with override adapter and advances stage when clean', async () => {
-    const ticket = createTicketFlow(store, { title: 'Test uat rerun ticket' });
+    const ticket = createTicketFlow(store, { key: 'TEST-4', title: 'Test uat rerun ticket' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
 
@@ -332,7 +335,7 @@ describe('rerunParkedStage', () => {
     const res = await rerunParkedStage({
       store,
       parkRow: park,
-      provider: 'openai',
+      provider: 'codex',
       model: 'gpt-4o',
       adapter: mockAdapter,
       manifest,
@@ -341,13 +344,12 @@ describe('rerunParkedStage', () => {
       now: () => '2026-10-13T10:10:00.000Z',
     });
 
-    expect(res.kind).toBe('advanced');
-    expect(res.next).toBe('review');
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('review');
   });
 
   it('returns stopped when park is already claimed', async () => {
-    const ticket = createTicketFlow(store, { title: 'Test already claimed ticket' });
+    const ticket = createTicketFlow(store, { key: 'TEST-5', title: 'Test already claimed ticket' });
     const park: UsageLimitParkRow = {
       id: 999, // non-existent or resolved
       ticketId: ticket.id,
@@ -376,7 +378,7 @@ describe('rerunParkedStage', () => {
     const res = await rerunParkedStage({
       store,
       parkRow: park,
-      provider: 'openai',
+      provider: 'codex',
       model: 'gpt-4o',
       adapter: mockAdapter,
       cwd: '/wt/web',
@@ -387,7 +389,7 @@ describe('rerunParkedStage', () => {
   });
 
   it('re-runs review and commits failed verdict when findings meet blockingSeverity', async () => {
-    const ticket = createTicketFlow(store, { title: 'Test review blocking findings' });
+    const ticket = createTicketFlow(store, { key: 'TEST-6', title: 'Test review blocking findings' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' });
     transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
@@ -474,7 +476,7 @@ describe('rerunParkedStage', () => {
     const res = await rerunParkedStage({
       store,
       parkRow: park,
-      provider: 'openai',
+      provider: 'codex',
       model: 'gpt-4o',
       adapter: mockAdapter,
       manifest,
@@ -483,13 +485,12 @@ describe('rerunParkedStage', () => {
       now: () => '2026-10-13T10:10:00.000Z',
     });
 
-    expect(res.kind).toBe('advanced');
-    expect(res.next).toBe('fix');
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
   });
 
   it('re-runs uat and commits failed verdict when tester observations meet blockingSeverity', async () => {
-    const ticket = createTicketFlow(store, { title: 'Test uat blocking observations' });
+    const ticket = createTicketFlow(store, { key: 'TEST-7', title: 'Test uat blocking observations' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
 
@@ -574,7 +575,7 @@ describe('rerunParkedStage', () => {
     const res = await rerunParkedStage({
       store,
       parkRow: park,
-      provider: 'openai',
+      provider: 'codex',
       model: 'gpt-4o',
       adapter: mockAdapter,
       manifest,
@@ -583,8 +584,7 @@ describe('rerunParkedStage', () => {
       now: () => '2026-10-13T10:10:00.000Z',
     });
 
-    expect(res.kind).toBe('advanced');
-    expect(res.next).toBe('fix');
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
   });
 });
