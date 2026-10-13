@@ -117,6 +117,21 @@ export interface TicketNode {
    */
   subtaskChildCount: number;
   /**
+   * True when this row is the LAST child of its sub-task parent — the row the
+   * tree elbow (└) caps. Assigned by `nestSubtasks`; always false for a root,
+   * which has no parent to elbow into. The webview only paints it.
+   */
+  subtaskIsLast: boolean;
+  /**
+   * One entry per indent slot (`length === subtaskDepth`), assigned by
+   * `nestSubtasks`. Slot `k` is the guide for the children of the ancestor at
+   * depth `k`; `true` means that guide continues BELOW this row (the child on
+   * the path at depth `k+1` has a following sibling). The last slot is this
+   * row's own tee/elbow (`!subtaskIsLast`). The webview paints one `.guide`
+   * span per entry; it never re-derives the tree.
+   */
+  subtaskGuides: boolean[];
+  /**
    * Autostart phase at `scope` (`model/subtask.ts` `subtaskAutostartPhase`):
    * `queued` / `starting` / null. Host-derived (UI-R31); the webview renders
    * "Queued" / "Starting" in place of the stage chip.
@@ -173,6 +188,8 @@ export function buildTicketNodes(
         t.subtaskParentId !== null ? (parentKeys.get(t.subtaskParentId) ?? null) : null,
       subtaskDepth: 0,
       subtaskChildCount: 0,
+      subtaskIsLast: false,
+      subtaskGuides: [],
       autostart: subtaskAutostartPhase(t),
       blockedBy: (blockersByTicket.get(t.id) ?? []).map((b) => b.label),
       collapsible: true,
@@ -206,20 +223,37 @@ export function nestSubtasks<T extends TicketNode>(rows: readonly T[]): T[] {
   }
   const out: T[] = [];
   const emitted = new Set<number>();
-  const emit = (row: T, depth: number): void => {
+  const emit = (row: T, depth: number, path: boolean[]): void => {
     if (emitted.has(row.ticketId)) return;
     emitted.add(row.ticketId);
     const children = childrenOf.get(row.ticketId);
-    out.push({ ...row, subtaskDepth: depth, subtaskChildCount: children ? children.length : 0 });
+    const count = children ? children.length : 0;
+    // `path[j]` is the last-child flag of the node at depth `j` on this branch
+    // (set by the parent before recursing). A guide at slot `k` is the children
+    // guide of the ancestor at depth `k`, so it continues below this row iff the
+    // path node at depth `k+1` has a following sibling.
+    const isLast = depth > 0 && path[depth] === true;
+    const guides: boolean[] = [];
+    for (let k = 0; k < depth; k += 1) guides.push(!path[k + 1]);
+    out.push({
+      ...row,
+      subtaskDepth: depth,
+      subtaskChildCount: count,
+      subtaskIsLast: isLast,
+      subtaskGuides: guides,
+    });
     if (!children) return;
-    for (const child of children) emit(child, Math.min(depth + 1, MAX_SUBTASK_INDENT));
+    for (let i = 0; i < children.length; i += 1) {
+      path[depth + 1] = i === children.length - 1;
+      emit(children[i]!, Math.min(depth + 1, MAX_SUBTASK_INDENT), path);
+    }
   };
   for (const row of rows) {
     if (isChild.has(row.ticketId)) continue;
-    emit(row, 0);
+    emit(row, 0, []);
   }
   // A pure cycle leaves no root; emit whatever remains so no row is dropped.
-  for (const row of rows) emit(row, 0);
+  for (const row of rows) emit(row, 0, []);
   return out;
 }
 

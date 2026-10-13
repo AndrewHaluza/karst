@@ -151,6 +151,35 @@ describe('sidebar render', () => {
       } finally { h.close(); }
     });
   });
+  // The ⊂ parent ref is redundant once the parent row is visible and the tree
+  // guides carry the relation; it is kept only for an ORPHAN sub-task whose
+  // parent is not in the same rendered list. The follow-up ↳ is untouched.
+  describe('sub-task parent ref vs tree guides', () => {
+    const base = sidebarRenderFixtures().find((f) => f.scenario === 'subtasks')!.state;
+
+    function renderWith(rows: typeof base.sections.current) {
+      const h = renderWebview('sidebar', { nonce: FIXTURE_NONCE });
+      h.receive({ type: 'state', state: { ...base, sections: { ...base.sections, current: rows } } });
+      return h;
+    }
+
+    it('hides ⊂ for a sub-task whose parent is visible, shows it for an orphan root', () => {
+      const nested = { ...base.sections.current[1]!, label: 'NESTED', subtaskDepth: 1, subtaskIsLast: true, subtaskGuides: [true] };
+      const orphan = { ...base.sections.current[1]!, label: 'ORPHAN', subtaskParentKey: 'GONE-1', subtaskDepth: 0, subtaskIsLast: false, subtaskGuides: [] };
+      const h = renderWith([nested, orphan]);
+      try {
+        expect(h.queryAll('.subtaskref').map((e) => e.textContent)).toEqual(['⊂ GONE-1']);
+      } finally { h.close(); }
+    });
+
+    it('still renders the follow-up ↳ when there is no orphan ⊂', () => {
+      const follow = { ...base.sections.current[0]!, label: 'F', parentKey: 'FU-1', subtaskParentKey: null };
+      const h = renderWith([follow]);
+      try {
+        expect(h.queryAll('.parentref').map((e) => e.textContent)).toEqual(['↳ FU-1']);
+      } finally { h.close(); }
+    });
+  });
 });
 
 describe('sidebar artifacts chip', () => {

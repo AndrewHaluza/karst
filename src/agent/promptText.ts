@@ -87,6 +87,34 @@ export function reviewBlockingSeverityRule(blockingSeverity: string): string {
 }
 
 /**
+ * The rule that stops an agent killing processes it did not start. The hard
+ * STOP is the per-core permission deny (`processKillGuard.ts`); this sentence
+ * tells the agent the CORRECT way (`kill $!`) so it does not reach for a
+ * process-wide command in the first place. Resident, not deferred: an agent's
+ * default model of the world is "clean up by name", which is exactly the
+ * mistake this corrects (`docs/arch/prompt-metrics.md` @arch:RESIDENT). Carried
+ * by the UAT Tester prompt, the fix brief, and the resident impl/fix
+ * instruction layer — one source, so the three surfaces cannot drift.
+ */
+export const PROCESS_KILL_RULE =
+  'Stop only processes you started, by their PID ($!). Never kill by name or ' +
+  'pattern (pkill, killall, pgrep|xargs kill). Other agents on this machine run ' +
+  'the same binaries.';
+
+/**
+ * Environment isolation for headless gate roles (tester, review, fix). The
+ * hard stop is the per-core `policy: 'gate'` sandbox (`gatePolicy.ts`); this
+ * tells the agent the correct way, since a pattern deny cannot cover every
+ * spelling. Incident T661.
+ */
+export const GATE_ISOLATION_RULE =
+  'Environment isolation: any probe that needs a home or config dir must use a temp one ' +
+  '(set HOME, CLAUDE_CONFIG_DIR and CODEX_HOME to a fresh mktemp -d). Never read-modify-write ' +
+  "the operator's ~/.claude.json, ~/.claude/ or ~/.codex/, and never restore them from a backup. " +
+  'Never rebuild, clean or reinstall the worktree (npm rebuild, npm run build/clean, git clean). ' +
+  PROCESS_KILL_RULE;
+
+/**
  * The rule that keeps a session from starting a service by hand. Karst owns
  * port allocation, health gating, pid attribution and reaping for a ticket's
  * services; a hand-started dev server binds a port the allocator believes is

@@ -46,6 +46,14 @@ import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
+import { tmpdir } from 'node:os';
+import {
+  gitCommonDirRoots,
+  opencodeAttendedEdit,
+  opencodeGatePermission,
+  type InteractivePolicy,
+} from './gatePolicy.js';
+import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
@@ -945,7 +953,7 @@ export class OpencodeAdapter implements AgentAdapter {
     ),
     permissionMode: unsupported(
       'the only mode karst passes is bypassPermissions, and opencode has no enforced sandbox ' +
-        'to contain it, so it is refused (AC-30) and the run keeps its prompted default',
+        'to contain it, so it is refused (AC-31) and the run keeps its prompted default',
     ),
     resume: SUPPORTED,
     sessionName: unsupported('the opencode TUI has no launch-time session-name flag'),
@@ -976,6 +984,10 @@ export class OpencodeAdapter implements AgentAdapter {
       'opencode has no OS-level sandbox: its permission config only allows, asks or denies a ' +
         'tool, and an allowed bash command runs uncontained on the host',
     ),
+    processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   /**
@@ -1071,8 +1083,9 @@ export class OpencodeAdapter implements AgentAdapter {
     } else if (kickoff) {
       args.push('--prompt', kickoff);
     }
-    const permission = opencodeLaunchPermission(opts);
-    if (permission) env.OPENCODE_PERMISSION = JSON.stringify(permission);
+    env.OPENCODE_PERMISSION = JSON.stringify(
+      opencodeLaunchPermission({ ...opts, ...launchProfile(opts.policy, opts.cwd) }),
+    );
     // v1 reads the same per-launch config blob v2 does (verified on 1.18.35:
     // `opencode mcp list` shows a server delivered only through this env).
     if (opts.mcpConfigPath) {
@@ -1090,6 +1103,13 @@ export class OpencodeAdapter implements AgentAdapter {
         : {}),
     };
   }
+
+  /**
+   * Explicit no-op: opencode has no per-directory folder-trust prompt (it never
+   * opens a dialog and never exits on trust), so a launch needs no trust record
+   * written. AC-08 requires every adapter to answer, not to stay silent.
+   */
+  ensureWorkspaceTrusted(): void {}
 
   materializeApproach(opts: MaterializeOpts): Materialized {
     const idName = opencodeName('approach id', opts.pkg.id);
@@ -1345,7 +1365,7 @@ export class OpencodeAdapter implements AgentAdapter {
     // "wrong checkout" finding for code never read. The flag is `run`-only —
     // NOT a top-level `opencode` flag — so the interactive path is unaffected.
     args.push('--dir', opts.cwd);
-    // AC-30: the bypass (`--auto`) is never added — no enforced sandbox contains
+    // AC-31: the bypass (`--auto`) is never added — no enforced sandbox contains
     // this run, so it keeps the core's prompted default. The refusal is logged.
     refuseUnsandboxedBypass('opencode', opts.permissionMode, opts.debug);
     if (opts.model) args.push('--model', opts.model);
@@ -1381,6 +1401,18 @@ export class OpencodeAdapter implements AgentAdapter {
         onDebug: opts.debug,
         onSpawned: opts.onSpawned,
         env: opts.env,
+        // The process kill deny rides the adapter-owned env so a HEADLESS v1
+        // run (review / UAT / fix lanes) cannot `pkill` a sibling session. The
+        // env is merged after every config file, exactly as on the interactive
+        // path; `--pure` concerns plugins, not this overlay. This overlay names
+        // ONLY the permission — it never overrides HOME/XDG, so it cannot create
+        // the nested-claude updater trap opencode2's isolation env guards
+        // (AC-27); opencode2 remains the only core that rebases its state dirs.
+        isolationEnv: {
+          OPENCODE_PERMISSION: JSON.stringify(
+            opencodeLaunchPermission(opts.policy === 'gate' ? { gate: { cwd: opts.cwd } } : {}),
+          ),
+        },
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
       });
     } finally {
@@ -1430,26 +1462,56 @@ export class OpencodeAdapter implements AgentAdapter {
 }
 
 /**
- * The read-only/add-dirs permission overlay for an opencode-family launch, or
- * `undefined` when none is needed. This is the ONE permission object both
- * cores translate: v1 rides it as the `OPENCODE_PERMISSION` env (merged AFTER
- * every config file, so it wins over a project `opencode.json` that allows
- * everything — which also overrides the built-in `plan` agent's deny, why that
- * agent is not used); v2 nests it under the `permission` key of
- * `OPENCODE_CONFIG_CONTENT` (also last-match-wins, verified on 2.0.24). The
- * shell config key is `bash` on both, while the v2 event action is `shell`.
- * Neither TUI has an extra-directory flag; `addDirs` become
- * `external_directory` allows instead.
+ * The permission overlay for an opencode-family launch. This is the ONE
+ * permission object both cores translate: v1 rides it as the
+ * `OPENCODE_PERMISSION` env (merged AFTER every config file, so it wins over a
+ * project `opencode.json` that allows everything — which also overrides the
+ * built-in `plan` agent's deny, why that agent is not used); v2 nests it under
+ * the `permission` key of `OPENCODE_CONFIG_CONTENT` (also last-match-wins,
+ * verified on 2.0.24). The shell config key is `bash` on both, while the v2
+ * event action is `shell`. Neither TUI has an extra-directory flag; `addDirs`
+ * become `external_directory` allows instead.
+ *
+ * The process-wide kill deny (`processKillGuard`) is ALWAYS present — a coding
+ * session must not `pkill` a sibling agent either. `--auto` auto-approves `ask`
+ * but never weakens `deny`, so the rules survive `bypassPermissions`.
  */
 export function opencodeLaunchPermission(opts: {
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
-}): Record<string, unknown> | undefined {
+  /** Headless gate profile: edits confined to `cwd` + tmp, build/home-config denies. */
+  gate?: { cwd: string } | undefined;
+  /** Interactive `attended` profile: deny-only edit rules for the operator's home config. */
+  attended?: boolean | undefined;
+}): Record<string, unknown> {
   const dirs = opts.addDirs ?? [];
-  if (!opts.readOnly && dirs.length === 0) return undefined;
   const external = Object.fromEntries([['*', 'ask'], ...dirs.map((d) => [`${d}/**`, 'allow'])]);
+  if (opts.gate) {
+    const gate = opencodeGatePermission(
+      opts.gate.cwd,
+      tmpdir(),
+      undefined,
+      undefined,
+      [...dirs, ...gitCommonDirRoots(opts.gate.cwd)],
+    );
+    return { ...gate, ...(dirs.length > 0 ? { external_directory: external } : {}) };
+  }
+  const killDeny = opencodeProcessKillDeny();
   return {
-    ...(opts.readOnly ? { edit: 'deny', bash: 'ask' } : {}),
+    ...(opts.readOnly ? { edit: 'deny' } : opts.attended ? { edit: opencodeAttendedEdit() } : {}),
+    // `bash` as an object is last-match-wins: readOnly's catch-all `*` asks
+    // first, then a matching kill pattern denies. Non-readOnly keeps just the
+    // deny patterns, so every other command keeps opencode's permissive default.
+    bash: opts.readOnly ? { '*': 'ask', ...killDeny } : killDeny,
     ...(dirs.length > 0 ? { external_directory: external } : {}),
   };
+}
+
+/** The `opencodeLaunchPermission` profile fields for an interactive `policy`. */
+export function launchProfile(
+  policy: InteractivePolicy | undefined,
+  cwd: string,
+): { gate?: { cwd: string }; attended?: boolean } {
+  if (policy === 'gate') return { gate: { cwd } };
+  return policy === 'attended' ? { attended: true } : {};
 }

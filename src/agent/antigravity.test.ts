@@ -179,7 +179,7 @@ describe('AntigravityAdapter', () => {
       );
     });
 
-    it('passes resume but refuses the unsandboxed bypass (AC-30)', async () => {
+    it('passes resume but refuses the unsandboxed bypass (AC-31)', async () => {
       const spawner = vi.fn(fakeSpawn({ stdout: 'success', exitCode: 0 }));
       const adapter = new AntigravityAdapter(spawner);
       const debug = vi.fn();
@@ -193,7 +193,7 @@ describe('AntigravityAdapter', () => {
       });
 
       expect(debug).toHaveBeenCalledWith(
-        '[agent:antigravity] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-30)',
+        '[agent:antigravity] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-31)',
       );
       expect(spawner).toHaveBeenCalledWith(
         'agy',

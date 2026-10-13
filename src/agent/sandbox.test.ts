@@ -11,7 +11,7 @@ import { SUPPORTED, unsupported } from './surfaces.js';
 
 const NO = unsupported('this core has no enforced OS-level sandbox at all');
 
-describe('resolveSandbox (AC-30: fail closed)', () => {
+describe('resolveSandbox (AC-31: fail closed)', () => {
   it('is prompted with a reason when the manifest did not opt in', () => {
     const e = resolveSandbox({ requested: false, surface: SUPPORTED, platform: 'darwin', cwd: '/wt' });
     expect(e).toEqual({ mode: 'prompted', reason: 'sandbox not enabled (agentSandbox: false)' });
@@ -65,7 +65,7 @@ describe('refuseUnsandboxedBypass', () => {
     const lines: string[] = [];
     expect(refuseUnsandboxedBypass('agy', 'bypassPermissions', (m) => lines.push(m))).toBeUndefined();
     expect(lines).toEqual([
-      '[agent:agy] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-30)',
+      '[agent:agy] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-31)',
     ]);
   });
 

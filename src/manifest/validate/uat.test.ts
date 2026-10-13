@@ -118,6 +118,29 @@ describe('validateUat', () => {
       /uat\.testerVerifier "x"\.kind must be one of: script, command/,
     );
   });
+
+  // T663: the Tester's fresh-token budget is a manifest knob only, defaulted
+  // when the block (or the key) is absent so an existing manifest is unchanged.
+  it('parses uat.tester.tokenBudget and defaults an empty block', () => {
+    expect(validateUat({ tester: { tokenBudget: 250_000 } })?.tester).toEqual({
+      tokenBudget: 250_000,
+    });
+    expect(validateUat({ tester: {} })?.tester).toEqual({ tokenBudget: 400_000 });
+  });
+
+  it('leaves uat.tester absent when the block omits it', () => {
+    expect(validateUat({})?.tester).toBeUndefined();
+  });
+
+  it('refuses a non-positive or fractional uat.tester.tokenBudget', () => {
+    expect(() => validateUat({ tester: 'big' })).toThrow(/uat\.tester must be a mapping/);
+    expect(() => validateUat({ tester: { tokenBudget: 0 } })).toThrow(
+      /uat\.tester\.tokenBudget must be a positive integer/,
+    );
+    expect(() => validateUat({ tester: { tokenBudget: 1.5 } })).toThrow(
+      /uat\.tester\.tokenBudget must be a positive integer/,
+    );
+  });
 });
 
 describe('uatEnvWarnings', () => {

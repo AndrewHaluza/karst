@@ -9,6 +9,7 @@ import type {
   UatConfig,
   UatGateDef,
   UatRepositoryOverride,
+  UatTesterConfig,
   UatTesterObservationsConfig,
 } from '../types.js';
 
@@ -19,6 +20,7 @@ import {
   BLOCKING_SEVERITIES,
   SEVERITIES,
   UAT_MAX_FIX_ATTEMPTS,
+  UAT_TESTER_TOKEN_BUDGET,
 } from '../qualityDefaults.js';
 
 const GATE_KINDS: readonly GateKind[] = ['script', 'command'];
@@ -197,6 +199,30 @@ function validateTesterObservations(raw: unknown): UatTesterObservationsConfig |
 }
 
 /**
+ * T663: the Tester's spend budget. The block is optional; a present-but-empty
+ * block reads as the default (`UAT_TESTER_TOKEN_BUDGET`) so the knob is safe to
+ * add by hand, and a manifest that omits the block keeps the byte-identical
+ * prior behavior. A non-positive or fractional budget is refused — it could
+ * never be reached or would stop the run before the first observation.
+ */
+function validateTester(raw: unknown): UatTesterConfig | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObject(raw)) throw new ManifestError('uat.tester must be a mapping');
+  let tokenBudget = UAT_TESTER_TOKEN_BUDGET;
+  if (raw.tokenBudget !== undefined) {
+    if (
+      typeof raw.tokenBudget !== 'number' ||
+      !Number.isInteger(raw.tokenBudget) ||
+      raw.tokenBudget < 1
+    ) {
+      throw new ManifestError('uat.tester.tokenBudget must be a positive integer');
+    }
+    tokenBudget = raw.tokenBudget;
+  }
+  return { tokenBudget };
+}
+
+/**
  * `uat.baselineReview` (@arch:BASELINE-REVIEW): repo-relative globs handed to
  * `git diff -- <pathspec>`, so an absolute or `..` entry is refused — it could
  * never match inside the worktree. An empty list reads as "feature off".
@@ -295,6 +321,8 @@ export function validateUat(raw: unknown): UatConfig | undefined {
   }
   const testerObservations = validateTesterObservations(raw.testerObservations);
   if (testerObservations !== undefined) config.testerObservations = testerObservations;
+  const tester = validateTester(raw.tester);
+  if (tester !== undefined) config.tester = tester;
   const baselineReview = validateBaselineReview(raw.baselineReview);
   if (baselineReview !== undefined) config.baselineReview = baselineReview;
   const authBootstrap = validateAuthBootstrap(raw.authBootstrap);

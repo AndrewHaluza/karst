@@ -1,5 +1,5 @@
 /**
- * Provider-native sandbox mode (`arch:AC-30`, ST1 of T667).
+ * Provider-native sandbox mode (`arch:AC-31`, ST1 of T667).
  *
  * A session may run with relaxed permission prompts ONLY when the core's own
  * OS-level sandbox contains it. Everything here fails closed: an unrequested,
@@ -83,7 +83,7 @@ export function refuseUnsandboxedBypass(
   debug?: (message: string) => void,
 ): string | undefined {
   if (mode !== BYPASS_PERMISSION_MODE) return mode;
-  debug?.(`[agent:${agent}] refused permissionMode ${mode}: no enforced sandbox on this run (AC-30)`);
+  debug?.(`[agent:${agent}] refused permissionMode ${mode}: no enforced sandbox on this run (AC-31)`);
   return undefined;
 }
 

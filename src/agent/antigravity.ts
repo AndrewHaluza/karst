@@ -165,11 +165,11 @@ export class AntigravityAdapter implements AgentAdapter {
     effortInteractive: SUPPORTED,
     allowedTools: unsupported(
       'the agy CLI exposes no per-run tool allowlist flag; only the whole-session ' +
-        '`--dangerously-skip-permissions` switch, which karst never passes (AC-30)',
+        '`--dangerously-skip-permissions` switch, which karst never passes (AC-31)',
     ),
     permissionMode: unsupported(
       'the only mode karst passes is bypassPermissions, and agy has no enforced sandbox ' +
-        'to contain it, so it is refused (AC-30) and the run keeps its prompted default',
+        'to contain it, so it is refused (AC-31) and the run keeps its prompted default',
     ),
     resume: SUPPORTED,
     sessionName: unsupported('the agy CLI has no launch-time session-naming flag'),
@@ -213,6 +213,25 @@ export class AntigravityAdapter implements AgentAdapter {
     sandboxInteractive: unsupported(
       '`agy --sandbox` restricts only terminal commands; file edits and the agent tools run ' +
         'uncontained, so it is not an enforced sandbox of the session',
+    ),
+    headlessPolicy: unsupported(
+      'agy has no sandbox or per-run permission flag: a headless `-p` run takes only ' +
+        '`--dangerously-skip-permissions`, and its rules live in the user-global settings file ' +
+        'karst never writes (AC-17); the gate roles rely on the prompt isolation rule here',
+    ),
+    interactiveGatePolicy: unsupported(
+      'agy has no sandbox or per-launch permission flag (`--mode` is accept-edits | plan only) ' +
+        'and its rules live in the user-global settings file karst never writes (AC-17); an ' +
+        'unattended graph node relies on the prompt isolation rule here',
+    ),
+    interactiveAttendedPolicy: unsupported(
+      'agy has no deny list or per-launch permission flag, and its rules live in the ' +
+        'user-global settings file karst never writes (AC-17); the instruction layer carries the rule',
+    ),
+    processKillDeny: unsupported(
+      'agy has no deny list: its command rules are `permissions.allow` in the user-global ' +
+        '~/.gemini/antigravity-cli/settings.json, which karst never writes (AC-17); a rule ' +
+        'outside that file is not expressible, and a headless `-p` run cannot prompt',
     ),
   };
 
@@ -269,6 +288,13 @@ export class AntigravityAdapter implements AgentAdapter {
       ...(opts.instructions ? { instructionsChannel: 'pointer' as const } : {}),
     };
   }
+
+  /**
+   * Explicit no-op: antigravity (agy) has no per-directory folder-trust prompt —
+   * it groups sessions by PROJECT and never opens a trust dialog that can exit a
+   * launch — so this writes nothing. AC-08: every adapter answers, none silent.
+   */
+  ensureWorkspaceTrusted(): void {}
 
   materializeApproach(opts: MaterializeOpts): Materialized {
     const artifacts = opts.pkg.artifacts ?? [];
@@ -471,7 +497,7 @@ export class AntigravityAdapter implements AgentAdapter {
     // CLI's own default, so an agy ticket's classify / PR-description / gate
     // calls ignored the model the ticket resolved — 869ej1zpv G1).
     if (opts.model) args.push('--model', opts.model);
-    // AC-30: the bypass (`--dangerously-skip-permissions`) is never added — no enforced sandbox contains
+    // AC-31: the bypass (`--dangerously-skip-permissions`) is never added — no enforced sandbox contains
     // this run, so it keeps the core's prompted default. The refusal is logged.
     refuseUnsandboxedBypass('antigravity', opts.permissionMode, opts.debug);
     if (opts.effort) args.push('--effort', opts.effort);

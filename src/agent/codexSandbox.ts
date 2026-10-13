@@ -1,6 +1,6 @@
 /**
  * Codex's own OS sandbox (Seatbelt on macOS, Landlock on Linux) for an
- * interactive launch (`arch:AC-30`). `workspace-write` makes cwd (the ticket
+ * interactive launch (`arch:AC-31`). `workspace-write` makes cwd (the ticket
  * worktree) writable; the other policy roots (the shared git dir, so commits
  * work) ride `writable_roots`. `on-request` keeps the model asking before it
  * leaves the sandbox — never `never`, never the bypass flag. Codex has no

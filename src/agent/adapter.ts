@@ -7,6 +7,7 @@
  * rewrite. MVP ships one implementation (ClaudeAdapter).
  */
 
+import type { HeadlessPolicy, InteractivePolicy } from './gatePolicy.js';
 import type { AiCallSite } from './aiCallSites.js';
 import type { HeadlessOutputChunk } from './headlessSpawn.js';
 import type { TokenUsage } from './tokenUsage.js';
@@ -56,8 +57,24 @@ export interface UsageTracking {
 export interface RunHeadlessOpts {
   prompt: string;
   cwd: string;
+  /**
+   * `false` skips the pre-launch folder-trust record for `cwd`. Set by callers
+   * that run in a throwaway directory (`withEmptyCwd`): trusting it would leave
+   * a permanent dead entry in the CLI's config. Absent → trust as usual.
+   */
+  trustCwd?: boolean;
   allowedTools?: string[];
   permissionMode?: string;
+  /**
+   * Karst-owned sandbox profile for a headless GATE role (tester, review, fix):
+   * read anywhere, write only in `cwd` + OS tmp, no process-wide kills, no
+   * rebuild/clean scripts, no writes to the operator's agent home config. Each
+   * adapter translates it into its own channel so it overrides on-disk config
+   * (`gatePolicy.ts`); a core that cannot declares
+   * `AdapterSurfaces.headlessPolicy` unsupported with a reason. Absent → no
+   * extra profile (classify / PR-description calls).
+   */
+  policy?: HeadlessPolicy;
   resume?: string; // session_id to continue
   model?: string;
   /**
@@ -202,11 +219,22 @@ export interface InteractiveCommandOpts {
    */
   mcpConfigPath?: string;
   /**
-   * The provider-native sandbox for this launch (`arch:AC-30`). Present ONLY
+   * The provider-native sandbox for this launch (`arch:AC-31`). Present ONLY
    * when `resolveSandbox` found it enforceable; an adapter whose
    * `surfaces.sandboxInteractive` is unsupported never receives it.
    */
   sandbox?: SandboxPolicy;
+  /**
+   * Karst-owned sandbox profile for this launch (`gatePolicy.ts`), translated
+   * by each adapter into its own channel so it overrides on-disk config.
+   * `gate`: unattended graph node/planner — writes only in `cwd` + tmp, no
+   * pattern kills, no rebuild/clean scripts, no home-config writes.
+   * `attended`: a human-watched ticket session — normal approval prompts stay,
+   * pattern kills and home-config writes are always denied. A core that cannot
+   * declares `AdapterSurfaces.interactiveGatePolicy` /
+   * `interactiveAttendedPolicy` unsupported with a reason. Absent → none.
+   */
+  policy?: InteractivePolicy;
 }
 
 export interface HookChannel {
@@ -420,6 +448,36 @@ export interface AgentAdapter {
 
   /** Build the command to run in a VS Code terminal for an interactive session. */
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand;
+
+  /**
+   * Ensure this core's folder-trust state ACCEPTS `cwd` before a launch, so an
+   * interactive session cannot open on its folder-trust dialog (claude defaults
+   * to "No, exit") and die seconds in with no transcript — T661's graph-node
+   * launch failure. Each core merges its OWN record for the REALPATH-normalised
+   * absolute `cwd` (`workspaceTrust.ts`); a core with no trust prompt is an
+   * explicit no-op naming why (AC-08: every adapter answers, none is silently
+   * missing).
+   *
+   * Called at each launch path that spawns an agent in a karst-owned cwd —
+   * graph node workspace and planner (the supervised CLI transport), planning
+   * scratch, the setup session, the ticket worktree, and every headless run
+   * (the instrumented seam) — BEFORE the spawn.
+   *
+   * Returns `void` when the trust record is written (or already present): the
+   * common launch stays fully synchronous. Returns a `Promise<void>` ONLY when
+   * another process holds the config lock, so the caller awaits instead of
+   * blocking the extension host's event loop (T661 review). A caller that cannot
+   * await may ignore the promise — the write still completes — but should await
+   * when it must know the record landed before the spawn.
+   *
+   * Optional on the interface only so the many test fakes keep compiling; every
+   * adapter `registry.ts` can resolve MUST implement it, which
+   * `adapterConformance.test.ts` enforces.
+   */
+  ensureWorkspaceTrusted?(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void>;
 
   /**
    * Translate a neutral approach package into this agent's on-disk format and

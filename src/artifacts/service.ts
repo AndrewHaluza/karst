@@ -11,6 +11,7 @@ import type { GitRunner } from '../integrations/git.js';
 import type { Manifest } from '../manifest/types.js';
 import type { Store } from '../store/db.js';
 import { listWorktreesByProject, listWorktreesByTicket } from '../store/dashboard.js';
+import { listTicketLifecycle } from '../store/runningServers.js';
 import { captureWorktree, type CaptureDeps, type CaptureTarget, type RevisionEvent } from './capture.js';
 import { hookTrailers, locateHookEdit } from './hookEdit.js';
 import { mirrorGraphArtifacts } from './graphMirror.js';
@@ -147,7 +148,15 @@ export function createArtifactCaptureService(deps: ArtifactCaptureServiceDeps): 
     syncWatchers() {
       const projectId = deps.projectId();
       if (projectId === undefined) return;
-      const targets = listWorktreesByProject(deps.store, projectId).map((w) => {
+      const rows = listWorktreesByProject(deps.store, projectId);
+      // A done or archived ticket has no more work; dropping it from the set
+      // closes its watches (the watcher key set is the target set).
+      const lifecycle = listTicketLifecycle(deps.store, rows.map((w) => w.ticketId));
+      const active = rows.filter((w) => {
+        const t = lifecycle.get(w.ticketId);
+        return t !== undefined && t.stageCurrent !== 'done' && !t.archived;
+      });
+      const targets = active.map((w) => {
         const full = listWorktreesByTicket(deps.store, w.ticketId).find((x) => x.path === w.path);
         return targetOf({ ticketId: w.ticketId, repo: w.repo, path: w.path, baseRef: full?.baseRef, branch: w.branch });
       });

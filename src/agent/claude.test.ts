@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { ClaudeAdapter, makeDefaultSpawn, type SpawnHeadless, type SpawnImpl } from './claude.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
+import { claudeProcessKillDeny } from './processKillGuard.js';
+
+/** The `--disallowedTools` kill-deny tokens a hook-channel-less interactive launch carries. */
+const KILL_DENY_ARGS = ['--disallowedTools', ...claudeProcessKillDeny()];
 
 /** A fake headless spawner returning canned stdout/exit for runHeadless tests. */
 function fakeSpawn(result: { stdout: string; exitCode: number; stderr?: string }): SpawnHeadless {
@@ -212,12 +216,12 @@ describe('buildInteractiveCommand initialPrompt', () => {
       initialPrompt: 'do the thing',
     });
     expect(cmd.command).toBe('claude');
-    expect(cmd.args).toEqual(['--', 'do the thing']);
+    expect(cmd.args).toEqual([...KILL_DENY_ARGS, '--', 'do the thing']);
   });
 
   it('appends initialPrompt even without settingsPath', () => {
     const cmd = adapter.buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'go' });
-    expect(cmd.args).toEqual(['--', 'go']);
+    expect(cmd.args).toEqual([...KILL_DENY_ARGS, '--', 'go']);
   });
 
   it('guards a prompt that starts with dashes (YAML frontmatter) so it is not flag-parsed', () => {
@@ -226,18 +230,18 @@ describe('buildInteractiveCommand initialPrompt', () => {
       initialPrompt: '---\nname: x\n---\nbody',
     });
     // `--` must precede the prompt, else `claude` reads `---...` as an option and exits 1.
-    expect(cmd.args[0]).toBe('--');
-    expect(cmd.args[1]).toBe('---\nname: x\n---\nbody');
+    const i = cmd.args.indexOf('--');
+    expect(cmd.args[i + 1]).toBe('---\nname: x\n---\nbody');
   });
 
   it('omits the positional when initialPrompt is absent', () => {
     const cmd = adapter.buildInteractiveCommand({ cwd: '/wt' });
-    expect(cmd.args).toEqual([]);
+    expect(cmd.args).toEqual([...KILL_DENY_ARGS]);
   });
 
   it('omits the positional when initialPrompt is empty', () => {
     const cmd = adapter.buildInteractiveCommand({ cwd: '/wt', initialPrompt: '' });
-    expect(cmd.args).toEqual([]);
+    expect(cmd.args).toEqual([...KILL_DENY_ARGS]);
   });
 
   it('appends extraArgs (e.g. --plugin-dir) before the positional', () => {
@@ -246,7 +250,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       extraArgs: ['--plugin-dir', '/plug'],
       initialPrompt: 'go',
     });
-    expect(cmd.args).toEqual(['--plugin-dir', '/plug', '--', 'go']);
+    expect(cmd.args).toEqual(['--plugin-dir', '/plug', ...KILL_DENY_ARGS, '--', 'go']);
   });
 
   it('threads --name so the agent session matches the terminal display name', () => {
@@ -255,7 +259,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       sessionName: 'Karst: PROJ-42 — Fix login',
       initialPrompt: 'go',
     });
-    expect(cmd.args).toEqual(['--name', 'Karst: PROJ-42 — Fix login', '--', 'go']);
+    expect(cmd.args).toEqual(['--name', 'Karst: PROJ-42 — Fix login', ...KILL_DENY_ARGS, '--', 'go']);
   });
 
   it('sanitizes an unbounded ticket title before it reaches --name', () => {
@@ -263,7 +267,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       cwd: '/wt',
       sessionName: 'Karst: PROJ-42 — line one\nline two',
     });
-    expect(cmd.args).toEqual(['--name', 'Karst: PROJ-42 — line one line two']);
+    expect(cmd.args).toEqual(['--name', 'Karst: PROJ-42 — line one line two', ...KILL_DENY_ARGS]);
   });
 
   it('omits --name when no session name is given (or it is blank)', () => {
@@ -284,6 +288,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       'sess-1',
       '--name',
       'Karst: PROJ-42 — Fix login',
+      ...KILL_DENY_ARGS,
     ]);
   });
 
@@ -293,7 +298,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       model: 'claude-opus-4-8',
       initialPrompt: 'go',
     });
-    expect(cmd.args).toEqual(['--model', 'claude-opus-4-8', '--', 'go']);
+    expect(cmd.args).toEqual(['--model', 'claude-opus-4-8', ...KILL_DENY_ARGS, '--', 'go']);
   });
 
   it('omits --model when none is given', () => {
@@ -308,7 +313,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       effort: 'high',
       initialPrompt: 'go',
     });
-    expect(cmd.args).toEqual(['--model', 'claude-opus-4-8', '--effort', 'high', '--', 'go']);
+    expect(cmd.args).toEqual(['--model', 'claude-opus-4-8', '--effort', 'high', ...KILL_DENY_ARGS, '--', 'go']);
   });
 
   it('threads --resume when a session id is given', () => {
@@ -363,7 +368,7 @@ describe('buildInteractiveCommand initialPrompt', () => {
       cwd: '/wt',
       extraArgs: ['--plugin-dir', '/plug'],
     });
-    expect(cmd.args).toEqual(['--plugin-dir', '/plug']);
+    expect(cmd.args).toEqual(['--plugin-dir', '/plug', ...KILL_DENY_ARGS]);
   });
 });
 
@@ -1021,7 +1026,7 @@ describe('ClaudeAdapter.materializeApproach', () => {
 });
 
 describe('ClaudeAdapter.runHeadless', () => {
-  it('refuses an unsandboxed bypassPermissions but keeps other modes (AC-30)', async () => {
+  it('refuses an unsandboxed bypassPermissions but keeps other modes (AC-31)', async () => {
     const seen: string[][] = [];
     const spawn: SpawnHeadless = async (_cmd, args) => {
       seen.push(args);
@@ -1034,7 +1039,7 @@ describe('ClaudeAdapter.runHeadless', () => {
     expect(seen[0]).not.toContain('--permission-mode');
     expect(seen[0]).not.toContain('bypassPermissions');
     expect(debug).toHaveBeenCalledWith(
-      '[agent:claude] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-30)',
+      '[agent:claude] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-31)',
     );
     expect(seen[1]).toEqual(expect.arrayContaining(['--permission-mode', 'acceptEdits']));
   });

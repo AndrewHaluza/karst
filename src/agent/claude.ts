@@ -44,8 +44,11 @@ import { sanitizeSessionName } from './sessionName.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
+import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
+import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { claudeConsoleLine } from './consoleFormat.js';
+import { ensureClaudeWorkspaceTrusted } from './workspaceTrust.js';
 
 /** The Claude Code CLI binary; auth inherits the user's login (M0/T0.1). */
 const CLAUDE_BIN = 'claude';
@@ -171,6 +174,10 @@ export class ClaudeAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     sandboxInteractive: SUPPORTED,
+    processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   /**
@@ -215,11 +222,22 @@ export class ClaudeAdapter implements AgentAdapter {
         opts.hookChannel.endpointUrl,
         opts.hookChannel.configDir,
         'claude',
+        // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
+        // EVERY permission mode, including `bypassPermissions`
+        // (docs.claude.com/en/docs/claude-code/permissions). The process
+        // kill deny rides the session's own settings file, so an ordinary
+        // ticket session (which always has this channel) cannot `pkill` a
+        // sibling agent. `--disallowedTools` carries the same rules on the
+        // read-only and headless paths, which take no settings file.
+        { permissions: { deny: claudeProcessKillDeny() } },
       );
       if (!opts.sandbox) args.push('--settings', hookSettingsPath);
       else args.push('--settings', claudeSandboxSettings(opts.sandbox, readFileSync(hookSettingsPath, 'utf8')));
     } else if (opts.sandbox) {
-      args.push('--settings', claudeSandboxSettings(opts.sandbox));
+      args.push(
+        '--settings',
+        claudeSandboxSettings(opts.sandbox, JSON.stringify({ permissions: { deny: claudeProcessKillDeny() } })),
+      );
     }
     if (opts.resume && opts.resume.length > 0) {
       // Continue a previously-captured session instead of a cold start (§5.3).
@@ -255,9 +273,26 @@ export class ClaudeAdapter implements AgentAdapter {
       // Not `plan`: plan mode refuses the `draft propose` shell command, and
       // leaving it makes the session writable. `default` overrides a user's
       // saved acceptEdits/bypass mode; the edit tools are denied outright and
-      // every other shell command asks — filing is one approval.
-      args.push('--permission-mode', 'default', '--disallowedTools', 'Edit', 'Write', 'NotebookEdit');
+      // every other shell command asks — filing is one approval. The process
+      // kill deny rides along (`processKillGuard`).
+      args.push(
+        '--permission-mode', 'default', '--disallowedTools',
+        'Edit', 'Write', 'NotebookEdit', ...claudeProcessKillDeny(),
+      );
+    } else if (!opts.hookChannel) {
+      // A WRITABLE launch with no hook channel — a graph node/planner session
+      // (`supervisedCliTransport`) or any bare `buildInteractiveCommand` — has
+      // no `--settings` file to carry the deny, so it rides argv here. With a
+      // hook channel the deny is in that settings file; without one this is the
+      // only channel, and a writable session must still be unable to `pkill`.
+      args.push('--disallowedTools', ...claudeProcessKillDeny());
     }
+    // Karst-owned launch profile. DENY rules ride `--disallowedTools` (deny beats
+    // the project `.claude/settings.json` allow rules T661 pre-trust activates,
+    // and holds in every permission mode). No second `--settings` layer: the hook
+    // channel already owns that flag, and a deny list needs no more.
+    if (opts.policy === 'gate') args.push('--disallowedTools', ...claudeGateDeny());
+    else if (opts.policy === 'attended') args.push('--disallowedTools', ...claudeAttendedDeny());
     // `--add-dir` is variadic in claude; one flag per dir keeps each value
     // unambiguous, and the `--` below stops it swallowing the prompt.
     for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
@@ -290,6 +325,19 @@ export class ClaudeAdapter implements AgentAdapter {
       env: {},
       ...(opts.instructions ? { instructionsChannel: 'native-file' as const } : {}),
     };
+  }
+
+  /**
+   * Claude shows a per-directory folder-trust dialog on first launch and
+   * defaults to "No, exit"; a fresh graph workspace therefore killed the
+   * session ~1.5s in (T661). Record the acceptance for the realpath of `cwd`
+   * before the launch — see `workspaceTrust.ts` for the merge rules.
+   */
+  ensureWorkspaceTrusted(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void> {
+    return ensureClaudeWorkspaceTrusted(cwd, opts);
   }
 
   /**
@@ -581,12 +629,25 @@ export class ClaudeAdapter implements AgentAdapter {
     // resolved model is a deliberate, visible choice; the CLI default is not.
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--effort', opts.effort);
-    // AC-30: a headless claude run has no enforced sandbox, so `bypassPermissions`
+    // AC-31: a headless claude run has no enforced sandbox, so `bypassPermissions`
     // is refused (logged); every other mode passes through.
     const permissionMode = refuseUnsandboxedBypass('claude', opts.permissionMode, opts.debug);
     if (permissionMode) args.push('--permission-mode', permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));
+    }
+    // The process kill deny is a DENY rule (`--disallowedTools`), so it holds
+    // even when a caller asks for `bypassPermissions`. Every headless lane
+    // (review, UAT Tester, fix, classify) carries it — never a caller opt.
+    args.push('--disallowedTools', ...claudeProcessKillDeny());
+    // Gate roles add the karst sandbox profile: the same deny rules ride a
+    // `--settings` layer too, so the sandbox is karst-owned rather than
+    // inherited from a project `.claude/settings.json` (T661 pre-trust makes
+    // those project allow rules live for headless runs). Deny beats allow.
+    if (opts.policy === 'gate') {
+      const deny = claudeGateDeny();
+      args.push('--disallowedTools', ...deny);
+      args.push('--settings', JSON.stringify({ permissions: { deny } }));
     }
     // Native structured output (Prompt 09): when a caller (the findings / UAT
     // tester lane) supplies a JSON Schema, hand it to `--json-schema` so the CLI

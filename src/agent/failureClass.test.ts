@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { classifyFailure, failureText, type FailureClass } from './failureClass.js';
+import { classifyFailure, failureText, isTimedOutFailure, type FailureClass } from './failureClass.js';
 
 describe('failureText', () => {
   it('returns String(error) when error is not an Error', () => {
@@ -52,6 +52,13 @@ describe('classifyFailure', () => {
   it('classifies a timeout as fatal (K3)', () => {
     const error = new Error('headless agent run timed out after 3600000ms');
     expect(classifyFailure(error)).toBe('fatal');
+  });
+
+  it('isTimedOutFailure recognizes the spawner name and the wrapped sentence (T663)', () => {
+    expect(isTimedOutFailure(Object.assign(new Error('x'), { name: 'TimeoutError' }))).toBe(true);
+    expect(isTimedOutFailure(new Error('headless agent run timed out after 60000ms'))).toBe(true);
+    expect(isTimedOutFailure(Object.assign(new Error('headless agent run aborted'), { name: 'AbortError' }))).toBe(false);
+    expect(isTimedOutFailure(new Error('spawn ENOENT'))).toBe(false);
   });
 
   it('classifies a usage limit as transient (K5)', () => {

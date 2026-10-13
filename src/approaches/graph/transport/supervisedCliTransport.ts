@@ -144,7 +144,20 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // The ownership proof is the CALLER's, persisted inside the claim
       // transaction that moved the row out of `ready` — never minted here.
       const ownerNonce = request.ownerNonce;
+      // Trust the workspace BEFORE the core starts: claude opens on its folder-
+      // trust dialog (default "No, exit") in a fresh graph workspace and dies
+      // ~1.5s in with no transcript (T661). Every graph launch — a fresh node,
+      // a planner, a relaunch/Resume — funnels through this one call site. The
+      // awaited promise keeps the spawn from racing the record; the wait itself
+      // is async, so it never blocks the extension host.
+      await request.adapter.ensureWorkspaceTrusted?.(
+        request.cwd,
+        deps.debug ? { debug: deps.debug } : undefined,
+      );
+      // Every graph launch is unattended (D170): the karst-owned gate sandbox is
+      // the default, scoped to the node workspace. A caller may pass its own.
       const built = request.adapter.buildInteractiveCommand({
+        policy: 'gate',
         ...request.interactive,
         cwd: request.cwd,
       });

@@ -94,6 +94,7 @@ export async function generateIntent(
     adapter.runHeadless({
       prompt: p,
       cwd,
+      trustCwd: false,
       ...(input.model !== undefined ? { model: input.model } : {}),
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       tracking: {

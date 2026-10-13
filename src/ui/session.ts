@@ -168,7 +168,7 @@ export interface OpenSessionOptions {
   instructions?: SessionInstructions;
   /** Injected debug sink (no global logger in this vscode-free module). */
   debug?: (message: string) => void;
-  /** The manifest's `agentSandbox` opt-in (AC-30). Absent → prompted. Host-internal. */
+  /** The manifest's `agentSandbox` opt-in (AC-31). Absent → prompted. Host-internal. */
   sandbox?: boolean;
   /** Receives the launch's effective sandbox mode line (`sandboxed …` / `prompted (<reason>)`). */
   onSandboxMode?: (line: string) => void;
@@ -510,7 +510,7 @@ export class SessionManager {
    * omitted → the agent CLI's own default. `resume` is
    * an agent session id to continue via `--resume`, fresh-launch only.
    */
-   openSession(
+   async openSession(
     adapter: AgentAdapter,
     ticketId: number,
     worktreePath: string,
@@ -523,7 +523,7 @@ export class SessionManager {
     ownedPaths: string[] = [],
     options: OpenSessionOptions = {},
     identity?: SessionIdentity,
-  ): void {
+  ): Promise<void> {
     const existing = this.terminals.get(ticketId);
     if (existing) {
       if (options.reveal !== false) existing.terminal.show();
@@ -553,12 +553,26 @@ export class SessionManager {
     const terminalName = naming?.name ?? `Karst: ${label?.key ?? formatId('ticket', ticketId)}`;
     const hookChannel = this.hookChannelFor(ticketId);
     const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
-    // AC-30: the core's own sandbox only when it can be enforced; otherwise the
+    // AC-31: the core's own sandbox only when it can be enforced; otherwise the
     // launch fails closed to prompted mode and the reason is reported.
     const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true, worktreePath);
     options.onSandboxMode?.(formatSandboxMode(sandbox));
+    // Trust the ticket worktree before the core starts: a fresh worktree is
+    // untrusted, and claude would open on its folder-trust dialog and exit
+    // (T661). Done here, at the one launch site, never as a UI action. The hook
+    // returns void when the config lock is free — the common case, which keeps
+    // this method fully synchronous — and a Promise only when another process
+    // holds it, awaited WITHOUT blocking the extension host's event loop.
+    const trust = adapter.ensureWorkspaceTrusted?.(
+      worktreePath,
+      options.debug ? { debug: options.debug } : undefined,
+    );
+    if (trust) await trust;
     const cmd = adapter.buildInteractiveCommand({
       cwd: worktreePath,
+      // A human watches: normal approvals stay, pattern kills and home-config
+      // writes are always denied (D170).
+      policy: 'attended',
       hookChannel,
       sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),

@@ -1335,6 +1335,69 @@ describe('runUat — Tester and verifier (Task 8)', () => {
     expect(listUatFindings(store, id)).toHaveLength(1);
   });
 
+  // T663: a budget- or deadline-stopped Tester run is recorded PARTIAL and
+  // reported, but it is still ADVISORY — the gates decide, and a partial run
+  // never parks the stage.
+  it('records a stopped Tester as partial, warns, and still passes uat on green gates', async () => {
+    const warnings: string[] = [];
+    const adapter: AgentAdapter = {
+      ...testerAgent('[]'),
+      runHeadless: async () => {
+        const err = new Error('headless agent run timed out after 3600000ms');
+        err.name = 'TimeoutError';
+        throw err;
+      },
+    };
+    const res = await runUat(
+      store,
+      { ticketId: id, cwd: '/wt/web', artifactDir },
+      testerDeps({
+        warn: (m) => warnings.push(m),
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(warnings.some((w) => w.includes('timed out — no observations recovered'))).toBe(true);
+    expect(listProcessRuns(store, id)[0]).toMatchObject({
+      processId: 'tester',
+      resultKind: 'partial',
+      status: 'failed',
+    });
+  });
+
+  it('a partial Tester run that recovered a blocking observation still fails uat (T663)', async () => {
+    const adapter: AgentAdapter = {
+      ...testerAgent('[]'),
+      runHeadless: async (opts) => {
+        opts.onOutput?.({
+          stream: 'stdout',
+          text: JSON.stringify([{ severity: 'high', title: 'late finding', detail: '' }]),
+        });
+        const err = new Error('headless agent run timed out after 3600000ms');
+        err.name = 'TimeoutError';
+        throw err;
+      },
+    };
+    const res = await runUat(
+      store,
+      {
+        ticketId: id,
+        cwd: '/wt/web',
+        artifactDir,
+        manifest: manifest(
+          {},
+          { uat: uatConfig({ testerObservations: { blockingSeverity: 'high' } }) },
+        ),
+      },
+      testerDeps({
+        tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+      }),
+    );
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(uatStage(store, id).verdict).toContain('uat tester observations: 1 high');
+    expect(listUatFindings(store, id)).toHaveLength(1);
+  });
+
   // UAT-19 (central RED case): an all-unreadable Tester answer PARKS the
   // stage instead of passing it — the gates being green must not paper over
   // evidence nobody could read.

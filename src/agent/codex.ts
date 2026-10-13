@@ -17,6 +17,7 @@ import {
   join,
 } from 'node:path';
 import { tmpdir } from 'node:os';
+import { gitCommonDirRoots, type HeadlessPolicy } from './gatePolicy.js';
 import { toStrictSchema } from './strictSchema.js';
 import type {
   AgentAdapter,
@@ -55,6 +56,7 @@ import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer } from './instructions.js';
 import { codexSandboxArgs } from './codexSandbox.js';
+import { ensureCodexWorkspaceTrusted } from './workspaceTrust.js';
 
 const CODEX_BIN = 'codex';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -282,7 +284,27 @@ export function parseCodexJsonl(
   return { sessionId, raw };
 }
 
-function appendPolicyArgs(args: string[], permissionMode?: string): void {
+function appendPolicyArgs(
+  args: string[],
+  permissionMode?: string,
+  policy?: HeadlessPolicy,
+  cwd?: string,
+): void {
+  if (policy === 'gate') {
+    // workspace-write confines writes to cwd + tmp (the operator's ~/.codex and
+    // ~/.claude are read-only); approval never so a denied write fails instead
+    // of waiting on a prompt nobody answers. Overrides ~/.codex/config.toml.
+    args.push('--sandbox', 'workspace-write', '--config', 'approval_policy="never"');
+    // The tester/fix roles need the network (the app under test, package
+    // fetches) and git in a LINKED worktree, whose index and refs live in the
+    // main checkout's `.git` — outside workspace-write's default writable set.
+    args.push('--config', 'sandbox_workspace_write.network_access=true');
+    const roots = cwd ? gitCommonDirRoots(cwd) : [];
+    if (roots.length > 0) {
+      args.push('--config', `sandbox_workspace_write.writable_roots=${JSON.stringify(roots)}`);
+    }
+    return;
+  }
   if (permissionMode === 'bypassPermissions') {
     args.push(
       '--ask-for-approval',
@@ -379,6 +401,18 @@ export class CodexAdapter implements AgentAdapter {
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
     sandboxInteractive: SUPPORTED,
+    headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: unsupported(
+      'codex has no deny list and its only per-launch guard is the sandbox: `attended` keeps the ' +
+        'core\'s normal approvals and a writable session, which no sandbox mode expresses while ' +
+        'also denying ~/.codex writes (workspace-write would also change what the human may do)',
+    ),
+    processKillDeny: unsupported(
+      'codex has no per-invocation command deny: its execpolicy rules live in ' +
+        '`rules/` files next to a config layer that karst may not own (AC-17), ' +
+        'and a headless `exec` has no approval channel to gate a shell command on',
+    ),
   };
 
   /**
@@ -424,6 +458,8 @@ export class CodexAdapter implements AgentAdapter {
         'sandbox_workspace_write.writable_roots=[]',
       );
     } else {
+      // Unattended graph node/planner: the headless gate sandbox, verbatim.
+      if (opts.policy === 'gate') appendPolicyArgs(args, undefined, 'gate', opts.cwd);
       for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
       if (opts.sandbox) args.push(...codexSandboxArgs(opts.cwd, opts.sandbox));
     }
@@ -460,6 +496,18 @@ export class CodexAdapter implements AgentAdapter {
         ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
         : {}),
     };
+  }
+
+  /**
+   * codex prompts on an untrusted directory and records the answer as
+   * `[projects."<cwd>"] trust_level` in `~/.codex/config.toml`; pre-trusting the
+   * realpath of `cwd` avoids the same launch-exit class as claude (T661).
+   */
+  ensureWorkspaceTrusted(
+    cwd: string,
+    opts?: { debug?: (message: string) => void },
+  ): void | Promise<void> {
+    return ensureCodexWorkspaceTrusted(cwd, opts);
   }
 
   materializeApproach(opts: MaterializeOpts): Materialized {
@@ -692,7 +740,7 @@ export class CodexAdapter implements AgentAdapter {
     args.push('--config', 'mcp_servers={}');
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--config', `model_reasoning_effort=${opts.effort}`);
-    appendPolicyArgs(args, opts.permissionMode);
+    appendPolicyArgs(args, opts.permissionMode, opts.policy, opts.cwd);
     // Native structured output (Prompt 09): codex reads its JSON Schema from a
     // FILE (`--output-schema <FILE>`), so when a caller supplies one, materialize
     // it to a temp dir this adapter created and clean it up the moment the run

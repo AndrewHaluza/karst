@@ -6479,7 +6479,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         brandIcon,
       });
 
-        sessions.openSession(
+        await sessions.openSession(
           adapter,
           ticketId,
           wt.path,
@@ -6499,7 +6499,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // Carries `dbPath` too — the same literal set the seed was composed from.
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
-            sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-30
+            sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

@@ -580,6 +580,13 @@ export interface UatConfig {
    */
   testerObservations?: UatTesterObservationsConfig;
   /**
+   * T663: the budget one Tester target may spend before the lane stops it and
+   * re-asks for whatever the agent already observed. Absent → every target uses
+   * the default (`UAT_TESTER_TOKEN_BUDGET`); a manifest that omits the block
+   * behaves exactly as before.
+   */
+  tester?: UatTesterConfig;
+  /**
    * Opt-in (@arch:BASELINE-REVIEW), manifest-only: repo-relative globs of files
    * (visual baselines, ratchet ledgers) whose change by a ticket counts only
    * after the USER approves it in the UAT report. Absent — or an empty `paths`,
@@ -601,6 +608,17 @@ export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 export interface UatBaselineReviewConfig {
   /** Repo-relative git pathspec globs; never empty (an empty list disables the knob). */
   paths: string[];
+}
+
+/**
+ * Task T663: the UAT Tester's own spend budget. `tokenBudget` is the FRESH
+ * (cache-read-excluded) token count the run's ledger may accumulate on one
+ * target before the lane stops the call and re-asks it once to report what it
+ * already observed. Manifest-only, like `blockingSeverity` — no Settings field.
+ */
+export interface UatTesterConfig {
+  /** Fresh tokens one target may spend before the lane stops it. Default 400k. */
+  tokenBudget: number;
 }
 
 export interface UatTesterObservationsConfig {
@@ -900,7 +918,7 @@ export interface Manifest {
   debug?: boolean;
   /**
    * Run interactive agent sessions inside the core's OWN OS-level sandbox
-   * (`arch:AC-30`): writes limited to the ticket worktree, network to provider
+   * (`arch:AC-31`): writes limited to the ticket worktree, network to provider
    * APIs + package registries, prompts relaxed only inside it. Opt-in, default
    * off. A core or platform that cannot enforce it fails closed to today's
    * prompted behaviour; the effective mode is logged per launch.

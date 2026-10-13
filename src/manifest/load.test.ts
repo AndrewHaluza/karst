@@ -452,6 +452,51 @@ uat:
       cleanup();
     }
   });
+
+  // T663: uat.tester.tokenBudget — the per-target fresh-token budget. Absent →
+  // the Tester's own default, so a manifest that omits the block is unchanged.
+  it('reads uat.tester.tokenBudget', () => {
+    const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+  tester:
+    tokenBudget: 250000
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).uat?.tester?.tokenBudget).toBe(250_000);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('leaves uat.tester absent when the manifest omits the block', () => {
+    const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(loadManifest(path).uat?.tester).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-positive uat.tester.tokenBudget', () => {
+    const yaml = `${VALID}
+uat:
+  maxFixAttempts: 2
+  tester:
+    tokenBudget: 0
+`;
+    const { path, cleanup } = fixture(yaml);
+    try {
+      expect(() => loadManifest(path)).toThrow(/uat\.tester\.tokenBudget/);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('repositories without a service', () => {
@@ -1934,7 +1979,7 @@ describe('archiveDoneAfterDays', () => {
   });
 });
 
-describe('agentSandbox (AC-30: opt-in, default off)', () => {
+describe('agentSandbox (AC-31: opt-in, default off)', () => {
   it('is undefined when omitted (sessions stay prompted)', () => {
     const { path, cleanup } = fixture(VALID);
     try {

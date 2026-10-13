@@ -1,6 +1,6 @@
 /**
  * Claude Code's own OS sandbox (Seatbelt on macOS, bubblewrap on Linux) as one
- * `--settings` JSON value (`arch:AC-30`). Verified keys on claude 2.1.296:
+ * `--settings` JSON value (`arch:AC-31`). Verified keys on claude 2.1.296:
  * `sandbox.enabled`, `failIfUnavailable` (refuse to start rather than run
  * uncontained — fail closed), `autoAllowBashIfSandboxed` (the relaxed prompts,
  * only inside the sandbox), `allowUnsandboxedCommands: false` (no escape hatch),
@@ -22,6 +22,7 @@ export function claudeSandboxSettings(policy: SandboxPolicy, hookSettings?: stri
       filesystem: { allowWrite: [...policy.writableRoots] },
       network: { allowedDomains: [...policy.allowedDomains] },
     },
-    permissions: { defaultMode: 'acceptEdits' },
+    // Keep the base's rules (the process-kill deny) — only the mode is added.
+    permissions: { ...(base.permissions as Record<string, unknown> | undefined), defaultMode: 'acceptEdits' },
   });
 }

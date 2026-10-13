@@ -13,6 +13,7 @@ import { describeHeadlessFailure } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import {
   spawnHeadlessCli,
+  capturedStdoutFromError,
   headlessPreview,
   type HeadlessSpawnOptions,
 } from './headlessSpawn.js';
@@ -21,7 +22,8 @@ import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
-import { OpencodeAdapter, opencodeLaunchPermission } from './opencode.js';
+import { OpencodeAdapter, launchProfile, opencodeLaunchPermission } from './opencode.js';
+import type { InteractivePolicy } from './gatePolicy.js';
 import {
   opencode2Command,
   opencode2Config,
@@ -293,6 +295,11 @@ export function buildOpencode2ConfigContent(opts: {
   headless: boolean;
   readOnly?: boolean | undefined;
   addDirs?: string[] | undefined;
+  /** Headless gate profile cwd (`gatePolicy.ts`); absent → ordinary permission. */
+  gateCwd?: string | undefined;
+  /** Interactive launch profile (`gatePolicy.ts`); `gate` needs `cwd`. */
+  policy?: InteractivePolicy | undefined;
+  cwd?: string | undefined;
   /** The `mcp` section when a launch-time karst MCP config was supplied. */
   mcp?: Record<string, unknown> | undefined;
 }): string {
@@ -301,8 +308,11 @@ export function buildOpencode2ConfigContent(opts: {
     config['model'] = opts.effort ? `${opts.model}#${opts.effort}` : opts.model;
   }
   if (opts.headless) config['snapshot'] = false;
-  const permission = opencodeLaunchPermission(opts);
-  if (permission) config['permission'] = permission;
+  config['permission'] = opencodeLaunchPermission({
+    ...opts,
+    ...(opts.policy && opts.cwd ? launchProfile(opts.policy, opts.cwd) : {}),
+    ...(opts.gateCwd ? { gate: { cwd: opts.gateCwd } } : {}),
+  });
   if (opts.mcp && Object.keys(opts.mcp).length > 0) config['mcp'] = opts.mcp;
   return JSON.stringify(config);
 }
@@ -350,7 +360,7 @@ export class Opencode2Adapter implements AgentAdapter {
     ),
     permissionMode: unsupported(
       'the only mode karst passes is bypassPermissions, and opencode v2 has no enforced sandbox ' +
-        'to contain it, so it is refused (AC-30) and the run keeps its prompted default',
+        'to contain it, so it is refused (AC-31) and the run keeps its prompted default',
     ),
     resume: SUPPORTED,
     sessionName: unsupported('the opencode2 TUI has no launch-time session-name flag'),
@@ -378,6 +388,10 @@ export class Opencode2Adapter implements AgentAdapter {
       'opencode v2 has no OS-level sandbox: its permission config only allows, asks or denies a ' +
         'tool, and an allowed bash command runs uncontained on the host',
     ),
+    processKillDeny: SUPPORTED,
+    headlessPolicy: SUPPORTED,
+    interactiveGatePolicy: SUPPORTED,
+    interactiveAttendedPolicy: SUPPORTED,
   };
 
   readonly instructions: InstructionDelivery = {
@@ -430,6 +444,8 @@ export class Opencode2Adapter implements AgentAdapter {
         headless: false,
         readOnly: opts.readOnly,
         addDirs: opts.addDirs,
+        policy: opts.policy,
+        cwd: opts.cwd,
         ...(mcp ? { mcp } : {}),
       }),
     };
@@ -446,6 +462,13 @@ export class Opencode2Adapter implements AgentAdapter {
         : {}),
     };
   }
+
+  /**
+   * Explicit no-op: opencode2 has no per-directory folder-trust prompt (it never
+   * opens a dialog and never exits on trust), so a launch needs no trust record
+   * written. AC-08 requires every adapter to answer, not to stay silent.
+   */
+  ensureWorkspaceTrusted(): void {}
 
   materializeApproach(opts: MaterializeOpts): Materialized {
     // v2 discovers the same `.opencode/` layout as v1, so the materialization
@@ -534,7 +557,7 @@ export class Opencode2Adapter implements AgentAdapter {
     }
 
     const args = ['run', '--format', 'json', '--standalone'];
-    // AC-30: the bypass (`--auto`) is never added — no enforced sandbox contains
+    // AC-31: the bypass (`--auto`) is never added — no enforced sandbox contains
     // this run, so it keeps the core's prompted default. The refusal is logged.
     refuseUnsandboxedBypass('opencode2', opts.permissionMode, opts.debug);
     if (opts.model) args.push('--model', modelArg(opts.model, opts.effort));
@@ -564,7 +587,10 @@ export class Opencode2Adapter implements AgentAdapter {
         // to KARST_* keys. The prompt still rides stdin.
         isolationEnv: {
           ...opencode2IsolationEnv(opencode2Config().home),
-          OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({ headless: true }),
+          OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
+            headless: true,
+            ...(opts.policy === 'gate' ? { gateCwd: opts.cwd } : {}),
+          }),
           // A headless `run` may discover a plugin an earlier interactive
           // session left in the worktree; the marker makes setup() return
           // immediately so the run emits no interactive hooks.
@@ -573,6 +599,17 @@ export class Opencode2Adapter implements AgentAdapter {
         stdin: opts.prompt,
         onOutput: consoleStream ? consoleStream.append : opts.onOutput,
       });
+    } catch (error) {
+      // A run the spawner KILLED (its deadline, or a Stop) never reached the
+      // exit-code path below, so its step_finish usage would be lost and the
+      // meter would fall back to a prompt-length estimate. v2's counts sit in a
+      // shape the generic extractor cannot read, so parse them here from the
+      // partial stdout the spawner carries — a runaway's real spend then reaches
+      // the ledger (and the UAT Tester's token budget).
+      if (error instanceof Error) {
+        throw attachUsage(error, parseOpencode2JsonlUsage(capturedStdoutFromError(error)));
+      }
+      throw error;
     } finally {
       consoleStream?.flush();
     }

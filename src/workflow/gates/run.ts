@@ -5,7 +5,15 @@ import { resolveCommandCwd } from '../../runtime/commandCwd.js';
 import { BoundedOutput } from '../../runtime/boundedOutput.js';
 import { killTree } from '../../runtime/processTree.js';
 
-export const DEFAULT_GATE_TIMEOUT_MS = 15 * 60 * 1_000;
+/**
+ * Backstop for a script gate that HANGS. It must exceed the slowest legitimate
+ * gate: this repo's `test:mutation` (full `src/extension/**`) needs ~15-20 min
+ * even in CI, whose mutation job budgets 20 min — a 15-minute backstop killed a
+ * run that CI would have passed, and a loaded machine (many parallel karst
+ * sessions) stretches it further. 30 minutes keeps a genuinely hung gate
+ * bounded while not racing a legitimate heavy gate.
+ */
+export const DEFAULT_GATE_TIMEOUT_MS = 30 * 60 * 1_000;
 export const DEFAULT_GATE_MAX_OUTPUT_BYTES = 1024 * 1024;
 export const DEFAULT_GATE_TERMINATION_GRACE_MS = 5_000;
 

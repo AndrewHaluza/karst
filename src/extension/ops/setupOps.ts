@@ -88,9 +88,13 @@ export function createSetupOps(deps: SetupOpsDeps): SetupOps {
         const model = deps.defaultAgent().model;
         const root = deps.workspaceRoot();
         const addDirs = root ? [root, ...setupAddDirs(manifest)] : setupAddDirs(manifest);
+        // Trust the setup scratch dir before the core starts (T661). Awaited:
+        // the wait is async, never a block.
+        await adapter.ensureWorkspaceTrusted?.(cwd, { debug });
         const cmd = adapter.buildInteractiveCommand({
           cwd,
           readOnly: true,
+          policy: 'attended',
           addDirs,
           ...(adapter.instructions && adapter.instructions.interactive !== 'n/a' ? { instructions } : {}),
           ...(model ? { model } : {}),

@@ -11,6 +11,7 @@
   "reporters": ["html", "json"],
   "logLevel": "warn",
   "coverageAnalysis": "perTest",
+  "ignoreStatic": true,
   "thresholds": { "high": 85, "low": 75, "break": 85 },
   "timeoutMS": 60000,
   "ignorePatterns": [".claude", ".karst", "reports", "coverage", "test-results", "dist"]

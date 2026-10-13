@@ -4,7 +4,8 @@ import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { spawnHeadlessCli } from './headlessSpawn.js';
+import { capturedStdoutFromError, spawnHeadlessCli } from './headlessSpawn.js';
+import { usageFromError } from './tokenUsage.js';
 
 /** A fake child with real stdout/stderr EventEmitters, like claude.test.ts. */
 function fakeChild(pid = 4242): EventEmitter & {
@@ -192,6 +193,39 @@ describe('spawnHeadlessCli', () => {
     );
     await expect(promise).rejects.toThrow(/timed out after 20ms/);
     expect(killed).toHaveBeenCalledWith(-4242, 'SIGKILL');
+  });
+
+  // T663: a run the deadline killed still burned what it had already reported,
+  // so the timeout error carries the counts read from the partial stream — the
+  // meter records the real spend, and a spend budget can see the runaway.
+  it('carries the usage the killed run had already streamed on the timeout error', async () => {
+    const child = fakeChild();
+    const spawnImpl = vi.fn(() => {
+      queueMicrotask(() => {
+        child.stdout.emit(
+          'data',
+          Buffer.from('{"type":"result","usage":{"input_tokens":800,"output_tokens":27}}'),
+        );
+      });
+      return child;
+    }) as unknown as typeof spawn;
+
+    const promise = spawnHeadlessCli(
+      'codex',
+      ['exec'],
+      '/wt/a',
+      { timeoutMs: 20, terminationGraceMs: 5 },
+      spawnImpl,
+    );
+    const error = await promise.catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).name).toBe('TimeoutError');
+    expect(usageFromError(error)).toMatchObject({ inputTokens: 800, outputTokens: 27, totalTokens: 827 });
+    // The raw partial stdout rides along too, so an adapter whose core reports
+    // usage in a shape the generic scan cannot read (opencode2) parses its own.
+    expect(capturedStdoutFromError(error)).toContain('"input_tokens":800');
+    // It must never serialize onto the error (non-enumerable).
+    expect(JSON.stringify(error)).not.toContain('input_tokens');
   });
 
   it('bounds stdout to maxOutputBytes and appends the truncation marker', async () => {
