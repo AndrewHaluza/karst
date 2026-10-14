@@ -270,6 +270,15 @@ describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
     expect(bridges.dispose).toHaveBeenCalledWith(id);
   });
 
+  it('remove for a docker core goes through the injected docker process, not the real one', async () => {
+    setSessionId(store, id, 's1', 'opencode');
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
+    const { w } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
+    await w.remove(id);
+    expect(dockerProc.calls.length).toBeGreaterThan(0);
+  });
+
   it('diff hands the sandbox diff to the editor binding', async () => {
     const wt = createTicket(store, { key: 'K-9', title: 'w' }).id;
     setSessionId(store, wt, 's9', 'claude');
