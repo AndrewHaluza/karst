@@ -6,6 +6,8 @@ import { transition } from '../machine.js';
 import { runFix } from './fix.js';
 import { listRecoveryRounds } from '../../store/recoveryRounds.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import { listOpenParks } from '../../store/usageLimitParks.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 
 function walkToFix(store: Store, id: number): void {
@@ -58,6 +60,31 @@ describe('runFix', () => {
     store.db.prepare('UPDATE tickets SET session_id = NULL WHERE id = ?').run(id);
     const { adapter } = fakeAdapter();
     await expect(runFix(store, { ticketId: id, cwd: '/wt' }, adapter)).rejects.toThrow();
+  });
+
+  it('records a re-runnable op park when the resume dies on quota, and still throws (K11)', async () => {
+    const adapter: AgentAdapter = {
+      ...fakeAdapter().adapter,
+      runHeadless: async () => {
+        throw new UsageLimitError('Claude usage limit reached — out of credits.', {
+          tool: 'Claude',
+          provider: 'claude',
+          model: 'claude-sonnet-5',
+        });
+      },
+    };
+    await expect(runFix(store, { ticketId: id, cwd: '/wt' }, adapter)).rejects.toBeInstanceOf(
+      UsageLimitError,
+    );
+    const open = listOpenParks(store, id);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({
+      kind: 'op',
+      stage: 'fix',
+      lane: null,
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
   });
 
   it('opens no recovery tracking of its own — runFix is the headless helper, not the production route', async () => {

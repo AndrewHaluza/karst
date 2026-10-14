@@ -8,6 +8,7 @@ const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   contributes: { commands: { command: string }[] };
 };
 const COPY_ASSETS = readFileSync(join(ROOT, 'scripts', 'copy-assets.mjs'), 'utf8');
+const QUOTA_OPS = readFileSync(join(ROOT, 'src', 'extension', 'ops', 'quotaOps.ts'), 'utf8');
 
 /**
  * Source-level guards on the host wiring, which no unit test can reach: the
@@ -24,14 +25,29 @@ describe('token-usage host wiring', () => {
   });
 
   it('registers that command against the panel manager', () => {
-    expect(EXTENSION).toContain(
-      "vscode.commands.registerCommand('karst.openTokenUsage', () => tokenUsagePanel.open())",
-    );
+    expect(EXTENSION).toContain("vscode.commands.registerCommand('karst.openTokenUsage'");
+    expect(EXTENSION).toMatch(/karst\.openTokenUsage'[\s\S]{0,120}tokenUsagePanel\.open\(arg === 'quota' \? 'quota' : 'spend'\)/);
     expect(EXTENSION).toContain('new UsagePanelManager(');
   });
 
   it('scopes the panel to the bound project — the DB is shared by every window', () => {
-    expect(EXTENSION).toMatch(/UsagePanelManager\([\s\S]{0,200}projectId: \(\) => currentProject\(\)/);
+    expect(EXTENSION).toMatch(/UsagePanelManager\([\s\S]{0,400}projectId: \(\) => currentProject\(\)/);
+  });
+
+  it('wires the per-core quota service, status bar and launch warning', () => {
+    // One service, real readers, disposed with the window.
+    expect(EXTENSION).toContain('new QuotaService(');
+    expect(EXTENSION).toContain('readers: defaultQuotaReaders()');
+    expect(EXTENSION).toMatch(/quotaService\.start\(\)/);
+    expect(EXTENSION).toMatch(/dispose: \(\) => quotaService\.dispose\(\)/);
+    // The status badge opens the Quota tab.
+    expect(EXTENSION).toMatch(/quotaStatus\.command = \{[\s\S]{0,80}command: 'karst\.openTokenUsage',[\s\S]{0,40}arguments: \['quota'\]/);
+    // The decision half lives in the host-agnostic ops module; the binding is thin.
+    expect(EXTENSION).toContain('new QuotaOps(');
+    expect(EXTENSION).toMatch(/if \(!options\.recovery\) quotaOps\.warnBeforeLaunch\(launchProvider\)/);
+    // The ops module owns the badge/warning decisions (and is unit-tested).
+    expect(QUOTA_OPS).toContain('buildQuotaIndicator(');
+    expect(QUOTA_OPS).toContain('quotaLaunchWarning(');
   });
 
   it('refreshes open usage surfaces when an interactive token delta lands', () => {

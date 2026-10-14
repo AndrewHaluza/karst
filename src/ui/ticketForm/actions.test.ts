@@ -33,6 +33,8 @@ import {
   listAttachments,
 } from '../../store/attachments.js';
 import { listProcessRuns } from '../../store/processRuns.js';
+import { listOpenParks } from '../../store/usageLimitParks.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
 import { attachmentDir, attachmentPath } from '../../attachments/paths.js';
@@ -683,6 +685,29 @@ describe('buildTicketFormActions', () => {
       | undefined;
     expect(s?.service).toBe('fe');
     expect(s?.signals).toEqual(['x', 'y']);
+  });
+
+  it('records a re-runnable op park when suggestSignals dies on quota (K11)', async () => {
+    const t = createTicket(store, { key: 'T-K11', title: 't' });
+    deps.adapter = {
+      ...fakeAdapter(),
+      runHeadless: async () => {
+        throw new UsageLimitError('Claude usage limit reached — out of credits.', {
+          tool: 'Claude',
+          provider: 'claude',
+          model: 'claude-sonnet-5',
+        });
+      },
+    };
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.suggestSignals('fe');
+
+    expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
+    const open = listOpenParks(store, t.id);
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ kind: 'op', stage: 'scope', provider: 'claude' });
   });
 
   it('saveSignals writes to the manifest and re-pushes state', async () => {

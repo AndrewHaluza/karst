@@ -72,6 +72,7 @@ const EXPECTED_TABLES = [
   'baseline_decisions',
   'uat_gate_passes',
   'fix_deliveries',
+  'usage_limit_parks',
 ] as const;
 
 function tableNames(store: Store): string[] {
@@ -991,6 +992,42 @@ describe('openStore', () => {
       .map((r) => (r as { name: string }).name);
     expect(cols).toContain('blocked_reason');
     expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
+  it('a v82 DB gains the node-run consecutive launch-failure counter (v83)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db82-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'registry.db');
+    // The pre-v83 graph DDL: GRAPH_MIGRATION_DDL without the new column, so the
+    // v83 guarded ALTER is what must add it (a fresh DB already carries it).
+    const preV83 = GRAPH_MIGRATION_DDL.replace(
+      '  launch_fail_streak       INTEGER NOT NULL DEFAULT 0,\n',
+      '',
+    );
+    const legacy = new Database(path);
+    legacy.exec(v34SchemaText());
+    legacy.exec(preV83);
+    legacy.pragma('user_version = 82');
+    legacy.exec(`
+      INSERT INTO tickets (key) VALUES ('T-1');
+      INSERT INTO approach_graph_runs (ticket_id, stage_key, stage_attempt, approach_id, status, created_at)
+      VALUES (1, 'impl', 0, 'x', 'running', '2026-08-12T00:00:00.000Z');
+      INSERT INTO approach_graph_revisions (graph_run_id, revision_number, canonical_graph, fingerprint, status, created_at)
+      VALUES (1, 1, '{}', 'fp', 'active', '2026-08-12T00:00:00.000Z');
+      INSERT INTO approach_node_runs (graph_run_id, revision_id, node_id, node_kind, visit_number, status)
+      VALUES (1, 1, 'n', 'agent', 1, 'running');
+    `);
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+    expect(tableColumnsOf(migrated, 'approach_node_runs')).toContain('launch_fail_streak');
+    // Nothing backfilled: a pre-v83 row reads 0 — the honest "no consecutive
+    // launch failure" — and the column is NOT NULL DEFAULT 0.
+    expect(
+      migrated.db.prepare('SELECT launch_fail_streak FROM approach_node_runs WHERE id = 1').get(),
+    ).toEqual({ launch_fail_streak: 0 });
   });
 
   it('a v35 DB migrates through v37: the node-run CHECK gains the output-validation statuses', () => {
@@ -2472,7 +2509,7 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION
 expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
-  it('migrates a v82 DB to v83, adding tickets.agent_backend as NULL (project default)', () => {
+  it('migrates a v84 DB to v85, adding tickets.agent_backend as NULL (project default)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     const path = join(dir, 'karst.db');

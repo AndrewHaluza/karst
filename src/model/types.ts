@@ -139,7 +139,14 @@ export type BlockerKind =
   // automatic `--no-edit` merge conflicted and was aborted, so the parent's
   // worktree is untouched and its stage is parked. The reason names the
   // sub-task and the conflicting files.
-  | 'subtask-integration-conflict';
+  | 'subtask-integration-conflict'
+  // The provider refused because the ACCOUNT is out of quota/allowance (K11,
+  // D158). Same shape as `awaiting-merge`: the question WAS asked and answered
+  // "not now" — a retry cannot make a quota reset, so a generic Resume is
+  // refused (the user must pick another agent/model, or retry once the limit
+  // resets). Written by `parkGateStage` (review/UAT) and by the op-park helper
+  // (every other AI op); the reason carries the provider/model that exhausted.
+  | 'usage-limit';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:

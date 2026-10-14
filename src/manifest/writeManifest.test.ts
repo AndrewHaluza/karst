@@ -379,6 +379,9 @@ describe('writeManifest', () => {
         diffsInSourceControl: true,
         // Non-default on purpose, same reason as archiveDoneAfterDays.
         subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 9 },
+        // Non-default on purpose: the loader defaults an absent quota block, so
+        // the populated manifest pins an explicit threshold to prove the overlay.
+        quota: { warnThresholdPct: 95 },
         id: 'karst-extension',
       };
       writeManifest(path, full);

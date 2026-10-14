@@ -41,6 +41,15 @@ export interface TransportTerminal {
   sendText(text: string): void;
   dispose(): void;
   onDidClose(handler: (exitCode?: number) => void): void;
+  /**
+   * Observe the bytes the provider writes to the terminal, when the host can.
+   * Optional, and NOT satisfied by the VS Code host: VS Code exposes terminal
+   * output only through a proposed API a shipped extension cannot use, so the
+   * shipped extension leaves this absent — the launch-failure reason then
+   * carries no captured line rather than a fabricated one. It stays on the seam
+   * for a host that really can observe writes (tests, a future pty-backed host).
+   */
+  onDidWriteData?(handler: (data: string) => void): void;
 }
 
 export interface TransportTerminalHost {
@@ -61,6 +70,14 @@ export interface CreateTransportTerminalOpts {
 /** One node activation's launch request. */
 export interface AgentNodeLaunch {
   nodeRunId: number;
+  /**
+   * Which run table `nodeRunId` names. A graph NODE launch passes its node-run
+   * id (the default); a PLANNER launch passes its planner-run id — the two
+   * tables have independent id sequences, so a consumer that must resolve the
+   * row (the launch-failure parker) has to know which one it holds, or it can
+   * park an unrelated node run that happens to share the id.
+   */
+  runKind?: 'node' | 'planner';
   ticketId: number;
   graphRunId: number;
   /** The repository whose worktree the session runs in (`servers.repo`). */

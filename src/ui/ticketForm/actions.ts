@@ -23,6 +23,7 @@ import {
   list as listRelationViews,
 } from '../../store/ticketRelations.js';
 import { queueAutostart } from '../../store/autostart.js';
+import { recordUsageLimitOpPark } from '../../store/usageLimitParks.js';
 import { postMessage } from '../../store/ticketMessages.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, subtaskParentBranch, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
@@ -839,6 +840,10 @@ export function buildTicketFormActions(
         });
         ctx.post({ type: 'signals-suggested', service, signals });
       } catch (e) {
+        // K11: park the quota failure when this form is bound to a ticket.
+        if (ctx.ticketId !== undefined) {
+          void recordUsageLimitOpPark(deps.store, e, { ticketId: ctx.ticketId, stage: 'scope' });
+        }
         ctx.post({ type: 'error', message: errorMessage(e) });
       } finally {
         ctx.post({ type: 'busy', what: 'suggest', on: false });
@@ -1087,6 +1092,15 @@ export function buildTicketFormActions(
             improve: { instructions: process.assignment.instructions ?? '', cwd, resolveRepoPath },
             codePointers: { enabled: codePointersEnabled(deps.manifest) },
             warn: deps.warn,
+            // K11: any pass that dies on quota records one re-runnable op park
+            // (kind `op`, stage `scope`); the passes still degrade as before.
+            onUsageLimit: (error) =>
+              void recordUsageLimitOpPark(deps.store, error, {
+                ticketId,
+                stage: 'scope',
+                provider: process.assignment.provider,
+                model: process.assignment.model ?? null,
+              }),
           });
         } catch (error) {
           // The call's spend is already recorded (a 429 arrives after the input

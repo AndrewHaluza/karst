@@ -5,7 +5,9 @@
  * matters is the draft — what is selected / compared is view state, never saved.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { useSettingsApp } from '../SettingsAppContext.js';
+import { readField, useSettingsApp } from '../SettingsAppContext.js';
+import type { Manifest, QuotaConfig } from '../../../../manifest/types.js';
+import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from '../../../../manifest/validate/quota.js';
 import { Button } from '../primitives/Button.js';
 import { Field } from '../primitives/Field.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
@@ -22,6 +24,8 @@ import {
 
 /** How long the arrival highlight stays on a row (none under reduced motion — CSS). */
 const FLASH_MS = 1000;
+
+const QUOTA_THRESHOLD_ERROR = 'Enter a whole number from 1 to 100.';
 
 export interface RolesTabProps {
   readonly route: AgentsRoute;
@@ -75,6 +79,30 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
     [draft, preset, compare, capabilities],
   );
   const visible = compare !== null && onlyDiffs ? roles.filter((r) => differs.includes(r.capability)) : roles;
+
+  // The per-core subscription-quota warn threshold. Blankable like
+  // `archiveDoneAfterDays`: anything outside 1–100 clears the block (which then
+  // loads as the default) and is flagged inline, so the snap-back is never
+  // silent. Rendered on the Agents page (not General) because a new `useId`
+  // there would shift every later section's React ids — and the layout ledger
+  // keys those ids.
+  const quota = readField<Partial<QuotaConfig> | undefined>(draft, 'quota', undefined);
+  const [quotaError, setQuotaError] = useState<string | undefined>(undefined);
+  const setQuota = (value: QuotaConfig | undefined) => (d: Manifest): Manifest => {
+    const next = { ...d };
+    if (value === undefined) delete next.quota;
+    else next.quota = value;
+    return next;
+  };
+  const setQuotaThreshold = (raw: string): void => {
+    const blank = raw.trim() === '';
+    const parsed = Number(raw);
+    const valid = !blank && Number.isInteger(parsed) && parsed >= 1 && parsed <= 100;
+    setQuotaError(blank || valid ? undefined : QUOTA_THRESHOLD_ERROR);
+    edit(setQuota(valid ? { warnThresholdPct: parsed } : undefined));
+  };
+  const quotaText =
+    quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
 
   const setCompare = (name: string | null): void =>
     navigate({ tab: 'roles', ...(route.selected ? { selected: route.selected } : {}), ...(name ? { compare: name } : {}) });
@@ -153,9 +181,13 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
           {compare === null ? (
             <>
               <div role="columnheader">Agent profile</div>
-              <div role="columnheader">Core</div>
-              <div role="columnheader">Model</div>
-              <div role="columnheader">Effort</div>
+              <div role="columnheader" className="agents-cell-picker-head">
+                <span className="agents-picker-head-grid">
+                  <span>Core</span>
+                  <span>Model</span>
+                  <span>Effort</span>
+                </span>
+              </div>
               <div role="columnheader">Source</div>
               <div role="columnheader">Actions</div>
             </>
@@ -223,6 +255,30 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
           labels={{ core: 'Core', model: 'Model', effort: 'Effort' }}
           showEffort
           onChange={(value) => edit((d) => setDefaultRow(d, value))}
+        />
+      </div>
+
+      <div className="agents-default">
+        <div className="agents-default-title">Subscription quota</div>
+        <div className="agents-default-desc">
+          Warn before a launch whose agent core is near its provider subscription limit. View-only: a
+          warning never blocks a launch and never switches cores.
+        </div>
+        <Field
+          label="Warn at used %"
+          error={quotaError}
+          help={`Blank = ${DEFAULT_QUOTA_WARN_THRESHOLD_PCT}. The tightest window across the launched core's subscription is compared against this.`}
+          control={{
+            kind: 'input',
+            name: 'quotaWarnThresholdPct',
+            type: 'number',
+            min: 1,
+            max: 100,
+            step: 1,
+            value: quotaText,
+            placeholder: String(DEFAULT_QUOTA_WARN_THRESHOLD_PCT),
+            onChange: setQuotaThreshold,
+          }}
         />
       </div>
     </div>

@@ -46,7 +46,7 @@ import {
 } from './workflowCommand.js';
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
-import { describeHeadlessFailure } from './cliFailure.js';
+import { headlessFailureError } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
 import { headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
@@ -799,14 +799,14 @@ export class CodexAdapter implements AgentAdapter {
       // The counts ride out on the rejection — a run that died mid-stream still
       // burned everything up to the cut (§ token consumption stats).
       throw attachUsage(
-        new Error(
-          describeHeadlessFailure({
-            tool: 'Codex',
-            exitCode: result.exitCode,
-            stdout: result.stdout,
-            stderr: result.stderr,
-          }),
-        ),
+        headlessFailureError({
+          tool: 'Codex',
+          provider: 'codex',
+          model: opts.model,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+        }),
         extractTokenUsage(result.stdout),
       );
     }

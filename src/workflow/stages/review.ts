@@ -610,7 +610,9 @@ export async function runReview(
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.
   findingsProcessRunId =
-    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+    findingsLane.kind === 'ran' || findingsLane.kind === 'usage-limited'
+      ? (findingsLane.processRunId ?? null)
+      : null;
 
   // Finding 3: a Stop during the findings lane is not a review of anything —
   // the open Review process is closed interrupted, and the run returns stopped
@@ -675,7 +677,9 @@ export async function runReview(
   const unreadableTargets: readonly string[] =
     findingsLane.kind === 'ran' ? (findingsLane.unreadable ?? []) : [];
   const processRunId =
-    findingsLane.kind === 'ran' ? (findingsLane.processRunId ?? null) : null;
+    findingsLane.kind === 'ran' || findingsLane.kind === 'usage-limited'
+      ? (findingsLane.processRunId ?? null)
+      : null;
   if (processRunId !== null) {
     const blocking =
       outcome.kind === 'verdict' &&
@@ -687,18 +691,33 @@ export async function runReview(
       findingsLane.findings.length === 0 &&
       outcome.kind === 'blocked' &&
       outcome.blocker === 'capability-missing';
+    // K11: a quota-exhausted lane is a failed run, not a clean one — its detail
+    // is the typed sentence, so the inside Review row names the cause exactly
+    // like a crash does.
+    const usageLimited = findingsLane.kind === 'usage-limited';
     const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
-    if (crashes.length > 0 || unreadableBlock) {
+    if (crashes.length > 0 || unreadableBlock || usageLimited) {
       // The bounded failure sentence — the lane's already-collapsed crash
       // messages (deduped: a multi-repo review repeats the SAME denial per
       // target), re-collapsed so joining cannot exceed the cap — rides onto the
       // run so the inside Review detail renders the NAMED diagnostic (an agy
-      // permission denial, say) instead of a fixed string (T652). An
-      // unreadable-only block has no crash message; its detail stays NULL and
-      // the generic wording stands.
+      // permission denial, say) instead of a fixed string (T652).
+      //
+      // An unreadable-only block has no crash message, but it DOES have the
+      // aggregate's own reason ("unreadable output from <repo> — no findings
+      // could be read"). Storing that is what makes the inside Review row show
+      // the real cause instead of the generic "the agent did not return a
+      // result. Retry review." — which pointed T694's reader at a retry when the
+      // answer was present and the parser had dropped it.
       const uniqueCrashes = [...new Set(crashes)];
       const failureDetail =
-        uniqueCrashes.length > 0 ? collapseDiagnostic(uniqueCrashes.join('; ')) : null;
+        usageLimited && findingsLane.kind === 'usage-limited'
+          ? findingsLane.detail
+          : uniqueCrashes.length > 0
+            ? collapseDiagnostic(uniqueCrashes.join('; '))
+            : unreadableBlock && outcome.kind === 'blocked'
+              ? collapseDiagnostic(outcome.reason)
+              : null;
       finishProcessRun(
         store,
         processRunId,
@@ -719,10 +738,15 @@ export async function runReview(
   const crashNotes = crashes.map((c) => `review findings lane failed: ${c}`);
 
   if (outcome.kind === 'blocked') {
-    return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
-      outcome.reason,
-      ...crashNotes,
-    ]);
+    return finish(
+      {
+        kind: 'blocked',
+        blocker: outcome.blocker,
+        reason: outcome.reason,
+        ...(outcome.park ? { park: outcome.park } : {}),
+      },
+      [outcome.reason, ...crashNotes],
+    );
   }
   return finish({ kind: 'verdict', verdict: outcome.verdict }, [
     ...outcome.warnings,

@@ -29,6 +29,7 @@ describe('usage render', () => {
         const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
         try {
           h.receive({ type: 'state', state: fixture.state });
+          if (fixture.state.tab !== 'spend') return;
           const chips = h.queryAll('.ranges .k-chip');
           expect(chips).toHaveLength(fixture.state.ranges.length);
           for (let i = 0; i < chips.length; i++) {
@@ -54,7 +55,7 @@ describe('usage render', () => {
         const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
         try {
           h.receive({ type: 'state', state: fixture.state });
-          if (!fixture.state.empty && !fixture.state.error) {
+          if (fixture.state.tab === 'spend' && !fixture.state.empty && !fixture.state.error) {
             const rows = h.queryAll('#tbody tr');
             expect(rows).toHaveLength(fixture.state.tickets.length);
           }
@@ -65,7 +66,7 @@ describe('usage render', () => {
         const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
         try {
           h.receive({ type: 'state', state: fixture.state });
-          if (!fixture.state.empty && !fixture.state.error) {
+          if (fixture.state.tab === 'spend' && !fixture.state.empty && !fixture.state.error) {
             const stageRows = h.queryAll('#stages .brow');
             expect(stageRows).toHaveLength(fixture.state.byStage.length);
             const modelRows = h.queryAll('#models .brow');
@@ -92,7 +93,7 @@ describe('usage render', () => {
         const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
         try {
           h.receive({ type: 'state', state: fixture.state });
-          if (!fixture.state.empty && !fixture.state.error) {
+          if (fixture.state.tab === 'spend' && !fixture.state.empty && !fixture.state.error) {
             const btn = h.query('#tbody [data-ticket]');
             if (btn) {
               const before = h.posted.length;
@@ -113,4 +114,53 @@ describe('usage render', () => {
       });
     });
   }
+
+  describe('the Quota tab', () => {
+    const quotaFixture = fixtures.find((f) => f.scenario === 'quota')!;
+
+    it('shows the tab bar and reveals only the quota region on the quota tab', () => {
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state: quotaFixture.state });
+        expect(h.queryAll('#tabs .k-chip')).toHaveLength(2);
+        expect(h.query('#quota')!.classList.contains('hidden')).toBe(false);
+        expect(h.query('#spend')!.classList.contains('hidden')).toBe(true);
+      } finally { h.close(); }
+    });
+
+    it('renders one row per core and one bar per window', () => {
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state: quotaFixture.state });
+        expect(h.queryAll('#qrows .qrow')).toHaveLength(quotaFixture.state.quota.rows.length);
+        const known = quotaFixture.state.quota.rows.filter((r) => r.state === 'ok');
+        const expectedBars = known.reduce((sum, r) => sum + r.windows.length, 0);
+        expect(h.queryAll('#qrows .qbar')).toHaveLength(expectedBars);
+      } finally { h.close(); }
+    });
+
+    it('states an unknown core with its reason, never a 0% bar', () => {
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state: quotaFixture.state });
+        const unknownRow = quotaFixture.state.quota.rows.find((r) => r.state === 'unknown')!;
+        const node = h.queryAll('#qrows .qrow')[quotaFixture.state.quota.rows.indexOf(unknownRow)]!;
+        expect(node.textContent).toContain(unknownRow.reason!);
+        expect(node.querySelector('.qbar')).toBeNull();
+      } finally { h.close(); }
+    });
+
+    it('clicking the Spend tab posts set-tab', () => {
+      const h = renderWebview('usage', { nonce: FIXTURE_NONCE });
+      try {
+        h.receive({ type: 'state', state: quotaFixture.state });
+        const spend = Array.from(h.queryAll('#tabs [data-tab]')).find(
+          (b) => (b as HTMLElement).dataset.tab === 'spend',
+        )!;
+        const before = h.posted.length;
+        (spend as HTMLElement).click();
+        expect(h.posted[before]).toMatchObject({ type: 'set-tab', tab: 'spend' });
+      } finally { h.close(); }
+    });
+  });
 });

@@ -39,7 +39,9 @@ const REQUIRED_ARTIFACTS = [
 // Raised 362 → 364 KB for the sandbox backend panel on the Agents page (selector,
 // per-core effective-backend line, sbx/docker status; ~1.5 KB of genuine app code
 // plus the shared pure `deriveEffectiveBackends`).
-const APP_BUNDLE_BUDGET_BYTES = 364 * 1024;
+// Raised 364 → 366 KB when the sandbox branch merged with develop's per-core
+// quota card (D163): each fit alone, the merged bundle is 372815 bytes.
+const APP_BUNDLE_BUDGET_BYTES = 366 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

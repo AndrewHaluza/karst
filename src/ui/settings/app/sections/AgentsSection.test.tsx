@@ -241,6 +241,37 @@ describe('Agents page — agent profiles', () => {
   });
 });
 
+describe('Agents page — subscription quota', () => {
+  it('renders the warn threshold with the loader default as its placeholder', () => {
+    mount();
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    expect(field.getAttribute('type')).toBe('number');
+    expect(field.getAttribute('min')).toBe('1');
+    expect(field.getAttribute('max')).toBe('100');
+    expect(field.value).toBe('');
+    expect(field.placeholder).toBe('80');
+  });
+
+  it('writes the threshold as a whole number from 1 to 100', () => {
+    const { probe } = mount();
+    fireEvent.change(screen.getByLabelText('Warn at used %'), { target: { value: '95' } });
+    expect(draftOf(probe)).toMatchObject({ quota: { warnThresholdPct: 95 } });
+  });
+
+  it('snaps an out-of-range threshold back to blank and flags it inline', () => {
+    const { probe } = mount();
+    const field = screen.getByLabelText('Warn at used %') as HTMLInputElement;
+    for (const bad of ['0', '101', '2.5']) {
+      fireEvent.change(field, { target: { value: '90' } });
+      fireEvent.change(field, { target: { value: bad } });
+      expect(field.getAttribute('aria-invalid')).toBe('true');
+      expect(probe().draft).not.toHaveProperty('quota');
+    }
+    fireEvent.change(field, { target: { value: '80' } });
+    expect(field.getAttribute('aria-invalid')).toBeNull();
+  });
+});
+
 describe('Agents page — roles table layout markup', () => {
   const cells = (r: Element) => Array.from(r.children).map((c) => c.className);
   const mountCompare = () => {
@@ -248,31 +279,26 @@ describe('Agents page — roles table layout markup', () => {
     fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
   };
 
-  it('header has an empty "Enabled" first column and Core / Model / Effort as separate headings', () => {
+  it('header has an empty "Enabled" first column and one picker column with Core/Model/Effort spans', () => {
     mount();
-    const heads = screen.getAllByRole('columnheader').map((h) => h.textContent);
-    expect(heads).toEqual(['Enabled', 'Role', 'Agent profile', 'Core', 'Model', 'Effort', 'Source', 'Actions']);
-    const first = screen.getAllByRole('columnheader')[0]!;
-    expect(first.querySelector('.sr-only')!.textContent).toBe('Enabled');
+    const heads = screen.getAllByRole('columnheader');
+    expect(heads.map((h) => h.textContent)).toEqual(['Enabled', 'Role', 'Agent profile', 'CoreModelEffort', 'Source', 'Actions']);
+    expect(heads[0]!.querySelector('.sr-only')!.textContent).toBe('Enabled');
+    const spans = Array.from(heads[3]!.querySelectorAll('.agents-picker-head-grid > span'));
+    expect(spans.map((s) => s.textContent)).toEqual(['Core', 'Model', 'Effort']);
   });
 
-  it('every normal row has the same six cells in the same order', () => {
+  it('every normal row has the same six cells in the same order, all role=cell', () => {
     mount();
     for (const r of document.querySelectorAll('.agents-row[data-role]')) {
       expect(cells(r).map((c) => c.split(' ').find((n) => n.startsWith('agents-cell-')))).toEqual([
         'agents-cell-switch', 'agents-cell-role', 'agents-cell-profile',
         'agents-cell-picker', 'agents-cell-source', 'agents-cell-actions',
       ]);
+      expect(Array.from(r.children).map((c) => c.getAttribute('role'))).toEqual([
+        'cell', 'cell', 'cell', 'cell', 'cell', 'cell',
+      ]);
     }
-  });
-
-  it('Core, Model and Effort are the row\'s own cells so they map 1:1 to the eight headings', () => {
-    mount();
-    const r = document.querySelector('.agents-row[data-role]:not(.agents-compare-row)')!;
-    expect(r.querySelector('.agents-cell-picker')!.getAttribute('role')).toBeNull();
-    // The compact picker's three .ap-field elements carry role="cell" (pinned in agentPicker.test.ts),
-    // so the row has 5 own cells + 3 picker cells = the 8 headings.
-    expect(Array.from(r.children).filter((c) => c.getAttribute('role') === 'cell')).toHaveLength(5);
   });
 
   it('a non-pinnable role has an empty switch cell and a hidden pin slot beside Clear', () => {
@@ -281,7 +307,7 @@ describe('Agents page — roles table layout markup', () => {
       (el) => !el.querySelector('[role="switch"], input[type="checkbox"]'),
     )!;
     expect(r.querySelector('.agents-cell-switch')!.children).toHaveLength(0);
-    const slot = r.querySelector('.agents-pin-slot')!;
+    const slot = r.querySelector('.agents-slot')!;
     expect(slot.getAttribute('aria-hidden')).toBe('true');
     expect(slot.nextElementSibling!.getAttribute('aria-label')).toBe('Clear');
   });

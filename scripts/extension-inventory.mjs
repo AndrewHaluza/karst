@@ -4,7 +4,7 @@
  * Generates an inventory of registerCommand handlers and direct children of
  * activate() in src/extension.ts. Two text passes — no TS compiler API.
  *
- * Usage: node scripts/extension-inventory.mjs > docs/arch/extension-inventory.md
+ * Usage: node scripts/extension-inventory.mjs > docs/issues/extension-inventory.md
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const srcPath = resolve(__dirname, '..', 'src', 'extension.ts');
-const outPath = resolve(__dirname, '..', 'docs', 'arch', 'extension-inventory.md');
+const outPath = resolve(__dirname, '..', 'docs', 'issues', 'extension-inventory.md');
 
 const src = readFileSync(srcPath, 'utf-8');
 const lines = src.split('\n');

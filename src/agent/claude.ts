@@ -39,7 +39,7 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { writeHookSettings } from './settings.js';
 import { claudeSandboxSettings } from './claudeSandbox.js';
-import { describeHeadlessFailure } from './cliFailure.js';
+import { headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
 import { writeBridgeScripts } from './hookBridgeFiles.js';
@@ -716,14 +716,14 @@ export class ClaudeAdapter implements AgentAdapter {
       // The counts ride out on the rejection: a 429 is reported AFTER the
       // provider has already billed the input (§ token consumption stats).
       throw attachUsage(
-        new Error(
-          describeHeadlessFailure({
-            tool: 'Claude',
-            exitCode: r.exitCode,
-            stdout: r.stdout,
-            stderr: r.stderr,
-          }),
-        ),
+        headlessFailureError({
+          tool: 'Claude',
+          provider: 'claude',
+          model: opts.model,
+          exitCode: r.exitCode,
+          stdout: r.stdout,
+          stderr: r.stderr,
+        }),
         extractTokenUsage(r.stdout),
       );
     }

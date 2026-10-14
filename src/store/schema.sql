@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   selected_repos    TEXT,                 -- JSON array of confirmed repository names
   base_refs         TEXT,                 -- v48: JSON object of per-repo base branch overrides
   base_shas         TEXT,                 -- v80: JSON object of per-repo base commit shas
-  agent_backend     TEXT,                 -- v83: NULL = project agentBackend; 'host' = opt OUT of the sandbox backend
+  agent_backend     TEXT,                 -- v85: NULL = project agentBackend; 'host' = opt OUT of the sandbox backend
   -- v78 analysis columns (kept in sync with migrations.ts v78 ALTERs):
   intent            TEXT,                 -- canonical black-box test charter; NULL = none yet
   code_pointers     TEXT,                 -- unverified implementer hints; NULL = none
@@ -658,7 +658,7 @@ CREATE TABLE IF NOT EXISTS servers (
   -- reissued, so it stays valid even when attribution refuses to signal.
   -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
   container     TEXT,
-  -- The sandbox a service runs inside (v82): `sbx|docker:<name>:<sandboxPort>`,
+  -- The sandbox a service runs inside (v84): `sbx|docker:<name>:<sandboxPort>`,
   -- NULL for a host service. A sandboxed service has no host pid (it runs in the
   -- sandbox, reached through a published 127.0.0.1 port), so this handle is what
   -- the stop and re-verify paths use to unpublish and stop it there (arch:AC-32).
@@ -1072,6 +1072,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   effort                   TEXT,
   prompt_hash              TEXT,
   launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  launch_fail_streak       INTEGER NOT NULL DEFAULT 0,
   generation               TEXT,
   process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   owner_nonce              TEXT,
@@ -1393,3 +1394,32 @@ CREATE INDEX IF NOT EXISTS idx_fix_deliveries_ticket
   ON fix_deliveries(ticket_id, superseded_at, read_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_fix_deliveries_round
   ON fix_deliveries(ticket_id, recovery_round_id) WHERE recovery_round_id IS NOT NULL;
+
+-- v82 usage-limit parks (kept in sync with USAGE_LIMIT_PARKS_DDL in usageLimitParks.ts;
+-- @arch:V82). One row per AI op that stopped because the provider account is out
+-- of quota; the partial unique index keeps at most one OPEN park per key.
+CREATE TABLE IF NOT EXISTS usage_limit_parks (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  ticket_id    INTEGER NOT NULL REFERENCES tickets(id) ON DELETE CASCADE,
+  stage        TEXT,
+  kind         TEXT NOT NULL CHECK (kind IN ('stage-block', 'op', 'interactive')),
+  lane         TEXT,
+  target       TEXT,
+  session_id   TEXT,
+  stage_run_id INTEGER REFERENCES stage_runs(id) ON DELETE SET NULL,
+  provider     TEXT NOT NULL,
+  model        TEXT,
+  detail       TEXT NOT NULL,
+  kept_outcome TEXT,
+  parked_at    TEXT NOT NULL,
+  resolved_at  TEXT,
+  resolution   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_usage_limit_parks_ticket
+  ON usage_limit_parks(ticket_id, resolved_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_usage_limit_parks_open
+  ON usage_limit_parks(
+    ticket_id, COALESCE(stage, ''), kind, COALESCE(lane, ''),
+    COALESCE(target, ''), COALESCE(session_id, '')
+  )
+  WHERE resolved_at IS NULL;

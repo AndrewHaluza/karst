@@ -206,6 +206,24 @@ describe('ticketGlyph', () => {
     expect(ticketGlyph(t)).toBe('amber');
   });
 
+  it('a usage-limit block reads needs-you, amber (K11)', () => {
+    const t = ticket({
+      stageCurrent: 'review',
+      agentState: 'idle',
+      stages: [
+        {
+          stageKey: 'review',
+          status: 'running',
+          blockedKind: 'usage-limit',
+          blockedReason: 'usage limit — claude claude-sonnet-5',
+          blockedAt: '2026-10-13T10:00:00.000Z',
+        } as never,
+      ],
+    });
+    expect(needsUser(t)).toBe(true);
+    expect(ticketGlyph(t)).toBe('amber');
+  });
+
   it('pending/idle → gray', () => {
     expect(
       ticketGlyph(

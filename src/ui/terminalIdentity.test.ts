@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { KARST_PLANNING_SESSION_ENV } from '../planning/preamble.js';
 import { KARST_LAUNCH_ENV, KARST_TICKET_ENV } from './session.js';
 import {
   MAX_SESSION_TERMINAL_RECORDS,
@@ -103,6 +104,33 @@ describe('identifyTerminal', () => {
   it('ignores an env that is not a positive integer ticket id', () => {
     expect(identifyTerminal({ env: { [KARST_TICKET_ENV]: '0' } }, [])).toBeUndefined();
     expect(identifyTerminal({ env: { [KARST_TICKET_ENV]: 'x' } }, [])).toBeUndefined();
+  });
+});
+
+describe('planning terminals', () => {
+  const planning = (ticketId?: number): Record<string, string> => ({
+    [KARST_PLANNING_SESSION_ENV]: '17',
+    ...(ticketId === undefined ? {} : { [KARST_TICKET_ENV]: String(ticketId) }),
+  });
+
+  it('resolves to no ticket even when the env also carries an inherited ticket id', () => {
+    // A planning launch that inherited KARST_TICKET_ID from the environment must
+    // NOT resolve to that ticket: the notes sweep would then type its pointer
+    // into the planning terminal.
+    expect(identifyTerminal({ env: planning(7) }, [])).toBeUndefined();
+  });
+
+  it('resolves to no ticket from the planning env alone', () => {
+    expect(identifyTerminal({ env: planning() }, [])).toBeUndefined();
+  });
+
+  it('does not let a stale pid record claim a planning terminal', () => {
+    const records: SessionTerminalRecord[] = [{ ticketId: 7, pid: 4242, mcp: true }];
+    expect(identifyTerminal({ env: planning(), pid: 4242 }, records)).toBeUndefined();
+  });
+
+  it('leaves an ordinary ticket session unchanged', () => {
+    expect(identifyTerminal({ env: env(7, 'gen-1') }, [])).toEqual({ ticketId: 7, launchId: 'gen-1' });
   });
 });
 

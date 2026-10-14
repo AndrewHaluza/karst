@@ -26,6 +26,7 @@ import { partitionDisabled, type StageGateResolution } from '../gates/disable.js
 import { runGateList } from '../gates/runList.js';
 import type { GateOutputChunk } from '../gates/run.js';
 import { checkNodeDeps, type NodeDepsCheck } from '../gates/depsCheck.js';
+import { usageLimitReason } from '../../agent/cliFailure.js';
 import { planUatTargets, type UatTarget } from '../uat/targets.js';
 import { declaredGatesFor, PROBE_SCRIPTS } from '../uat/gates.js';
 import {
@@ -880,6 +881,31 @@ export async function runUat(
       const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
       sections.push(`# uat tester (unreadable output)\n${testerResult.preview}`);
       return finish({ kind: 'blocked', blocker: 'capability-missing', reason }, [reason]);
+    }
+    if (testerResult?.kind === 'usage-limited') {
+      // K11: the provider account is out of quota/allowance. NOT an advisory
+      // absence and NOT a T663 partial — the op could not run, so the stage
+      // parks `blocked:usage-limit` (no verdict, no fix attempt) with the park
+      // payload that rides into `usage_limit_parks`. The observations a sibling
+      // target already produced are kept on the park row for D159's merge.
+      const reason = usageLimitReason(testerResult.provider, testerResult.model);
+      sections.push(`# uat tester (usage limit)\n${testerResult.detail}`);
+      return finish(
+        {
+          kind: 'blocked',
+          blocker: 'usage-limit',
+          reason,
+          park: {
+            provider: testerResult.provider,
+            model: testerResult.model,
+            lane: 'uat',
+            target: testerResult.target,
+            detail: testerResult.detail,
+            keptOutcome: testerResult.keptOutcome,
+          },
+        },
+        [reason, testerResult.detail],
+      );
     }
   
     const verifierGate = opts.manifest?.uat?.testerVerifier;

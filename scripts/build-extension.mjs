@@ -82,6 +82,13 @@ const proxyOpts = {
   outfile: 'dist/sandbox/opencode/allowlist-proxy.mjs',
 };
 
+/** @type {import('esbuild').BuildOptions} */
+const uatHostOpts = {
+  ...base,
+  entryPoints: ['src/uatHost/prepare.ts'],
+  outfile: 'dist/uat-host/prepare.js',
+};
+
 // If the CLI banner and a preserved source shebang both land at the top of
 // dist/cli/main.js, drop the duplicate — the file must start with exactly
 // one `#!/usr/bin/env node` line to be valid JS and directly executable.
@@ -101,12 +108,13 @@ function dedupeShebang(outfile) {
 await buildWebviewBundles({ prod });
 
 if (watch) {
-  const ctxs = await Promise.all([context(extensionOpts), context(cliOpts), context(proxyOpts)]);
+  const ctxs = await Promise.all([context(extensionOpts), context(cliOpts), context(proxyOpts), context(uatHostOpts)]);
   await Promise.all(ctxs.map((ctx) => ctx.watch()));
   console.log('watching for changes…');
 } else {
   await build(extensionOpts);
   await build(cliOpts);
   await build(proxyOpts);
+  await build(uatHostOpts);
   dedupeShebang(cliOpts.outfile);
 }

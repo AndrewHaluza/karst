@@ -131,10 +131,33 @@ function allSectionsState(): SidebarState {
     filter: '',
     counts: fixtureCounts({ all: 6, running: 2, input: 1, failed: 1, done: 1 }),
     sections: {
+      // `all-sections` is the sidebar's visual-sweep seed, so the CURRENT
+      // section carries a three-level sub-tree (depth 0 → 1 → 2). The nested
+      // rows are what the baseline pins about how a ticket with its sub-tasks
+      // renders — the guides, the indented chevron and the collapse controls —
+      // which flat rows alone cannot show.
       current: [
-        fixtureRow(0, { glyph: 'blue' }),
-        fixtureRow(1, { glyph: 'amber' }),
-        fixtureRow(2, { glyph: 'red', blocker: { reason: 'gate failed', attempt: 2 } }),
+        fixtureRow(0, { glyph: 'blue', subtaskChildCount: 1 }),
+        fixtureRow(1, {
+          label: 'FEAT-100-s1',
+          glyph: 'amber',
+          subtaskParentId: 900001,
+          subtaskParentKey: 'FEAT-100',
+          subtaskDepth: 1,
+          subtaskChildCount: 1,
+          subtaskIsLast: true,
+          subtaskGuides: [true],
+        }),
+        fixtureRow(2, {
+          label: 'FEAT-100-s1-s1',
+          glyph: 'red',
+          subtaskParentId: 900002,
+          subtaskParentKey: 'FEAT-100-s1',
+          subtaskDepth: 2,
+          subtaskIsLast: true,
+          subtaskGuides: [false, false],
+          blocker: { reason: 'gate failed', attempt: 2 },
+        }),
       ],
       awaitingReview: [fixtureRow(5, { glyph: 'amber', stageLabel: 'Ship', stageClass: 'stg-ship', stageChip: 'ship', stageCurrent: 'ship', prs: [{ repo: 'backend', number: 1, url: 'fixture:pr/1', status: 'open' }] })],
       recentlyDone: [fixtureRow(3, { glyph: 'green', stageLabel: 'Done', stageClass: 'stg-done', stageChip: 'done' })],

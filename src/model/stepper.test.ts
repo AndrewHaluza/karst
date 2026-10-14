@@ -141,9 +141,11 @@ describe('buildStepper', () => {
     expect(reason.endsWith('…')).toBe(true);
   });
 
-  it('marks only awaiting-merge non-resumable', () => {
+  it('marks a wait a retry cannot clear non-resumable (K11 adds usage-limit)', () => {
     // A retry clears every other kind once its cause is addressed; only a
-    // landing clears awaiting-merge, and karst never lands a PR itself.
+    // landing clears awaiting-merge, and karst never lands a PR itself. A quota
+    // exhaustion is user-resolved the same way — a Resume would re-run the
+    // exhausted model, so `stageResume.ts` refuses it and no button renders.
     const cellFor = (kind: BlockerKind) =>
       buildStepper([
         {
@@ -158,6 +160,7 @@ describe('buildStepper', () => {
     expect(cellFor('nothing-to-run').blocked!.resumable).toBe(true);
     expect(cellFor('awaiting-merge').blocked!.resumable).toBe(false);
     expect(cellFor('baseline-review').blocked!.resumable).toBe(false);
+    expect(cellFor('usage-limit').blocked!.resumable).toBe(false);
   });
 });
 

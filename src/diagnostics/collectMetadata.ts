@@ -334,7 +334,7 @@ export async function collectProjectMetadata(
 
 /**
  * The graph subsystem that owns the ticket's `impl` stage (G6,
- * `docs/arch/graph-run-reliability.md`). Read-only, ticket-scoped: graph runs,
+ * `docs/issues/graph-run-reliability.md`). Read-only, ticket-scoped: graph runs,
  * their planner runs and node runs, and each run's active revision — number
  * and fingerprint only, NEVER the canonical graph document. `blockedReason`
  * and a planner's `reason` are diagnostic prose that may embed a path or a

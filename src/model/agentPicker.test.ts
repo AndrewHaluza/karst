@@ -451,11 +451,18 @@ describe('compact effort placeholder', () => {
     expect(fns.apModelTriggerName('', '', 'No model')).toBe('No model');
     expect(fns.apModelTriggerName('same', 'same', 'x')).toBe('same');
   });
-  it('ships the placeholder markup and CSS', () => {
-    expect(js).toContain('data-ap-effort-placeholder');
-    expect(js).toContain('Effort is not available for this model');
-    expect(agentPickerCss()).toContain('.ap-effort-placeholder');
-    expect(agentPickerCss()).toMatch(/\.ap-effort-placeholder\{[^}]*color:var\(--k-text-dim\)[^}]*dashed/);
+  it('ships the disabled select placeholder and its CSS', () => {
+    expect(js).toContain('ap-effort--na');
+    expect(js).toContain('\\u2014');
+    expect(js).toContain(': not available for this model');
+    expect(js).not.toContain('data-ap-effort-placeholder');
+    expect(agentPickerCss()).toContain('.ap-effort--na');
+    expect(agentPickerCss()).toMatch(/\.ap-effort--na\{[^}]*color:var\(--k-text-dim\)[^}]*dashed/);
+  });
+  it('pins the compact Core | Model | Effort template', () => {
+    expect(agentPickerCss()).toContain(
+      '.ap-compact{grid-template-columns:minmax(0,1.3fr) minmax(0,1.6fr) minmax(96px,0.8fr)',
+    );
   });
 });
 
@@ -472,9 +479,8 @@ describe('truncated trigger text stays reachable (UI-R44)', () => {
     expect(fns.apCoreTriggerName!('Core', 'Claude Code')).toBe('Core: Claude Code');
     expect(fns.apCoreTriggerName!('Core', '')).toBe('Core');
   });
-  it('compact fields are table cells (the row owns Core | Model | Effort)', () => {
-    expect(js).toContain("var cellRole = compact ? ' role=\"cell\"' : '';");
-    expect(js.match(/'<div class="ap-field[^']*"' \+ cellRole/g)).toHaveLength(3);
+  it('compact fields are not table cells (the row owns the picker cell now)', () => {
+    expect(js).not.toContain('role="cell"');
   });
   it('gives each trigger a unique id and wires the labels to it', () => {
     expect(js).toContain("id=\"' + apId + '-core\"");

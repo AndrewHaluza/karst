@@ -28,6 +28,8 @@ import { openProcessRun, setProcessRunPromptTelemetry, type ProcessRun } from '.
 import { stageAttempt } from '../../store/stages.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { nowIso } from '../../model/time.js';
+import { classifyFailure } from '../../agent/failureClass.js';
+import { UsageLimitError } from '../../agent/cliFailure.js';
 import { parseFindingsResult, type FindingsExtractionTier, type WarnFn } from './findings.js';
 import { buildScopeBlock, scopeDiffRange } from '../agentScope.js';
 import { buildConformanceBlock, type ReviewArtifacts } from './conformance.js';
@@ -344,6 +346,9 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
   // read out of (`shape: 'unreadable'`) — distinct from a target that
   // answered cleanly with nothing to report.
   const unreadable: string[] = [];
+  // Per-target outcome, kept so a quota park (K11) can carry what its siblings
+  // already answered — D159 merges them instead of re-asking every repo.
+  const targetOutcomes: { repo: string; status: string; findings: number }[] = [];
   const snapshotted: { repo: string; worktreePath: string }[] = [];
   try {
     for (const target of opts.targets) {
@@ -460,10 +465,46 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
           detail: `${parsed.length} finding${parsed.length === 1 ? '' : 's'}`,
         });
         findings.push(...immediate);
+        targetOutcomes.push({ repo: target.repo, status: shape, findings: parsed.length });
       } catch (error) {
         if (opts.signal?.aborted) {
           debug?.(`[gate] review findings ticket ${opts.ticketId}: stopped during a call`);
           return stopped();
+        }
+        // K11: a quota exhaustion is NOT a crash and NOT a pass — the provider
+        // account is out of allowance, so the lane stops, keeps what its
+        // siblings already answered, and the stage parks `blocked:usage-limit`.
+        // Classified (not `instanceof`-only) so a plain Error carrying the quota
+        // text from an outer wrapper is caught the same way.
+        if (classifyFailure(error) === 'usage-limited') {
+          const detail = collapseDiagnostic(
+            error instanceof Error ? error.message : String(error),
+          );
+          const provider =
+            (error instanceof UsageLimitError ? error.provider : undefined) ??
+            opts.process?.assignment.provider ??
+            'unknown';
+          const model =
+            (error instanceof UsageLimitError ? error.model : undefined) ??
+            opts.process?.assignment.model ??
+            null;
+          debug?.(
+            `[gate] review findings ticket ${opts.ticketId}: target ${target.repo} hit a quota ` +
+              `limit (${provider}${model ? `/${model}` : ''}) — parking`,
+          );
+          const outcome: Extract<FindingsLaneOutcome, { kind: 'usage-limited' }> = {
+            kind: 'usage-limited',
+            target: target.repo,
+            provider,
+            model,
+            detail,
+            keptOutcome: JSON.stringify({
+              findings: findings.length,
+              targets: [...targetOutcomes, { repo: target.repo, status: 'usage-limited', findings: 0 }],
+            }),
+          };
+          if (processRun !== null) outcome.processRunId = processRun.id;
+          return outcome;
         }
         const message = collapseDiagnostic(error instanceof Error ? error.message : String(error));
         crashes.push(message);

@@ -65,7 +65,7 @@
   .ticket{margin:0 var(--k-space-2);border-radius:var(--k-radius-md)}
   .ticket.arch{opacity:.6}
   .row{display:flex;align-items:center;gap:var(--k-space-3);
-    padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) var(--k-space-2);
+    padding:var(--k-space-2) var(--k-space-3) var(--k-space-2) 0;
     border-radius:var(--k-radius-md);position:relative;overflow:hidden}
   .row:hover{background:var(--k-surface-hover)}
   /* Opening a ticket is a handoff — the dashboard panel IS the answer — so the
@@ -115,9 +115,20 @@
      (the mini-dashboard redesign) WITHOUT shrinking the hit target — the
      glyph pulls closer while the control keeps its full box. The follow-up
      tightened it further (--k-space-2 instead of --k-space-1): the collapsed
-     row keeps the chevron and the status icon visually adjacent. */
+     row keeps the chevron and the status icon visually adjacent.
+
+     The left margin lines the chevron's centre up with the Planning tree
+     twistie's centre (SIDEBAR-ALIGN-TICKET-ROW-CHEVRON). Both rows sit at the
+     same list inset; the ticket row's padding-left is 0, so the chevron needs
+     `--k-space-1 - (--k-hit-min - --k-space-7) / 2` to centre its --k-hit-min
+     box one twistie half-width from the row edge — the same centre the
+     twistie's half-width box produces. The row's `overflow:hidden` clips a
+     hair of the hit box's left edge; nothing interactive sits left of the
+     chevron, so the WCAG 2.5.8 spacing exception holds (no adjacent target
+     within the target circle). */
   .chev{transition:transform var(--k-dur-fast) var(--k-ease-standard);
-    padding:0;margin-right:calc(-1 * var(--k-space-2))}
+    padding:0;margin-right:calc(-1 * var(--k-space-2));
+    margin-left:calc(var(--k-space-1) - (var(--k-hit-min) - var(--k-space-7)) / 2)}
   .ticket.open .chev{transform:rotate(90deg)}
 
   /* The row's main click target — opens the ticket dashboard. A real <button>
@@ -246,10 +257,10 @@
   .ticket.open .row:hover .stage{opacity:1}
 
   /* expanded body — the compact mini-dashboard. Left padding matches the
-     collapsed row's own left padding (--k-space-2, the same slot the expand
-     chevron occupies), so the minidashboard starts aligned with the expand
-     chevron rather than indented under the glyph. */
-  .body{display:none;padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) var(--k-space-2)}
+     collapsed row's own left padding (now 0 after the chevron alignment), so
+     the minidashboard starts at the chevron's visible left edge rather than
+     indented under the glyph. */
+  .body{display:none;padding:var(--k-space-1) var(--k-space-4) var(--k-space-5) 0}
   .ticket.open .body{display:block}
 
   .nextact{font-size:var(--k-text-sm);margin:var(--k-space-2) 0 var(--k-space-1);color:var(--k-text)}

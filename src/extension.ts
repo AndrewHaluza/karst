@@ -17,7 +17,8 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
-import { compileExpertSpend, graphRecoveryRefusalNotice, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { compileExpertSpend, graphRecoveryRefusalNotice, graphRefusalHandling, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -126,6 +127,7 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
 import { probeBackends } from './agent/backendProbe.js';
+import { installProbeRecorder, registerProbeCommand } from './uatHost/probe/vscodeProbe.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
 import { resolvePlanningDefaults } from './agent/planningDefaults.js';
@@ -207,6 +209,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
 import { KARST_TERMINAL_ICON_ID, terminalNaming } from './ui/terminalNaming.js';
+import { observeTerminalClose } from './ui/terminalObservation.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
@@ -271,14 +274,12 @@ import {
   nodeOverrideFor,
   nodeRunGraphRunId,
   nodeRunIdsInStatusesForGraphRun,
-  nodeRunModelIdentity,
   nodeRunTicketId,
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
 import {
   plannerRunIdsForGraphRun,
-  plannerRunModelIdentity,
   plannerRunStatus,
   plannerRunTicketId,
   setPlannerRunProcessRunId,
@@ -444,6 +445,10 @@ import { GateConsole } from './workflow/gates/gateConsole.js';
 import { recordTokenUsage, listRecentlyUsedModels } from './store/tokenUsage.js';
 import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/usage/panel.js';
 import { makeUsagePanelHost } from './ui/usage/host.js';
+import { QuotaService, defaultQuotaReaders } from './agent/quota/service.js';
+import type { QuotaSnapshot } from './agent/quota/types.js';
+import { QuotaOps } from './extension/ops/quotaOps.js';
+import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from './manifest/validate/quota.js';
 import {
   ResourcesPanelManager,
   type ResourcesPanel,
@@ -712,6 +717,8 @@ function agentStarterTemplate(name: string): string {
 }
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
+  // UAT probe (KARST_UAT_PROBE=1 only): must patch vscode.window before anything is created.
+  const probeRecorder = installProbeRecorder();
   // globalStorageUri's directory isn't created for us — SQLite won't make the
   // parent dir, so ensure it exists before opening the store (first activation).
   const storageDir = context.globalStorageUri.fsPath;
@@ -732,6 +739,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
   const localStore = store;
+  registerProbeCommand(context, probeRecorder, localStore);
 
   // One "Karst" output channel is the sink for every caught error.
   // Managers/endpoint get `logError`; the extension itself uses `logger`.
@@ -2684,14 +2692,59 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // until a panel actually opens.
   let binder: TerminalDashboardBinder;
 
+  // Per-core subscription quota (D163): local, provider-written usage read on a
+  // modest interval. The badge and the launch warning are decided in
+  // `ops/quotaOps.ts`; this is the binding. `onQuotaChange` is a holder because
+  // the service is built before the panel and the ops that consume a refresh.
+  const quotaWarnThresholdPct = (): number =>
+    currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
+  let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
+  const quotaService = new QuotaService({
+    readers: defaultQuotaReaders(),
+    debug: (message) => logger.debug(message),
+    onDidChange: (snapshots) => onQuotaChange(snapshots),
+  });
   // One token-usage panel per window (§ token consumption stats). Project-scoped
   // like every other query: the DB is global storage, shared by every window.
   const tokenUsagePanel = new UsagePanelManager(localStore, makeUsagePanelHost(context, brandIcon), {
     projectId: () => currentProject()?.id,
     openDashboard: (ticketId) =>
       void vscode.commands.executeCommand('karst.openDashboard', ticketId),
+    quota: () => quotaService.snapshots(),
+    quotaThresholdPct: quotaWarnThresholdPct,
     logError,
   });
+  const quotaStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 45);
+  quotaStatus.command = {
+    title: 'Open subscription quota',
+    command: 'karst.openTokenUsage',
+    arguments: ['quota'],
+  };
+  context.subscriptions.push(quotaStatus);
+  const quotaOps = new QuotaOps({
+    service: quotaService,
+    thresholdPct: () => currentManifest()?.quota?.warnThresholdPct,
+    coreLabel: (core) => AGENT_PROVIDER_LABELS[core] ?? core,
+    status: {
+      set: (text, tooltip, warning) => {
+        quotaStatus.text = text;
+        quotaStatus.tooltip = tooltip;
+        quotaStatus.backgroundColor = warning
+          ? new vscode.ThemeColor('statusBarItem.warningBackground')
+          : undefined;
+        quotaStatus.show();
+      },
+      hide: () => quotaStatus.hide(),
+    },
+    notify: (message) => void vscode.window.showWarningMessage(message),
+  });
+  onQuotaChange = (snapshots) => {
+    tokenUsagePanel.refresh();
+    quotaOps.applyStatus(snapshots);
+  };
+  quotaService.start();
+  context.subscriptions.push({ dispose: () => quotaService.dispose() });
+
 
   // The resource monitor (leak hunter): one slow-lane sample every 30 s for the
   // window's lifetime, a fast lane only while the Resources panel is visible.
@@ -4360,25 +4413,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!gs) return undefined;
         const run = graphRunTicketStageAttempt(gs.db, request.graphRunId);
         if (!run) return undefined;
-        const node = nodeRunModelIdentity(gs.db, request.nodeRunId);
-        const planner = node === undefined ? plannerRunModelIdentity(gs.db, request.nodeRunId) : undefined;
-        if (node === undefined && planner === undefined) return undefined;
-        const identity = node ?? planner!;
+        // Which table `nodeRunId` names, from the request's own `runKind` — the
+        // two id sequences overlap, so an ambiguous lookup would attribute a
+        // planner's process to an unrelated node run (T693).
+        const resolved = graphLaunchIdentity(gs.db, request);
+        if (resolved === undefined) return undefined;
+        const plannerLaunch = resolved.kind === 'planner';
         const processRun = openProcessRun(graphCoordinatorStore!, {
           ticketId: run.ticket_id,
           stageKey: 'impl',
-          processId: node !== undefined ? 'graph-node' : 'graph-planner',
+          processId: plannerLaunch ? 'graph-planner' : 'graph-node',
           attempt: run.stage_attempt,
-          agentName: identity.profile,
-          provider: identity.provider ?? request.adapter.requiredBinary,
-          model: request.interactive.model ?? identity.model,
+          agentName: resolved.identity.profile,
+          provider: resolved.identity.provider ?? request.adapter.requiredBinary,
+          model: request.interactive.model ?? resolved.identity.model,
           pid,
           startedAt: new Date().toISOString(),
         });
-        if (node !== undefined) {
-          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
-        } else {
+        if (plannerLaunch) {
           setPlannerRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
+        } else {
+          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
         }
         return processRun.id;
       } catch (err) {
@@ -4404,6 +4459,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     facts: systemAsyncProcessFacts,
     now: () => new Date().toISOString(),
     debug: (message) => logger.debug(message),
+    // A provider that exits before its session started is a LAUNCH failure, not
+    // a session death (T693): park the node with the captured line.
+    onLaunchFailed: parkGraphLaunchFailure(() => graphDriverDeps(), logError),
     // The launch diagnostic's identity (Slice-6 T3): the transport has no DB
     // handle, so the host resolves graph → project/ticket/attempt for it.
     graphIdentityOf: (graphRunId) => {
@@ -6499,6 +6557,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         brandIcon,
       });
 
+      // View-only quota warning (D163): the resolved core is near a limit. Fired
+      // only for a real launch — a recovery re-launch is automatic and must not
+      // stack warnings. Never awaited, never blocking.
+      if (!options.recovery) quotaOps.warnBeforeLaunch(launchProvider);
+
         await sessions.openSession(
           adapter,
           ticketId,
@@ -6829,7 +6892,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       if (picked) void vscode.commands.executeCommand('karst.openDashboard', picked.ticketId);
     }),
-    vscode.commands.registerCommand('karst.openTokenUsage', () => tokenUsagePanel.open()),
+    vscode.commands.registerCommand('karst.openTokenUsage', (arg: unknown) =>
+      tokenUsagePanel.open(arg === 'quota' ? 'quota' : 'spend'),
+    ),
     vscode.commands.registerCommand('karst.openResources', () => resourcesPanel.open()),
     vscode.commands.registerCommand('karst.showLogs', () => channel.show()),
     vscode.commands.registerCommand('karst.search', async () => {
@@ -7575,14 +7640,7 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
     show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text, addNewLine = true) => terminal.sendText(text, addNewLine),
     dispose: () => terminal.dispose(),
-    onDidClose: (handler) => {
-      const sub = vscode.window.onDidCloseTerminal((closed) => {
-        if (closed === terminal) {
-          sub.dispose();
-          handler(closed.exitStatus?.code);
-        }
-      });
-    },
+    onDidClose: (handler) => observeTerminalClose(terminal, handler),
   };
 }
 
@@ -7606,14 +7664,7 @@ function wrapRevivedGraphTerminal(terminal: vscode.Terminal): TransportTerminal 
     show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text) => terminal.sendText(text, true),
     dispose: () => terminal.dispose(),
-    onDidClose: (handler) => {
-      const sub = vscode.window.onDidCloseTerminal((closed) => {
-        if (closed === terminal) {
-          sub.dispose();
-          handler(closed.exitStatus?.code);
-        }
-      });
-    },
+    onDidClose: (handler) => observeTerminalClose(terminal, handler),
   };
 }
 
@@ -7677,14 +7728,10 @@ function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTer
         show: (preserveFocus) => terminal.show(preserveFocus),
         sendText: (text) => terminal.sendText(text, true),
         dispose: () => terminal.dispose(),
-        onDidClose: (handler) => {
-          const sub = vscode.window.onDidCloseTerminal((closed) => {
-            if (closed === terminal) {
-              sub.dispose();
-              handler(closed.exitStatus?.code);
-            }
-          });
-        },
+        // No captured output: VS Code exposes a terminal's data only through a
+        // proposed API a shipped extension cannot use, so the launch-failure
+        // reason carries no provider line here (see `terminalObservation`).
+        onDidClose: (handler) => observeTerminalClose(terminal, handler),
       };
     },
   };
@@ -7744,7 +7791,7 @@ function makeInsideActionHost(
   const recoverBlockedGraph = (
     ticketId: number,
     graphRunId: number,
-    mode: 'resume' | 'replan',
+    mode: 'resume' | 'replan' | 'force-resume',
   ): void => {
     try {
       const recovery = recoverGraphRun(
@@ -7758,9 +7805,19 @@ function makeInsideActionHost(
         graphBootstrapRelaunch(recovery.launch);
       }
       if (recovery.kind === 'refused') {
-        void vscode.window.showInformationMessage(
-          graphRecoveryRefusalNotice(ticketId, mode, recovery.reason),
-        );
+        // A plain Resume on a node that already exited before starting twice is
+        // the loop, not a recovery: offer the explicit Force retry the guard
+        // refused to do on its own. Every other refusal is informational.
+        const handling = graphRefusalHandling(ticketId, mode, recovery.reason);
+        if (handling.offerForce) {
+          void vscode.window
+            .showWarningMessage(handling.message, { modal: true }, 'Force retry')
+            .then((choice) => {
+              if (choice === 'Force retry') recoverBlockedGraph(ticketId, graphRunId, 'force-resume');
+            });
+          return;
+        }
+        void vscode.window.showInformationMessage(handling.message);
         return;
       }
       if (recovery.kind !== 'no-op') {

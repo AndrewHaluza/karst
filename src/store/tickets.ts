@@ -66,7 +66,7 @@ export interface Ticket {
   agentProvider: AgentProvider | null;
   /** Per-ticket agent-preset override; `null` = inherit `manifest.defaultAgentPreset`. */
   agentPreset: string | null;
-  /** Per-ticket sandbox opt-OUT (v83): `'host'` runs on host; `null` follows `manifest.agentBackend`. Never opts INTO a backend. */
+  /** Per-ticket sandbox opt-OUT (v85): `'host'` runs on host; `null` follows `manifest.agentBackend`. Never opts INTO a backend. */
   agentBackend?: 'host' | null;
   /**
    * Agent core that minted `sessionId` (§5.3). A session id is private to the

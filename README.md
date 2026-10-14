@@ -328,7 +328,7 @@ reattach after a host crash. A node that cannot start reports why —
 `dependency-waiting`, `resource-conflict`, `parallel-slot-busy` — rather than
 stalling silently.
 
-Design notes: [`docs/arch/graph-run-reliability.md`](./docs/arch/graph-run-reliability.md).
+Design notes: [`docs/issues/graph-run-reliability.md`](./docs/issues/graph-run-reliability.md).
 
 ---
 
@@ -416,7 +416,7 @@ real VS Code host.
 Command logic lives in `src/extension/ops/` behind a `Notify` seam; the stage
 machine, the gates and the runtime are all under `src/` in `vscode`-free
 modules. A generated map of the whole tree is
-[`docs/arch/extension-inventory.md`](./docs/arch/extension-inventory.md).
+[`docs/issues/extension-inventory.md`](./docs/issues/extension-inventory.md).
 
 ### The stage machine
 
@@ -446,7 +446,6 @@ read the one covering what you are changing before you change it.**
 | --- | --- |
 | [`stages-and-gates.md`](./docs/arch/stages-and-gates.md) | the stage graph, markers, gate evidence, the driver seam |
 | [`agent-cores.md`](./docs/arch/agent-cores.md) | the adapter seam, the one headless spawner, model tiers, token metering |
-| [`graph-run-reliability.md`](./docs/arch/graph-run-reliability.md) | the graph runtime's guarantees |
 | [`cli.md`](./docs/arch/cli.md) | separate parse paths as a security property |
 | [`worktrees-and-servers.md`](./docs/arch/worktrees-and-servers.md) | worktrees, branches, the placeholder grammar, server reaping |
 | [`store-and-schema.md`](./docs/arch/store-and-schema.md) | project scoping, the artifact shelf, the new-column checklist |

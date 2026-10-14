@@ -49,6 +49,9 @@ reports/**
 # (`currentLevel is undefined for Users in ...`) and it was 36042 of 36721 files.
 .stryker-tmp/**
 
+# UAT host harness (dev-only, arch:UATHOST-01): prepare/runner output under dist/.
+dist/uat-host/**
+
 # Playwright visual sweep: tests, config and generated results. Dev-only.
 tests/**
 test-results/**

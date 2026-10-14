@@ -37,18 +37,53 @@ export const HTTP_429 = /(?<![\w.:])429(?![\w.:])/;
 export const LIMIT_PHRASES =
   /(rate[-_ ]?limit|usage limit|spend limit|limit reached|quota[-_ ]?exceeded|quota exceeded|resource[-_ ]?exhausted|too many requests|out of credits?|insufficient[_ ]quota)/i;
 
+/**
+ * The QUOTA subset of `LIMIT_PHRASES`: the wording that names an exhausted
+ * ALLOWANCE — the account is out of quota/credit, so the user must raise a
+ * limit, buy credit or wait for a reset. Deliberately excludes the generic
+ * limit words (`429`, `rate limit`, `too many requests`, `limit reached`),
+ * which describe a TRANSIENT rate limit retrying CAN clear: `limit reached`
+ * in particular matches "Rate limit reached", so reading it as quota would
+ * fast-fail a retryable 429 (UAT caught exactly that). `LIMIT_PHRASES` stays
+ * the union of both (it drives the human sentence in `describeHeadlessFailure`).
+ *
+ * This is a HEURISTIC, applied only to the provider's OWN error text
+ * (`analyze`'s `quotaEvidence` — an error envelope's message, or stderr), never
+ * to an unstructured run's stdout, which is the model's answer. A provider
+ * error CODE (`QUOTA_CODES`) and HTTP 402 are the structured forms of the same
+ * signal.
+ */
+export const QUOTA_PHRASES =
+  /(quota[-_ ]?(exceeded|exhausted)|usage limit|spend limit|out of credits?|insufficient[_ ]credits?|insufficient[_ ]quota|resource[-_ ]?exhausted|payment required|credit balance)/i;
+
+/** Provider error `code`/`type` values that name an exhausted allowance. */
+export const QUOTA_CODES =
+  /(insufficient[_ ]quota|quota[_ ]exceeded|quota[_ ]exhausted|resource[_ ]exhausted|billing[_ ]hard[_ ]limit)/i;
+
 export interface HeadlessFailure {
   /** Display name of the agent core, e.g. `Claude`. */
   tool: string;
   exitCode: number;
   stdout: string;
   stderr: string;
+  /** The core's provider id (`claude` | `codex` | …), when known. */
+  provider?: string;
+  /** The model the failed run was launched with, when known. */
+  model?: string;
 }
 
 /** What could be read out of a JSON / JSONL envelope. */
 interface Structured {
   message?: string;
   status?: number;
+  /** The provider's machine error code/type, e.g. `insufficient_quota`. */
+  code?: string;
+  /**
+   * Whether this envelope is a provider ERROR document (not the model's own
+   * structured answer that happens to carry a `result`/`message`). Only an
+   * error document's message is trusted as quota evidence.
+   */
+  isError?: boolean;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -83,7 +118,24 @@ function readEvent(record: Record<string, unknown>): Structured {
   const status =
     firstNumber(record, ['api_error_status', 'status', 'statusCode', 'status_code']) ??
     (nested ? firstNumber(nested, ['status', 'statusCode', 'status_code', 'code']) : undefined);
-  return { ...(message ? { message } : {}), ...(status !== undefined ? { status } : {}) };
+  const code =
+    firstString(record, ['code', 'type', 'error_type', 'errorType', 'reason', 'error_code']) ??
+    (nested
+      ? firstString(nested, ['code', 'type', 'error_type', 'errorType', 'reason'])
+      : undefined);
+  // A document that names an error is the PROVIDER speaking; a bare `result`
+  // on an otherwise clean envelope is the model's answer.
+  const isError =
+    record['is_error'] === true ||
+    record['error'] !== undefined ||
+    (typeof record['type'] === 'string' && /error/i.test(record['type'])) ||
+    (status !== undefined && status >= 400);
+  return {
+    ...(message ? { message } : {}),
+    ...(status !== undefined ? { status } : {}),
+    ...(code ? { code } : {}),
+    ...(isError ? { isError: true } : {}),
+  };
 }
 
 /**
@@ -116,6 +168,8 @@ function extractStructured(text: string): Structured {
     const event = readEvent(candidate);
     if (found.message === undefined && event.message !== undefined) found.message = event.message;
     if (found.status === undefined && event.status !== undefined) found.status = event.status;
+    if (found.code === undefined && event.code !== undefined) found.code = event.code;
+    if (event.isError === true) found.isError = true;
   }
   return found;
 }
@@ -136,6 +190,8 @@ function limitLine(text: string): string | undefined {
 
 interface Analysis {
   limited: boolean;
+  /** The account is out of quota/allowance — a subset of `limited`. */
+  quota: boolean;
   status?: number;
   detail?: string;
   raw: string;
@@ -150,9 +206,11 @@ function analyze(failure: HeadlessFailure): Analysis {
   const fromOut = extractStructured(stdout);
   const message = fromErr.message ?? fromOut.message;
   const statusCode = fromErr.status ?? fromOut.status;
+  const code = fromErr.code ?? fromOut.code;
   const structured: Structured = {
     ...(message !== undefined ? { message } : {}),
     ...(statusCode !== undefined ? { status: statusCode } : {}),
+    ...(code !== undefined ? { code } : {}),
   };
 
   const raw = stderr || stdout;
@@ -161,10 +219,30 @@ function analyze(failure: HeadlessFailure): Analysis {
     (structured.message !== undefined && LIMIT_PHRASES.test(structured.message)) ||
     (structured.message === undefined && (LIMIT_PHRASES.test(raw) || HTTP_429.test(raw)));
 
+  // Quota evidence is the provider's OWN error text: a structured ERROR
+  // envelope's message (stderr or stdout — claude puts its JSON error envelope
+  // on stdout), or, when there is none, stderr (where a CLI reports a fault).
+  // An UNSTRUCTURED run's stdout is the model's answer and is NEVER evidence: a
+  // model may write "quota exceeded" for any reason, and reading that as an
+  // account failure would park a healthy run (UAT observed exactly that). A
+  // provider error CODE or HTTP 402 (payment required) is the structured form
+  // of the same signal and needs no wording.
+  const quotaEvidence =
+    fromErr.message ??
+    (fromOut.isError === true ? fromOut.message : undefined) ??
+    (stderr !== '' ? stderr : '');
+  const quotaCode =
+    fromErr.code ?? (fromOut.isError === true ? fromOut.code : undefined);
+  const quota =
+    QUOTA_PHRASES.test(quotaEvidence) ||
+    (quotaCode !== undefined && QUOTA_CODES.test(quotaCode)) ||
+    statusCode === 402;
+
   const detail = structured.message ?? (limited ? limitLine(raw) : raw || undefined);
 
   return {
     limited,
+    quota,
     ...(structured.status !== undefined ? { status: structured.status } : {}),
     ...(detail !== undefined ? { detail } : {}),
     raw,
@@ -182,20 +260,100 @@ export function isUsageLimitFailure(failure: HeadlessFailure): boolean {
  * can act on.
  */
 export function describeHeadlessFailure(failure: HeadlessFailure): string {
-  const { limited, status, detail, raw } = analyze(failure);
+  const { limited, quota, status, detail, raw } = analyze(failure);
   const next = 'Retry once the limit resets, or switch the ticket to another model or agent core.';
 
   if (limited) {
+    // A QUOTA exhaustion and a transient RATE LIMIT are both "limited" but read
+    // differently to a person: only the first means the account is out of
+    // allowance. The wording names which, so the sentence never tells a user
+    // their quota is spent over a 429 they could simply retry (K11).
+    const label = quota ? 'usage limit reached' : 'rate limited';
     const said = detail ? cap(oneLine(detail), MAX_LIMIT_DETAIL_CHARS) : '';
     if (said === '') {
       const code = status !== undefined ? ` (HTTP ${status})` : '';
-      return `${failure.tool} usage limit reached${code}. ${next}`;
+      return `${failure.tool} ${label}${code}. ${next}`;
     }
-    return `${failure.tool} usage limit reached — ${endSentence(said)} ${next}`;
+    return `${failure.tool} ${label} — ${endSentence(said)} ${next}`;
   }
 
   const said = detail ? cap(oneLine(detail), MAX_DIAGNOSTIC_CHARS) : '';
   return `${failure.tool} failed (exit ${failure.exitCode}): ${said || (raw ? cap(oneLine(raw), MAX_DIAGNOSTIC_CHARS) : 'no output.')}`;
+}
+
+/**
+ * True when the CLI refused because the ACCOUNT is out of quota/allowance (a
+ * subset of `isUsageLimitFailure`) — the case a retry cannot clear and the user
+ * must resolve. A bare 429 or `rate limit`/`too many requests` wording without a
+ * quota phrase is NOT exhaustion and stays retryable.
+ */
+export function isQuotaExhausted(failure: HeadlessFailure): boolean {
+  return analyze(failure).quota;
+}
+
+/**
+ * A headless run that died because the account is out of quota/allowance
+ * (K11). Typed so `classifyFailure` never has to guess from prose, and so the
+ * provider/model that exhausted is available to the park that records it.
+ *
+ * The message is exactly `describeHeadlessFailure`'s sentence, so every surface
+ * that renders a failed run reads the same words as before; the class identity
+ * is what changed.
+ */
+export class UsageLimitError extends Error {
+  readonly tool: string;
+  readonly provider: string | undefined;
+  readonly model: string | undefined;
+  readonly status: number | undefined;
+  readonly detail: string | undefined;
+
+  constructor(
+    message: string,
+    fields: {
+      tool: string;
+      provider?: string | undefined;
+      model?: string | undefined;
+      status?: number | undefined;
+      detail?: string | undefined;
+    },
+  ) {
+    super(message);
+    this.name = 'UsageLimitError';
+    this.tool = fields.tool;
+    this.provider = fields.provider;
+    this.model = fields.model;
+    this.status = fields.status;
+    this.detail = fields.detail;
+  }
+}
+
+/**
+ * The ONE error an adapter throws for a failed headless run. Quota exhaustion
+ * becomes a typed `UsageLimitError` (so the resilience layer fails fast); every
+ * other failure is the same plain `Error` whose message `describeHeadlessFailure`
+ * already produced.
+ */
+export function headlessFailureError(failure: HeadlessFailure): Error {
+  const analysis = analyze(failure);
+  if (analysis.quota) {
+    return new UsageLimitError(describeHeadlessFailure(failure), {
+      tool: failure.tool,
+      provider: failure.provider,
+      model: failure.model,
+      status: analysis.status,
+      detail: analysis.detail,
+    });
+  }
+  return new Error(describeHeadlessFailure(failure));
+}
+
+/**
+ * The one-line `blocked_reason` a usage-limit park carries (K11): which core and
+ * model exhausted. Kept here so the review/UAT stages and the op parks cannot
+ * drift on the wording.
+ */
+export function usageLimitReason(provider: string, model?: string | null): string {
+  return `usage limit — ${provider}${model ? ` ${model}` : ''}`;
 }
 
 /** agy's global settings file — the only place its permission allow-rules live. */

@@ -225,4 +225,37 @@ describe('UsagePanelManager', () => {
     expect(() => mgr.refresh()).not.toThrow();
     expect(host.panels).toHaveLength(0);
   });
+
+  it('starts on the requested tab and switches it host-side', () => {
+    const host = fakeHost();
+    const mgr = new UsagePanelManager(store, host, { projectId: () => 1, now: NOW });
+    mgr.open('quota');
+    const panel = host.panels[0]!;
+    expect(lastState(panel).tab).toBe('quota');
+    panel.emit({ type: 'set-tab', tab: 'spend' });
+    expect(lastState(panel).tab).toBe('spend');
+  });
+
+  it('flows the cached quota snapshots and threshold into the state', () => {
+    const host = fakeHost();
+    const quota = [
+      {
+        core: 'codex' as const,
+        state: 'ok' as const,
+        windows: [{ label: '7-day', usedPct: 82, resetsAt: null }],
+        source: 'test',
+        readAt: '2026-08-01T11:57:00.000Z',
+      },
+    ];
+    new UsagePanelManager(store, host, {
+      projectId: () => 1,
+      now: NOW,
+      quota: () => quota,
+      quotaThresholdPct: () => 80,
+    }).open('quota');
+    const state = lastState(host.panels[0]!);
+    expect(state.quota.thresholdPct).toBe(80);
+    expect(state.quota.anyNear).toBe(true);
+    expect(state.quota.rows[0]).toMatchObject({ core: 'codex', label: 'Codex', readAgo: '3m ago' });
+  });
 });

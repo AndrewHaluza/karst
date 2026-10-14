@@ -364,8 +364,30 @@ describe('reconcileGraphRun — reload and crash matrix', () => {
     expect(nodeRow(ctx, 106).status).toBe('stale');
     const run = runRow(ctx);
     expect(run.status).toBe('blocked');
+    // A session that started and then died is the reconcile sweep's to record:
+    // the early-exit launch-failure path (T693) only claims a death inside its
+    // launch window, so the post-start wording is unchanged.
     expect(run.blocked_reason).toMatch(/node-blocked/);
+    expect(run.blocked_reason).toContain('is gone (dead at reconcile)');
     expect(result.transitions).toBe(1);
+  });
+
+  it('a post-start death clears a prior launch-exit streak — this death is not the loop', async () => {
+    // The node outlived its launch window, so its death is a session death.
+    // A streak left from earlier launch exits must not survive it, or the
+    // launch-loop guard would refuse a Resume for a node that is no longer
+    // looping on folder trust.
+    linkProcess(ctx, 108, 4545, NOW);
+    insertNodeRun(ctx, 108, 'running', { processRunId: 108 });
+    ctx.db.prepare('UPDATE approach_node_runs SET launch_fail_streak = 2 WHERE id = ?').run(108);
+    const deps = ctx.makeDeps({ facts: makeFacts({ alive: { 4545: false } }) });
+    await reconcileGraphRun(deps, { graphRunId: ctx.graphRunId });
+
+    expect(nodeRow(ctx, 108).status).toBe('stale');
+    const row = ctx.db
+      .prepare('SELECT launch_fail_streak FROM approach_node_runs WHERE id = ?')
+      .get(108) as { launch_fail_streak: number };
+    expect(row.launch_fail_streak).toBe(0);
   });
 
   it('a running node whose process death is unprovable becomes termination-unknown and its lease is marked ambiguous-process', async () => {

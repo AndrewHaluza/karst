@@ -1,0 +1,10 @@
+{
+  "security.workspace.trust.enabled": false,
+  "telemetry.telemetryLevel": "off",
+  "update.mode": "none",
+  "extensions.autoUpdate": false,
+  "workbench.startupEditor": "none",
+  "window.restoreWindows": "none",
+  "git.autofetch": false,
+  "git.openRepositoryInParentFolders": "never"
+}

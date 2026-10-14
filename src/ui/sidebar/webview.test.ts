@@ -123,6 +123,22 @@ describe('sidebar webview.html', () => {
     expect(HTML).not.toContain('.ticket.nest5');
   });
 
+  it('centres the ticket chevron on the Planning twistie (SIDEBAR-ALIGN-TICKET-ROW-CHEVRON)', () => {
+    // The ticket row drops its left padding and pulls the chevron left by
+    // --k-space-1 - (--k-hit-min - --k-space-7) / 2, so the chevron centre is
+    // 4 (ticket margin) + 0 + -2 + 12 = 14px — the Planning twistie's centre
+    // (4 + 2 + 16/2). Token arithmetic only; the chevron's hit box stays at the
+    // .k-iconbtn default --k-hit-min (UI-R29).
+    expect(HTML).toMatch(
+      /\.row\{[^}]*padding:var\(--k-space-2\) var\(--k-space-3\) var\(--k-space-2\) 0;[^}]*overflow:hidden\}/,
+    );
+    expect(HTML).toMatch(
+      /\.chev\{[^}]*margin-left:calc\(var\(--k-space-1\) - \(var\(--k-hit-min\) - var\(--k-space-7\)\) \/ 2\)/,
+    );
+    // The chevron keeps its hit box: no local width/min-width override.
+    expect(HTML).not.toMatch(/\.chev\{[^}]*min-width/);
+  });
+
   it('paints one aria-hidden hairline guide per ancestor slot with an elbow/tee (UI-R28)', () => {
     // The decorative tree guides are host-arithmetic (`subtaskGuides` /
     // `subtaskIsLast`) painted CSS-only; they never enter the a11y tree.

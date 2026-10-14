@@ -9,6 +9,7 @@ import { BULLETIN_DDL } from './bulletinNotes.js';
 import { BASELINE_DECISIONS_DDL } from './baselineDecisions.js';
 import { UAT_GATE_PASSES_DDL } from './uatGatePasses.js';
 import { FIX_DELIVERIES_DDL } from './fixDeliveries.js';
+import { USAGE_LIMIT_PARKS_DDL } from './usageLimitParks.js';
 
 export { SCHEMA_VERSION } from './schemaVersion.js';
 
@@ -229,6 +230,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   effort                   TEXT,
   prompt_hash              TEXT,
   launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  launch_fail_streak       INTEGER NOT NULL DEFAULT 0,
   generation               TEXT,
   process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   owner_nonce              TEXT,
@@ -2665,23 +2667,47 @@ function migrateLocked(db: Database): void {
   }
 
   if (current < 82) {
-    // v82: `servers.sandbox` — the sandbox (`sbx:<name>` / `docker:<container>`)
+    // v82: `usage_limit_parks` — one row per AI op that stopped because the
+    // provider account is out of quota/allowance (K11, @arch:V82). A whole new
+    // table (IF NOT EXISTS DDL), nothing backfilled: no park existed before it.
+    db.exec(USAGE_LIMIT_PARKS_DDL);
+  }
+
+  if (current < 83) {
+    // v83: `approach_node_runs.launch_fail_streak` — the count of CONSECUTIVE
+    // launch failures on one reserved visit (T693). The launch-loop guard reads
+    // it to stop offering a plain Resume once a provider has exited before
+    // starting twice in a row, and to name the loop on the node's own row. A
+    // separate counter because `launch_attempt` counts EVERY retry, whatever
+    // its cause — a visit retried after a session death is not launch-looping.
+    // Nothing is backfilled: 0 is the honest "no consecutive launch failure"
+    // for every pre-v83 row, and the streak accrues on the next failure. The
+    // guard reads the CURRENT columns, so a fresh DB (schema.sql already
+    // carries it) and a re-open are no-ops.
+    const cols83 = tableColumns(db, 'approach_node_runs');
+    if (cols83.size > 0 && !cols83.has('launch_fail_streak')) {
+      db.exec('ALTER TABLE approach_node_runs ADD COLUMN launch_fail_streak INTEGER NOT NULL DEFAULT 0');
+    }
+  }
+
+  if (current < 84) {
+    // v84: `servers.sandbox` — the sandbox (`sbx:<name>` / `docker:<container>`)
     // a ticket service runs inside (arch:AC-32). NULL is honest for every
-    // pre-v82 row: all of them ran on the host. The guard reads the CURRENT
+    // pre-v84 row: all of them ran on the host. The guard reads the CURRENT
     // columns, so a fresh DB and a re-open are no-ops.
-    const cols82 = tableColumns(db, 'servers');
-    if (cols82.size > 0 && !cols82.has('sandbox')) {
+    const cols84 = tableColumns(db, 'servers');
+    if (cols84.size > 0 && !cols84.has('sandbox')) {
       db.exec('ALTER TABLE servers ADD COLUMN sandbox TEXT');
     }
   }
 
-  if (current < 83) {
-    // v83: `tickets.agent_backend` — a per-ticket opt-OUT of the project's sandbox
+  if (current < 85) {
+    // v85: `tickets.agent_backend` — a per-ticket opt-OUT of the project's sandbox
     // backend (arch:AC-32). NULL = follow the project setting; 'host' = run on
-    // host. Never derived: every pre-v83 ticket follows the project. The guard
+    // host. Never derived: every pre-v85 ticket follows the project. The guard
     // reads the CURRENT columns, so a fresh DB and a re-open are no-ops.
-    const cols83 = ticketColumns(db);
-    if (cols83.size > 0 && !cols83.has('agent_backend')) {
+    const cols85 = ticketColumns(db);
+    if (cols85.size > 0 && !cols85.has('agent_backend')) {
       db.exec('ALTER TABLE tickets ADD COLUMN agent_backend TEXT');
     }
   }

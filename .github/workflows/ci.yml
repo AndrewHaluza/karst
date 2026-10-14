@@ -60,6 +60,9 @@ jobs:
       - name: Docs keyed-block lint and index
         run: npm run -s docs:check
 
+      - name: Mermaid diagram check
+        run: npm run -s docs:mermaid
+
       - name: Build
         run: npm run build
 

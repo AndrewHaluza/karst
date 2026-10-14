@@ -55,7 +55,7 @@ Reference docs under `docs/` (all except `plans/`, `superpowers/` and the genera
 - **UI invariants** (UI-rule rationale, title keys, Getting Started) → `docs/ui/UI-INVARIANTS.md` (`ui:TITLE-KEY`, `GETTING-STARTED`)
 - **Approach packages** (install, enable/uninstall, artifacts, frontmatter sanitization) → `docs/arch/approaches.md` (`arch:APP-01`..`APP-07`)
 - **Domain terms** → `docs/glossary.md` (`gloss:GL-*`); **UAT stuck** → `docs/troubleshooting/uat-stuck.md` (`ts:UAT-03` fix); **test naming / contributor rules** → `CONTRIBUTING.md` §5
-- Other arch docs (graph-run reliability, model/store/workflow layering, impl exit-condition ADR) live in `docs/arch/`: find keys with the grep above.
+- Other arch docs (model/store/workflow layering, impl exit-condition ADR) live in `docs/arch/`: find keys with the grep above. Dated incident and measurement write-ups live in `docs/issues/` (`@issue:` keys; a failure or a snapshot, not a current rule).
 
 ## UI/UX (binding)
 Touching `src/ui/**` -> read `docs/ui/README.md` first (read order, verification, never edit baselines or the layout ledger to pass a gate).
