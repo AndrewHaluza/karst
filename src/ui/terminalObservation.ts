@@ -1,38 +1,16 @@
 /**
- * Best-effort observation of a VS Code terminal's lifecycle and output.
+ * Best-effort observation of a VS Code terminal's lifecycle.
  *
- * VS Code exposes terminal output only through the PROPOSED
- * `window.onDidWriteTerminalData` event — absent from the stable API and from
- * a published extension's runtime unless the host enables that proposal. This
- * observes it when it is present and does nothing when it is not, so a caller
- * gets the provider's last output line where the platform allows it and never
- * a fabricated one.
+ * VS Code exposes a terminal's OUTPUT only through the proposed
+ * `window.onDidWriteTerminalData` event. A shipped extension cannot use a
+ * proposed API (it is absent from the stable runtime and an extension cannot
+ * enable it), so karst observes only the terminal's CLOSE here. The graph
+ * transport's optional `onDidWriteData` seam stays available to a host that
+ * really can observe writes, but the VS Code host does not wire it — a launch
+ * failure therefore records its own reason without a captured provider line.
  */
 
 import * as vscode from 'vscode';
-
-interface TerminalDataWriter {
-  onDidWriteTerminalData?: (
-    cb: (event: { terminal: vscode.Terminal; data: string }) => void,
-  ) => vscode.Disposable;
-}
-
-export function observeTerminalWriteData(
-  terminal: vscode.Terminal,
-  handler: (data: string) => void,
-): void {
-  const onData = (vscode.window as unknown as TerminalDataWriter).onDidWriteTerminalData;
-  if (typeof onData !== 'function') return;
-  const sub = onData((event) => {
-    if (event.terminal === terminal) handler(event.data);
-  });
-  const close = vscode.window.onDidCloseTerminal((closed) => {
-    if (closed === terminal) {
-      sub.dispose();
-      close.dispose();
-    }
-  });
-}
 
 /** Wire a terminal's close to `handler`, with its exit code, exactly once. */
 export function observeTerminalClose(

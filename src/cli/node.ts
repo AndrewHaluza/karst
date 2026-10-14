@@ -200,7 +200,12 @@ export function hasQualifyingPrecondition(store: Store, nodeRunId: number): bool
 }
 
 /** The one conditional UPDATE that authenticates and records the outcome.
- *  Affected rows 1 = success; 0 = idempotent rejection, no state change. */
+ *  Affected rows 1 = success; 0 = idempotent rejection, no state change.
+ *
+ *  It also clears `launch_fail_streak`: an agent that RAN and reported an
+ *  outcome proves its launch succeeded, so any run of provider launch-exit
+ *  failures is over. Without this the launch-loop guard would later refuse a
+ *  plain Resume for a node that is no longer looping (T693). */
 function nodeUpdate(
   store: Store,
   env: NodeCompletionEnv,
@@ -209,7 +214,7 @@ function nodeUpdate(
   return store.db
     .prepare(
       `UPDATE approach_node_runs
-       SET status = ?, outcome = ?, reason = ?, ended_at = ?
+       SET status = ?, outcome = ?, reason = ?, ended_at = ?, launch_fail_streak = 0
        WHERE id = ? AND status = 'running'
          AND graph_run_id = ?
          AND generation = ?

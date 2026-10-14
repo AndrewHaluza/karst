@@ -205,6 +205,23 @@ describe('runNodeCommand — capability-authenticated one-shot completion', () =
     expect(run.ended_at).not.toBeNull();
   });
 
+  it('a reported outcome ends any provider launch-exit streak on the visit', () => {
+    // The high review finding: a node that launched successfully and then ran
+    // (and reported) must not keep a launch-exit streak — a later non-loop
+    // Resume would otherwise be refused as a launch loop.
+    const ctx = harness();
+    insertNodeRun(ctx.db, ctx);
+    ctx.db.prepare('UPDATE approach_node_runs SET launch_fail_streak = 2 WHERE id = 1').run();
+    const out = JSON.parse(runNodeCommand(ctx.store, ctx.env, ['node', 'complete'])) as {
+      ok: boolean;
+    };
+    expect(out.ok).toBe(true);
+    const run = ctx.db
+      .prepare('SELECT launch_fail_streak FROM approach_node_runs WHERE id = 1')
+      .get() as { launch_fail_streak: number };
+    expect(run.launch_fail_streak).toBe(0);
+  });
+
   it('block records the bounded reason and moves the run to blocked', () => {
     const ctx = harness();
     insertNodeRun(ctx.db, ctx);

@@ -205,7 +205,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
 import { KARST_TERMINAL_ICON_ID, terminalNaming } from './ui/terminalNaming.js';
-import { observeTerminalClose, observeTerminalWriteData } from './ui/terminalObservation.js';
+import { observeTerminalClose } from './ui/terminalObservation.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
@@ -7645,9 +7645,9 @@ function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTer
         show: (preserveFocus) => terminal.show(preserveFocus),
         sendText: (text) => terminal.sendText(text, true),
         dispose: () => terminal.dispose(),
-        // Best-effort output capture for the launch-failure reason; a host
-        // without the proposed event captures nothing (see `terminalObservation`).
-        onDidWriteData: (handler) => observeTerminalWriteData(terminal, handler),
+        // No captured output: VS Code exposes a terminal's data only through a
+        // proposed API a shipped extension cannot use, so the launch-failure
+        // reason carries no provider line here (see `terminalObservation`).
         onDidClose: (handler) => observeTerminalClose(terminal, handler),
       };
     },
