@@ -34,7 +34,7 @@ A user can pick, understand, check and clean up the sandbox backend from the UI.
 3. AgentsSection render tests (`renderWebviewReady('settings')`).
 4. Doctor checks + disk warning.
 5. Ticket override column + form + resolver precedence (ticket opt-out beats project).
-6. Dashboard backend line + actions wired to ST8 ops.
+6. Dashboard backend line + actions wired to ST8 ops. Add a real diff view for ST8's "Open sync diff" choice (today it only re-runs sync): show `git diff <host branch>...sandbox-<name>/<branch>` in a VS Code diff/readonly editor before the user decides.
 7. Visible fallback message at session start.
 8. Docs + guide.
 9. `npm run -s test:visual:docker` after webview changes; never edit baselines or the layout ledger to pass.

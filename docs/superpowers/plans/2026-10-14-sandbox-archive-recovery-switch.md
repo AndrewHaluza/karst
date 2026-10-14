@@ -56,3 +56,7 @@ Sandboxes follow the ticket lifecycle: found again after reload, stopped when id
 ## Out of scope
 
 Settings UI (ST9), agy.
+
+## Follow-up after first UAT (user decision 2026-10-14)
+
+Fixed in ST8 before ship: Doctor orphan check wired into `karst doctor` (async collection), and idle stop after the existing idle threshold. Moved: archive unpublish of port mappings → ST7; real sync diff view → ST9. Manual F5 exit checks → user during UAT.

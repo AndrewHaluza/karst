@@ -40,7 +40,7 @@ For a ticket whose session runs in sbx or docker: its declared services run insi
 6. Host runner `runGate` — byte-identical to today's gate path (existing gate tests unchanged).
 7. Restart re-verification — missing mapping republished; unhealthy row removed.
 8. UAT ordering — user UAT link withheld until agent UAT gate ends; same instance (one server row); declared reset runs between, absent reset is a no-op.
-9. Cleanup — stopping one ticket's services removes only its mappings (bystander ticket survives).
+9. Cleanup — stopping one ticket's services removes only its mappings (bystander ticket survives). ST8 has landed: also wire `unpublishPort` for every mapping into the ST8 archive path (`archiveOps.ts`) before `dispose`; test archive removes this ticket's mappings only.
 10. Docs AC-32; `npm run -s docs:index`.
 
 ## Exit criteria
