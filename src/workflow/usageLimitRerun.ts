@@ -3,8 +3,6 @@ import type { StageRunResult, StageKey, BlockerKind } from '../model/types.js';
 import type { Manifest, AgentProvider } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import { claimUsageLimitPark, type UsageLimitParkRow } from '../store/usageLimitParks.js';
-import { openStageRun } from '../store/stageRuns.js';
-import { stageAttempt } from '../store/stages.js';
 import { openGateRun } from './gates/evidence.js';
 import { commitGateOutcome, type RecoveryTriggerInput } from './gates/commit.js';
 import type { GitRunner } from '../integrations/git.js';
@@ -61,7 +59,7 @@ export interface DismissParkOptions {
  * - For op parks (no stage-block), claims the park row as 'dismiss' and returns { kind: 'stopped' }.
  * - For stage-block parks:
  *   1. Claims the park row atomically. If not claimed (e.g. concurrent claim), returns { kind: 'stopped' }.
- *   2. Opens its OWN new stage run via openStageRun.
+ *   2. Opens its OWN new stage run via `openGateRun` (never the bare `openStageRun`).
  *   3. Commits a failed verdict via commitGateOutcome with a recoveryTrigger of triggerKind: 'usage-limit-dismissed'.
  */
 export function dismissUsageLimitPark(
@@ -83,17 +81,27 @@ export function dismissUsageLimitPark(
   }
 
   const stageKey = park.stage as GateStageKey;
-  const attempt = stageAttempt(store, park.ticketId, stageKey);
   const runAt = now();
 
-  const newStageRunId = openStageRun(store, {
+  // Opened with the SHARED gate-run handle, never the bare `openStageRun`,
+  // for the same reason the re-runs are: `openGateRun` attaches a run opened
+  // while a recovery round awaits its revalidation to that round
+  // (`attachRevalidationStageRun`). The park being dismissed is normally that
+  // revalidation — the fix → UAT/Review revalidation → quota park path leaves
+  // the parked run's id in the round's `*_revalidation_stage_run_id` — and
+  // `openRecoveryRound` fails the round it revalidates by matching that column
+  // against `sourceStageRunId` (`revalidatesThisRound`). A bare run is never
+  // attached, so the prior round would stay `'revalidating'` forever while a
+  // SECOND round opened, breaking the one-active-round invariant.
+  const evidence = openGateRun(store, {
     ticketId: park.ticketId,
     stageKey,
-    attempt,
     runAt,
-    startedAt: runAt,
+    manifest: opts.manifest,
     pid: process.pid,
+    debug: opts.debug,
   });
+  const newStageRunId = evidence.runId;
 
   if (artifactDir) {
     mkdirSync(artifactDir, { recursive: true });
@@ -466,12 +474,20 @@ async function rerunReviewParkedStage(
   let recoveryTrigger: RecoveryTriggerInput | undefined;
   if (aggregateOutcome.kind === 'verdict' && aggregateOutcome.verdict.kind === 'failed') {
     const reason = aggregateOutcome.verdict.reason ?? 'review findings failed';
+    // Mirror `stages/review.ts`'s `recoveryTriggerFor`: the causal source is
+    // read off the failure constant, never assumed. A reason that does NOT start
+    // with `FINDINGS_FAILURE_PREFIX` is a deterministic gate failure (the
+    // reachable one here is R7's "review asked no question uat does not …"),
+    // attributed to `gates` with NO AI process — attributing it to `review`/the
+    // findings process run would misreport the cause to the Inside recovery
+    // prose and to the `byTriggerKind` quality metrics.
+    const fromFindings = reason.startsWith(FINDINGS_FAILURE_PREFIX);
     const maxRounds = capForGate('review', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
     recoveryTrigger = {
-      sourceProcessId: 'review',
+      sourceProcessId: fromFindings ? 'review' : 'gates',
       sourceStageRunId: newStageRunId,
-      sourceProcessRunId: processRunId,
-      triggerKind: 'blocking-review-findings',
+      sourceProcessRunId: fromFindings ? processRunId : null,
+      triggerKind: fromFindings ? 'blocking-review-findings' : 'gate-failure',
       triggerDetail: reason,
       maxRounds,
     };

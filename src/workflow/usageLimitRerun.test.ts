@@ -7,7 +7,7 @@ import { createTicketFlow } from './stages/create.js';
 import { insertOpenPark, type UsageLimitParkRow } from '../store/usageLimitParks.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { listStageRuns, openStageRun } from '../store/stageRuns.js';
-import { listRecoveryRounds } from '../store/recoveryRounds.js';
+import { listRecoveryRounds, openRecoveryRound, attachRevalidationStageRun } from '../store/recoveryRounds.js';
 import { getTicket } from '../store/tickets.js';
 import { transition } from './machine.js';
 import { dismissUsageLimitPark, rerunParkedStage, type RerunParkOptions } from './usageLimitRerun.js';
@@ -162,6 +162,98 @@ describe('dismissUsageLimitPark', () => {
       triggerDetail: 'Monthly quota exceeded',
       maxRounds: 3,
     });
+  });
+
+  it('dismissing a parked revalidation FAILS the prior round instead of opening a second', () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-DISMISS-REVAL', title: 'dismiss reval' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    // A prior review-derived round is mid-revalidation: its terminal review run
+    // IS the parked (quota-stopped) run.
+    const originalRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T09:00:00.000Z',
+      startedAt: '2026-10-13T09:00:00.000Z',
+    });
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    const prior = openRecoveryRound(store, {
+      ticketId: ticket.id,
+      sourceStage: 'review',
+      sourceProcessId: 'review',
+      sourceStageRunId: originalRunId,
+      sourceProcessRunId: null,
+      triggerKind: 'blocking-review-findings',
+      triggerDetail: 'the original failure',
+      maxRounds: 3,
+      startedAt: '2026-10-13T09:00:00.000Z',
+    });
+    attachRevalidationStageRun(store, ticket.id, 'review', parkedRunId);
+    store.db
+      .prepare("UPDATE recovery_rounds SET status = 'revalidating' WHERE id = ?")
+      .run(prior.id);
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: null,
+      },
+    });
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: null,
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    const res = dismissUsageLimitPark(store, park, {
+      manifest: { review: { maxFixAttempts: 3 } } as unknown as Manifest,
+      artifactDir,
+      now: () => '2026-10-13T10:05:00.000Z',
+    });
+
+    expect(res.kind).toBe('advanced');
+    const rounds = listRecoveryRounds(store, ticket.id);
+    // The dismissed run WAS the prior round's revalidation, so committing its
+    // failed verdict fails that round — it must not be left 'revalidating'
+    // while a second round opens (two concurrently-open rounds).
+    expect(rounds.find((r) => r.id === prior.id)?.status).toBe('failed');
+    const active = rounds.filter(
+      (r) => r.status === 'pending' || r.status === 'fixing' || r.status === 'revalidating',
+    );
+    expect(active).toHaveLength(1);
+    expect(active[0]?.triggerKind).toBe('usage-limit-dismissed');
   });
 });
 
@@ -1190,6 +1282,17 @@ describe('rerunParkedStage', () => {
 
     expect(res).toEqual({ kind: 'advanced', next: 'fix' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
+    // The R7 failure is NOT the findings lane's: it is a deterministic gate
+    // failure and must be attributed to `gates` with no AI process, exactly as
+    // `stages/review.ts`'s recoveryTriggerFor does — never to `review`/a
+    // findings process run.
+    const rounds = listRecoveryRounds(store, ticket.id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({
+      sourceProcessId: 'gates',
+      sourceProcessRunId: null,
+      triggerKind: 'gate-failure',
+    });
   });
 
   it('review re-run threads git and the conformance artifacts into the findings lane', async () => {
