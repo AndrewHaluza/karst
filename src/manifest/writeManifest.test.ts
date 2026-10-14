@@ -81,6 +81,19 @@ describe('writeManifest', () => {
     }
   });
 
+  it('drops the legacy agentBackend scalar so a core set back to host stays host', () => {
+    const { path, cleanup } = fixture(`${RAW}agentBackend: sbx\n`);
+    try {
+      const m = loadManifest(path);
+      expect(m.agentBackends).toEqual({ claude: 'sbx', codex: 'sbx' });
+      writeManifest(path, { ...m, agentBackends: undefined });
+      expect(readFileSync(path, 'utf8')).not.toMatch(/agentBackend/);
+      expect(loadManifest(path).agentBackends).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('preserves unknown top-level keys and unmodeled repository fields', () => {
     const { path, cleanup } = fixture();
     try {

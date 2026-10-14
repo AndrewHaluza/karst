@@ -187,6 +187,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // "sessions run on the host" (AC-32). The legacy scalar `agentBackend` is
     // never written back (it is folded into this map on load).
     agentBackends: manifest.agentBackends,
+    // undefined overrides the stale raw scalar, so it cannot resurrect a
+    // sandbox for a core the user switched back to host.
+    agentBackend: undefined,
     // Optional: written when set, dropped when cleared, so it falls back to
     // "closing a ticket leaves its done terminals alone".
     closeDoneTerminalsWithTicket: manifest.closeDoneTerminalsWithTicket,
