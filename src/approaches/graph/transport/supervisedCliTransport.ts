@@ -350,8 +350,6 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
     },
 
     async terminate(session: SupervisedAgentSession): Promise<TerminationProof> {
-      // A close that follows this call is a Stop, never a launch failure.
-      terminating.add(`${session.ticketId}:${session.nodeRunId}`);
       if (session.pid === null) {
         deps.debug?.('[graph] terminate for a session that never started — nothing to signal');
         return { kind: 'unknown' };
@@ -374,6 +372,12 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       );
       switch (attribution) {
         case 'attributable':
+          // ONLY now, when this really is OUR live session being stopped, is
+          // the close a Stop that must not read as a launch failure. Marking it
+          // earlier (before attribution) suppressed a GENUINE early-exit report
+          // whenever a dead/foreign/unknown session happened to close right
+          // after a Stop click (T693).
+          terminating.add(`${session.ticketId}:${session.nodeRunId}`);
           return { kind: 'attributable', kill: killTree(session.pid) };
         case 'dead':
           return { kind: 'dead' };

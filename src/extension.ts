@@ -18,6 +18,7 @@ import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
 import { compileExpertSpend, graphRecoveryRefusalNotice, graphRefusalHandling, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -270,14 +271,12 @@ import {
   nodeOverrideFor,
   nodeRunGraphRunId,
   nodeRunIdsInStatusesForGraphRun,
-  nodeRunModelIdentity,
   nodeRunTicketId,
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
 import {
   plannerRunIdsForGraphRun,
-  plannerRunModelIdentity,
   plannerRunStatus,
   plannerRunTicketId,
   setPlannerRunProcessRunId,
@@ -4346,25 +4345,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!gs) return undefined;
         const run = graphRunTicketStageAttempt(gs.db, request.graphRunId);
         if (!run) return undefined;
-        const node = nodeRunModelIdentity(gs.db, request.nodeRunId);
-        const planner = node === undefined ? plannerRunModelIdentity(gs.db, request.nodeRunId) : undefined;
-        if (node === undefined && planner === undefined) return undefined;
-        const identity = node ?? planner!;
+        // Which table `nodeRunId` names, from the request's own `runKind` — the
+        // two id sequences overlap, so an ambiguous lookup would attribute a
+        // planner's process to an unrelated node run (T693).
+        const resolved = graphLaunchIdentity(gs.db, request);
+        if (resolved === undefined) return undefined;
+        const plannerLaunch = resolved.kind === 'planner';
         const processRun = openProcessRun(graphCoordinatorStore!, {
           ticketId: run.ticket_id,
           stageKey: 'impl',
-          processId: node !== undefined ? 'graph-node' : 'graph-planner',
+          processId: plannerLaunch ? 'graph-planner' : 'graph-node',
           attempt: run.stage_attempt,
-          agentName: identity.profile,
-          provider: identity.provider ?? request.adapter.requiredBinary,
-          model: request.interactive.model ?? identity.model,
+          agentName: resolved.identity.profile,
+          provider: resolved.identity.provider ?? request.adapter.requiredBinary,
+          model: request.interactive.model ?? resolved.identity.model,
           pid,
           startedAt: new Date().toISOString(),
         });
-        if (node !== undefined) {
-          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
-        } else {
+        if (plannerLaunch) {
           setPlannerRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
+        } else {
+          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
         }
         return processRun.id;
       } catch (err) {

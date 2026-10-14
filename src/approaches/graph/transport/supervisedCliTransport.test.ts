@@ -655,6 +655,38 @@ describe('SupervisedCLITransport', () => {
     expect(failures).toEqual([]);
   });
 
+  it('a Stop of a session whose process is already dead does not suppress a genuine early exit', async () => {
+    // The low review finding: the Stop marker was set before the Stop was known
+    // to have stopped anything. A provider that had ALREADY exited early, with
+    // a Stop clicked just before its close landed, then read as "a Stop" and
+    // its genuine early-exit report was lost.
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      // The process is already gone: the Stop cannot have caused the close.
+      facts: {
+        isAlive: () => false,
+        liveCwd: () => ({ path: '/wt/n1', deleted: false }),
+        processStartMs: () => Date.parse('2026-08-12T00:00:00.000Z'),
+      },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const session = await transport.start(LAUNCH);
+    expect(await transport.terminate(session)).toEqual({ kind: 'dead' });
+    clock += 200;
+    closeHandler?.(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.request.nodeRunId).toBe(LAUNCH.nodeRunId);
+  });
+
   it('reports a launch failure for a fresh session after a Stop, not just the first', async () => {
     // The high review finding: the Stop marker was never cleared, so a LATER
     // launch of the same reserved visit never reported its own early exit.
