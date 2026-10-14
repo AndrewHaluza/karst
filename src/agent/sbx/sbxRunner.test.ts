@@ -106,6 +106,32 @@ describe('createSbxSessionRunner.sync', () => {
   });
 });
 
+describe('createSbxSessionRunner.diff', () => {
+  const remote = sandboxRemote(NAME);
+
+  it('fetches the sandbox remote and diffs the host branch against it, never merging', async () => {
+    const proc = fakeSbxProcess({ [`git -C /wt/a diff HEAD...${remote}/feat/x`]: { stdout: 'diff --git a/f b/f\n' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: `${remote}/feat/x` });
+    expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([
+      `git -C /wt/a remote get-url ${remote}`,
+      `git -C /wt/a fetch ${remote}`,
+      `git -C /wt/a diff HEAD...${remote}/feat/x`,
+    ]);
+  });
+
+  it('reports a missing remote, a failed fetch and a failed diff', async () => {
+    const make = (answers: Record<string, { code: number; stderr?: string }>) =>
+      createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] });
+    await expect(make({ 'git -C /wt/a remote get-url': { code: 2 } }).diff!(ticket))
+      .resolves.toEqual({ ok: false, reason: expect.stringContaining(`no sandbox remote ${remote}`) });
+    await expect(make({ 'git -C /wt/a fetch': { code: 1, stderr: 'net down\n' } }).diff!(ticket))
+      .resolves.toEqual({ ok: false, reason: `git fetch ${remote} failed: net down` });
+    await expect(make({ 'git -C /wt/a diff': { code: 128, stderr: 'bad rev\n' } }).diff!(ticket))
+      .resolves.toEqual({ ok: false, reason: 'git diff failed: bad rev' });
+  });
+});
+
 describe('createSbxSessionRunner.dispose', () => {
   it('targets exactly its own name and leaves a bystander alone', async () => {
     const proc = fakeSbxProcess();

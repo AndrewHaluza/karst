@@ -1,5 +1,6 @@
 import type { AgentBackend } from '../../manifest/types.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
+import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from '../../agent/sbx/sbxRunner.js';
@@ -17,6 +18,10 @@ export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps
 
 export interface BackendSessionInput {
   readonly backend: AgentBackend | undefined;
+  /** The ticket's opt-out (`tickets.agent_backend`); it can only select host, never a backend. */
+  readonly ticketOverride?: 'host' | null;
+  /** Shown to the user when a chosen sandbox backend fell back to a prompted host session. */
+  readonly warn?: (message: string) => void;
   readonly core: string;
   readonly projectRoot: string;
   readonly ticketId: number;
@@ -41,20 +46,33 @@ export function backendSessionOptions(input: BackendSessionInput): {
   onBackend?: (line: string) => void;
   bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
 } {
+  // The project owns whether the feature is on: a ticket opt-out alone changes nothing.
   if (input.backend === undefined) return {};
+  const backend = ticketBackendSetting(input.backend, input.ticketOverride)!;
   const resolve = input.resolve ?? resolveBackend;
+  const resolveRunner = async (): Promise<ResolvedBackend> => {
+    const out = await resolve({
+      backend, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
+      ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
+      ...(input.debug || input.hostPorts ? {
+        docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) },
+      } : {}),
+    });
+    // The fail-closed fallback is never silent (arch:AC-31): say why it runs prompted.
+    if (backend !== 'host' && out.runner.kind === 'host') input.warn?.(`Karst: ${input.ticketLabel} running prompted on host: ${fallbackReason(out.line)}`);
+    return out;
+  };
   return {
-    resolveRunner: () =>
-      resolve({
-        backend: input.backend, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
-        ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
-        ...(input.debug || input.hostPorts ? {
-          docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) },
-        } : {}),
-      }),
+    resolveRunner,
     onBackend: (line) => input.info(`[session] ticket ${input.ticketLabel} backend: ${line}`),
     ...(input.bridgeFor ? { bridgeFor: input.bridgeFor } : {}),
   };
+}
+
+/** `host (<reason>)` → `<reason>`. */
+function fallbackReason(line: string): string {
+  const m = /^host \((.*)\)$/s.exec(line);
+  return m ? m[1]! : line;
 }
 
 export interface SandboxSyncTarget {

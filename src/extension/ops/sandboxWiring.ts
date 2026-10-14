@@ -7,6 +7,7 @@ import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
 import { disposeSandboxOp, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { diffSandboxOp } from './sandboxDiffOp.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
   cleanupOrphansOp, idleSandboxes, inventoryOf, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
@@ -23,6 +24,8 @@ export interface SandboxWiringInput {
   readonly owned: ReadonlySet<number>;
   readonly bridges: () => { dispose(ticketId: number): Promise<void> } | undefined;
   readonly openSyncDiff: (ticketId: number) => Promise<void>;
+  /** Opens a unified diff in a read-only editor. */
+  readonly showDiff: (title: string, diff: string) => Promise<void>;
   readonly info: (m: string) => void;
   readonly logError: (m: string, err: unknown) => void;
   /** A ticket's terminal/session is open (never stopped under it). */
@@ -52,6 +55,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       openSyncDiff: (t) => w.openSyncDiff(t.ticketId),
     };
   };
+  /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
+  const manualDeps = (ticketId: number): { d: SandboxLifecycleDeps; t: SandboxSyncTarget } => {
+    const { t, projectRoot } = manual(ticketId);
+    const bridges = w.bridges();
+    return {
+      t,
+      d: {
+        notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls,
+        ...(bridges ? { bridges } : {}), openSyncDiff: (target) => w.openSyncDiff(target.ticketId),
+      },
+    };
+  };
   /**
    * This window controls a ticket's sandbox when it holds the session, or when
    * the ticket is in this window's project and NO window runs a session for it
@@ -78,6 +93,21 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     sync: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = manual(ticketId);
       await syncSandboxOp({ notify: w.notify, projectRoot }, t);
+    },
+    /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
+    diff: async (ticketId: number): Promise<void> => {
+      const { t, projectRoot } = manual(ticketId);
+      await diffSandboxOp({ notify: w.notify, projectRoot, showDiff: w.showDiff, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+    },
+    /** Dashboard Stop: stop (keep) this ticket's sandbox. */
+    stop: async (ticketId: number): Promise<void> => {
+      const { d, t } = manualDeps(ticketId);
+      if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
+    },
+    /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
+    remove: async (ticketId: number): Promise<void> => {
+      const { d, t } = manualDeps(ticketId);
+      await removeSandboxGuarded(d, t);
     },
     dispose: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = manual(ticketId);

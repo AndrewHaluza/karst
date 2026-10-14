@@ -74,6 +74,20 @@ describe('createDockerSessionRunner', () => {
     expect(lines(proc).at(-1)).toBe('git -C /w/t7 merge --ff-only FETCH_HEAD');
   });
 
+  it('diffs through the bundle transport without merging', async () => {
+    const proc = fakeDockerProcess({ 'git -C /w/t7 diff': { stdout: 'diff --git a/f b/f\n' } });
+    const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined, temp });
+    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: 'FETCH_HEAD' });
+    expect(lines(proc).at(-1)).toBe(`git -C /w/t7 diff HEAD...FETCH_HEAD`);
+    expect(lines(proc).some((l) => l.includes('merge'))).toBe(false);
+  });
+
+  it('reports a docker diff failure instead of throwing', async () => {
+    const proc = fakeDockerProcess({ [`docker run`]: { code: 1, stderr: 'no volume\n' } });
+    const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined, temp });
+    await expect(runner.diff!(ticket)).resolves.toMatchObject({ ok: false, reason: expect.stringContaining('no sandbox clone') });
+  });
+
   it('stops only this ticket\'s container, keeping clone and data volumes', async () => {
     const proc = fakeDockerProcess();
     await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).stop!();

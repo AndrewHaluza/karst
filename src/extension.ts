@@ -126,7 +126,6 @@ import {
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
 import { probeBackends } from './agent/backendProbe.js';
-import { ticketBackendSetting } from './agent/effectiveBackend.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
 import { resolvePlanningDefaults } from './agent/planningDefaults.js';
@@ -688,7 +687,7 @@ const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
-let bridges: BridgeRegistry | undefined; let bridgeRoot: string | undefined; let sandboxB: ReturnType<typeof createTicketSandboxBindings> | undefined; // arch:AC-34 (built once the hook endpoint is bound), AC-32
+let bridges: BridgeRegistry | undefined; let bridgeRoot: string | undefined; let sandboxB: ReturnType<typeof createTicketSandboxBindings> | undefined; let sandboxLife!: ReturnType<typeof makeSandboxWiring>; // set in activate, before any dashboard opens; // arch:AC-34 (built once the hook endpoint is bound), AC-32
 let graphEndpoint: GraphWakeupEndpoint | undefined;
 let graphCoordinatorStore: Store | undefined;
 let graphTransport: SupervisedCliTransport | undefined;
@@ -1254,11 +1253,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fsWatch,
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
-  const sandboxLife = makeSandboxWiring({ // arch:AC-32
+  sandboxLife = makeSandboxWiring({ // arch:AC-32
     store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackend !== undefined,
-    projectId: () => currentProject()?.id, openSyncDiff: async (id) => { await vscode.commands.executeCommand('karst.sandbox.sync', id); } });
+    projectId: () => currentProject()?.id, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
     store: localStore, beforeArchive: sandboxLife.beforeArchive,
     git: defaultGitRunner,
@@ -3033,7 +3032,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog,
+      modelCatalog, agentBackend: currentManifest()?.agentBackend,
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -6521,7 +6520,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
-            ...backendSessionOptions({ backend: ticketBackendSetting(currentManifest()?.agentBackend, t.agentBackend), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
+            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
@@ -8058,6 +8057,8 @@ function makeDashboardActions(
       const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
       void vscode.env.clipboard.writeText(key);
     },
+    sandboxSync: () => sandboxLife.sync(ticketId), sandboxDiff: () => sandboxLife.diff(ticketId), // AC-32 Sandbox card
+    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId),
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building

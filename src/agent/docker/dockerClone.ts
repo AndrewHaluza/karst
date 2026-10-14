@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { SyncResult } from '../sessionRunner.js';
+import type { DiffResult, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
@@ -117,17 +117,24 @@ export async function syncFromClone(ctx: CloneContext, input: CloneInput): Promi
   }
 }
 
+/** Bundle the clone's branch out of the volume and fetch it into the host worktree (leaves FETCH_HEAD). */
+async function fetchCloneBundle(ctx: CloneContext, input: CloneInput, dir: string): Promise<StepResult> {
+  const bundled = await ctx.proc.run(DOCKER_BIN, helper(
+    ctx,
+    [...volumeMounts(ctx.names, { repoReadonly: true }), '--mount', bindMount(dir, BUNDLE_DIR, false)],
+    ['git', '-c', 'safe.directory=*', '-C', CONTAINER_REPO, 'bundle', 'create', `${BUNDLE_DIR}/out.bundle`, input.branch],
+  ));
+  if (bundled.code !== 0) return { ok: false, reason: `no sandbox clone to sync from: ${detail(bundled)}` };
+  const fetched = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'fetch', join(dir, 'out.bundle'), `refs/heads/${input.branch}`]);
+  if (fetched.code !== 0) return { ok: false, reason: `git fetch of the sandbox bundle failed: ${detail(fetched)}` };
+  return { ok: true };
+}
+
 async function syncThroughBundle(ctx: CloneContext, input: CloneInput): Promise<SyncResult> {
   const git = (args: string[]) => ctx.proc.run('git', ['-C', input.hostWorktreePath, ...args]);
   return withTemp(ctx.temp, async (dir) => {
-    const bundled = await ctx.proc.run(DOCKER_BIN, helper(
-      ctx,
-      [...volumeMounts(ctx.names, { repoReadonly: true }), '--mount', bindMount(dir, BUNDLE_DIR, false)],
-      ['git', '-c', 'safe.directory=*', '-C', CONTAINER_REPO, 'bundle', 'create', `${BUNDLE_DIR}/out.bundle`, input.branch],
-    ));
-    if (bundled.code !== 0) return { ok: false, reason: `no sandbox clone to sync from: ${detail(bundled)}` };
-    const fetched = await git(['fetch', join(dir, 'out.bundle'), `refs/heads/${input.branch}`]);
-    if (fetched.code !== 0) return { ok: false, reason: `git fetch of the sandbox bundle failed: ${detail(fetched)}` };
+    const fetched = await fetchCloneBundle(ctx, input, dir);
+    if (!fetched.ok) return fetched;
     if ((await git(['merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD'])).code !== 0) {
       return { ok: false, reason: `refused: the sandbox's ${input.branch} is not a fast-forward of the host branch (never forced)` };
     }
@@ -135,4 +142,19 @@ async function syncThroughBundle(ctx: CloneContext, input: CloneInput): Promise<
     if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only failed: ${detail(merged)}` };
     return { ok: true, summary: `fast-forwarded ${input.branch} to the docker sandbox's commits` };
   });
+}
+
+/** What `syncFromClone` would bring in, as a diff against the host branch; nothing is merged. */
+export async function diffFromClone(ctx: CloneContext, input: CloneInput): Promise<DiffResult> {
+  try {
+    return await withTemp(ctx.temp, async (dir) => {
+      const fetched = await fetchCloneBundle(ctx, input, dir);
+      if (!fetched.ok) return fetched;
+      const diff = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'diff', 'HEAD...FETCH_HEAD']);
+      if (diff.code !== 0) return { ok: false as const, reason: `git diff failed: ${detail(diff)}` };
+      return { ok: true as const, diff: diff.stdout, ref: 'FETCH_HEAD' };
+    });
+  } catch (err) {
+    return { ok: false, reason: `docker diff failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
