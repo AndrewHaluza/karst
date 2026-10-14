@@ -84,7 +84,7 @@ export function BackendPanel() {
                   key={value}
                   role="radio"
                   aria-checked={current === value}
-                  variant={current === value ? 'primary' : 'secondary'}
+                  variant={current === value ? 'secondary' : 'ghost'}
                   size="sm"
                   disabled={allowed.length === 1}
                   onClick={() => edit(setCoreBackend(core, value))}
