@@ -25,8 +25,9 @@ const UNCHECKED: BackendStatus = { ok: false, reason: 'not checked yet' };
 
 function setBackend(value: AgentBackend): (draft: Manifest) => Manifest {
   return (draft) => {
-    const { agentBackend: _drop, ...rest } = draft;
-    return value === 'host' ? rest : { ...rest, agentBackend: value };
+    const next = { ...draft };
+    delete next.agentBackend;
+    return value === 'host' ? next : { ...next, agentBackend: value };
   };
 }
 
