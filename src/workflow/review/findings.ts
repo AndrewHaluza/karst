@@ -16,21 +16,37 @@
  * carrying a `findings` array, or (for a JSONL stream where each line is one
  * finding) a bare finding object itself. Every candidate JSON value —
  * however it parsed — is scanned; nothing is dropped for landing on line 2
- * instead of line 1. …and whenever that read produces NO findings-shaped
- * container (not merely when nothing parsed at all) it falls back to
- * extraction: every ```-fenced block's body first, then every balanced
- * top-level `[...]`/`{...}` span, each still handed to `JSON.parse`, run over
- * the raw text and over the string leaves of whatever did parse. A chat-tuned
+ * instead of line 1. …and whenever that read produces NO findings-CARRYING
+ * container (a `strong` one — not merely "something parsed at all", and not
+ * "any array at all") it falls back to extraction: every ```-fenced block's body
+ * first, then every balanced top-level `[...]`/`{...}` span, then the text from
+ * the last few `[`/`{` openers to the end (the report is the LAST thing a model
+ * writes), each still handed to `JSON.parse`, run over the raw text and over the
+ * string leaves of whatever did parse. A chat-tuned
  * core that narrates its tool calls before printing the array it was asked for
  * is the ordinary case, not the exotic one — reading that as zero findings
  * turned a `high` finding into a silent pass. Gating extraction on "something
- * parsed" rather than "findings were recognized" re-opens exactly that bug two
- * ways: one narration line that is a bare JSON scalar (`100`, `true`,
- * `"done"`) satisfies the JSONL read, and a provider's own output envelope
+ * parsed" rather than "findings were recognized" re-opens exactly that bug
+ * three ways: one narration line that is a bare JSON scalar (`100`, `true`,
+ * `"done"`) satisfies the JSONL read, a provider's own output envelope
  * (`{"result":"…prose with a fenced findings block…"}`) satisfies the
- * whole-document read — in both cases the real report is still sitting in the
- * text, unread. "Findings-shaped" has exactly one definition here,
- * `findingCandidatesFrom`, and the gate reuses it.
+ * whole-document read, and a tool echo that is an array of non-objects
+ * (`["bash","-lc",…]`, T694) satisfies it too — in all three the real report is
+ * still sitting in the text, unread. "Findings-shaped" has exactly one
+ * definition here, `findingCandidatesFrom`, and the gate reuses it (its `strong`
+ * flag separates a container that could CARRY findings from a merely recognized
+ * one).
+ *
+ * **A model's own quoting slip is repaired, not discarded (T694).** The report a
+ * review asks for is JSON, but a chat-tuned model routinely quotes English with
+ * unescaped `"` inside a string value (`"detail":"… claims ("contained") …"`),
+ * which `JSON.parse` rejects outright. Extraction therefore retries a candidate
+ * that failed the strict parse after `repairUnescapedQuotes` escapes such stray
+ * quotes, and the balanced scan uses the same "is this quote a real terminator?"
+ * rule so one such quote cannot desync its own string tracking. The repair only
+ * ever runs on a candidate that already failed, and its output still goes
+ * through `JSON.parse` and every trust check below, so it cannot turn arbitrary
+ * prose into findings.
  *
  * **Trust boundaries enforced here, each independently:**
  * - `severity` must be an exact member of the closed `Severity` union
@@ -164,6 +180,90 @@ function tryParseJson(text: string): unknown {
 }
 
 /**
+ * Characters that may legally follow a JSON string value: the close of a
+ * property key is followed by `:`, the close of an array element by `,` or `]`,
+ * the close of a property value by `,` or `}`. A `"` inside an open string that
+ * is NOT followed by one of these is a quote the model forgot to escape — see
+ * `repairUnescapedQuotes`.
+ */
+function followsStringValue(ch: string | undefined): boolean {
+  return ch === ':' || ch === ',' || ch === '}' || ch === ']' || ch === undefined;
+}
+
+/**
+ * Escape double quotes a model left UNESCAPED inside a JSON string value.
+ *
+ * The ordinary model failure this recovers (T694): the answer is a correct
+ * findings array except that a `detail` quotes an English phrase verbatim —
+ * `"detail":"… claims ("containment is checked …") …"` — so the inner quotes
+ * end the string early and `JSON.parse` rejects the whole report. Refusing to
+ * read it throws away a real finding (R6b parks the stage as "unreadable").
+ *
+ * The repair walks the value once, tracking string state exactly as a JSON
+ * lexer does (`\` escapes the next character). A `"` seen while INSIDE a string
+ * is treated as the closing quote only when the next non-whitespace character
+ * is a legal follower of a string value (`:`, `,`, `}`, `]`, or end of input);
+ * otherwise it is a stray literal quote and is escaped. This is deliberately a
+ * REPAIR of an otherwise well-formed document, not a permissive parser: prose
+ * and structurally-broken text still fail `JSON.parse` afterwards, so it never
+ * turns arbitrary output into a findings-shaped value. Nothing is read from the
+ * repaired text that `JSON.parse` would not validate — the result is still the
+ * strict parser's output, and every field still goes through the same trust
+ * checks below.
+ *
+ * Pure and linear; called only on a candidate that already failed the strict
+ * parse, so valid JSON is never rewritten.
+ */
+function repairUnescapedQuotes(text: string): string {
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (!inString) {
+      if (ch === '"') inString = true;
+      out += ch;
+      continue;
+    }
+    if (ch === '\\') {
+      out += ch;
+      const escaped = text[i + 1];
+      if (escaped !== undefined) {
+        out += escaped;
+        i += 1;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      let j = i + 1;
+      while (j < text.length && (text[j] === ' ' || text[j] === '\t' || text[j] === '\n' || text[j] === '\r')) {
+        j += 1;
+      }
+      if (followsStringValue(text[j])) {
+        inString = false;
+        out += ch;
+      } else {
+        out += '\\"';
+      }
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/**
+ * `tryParseJson`, then — only when that fails — the same parse after
+ * `repairUnescapedQuotes`. The single lenient read the salvage ladder uses on a
+ * candidate span; the strict read stays the primary one so a clean answer is
+ * never rewritten.
+ */
+function tryParseJsonLenient(text: string): unknown {
+  const strict = tryParseJson(text);
+  if (strict !== undefined) return strict;
+  return tryParseJson(repairUnescapedQuotes(text));
+}
+
+/**
  * Every value that parsed as JSON out of `text`, trying the whole document
  * first and falling back to one-value-per-line — the same shape
  * `agent/tokenUsage.ts`'s `events()` and `agent/cliFailure.ts`'s
@@ -245,9 +345,20 @@ const SCAN_MAX_DEPTH = 1_000;
  * close. Recency alone is the correct signal — within one group, an outer
  * span's close always happens strictly after its inner content's close (a
  * single left-to-right pass), so the overwrite naturally lands on the most
- * complete candidate of the most recent group. The fallback is used only when
- * the scan found no genuine top-level span at all, so a document that closes
- * normally never gets an extra, possibly duplicate, candidate.
+ * complete candidate of the most recent group.
+ *
+ * The fallback is emitted alongside the top-level spans whenever it is not
+ * already STRICTLY CONTAINED in one of them. It used to be emitted only when no
+ * top-level span was found at all, which lost the report whenever a document
+ * mixed closed spans with a dangling opener: one dangling `[` anywhere in a
+ * long tool transcript and the model's final report — the fallback — was
+ * silently dropped while a `["bash","-lc",…]` tool echo (a top-level span that
+ * parses) stood in for it, so the report read as `empty` (T694). Containment,
+ * not "spans exist", is the correct guard: a fallback nested inside an emitted
+ * span is a fragment of a value already collected (a duplicated finding), while
+ * a fallback outside every emitted span is a genuine report the scan would
+ * otherwise lose. Two balanced substrings either nest or are disjoint, so the
+ * range test is exact.
  *
  * A closer whose type doesn't match the top of the stack is a stray
  * character (prose, not JSON) — the stack is left untouched and the
@@ -257,17 +368,31 @@ const SCAN_MAX_DEPTH = 1_000;
  * `JSON.parse`, and a candidate that does not parse is simply skipped.
  */
 function balancedSpans(text: string): string[] {
-  const spans: string[] = [];
+  const spans: { start: number; end: number }[] = [];
   const stack: { opener: string; pos: number }[] = [];
   let inString = false;
   let escaped = false;
-  let fallback: string | undefined;
+  let fallback: { start: number; end: number } | undefined;
   for (let i = 0; i < text.length; i += 1) {
     const ch = text[i]!;
     if (inString) {
       if (escaped) escaped = false;
       else if (ch === '\\') escaped = true;
-      else if (ch === '"') inString = false;
+      else if (ch === '"') {
+        // A quote inside a string ends it only when a legal string-value
+        // follower comes next (the SAME rule `repairUnescapedQuotes` uses).
+        // Without this, one unescaped quote — the T694 model's `("…")` in a
+        // detail — desynced the lexical scan, so the report's own brackets were
+        // consumed inside a phantom string and the span was never yielded.
+        let j = i + 1;
+        while (
+          j < text.length &&
+          (text[j] === ' ' || text[j] === '\t' || text[j] === '\n' || text[j] === '\r')
+        ) {
+          j += 1;
+        }
+        if (followsStringValue(text[j])) inString = false;
+      }
       continue;
     }
     if (ch === '"') {
@@ -285,15 +410,18 @@ function balancedSpans(text: string): string[] {
       if (!matches) continue; // mismatched type — stray closer, leave the stack as-is
       stack.pop();
       if (stack.length === 0) {
-        spans.push(text.slice(top.pos, i + 1));
+        spans.push({ start: top.pos, end: i + 1 });
         if (spans.length >= SCAN_MAX_SPANS) break;
       } else {
-        fallback = text.slice(top.pos, i + 1);
+        fallback = { start: top.pos, end: i + 1 };
       }
     }
   }
-  if (spans.length === 0 && fallback !== undefined) spans.push(fallback);
-  return spans;
+  const contained =
+    fallback !== undefined &&
+    spans.some((span) => span.start <= fallback!.start && span.end >= fallback!.end);
+  if (fallback !== undefined && !contained) spans.push(fallback);
+  return spans.map((span) => text.slice(span.start, span.end));
 }
 
 /**
@@ -368,6 +496,39 @@ function stringLeaves(value: unknown, out: string[], depth = 0): void {
 const FENCE_LOOKBACK_CHARS = 200;
 
 /**
+ * Bound on how many of the tail-most `[`/`{` openers are tried as whole-value
+ * suffix candidates, and how far back (characters) those openers are collected.
+ */
+const TAIL_MAX_OPENERS = 32;
+const TAIL_LOOKBACK_CHARS = 262_144;
+
+/**
+ * The text from each of the last few `[`/`{` openers to the end of the scanned
+ * region, each a candidate report value.
+ *
+ * The balanced scan tracks string state, and one unescaped quote in the
+ * surrounding PROSE desyncs it: T694's transcript opened with
+ * `grep -F "## [@"`, whose first `[` and `"` left the scanner inside a phantom
+ * string for the rest of the document, so the model's real report brackets were
+ * consumed as string content and no span was ever yielded. The report is the
+ * LAST thing a model writes (the same tail rationale `SCAN_MAX_CHARS` and the
+ * balanced fallback use), so the parser ALSO hands `JSON.parse` the text from
+ * each recent opener to the end. Every candidate still has to parse as one
+ * clean (or quote-repairable) JSON value, so a suffix that merely ends in prose
+ * contributes nothing — this is a bounded, tail-only addition to the ladder,
+ * not a loosening of what counts as a report.
+ */
+function tailSpanCandidates(text: string): string[] {
+  const positions: number[] = [];
+  const floor = Math.max(0, text.length - TAIL_LOOKBACK_CHARS);
+  for (let i = text.length - 1; i >= floor && positions.length < TAIL_MAX_OPENERS; i -= 1) {
+    const ch = text[i];
+    if (ch === '[' || ch === '{') positions.push(i);
+  }
+  return positions.map((position) => text.slice(position));
+}
+
+/**
  * The extraction fallback: every ```-fenced block's body first (exact), then
  * every balanced top-level `[...]`/`{...}` span (heuristic), each still handed
  * to `JSON.parse`. Run over each source in turn, sharing one
@@ -406,9 +567,16 @@ function extractedJsonValues(
     const tagged: Array<[FindingsExtractionTier, string]> = [
       ...fencedBlocks(scanned).map((b): [FindingsExtractionTier, string] => ['fenced', b]),
       ...balancedSpans(scanned).map((b): [FindingsExtractionTier, string] => ['balanced', b]),
+      // Last, and only reached when the spans above yielded nothing: the model's
+      // report is the last thing it writes, so a whole-value tail suffix is the
+      // next most likely thing to be it.
+      ...tailSpanCandidates(scanned).map((b): [FindingsExtractionTier, string] => ['balanced', b]),
     ];
     for (const [tier, candidate] of tagged) {
-      const value = tryParseJson(candidate.trim());
+      // Lenient here, not in the primary read: a candidate that only parses
+      // after `repairUnescapedQuotes` is a SALVAGED report (a model's own
+      // quoting slip), which is exactly what this fallback tier exists for.
+      const value = tryParseJsonLenient(candidate.trim());
       if (value === undefined) continue;
       const key = JSON.stringify(value) ?? 'undefined';
       if (seen.has(key)) continue;
@@ -426,6 +594,17 @@ interface FindingCandidates {
   candidates: unknown[];
   /** True if this value WAS a findings-shaped container — a bare array, a `findings` array, or a bare finding object — even if it carried zero findings. False if the container shape itself was never recognized (e.g. findings nested one level deeper than expected, or a provider envelope). */
   recognized: boolean;
+  /**
+   * True when the container could actually CARRY findings: an array holding at
+   * least one object, an object with a `findings` key, or a bare finding
+   * object. `[]`, `["bash","-lc",…]` and any other array of non-objects are
+   * recognized but NOT strong — an empty review is a legitimate answer on its
+   * own, yet it must not suppress the extraction fallback when a later value in
+   * the same output is a real report (T694: a tool echo `["bash","-lc",…]`
+   * recognized the primary read, extraction was skipped, and the model's
+   * findings array further down the transcript was never read).
+   */
+  strong: boolean;
 }
 
 /**
@@ -437,13 +616,17 @@ interface FindingCandidates {
  * "couldn't find the findings".
  */
 function findingCandidatesFrom(value: unknown): FindingCandidates {
-  if (Array.isArray(value)) return { candidates: value, recognized: true };
+  if (Array.isArray(value)) {
+    return { candidates: value, recognized: true, strong: value.some(isPlainRecord) };
+  }
   if (isPlainRecord(value)) {
     const nested = value['findings'];
-    if (Array.isArray(nested)) return { candidates: nested, recognized: true };
-    if ('severity' in value || 'title' in value) return { candidates: [value], recognized: true };
+    if (Array.isArray(nested)) return { candidates: nested, recognized: true, strong: true };
+    if ('severity' in value || 'title' in value) {
+      return { candidates: [value], recognized: true, strong: true };
+    }
   }
-  return { candidates: [], recognized: false };
+  return { candidates: [], recognized: false, strong: false };
 }
 
 /** The string leaves of every primary-parsed value, as extra text for the scan to read. */
@@ -626,14 +809,15 @@ export function parseFindingsResult(
   warn: WarnFn = defaultWarn,
   onTier?: (tier: FindingsExtractionTier) => void,
 ): FindingsParseResult {
-  // The extraction fallback is gated on "no findings-shaped container was
-  // recognized", NOT on "nothing parsed at all". A single narration line that
-  // happens to be a bare JSON scalar (`100`, `true`, `"done"`) populates the
-  // JSONL read, and a provider envelope parses as a whole document — either one
-  // would otherwise suppress extraction entirely and turn a pretty-printed
-  // `high` finding into a silent zero-findings pass. `findingCandidatesFrom` is
-  // the single notion of "findings-shaped"; this reuses it rather than
-  // inventing a second one.
+  // The extraction fallback is gated on "the primary read found no container
+  // that could CARRY findings" (a `strong` one), NOT on "nothing parsed at all"
+  // and NOT on "any array at all". A single narration line that happens to be a
+  // bare JSON scalar (`100`, `true`, `"done"`) populates the JSONL read, a
+  // provider envelope parses as a whole document, and a tool echo like
+  // `["bash","-lc",…]` parses as a JSONL array — any of them would otherwise
+  // suppress extraction entirely and turn a pretty-printed `high` finding into a
+  // silent zero-findings pass. `findingCandidatesFrom` is the single notion of
+  // "findings-shaped"; this reuses it rather than inventing a second one.
   //
   // The tier each value came from is tracked alongside it so the winning
   // extraction tier can be reported (v57 prompt metrics) WITHOUT changing which
@@ -642,10 +826,10 @@ export function parseFindingsResult(
   const primary = primaryJsonValues(raw, (t) => {
     if (primaryTier === 'none') primaryTier = t;
   });
-  const primaryRecognized = primary.some((value) => findingCandidatesFrom(value).recognized);
+  const primaryStrong = primary.some((value) => findingCandidatesFrom(value).strong);
   let events: unknown[];
   let eventTiers: FindingsExtractionTier[];
-  if (primaryRecognized) {
+  if (primaryStrong) {
     events = primary;
     eventTiers = primary.map(() => primaryTier);
   } else {

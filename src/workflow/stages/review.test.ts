@@ -1630,9 +1630,13 @@ describe('runReview — findings process run (Task 8)', () => {
     );
     expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
     const run = listProcessRuns(store, id)[0]!;
-    // No crash message exists on an unreadable-only block, so no failure detail
-    // is invented — the inside Review detail keeps its generic wording (T652).
-    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed', failureDetail: null });
+    // T694: an unreadable-only block stores R6b's OWN reason, so the inside
+    // Review detail names what actually happened instead of the generic "the
+    // agent did not return a result. Retry review." — which sent a reader to a
+    // retry when the answer was present and the parser had dropped it.
+    expect(run).toMatchObject({ resultKind: 'execution-failed', status: 'failed' });
+    expect(run.failureDetail).toContain('unreadable output');
+    expect(run.failureDetail).toContain('no findings could be read');
   });
 
   it('a deterministic gate failure keeps the round\'s source process run null, however the process was wired', async () => {
