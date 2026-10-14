@@ -1,4 +1,5 @@
 import { isGraphSessionEnv } from '../approaches/graph/transport/env.js';
+import { isPlanningSessionEnv } from '../planning/preamble.js';
 import {
   KARST_LAUNCH_ENV,
   ticketIdFromTerminalEnv,
@@ -118,6 +119,12 @@ export function identifyTerminal(
   records: readonly SessionTerminalRecord[],
   lookupIdentity?: DurableSessionIdentityLookup,
 ): TerminalIdentity | undefined {
+  // A planning terminal is NOT a ticket session (planningOps contract). Checked
+  // FIRST, like the graph discriminator: a planning launch may inherit a stale
+  // `KARST_TICKET_ID` from the environment, and a stale pid record must not name
+  // it either — resolving it to a ticket would let the notes sweep type a
+  // pointer into the planning terminal (the reported 169-note push).
+  if (isPlanningSessionEnv(probe.env)) return undefined;
   const fromEnv = ticketIdFromTerminalEnv(probe.env);
   const record = probe.pid === undefined ? undefined : records.find((r) => r.pid === probe.pid);
   if (fromEnv !== undefined) {

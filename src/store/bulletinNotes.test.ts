@@ -2,15 +2,21 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { openStore, type Store } from './db.js';
 import { createTicket } from './tickets.js';
 import { upsertProject } from './projects.js';
+import { openImplementationRun } from './implementationRuns.js';
 import {
   BULLETIN_BODY_MAX,
   BULLETIN_TITLE_MAX,
+  hostOverlaps,
   listNotes,
   markNotesRead,
   normalizeRepoPaths,
   postAgentNote,
+  pushableNotes,
   recordTicketMerged,
   ticketNoteScope,
+  unreadNotesByTicket,
+  type BulletinNote,
+  type NoteCandidate,
 } from './bulletinNotes.js';
 
 function seedWorktree(store: Store, ticketId: number, repo: string): void {
@@ -209,5 +215,208 @@ describe('bulletinNotes', () => {
       const notes = listNotes(store, { readerTicketId: me.id, projectId, scope, all: true });
       expect(notes.some((n) => n.title === 'adjacent')).toBe(true);
     });
+  });
+});
+
+describe('pushableNotes', () => {
+  const note = (over: Partial<{ source: 'host' | 'agent'; paths: string[] | null }> = {}): BulletinNote => ({
+    id: 1,
+    projectId: 1,
+    source: over.source ?? 'agent',
+    fromTicketId: 2,
+    mergeSha: over.source === 'host' ? 'sha' : null,
+    title: 't',
+    body: 'b',
+    repos: ['api'],
+    paths: over.paths ?? null,
+    createdAt: '2026-01-01 00:00:00',
+  });
+
+  const candidate = (n: BulletinNote, over: Partial<NoteCandidate> = {}): NoteCandidate => ({
+    note: n,
+    wasShown: false,
+    wasRead: false,
+    ...over,
+  });
+
+  it('lists an agent note that matches the reader repo', () => {
+    expect(pushableNotes([candidate(note())], { repos: ['api'], paths: null })).toHaveLength(1);
+  });
+
+  it('drops a note already shown or read', () => {
+    const scope = { repos: ['api'], paths: null };
+    expect(pushableNotes([candidate(note(), { wasShown: true })], scope)).toEqual([]);
+    expect(pushableNotes([candidate(note(), { wasRead: true })], scope)).toEqual([]);
+  });
+
+  it('lists a host merge only when its paths overlap a known reader path set', () => {
+    const host = note({ source: 'host', paths: ['src/store/prs.ts'] });
+    expect(pushableNotes([candidate(host)], { repos: ['api'], paths: ['src/store/prs.ts'] })).toHaveLength(1);
+    // Reader paths unknown → no host push.
+    expect(pushableNotes([candidate(host)], { repos: ['api'], paths: null })).toEqual([]);
+    // Known but non-overlapping → no host push.
+    expect(pushableNotes([candidate(host)], { repos: ['api'], paths: ['src/ui/x.ts'] })).toEqual([]);
+  });
+
+  it('hostOverlaps mirrors the listed rule', () => {
+    expect(hostOverlaps(note({ source: 'host', paths: ['a/b.ts'] }), { repos: ['api'], paths: ['a/b.ts'] })).toBe(true);
+    expect(hostOverlaps(note({ source: 'host', paths: null }), { repos: ['api'], paths: ['a/b.ts'] })).toBe(false);
+    expect(hostOverlaps(note({ source: 'agent', paths: ['a/b.ts'] }), { repos: ['api'], paths: ['a/b.ts'] })).toBe(false);
+  });
+});
+
+describe('unreadNotesByTicket (push relevance + session-start cutoff)', () => {
+  let store: Store;
+  let projectId: number;
+  let reader: number;
+  let seq = 0;
+
+  const BEFORE = '2026-01-01 00:00:00';
+  const AFTER = '2026-01-02 00:00:00';
+
+  beforeEach(() => {
+    store = openStore(':memory:');
+    projectId = upsertProject(store, { slug: 'p1' }).id;
+    reader = createTicket(store, { key: 'R', title: 'r', projectId }).id;
+    seedWorktree(store, reader, 'api');
+  });
+  afterEach(() => store.close());
+
+  function other(repo = 'api'): number {
+    seq++;
+    const t = createTicket(store, { key: `O${seq}`, title: 'o', projectId }).id;
+    seedWorktree(store, t, repo);
+    return t;
+  }
+
+  function setCreated(id: number, at: string): void {
+    store.db.prepare('UPDATE bulletin_notes SET created_at = ? WHERE id = ?').run(at, id);
+  }
+
+  function confirm(ticketId: number, at: string): void {
+    seq++;
+    store.db
+      .prepare(
+        `INSERT INTO session_launch_intents
+           (ticket_id, launch_id, purpose, provider, reason, session_origin, status, created_at)
+         VALUES (?, ?, 'implementation', 'claude', 'initial', 'new', 'confirmed', ?)`,
+      )
+      .run(ticketId, `L-${seq}`, at);
+  }
+
+  function row(ticketId: number): { toTicketId: number; unread: number; maxId: number } | undefined {
+    return unreadNotesByTicket(store, projectId).find((r) => r.toTicketId === ticketId);
+  }
+
+  function hostMerges(poster: number, count: number, paths: string[], at: string): number {
+    for (let i = 0; i < count; i++) {
+      recordTicketMerged(store, { ticketId: poster, repo: 'api', mergeSha: `sha-${seq}-${i}`, changedPaths: paths });
+    }
+    let max = 0;
+    const rows = store.db
+      .prepare("SELECT id FROM bulletin_notes WHERE source = 'host' AND from_ticket_id = ?")
+      .all(poster) as Array<{ id: number }>;
+    for (const r of rows) {
+      setCreated(r.id, at);
+      if (r.id > max) max = r.id;
+    }
+    return max;
+  }
+
+  it('169 host merges created BEFORE the session start push nothing to a reader with no paths', () => {
+    const poster = other();
+    hostMerges(poster, 169, ['src/ui/x.ts'], BEFORE);
+    confirm(reader, AFTER);
+    expect(row(reader)).toBeUndefined();
+  });
+
+  it('169 host merges created after the start but non-overlapping still collapse (no push)', () => {
+    store.db
+      .prepare('UPDATE tickets SET code_pointers = ? WHERE id = ?')
+      .run('- src/context/ticketContext.ts — context', reader);
+    const poster = other();
+    hostMerges(poster, 169, ['src/ui/x.ts'], AFTER);
+    confirm(reader, BEFORE);
+    expect(row(reader)).toBeUndefined();
+  });
+
+  it('one agent note in the same repo after the start is pushed', () => {
+    const poster = other();
+    const note = postAgentNote(store, { projectId, fromTicketId: poster, title: 'new learning', body: 'b' });
+    setCreated(note.id, AFTER);
+    confirm(reader, BEFORE);
+    expect(row(reader)).toEqual({ toTicketId: reader, unread: 1, maxId: note.id });
+  });
+
+  it('a host merge that overlaps the reader paths after the start is counted', () => {
+    store.db
+      .prepare('UPDATE tickets SET code_pointers = ? WHERE id = ?')
+      .run('- src/store/prs.ts — pr store', reader);
+    const poster = other();
+    const max = hostMerges(poster, 1, ['src/store/prs.ts'], AFTER);
+    confirm(reader, BEFORE);
+    expect(row(reader)).toEqual({ toTicketId: reader, unread: 1, maxId: max });
+  });
+
+  it('a note already shown in context or already read is not pushed', () => {
+    const poster = other();
+    const shown = postAgentNote(store, { projectId, fromTicketId: poster, title: 'shown', body: 'b' });
+    setCreated(shown.id, AFTER);
+    store.db
+      .prepare('INSERT INTO bulletin_context_shown (note_id, reader_ticket_id) VALUES (?, ?)')
+      .run(shown.id, reader);
+    expect(row(reader)).toBeUndefined();
+
+    const read = postAgentNote(store, { projectId, fromTicketId: poster, title: 'read', body: 'b' });
+    setCreated(read.id, AFTER);
+    markNotesRead(store, reader, [read.id]);
+    expect(row(reader)).toBeUndefined();
+  });
+
+  it('the cutoff prefers a confirmed launch intent over the implementation run', () => {
+    const poster = other();
+    const note = postAgentNote(store, { projectId, fromTicketId: poster, title: 'old', body: 'b' });
+    setCreated(note.id, AFTER);
+    // The run started before the note; the later confirmed launch excludes it.
+    openImplementationRun(store, { ticketId: reader, attempt: 1, provider: 'claude', startedAt: BEFORE });
+    confirm(reader, '2026-01-03 00:00:00');
+    expect(row(reader)).toBeUndefined();
+  });
+
+  it('the cutoff falls back to the implementation run when no intent is confirmed', () => {
+    const poster = other();
+    const note = postAgentNote(store, { projectId, fromTicketId: poster, title: 'old', body: 'b' });
+    setCreated(note.id, AFTER);
+    openImplementationRun(store, { ticketId: reader, attempt: 1, provider: 'claude', startedAt: '2026-01-03 00:00:00' });
+    expect(row(reader)).toBeUndefined();
+    // A note after the run start is pushed.
+    const fresh = postAgentNote(store, { projectId, fromTicketId: poster, title: 'fresh', body: 'b' });
+    setCreated(fresh.id, '2026-01-04 00:00:00');
+    expect(row(reader)?.unread).toBe(1);
+  });
+
+  it('the cutoff falls back to the ticket creation when there is no intent or run', () => {
+    store.db.prepare('UPDATE tickets SET created_at = ? WHERE id = ?').run('2026-01-01 12:00:00', reader);
+    const poster = other();
+    const before = postAgentNote(store, { projectId, fromTicketId: poster, title: 'before', body: 'b' });
+    setCreated(before.id, '2026-01-01 06:00:00');
+    expect(row(reader)).toBeUndefined();
+    const after = postAgentNote(store, { projectId, fromTicketId: poster, title: 'after', body: 'b' });
+    setCreated(after.id, '2026-01-01 18:00:00');
+    expect(row(reader)?.unread).toBe(1);
+  });
+
+  it('never pushes a note authored by the reader itself', () => {
+    const mine = postAgentNote(store, { projectId, fromTicketId: reader, title: 'mine', body: 'b' });
+    setCreated(mine.id, AFTER);
+    expect(row(reader)).toBeUndefined();
+  });
+
+  it('reads the whole backlog when nothing but the ticket creation exists (sanity)', () => {
+    store.db.prepare('UPDATE tickets SET created_at = ? WHERE id = ?').run('2025-01-01 00:00:00', reader);
+    const poster = other();
+    const note = postAgentNote(store, { projectId, fromTicketId: poster, title: 'any', body: 'b' });
+    setCreated(note.id, AFTER);
+    expect(row(reader)?.unread).toBe(1);
   });
 });

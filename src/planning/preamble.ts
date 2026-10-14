@@ -10,6 +10,21 @@ import { MCP_TOOLS_PREFERRED } from '../agent/promptText.js';
  */
 export const KARST_PLANNING_SESSION_ENV = 'KARST_PLANNING_SESSION';
 
+/**
+ * The discriminator: present on every planning terminal, on no ticket one.
+ * `ui/terminalIdentity.ts` checks it FIRST, like the graph discriminator: a
+ * planning terminal is NOT a ticket session and must never resolve to one
+ * (a planning launch may inherit a stale `KARST_TICKET_ID` from the
+ * environment, and a stale pid record must not claim it either), or the notes
+ * sweep would type its pointer into the planning terminal. Absent → false.
+ */
+export function isPlanningSessionEnv(
+  env: Readonly<Record<string, string | undefined>> | undefined,
+): boolean {
+  const raw = env?.[KARST_PLANNING_SESSION_ENV];
+  return typeof raw === 'string' && raw.length > 0;
+}
+
 /** The env var naming the session's outbox, where `draft propose` writes. */
 export const PLANNING_OUTBOX_ENV = 'KARST_OUTBOX';
 

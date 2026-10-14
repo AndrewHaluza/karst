@@ -322,6 +322,92 @@ export function ticketNoteScope(store: Store, ticketId: number): NoteScope {
   return { repos, paths: normalized.length === 0 ? null : normalized };
 }
 
+/** A bulletin note plus whether this reader already saw it (context) or read it. */
+export interface NoteCandidate {
+  note: BulletinNote;
+  /** Exposed in a context index to this reader (`bulletin_context_shown`). */
+  wasShown: boolean;
+  /** Read by this reader in `karst notes` (`bulletin_reads`). */
+  wasRead: boolean;
+}
+
+/**
+ * A host merge note is offered only when its merged paths overlap the reader's
+ * known paths. A note with no stamped paths, or a reader with none, proves no
+ * overlap and is collapsed rather than listed.
+ */
+export function hostOverlaps(note: BulletinNote, scope: NoteScope): boolean {
+  return (
+    note.source === 'host' &&
+    note.paths !== null &&
+    note.paths.length > 0 &&
+    scope.paths !== null &&
+    scope.paths.length > 0 &&
+    note.paths.some((path) => scope.paths!.some((readerPath) => pathsOverlap(path, readerPath)))
+  );
+}
+
+/**
+ * The notes a reader is PUSHED: context-index relevance — an agent note by
+ * `noteMatchesScope`, a host merge ONLY when `hostOverlaps` proves a path
+ * overlap (a reader whose paths are null gets no host push) — minus anything
+ * this reader already saw or read. `candidates` must already be repo-scoped:
+ * their repos intersect the reader's.
+ */
+export function pushableNotes(
+  candidates: readonly NoteCandidate[],
+  scope: NoteScope,
+): BulletinNote[] {
+  const out: BulletinNote[] = [];
+  for (const { note, wasShown, wasRead } of candidates) {
+    if (wasShown || wasRead) continue;
+    if (note.source === 'agent' ? noteMatchesScope(note, scope) : hostOverlaps(note, scope)) {
+      out.push(note);
+    }
+  }
+  return out;
+}
+
+/**
+ * The repo-scoped candidate notes for a reader, with their shown/read flags.
+ * `since` (sqlite UTC text) drops notes older than the start of the reader's
+ * current session; null reads the whole project. The caller applies the final
+ * relevance rule through `pushableNotes`.
+ */
+function readCandidates(
+  store: Store,
+  ticketId: number,
+  projectId: number | null,
+  since: string | null,
+): NoteCandidate[] {
+  const scoped = projectId !== null;
+  const rows = store.db
+    .prepare(
+      `SELECT n.*,
+              EXISTS (SELECT 1 FROM bulletin_context_shown s
+                       WHERE s.note_id = n.id AND s.reader_ticket_id = ?) AS was_shown,
+              EXISTS (SELECT 1 FROM bulletin_reads r2
+                       WHERE r2.note_id = n.id AND r2.reader_ticket_id = ?) AS was_read
+         FROM bulletin_notes n
+        WHERE n.from_ticket_id <> ?
+          ${scoped ? 'AND n.project_id = ?' : ''}
+          ${since === null ? '' : 'AND n.created_at >= datetime(?)'}
+        ORDER BY n.id`,
+    )
+    .all(
+      ticketId,
+      ticketId,
+      ticketId,
+      ...(scoped ? [projectId] : []),
+      ...(since === null ? [] : [since]),
+    ) as Array<NoteRow & { was_shown: number; was_read: number }>;
+  return rows.map((row) => ({
+    note: rowToNote(row),
+    wasShown: row.was_shown !== 0,
+    wasRead: row.was_read !== 0,
+  }));
+}
+
 export interface ListNotesInput {
   readerTicketId: number;
   projectId: number | null;
@@ -427,43 +513,12 @@ export function contextNoteIndex(
     | { project_id: number | null }
     | undefined;
   const scope = ticketNoteScope(store, ticketId);
-  const scoped = ticket?.project_id !== null && ticket?.project_id !== undefined;
-  const rows = store.db
-    .prepare(
-      `SELECT n.*, EXISTS (
-          SELECT 1 FROM bulletin_context_shown s
-           WHERE s.note_id = n.id AND s.reader_ticket_id = ?
-        ) AS was_shown,
-        EXISTS (
-          SELECT 1 FROM bulletin_reads r2
-           WHERE r2.note_id = n.id AND r2.reader_ticket_id = ?
-        ) AS was_read
-         FROM bulletin_notes n
-        WHERE n.from_ticket_id <> ?
-          ${scoped ? 'AND n.project_id = ?' : ''}
-        ORDER BY n.id`,
-    )
-    .all(ticketId, ticketId, ticketId, ...(scoped ? [ticket!.project_id] : [])) as Array<
-      NoteRow & { was_shown: number; was_read: number }
-    >;
-  const candidates = rows
-    .map((row) => ({
-      note: rowToNote(row),
-      wasShown: row.was_shown !== 0,
-      wasRead: row.was_read !== 0,
-    }))
+  const candidates = readCandidates(store, ticketId, ticket?.project_id ?? null, null)
     .filter(({ note }) => note.repos.some((repo) => scope.repos.includes(repo)))
     .filter(({ note }) => note.source === 'host' || noteMatchesScope(note, scope));
-  const hostOverlaps = (note: BulletinNote): boolean =>
-    note.source === 'host' &&
-    note.paths !== null && note.paths.length > 0 &&
-    scope.paths !== null && scope.paths.length > 0 &&
-    note.paths.some((path) => scope.paths!.some((readerPath) => pathsOverlap(path, readerPath)));
   const newCandidates = candidates.filter(({ wasShown, wasRead }) => !wasShown && !wasRead);
-  const listed = newCandidates
-    .filter(({ note }) => note.source === 'agent' || hostOverlaps(note))
-    .map(({ note }) => note);
-  const collapsed = newCandidates.filter(({ note }) => note.source === 'host' && !hostOverlaps(note));
+  const listed = pushableNotes(candidates, scope);
+  const collapsed = newCandidates.filter(({ note }) => note.source === 'host' && !hostOverlaps(note, scope));
   if (opts.markShown === true) {
     const mark = store.db.prepare(
       'INSERT OR IGNORE INTO bulletin_context_shown (note_id, reader_ticket_id) VALUES (?, ?)',
@@ -486,7 +541,34 @@ export interface TicketNoteUnread {
   maxId: number;
 }
 
-/** Unread matching notes for every ticket in the project that has worktrees. */
+/**
+ * The start of the recipient's CURRENT session, as sqlite UTC text: the latest
+ * SessionStart-CONFIRMED launch intent, else its latest implementation run, else
+ * the ticket's creation. A note older than this predates the session and is not
+ * "new" to it — the whole unread backlog must not be pushed.
+ */
+function sessionStartCutoff(store: Store, ticketId: number): string {
+  const row = store.db
+    .prepare(
+      `SELECT COALESCE(
+         (SELECT created_at FROM session_launch_intents
+           WHERE ticket_id = ? AND status = 'confirmed' ORDER BY id DESC LIMIT 1),
+         (SELECT started_at FROM implementation_runs
+           WHERE ticket_id = ? ORDER BY id DESC LIMIT 1),
+         (SELECT created_at FROM tickets WHERE id = ?)
+       ) AS cutoff`,
+    )
+    .get(ticketId, ticketId, ticketId) as { cutoff: string | null };
+  return row.cutoff ?? '1970-01-01 00:00:00';
+}
+
+/**
+ * Unread, PUSHABLE notes for every ticket in the project that has worktrees:
+ * context-index relevance (agent notes by scope, host merges only on path
+ * overlap), minus notes already shown/read, and only notes created since the
+ * recipient's current session started. A planning session carries no ticket and
+ * is never a recipient here.
+ */
 export function unreadNotesByTicket(store: Store, projectId: number): TicketNoteUnread[] {
   const tickets = store.db
     .prepare(
@@ -496,12 +578,11 @@ export function unreadNotesByTicket(store: Store, projectId: number): TicketNote
     .all(projectId) as Array<{ id: number }>;
   const out: TicketNoteUnread[] = [];
   for (const { id } of tickets) {
-    const notes = listNotes(store, {
-      readerTicketId: id,
-      projectId,
-      scope: ticketNoteScope(store, id),
-      all: false,
-    });
+    const scope = ticketNoteScope(store, id);
+    const candidates = readCandidates(store, id, projectId, sessionStartCutoff(store, id)).filter(
+      ({ note }) => note.repos.some((repo) => scope.repos.includes(repo)),
+    );
+    const notes = pushableNotes(candidates, scope);
     if (notes.length > 0) {
       out.push({ toTicketId: id, unread: notes.length, maxId: Math.max(...notes.map((n) => n.id)) });
     }
