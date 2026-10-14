@@ -1,0 +1,5 @@
+{"steps":[
+{"type":"wait","for":{"log":"Karst activated"},"timeoutMs":20000},
+{"type":"command","command":"karst.openSettings"},
+{"type":"wait","for":{"webviewMessage":"settings"},"timeoutMs":15000},
+{"type":"snapshot","label":"settings"}]}
