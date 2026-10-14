@@ -51,6 +51,7 @@ import {
   touchGraphRun,
 } from '../../../store/graph/graphRuns.js';
 import {
+  clearNodeRunLaunchFailStreak,
   nodeRunIdsForGraphRun,
   nodeRunsForGraphRun,
   setNodeRunReason,
@@ -338,6 +339,12 @@ function parkNode(
     return false;
   }
   setNodeRunReason(deps.db, nodeRunId, reason);
+  // A `running` row had a spawned provider that outlived the launch window, so
+  // its death is a session death, NOT a provider launch exit: end any run of
+  // launch-exit failures here, or the launch-loop guard would refuse a Resume
+  // for a node that is no longer looping on folder trust. A `launching` park is
+  // still a launch failure and keeps the streak.
+  if (from === 'running') clearNodeRunLaunchFailStreak(deps.db, nodeRunId);
   return true;
 }
 

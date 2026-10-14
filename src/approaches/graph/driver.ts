@@ -866,17 +866,17 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
   }
-  const launched = deps.transaction(() => {
-    if (
-      !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running')
-    ) {
-      return false;
-    }
-    // The provider is running: whatever launch failures came before, this
-    // visit is no longer launch-looping.
-    clearNodeRunLaunchFailStreak(deps.db, row.id);
-    return true;
-  });
+  // NOTE: this CAS is NOT proof the launch succeeded. The provider is marked
+  // `running` as soon as it spawns, before the supervised transport has
+  // observed whether it survives its launch window — so the streak is NOT
+  // cleared here. A provider that exits moments after spawn reaches this line
+  // and then parks via `parkNodeLaunchExit`; clearing here made the launch-loop
+  // guard unreachable (every early exit started again from 0). The streak is
+  // cleared instead by the parkers that prove it is not a launch exit (a
+  // non-provider `parkLaunchFailure`, a reconcile post-start death).
+  const launched = deps.transaction(() =>
+    casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running'),
+  );
   if (!launched) {
     deps.debug?.(
       `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched but lost launching→running CAS`,
@@ -1086,10 +1086,10 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
  *  `running`.
  *
  *  `providerExit` marks the ONE park that is the provider early-exit loop — a
- *  provider process that exited before its session started. It alone advances
- *  `launch_fail_streak`; a red-blocked node or an unresolved workspace parks
- *  `failed-to-launch` too but is a different failure, and must not trip the
- *  launch-loop guard. */
+ *  provider process that exited before its session started. Only it advances
+ *  `launch_fail_streak`; every other park (a red-blocked node, an unresolved
+ *  workspace, a lost claim) RESETS the streak, because its failure is a
+ *  different one and proves the provider-exit run is over. */
 export function parkLaunchFailure(
   deps: GraphDriverDeps,
   graphRunId: number,
@@ -1124,10 +1124,13 @@ export function parkLaunchFailure(
     ) {
       return;
     }
-    // One more consecutive PROVIDER-exit failure on this reserved visit. It is
-    // reset to zero only by a launch that actually started — so the counter the
-    // loop guard reads is "in a row", unlike `launch_attempt`.
+    // One more consecutive PROVIDER-exit failure on this reserved visit, or —
+    // for every other parker (a red-blocked node, an unresolved workspace, a
+    // lost claim) — a clean slate: their failure is NOT the folder-trust loop,
+    // so it ends whatever run of provider exits came before. `launch_attempt`'s
+    // retry count is deliberately not used here.
     if (providerExit) incrementNodeRunLaunchFailStreak(deps.db, nodeRunId);
+    else clearNodeRunLaunchFailStreak(deps.db, nodeRunId);
     setNodeRunFailure(deps.db, nodeRunId, {
       failureCategory: 'failed-to-launch',
       reason,

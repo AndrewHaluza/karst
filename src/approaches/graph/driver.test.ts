@@ -945,8 +945,11 @@ describe('driveReadyNodeRuns', () => {
       )
       .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
 
-    // A launch-loop streak from earlier failures is cleared by a launch that
-    // actually starts: `launching → running` ends the run of failures.
+    // The launch itself does NOT clear a prior streak: `launching → running` is
+    // written as soon as the provider spawns, before the transport learns
+    // whether it survives its launch window. Clearing here is what made the
+    // launch-loop guard unreachable. The streak survives the spawn and is only
+    // ended by a park that proves this was not a launch exit.
     h.db.prepare('UPDATE approach_node_runs SET launch_fail_streak = 2 WHERE id = ?').run(nodeRunId);
 
     const result = await driveReadyNodeRuns(h.deps, graphRunId);
@@ -962,7 +965,7 @@ describe('driveReadyNodeRuns', () => {
       launch_fail_streak: number;
     };
     expect(node.status).toBe('running');
-    expect(node.launch_fail_streak).toBe(0);
+    expect(node.launch_fail_streak).toBe(2);
     expect(node.generation).not.toBeNull();
     expect(node.capability_hash).not.toBeNull();
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
@@ -2456,9 +2459,10 @@ describe('parkNodeLaunchExit', () => {
     // The medium review finding: a red-blocked node and an unresolved
     // workspace park `failed-to-launch` through the same `parkLaunchFailure`,
     // but they are NOT the folder-trust loop — only the provider early exit
-    // (see `parkNodeLaunchExit`) may count.
+    // (see `parkNodeLaunchExit`) may count. Such a park also ENDS a prior run
+    // of provider exits: its failure proves the loop is over.
     const h = harness();
-    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0);
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 2);
     parkLaunchFailure(h.deps, graphRunId, nodeRunId, 'launch failed before the session started');
     expect(nodeOf(h, nodeRunId).status).toBe('blocked');
     expect(nodeOf(h, nodeRunId).failure_category).toBe('failed-to-launch');
