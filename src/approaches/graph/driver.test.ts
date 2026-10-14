@@ -30,6 +30,8 @@ import {
   sha256Hex,
   nodeWorkspaceDirective,
   resolveGraphNodeProfile,
+  parkLaunchFailure,
+  parkNodeLaunchExit,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -943,12 +945,27 @@ describe('driveReadyNodeRuns', () => {
       )
       .run(graphRunId, revisionId, plannerRunId, 'artifacts/task.md', sha256Hex(taskSnap), taskSnap.length, NOW);
 
+    // The launch itself does NOT clear a prior streak: `launching → running` is
+    // written as soon as the provider spawns, before the transport learns
+    // whether it survives its launch window. Clearing here is what made the
+    // launch-loop guard unreachable. The streak survives the spawn and is only
+    // ended by a park that proves this was not a launch exit.
+    h.db.prepare('UPDATE approach_node_runs SET launch_fail_streak = 2 WHERE id = ?').run(nodeRunId);
+
     const result = await driveReadyNodeRuns(h.deps, graphRunId);
     expect(result.launched).toBe(1);
     const node = h.db
-      .prepare('SELECT status, generation, capability_hash FROM approach_node_runs WHERE id = ?')
-      .get(nodeRunId) as { status: string; generation: string | null; capability_hash: string | null };
+      .prepare(
+        'SELECT status, generation, capability_hash, launch_fail_streak FROM approach_node_runs WHERE id = ?',
+      )
+      .get(nodeRunId) as {
+      status: string;
+      generation: string | null;
+      capability_hash: string | null;
+      launch_fail_streak: number;
+    };
     expect(node.status).toBe('running');
+    expect(node.launch_fail_streak).toBe(2);
     expect(node.generation).not.toBeNull();
     expect(node.capability_hash).not.toBeNull();
     const launch = h.starts[0] as { nodeRunId: number; graphEnv: Record<string, string> };
@@ -2311,5 +2328,144 @@ describe('driveReadyNodeRuns — graph ticket mailbox and bulletin', () => {
     await driveReadyNodeRuns(h.deps, graphRunId);
     expect(promptOf(h)).not.toContain('karst inbox');
     expect(promptOf(h)).not.toContain('karst notes post');
+  });
+});
+
+describe('parkNodeLaunchExit', () => {
+  /** A `running` graph with one agent node run the driver already moved to
+   *  `running` — the state a provider that exited moments after spawn leaves.
+   *  `launchFailStreak` is the CONSECUTIVE launch-failure count; `launchAttempt`
+   *  counts every retry, whatever its cause. */
+  function graphWithRunningNode(
+    h: Harness,
+    launchFailStreak: number,
+    launchAttempt = 0,
+  ): { graphRunId: number; nodeRunId: number } {
+    const graphRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 0,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    runningGraphRun(h, graphRunId);
+    const revisionId = createRevision(h.db, {
+      graphRunId,
+      revisionNumber: 1,
+      canonicalGraph: '{}',
+      fingerprint: 'fp',
+      status: 'active',
+      now: NOW,
+    });
+    const nodeRunId = Number(
+      h.db
+        .prepare(
+          `INSERT INTO approach_node_runs
+             (graph_run_id, revision_id, node_id, node_kind, visit_number, status, launch_attempt, launch_fail_streak)
+           VALUES (?, ?, 'n', 'agent', 1, 'running', ?, ?)`,
+        )
+        .run(graphRunId, revisionId, launchAttempt, launchFailStreak)
+        .lastInsertRowid,
+    );
+    return { graphRunId, nodeRunId };
+  }
+
+  function nodeOf(h: Harness, nodeRunId: number): {
+    status: string;
+    failure_category: string | null;
+    reason: string | null;
+    launch_fail_streak: number;
+  } {
+    return h.db
+      .prepare(
+        'SELECT status, failure_category, reason, launch_fail_streak FROM approach_node_runs WHERE id = ?',
+      )
+      .get(nodeRunId) as {
+      status: string;
+      failure_category: string | null;
+      reason: string | null;
+      launch_fail_streak: number;
+    };
+  }
+
+  it('parks a node already `running` as failed-to-launch with the captured line', () => {
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0);
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, 'Folder trust required');
+
+    const node = nodeOf(h, nodeRunId);
+    expect(node.status).toBe('blocked');
+    expect(node.failure_category).toBe('failed-to-launch');
+    expect(node.reason).toBe('failed-to-launch: Folder trust required');
+    // The park opened a run of one launch failure — the guard's streak.
+    expect(node.launch_fail_streak).toBe(1);
+    const run = h.db
+      .prepare('SELECT status, blocked_reason FROM approach_graph_runs WHERE id = ?')
+      .get(graphRunId) as { status: string; blocked_reason: string | null };
+    expect(run.status).toBe('blocked');
+    expect(run.blocked_reason).toBe(`failed-to-launch: node run ${nodeRunId}`);
+  });
+
+  it('names the loop on the second launch failure of the same reserved visit', () => {
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 1);
+    // Untrusted terminal text: collapsed to one line, controls stripped.
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, '\u0000trust\n  this   folder?  ');
+
+    const node = nodeOf(h, nodeRunId);
+    expect(node.status).toBe('blocked');
+    expect(node.failure_category).toBe('failed-to-launch');
+    expect(node.reason).toContain('launched twice and exited before starting: trust this folder?');
+    expect(node.reason).toContain('folder trust');
+    expect(node.launch_fail_streak).toBe(2);
+  });
+
+  it('does not name the loop on a first launch failure even after earlier retries', () => {
+    // The medium review finding: `launch_attempt` counts EVERY retry (here
+    // two, from a session death), so keying the message off it fired the loop
+    // text on a FIRST launch failure. The consecutive counter is 0, so this is
+    // a first failure whatever the retry history.
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0, 2);
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, 'Folder trust required');
+    expect(nodeOf(h, nodeRunId).reason).toBe('failed-to-launch: Folder trust required');
+  });
+
+  it('records no line when the host captured none', () => {
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0);
+    parkNodeLaunchExit(h.deps, graphRunId, nodeRunId, '');
+    expect(nodeOf(h, nodeRunId).reason).toBe('failed-to-launch');
+  });
+
+  it('never parks a node run that belongs to another graph run', () => {
+    // A planner's run id and a node run id are independent sequences, so a
+    // mis-routed id can name a REAL node run that merely shares the number.
+    // The park is scoped to (id, graph_run_id): a foreign run is untouched.
+    const h = harness();
+    const { nodeRunId } = graphWithRunningNode(h, 0);
+    const otherRunId = createGraphRun(h.db, {
+      ticketId: h.ticketId,
+      stageAttempt: 1,
+      approachId: 'karst-graph-engineering',
+      now: NOW,
+    });
+    parkNodeLaunchExit(h.deps, otherRunId, nodeRunId, 'Folder trust required');
+    // The foreign node keeps its `running` state and no failure line.
+    expect(nodeOf(h, nodeRunId).status).toBe('running');
+    expect(nodeOf(h, nodeRunId).reason).toBeNull();
+  });
+
+  it('does not advance the loop counter for a park that is not a provider exit', () => {
+    // The medium review finding: a red-blocked node and an unresolved
+    // workspace park `failed-to-launch` through the same `parkLaunchFailure`,
+    // but they are NOT the folder-trust loop — only the provider early exit
+    // (see `parkNodeLaunchExit`) may count. Such a park also ENDS a prior run
+    // of provider exits: its failure proves the loop is over.
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 2);
+    parkLaunchFailure(h.deps, graphRunId, nodeRunId, 'launch failed before the session started');
+    expect(nodeOf(h, nodeRunId).status).toBe('blocked');
+    expect(nodeOf(h, nodeRunId).failure_category).toBe('failed-to-launch');
+    expect(nodeOf(h, nodeRunId).launch_fail_streak).toBe(0);
   });
 });

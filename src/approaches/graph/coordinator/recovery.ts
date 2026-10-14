@@ -121,10 +121,11 @@ export type RecoveryCategory =
 export type RecoveryRefusalReason =
   | 'discard-required'
   | 'config-then-resume'
-  | 'explicit-resolution';
+  | 'explicit-resolution'
+  | 'launch-loop';
 
 /** How a user-triggered graph recovery should treat the recorded block. */
-export type GraphRecoveryMode = 'resume' | 'replan';
+export type GraphRecoveryMode = 'resume' | 'replan' | 'force-resume';
 
 export interface RecoveryDeps {
   store: Store;
@@ -263,6 +264,44 @@ const RECOVERY_ATTENTION_STATUSES: readonly string[] = [
 
 function blockedNodeRows(db: RecoveryDeps['store']['db'], graphRunId: number): BlockedNodeRow[] {
   return nodeRunsInStatusesForGraphRun(db, graphRunId, RECOVERY_ATTENTION_STATUSES);
+}
+
+/**
+ * The highest CONSECUTIVE provider-launch-exit count over the node runs a plain
+ * Resume would relaunch — the streak the launch-loop guard reads, from
+ * `approach_node_runs.launch_fail_streak` (T693, v83). ONLY a provider process
+ * that exited before its session started advances the counter
+ * (`parkNodeLaunchExit`): a red-blocked node or an unresolved workspace is
+ * parked `failed-to-launch` too, but it is a DIFFERENT failure and must never
+ * read as the folder-trust loop. A launch that actually started resets it.
+ *
+ * Read run-wide, not on the single node named in `blocked_reason`: the retry
+ * `retryReservedVisits` performs is run-wide, so any node it would relaunch can
+ * be the loop. Scoped to the recovery-attention statuses — the exact set that
+ * retry relaunches — so a superseded revision's cancelled node run (status
+ * `cancelled`) cannot refuse a Resume for a node that is no longer in the plan.
+ */
+export function launchFailureStreak(db: Store['db'], graphRunId: number): number {
+  const placeholders = RECOVERY_ATTENTION_STATUSES.map(() => '?').join(', ');
+  const row = db
+    .prepare(
+      `SELECT MAX(launch_fail_streak) AS streak FROM approach_node_runs
+        WHERE graph_run_id = ? AND status IN (${placeholders})`,
+    )
+    .get(graphRunId, ...RECOVERY_ATTENTION_STATUSES) as { streak: number | null } | undefined;
+  return row?.streak ?? 0;
+}
+
+/** The categories whose recovery retries the reserved visits in place — the
+ *  only ones the launch-loop guard can interrupt (see `recoverGraphRun`). */
+function retriesReservedVisits(
+  category: RecoveryCategory,
+): category is 'launch-retry' | 'prompt-resnapshot' | 'artifact-recheck' {
+  return (
+    category === 'launch-retry' ||
+    category === 'prompt-resnapshot' ||
+    category === 'artifact-recheck'
+  );
 }
 
 /** Whether a node is covered by the explicit prompt Resume: its own `prompt`
@@ -717,11 +756,33 @@ export function recoverGraphRun(
   deps.debug?.(
     `[graph] recovery: run ${input.graphRunId} blocked_reason "${run.blocked_reason ?? 'none'}" → category ${category}`,
   );
+
+  // The launch-loop guard. A plain Resume of a launch-retry category retries
+  // the reserved visits in place (`retryReservedVisits`); when a node it WOULD
+  // relaunch has already exited before starting twice, that is the loop the
+  // user was stuck in, with no cause shown. The streak counts ONLY provider
+  // early exits, read run-wide (see `launchFailureStreak`); a red-blocked node
+  // or an unresolved workspace parks `failed-to-launch` too but is a DIFFERENT
+  // failure, and it must not read as the loop. The explicit Force retry
+  // (`mode: 'force-resume'`) is the user's escape hatch, never automatic.
+  if (retriesReservedVisits(category)) {
+    if (
+      input.mode !== 'force-resume' &&
+      launchFailureStreak(store.db, input.graphRunId) >= 2
+    ) {
+      emitGraphDiagnostic({ db: store.db, debug: deps.debug }, {
+        category: 'recovery',
+        graphRunId: input.graphRunId,
+        detail:
+          'refused (launch-loop): the same node exited before starting twice — ' +
+          'check the agent CLI’s folder trust, or Force a retry',
+      });
+      return { kind: 'refused', reason: 'launch-loop' };
+    }
+    return retryReservedVisits(deps, input, category);
+  }
+
   switch (category) {
-    case 'launch-retry':
-    case 'prompt-resnapshot':
-    case 'artifact-recheck':
-      return retryReservedVisits(deps, input, category);
     case 'replan':
     case 'compile-new-revision':
       return replanRecovery(deps, { ...input, humanReplan: false });

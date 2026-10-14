@@ -230,6 +230,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   effort                   TEXT,
   prompt_hash              TEXT,
   launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  launch_fail_streak       INTEGER NOT NULL DEFAULT 0,
   generation               TEXT,
   process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   owner_nonce              TEXT,
@@ -2670,6 +2671,23 @@ function migrateLocked(db: Database): void {
     // provider account is out of quota/allowance (K11, @arch:V82). A whole new
     // table (IF NOT EXISTS DDL), nothing backfilled: no park existed before it.
     db.exec(USAGE_LIMIT_PARKS_DDL);
+  }
+
+  if (current < 83) {
+    // v83: `approach_node_runs.launch_fail_streak` — the count of CONSECUTIVE
+    // launch failures on one reserved visit (T693). The launch-loop guard reads
+    // it to stop offering a plain Resume once a provider has exited before
+    // starting twice in a row, and to name the loop on the node's own row. A
+    // separate counter because `launch_attempt` counts EVERY retry, whatever
+    // its cause — a visit retried after a session death is not launch-looping.
+    // Nothing is backfilled: 0 is the honest "no consecutive launch failure"
+    // for every pre-v83 row, and the streak accrues on the next failure. The
+    // guard reads the CURRENT columns, so a fresh DB (schema.sql already
+    // carries it) and a re-open are no-ops.
+    const cols83 = tableColumns(db, 'approach_node_runs');
+    if (cols83.size > 0 && !cols83.has('launch_fail_streak')) {
+      db.exec('ALTER TABLE approach_node_runs ADD COLUMN launch_fail_streak INTEGER NOT NULL DEFAULT 0');
+    }
   }
 
   db.pragma(`user_version = ${SCHEMA_VERSION}`);

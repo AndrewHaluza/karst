@@ -17,7 +17,8 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
-import { compileExpertSpend, graphRecoveryRefusalNotice, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { compileExpertSpend, graphRecoveryRefusalNotice, graphRefusalHandling, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
+import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
 import type { Notify } from './extension/ops/notify.js';
 import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type ArchiveOpsDeps } from './extension/ops/archiveOps.js';
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
@@ -205,6 +206,7 @@ import { ticketGlyph } from './model/ticketGlyph.js';
 import { glyphIconPath } from './ui/glyphIcon.js';
 import { brandIconPaths, type BrandIconPaths } from './ui/brandIcon.js';
 import { KARST_TERMINAL_ICON_ID, terminalNaming } from './ui/terminalNaming.js';
+import { observeTerminalClose } from './ui/terminalObservation.js';
 import { StatusBarManager } from './ui/statusBar.js';
 import { attentionItems, AttentionManager, type AttentionItem } from './ui/attention.js';
 import { composeContextCommand } from './cli/context.js';
@@ -269,14 +271,12 @@ import {
   nodeOverrideFor,
   nodeRunGraphRunId,
   nodeRunIdsInStatusesForGraphRun,
-  nodeRunModelIdentity,
   nodeRunTicketId,
   setNodeRunProcessRunId,
   type BaseHead,
 } from './store/graph/nodeRuns.js';
 import {
   plannerRunIdsForGraphRun,
-  plannerRunModelIdentity,
   plannerRunStatus,
   plannerRunTicketId,
   setPlannerRunProcessRunId,
@@ -4394,25 +4394,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (!gs) return undefined;
         const run = graphRunTicketStageAttempt(gs.db, request.graphRunId);
         if (!run) return undefined;
-        const node = nodeRunModelIdentity(gs.db, request.nodeRunId);
-        const planner = node === undefined ? plannerRunModelIdentity(gs.db, request.nodeRunId) : undefined;
-        if (node === undefined && planner === undefined) return undefined;
-        const identity = node ?? planner!;
+        // Which table `nodeRunId` names, from the request's own `runKind` — the
+        // two id sequences overlap, so an ambiguous lookup would attribute a
+        // planner's process to an unrelated node run (T693).
+        const resolved = graphLaunchIdentity(gs.db, request);
+        if (resolved === undefined) return undefined;
+        const plannerLaunch = resolved.kind === 'planner';
         const processRun = openProcessRun(graphCoordinatorStore!, {
           ticketId: run.ticket_id,
           stageKey: 'impl',
-          processId: node !== undefined ? 'graph-node' : 'graph-planner',
+          processId: plannerLaunch ? 'graph-planner' : 'graph-node',
           attempt: run.stage_attempt,
-          agentName: identity.profile,
-          provider: identity.provider ?? request.adapter.requiredBinary,
-          model: request.interactive.model ?? identity.model,
+          agentName: resolved.identity.profile,
+          provider: resolved.identity.provider ?? request.adapter.requiredBinary,
+          model: request.interactive.model ?? resolved.identity.model,
           pid,
           startedAt: new Date().toISOString(),
         });
-        if (node !== undefined) {
-          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
-        } else {
+        if (plannerLaunch) {
           setPlannerRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
+        } else {
+          setNodeRunProcessRunId(gs.db, request.nodeRunId, processRun.id);
         }
         return processRun.id;
       } catch (err) {
@@ -4438,6 +4440,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     facts: systemAsyncProcessFacts,
     now: () => new Date().toISOString(),
     debug: (message) => logger.debug(message),
+    // A provider that exits before its session started is a LAUNCH failure, not
+    // a session death (T693): park the node with the captured line.
+    onLaunchFailed: parkGraphLaunchFailure(() => graphDriverDeps(), logError),
     // The launch diagnostic's identity (Slice-6 T3): the transport has no DB
     // handle, so the host resolves graph → project/ticket/attempt for it.
     graphIdentityOf: (graphRunId) => {
@@ -7609,14 +7614,7 @@ function wrapTerminal(terminal: vscode.Terminal): SessionTerminal {
     show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text, addNewLine = true) => terminal.sendText(text, addNewLine),
     dispose: () => terminal.dispose(),
-    onDidClose: (handler) => {
-      const sub = vscode.window.onDidCloseTerminal((closed) => {
-        if (closed === terminal) {
-          sub.dispose();
-          handler(closed.exitStatus?.code);
-        }
-      });
-    },
+    onDidClose: (handler) => observeTerminalClose(terminal, handler),
   };
 }
 
@@ -7640,14 +7638,7 @@ function wrapRevivedGraphTerminal(terminal: vscode.Terminal): TransportTerminal 
     show: (preserveFocus) => terminal.show(preserveFocus),
     sendText: (text) => terminal.sendText(text, true),
     dispose: () => terminal.dispose(),
-    onDidClose: (handler) => {
-      const sub = vscode.window.onDidCloseTerminal((closed) => {
-        if (closed === terminal) {
-          sub.dispose();
-          handler(closed.exitStatus?.code);
-        }
-      });
-    },
+    onDidClose: (handler) => observeTerminalClose(terminal, handler),
   };
 }
 
@@ -7711,14 +7702,10 @@ function makeGraphTerminalHost(identity: TerminalIdentityRegistry): TransportTer
         show: (preserveFocus) => terminal.show(preserveFocus),
         sendText: (text) => terminal.sendText(text, true),
         dispose: () => terminal.dispose(),
-        onDidClose: (handler) => {
-          const sub = vscode.window.onDidCloseTerminal((closed) => {
-            if (closed === terminal) {
-              sub.dispose();
-              handler(closed.exitStatus?.code);
-            }
-          });
-        },
+        // No captured output: VS Code exposes a terminal's data only through a
+        // proposed API a shipped extension cannot use, so the launch-failure
+        // reason carries no provider line here (see `terminalObservation`).
+        onDidClose: (handler) => observeTerminalClose(terminal, handler),
       };
     },
   };
@@ -7778,7 +7765,7 @@ function makeInsideActionHost(
   const recoverBlockedGraph = (
     ticketId: number,
     graphRunId: number,
-    mode: 'resume' | 'replan',
+    mode: 'resume' | 'replan' | 'force-resume',
   ): void => {
     try {
       const recovery = recoverGraphRun(
@@ -7792,9 +7779,19 @@ function makeInsideActionHost(
         graphBootstrapRelaunch(recovery.launch);
       }
       if (recovery.kind === 'refused') {
-        void vscode.window.showInformationMessage(
-          graphRecoveryRefusalNotice(ticketId, mode, recovery.reason),
-        );
+        // A plain Resume on a node that already exited before starting twice is
+        // the loop, not a recovery: offer the explicit Force retry the guard
+        // refused to do on its own. Every other refusal is informational.
+        const handling = graphRefusalHandling(ticketId, mode, recovery.reason);
+        if (handling.offerForce) {
+          void vscode.window
+            .showWarningMessage(handling.message, { modal: true }, 'Force retry')
+            .then((choice) => {
+              if (choice === 'Force retry') recoverBlockedGraph(ticketId, graphRunId, 'force-resume');
+            });
+          return;
+        }
+        void vscode.window.showInformationMessage(handling.message);
         return;
       }
       if (recovery.kind !== 'no-op') {

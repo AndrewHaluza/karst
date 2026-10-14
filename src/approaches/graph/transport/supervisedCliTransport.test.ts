@@ -20,6 +20,8 @@ import { openStore } from '../../../store/db.js';
 import { stopServersUnder, reapStaleServers } from '../../../runtime/worktreeServers.js';
 import {
   createSupervisedCliTransport,
+  LAUNCH_EXIT_WINDOW_MS,
+  type LaunchFailure,
   type SupervisedLaunchRequest,
   type SupervisedTransportDeps,
 } from './supervisedCliTransport.js';
@@ -558,6 +560,189 @@ describe('SupervisedCLITransport', () => {
 
     expect(transport.sessionFor(LAUNCH.ticketId, LAUNCH.nodeRunId)).toBeUndefined();
     expect(transport.sessions()).toEqual([]);
+  });
+
+  it('reports a process that exits before its session started as a launch failure, with the captured line', async () => {
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    let writeHandler: ((data: string) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    terminal.onDidWriteData = (handler) => {
+      writeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const session = await transport.start(LAUNCH);
+    // The provider writes a banner and the reason it is about to exit.
+    writeHandler?.('\u001b[2Jbooting\nFolder trust required\n');
+    clock += 900; // inside the launch window
+    closeHandler?.(1);
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ exitCode: 1, outputLine: 'Folder trust required' });
+    expect(failures[0]!.session).toBe(session);
+    expect(failures[0]!.request.nodeRunId).toBe(LAUNCH.nodeRunId);
+  });
+
+  it('leaves an exit AFTER the launch window to the reconcile sweep', async () => {
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    await transport.start(LAUNCH);
+    clock += LAUNCH_EXIT_WINDOW_MS;
+    closeHandler?.(0);
+    // The session ran past its launch; its death is a reconcile concern, not a
+    // launch failure.
+    expect(failures).toEqual([]);
+  });
+
+  it('reports a launch failure with no captured line when the host cannot observe output', async () => {
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    await transport.start(LAUNCH);
+    closeHandler?.(undefined);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.outputLine).toBe('');
+    expect(failures[0]!.exitCode).toBeUndefined();
+  });
+
+  it('does not report a launch failure for a session this window is stopping', async () => {
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const session = await transport.start(LAUNCH);
+    await transport.terminate(session);
+    clock += 200;
+    closeHandler?.(undefined);
+    // A Stop ends the session deliberately; its close is not a launch failure.
+    expect(failures).toEqual([]);
+  });
+
+  it('a Stop of a session whose process is already dead does not suppress a genuine early exit', async () => {
+    // The low review finding: the Stop marker was set before the Stop was known
+    // to have stopped anything. A provider that had ALREADY exited early, with
+    // a Stop clicked just before its close landed, then read as "a Stop" and
+    // its genuine early-exit report was lost.
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      // The process is already gone: the Stop cannot have caused the close.
+      facts: {
+        isAlive: () => false,
+        liveCwd: () => ({ path: '/wt/n1', deleted: false }),
+        processStartMs: () => Date.parse('2026-08-12T00:00:00.000Z'),
+      },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const session = await transport.start(LAUNCH);
+    expect(await transport.terminate(session)).toEqual({ kind: 'dead' });
+    clock += 200;
+    closeHandler?.(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.request.nodeRunId).toBe(LAUNCH.nodeRunId);
+  });
+
+  it('reports a launch failure for a fresh session after a Stop, not just the first', async () => {
+    // The high review finding: the Stop marker was never cleared, so a LATER
+    // launch of the same reserved visit never reported its own early exit.
+    const terminals = [fakeTerminal(4242), fakeTerminal(4243)];
+    const closeHandlers: Array<(exitCode?: number) => void> = [];
+    terminals.forEach((terminal, index) => {
+      terminal.onDidClose = (handler) => {
+        closeHandlers[index] = handler;
+      };
+    });
+    let next = 0;
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminals[next++]! },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const first = await transport.start(LAUNCH);
+    await transport.terminate(first);
+    clock += 200;
+    closeHandlers[0]?.(undefined);
+    // The Stop's own close ends no launch; its marker must not survive it.
+    expect(failures).toEqual([]);
+
+    const second = await transport.start(LAUNCH);
+    expect(second).not.toBe(first);
+    clock += 200;
+    closeHandlers[1]?.(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.request.nodeRunId).toBe(LAUNCH.nodeRunId);
+  });
+
+  it('does not report a planner launch failure — a planner id is not a node run id', async () => {
+    // The critical review finding: planners pass their planner-run id in
+    // `nodeRunId`, and that small integer also names an UNRELATED node run, so
+    // reporting the early exit here parked the wrong node.
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    await transport.start({ ...LAUNCH, runKind: 'planner' });
+    clock += 200;
+    closeHandler?.(1);
+    // The planner death sweep owns relaunching a planner; nothing to park.
+    expect(failures).toEqual([]);
   });
 
   it('pins SessionManager: its terminals map stays keyed by ticket id only', () => {    const source = readFileSync(join(import.meta.dirname, '..', '..', '..', 'ui', 'session.ts'), 'utf8');
