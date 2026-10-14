@@ -58,7 +58,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // not proof the sandbox exists: a first terminal can fail before
       // creation, so a retry must create again (preflight re-lists per launch).
       const create = known.has(opts.name) ? [] : ['--clone'];
-      const workspace = known.has(opts.name) ? [] : [spec.hostWorktreePath];
+      const workspace = known.has(opts.name) ? [] : [spec.hostWorktreePath, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
       return {
         cwd: spec.hostWorktreePath,
         shellPath: SBX_BIN,
@@ -69,6 +69,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         env: { ...spec.env },
       };
     },
+    // sbx mounts extra workspaces at the same absolute path.
+    bridgeRunDir: (paths) => paths.dir,
     runHeadless: (command, args, cwd, headlessOpts) =>
       spawnHeadless(SBX_BIN, ['exec', opts.name, '--', command, ...args], cwd, headlessOpts),
     sync: async (ticket: SandboxTicketRef): Promise<SyncResult> => {

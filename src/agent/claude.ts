@@ -1,6 +1,6 @@
 import { createHostSessionRunner } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
   AgentAdapter,
@@ -42,7 +42,8 @@ import { claudeSandboxSettings } from './claudeSandbox.js';
 import { describeHeadlessFailure } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
-import { HOOK_BRIDGE } from './hookBridge.js';
+import { writeBridgeScripts } from './hookBridgeFiles.js';
+import { writeFileHookSettings } from './fileHookSettings.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
 import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
@@ -208,21 +209,8 @@ export class ClaudeAdapter implements AgentAdapter {
       // events are routed through it (PROMPT-16). The bridge re-reads
       // `current-endpoint` when the launch-time URL dies, logs failures to
       // `hook-failures.jsonl`, and carries the generation onto every candidate.
-      const bridgeDir = join(opts.hookChannel.configDir, 'claude');
-      mkdirSync(bridgeDir, { recursive: true });
-      const bridgePath = join(bridgeDir, 'bridge.cjs');
-      const current = existsSync(bridgePath)
-        ? readFileSync(bridgePath, 'utf8')
-        : null;
-      if (current !== HOOK_BRIDGE) {
-        const temporaryPath = `${bridgePath}.${process.pid}.${Date.now()}.tmp`;
-        writeFileSync(temporaryPath, HOOK_BRIDGE);
-        renameSync(temporaryPath, bridgePath);
-      }
-      const hookSettingsPath = writeHookSettings(
-        opts.hookChannel.endpointUrl,
-        opts.hookChannel.configDir,
-        'claude',
+      writeBridgeScripts(join(opts.hookChannel.configDir, 'claude'));
+      const extraSettings = (
         // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
         // EVERY permission mode, including `bypassPermissions`
         // (docs.claude.com/en/docs/claude-code/permissions). The process
@@ -230,10 +218,16 @@ export class ClaudeAdapter implements AgentAdapter {
         // ticket session (which always has this channel) cannot `pkill` a
         // sibling agent. `--disallowedTools` carries the same rules on the
         // read-only and headless paths, which take no settings file.
-        { permissions: { deny: claudeProcessKillDeny() } },
+        { permissions: { deny: claudeProcessKillDeny() } }
       );
-      if (!opts.sandbox) args.push('--settings', hookSettingsPath);
-      else args.push('--settings', claudeSandboxSettings(opts.sandbox, readFileSync(hookSettingsPath, 'utf8')));
+      const hookSettingsPath = opts.hookChannel.runDir !== undefined
+        ? writeFileHookSettings(opts.hookChannel, 'claude', extraSettings)
+        : writeHookSettings(opts.hookChannel.endpointUrl, opts.hookChannel.configDir, 'claude', extraSettings);
+      // A file channel runs inside a runner sandbox that cannot see the host
+      // settings path: its settings ride argv inline (arch:AC-34).
+      if (opts.sandbox) args.push('--settings', claudeSandboxSettings(opts.sandbox, readFileSync(hookSettingsPath, 'utf8')));
+      else if (opts.hookChannel.runDir !== undefined) args.push('--settings', readFileSync(hookSettingsPath, 'utf8'));
+      else args.push('--settings', hookSettingsPath);
     } else if (opts.sandbox) {
       args.push(
         '--settings',

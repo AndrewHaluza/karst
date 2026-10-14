@@ -169,4 +169,12 @@ describe('prepareDockerSandbox', () => {
     const noHost = fakeDockerProcess(empty);
     await expect(prepareDockerSandbox({ ...base, core: 'opencode2', proc: noHost })).resolves.toEqual({ ok: true });
   });
+
+  it('mounts the bridge dir and exposes runDir to the agent', () => {
+    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined, authFile: undefined });
+    const spec = { ticketId: 7, hostWorktreePath: WT, command: 'opencode', args: [WT], env: {}, bridgeDir: '/g/events/7' };
+    expect(runner.placeInteractive(spec).shellArgs).toContain('type=bind,source=/g/events/7,target=/karst-bridge/7');
+    const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', runDir: '/karst-bridge/7' };
+    expect(runner.bridgeRunDir?.(paths)).toBe('/karst-bridge/7');
+  });
 });

@@ -183,6 +183,11 @@
         "icon": "$(repo-pull)"
       },
       {
+        "command": "karst.sandbox.dispose",
+        "title": "Karst: Remove Sandbox",
+        "icon": "$(trash)"
+      },
+      {
         "command": "karst.unarchiveTicket",
         "title": "Karst: Unarchive Ticket",
         "icon": "$(history)"

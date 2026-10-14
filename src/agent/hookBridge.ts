@@ -73,8 +73,13 @@ function candidateEndpoint(raw) {
     return null;
   }
 }
+// The sandbox evidence bridge: a file:// argv endpoint is the FILE transport.
+// Each post is appended to <dir>/<ticket>/events.ndjson for the host verifier;
+// no network, no current-endpoint fallback, and no reply/ACK ever waits on it.
+const fileTarget =
+  typeof argvEndpoint === 'string' && argvEndpoint.startsWith('file://') ? argvEndpoint : null;
 const endpoints = [];
-for (const raw of [argvEndpoint, fileEndpoint]) {
+for (const raw of fileTarget ? [] : [argvEndpoint, fileEndpoint]) {
   const candidate = candidateEndpoint(raw);
   if (candidate !== null && !endpoints.includes(candidate)) endpoints.push(candidate);
 }
@@ -295,6 +300,21 @@ process.stdin.on('end', () => {
     deadlineTimer = setTimeout(() => finish(0), REPLY_TIMEOUT_MS);
   }
 
+  // Fail open: a write error or a malformed target is logged, never an exit 1.
+  function appendFileEvent(payload) {
+    try {
+      const eventsPath = decodeURIComponent(new URL(fileTarget).pathname);
+      const ticket = Number(path.basename(path.dirname(eventsPath)));
+      if (!/^\d+$/.test(path.basename(path.dirname(eventsPath))) || !Number.isSafeInteger(ticket)) {
+        logFailure('invalid-endpoint');
+        return;
+      }
+      fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'hook', ticket, payload }) + '\n');
+    } catch (err) {
+      logFailure(err && typeof err.code === 'string' ? 'request-error:' + err.code : 'request-error');
+    }
+  }
+
   let index = 0;
   function nextPost() {
     if (index >= posts.length) {
@@ -304,6 +324,12 @@ process.stdin.on('end', () => {
     const payload = posts[index];
     // Only the Stop post can carry a reply; a usage post that rides the same
     // Stop hook must not read the body.
+    if (fileTarget) {
+      appendFileEvent(payload);
+      index += 1;
+      nextPost();
+      return;
+    }
     const isReplyPost = stopBlockEligible && payload.hook_event_name === 'Stop';
     const body = JSON.stringify(payload);
     let target;
@@ -419,4 +445,21 @@ process.stdin.on('end', () => {
   }
   nextPost();
 });
+`;
+
+/**
+ * The marker emitter the sandboxed agent runs instead of an HTTP marker call:
+ * `node <runDir>/emit-marker.cjs <events.ndjson> <impl|fix>` appends one
+ * `{"v":1,"kind":"marker","ticket":<n>,"stage":"<stage>"}` line. The ticket is
+ * the events file's parent dir name; anything else is a usage error (exit 1).
+ */
+export const MARKER_EMIT = String.raw`const fs = require('node:fs');
+const path = require('node:path');
+const [eventsPath, stage] = process.argv.slice(2);
+const ticketDir = eventsPath ? path.basename(path.dirname(eventsPath)) : '';
+if (!eventsPath || (stage !== 'impl' && stage !== 'fix') || !/^\d+$/.test(ticketDir)) {
+  process.stderr.write('usage: emit-marker.cjs <dir>/<ticket>/events.ndjson <impl|fix>\n');
+  process.exit(1);
+}
+fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'marker', ticket: Number(ticketDir), stage }) + '\n');
 `;

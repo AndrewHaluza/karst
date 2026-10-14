@@ -207,6 +207,25 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
 
 });
 
+describe('ClaudeAdapter file hook channel (sandbox evidence bridge)', () => {
+  it('inlines the settings JSON so a sandboxed claude never needs a host path', () => {
+    const hostDir = mkdtempSync(join(tmpdir(), 'karst-claude-file-'));
+    try {
+      const { args } = new ClaudeAdapter().buildInteractiveCommand({
+        cwd: hostDir,
+        hookChannel: { endpointUrl: 'file:///karst-bridge/7/events.ndjson', configDir: hostDir, runDir: '/karst-bridge/7', launchId: 'L1' },
+      });
+      const value = args[args.indexOf('--settings') + 1]!;
+      expect(value.startsWith('{')).toBe(true);
+      expect(value).toContain('/karst-bridge/7');
+      expect(value).not.toContain(hostDir);
+      expect(JSON.parse(value).sandbox).toBeUndefined();
+    } finally {
+      rmSync(hostDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('buildInteractiveCommand initialPrompt', () => {
   const adapter = new ClaudeAdapter();
 

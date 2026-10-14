@@ -50,7 +50,13 @@ import { join } from 'node:path';
 // Raised by 7 (8580 -> 8587): sbx backend (AC-32) — one import, the
 // `backendSessionOptions` spread at the launch site and the `karst.sandbox.sync`
 // registration; logic is in `ops/sandboxSyncOps.ts` and `agent/backendResolver.ts`.
-const MAX_EXTENSION_LINES = 8587;
+// Raised by 14 (8587 -> 8601): sandbox evidence bridge lifecycle (arch:AC-34) — imports,
+// the registry built from the hook endpoint's own dispatch closures, the boot
+// re-attach sweep, terminal-close detach, the `bridgeFor` launch spread and the
+// `karst.sandbox.dispose` registration; logic is in `ops/bridgeWiring.ts`,
+// `ops/bootSweeps.ts:runBridgeSweep`, `ops/sandboxSyncOps.ts` and `agent/bridge/bridgeRegistry.ts`.
+// Raised by 2 (8601 -> 8603): `deactivate` stops every bridge poller (`detachAll`), keeping the dirs.
+const MAX_EXTENSION_LINES = 8603;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

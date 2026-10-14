@@ -26,6 +26,7 @@ import { fakeSbxProcess } from '../agent/sbx/fakeSbxProcess.js';
 import { createDockerSessionRunner } from '../agent/docker/dockerRunner.js';
 import { dockerNames } from '../agent/docker/dockerNames.js';
 import { fakeDockerProcess } from '../agent/docker/fakeDockerProcess.js';
+import { bridgePaths } from '../agent/bridge/bridgeDir.js';
 
 // `openSession` pre-trusts the worktree by writing the core's USER config
 // (claude's `~/.claude.json`, codex's `~/.codex/config.toml`). Point HOME at a
@@ -285,6 +286,109 @@ describe('SessionManager', () => {
       expect(calls[0]!.hookChannel).toBeUndefined();
       expect(calls[0]!.mcpConfigPath).toBeUndefined();
       expect(calls[0]!.sandbox).toBeUndefined();
+    });
+
+    describe('evidence bridge (arch:AC-34)', () => {
+      let root: string;
+      beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'karst-session-bridge-')); });
+      afterEach(() => rmSync(root, { recursive: true, force: true }));
+      const bridgeRunner = (specs: InteractiveLaunchSpec[], withRunDir: boolean): SessionRunner => ({
+        kind: 'docker',
+        enforcesSandbox: true,
+        placeInteractive: (spec) => {
+          specs.push(spec);
+          return { cwd: '/workspace', shellPath: 'docker', shellArgs: [], env: {} };
+        },
+        runHeadless: () => Promise.reject(new Error('not used')),
+        ...(withRunDir ? { bridgeRunDir: (p) => p.runDir } : {}),
+      });
+
+      it('a sandbox launch with a bridge carries the bridge dir and the file hook channel', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const paths = bridgePaths(root, 7);
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+          bridge: { paths },
+        });
+
+        expect(specs[0]!.bridgeDir).toBe(paths.dir);
+        expect(existsSync(paths.eventsFile)).toBe(true);
+        expect(calls[0]!.hookChannel).toEqual({
+          endpointUrl: `file://${paths.runDir}/events.ndjson`,
+          configDir: paths.dir,
+          runDir: paths.runDir,
+          launchId,
+        });
+      });
+
+      it('a runner without a bridge run dir keeps no hook channel even with a bridge', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, false), line: 'docker' }),
+          bridge: { paths: bridgePaths(root, 7) },
+        });
+
+        expect(calls[0]!.hookChannel).toBeUndefined();
+        expect(specs[0]!.bridgeDir).toBeUndefined();
+      });
+
+      it('a sandbox launch without a bridge keeps today\'s behaviour: no channel, no bridge dir', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+        });
+
+        expect(calls[0]!.hookChannel).toBeUndefined();
+        expect(specs[0]!.bridgeDir).toBeUndefined();
+      });
+
+      it('bridgeFor is asked for the ticket\'s bridge only on a sandbox launch', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const paths = bridgePaths(root, 7);
+        const bridgeFor = vi.fn(() => Promise.resolve(paths));
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+          bridgeFor,
+        });
+
+        expect(bridgeFor).toHaveBeenCalledWith(7);
+        expect(specs[0]!.bridgeDir).toBe(paths.dir);
+        expect(calls[0]!.hookChannel?.endpointUrl).toBe(`file://${paths.runDir}/events.ndjson`);
+      });
+
+      it('a host launch never calls bridgeFor', async () => {
+        const { adapter } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const bridgeFor = vi.fn(() => Promise.resolve(bridgePaths(root, 7)));
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          bridgeFor,
+        });
+
+        expect(bridgeFor).not.toHaveBeenCalled();
+      });
     });
 
     it('a docker resolution runs the opencode launch in the container, sandboxed, with no bypass flag', async () => {

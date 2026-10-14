@@ -1,3 +1,4 @@
+import type { BridgePaths } from './bridge/bridgeDir.js';
 import {
   spawnHeadlessCli,
   type HeadlessSpawnOptions,
@@ -22,6 +23,12 @@ export interface InteractiveLaunchSpec {
   readonly command: string;
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
+  /**
+   * Host path of the per-ticket evidence-bridge dir (arch:AC-34). Sandbox
+   * runners mount it read-write as the ONLY extra mount; the host runner
+   * ignores it.
+   */
+  readonly bridgeDir?: string;
 }
 
 /** What the terminal host is asked to create. */
@@ -58,6 +65,8 @@ export interface SessionRunner {
   readonly enforcesSandbox: boolean;
   placeInteractive(spec: InteractiveLaunchSpec): PlacedInteractiveLaunch;
   runHeadless: RunHeadless;
+  /** Sandbox runners only: where the AGENT sees the bridge dir (host runner: undefined). */
+  bridgeRunDir?(paths: BridgePaths): string;
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */

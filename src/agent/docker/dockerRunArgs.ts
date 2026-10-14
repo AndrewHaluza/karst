@@ -1,3 +1,4 @@
+import { SANDBOX_BRIDGE_MOUNT_ROOT } from '../bridge/bridgeDir.js';
 import { containerBinary, type DockerCore, OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { PROXY_URL } from './proxySidecar.js';
@@ -93,6 +94,9 @@ export interface InteractiveArgsInput {
   readonly hostWorktreePath: string;
   readonly args: readonly string[];
   readonly env: Readonly<Record<string, string>>;
+  readonly ticketId?: number;
+  /** Host evidence-bridge dir, mounted read-write (arch:AC-34). */
+  readonly bridgeDir?: string;
 }
 
 /**
@@ -105,10 +109,17 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
   const auth = input.authFile
     ? ['--mount', bindMount(input.authFile, `${CONTAINER_DATA}/auth.json`, true)]
     : [];
+  if (input.bridgeDir !== undefined && input.ticketId === undefined) {
+    throw new Error('karst: a bridge mount needs a ticketId');
+  }
+  const bridge =
+    input.bridgeDir !== undefined
+      ? ['--mount', bindMount(input.bridgeDir, `${SANDBOX_BRIDGE_MOUNT_ROOT}/${input.ticketId}`, false)]
+      : [];
   return [
     'run', '--interactive', '--tty', '--rm', '--name', input.names.container,
     '--network', input.names.network, ...HARDENING,
-    ...volumeMounts(input.names), ...auth, ...userArgs(input.user),
+    ...volumeMounts(input.names), ...auth, ...bridge, ...userArgs(input.user),
     ...envArgs(input.env), '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, containerBinary(input.core), ...rewritePaths(input.args, input.hostWorktreePath),
   ];

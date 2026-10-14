@@ -56,6 +56,7 @@ import {
 } from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
+import { isFileChannel, pluginFileTransport, writeBridgeScripts } from './hookBridgeFiles.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
 const OPENCODE_BIN = 'opencode';
@@ -353,7 +354,7 @@ import { readFileSync } from 'node:fs';
 // launch-time query string carries the karstLaunch generation, so it is
 // re-applied to every candidate or the endpoint's generation barrier would
 // reject the rebound session.
-const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
+${pluginFileTransport(endpointUrl)}const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
 const endpointFile = ${JSON.stringify(endpointFile)};
 const resumeSessionEnv = ${JSON.stringify(KARST_RESUME_SESSION_ENV)};
 const kickoffFileEnv = ${JSON.stringify(KARST_KICKOFF_FILE_ENV)};
@@ -572,7 +573,7 @@ function sendTo(endpoint, body, done, next) {
 }
 
 function send(payload, done) {
-  try {
+  try {${endpointUrl.startsWith('file://') ? "\n    karstFileEvent(payload); if (done) done(); return;" : ''}
     const body = JSON.stringify(payload);
     if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) {
       if (done) done();
@@ -885,14 +886,18 @@ function writeKarstBridge(
   cwd: string,
   endpointUrl: string,
   configDir?: string,
+  runDir?: string,
 ): string {
-  assertLoopbackEndpoint(endpointUrl);
+  const fileMode = isFileChannel(endpointUrl, runDir);
+  if (!fileMode) assertLoopbackEndpoint(endpointUrl);
+  // A file channel's emit-marker.cjs (and bridge.cjs) live in the HOST bridge dir.
+  if (fileMode && configDir) writeBridgeScripts(join(configDir, 'opencode'));
   const pluginPath = join(cwd, '.opencode', 'plugins', 'karst-bridge.js');
   // Absent configDir (older callers, tests) → no fallback file; the plugin then
   // uses its launch-time URL alone, exactly as it did before.
   const body = renderHookBridge(
     endpointUrl,
-    configDir ? currentEndpointPath(configDir, 'opencode') : null,
+    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode') : null,
   );
   const current = existsSync(pluginPath) ? readFileSync(pluginPath, 'utf8') : null;
   if (current !== body) {
@@ -1042,6 +1047,7 @@ export class OpencodeAdapter implements AgentAdapter {
         opts.cwd,
         opts.hookChannel.endpointUrl,
         opts.hookChannel.configDir,
+        opts.hookChannel.runDir,
       );
       ownedPaths = [pluginPath];
       // `--pure` is not the only way to disable the plugin: opencode reads the

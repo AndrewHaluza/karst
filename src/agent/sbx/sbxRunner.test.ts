@@ -134,3 +134,21 @@ describe('autonomousPermissionArgs (arch:AC-31 conformance)', () => {
     expect(autonomousPermissionArgs('opencode', sbx)).toEqual([]);
   });
 });
+
+describe('createSbxSessionRunner bridge dir', () => {
+  it('creates with the bridge dir as the single extra workspace', () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [] });
+    expect(runner.placeInteractive({ ...spec(), bridgeDir: '/g/events/7' }).shellArgs).toEqual([
+      'run', '--clone', '--name', NAME, 'claude', '/wt/with space', '/g/events/7', '--', '--dangerously-skip-permissions',
+    ]);
+  });
+  it('does not re-pass the bridge dir when reattaching', () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [NAME] });
+    expect(runner.placeInteractive({ ...spec(), bridgeDir: '/g/events/7' }).shellArgs.join(' ')).not.toContain('/g/events/7');
+  });
+  it('the agent sees the bridge dir at its host path', () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [] });
+    const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', runDir: '/karst-bridge/7' };
+    expect(runner.bridgeRunDir?.(paths)).toBe('/g/events/7');
+  });
+});

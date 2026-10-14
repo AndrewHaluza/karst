@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { currentEndpointPath } from './hookFailureLog.js';
+import { isFileChannel, pluginFileTransport, writeBridgeScripts } from './hookBridgeFiles.js';
 
 /**
  * The opencode v2 (`@opencode/cli` 2.x) hook bridge.
@@ -84,7 +85,7 @@ import { readFileSync } from 'node:fs';
 // plugin falls back to that file. The launch-time query string carries the
 // karstLaunch generation, so it is re-applied to every candidate or the
 // endpoint's generation barrier would reject the rebound session.
-const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
+${pluginFileTransport(endpointUrl)}const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
 const endpointFile = ${JSON.stringify(endpointFile)};
 const MAX_PAYLOAD_BYTES = ${MAX_PAYLOAD_BYTES};
 const headlessEnvVar = ${JSON.stringify(KARST_OPENCODE_HEADLESS_ENV)};
@@ -257,7 +258,7 @@ function sendTo(endpoint, body, next) {
 }
 
 function deliver(payload) {
-  try {
+  try {${endpointUrl.startsWith('file://') ? "\n    karstFileEvent(payload); return;" : ''}
     const body = JSON.stringify(payload);
     if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) return;
     const launch = candidateEndpoint(launchEndpointUrl);
@@ -429,12 +430,16 @@ export function writeOpencode2Bridge(
   cwd: string,
   endpointUrl: string,
   configDir?: string,
+  runDir?: string,
 ): string {
-  assertLoopbackEndpoint(endpointUrl);
+  const fileMode = isFileChannel(endpointUrl, runDir);
+  if (!fileMode) assertLoopbackEndpoint(endpointUrl);
+  // A file channel's emit-marker.cjs (and bridge.cjs) live in the HOST bridge dir.
+  if (fileMode && configDir) writeBridgeScripts(join(configDir, 'opencode2'));
   const pluginPath = join(cwd, '.opencode', 'plugins', OPENCODE2_BRIDGE_FILENAME);
   const body = renderOpencode2Bridge(
     endpointUrl,
-    configDir ? currentEndpointPath(configDir, 'opencode2') : null,
+    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode2') : null,
   );
   const current = existsSync(pluginPath) ? readFileSync(pluginPath, 'utf8') : null;
   if (current !== body) {

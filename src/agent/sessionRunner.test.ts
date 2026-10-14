@@ -30,3 +30,14 @@ describe('HostSessionRunner', () => {
     expect(spawnHeadless).toHaveBeenCalledWith('codex', ['exec'], '/wt/b', opts);
   });
 });
+
+describe('host runner and the bridge', () => {
+  const spec = { ticketId: 7, hostWorktreePath: '/wt', command: 'claude', args: ['a'], env: {} };
+  it('never mounts: bridgeDir does not change the placed launch', () => {
+    const a = HOST_SESSION_RUNNER.placeInteractive(spec);
+    expect(HOST_SESSION_RUNNER.placeInteractive({ ...spec, bridgeDir: '/x' })).toEqual(a);
+  });
+  it('has no bridgeRunDir', () => {
+    expect(HOST_SESSION_RUNNER.bridgeRunDir).toBeUndefined();
+  });
+});
