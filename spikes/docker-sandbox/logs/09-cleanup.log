@@ -1,0 +1,74 @@
+$ sbx create --name bystander-spike-check shell /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b
+
+SANDBOX
+  Name:       bystander-spike-check
+  Agent:      shell
+  Workspace:  /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b (rw)
+  Image:      docker/sandbox-templates:shell-docker
+  CPU:        10
+  Memory:     8 GiB
+
+IMAGE
+  ○ image — pulling…
+      1560168ac5fb downloaded
+      5bbe8539825f downloaded
+      b2c007bbb5dc downloaded
+      6a42a4149724 downloaded
+      84e55b2a5e0b downloaded
+      cc5f104d36e3 downloaded
+      fdc1c83df86c downloaded
+      9530961de22c downloaded
+  ✓ image — ready
+
+  ✓ Created sandbox bystander-spike-check
+[exit 0]
+$ sbx ls
+SANDBOX                 AGENT    STATUS      PORTS   WORKSPACE                                                              CREATED
+bystander-spike-check   shell    ● running           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b   3s
+karst-spike-claude      claude   ● running           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a   1m
+karst-spike-codex       codex    ○ stopped           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b   23m
+[exit 0]
+$ du -sh /Users/nd/Library/Application Support/com.docker.sandboxes
+5.4G	/Users/nd/Library/Application Support/com.docker.sandboxes
+[exit 0]
+$ t sbx stop karst-spike-claude
+Stopped sandbox karst-spike-claude
+[elapsed 0.5s]
+[exit 0]
+$ t sbx exec karst-spike-claude true
+  ✓ sandbox karst-spike-claude — started
+[elapsed 2.8s]
+[exit 0]
+$ sbx stop karst-spike-claude
+Stopped sandbox karst-spike-claude
+[exit 0]
+$ sbx rm --force karst-spike-claude
+Removed sandbox karst-spike-claude
+[exit 0]
+$ sbx stop karst-spike-codex
+Stopped sandbox karst-spike-codex
+[exit 0]
+$ sbx rm --force karst-spike-codex
+Removed sandbox karst-spike-codex
+[exit 0]
+$ sbx ls
+SANDBOX                 AGENT   STATUS      PORTS   WORKSPACE                                                              CREATED
+bystander-spike-check   shell   ● running           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-b   9s
+[exit 0]
+$ ls /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a
+m.txt
+seed.txt
+written-in-sandbox.txt
+[exit 0]
+$ sh -c [ "$(shasum '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/canary.txt')" = 'e51f2d7d17f562c762c558d7ac60b249b6c88639  /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/canary.txt' ] && echo canary-untouched
+canary-untouched
+[exit 0]
+$ sh -c sbx ls | grep -c 'bystander-spike-check'
+1
+[exit 0]
+$ sbx rm --force bystander-spike-check
+Removed sandbox bystander-spike-check
+[exit 0]
+$ du -sh /Users/nd/Library/Application Support/com.docker.sandboxes
+5.2G	/Users/nd/Library/Application Support/com.docker.sandboxes
+[exit 0]

@@ -179,22 +179,27 @@ describe('AntigravityAdapter', () => {
       );
     });
 
-    it('passes resume and permission mode', async () => {
+    it('passes resume but refuses the unsandboxed bypass (AC-31)', async () => {
       const spawner = vi.fn(fakeSpawn({ stdout: 'success', exitCode: 0 }));
       const adapter = new AntigravityAdapter(spawner);
+      const debug = vi.fn();
 
       await adapter.runHeadless({
         prompt: 'do the thing',
         cwd: '/test',
         resume: 'sesh-123',
         permissionMode: 'bypassPermissions',
+        debug,
       });
 
+      expect(debug).toHaveBeenCalledWith(
+        '[agent:antigravity] refused permissionMode bypassPermissions: no enforced sandbox on this run (AC-31)',
+      );
       expect(spawner).toHaveBeenCalledWith(
         'agy',
-        ['-p', 'do the thing', '--conversation', 'sesh-123', '--dangerously-skip-permissions'],
+        ['-p', 'do the thing', '--conversation', 'sesh-123'],
         '/test',
-        { signal: undefined }
+        expect.objectContaining({ signal: undefined }),
       );
     });
 

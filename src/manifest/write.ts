@@ -181,6 +181,12 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // logging off".
     debug: manifest.debug,
     // Optional: written when set, dropped when cleared, so it falls back to
+    // "sessions stay prompted" (AC-31 opt-in).
+    agentSandbox: manifest.agentSandbox,
+    // Optional: written when set, dropped when cleared, so it falls back to
+    // "sessions run on the host" (AC-32).
+    agentBackend: manifest.agentBackend,
+    // Optional: written when set, dropped when cleared, so it falls back to
     // "closing a ticket leaves its done terminals alone".
     closeDoneTerminalsWithTicket: manifest.closeDoneTerminalsWithTicket,
     // Optional: written when set, dropped when cleared, so it falls back to
@@ -260,6 +266,8 @@ function overlayService(rawService: Record<string, unknown>, svc: ServiceDef): R
     cwd: svc.cwd,
     health: svc.health,
     healthIdentity: svc.healthIdentity,
+    // Written when set, dropped when cleared → no reset between UATs.
+    reset: svc.reset,
     ports: svc.ports,
     // Written when set, dropped (undefined → omitted by the dumper) when cleared,
     // so the service falls back to the global range.

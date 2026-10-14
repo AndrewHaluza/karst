@@ -182,6 +182,20 @@
         "icon": "$(archive)"
       },
       {
+        "command": "karst.sandbox.sync",
+        "title": "Karst: Sync Sandbox Commits",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "karst.sandbox.dispose",
+        "title": "Karst: Remove Sandbox",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "karst.sandbox.cleanupOrphans",
+        "title": "Karst: Clean Up Orphan Sandboxes"
+      },
+      {
         "command": "karst.unarchiveTicket",
         "title": "Karst: Unarchive Ticket",
         "icon": "$(history)"

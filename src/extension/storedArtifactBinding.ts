@@ -35,6 +35,8 @@ export function createStoredArtifactBinding(deps: StoredArtifactBindingDeps): {
   forTicket: (ticketId: number, refresh: () => void) => StoredArtifactActions;
   /** The dashboard loader: stored files + active outputs globs. */
   load: (ticketId: number) => Promise<StoredArtifactsView>;
+  /** Open text in the same read-only scheme (the sandbox sync diff reuses it). */
+  showReadOnly: StoredArtifactUi['showReadOnly'];
   dispose: () => void;
 } {
   const docs = new Map<string, string>();
@@ -77,6 +79,7 @@ export function createStoredArtifactBinding(deps: StoredArtifactBindingDeps): {
         refresh,
       }),
     load: makeStoredArtifactsLoader(deps),
+    showReadOnly: ui.showReadOnly,
     dispose: () => disposable.dispose(),
   };
 }

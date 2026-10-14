@@ -23,7 +23,7 @@ import type { AgentProvider } from '../manifest/types.js';
 import type { AdapterSurfaces, SurfaceSupport } from './surfaces.js';
 import { INSTRUCTIONS_POINTER_MARKER } from './instructions.js';
 import { UsageLimitError } from './cliFailure.js';
-import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
+import { PROCESS_WIDE_KILL_COMMANDS, claudeProcessKillDeny } from './processKillGuard.js';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, sep } from 'node:path';
@@ -82,6 +82,15 @@ function surfacesOf(provider: AgentProvider): AdapterSurfaces {
   return declared;
 }
 
+/** Flags that drop a core's prompts without a sandbox (AC-31). */
+const SANDBOX_BYPASS_FLAGS = [
+  '--dangerously-skip-permissions',
+  '--dangerously-bypass-approvals-and-sandbox',
+  '--full-auto',
+  '--yolo',
+  '--auto',
+];
+
 function reasonOf(support: SurfaceSupport): string {
   return support.supported ? '' : support.reason;
 }
@@ -109,6 +118,7 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       'readOnlyInteractive',
       'addDirsInteractive',
       'mcpConfigInteractive',
+      'sandboxInteractive',
       'processKillDeny',
       'headlessPolicy',
       'interactiveGatePolicy',
@@ -344,6 +354,45 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     }
   });
 
+  /**
+   * Sandbox evidence bridge: a FILE hook channel writes its scripts to the
+   * host bridge dir but every command the agent runs names the dir as the
+   * agent sees it (`runDir`). The settings path claude reads is host-side by
+   * design, so its CONTENT is checked in place of the path.
+   */
+  it('composes file-channel hook commands from runDir and writes scripts to configDir', () => {
+    const support = surfacesOf(provider).hookChannel;
+    if (!support.supported) {
+      expect(reasonOf(support).length, `${provider}.hookChannel reason`).toBeGreaterThan(20);
+      return;
+    }
+    const hostBridgeDir = mkdtempSync(join(tmpdir(), 'karst-filechan-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-filechan-wt-'));
+    try {
+      const launch = resolveAdapter(provider).buildInteractiveCommand({
+        cwd,
+        hookChannel: {
+          endpointUrl: 'file:///karst-bridge/7/events.ndjson',
+          configDir: hostBridgeDir,
+          runDir: '/karst-bridge/7',
+        },
+        initialPrompt: 'go',
+      });
+      const args = launch.args.map((arg, i) =>
+        launch.args[i - 1] === '--settings' && existsSync(arg) ? readFileSync(arg, 'utf8') : arg,
+      );
+      let text = JSON.stringify({ args, env: launch.env });
+      for (const owned of launch.ownedPaths ?? []) text += readFileSync(owned, 'utf8');
+      expect(text).toContain('/karst-bridge/7');
+      expect(text).not.toContain(hostBridgeDir);
+      expect(existsSync(join(hostBridgeDir, provider, 'bridge.cjs'))).toBe(true);
+      expect(existsSync(join(hostBridgeDir, provider, 'emit-marker.cjs'))).toBe(true);
+    } finally {
+      rmSync(hostBridgeDir, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('denies the process-wide kill commands on a headless run when declared supported', async () => {
     const support = surfacesOf(provider).processKillDeny;
     if (!support.supported) return;
@@ -433,6 +482,64 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
       for (const dir of ['/repos/api', '/repos/web']) READS_DIR[provider](launch, dir);
     }
     expect(launch.args.at(-1)).toBe('plan it');
+  });
+
+  // AC-31: the core's OWN sandbox, or nothing. A core that cannot enforce one
+  // never relaxes its prompts, and no launch ever carries a bypass flag.
+  it('translates a sandbox policy into the core sandbox, or ignores it when unsupported', () => {
+    const supported = surfacesOf(provider).sandboxInteractive.supported;
+    const policy = { writableRoots: ['/wt', '/repo/.git'], allowedDomains: ['api.example.com'] };
+    const adapter = resolveAdapter(provider);
+    const plain = adapter.buildInteractiveCommand({ cwd: '/wt' });
+    const boxed = adapter.buildInteractiveCommand({ cwd: '/wt', sandbox: policy });
+    for (const launch of [plain, boxed]) {
+      for (const flag of SANDBOX_BYPASS_FLAGS) expect(launch.args, `${provider} ${flag}`).not.toContain(flag);
+    }
+    if (!supported) {
+      expect(boxed.args).toEqual(plain.args);
+      expect(boxed.env).toEqual(plain.env);
+      return;
+    }
+    if (provider === 'claude') {
+      const settings = JSON.parse(boxed.args[boxed.args.indexOf('--settings') + 1]!);
+      expect(settings.sandbox).toEqual({
+        enabled: true,
+        failIfUnavailable: true,
+        autoAllowBashIfSandboxed: true,
+        allowUnsandboxedCommands: false,
+        filesystem: { allowWrite: ['/wt', '/repo/.git'] },
+        network: { allowedDomains: ['api.example.com'] },
+      });
+      // The sandbox keeps the process-kill deny: only the mode is added.
+      expect(settings.permissions).toEqual({ defaultMode: 'acceptEdits', deny: claudeProcessKillDeny() });
+    } else if (provider === 'codex') {
+      expect(boxed.args).toEqual(
+        expect.arrayContaining([
+          '--sandbox',
+          'workspace-write',
+          '--ask-for-approval',
+          'on-request',
+          'sandbox_workspace_write.writable_roots=["/repo/.git"]',
+          'sandbox_workspace_write.network_access=false',
+        ]),
+      );
+    } else {
+      throw new Error(`${provider} declares sandboxInteractive with no pinned mechanism`);
+    }
+  });
+
+  // Gate and sandbox are exclusive: a launch carrying both must not emit two
+  // contradictory sandbox / approval / network / writable-roots settings.
+  it('never emits contradictory sandbox settings for policy "gate" plus a sandbox', () => {
+    const policy = { writableRoots: ['/wt', '/repo/.git'], allowedDomains: ['api.example.com'] };
+    const { args } = resolveAdapter(provider).buildInteractiveCommand({ cwd: '/wt', policy: 'gate', sandbox: policy });
+    const count = (match: (arg: string) => boolean) => args.filter(match).length;
+    expect(count((a) => a === '--sandbox'), provider).toBeLessThanOrEqual(1);
+    expect(count((a) => a.startsWith('sandbox_workspace_write.network_access=')), provider).toBeLessThanOrEqual(1);
+    expect(count((a) => a.startsWith('sandbox_workspace_write.writable_roots=')), provider).toBeLessThanOrEqual(1);
+    expect(count((a) => a === '--ask-for-approval') + count((a) => a.startsWith('approval_policy=')), provider)
+      .toBeLessThanOrEqual(1);
+    for (const flag of SANDBOX_BYPASS_FLAGS) expect(args, `${provider} ${flag}`).not.toContain(flag);
   });
 
   it('registers a launch-time MCP config on the cores that declare support', () => {

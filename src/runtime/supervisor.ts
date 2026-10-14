@@ -32,7 +32,8 @@ export interface ServerRecord {
   service: string;
   host: string;
   port: number;
-  pid: number;
+  /** NULL for a sandboxed service (it has no host pid, arch:AC-32). */
+  pid: number | null;
   status: 'running' | 'stopped' | 'failed';
   logPath: string;
   /** The docker container this service runs in, or null for a plain command. */

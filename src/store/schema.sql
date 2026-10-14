@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   selected_repos    TEXT,                 -- JSON array of confirmed repository names
   base_refs         TEXT,                 -- v48: JSON object of per-repo base branch overrides
   base_shas         TEXT,                 -- v80: JSON object of per-repo base commit shas
+  agent_backend     TEXT,                 -- v85: NULL = project agentBackend; 'host' = opt OUT of the sandbox backend
   -- v78 analysis columns (kept in sync with migrations.ts v78 ALTERs):
   intent            TEXT,                 -- canonical black-box test charter; NULL = none yet
   code_pointers     TEXT,                 -- unverified implementer hints; NULL = none
@@ -656,7 +657,13 @@ CREATE TABLE IF NOT EXISTS servers (
   -- and reap paths use to remove the container itself. Unlike a pid it is never
   -- reissued, so it stays valid even when attribution refuses to signal.
   -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
-  container     TEXT
+  container     TEXT,
+  -- The sandbox a service runs inside (v84): `sbx|docker:<name>:<sandboxPort>`,
+  -- NULL for a host service. A sandboxed service has no host pid (it runs in the
+  -- sandbox, reached through a published 127.0.0.1 port), so this handle is what
+  -- the stop and re-verify paths use to unpublish and stop it there (arch:AC-32).
+  -- Placed LAST, matching where the ALTER necessarily appends on an upgrade.
+  sandbox       TEXT
 );
 
 -- One PR per (ticket, repo). `status` and every v16 metadata column below are

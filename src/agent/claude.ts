@@ -1,5 +1,6 @@
+import { createHostSessionRunner } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync, renameSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, copyFileSync, cpSync, readFileSync } from 'node:fs';
 import { join, dirname, isAbsolute } from 'node:path';
 import type {
   AgentAdapter,
@@ -37,11 +38,14 @@ import {
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { writeHookSettings } from './settings.js';
+import { claudeSandboxSettings } from './claudeSandbox.js';
 import { headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
-import { HOOK_BRIDGE } from './hookBridge.js';
+import { writeBridgeScripts } from './hookBridgeFiles.js';
+import { writeFileHookSettings } from './fileHookSettings.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { refuseUnsandboxedBypass } from './sandbox.js';
 import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
@@ -130,7 +134,7 @@ export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
 }
 
 /** Default spawner: run `claude` in `cwd`, buffering stdout/stderr. */
-const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
+const defaultSpawn: SpawnHeadless = createHostSessionRunner(makeDefaultSpawn(spawn)).runHeadless;
 
 /**
  * Claude Code implementation of the agent boundary (MVP's one adapter, §2.6).
@@ -171,6 +175,7 @@ export class ClaudeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    sandboxInteractive: SUPPORTED,
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
     interactiveGatePolicy: SUPPORTED,
@@ -204,32 +209,29 @@ export class ClaudeAdapter implements AgentAdapter {
       // events are routed through it (PROMPT-16). The bridge re-reads
       // `current-endpoint` when the launch-time URL dies, logs failures to
       // `hook-failures.jsonl`, and carries the generation onto every candidate.
-      const bridgeDir = join(opts.hookChannel.configDir, 'claude');
-      mkdirSync(bridgeDir, { recursive: true });
-      const bridgePath = join(bridgeDir, 'bridge.cjs');
-      const current = existsSync(bridgePath)
-        ? readFileSync(bridgePath, 'utf8')
-        : null;
-      if (current !== HOOK_BRIDGE) {
-        const temporaryPath = `${bridgePath}.${process.pid}.${Date.now()}.tmp`;
-        writeFileSync(temporaryPath, HOOK_BRIDGE);
-        renameSync(temporaryPath, bridgePath);
-      }
+      writeBridgeScripts(join(opts.hookChannel.configDir, 'claude'));
+      const extraSettings = (
+        // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
+        // EVERY permission mode, including `bypassPermissions`
+        // (docs.claude.com/en/docs/claude-code/permissions). The process
+        // kill deny rides the session's own settings file, so an ordinary
+        // ticket session (which always has this channel) cannot `pkill` a
+        // sibling agent. `--disallowedTools` carries the same rules on the
+        // read-only and headless paths, which take no settings file.
+        { permissions: { deny: claudeProcessKillDeny() } }
+      );
+      const hookSettingsPath = opts.hookChannel.runDir !== undefined
+        ? writeFileHookSettings(opts.hookChannel, 'claude', extraSettings)
+        : writeHookSettings(opts.hookChannel.endpointUrl, opts.hookChannel.configDir, 'claude', extraSettings);
+      // A file channel runs inside a runner sandbox that cannot see the host
+      // settings path: its settings ride argv inline (arch:AC-34).
+      if (opts.sandbox) args.push('--settings', claudeSandboxSettings(opts.sandbox, readFileSync(hookSettingsPath, 'utf8')));
+      else if (opts.hookChannel.runDir !== undefined) args.push('--settings', readFileSync(hookSettingsPath, 'utf8'));
+      else args.push('--settings', hookSettingsPath);
+    } else if (opts.sandbox) {
       args.push(
         '--settings',
-        writeHookSettings(
-          opts.hookChannel.endpointUrl,
-          opts.hookChannel.configDir,
-          'claude',
-          // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
-          // EVERY permission mode, including `bypassPermissions`
-          // (docs.claude.com/en/docs/claude-code/permissions). The process
-          // kill deny rides the session's own settings file, so an ordinary
-          // ticket session (which always has this channel) cannot `pkill` a
-          // sibling agent. `--disallowedTools` carries the same rules on the
-          // read-only and headless paths, which take no settings file.
-          { permissions: { deny: claudeProcessKillDeny() } },
-        ),
+        claudeSandboxSettings(opts.sandbox, JSON.stringify({ permissions: { deny: claudeProcessKillDeny() } })),
       );
     }
     if (opts.resume && opts.resume.length > 0) {
@@ -622,7 +624,10 @@ export class ClaudeAdapter implements AgentAdapter {
     // resolved model is a deliberate, visible choice; the CLI default is not.
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--effort', opts.effort);
-    if (opts.permissionMode) args.push('--permission-mode', opts.permissionMode);
+    // AC-31: a headless claude run has no enforced sandbox, so `bypassPermissions`
+    // is refused (logged); every other mode passes through.
+    const permissionMode = refuseUnsandboxedBypass('claude', opts.permissionMode, opts.debug);
+    if (permissionMode) args.push('--permission-mode', permissionMode);
     if (opts.allowedTools && opts.allowedTools.length > 0) {
       args.push('--allowedTools', opts.allowedTools.join(','));
     }

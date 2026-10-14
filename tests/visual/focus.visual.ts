@@ -97,6 +97,13 @@ const FOCUS_CAP = 12;
  * controls (the ticket's Done-when: the usage panel gains a Quota tab) and
  * neither folds into an existing focusable: the range chips are a different
  * selection (which range of spend), these switch the whole panel's subject.
+ *
+ * Updated a twelfth time by the sandbox backend rollout (arch:AC-35): `ticketForm`
+ * +1 — `#backendSelect`, the per-ticket opt-OUT of the project's sandbox backend
+ * ("Inherit" / "Host"). It is a net-new decision (it picks where THIS ticket's
+ * session runs), so it cannot fold into the preset or core pickers, which choose
+ * the agent identity. The row is `hidden` unless the ticket is in edit mode under
+ * an sbx or docker project, but the sweep's selector still counts it.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 47,
@@ -106,7 +113,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   sidebar: 70, // the all-sections corpus now renders a sub-tree: each row with children adds its subchev collapse control (tenth note)
   diffs: 35,
   settings: 193,
-  ticketForm: 27,
+  ticketForm: 28,
   gettingStarted: 6,
 };
 

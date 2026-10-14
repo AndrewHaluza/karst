@@ -265,3 +265,22 @@ describe('runGateList live output', () => {
     expect(seen.map((s) => s.text).join('')).toContain('tick');
   });
 });
+
+describe('runGateList: injected gate process (arch:AC-32 sandbox gates)', () => {
+  it('runs each gate through the injected runner and keeps the exit code as the verdict', async () => {
+    const calls: string[] = [];
+    const out = await runGateList(
+      [{ name: 'test', command: 'npm', args: ['test'], script: null, required: true }],
+      '/wt',
+      {
+        runProcess: (command, args, cwd) => {
+          calls.push([command, ...args, cwd].join(' '));
+          return Promise.resolve({ kind: 'completed', exitCode: 4, output: 'in sandbox' });
+        },
+      },
+    );
+    expect(calls).toEqual(['npm test /wt']);
+    expect(out.kind).toBe('ran');
+    expect(out.results[0]).toMatchObject({ name: 'test', exitCode: 4, output: 'in sandbox' });
+  });
+});

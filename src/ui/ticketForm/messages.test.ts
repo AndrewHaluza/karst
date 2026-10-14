@@ -255,6 +255,13 @@ describe('parseTicketFormMessage', () => {
     expect(parseTicketFormMessage({ type: 'set-type', id: 7 })).toBeNull();
   });
 
+  it('accepts set-backend only as host or the empty inherit choice', () => {
+    expect(parseTicketFormMessage({ type: 'set-backend', id: 'host' })).toEqual({ type: 'set-backend', id: 'host' });
+    expect(parseTicketFormMessage({ type: 'set-backend', id: '' })).toEqual({ type: 'set-backend', id: '' });
+    expect(parseTicketFormMessage({ type: 'set-backend', id: 'sbx' })).toBeNull();
+    expect(parseTicketFormMessage({ type: 'set-backend', id: 7 })).toBeNull();
+  });
+
   it('accepts set-model, including the empty "inherit" choice', () => {
     expect(parseTicketFormMessage({ type: 'set-model', id: 'claude-sonnet-5' })).toEqual({
       type: 'set-model',
@@ -353,7 +360,7 @@ describe('parseTicketFormMessage', () => {
       fetchSource: () => {}, searchTickets: () => {}, searchStatuses: () => {},
       suggestSignals: () => {}, saveSignals: () => {}, setRepos: () => {}, setBaseRef: () => {},
       setApproach: () => {}, setAgent: () => {}, setModel: () => {}, setEffort: () => {},
-      setProvider: () => {}, setPreset: () => {}, setType: () => {}, analyze: () => {}, attachPick: async () => {},
+      setProvider: () => {}, setPreset: () => {}, setType: () => {}, setBackend: () => {}, analyze: () => {}, attachPick: async () => {},
       attachBytes: async () => {}, detachAttachment: async () => {}, openAttachment: async () => {},
       openTicketLink: () => {}, createProviderTicket: () => {}, requestState: () => {},
       retryRelationWriteback: () => {}, openDependency: () => {},
@@ -394,6 +401,7 @@ describe('routeTicketFormAction', () => {
       setModel: vi.fn(),
       setEffort: vi.fn(),
       setType: vi.fn(),
+      setBackend: vi.fn(),
       setProvider: vi.fn(),
       setPreset: vi.fn(),
       analyze: vi.fn(),
@@ -510,6 +518,7 @@ describe('attachment messages', () => {
       setModel: vi.fn(),
       setEffort: vi.fn(),
       setType: vi.fn(),
+      setBackend: vi.fn(),
       setProvider: vi.fn(),
       setPreset: vi.fn(),
       analyze: vi.fn(),

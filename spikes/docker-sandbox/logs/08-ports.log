@@ -1,0 +1,35 @@
+$ sbx exec karst-spike-claude sh -c nohup python3 -m http.server 8123 >/tmp/h.log 2>&1 &
+  ✓ sandbox karst-spike-claude — started
+[exit 0]
+$ sleep 2
+[exit 0]
+$ sbx ports karst-spike-claude --publish 18123:8123
+Published 127.0.0.1:18123 -> 8123/tcp4
+[exit 0]
+$ sbx ports karst-spike-claude
+HOST IP     HOST PORT   SANDBOX PORT   PROTOCOL
+127.0.0.1   18123       8123           tcp4
+[exit 0]
+$ curl -s -o /dev/null -w %{http_code}\n --max-time 5 http://127.0.0.1:18123/
+200
+[exit 0]
+$ t sbx stop karst-spike-claude
+Stopped sandbox karst-spike-claude
+[elapsed 1s]
+[exit 0]
+$ sbx ls
+SANDBOX              AGENT    STATUS      PORTS   WORKSPACE                                                              CREATED
+karst-spike-claude   claude   ○ stopped           /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a   3m
+[exit 0]
+$ t sbx ports karst-spike-claude
+No published ports
+[elapsed 0s]
+[exit 0]
+$ sbx exec karst-spike-claude sh -c nohup python3 -m http.server 8123 >/tmp/h.log 2>&1 &
+  ✓ sandbox karst-spike-claude — started
+[exit 0]
+$ sleep 2
+[exit 0]
+$ curl -s -o /dev/null -w %{http_code}\n --max-time 5 http://127.0.0.1:18123/
+200
+[exit 0]

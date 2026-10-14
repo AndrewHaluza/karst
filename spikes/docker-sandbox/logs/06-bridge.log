@@ -1,0 +1,19 @@
+== Candidate C: append-only file, single-clock round trip (20 pings, 10 ms host poll)
+$ sbx exec karst-spike-claude sh -c nohup sh -c 'echo $$ > /tmp/responder.pid; tail -n0 -F "/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/ping.ndjson" | while read -r l; do echo "$l" >> "/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/pong.ndjson"; done' >/dev/null 2>&1 &
+[exit 0]
+$ node /Users/nd/Work/projects/karst/.karst/worktrees/sandboxed-autonomous-agent-s2-st2-docker-sandbox-feasibility/spikes/docker-sandbox/06-bridge/poll-events.mjs /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike 20
+{"n":20,"rttMsP50":21.294875,"rttMsP95":35.454458,"rttMsMax":35.454458,"oneWayApproxP50":10.6474375}
+[exit 0]
+$ sbx exec karst-spike-claude sh -c kill $(cat /tmp/responder.pid) 2>/dev/null; echo responder-stopped
+responder-stopped
+[exit 0]
+== Host receiver DOWN: sandbox emits 5 events with no host poller running; host reads them afterwards
+$ sbx exec karst-spike-claude sh -c for i in 1 2 3 4 5; do echo down-$i >> '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/down.ndjson'; done
+[exit 0]
+$ sh -c wc -l < '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/down.ndjson'; cat '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/down.ndjson' | tr '\n' ' '
+       5
+down-1 down-2 down-3 down-4 down-5 [exit 0]
+== Candidate B: sandbox -> host loopback relay
+$ sbx exec karst-spike-claude sh -c curl -s --max-time 4 -o /dev/null -w 'host.docker.internal:19090 -> %{http_code}\n' http://host.docker.internal:19090/
+host.docker.internal:19090 -> 403
+[exit 0]

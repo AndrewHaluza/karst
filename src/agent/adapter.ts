@@ -14,6 +14,7 @@ import type { TokenUsage } from './tokenUsage.js';
 import type { AdapterSurfaces } from './surfaces.js';
 import type { EntryBasename } from './workflowCommand.js';
 import type { SessionInstructions } from './instructions.js';
+import type { SandboxPolicy } from './sandbox.js';
 
 /**
  * A JSON Schema document describing the shape a core's FINAL response is asked
@@ -218,6 +219,12 @@ export interface InteractiveCommandOpts {
    */
   mcpConfigPath?: string;
   /**
+   * The provider-native sandbox for this launch (`arch:AC-31`). Present ONLY
+   * when `resolveSandbox` found it enforceable; an adapter whose
+   * `surfaces.sandboxInteractive` is unsupported never receives it.
+   */
+  sandbox?: SandboxPolicy;
+  /**
    * Karst-owned sandbox profile for this launch (`gatePolicy.ts`), translated
    * by each adapter into its own channel so it overrides on-disk config.
    * `gate`: unattended graph node/planner — writes only in `cwd` + tmp, no
@@ -235,6 +242,13 @@ export interface HookChannel {
   configDir: string;
   /** Opaque per-terminal generation used only to order lifecycle hooks. */
   launchId?: string;
+  /**
+   * Set → the FILE channel (sandbox evidence bridge): `endpointUrl` is
+   * `file://<runDir>/events.ndjson`, `configDir` is the HOST bridge dir that
+   * scripts are written to, and `runDir` is that same dir as the agent sees it.
+   * Hook commands name `runDir` (`hookCommandDir`).
+   */
+  readonly runDir?: string;
 }
 
 /**

@@ -258,6 +258,8 @@ function validateService(
   // Opt-in, and only ever a boolean: a truthy string here would silently arm a
   // contract the service does not keep, and nothing would ever become healthy.
   const healthIdentity = optionalBoolean(raw.healthIdentity, `${where}.healthIdentity`);
+  // Optional like `health`: blank means "no reset" (arch:AC-32 decision 8).
+  const reset = optionalString(raw.reset, `${where}.reset`);
 
   const portsRaw = strictArray(raw.ports, `${where}.ports`, strict);
   if (strict && portsRaw.length === 0) {
@@ -286,6 +288,7 @@ function validateService(
     ...(cwd ? { cwd } : {}),
     health,
     healthIdentity,
+    ...(reset ? { reset } : {}),
     ports,
     portRange,
     dependsOn: dependsOnRaw.map((d, i) => validateDependsOn(d, where, selfKey, i, strict)),

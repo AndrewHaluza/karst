@@ -1,3 +1,4 @@
+import { createHostSessionRunner } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
   existsSync,
@@ -44,6 +45,7 @@ import {
 import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { refuseUnsandboxedBypass } from './sandbox.js';
 import { describePermissionDenial, headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
@@ -139,7 +141,7 @@ export function makeDefaultSpawn(spawnImpl: SpawnImpl): SpawnHeadless {
     spawnHeadlessCli(command, args, cwd, opts, spawnImpl);
 }
 
-const defaultSpawn: SpawnHeadless = makeDefaultSpawn(spawn);
+const defaultSpawn: SpawnHeadless = createHostSessionRunner(makeDefaultSpawn(spawn)).runHeadless;
 
 export class AntigravityAdapter implements AgentAdapter {
   // agy 1.1.12 persists per-call token usage in the conversation DB's
@@ -164,9 +166,12 @@ export class AntigravityAdapter implements AgentAdapter {
     effortInteractive: SUPPORTED,
     allowedTools: unsupported(
       'the agy CLI exposes no per-run tool allowlist flag; only the whole-session ' +
-        '`--dangerously-skip-permissions` switch, which permissionMode carries',
+        '`--dangerously-skip-permissions` switch, which karst never passes (AC-31)',
     ),
-    permissionMode: SUPPORTED,
+    permissionMode: unsupported(
+      'the only mode karst passes is bypassPermissions, and agy has no enforced sandbox ' +
+        'to contain it, so it is refused (AC-31) and the run keeps its prompted default',
+    ),
     resume: SUPPORTED,
     sessionName: unsupported('the agy CLI has no launch-time session-naming flag'),
     consoleStream: unsupported(
@@ -205,6 +210,10 @@ export class AntigravityAdapter implements AgentAdapter {
     mcpConfigInteractive: unsupported(
       'agy manages MCP servers only through its own `agy mcp` state, with no per-launch ' +
         'config flag; run `karst mcp install` to register the server at user scope',
+    ),
+    sandboxInteractive: unsupported(
+      '`agy --sandbox` restricts only terminal commands; file edits and the agent tools run ' +
+        'uncontained, so it is not an enforced sandbox of the session',
     ),
     headlessPolicy: unsupported(
       'agy has no sandbox or per-run permission flag: a headless `-p` run takes only ' +
@@ -489,7 +498,9 @@ export class AntigravityAdapter implements AgentAdapter {
     // CLI's own default, so an agy ticket's classify / PR-description / gate
     // calls ignored the model the ticket resolved — 869ej1zpv G1).
     if (opts.model) args.push('--model', opts.model);
-    if (opts.permissionMode === 'bypassPermissions') args.push('--dangerously-skip-permissions');
+    // AC-31: the bypass (`--dangerously-skip-permissions`) is never added — no enforced sandbox contains
+    // this run, so it keeps the core's prompted default. The refusal is logged.
+    refuseUnsandboxedBypass('antigravity', opts.permissionMode, opts.debug);
     if (opts.effort) args.push('--effort', opts.effort);
     // `allowedTools` is declared unsupported on `surfaces` — the agy CLI has no
     // per-run tool allowlist flag. Declared, never silently dropped.

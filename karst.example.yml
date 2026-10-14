@@ -190,6 +190,12 @@ quota:
 # default.
 # diffsInSourceControl: false
 
+# Run interactive agent sessions inside the agent core's OWN OS sandbox: writes
+# only to the ticket worktree, network only to provider APIs and package
+# registries, fewer permission prompts. claude and codex (macOS/Linux) can do
+# it; opencode, opencode2 and agy cannot, and keep prompting. Off by default.
+# agentSandbox: false
+
 repositories:
   backend:
     repoPath: /absolute/path/to/backend

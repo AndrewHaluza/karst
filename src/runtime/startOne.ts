@@ -9,7 +9,7 @@ import {
 } from '../manifest/runnable.js';
 import { resolve, transitiveDependents } from '../resolver/resolve.js';
 import { makePortAllocator, type PortAllocator } from '../resolver/allocator.js';
-import { startResolvedService } from './startService.js';
+import { startResolvedService, type SandboxServiceContext } from './startService.js';
 import { getEnvOverrides } from '../store/ticketEnvOverrides.js';
 import { stopServer, type ServerRecord } from './supervisor.js';
 import { allocationRanges, hotRepoPaths } from './spin.js';
@@ -56,6 +56,8 @@ export class StartServiceError extends Error {
 
 export interface StartTicketServiceOpts {
   signal?: AbortSignal;
+  /** Present → the service (and any rewired dependent) starts inside the ticket's sandbox (arch:AC-32). */
+  sandbox?: SandboxServiceContext;
   onReclaim?: (pid: number) => void;
   debug?: (message: string) => void;
   /**
@@ -219,6 +221,7 @@ export async function startTicketService(
       signal: opts.signal,
       onReclaim: opts.onReclaim,
       debug: opts.debug,
+      ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
     });
     opts.debug?.(`[runtime] ticket ${ticketId}: ${repoName} healthy (pid ${rec.pid})`);
     return { record: rec, newPorts: {}, restartedDependents: [] };
@@ -446,6 +449,7 @@ export async function startTicketService(
     signal: opts.signal,
     onReclaim: opts.onReclaim,
     debug: opts.debug,
+    ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
   }).catch((err: unknown) => {
     // A target that never came up must not leave its freshly drawn ports
     // recorded — a later start would play them back as if they were real.
@@ -492,6 +496,7 @@ export async function startTicketService(
         signal: opts.signal,
         onReclaim: opts.onReclaim,
         debug: opts.debug,
+        ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
       });
     } catch (err) {
       failures.push(`${name} (${err instanceof Error ? err.message : String(err)})`);

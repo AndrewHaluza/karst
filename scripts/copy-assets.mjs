@@ -54,7 +54,9 @@ const assets = [
 // manifest template does: it is written into the TARGET project at scaffold
 // time (src/manifest/setupGuide.ts), so it must exist next to the compiled
 // output — it is not documentation for this repository.
-const rootAssets = ['karst.example.yml', 'karst.uat-review-setup.md'];
+// The docker sandbox image context (src/agent/docker/dockerImage.ts) is built
+// locally from the shipped Dockerfile, next to the bundled allowlist proxy.
+const rootAssets = ['karst.example.yml', 'karst.uat-review-setup.md', 'sandbox/opencode/Dockerfile'];
 
 for (const rel of assets) {
   const from = join(root, 'src', rel);

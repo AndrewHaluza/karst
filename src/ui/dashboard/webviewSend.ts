@@ -66,6 +66,10 @@ export function createSender(api: WebviewApi) {
     spinServers: (requestId?: string) => send({ type: 'spin-servers' }, requestId),
     restartServers: (requestId?: string) => send({ type: 'restart-servers' }, requestId),
     stopServers: (requestId?: string) => send({ type: 'stop-servers' }, requestId),
+    sandboxSync: (requestId?: string) => send({ type: 'sandbox-sync' }, requestId),
+    sandboxDiff: (requestId?: string) => send({ type: 'sandbox-diff' }, requestId),
+    sandboxStop: (requestId?: string) => send({ type: 'sandbox-stop' }, requestId),
+    sandboxRemove: (requestId?: string) => send({ type: 'sandbox-remove' }, requestId),
     showChanges: (requestId?: string) => send({ type: 'show-changes' }, requestId),
     openWorktreeTerminal: (path: Msg<'open-worktree-terminal'>['path'], requestId?: string) =>
       send({ type: 'open-worktree-terminal', path }, requestId),

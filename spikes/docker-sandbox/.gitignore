@@ -1,0 +1,2 @@
+# Spike evidence logs are committed on purpose (reviewed: no secrets, only proxy placeholders).
+!logs/*.log

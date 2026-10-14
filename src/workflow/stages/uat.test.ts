@@ -2051,6 +2051,61 @@ describe('runUat — service spin/stop lifecycle (D155)', () => {
     expect(order).toEqual(['spin:web', 'stop']);
   });
 
+  it('decision 7-8: a passed sandboxed stack is kept for user UAT, reset, and its link released after', async () => {
+    const order: string[] = [];
+    const res = await run({
+      spin: async () => { order.push('spin'); return spinOk(); },
+      stopServers: async () => { order.push('stop'); },
+      agentUatPhase: (t, phase) => order.push(`${phase}:${t === id}`),
+      keepStackForUserUat: (t) => { order.push('keep?'); return t === id; },
+      prepareUserUat: async (st, t) => { order.push(`reset:${st === store && t === id}`); return ['web: reset failed (exit 1)']; },
+      warn: (m) => order.push(`warn:${m}`),
+    });
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(order).toEqual(['start:true', 'spin', 'keep?', 'reset:true', 'warn:uat: web: reset failed (exit 1)', 'end:true']);
+  });
+
+  it('decision 7: a failed or parked agent UAT still stops a sandboxed stack; a host stack is stopped after a pass', async () => {
+    const order: string[] = [];
+    const adapter: AgentAdapter = { ...testerAgent, runHeadless: async () => ({ sessionId: '', verdict: null, raw: 'not json at all' }) };
+    await run({
+      tester: { assignment: { agentName: 'UAT Agent', provider: 'claude' }, adapter },
+      spin: spinOk, stopServers: async () => { order.push('stop'); },
+      keepStackForUserUat: () => true, prepareUserUat: async () => { order.push('reset'); return []; },
+      agentUatPhase: (_t, p) => order.push(p),
+    });
+    expect(order).toEqual(['start', 'end', 'stop']);
+    order.length = 0;
+    await run({ spin: spinOk, stopServers: async () => { order.push('stop'); }, keepStackForUserUat: () => false, prepareUserUat: async () => { order.push('reset'); return []; } });
+    expect(order).toEqual(['stop']);
+  });
+
+  it('decision 8: a throwing reset is a warning and the stack stays kept', async () => {
+    const order: string[] = [];
+    const res = await run({
+      spin: spinOk, stopServers: async () => { order.push('stop'); },
+      keepStackForUserUat: () => true,
+      prepareUserUat: async () => { throw new Error('sandbox gone'); },
+      warn: (m) => order.push(m),
+    });
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(order).toEqual(['uat: reset before user UAT failed: sandbox gone']);
+  });
+
+  it('decision 8: no reset seam → the kept stack is left as the Tester left it', async () => {
+    const order: string[] = [];
+    const res = await run({ spin: spinOk, stopServers: async () => { order.push('stop'); }, keepStackForUserUat: () => true });
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(order).toEqual([]);
+  });
+
+  it('decision 7: a stack the user already owns opens no agent-UAT window', async () => {
+    seedServer('web', 'running');
+    const phases: string[] = [];
+    await run({ spin: spinOk, stopServers: async () => {}, agentUatPhase: (_t, p) => phases.push(p) });
+    expect(phases).toEqual([]);
+  });
+
   it('stops the services when the Tester parks the stage (unreadable output)', async () => {
     let stopped = 0;
     const adapter: AgentAdapter = {

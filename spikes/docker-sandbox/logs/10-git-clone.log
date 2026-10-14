@@ -1,0 +1,47 @@
+$ sbx create --clone --name karst-spike-clone claude /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo
+  ✓ workspace — Git repository at /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo
+
+SANDBOX
+  Name:       karst-spike-clone
+  Agent:      claude
+  Workspace:  /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo (rw)
+  Skills:     0 entries · linked, read-only
+    Source:   /Users/nd/Library/Application Support/com.docker.sandboxes/sandboxes/agent-skills
+    Target:   /home/agent/.claude/skills
+  Image:      docker/sandbox-templates:claude-code-docker
+  CPU:        10
+  Memory:     8 GiB
+
+IMAGE
+  ○ image — pulling…
+      549730947ed8 already present
+      742e9238c102 already present
+      987b186b8f1d already present
+      beedd5fd60fd already present
+      89645b6ca94f already present
+      e1a8a653f761 already present
+      ad73f53ff794 already present
+  ✓ image — ready
+  Git daemon:  git://127.0.0.1:49152/repo
+  Remote:      sandbox-karst-spike-clone
+
+  ✓ Created sandbox karst-spike-clone
+      source /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo → /run/sandbox/source (ro)
+[exit 0]
+$ sbx exec karst-spike-clone sh -c pwd; git status --short | head; git log --oneline -1; echo clone-edit > clone.txt; git add clone.txt; git -c user.email=a@a -c user.name=a commit -qm clone-commit; git log --oneline -2
+/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo
+64cd5b5 seed
+ddc100e clone-commit
+64cd5b5 seed
+[exit 0]
+$ git -C /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo remote -v
+sandbox-karst-spike-clone	git://127.0.0.1:49152/repo (fetch)
+sandbox-karst-spike-clone	git://127.0.0.1:49152/repo (push)
+[exit 0]
+$ git -C /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/repo branch -a
++ a
++ b
+* main
+  remotes/sandbox-karst-spike-clone/HEAD -> sandbox-karst-spike-clone/main
+  remotes/sandbox-karst-spike-clone/main
+[exit 0]

@@ -319,7 +319,7 @@ describe('Opencode2Adapter headless argv/env', () => {
     const run = calls.find((c) => c.args[0] === 'run')!;
     const i = run.args.indexOf('--model');
     expect(run.args[i + 1]).toBe('opencode-go/mimo-v2.5#high');
-    expect(run.args).toContain('--auto');
+    expect(run.args).not.toContain('--auto');
   });
 
   it('sets all four XDG vars + autoupdate disable as the isolation env', async () => {

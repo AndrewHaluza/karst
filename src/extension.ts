@@ -26,7 +26,9 @@ import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/p
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
-import { runBootSweeps } from './extension/ops/bootSweeps.js';
+import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
+import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
+import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
 import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
@@ -124,6 +126,7 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
+import { probeBackends } from './agent/backendProbe.js';
 import { installProbeRecorder, registerProbeCommand } from './uatHost/probe/vscodeProbe.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
@@ -343,6 +346,8 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
+import { backendSessionOptions, createTicketSandboxBindings, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
+import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
   LAUNCH_BUILD_TIMEOUT_MS,
@@ -687,6 +692,7 @@ const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+let bridges: BridgeRegistry | undefined; let bridgeRoot: string | undefined; let sandboxB: ReturnType<typeof createTicketSandboxBindings> | undefined; let sandboxLife!: ReturnType<typeof makeSandboxWiring>; // set in activate, before any dashboard opens; // arch:AC-34 (built once the hook endpoint is bound), AC-32
 let graphEndpoint: GraphWakeupEndpoint | undefined;
 let graphCoordinatorStore: Store | undefined;
 let graphTransport: SupervisedCliTransport | undefined;
@@ -1033,6 +1039,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
     (ticketId) => {
+      bridges?.detach(ticketId).catch((e: unknown) => logError('karst: bridge detach failed', e)); // the sandbox lives on: keep its bridge dir (arch:AC-32)
       // The agy watch's per-ticket memory dies with the terminal: a closed
       // session must not keep a stale conversation/awaiting state behind.
       agyWatchStates.delete(ticketId);
@@ -1241,6 +1248,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backend: () => currentManifest()?.agentBackend, projectRoot: () => cliEntryAndManifest(context).manifestPath ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
@@ -1253,15 +1261,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fsWatch,
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
+  sandboxLife = makeSandboxWiring({ // arch:AC-32
+    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
+    choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
+    projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackend !== undefined,
+    projectId: () => currentProject()?.id, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
-    store: localStore,
+    store: localStore, beforeArchive: sandboxLife.beforeArchive,
     git: defaultGitRunner,
     notify,
     log: { info: (m) => logger.info(m), error: logError },
     appendLine: (m) => channel.appendLine(m),
     closeDoneTerminals: closeTicketTerminals,
     manifest: currentManifest,
-    beforeRemove: artifactCapture.beforeRemove,
+    beforeRemove: artifactCapture.beforeRemove, stopTicketServices: (s, id) => sandboxB?.stopTicket(s, id) ?? Promise.resolve(), // AC-32
     refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); }, // an archived blocker unblocks children
   };
   /**
@@ -1795,7 +1808,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             },
             'Switch and continue',
           );
-          return choice === 'Switch and continue';
+          return choice === 'Switch and continue' && sandboxLife.onProviderSwitch(ticketId, targetProvider);
         },
         persist: ({ provider: p, model: m, effort: e }) => updateTicketFields(localStore, ticketId, {
           agentProvider: p,
@@ -2327,6 +2340,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return true;
       },
       clearToken: (): Promise<void> => clearToken(context),
+      probeBackends,
       hasToken: (): Promise<boolean> => hasToken(context),
       // Native folder picker for a repository's repoPath (§ settings). No
       // validation here — whatever the user picks is just text in the field,
@@ -3071,7 +3085,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog,
+      modelCatalog, agentBackend: currentManifest()?.agentBackend,
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -3620,7 +3634,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess,
+          runVerifier: runProcess, gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -3864,6 +3878,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
+  bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
+    store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
+    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
+    cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
+  await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -5642,6 +5661,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (event) => dashboard.postInsideProgress(ticketId, event),
     );
     if (getTicket(localStore, ticketId).stageCurrent === 'done') {
+      sandboxLife.onDone(ticketId); // done → stop, never remove
       await pushDoneStatus(ticketId, warn);
     }
     provider.refresh();
@@ -6562,6 +6582,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // Carries `dbPath` too — the same literal set the seed was composed from.
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
+            sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
+            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
@@ -6577,7 +6599,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         if (sessions.isOpen(ticketId)) {
           ownedSessionTickets.add(ticketId);
-          await persistOwnedSessionTickets();
+          await persistOwnedSessionTickets(); sandboxB?.reattach(ticketId); // AC-32 re-verify
         }
         showStatusFor(ticketId);
       },
@@ -6640,8 +6662,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // threads down into the health wait + child processes.
             const ctrl = new AbortController();
             token.onCancellationRequested(() => ctrl.abort());
-            return spinTicket(localStore, manifest, ticketId, hot, {
-              signal: ctrl.signal,
+            return withSandboxSpin(() => sandboxB?.deps, spinTicket)(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
               debug: (message) => logger.debug(message),
             });
           },
@@ -6797,6 +6818,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await archiveTicketOp(archiveDeps, ticketId);
     }),
+    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.sync(id); }),
+    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.dispose(id); }),
+    vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
@@ -7184,6 +7208,8 @@ export async function deactivate(): Promise<void> {
   }
   await Promise.allSettled([...pendingApproachInstalls]);
   pendingApproachInstalls.clear();
+  await bridges?.detachAll().catch((error: unknown) => cleanupErrors.push(error)); // stop pollers, keep dirs
+  bridges = undefined;
   try {
     await endpoint?.close();
   } catch (error) {
@@ -8050,7 +8076,7 @@ function makeDashboardActions(
     loadManifest: async () => (await resolveManifest(debug)) ?? null,
     openExternal: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     copyText: (text) => void vscode.env.clipboard.writeText(text),
-    debug,
+    debug, ...(sandboxB ? { sandbox: sandboxB.deps, userUatWithheld: sandboxB.userUatWithheld } : {}), // AC-32
   };
 
   const dependencyOps = makeDependencyOps(store, {
@@ -8079,7 +8105,7 @@ function makeDashboardActions(
     // Stop-all is the one genuinely new effect: kill every running server on the
     // ticket, retaining the rows so they come back as offline and restartable.
     stopServers: async () => {
-      await stopTicketServers(store, ticketId);
+      await (sandboxB ? sandboxB.stopTicket(store, ticketId) : stopTicketServers(store, ticketId)); // AC-32
       afterServerChange();
     },
     showChanges,
@@ -8088,6 +8114,8 @@ function makeDashboardActions(
       const key = getTicket(store, ticketId).key ?? formatId('ticket', ticketId);
       void vscode.env.clipboard.writeText(key);
     },
+    sandboxSync: () => sandboxLife.sync(ticketId), sandboxDiff: () => sandboxLife.diff(ticketId), // AC-32 Sandbox card
+    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId),
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building

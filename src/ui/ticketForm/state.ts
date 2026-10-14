@@ -5,7 +5,7 @@ import { formatId, formatTicketRef } from '../../model/entityId.js';
 import { listAttachments } from '../../store/attachments.js';
 import { attachmentPath } from '../../attachments/paths.js';
 import type { AttachmentKind } from '../../attachments/kinds.js';
-import type { Manifest, ApproachDef, TicketProvider, AgentProvider } from '../../manifest/types.js';
+import type { Manifest, ApproachDef, TicketProvider, AgentProvider, AgentBackend } from '../../manifest/types.js';
 import { unclassifiedRepos, scoreRepos } from '../../workflow/classify/gate.js';
 import type { PoolAgent } from '../../agents/pool.js';
 import { modelsForProvider, type ModelOption } from '../../agent/models.js';
@@ -216,6 +216,10 @@ export interface TicketFormState {
   defaultAgentPreset: string | null;
   /** Per-ticket preset override; null = inherit `manifest.defaultAgentPreset`. */
   selectedAgentPreset: string | null;
+  /** The project's `agentBackend`; null = host. The webview shows the opt-out only for a sandbox backend. */
+  projectBackend: AgentBackend | null;
+  /** Per-ticket opt-out; `'host'` = run on host, null = follow the project. */
+  selectedBackend: 'host' | null;
   /** Conventional-commit types offered by the type picker. */
   ticketTypes: string[];
   /** Per-ticket type; null = inherit `conventions.defaultType`. */
@@ -440,6 +444,8 @@ export function buildTicketFormState(
       agentPresetNames,
       defaultAgentPreset: manifest.defaultAgentPreset ?? null,
       selectedAgentPreset: null,
+      projectBackend: manifest.agentBackend ?? null,
+      selectedBackend: null,
       ticketTypes: [...TICKET_TYPES],
       selectedType: null,
       defaultType: resolveTicketType({ type: null }, manifest.conventions),
@@ -506,6 +512,8 @@ export function buildTicketFormState(
     agentPresetNames,
     defaultAgentPreset: manifest.defaultAgentPreset ?? null,
     selectedAgentPreset: ticket.agentPreset ?? null,
+    projectBackend: manifest.agentBackend ?? null,
+    selectedBackend: ticket.agentBackend ?? null,
     ticketTypes: [...TICKET_TYPES],
     selectedType: ticket.type ?? null,
     defaultType: resolveTicketType({ type: null }, manifest.conventions),

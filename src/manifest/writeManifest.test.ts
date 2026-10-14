@@ -222,6 +222,7 @@ describe('writeManifest', () => {
               start: 'npm run dev',
               health: 'http://{host}:{port}/health',
               healthIdentity: true,
+              reset: 'npm run db:reset',
               ports: [{ name: 'http', env: 'PORT', default: 3000 }],
               portRange: [5000, 5100],
               dependsOn: [],
@@ -365,6 +366,10 @@ describe('writeManifest', () => {
         // Same reason: absent debug would round-trip regardless of the overlay,
         // so the populated manifest pins the explicit value.
         debug: true,
+        // Same reason: absent agentSandbox round-trips regardless of the overlay.
+        agentSandbox: true,
+        // Same reason: absent agentBackend round-trips regardless of the overlay.
+        agentBackend: 'sbx',
         // Same reason again: absent closeDoneTerminalsWithTicket would round-trip
         // whether or not the overlay wrote it, so the populated manifest pins the
         // explicit value.

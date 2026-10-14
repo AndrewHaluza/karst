@@ -106,6 +106,25 @@ jobs:
       - name: Integration and e2e tests
         run: npm run test:integration
 
+  # Non-blocking (advisory): records the ST2B Linux verdict for the docker
+  # sandbox backend live (arch:AC-32) — image build, bind-mount uid behaviour,
+  # loopback port publish, `--network none` isolation. Credential-free.
+  docker-sandbox-linux:
+    name: Docker sandbox (Linux, advisory)
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure git for the spike fixtures
+        run: |
+          git config --global user.name "karst-ci"
+          git config --global user.email "ci@karst.invalid"
+          git config --global init.defaultBranch main
+      - name: Linux docker sandbox checks
+        run: bash spikes/docker-sandbox/opencode/linux-ci.sh
+
   mutation:
     name: Mutation score
     if: github.event_name == 'pull_request'

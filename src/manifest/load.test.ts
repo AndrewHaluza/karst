@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadManifest, loadManifestWithDiagnostics } from './load.js';
+import { ManifestError } from './error.js';
 import { PRESET_CAPABILITIES, type Manifest } from './types.js';
 
 /** Write YAML to a temp file, return its path; caller cleans the dir. */
@@ -558,6 +559,24 @@ repositories:
     const { path, cleanup } = fixture(yaml);
     try {
       expect(loadManifest(path).repositories.docs!.service!.health).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('reads an optional service reset; blank is unset; a non-string is rejected (arch:AC-32 decision 8)', () => {
+    const at = (v: string) => `${DOCS}    service:\n      start: npm run dev\n      reset: ${v}\n      ports:\n        - { name: http, env: PORT, default: 3000 }\n`;
+    for (const [v, want] of [['npm run db:reset', 'npm run db:reset'], ['""', undefined]] as const) {
+      const { path, cleanup } = fixture(at(v));
+      try {
+        expect(loadManifest(path).repositories.docs!.service!.reset).toBe(want);
+      } finally {
+        cleanup();
+      }
+    }
+    const { path, cleanup } = fixture(at('42'));
+    try {
+      expect(() => loadManifest(path)).toThrow(/service\.reset/);
     } finally {
       cleanup();
     }
@@ -1973,6 +1992,65 @@ describe('archiveDoneAfterDays', () => {
     const { path, cleanup } = fixture(`${VALID}\narchiveDoneAfterDays: -1\n`);
     try {
       expect(() => loadManifest(path)).toThrow(/archiveDoneAfterDays/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('agentBackend (AC-32: default host)', () => {
+  it('is undefined when omitted (sessions run on the host)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).agentBackend).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['host', 'sbx', 'docker'])('parses agentBackend: %s', (value) => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
+    try {
+      expect(loadManifest(path).agentBackend).toBe(value);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it.each(['Sbx', 'true', '1'])('throws ManifestError on %s', (value) => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(ManifestError);
+      expect(() => loadManifest(path)).toThrow(/agentBackend must be one of host, sbx, docker/);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('agentSandbox (AC-31: opt-in, default off)', () => {
+  it('is undefined when omitted (sessions stay prompted)', () => {
+    const { path, cleanup } = fixture(VALID);
+    try {
+      expect(loadManifest(path).agentSandbox).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('parses agentSandbox: true', () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentSandbox: true\n`);
+    try {
+      expect(loadManifest(path).agentSandbox).toBe(true);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('throws on a non-boolean — a string "true" is a YAML typo', () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentSandbox: "true"\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/agentSandbox must be a boolean/);
     } finally {
       cleanup();
     }

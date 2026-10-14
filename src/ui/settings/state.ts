@@ -1,6 +1,7 @@
 import { buildBuiltInPrompts, type BuiltInPrompts } from './builtInPrompts.js';
 import type { AgentProvider, ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
 import { pendingOutputViews, type PendingOutputsView } from '../../approaches/pendingOutputs.js';
+import type { BackendStatus } from '../../agent/effectiveBackend.js';
 import { sortAgentRowsByProvenance } from './agentGrouping.js';
 import {
   bundledModelCatalog,
@@ -118,6 +119,12 @@ export interface SettingsState {
    * package, never from karst.yml.
    */
   pendingOutputs: Record<string, PendingOutputsView>;
+}
+
+/** Host-probed readiness of the sandbox backends, shown next to the Agents backend selector (arch:AC-32). */
+export interface BackendStatuses {
+  readonly sbx: BackendStatus;
+  readonly docker: BackendStatus;
 }
 
 /** Build the initial settings state from a manifest (valid or last-known). */

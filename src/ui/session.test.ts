@@ -1,9 +1,11 @@
 import { DefaultedSessionManager } from './testing/launchDefaults.js';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClaudeAdapter } from '../agent/claude.js';
+import { CodexAdapter } from '../agent/codex.js';
+import { OpencodeAdapter } from '../agent/opencode.js';
 import {
   continueSessionInBackground,
   KARST_LAUNCH_ENV,
@@ -18,6 +20,13 @@ import {
 import type { AgentAdapter, InteractiveCommandOpts } from '../agent/adapter.js';
 import { KARST_INSTRUCTIONS_ENV } from '../agent/cliEnv.js';
 import { hashInstructions } from '../agent/instructions.js';
+import { HOST_SESSION_RUNNER, type InteractiveLaunchSpec, type SessionRunner } from '../agent/sessionRunner.js';
+import { createSbxSessionRunner } from '../agent/sbx/sbxRunner.js';
+import { fakeSbxProcess } from '../agent/sbx/fakeSbxProcess.js';
+import { createDockerSessionRunner } from '../agent/docker/dockerRunner.js';
+import { dockerNames } from '../agent/docker/dockerNames.js';
+import { fakeDockerProcess } from '../agent/docker/fakeDockerProcess.js';
+import { bridgePaths } from '../agent/bridge/bridgeDir.js';
 
 // `openSession` pre-trusts the worktree by writing the core's USER config
 // (claude's `~/.claude.json`, codex's `~/.codex/config.toml`). Point HOME at a
@@ -215,6 +224,235 @@ describe('SessionManager', () => {
     expect(JSON.stringify(terminals[0]!.env)).not.toContain('secret');
   });
 
+  it('routes the launch through the session runner and creates the terminal it places', async () => {
+    const { adapter } = fakeAdapter('fake-agent');
+    const { host, terminals } = fakeHost();
+    const specs: InteractiveLaunchSpec[] = [];
+    const runner: SessionRunner = {
+      kind: 'host',
+      enforcesSandbox: false,
+      placeInteractive: (spec) => {
+        specs.push(spec);
+        return { cwd: '/workspace', shellPath: 'wrapped', shellArgs: ['run', spec.command], env: { W: '1' } };
+      },
+      runHeadless: () => Promise.reject(new Error('not used')),
+    };
+    const mgr = new DefaultedSessionManager(
+      host, channelFor, undefined, undefined, undefined, undefined, undefined, undefined, undefined, runner,
+    );
+
+    await mgr.openSession(adapter, 7, '/wt/a');
+    await mgr.openSession(adapter, 7, '/wt/a');
+
+    expect(specs).toHaveLength(1);
+    expect(specs[0]).toMatchObject({ ticketId: 7, hostWorktreePath: '/wt/a', command: 'fake-agent', args: [] });
+    expect(specs[0]!.env[KARST_TICKET_ENV]).toBe('7');
+    expect(terminals).toHaveLength(1);
+    expect(terminals[0]).toMatchObject({ cwd: '/workspace', shellPath: 'wrapped', shellArgs: ['run', 'fake-agent'], env: { W: '1' } });
+  });
+
+  describe('per-launch backend (AC-32)', () => {
+    const sbxRunner = () => {
+      const dispose = vi.fn().mockResolvedValue(undefined);
+      const runner: SessionRunner = {
+        ...createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: 'karst-ab12cd34-7-claude', existing: [] }),
+        dispose,
+      };
+      return { runner, dispose };
+    };
+    const cli = { cliEntry: '/cli/main.js', dbPath: '/db' };
+
+    it('takes the runner from the resolver and logs the backend line', async () => {
+      const { adapter, calls } = fakeAdapter('claude');
+      const { host, terminals } = fakeHost();
+      const { runner } = sbxRunner();
+      const lines: string[] = [];
+      const modes: string[] = [];
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        sandbox: true,
+        resolveRunner: () => Promise.resolve({ runner, line: 'sbx (karst-ab12cd34-7-claude)' }),
+        onBackend: (line) => lines.push(line),
+        onSandboxMode: (line) => modes.push(line),
+      });
+
+      expect(lines).toEqual(['sbx (karst-ab12cd34-7-claude)']);
+      expect(modes).toEqual(['sandboxed (runner: sbx)']);
+      expect(terminals[0]!.shellPath).toBe('sbx');
+      expect(terminals[0]!.shellArgs.slice(0, 3)).toEqual(['run', '--clone', '--name']);
+      // Host-path channels and the core's own sandbox stay off inside sbx.
+      expect(calls[0]!.hookChannel).toBeUndefined();
+      expect(calls[0]!.mcpConfigPath).toBeUndefined();
+      expect(calls[0]!.sandbox).toBeUndefined();
+    });
+
+    describe('evidence bridge (arch:AC-34)', () => {
+      let root: string;
+      beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'karst-session-bridge-')); });
+      afterEach(() => rmSync(root, { recursive: true, force: true }));
+      const bridgeRunner = (specs: InteractiveLaunchSpec[], withRunDir: boolean): SessionRunner => ({
+        kind: 'docker',
+        enforcesSandbox: true,
+        placeInteractive: (spec) => {
+          specs.push(spec);
+          return { cwd: '/workspace', shellPath: 'docker', shellArgs: [], env: {} };
+        },
+        runHeadless: () => Promise.reject(new Error('not used')),
+        ...(withRunDir ? { bridgeRunDir: (p) => p.runDir } : {}),
+      });
+
+      it('a sandbox launch with a bridge carries the bridge dir and the file hook channel', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const paths = bridgePaths(root, 7);
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+          bridge: { paths },
+        });
+
+        expect(specs[0]!.bridgeDir).toBe(paths.dir);
+        expect(existsSync(paths.eventsFile)).toBe(true);
+        expect(calls[0]!.hookChannel).toEqual({
+          endpointUrl: `file://${paths.runDir}/events.ndjson`,
+          configDir: paths.dir,
+          runDir: paths.runDir,
+          launchId,
+        });
+      });
+
+      it('a runner without a bridge run dir keeps no hook channel even with a bridge', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, false), line: 'docker' }),
+          bridge: { paths: bridgePaths(root, 7) },
+        });
+
+        expect(calls[0]!.hookChannel).toBeUndefined();
+        expect(specs[0]!.bridgeDir).toBeUndefined();
+      });
+
+      it('a sandbox launch without a bridge keeps today\'s behaviour: no channel, no bridge dir', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+        });
+
+        expect(calls[0]!.hookChannel).toBeUndefined();
+        expect(specs[0]!.bridgeDir).toBeUndefined();
+      });
+
+      it('bridgeFor is asked for the ticket\'s bridge only on a sandbox launch', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const paths = bridgePaths(root, 7);
+        const bridgeFor = vi.fn(() => Promise.resolve(paths));
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+          bridgeFor,
+        });
+
+        expect(bridgeFor).toHaveBeenCalledWith(7);
+        expect(specs[0]!.bridgeDir).toBe(paths.dir);
+        expect(calls[0]!.hookChannel?.endpointUrl).toBe(`file://${paths.runDir}/events.ndjson`);
+      });
+
+      it('a host launch never calls bridgeFor', async () => {
+        const { adapter } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const bridgeFor = vi.fn(() => Promise.resolve(bridgePaths(root, 7)));
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          bridgeFor,
+        });
+
+        expect(bridgeFor).not.toHaveBeenCalled();
+      });
+    });
+
+    it('a docker resolution runs the opencode launch in the container, sandboxed, with no bypass flag', async () => {
+      const { adapter, calls } = fakeAdapter('opencode');
+      const { host, terminals } = fakeHost();
+      const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' });
+      const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined });
+      const lines: string[] = [];
+      const modes: string[] = [];
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        sandbox: true,
+        resolveRunner: () => Promise.resolve({ runner, line: `docker (${names.container})` }),
+        onBackend: (line) => lines.push(line),
+        onSandboxMode: (line) => modes.push(line),
+      });
+
+      expect(lines).toEqual([`docker (${names.container})`]);
+      expect(modes).toEqual(['sandboxed (runner: docker)']);
+      expect(terminals[0]!.shellPath).toBe('docker');
+      expect(terminals[0]!.shellArgs.slice(0, 6)).toEqual(['run', '--interactive', '--tty', '--rm', '--name', names.container]);
+      for (const flag of ['--privileged', '--auto', '--yolo', '--dangerously-skip-permissions']) {
+        expect(terminals[0]!.shellArgs).not.toContain(flag);
+      }
+      expect(terminals[0]!.shellArgs.join(' ')).not.toContain('docker.sock');
+      expect(calls[0]!.hookChannel).toBeUndefined();
+      expect(calls[0]!.mcpConfigPath).toBeUndefined();
+      expect(calls[0]!.sandbox).toBeUndefined();
+    });
+
+    it('a host resolution keeps the hook channel and never relaxes permissions', async () => {
+      const { adapter, calls } = fakeAdapter('claude');
+      const { host, terminals } = fakeHost();
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        resolveRunner: () => Promise.resolve({ runner: HOST_SESSION_RUNNER, line: 'host (agentBackend: host)' }),
+      });
+
+      expect(calls[0]!.hookChannel).toBeDefined();
+      expect(terminals[0]!.shellPath).toBe('claude');
+      expect(terminals[0]!.shellArgs).not.toContain('--dangerously-skip-permissions');
+    });
+
+    it('a failed sbx creation (terminal exits) leaves the ticket not live and never disposes', async () => {
+      const { adapter } = fakeAdapter('claude');
+      const { host, terminals } = fakeHost();
+      const { runner, dispose } = sbxRunner();
+      const mgr = new DefaultedSessionManager(host, channelFor);
+
+      await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+        ...cli,
+        resolveRunner: () => Promise.resolve({ runner, line: 'sbx (karst-ab12cd34-7-claude)' }),
+      });
+      terminals[0]!.disposeHandler?.(1);
+
+      expect(mgr.isLive(7)).toBe(false);
+      expect(dispose).not.toHaveBeenCalled();
+    });
+  });
+
   it('writes a launch-time MCP config in host storage for a supporting core, never a repo file', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-session-mcp-'));
     try {
@@ -248,6 +486,55 @@ describe('SessionManager', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  describe('provider-native sandbox (AC-31)', () => {
+    const open = (adapter: AgentAdapter, cwd: string, extra: Record<string, unknown>) => {
+      const { host, terminals } = fakeHost();
+      const lines: string[] = [];
+      const configDir = mkdtempSync(join(tmpdir(), 'karst-sbx-cfg-'));
+      try {
+        const mgr = new DefaultedSessionManager(host, () => ({ ...channel, configDir }));
+        mgr.openSession(adapter, 7, cwd, undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          onSandboxMode: (line: string) => lines.push(line),
+          ...extra,
+        });
+      } finally {
+        rmSync(configDir, { recursive: true, force: true });
+      }
+      return { args: terminals[0]!.shellArgs, lines };
+    };
+
+    it.runIf(process.platform !== 'win32')('sandboxes a supporting core with the worktree and its git dir writable', () => {
+      const wt = mkdtempSync(join(tmpdir(), 'karst-sbx-wt-'));
+      try {
+        writeFileSync(join(wt, '.git'), 'gitdir: /repo/.git/worktrees/x\n');
+        const { args, lines } = open(new CodexAdapter(), wt, { sandbox: true });
+        expect(args).toEqual(expect.arrayContaining(['--sandbox', 'workspace-write', '--ask-for-approval', 'on-request']));
+        expect(args).toContain('sandbox_workspace_write.writable_roots=["/repo/.git/worktrees/x"]');
+        expect(lines).toEqual([`sandboxed (write: ${wt}, /repo/.git/worktrees/x)`]);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    it('fails closed on a core that cannot sandbox: prompted, reason logged, no policy', () => {
+      const wt = mkdtempSync(join(tmpdir(), 'karst-oc-wt-'));
+      try {
+        const { args, lines } = open(new OpencodeAdapter(), wt, { sandbox: true });
+        expect(args.join(' ')).not.toMatch(/sandbox|--auto|dangerously/);
+        expect(lines).toHaveLength(1);
+        expect(lines[0]).toMatch(/^prompted \(core cannot sandbox: opencode has no OS-level sandbox/);
+      } finally {
+        rmSync(wt, { recursive: true, force: true });
+      }
+    });
+
+    it('stays prompted and says so when the manifest did not opt in', () => {
+      const { args, lines } = open(new CodexAdapter(), '/wt/a', {});
+      expect(args).not.toContain('--sandbox');
+      expect(lines).toEqual(['prompted (sandbox not enabled (agentSandbox: false))']);
+    });
   });
 
   it('three reloads retain one provider-neutral restored terminal without relaunching', () => {

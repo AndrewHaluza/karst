@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
+import { formatSandboxMode, launchSandbox } from '../agent/sandbox.js';
 import { mcpServersConfig, type McpConnection } from '../agent/mcpConfig.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import {
@@ -15,6 +16,8 @@ import { submitDelayFor } from '../agent/registry.js';
 import { NudgeQueue, type NudgeHooks } from './nudgeQueue.js';
 import { formatId } from '../model/entityId.js';
 import type { DeliveryChannel } from '../workflow/messageDelivery.js';
+import { HOST_SESSION_RUNNER, type SessionRunner } from '../agent/sessionRunner.js';
+import { ensureBridgeDir, sandboxHookChannel, type BridgePaths } from '../agent/bridge/bridgeDir.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -109,6 +112,10 @@ export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
 
 /** Host command context that must survive a failed-resume retry. */
 export interface OpenSessionOptions {
+  /** Per-ticket evidence bridge for a sandboxed launch (arch:AC-34). Host-internal. */
+  bridge?: { readonly paths: BridgePaths };
+  /** Attaches the ticket's bridge; called only when the resolved runner enforces a sandbox. */
+  bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   reveal?: boolean;
   recovery?: boolean;
   /**
@@ -167,6 +174,17 @@ export interface OpenSessionOptions {
   instructions?: SessionInstructions;
   /** Injected debug sink (no global logger in this vscode-free module). */
   debug?: (message: string) => void;
+  /** The manifest's `agentSandbox` opt-in (AC-31). Absent → prompted. Host-internal. */
+  sandbox?: boolean;
+  /** Receives the launch's effective sandbox mode line (`sandboxed …` / `prompted (<reason>)`). */
+  onSandboxMode?: (line: string) => void;
+  /**
+   * Picks this launch's runner (`arch:AC-32`, the backend resolver). Absent →
+   * the manager's own runner, synchronously (host behaviour unchanged).
+   */
+  resolveRunner?: () => Promise<{ runner: SessionRunner; line: string }>;
+  /** Receives the launch's effective backend line (`sbx (<name>)` / `host (<reason>)`). */
+  onBackend?: (line: string) => void;
 }
 
 /**
@@ -403,6 +421,8 @@ export class SessionManager {
      * rethrown so the caller still sees the launch failure.
      */
     private readonly onLaunchFailed?: OnLaunchFailed,
+    /** Where a session runs (Docker plan Increment 1); the host by default. */
+    private readonly runner: SessionRunner = HOST_SESSION_RUNNER,
   ) {}
 
   private trackTerminal(
@@ -546,8 +566,25 @@ export class SessionManager {
     // read exactly like the terminal it ran in, or it can't be matched back to
     // its ticket. Adapters whose CLI has no naming flag ignore it.
     const terminalName = naming?.name ?? `Karst: ${label?.key ?? formatId('ticket', ticketId)}`;
+    // AC-32: the runner is chosen per launch. Awaited only when a resolver is
+    // given, so a plain host launch stays synchronous.
+    const resolved = options.resolveRunner ? await options.resolveRunner() : undefined;
+    const runner = resolved?.runner ?? this.runner;
+    if (resolved) options.onBackend?.(resolved.line);
+    // Inside a runner-enforced sandbox the host-path channels (hook settings,
+    // MCP config) do not exist, and the core's own OS sandbox is redundant.
+    const inSandbox = runner.enforcesSandbox;
     const hookChannel = this.hookChannelFor(ticketId);
-    const mcpConfigPath = this.writeMcpConfig(adapter, ticketId, options, hookChannel);
+    // arch:AC-34: a sandbox reaches the host only through its bridge file, and
+    // only when the runner says where the bridge dir appears inside it.
+    const bridgePathsFor = inSandbox ? (options.bridge?.paths ?? (await options.bridgeFor?.(ticketId))) : undefined;
+    const bridge = sandboxBridge(runner, bridgePathsFor, hookChannel.launchId);
+    if (bridge) await ensureBridgeDir(bridge.paths);
+    const mcpConfigPath = inSandbox ? undefined : this.writeMcpConfig(adapter, ticketId, options, hookChannel);
+    // AC-31: the core's own sandbox only when it can be enforced; otherwise the
+    // launch fails closed to prompted mode and the reason is reported.
+    const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true && !inSandbox, worktreePath);
+    options.onSandboxMode?.(inSandbox ? `sandboxed (runner: ${runner.kind})` : formatSandboxMode(sandbox));
     // Trust the ticket worktree before the core starts: a fresh worktree is
     // untrusted, and claude would open on its folder-trust dialog and exit
     // (T661). Done here, at the one launch site, never as a UI action. The hook
@@ -564,7 +601,7 @@ export class SessionManager {
       // A human watches: normal approvals stay, pattern kills and home-config
       // writes are always denied (D170).
       policy: 'attended',
-      hookChannel,
+      ...(inSandbox ? (bridge ? { hookChannel: bridge.channel } : {}) : { hookChannel }),
       sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
@@ -575,6 +612,7 @@ export class SessionManager {
         ? { instructions: options.instructions }
         : {}),
       ...(mcpConfigPath ? { mcpConfigPath } : {}),
+      ...(sandbox.mode === 'sandboxed' ? { sandbox: sandbox.policy } : {}),
     });
     const cleanupPaths = [...ownedPaths, ...(cmd.ownedPaths ?? [])];
 
@@ -611,12 +649,12 @@ export class SessionManager {
     );
     let terminal: SessionTerminal;
     try {
-      terminal = this.host.createTerminal({
-        name: terminalName,
-        description: naming ? undefined : (label?.title ?? undefined),
-        cwd: worktreePath,
-        shellPath: cmd.command,
-        shellArgs: cmd.args,
+      const placed = runner.placeInteractive({
+        ticketId,
+        hostWorktreePath: worktreePath,
+        ...(bridge ? { bridgeDir: bridge.paths.dir } : {}),
+        command: cmd.command,
+        args: cmd.args,
         env: {
           ...cmd.env,
           [KARST_TICKET_ENV]: String(ticketId),
@@ -624,6 +662,14 @@ export class SessionManager {
           ...cliEnv,
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
+      });
+      terminal = this.host.createTerminal({
+        name: terminalName,
+        description: naming ? undefined : (label?.title ?? undefined),
+        cwd: placed.cwd,
+        shellPath: placed.shellPath,
+        shellArgs: placed.shellArgs,
+        env: placed.env,
         ...(identity ? { identity } : {}),
         ...(mcpConfigPath ? { mcp: true } : {}),
         ...(naming?.iconPath ? { iconPath: naming.iconPath } : {}),
@@ -885,4 +931,13 @@ export class SessionManager {
       tracked.terminal.dispose();
     }
   }
+}
+
+function sandboxBridge(
+  runner: SessionRunner,
+  paths: BridgePaths | undefined,
+  launchId: string | undefined,
+): { readonly paths: BridgePaths; readonly channel: HookChannel } | undefined {
+  const runDir = paths && runner.bridgeRunDir?.(paths);
+  return paths && runDir !== undefined ? { paths, channel: sandboxHookChannel(paths, launchId, runDir) } : undefined;
 }

@@ -21,6 +21,11 @@ import { isPortOpen } from '../../runtime/portConflict.js';
 import { removeContainer } from '../../runtime/dockerContainer.js';
 import { removeOrphanContainers } from '../../runtime/orphanContainers.js';
 import { formatId } from '../../model/entityId.js';
+import type { BridgeRegistry } from '../../agent/bridge/bridgeRegistry.js';
+import { openBridgeTicketIds } from './bridgeWiring.js';
+import type { SandboxInventory } from '../../agent/sandboxInventory.js';
+import { checkSandboxOrphans } from '../../doctor/sandboxOrphanCheck.js';
+import { reconcileSandboxes, type ReconcileResult, type ReconcileTicket } from './sandboxLifecycleOps.js';
 
 export interface BootSweepDeps {
   store: Store;
@@ -290,6 +295,32 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
   return { strandedFixResumes };
 }
 
+export interface BridgeSweepDeps {
+  readonly store: Store;
+  readonly bridges: Pick<BridgeRegistry, 'sweep'>;
+  /** Tickets whose session this window owns: only those are re-attached. */
+  readonly owned: ReadonlySet<number>;
+  readonly info: (message: string) => void;
+  readonly logError: (message: string, err: unknown) => void;
+}
+
+/**
+ * Sandbox evidence-bridge sweep (arch:AC-34). Runs after `runBootSweeps` (so
+ * after `reconcileOnStart` re-derived every stage) and once the hook endpoint
+ * is bound — a re-attached poller dispatches through the endpoint's closures.
+ * Re-attaches this window's open sandboxed tickets, removes dirs of closed
+ * ones; another window's open ticket is left alone. Never throws.
+ */
+export async function runBridgeSweep(deps: BridgeSweepDeps): Promise<void> {
+  try {
+    const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), deps.owned);
+    if (reattached.length > 0) deps.info(`karst: re-attached sandbox evidence bridge(s) for ticket(s) ${reattached.join(', ')}`);
+    if (removed.length > 0) deps.info(`karst: removed sandbox evidence bridge(s) of closed ticket(s) ${removed.join(', ')}`);
+  } catch (err) {
+    deps.logError('karst: sandbox bridge sweep failed', err);
+  }
+}
+
 /**
  * Recorded pids whose PORT is still bound even though the pid itself is gone.
  *
@@ -325,4 +356,35 @@ function containerOf(store: Store, id: number): string | null {
     | { container: string | null }
     | undefined;
   return row?.container ?? null;
+}
+
+export interface SandboxReconcileDeps {
+  readonly inventory: () => Promise<SandboxInventory>;
+  /** This project's live (non-archived) tickets. */
+  readonly live: () => readonly ReconcileTicket[];
+  readonly owns: (ticketId: number) => boolean;
+  readonly clearSession: (ticketId: number) => void;
+  readonly info: (message: string) => void;
+  readonly logError: (message: string, err: unknown) => void;
+}
+
+/**
+ * Sandbox recovery on activation (arch:AC-32), next to the bridge sweep:
+ * adopt running, leave stopped, give a missing sandbox a fresh session, report
+ * orphans (removed only by the confirmed cleanup command). Never throws.
+ */
+export async function runSandboxReconcile(deps: SandboxReconcileDeps): Promise<ReconcileResult | undefined> {
+  try {
+    const inv = await deps.inventory();
+    for (const e of inv.errors) deps.info(`karst: sandbox listing: ${e}`);
+    const r = reconcileSandboxes(inv, deps.live(), deps.owns, deps.clearSession);
+    if (r.running.length > 0) deps.info(`karst: sandbox(es) running for ticket(s) ${r.running.join(', ')}: reattached on open`);
+    if (r.stopped.length > 0) deps.info(`karst: sandbox(es) stopped for ticket(s) ${r.stopped.join(', ')}: restarted on open`);
+    if (r.missing.length > 0) deps.info(`karst: sandbox(es) missing for ticket(s) ${r.missing.join(', ')}: next open starts a fresh session`);
+    for (const c of checkSandboxOrphans(r.orphans)) deps.info(`karst: ${c.detail} — ${c.fix?.tier === 'report' ? c.fix.nextStep : ''}`);
+    return r;
+  } catch (err) {
+    deps.logError('karst: sandbox reconcile failed', err);
+    return undefined;
+  }
 }

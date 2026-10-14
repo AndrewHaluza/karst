@@ -70,6 +70,13 @@ export interface ServiceDef {
   docker?: DockerDef;
   health?: string;
   /**
+   * Optional command that resets the service's state between agent UAT and
+   * user UAT in a sandboxed ticket (arch:AC-32 decision 8). Run inside the
+   * sandbox (`sh -c`, in the service's cwd) on the SAME running instance.
+   * Absent → state is left as the Tester left it.
+   */
+  reset?: string;
+  /**
    * Directory the process runs in, relative to the repository/worktree root
    * (e.g. `apps/api`). Absent → the root. Lets several services of one
    * monorepo share its single worktree yet start from their own folder.
@@ -799,6 +806,9 @@ export interface ResilienceConfig {
   fallbackModels: readonly string[];
 }
 
+/** `Manifest.agentBackend` values (arch:AC-32). */
+export type AgentBackend = 'host' | 'sbx' | 'docker';
+
 export interface Manifest {
   /**
    * Stable project identity (§ projects / multi-window). Scopes tickets to a
@@ -930,6 +940,22 @@ export interface Manifest {
    * enabled.
    */
   debug?: boolean;
+  /**
+   * Run interactive agent sessions inside the core's OWN OS-level sandbox
+   * (`arch:AC-31`): writes limited to the ticket worktree, network to provider
+   * APIs + package registries, prompts relaxed only inside it. Opt-in, default
+   * off. A core or platform that cannot enforce it fails closed to today's
+   * prompted behaviour; the effective mode is logged per launch.
+   */
+  agentSandbox?: boolean;
+  /**
+   * Where interactive agent sessions run (`arch:AC-32`): `host` (default),
+   * `sbx` (a Docker sbx microVM in clone mode; claude/codex only) or `docker`
+   * (reserved, not implemented). Anything that cannot run in the requested
+   * backend fails closed to the host, prompted; the effective backend is logged
+   * per launch. Independent of `agentSandbox`.
+   */
+  agentBackend?: AgentBackend;
   /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"

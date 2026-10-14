@@ -626,6 +626,13 @@
       <select class="k-input" id="agentPresetSelect"></select>
       <div class="sub">Named core + model from karst.yml. Overrides the core, model and effort above.</div>
     </div>
+    <!-- Sandbox backend: opt OUT of the project's backend for this ticket only.
+         Shown in edit mode when Settings → Agents selects sbx or docker. -->
+    <div id="backendPicker" class="hidden">
+      <label for="backendSelect">Sandbox backend</label>
+      <select class="k-input" id="backendSelect"></select>
+      <div class="sub">Can only opt out to the host (prompted, no sandbox); the project setting picks the backend.</div>
+    </div>
     <!-- The worktree is cut from each repository's baseline branch, so an
          un-refreshed local base starts the ticket behind the team. On by
          default; the value left here is what the launch honors. -->
@@ -883,6 +890,7 @@
     lastDefaultType = state.defaultType || 'feat';
     renderTypePicker(state.ticketTypes, state.selectedType, state.defaultType);
     renderAgentPresetSelect(state.agentPresetNames, state.selectedAgentPreset);
+    renderBackendPicker(state.mode, state.projectBackend, state.selectedBackend);
     // Reveal Phase 2 iff the ticket is identified (edit mode: already true).
     syncPhase2();
     // Re-gate the Analyze button. NEVER auto-analyze on a plain state push /
@@ -1373,6 +1381,18 @@
       opts.push(`<option value="${esc(t)}"${t === sel ? ' selected' : ''}>${esc(t)}</option>`);
     }
     el('typeSelect').innerHTML = opts.join('');
+  }
+
+  // Backend picker: "Inherit (project: <backend>)" or "Host". Only a sandbox
+  // project backend gives something to opt out of; a ticket already opted out
+  // stays visible so the choice can be undone.
+  function renderBackendPicker(mode, projectBackend, selectedBackend) {
+    const sandboxed = projectBackend === 'sbx' || projectBackend === 'docker';
+    el('backendPicker').classList.toggle('hidden', mode !== 'edit' || !(sandboxed || selectedBackend === 'host'));
+    const inherit = `Inherit (project: ${esc(projectBackend || 'host')})`;
+    el('backendSelect').innerHTML =
+      `<option value=""${selectedBackend ? '' : ' selected'}>${inherit}</option>` +
+      `<option value="host"${selectedBackend === 'host' ? ' selected' : ''}>Host (no sandbox, prompted)</option>`;
   }
 
   // Agent preset picker: "Inherit (active preset)" plus every
@@ -2153,6 +2173,15 @@
     const requestId = karstRequestId();
     karstBeginPending(select, requestId);
     post({ type: 'set-type', id, requestId });
+  });
+
+  // Opt this ticket out of the sandbox backend (or back to the project's). The
+  // host persists immediately; the next state push re-renders the select.
+  el('backendSelect').addEventListener('change', (e) => {
+    const select = e.target;
+    const requestId = karstRequestId();
+    karstBeginPending(select, requestId);
+    post({ type: 'set-backend', id: select.value, requestId });
   });
 
   // Pick an agent preset (or "Inherit", value ''): record + post. A real preset

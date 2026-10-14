@@ -1,3 +1,4 @@
+import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import { spawn } from 'node:child_process';
 import {
   cpSync,
@@ -21,7 +22,7 @@ import type {
 } from './adapter.js';
 import { headlessFailureError } from './cliFailure.js';
 import { renderConsoleStream } from './consoleFormat.js';
-import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
+import { headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage } from './tokenUsage.js';
 import type { TokenUsage } from './tokenUsage.js';
 import {
@@ -45,6 +46,7 @@ import { withStamp, writeGeneratedArtifact } from './generatedArtifact.js';
 import { renderTestSkill } from './testSkill.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
+import { refuseUnsandboxedBypass } from './sandbox.js';
 import { tmpdir } from 'node:os';
 import {
   gitCommonDirRoots,
@@ -54,6 +56,7 @@ import {
 } from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
+import { isFileChannel, pluginFileTransport, writeBridgeScripts } from './hookBridgeFiles.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
 const OPENCODE_BIN = 'opencode';
@@ -86,8 +89,9 @@ export type SpawnHeadless = (
   opts?: HeadlessSpawnOptions,
 ) => Promise<HeadlessSpawnResult>;
 
+// Every headless launch goes through the session runner seam (host today).
 const defaultSpawn: SpawnHeadless = (command, args, cwd, opts) =>
-  spawnHeadlessCli(command, args, cwd, opts);
+  HOST_SESSION_RUNNER.runHeadless(command, args, cwd, opts);
 
 function diagnostic(text: string): string {
   return text.length <= MAX_DIAGNOSTIC_CHARS
@@ -350,7 +354,7 @@ import { readFileSync } from 'node:fs';
 // launch-time query string carries the karstLaunch generation, so it is
 // re-applied to every candidate or the endpoint's generation barrier would
 // reject the rebound session.
-const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
+${pluginFileTransport(endpointUrl)}const launchEndpointUrl = ${JSON.stringify(endpointUrl)};
 const endpointFile = ${JSON.stringify(endpointFile)};
 const resumeSessionEnv = ${JSON.stringify(KARST_RESUME_SESSION_ENV)};
 const kickoffFileEnv = ${JSON.stringify(KARST_KICKOFF_FILE_ENV)};
@@ -569,7 +573,7 @@ function sendTo(endpoint, body, done, next) {
 }
 
 function send(payload, done) {
-  try {
+  try {${endpointUrl.startsWith('file://') ? "\n    karstFileEvent(payload); if (done) done(); return;" : ''}
     const body = JSON.stringify(payload);
     if (Buffer.byteLength(body, 'utf8') > MAX_PAYLOAD_BYTES) {
       if (done) done();
@@ -882,14 +886,18 @@ function writeKarstBridge(
   cwd: string,
   endpointUrl: string,
   configDir?: string,
+  runDir?: string,
 ): string {
-  assertLoopbackEndpoint(endpointUrl);
+  const fileMode = isFileChannel(endpointUrl, runDir);
+  if (!fileMode) assertLoopbackEndpoint(endpointUrl);
+  // A file channel's emit-marker.cjs (and bridge.cjs) live in the HOST bridge dir.
+  if (fileMode && configDir) writeBridgeScripts(join(configDir, 'opencode'));
   const pluginPath = join(cwd, '.opencode', 'plugins', 'karst-bridge.js');
   // Absent configDir (older callers, tests) → no fallback file; the plugin then
   // uses its launch-time URL alone, exactly as it did before.
   const body = renderHookBridge(
     endpointUrl,
-    configDir ? currentEndpointPath(configDir, 'opencode') : null,
+    configDir && !fileMode ? currentEndpointPath(configDir, 'opencode') : null,
   );
   const current = existsSync(pluginPath) ? readFileSync(pluginPath, 'utf8') : null;
   if (current !== body) {
@@ -950,7 +958,10 @@ export class OpencodeAdapter implements AgentAdapter {
     allowedTools: unsupported(
       'opencode narrows tools through its own permissions config, not a per-run CLI flag',
     ),
-    permissionMode: SUPPORTED,
+    permissionMode: unsupported(
+      'the only mode karst passes is bypassPermissions, and opencode has no enforced sandbox ' +
+        'to contain it, so it is refused (AC-31) and the run keeps its prompted default',
+    ),
     resume: SUPPORTED,
     sessionName: unsupported('the opencode TUI has no launch-time session-name flag'),
     consoleStream: SUPPORTED,
@@ -976,6 +987,11 @@ export class OpencodeAdapter implements AgentAdapter {
     readOnlyInteractive: SUPPORTED,
     addDirsInteractive: SUPPORTED,
     mcpConfigInteractive: SUPPORTED,
+    sandboxInteractive: unsupported(
+      'opencode has no OS-level sandbox: its permission config only allows, asks or denies a ' +
+        'tool, and an allowed bash command runs uncontained on the host; contain it with the ' +
+        'docker backend (agentBackend: docker, arch:AC-33)',
+    ),
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,
     interactiveGatePolicy: SUPPORTED,
@@ -1031,6 +1047,7 @@ export class OpencodeAdapter implements AgentAdapter {
         opts.cwd,
         opts.hookChannel.endpointUrl,
         opts.hookChannel.configDir,
+        opts.hookChannel.runDir,
       );
       ownedPaths = [pluginPath];
       // `--pure` is not the only way to disable the plugin: opencode reads the
@@ -1357,7 +1374,9 @@ export class OpencodeAdapter implements AgentAdapter {
     // "wrong checkout" finding for code never read. The flag is `run`-only —
     // NOT a top-level `opencode` flag — so the interactive path is unaffected.
     args.push('--dir', opts.cwd);
-    if (opts.permissionMode === 'bypassPermissions') args.push('--auto');
+    // AC-31: the bypass (`--auto`) is never added — no enforced sandbox contains
+    // this run, so it keeps the core's prompted default. The refusal is logged.
+    refuseUnsandboxedBypass('opencode', opts.permissionMode, opts.debug);
     if (opts.model) args.push('--model', opts.model);
     if (opts.effort) args.push('--variant', opts.effort);
     if (opts.resume) args.push('--session', opts.resume);

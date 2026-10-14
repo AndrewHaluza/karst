@@ -11,6 +11,8 @@ import { spawnSync } from 'node:child_process';
 const REQUIRED_ARTIFACTS = [
   'dist/extension.js',
   'dist/cli/main.js',
+  'dist/sandbox/opencode/allowlist-proxy.mjs',
+  'dist/sandbox/opencode/Dockerfile',
   // The generated, type-checked webview message-sender bundles. A missing one
   // means every control in that webview silently no-ops at runtime, so the
   // shipped VSIX must never omit it. The dashboard sender is its own bundle;
@@ -34,7 +36,12 @@ const REQUIRED_ARTIFACTS = [
 // a per-repo preview on the same card). Each fit under 360 KB alone, but the
 // merged bundle — both features' genuine app code in one build — is 369221
 // bytes, so the merged cap is raised 360 → 362 KB (~1.4 KB headroom).
-const APP_BUNDLE_BUDGET_BYTES = 362 * 1024;
+// Raised 362 → 364 KB for the sandbox backend panel on the Agents page (selector,
+// per-core effective-backend line, sbx/docker status; ~1.5 KB of genuine app code
+// plus the shared pure `deriveEffectiveBackends`).
+// Raised 364 → 366 KB when the sandbox branch merged with develop's per-core
+// quota card (D163): each fit alone, the merged bundle is 372815 bytes.
+const APP_BUNDLE_BUDGET_BYTES = 366 * 1024;
 const APP_BUNDLE = 'dist/ui/settings/app.webview.js';
 
 function fail(message) {

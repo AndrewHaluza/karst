@@ -1,0 +1,27 @@
+$ sbx exec karst-spike-claude sh -c mkdir -p '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike'; printf '{"ticket":"T1","stage":"phase","event":"phase"}\n{"ticket":"T1","stage":"impl","event":"impl-complete"}\n{"ticket":"T2","stage":"impl","event":"impl-complete"}\n{"ticket":"T1","stage":"done","event":"impl-complete"}\n' >> '/var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/events.ndjson'
+[exit 0]
+-- host verifier for ticket=T1 stage=impl: must accept exactly 1 and reject the other-ticket and other-stage markers (exit 0)
+$ node /Users/nd/Work/projects/karst/.karst/worktrees/sandboxed-autonomous-agent-s2-st2-docker-sandbox-feasibility/spikes/docker-sandbox/06-bridge/verify-events.mjs /var/folders/y_/k0myws2112ld9306tfgnq3j40000gn/T/karst-spike-ws/wt-a/.karst-spike/events.ndjson T1 impl
+{
+ "accepted": [
+  "{\"ticket\":\"T1\",\"stage\":\"impl\",\"event\":\"impl-complete\"}"
+ ],
+ "rejected": [
+  {
+   "line": "{\"ticket\":\"T2\",\"stage\":\"impl\",\"event\":\"impl-complete\"}",
+   "why": "ticket T2 != T1"
+  },
+  {
+   "line": "{\"ticket\":\"T1\",\"stage\":\"done\",\"event\":\"impl-complete\"}",
+   "why": "stage done != impl"
+  }
+ ]
+}
+[exit 0]
+-- no Karst DB or KARST_* env inside the sandbox
+$ sbx exec karst-spike-claude sh -c env | grep -iE '^KARST' || echo no-karst-env
+no-karst-env
+[exit 0]
+$ sbx exec karst-spike-claude sh -c find / -xdev \( -name '*.sqlite' -o -name '*.sqlite3' -o -name 'karst*.db' \) -not -path '/proc/*' 2>/dev/null | head -5; echo scan-done
+scan-done
+[exit 0]
