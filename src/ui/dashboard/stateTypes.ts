@@ -1,5 +1,6 @@
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
-import type { AgentProvider, PresetCapability } from '../../manifest/types.js';
+import type { AgentBackend, AgentProvider, PresetCapability } from '../../manifest/types.js';
+import type { DashboardSandboxView } from './sandboxView.js';
 import type { BaselineReviewRow } from './baselineRows.js';
 import type { StoredArtifactsView } from './storedArtifacts.js';
 import type { StepperCell } from '../../model/stepper.js';
@@ -45,6 +46,8 @@ export interface DashboardAgentContext {
   /** Manifest default effort/variant, for the switch popover's inherit row. */
   defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
+  /** The manifest's `agentBackend`; the dashboard's Sandbox card shows only for a sandbox backend. */
+  agentBackend?: AgentBackend;
   /**
    * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
    * Plain data (no functions) suitable for serialization via postMessage.
@@ -215,6 +218,8 @@ export interface DashboardState {
    * the manifest, ticket preset/provider, and per-capability defaults.
    */
   capabilityIdentity: Record<PresetCapability, CapabilityIdentity | null>;
+  /** Where this ticket's session runs under a sandbox backend; null = no card (host project). */
+  sandbox: DashboardSandboxView | null;
   servers: ServerView[];
   /** False when nothing in scope declares a service — nothing can ever start. */
   hasRunnableRepos: boolean;

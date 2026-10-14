@@ -24,6 +24,10 @@ export type WebviewMessage =
   | { type: 'spin-servers' }
   | { type: 'restart-servers' }
   | { type: 'stop-servers' }
+  | { type: 'sandbox-sync' }
+  | { type: 'sandbox-diff' }
+  | { type: 'sandbox-stop' }
+  | { type: 'sandbox-remove' }
   | { type: 'show-changes' }
   | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }
@@ -401,6 +405,12 @@ export interface DashboardActions {
    */
   restartServers: () => void | Promise<void>;
   stopServers: () => void | Promise<void>;
+  /** Sandbox card (arch:AC-32): act on THIS panel's ticket only; the message carries no id. */
+  sandboxSync: () => void | Promise<void>;
+  sandboxDiff: () => void | Promise<void>;
+  sandboxStop: () => void | Promise<void>;
+  /** Guarded: syncs first and asks before dropping unsynced commits. */
+  sandboxRemove: () => void | Promise<void>;
   showChanges: () => void | Promise<void>;
   openWorktreeTerminal: (path: string) => void | Promise<void>;
   openWorktreeFolder: (path: string) => void | Promise<void>;
@@ -609,6 +619,11 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'restart-servers' };
     case 'stop-servers':
       return { type: 'stop-servers' };
+    case 'sandbox-sync':
+    case 'sandbox-diff':
+    case 'sandbox-stop':
+    case 'sandbox-remove':
+      return { type: m.type };
     case 'show-changes':
       return { type: 'show-changes' };
     case 'open-worktree-terminal':
@@ -970,6 +985,14 @@ export function routeAction(
       return actions.restartServers();
     case 'stop-servers':
       return actions.stopServers();
+    case 'sandbox-sync':
+      return actions.sandboxSync();
+    case 'sandbox-diff':
+      return actions.sandboxDiff();
+    case 'sandbox-stop':
+      return actions.sandboxStop();
+    case 'sandbox-remove':
+      return actions.sandboxRemove();
     case 'show-changes':
       return actions.showChanges();
     case 'open-worktree-terminal':

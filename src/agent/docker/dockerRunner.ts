@@ -4,7 +4,7 @@ import { runProcess } from '../../workflow/gates/run.js';
 import type { GateProcessRunner, PlacedInteractiveLaunch, RunHeadless, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
-import { chownVolumes, ensureClone, ensureVolume, OS_TEMP_DIRS, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
+import { chownVolumes, ensureClone, ensureVolume, diffFromClone, OS_TEMP_DIRS, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
 import { seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -109,6 +109,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     unpublishPort: (m) => unpublishRelay(opts.proc, opts.names, m),
     listPorts: () => listRelayPorts(opts.proc, opts.names),
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
+    diff: (ticket: SandboxTicketRef) => diffFromClone(ctx, ticket),
     // Volumes survive a stop; the next open restarts the container.
     stop: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);

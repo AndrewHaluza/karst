@@ -4,7 +4,7 @@ import { archiveTicket, createTicket, getTicket, setSessionId } from '../../stor
 import { upsertProject } from '../../store/projects.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
-import { REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
+import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
 
 let store: Store;
@@ -20,7 +20,7 @@ function wiring(over: Partial<SandboxWiringInput> = {}) {
   const choose = vi.fn(async () => undefined);
   const w = makeSandboxWiring({
     store, notify, choose, projectRoot: () => '/p/karst.yml', backendOn: () => false, projectId: () => undefined,
-    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(), ...over,
+    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), showDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(), ...over,
   });
   return { w, notify, choose };
 }
@@ -215,5 +215,84 @@ describe('makeSandboxWiring ownership after the session closed (review fix)', ()
   it('another project\'s ticket is never controlled', async () => {
     const { w, a } = setup('idle', 'other');
     await expect(w.beforeArchive(a)).resolves.toBe(false);
+  });
+});
+
+describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
+  const ROOT = '/p/karst.yml';
+  function withSandbox() {
+    const name = sbxName({ projectRoot: ROOT, ticketId: id, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${name} claude running\n` } });
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
+    return { name, proc, dockerProc };
+  }
+
+  it('stop stops the owned ticket sandbox even when the project backend is off', async () => {
+    const { name, proc, dockerProc } = withSandbox();
+    const { w, notify } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
+    await w.stop(id);
+    expect(proc.calls.some((c) => c.args.join(' ') === `stop ${name}`)).toBe(true);
+    expect(notify.info).toHaveBeenCalledWith('Karst: K-1 sandbox stopped.');
+  });
+
+  it('stop leaves another window\'s ticket alone and says nothing', async () => {
+    const { proc, dockerProc } = withSandbox();
+    const other = createTicket(store, { key: 'K-2', title: 'o', projectId: upsertProject(store, { slug: 'q' }).id }).id;
+    setSessionId(store, other, 's2', 'claude');
+    const { w, notify } = wiring({ projectRoot: () => ROOT, proc, dockerProc, owned: new Set([id]), projectId: () => 999 });
+    await w.stop(other);
+    expect(proc.calls.some((c) => c.args[0] === 'stop')).toBe(false);
+    expect(notify.info).not.toHaveBeenCalled();
+  });
+
+  it('remove is guarded: unsynced commits need the explicit choice, dismissing keeps the sandbox', async () => {
+    const { proc, dockerProc } = withSandbox();
+    const { w, choose } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
+    await w.remove(id); // no worktree here -> cannot sync -> asks; the default dismissal cancels
+    expect(choose).toHaveBeenCalledTimes(1);
+    expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(false);
+    choose.mockResolvedValue(REMOVE_ANYWAY as never);
+    await w.remove(id);
+    expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+  });
+
+  it('remove: "Open sync diff" opens this ticket\'s diff, and a confirmed removal also drops the bridge dir', async () => {
+    const { proc, dockerProc } = withSandbox();
+    const openSyncDiff = vi.fn(async () => {});
+    const bridges = { dispose: vi.fn(async () => {}) };
+    const { w, choose } = wiring({ projectRoot: () => ROOT, proc, dockerProc, openSyncDiff, bridges: () => bridges });
+    choose.mockResolvedValueOnce(OPEN_SYNC_DIFF as never);
+    await w.remove(id);
+    expect(openSyncDiff).toHaveBeenCalledWith(id);
+    expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(false);
+    choose.mockResolvedValueOnce(REMOVE_ANYWAY as never);
+    await w.remove(id);
+    expect(bridges.dispose).toHaveBeenCalledWith(id);
+  });
+
+  it('remove for a docker core goes through the injected docker process, not the real one', async () => {
+    setSessionId(store, id, 's1', 'opencode');
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess(), { pipe: vi.fn() });
+    const { w } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
+    await w.remove(id);
+    expect(dockerProc.calls.length).toBeGreaterThan(0);
+  });
+
+  it('diff hands the sandbox diff to the editor binding', async () => {
+    const wt = createTicket(store, { key: 'K-9', title: 'w' }).id;
+    setSessionId(store, wt, 's9', 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(wt);
+    const proc = fakeSbxProcess({ 'git -C /wt/r diff': { stdout: 'diff --git a/f b/f\n+x\n' } });
+    const showDiff = vi.fn(async () => {});
+    const { w } = wiring({ projectRoot: () => ROOT, proc, showDiff });
+    await w.diff(wt);
+    expect(showDiff).toHaveBeenCalledWith(expect.stringContaining('K-9'), 'diff --git a/f b/f\n+x\n');
+  });
+
+  it('diff reports a missing worktree', async () => {
+    const { w, notify } = wiring({ projectRoot: () => ROOT });
+    await w.diff(id);
+    expect(notify.error).toHaveBeenCalledWith('Karst: K-1 has no worktree branch to diff against.');
   });
 });

@@ -7,15 +7,14 @@ import type {
   SandboxTicketRef,
   SessionRunner,
   SyncResult,
+  DiffResult,
 } from '../sessionRunner.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
 
-/** The cores an sbx sandbox can host (arch:AC-32). */
-export type SbxCore = 'claude' | 'codex';
-
-export const SBX_CORES: readonly SbxCore[] = ['claude', 'codex'];
+export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
+import type { SbxCore } from '../sandboxCores.js';
 
 export interface SbxRunnerOptions {
   readonly proc: SbxProcess;
@@ -131,6 +130,18 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const merged = await git(wt, ['merge', '--ff-only', ref]);
       if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only ${ref} failed: ${merged.stderr.trim()}` };
       return { ok: true, summary: `fast-forwarded ${ticket.branch} to ${ref}` };
+    },
+    diff: async (ticket: SandboxTicketRef): Promise<DiffResult> => {
+      const wt = ticket.hostWorktreePath;
+      if ((await git(wt, ['remote', 'get-url', remote])).code !== 0) {
+        return { ok: false, reason: `no sandbox remote ${remote} (sandbox not created yet?)` };
+      }
+      const fetched = await git(wt, ['fetch', remote]);
+      if (fetched.code !== 0) return { ok: false, reason: `git fetch ${remote} failed: ${fetched.stderr.trim()}` };
+      const ref = `${remote}/${ticket.branch}`;
+      const diff = await git(wt, ['diff', `HEAD...${ref}`]);
+      if (diff.code !== 0) return { ok: false, reason: `git diff failed: ${diff.stderr.trim()}` };
+      return { ok: true, diff: diff.stdout, ref };
     },
     // Stopped, not removed: `sbx run --name` restarts it on the next open.
     stop: async (): Promise<void> => {

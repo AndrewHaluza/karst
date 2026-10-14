@@ -60,6 +60,7 @@ import { buildInsideViews, type AttemptSwitch, type RoundSwitcherArg } from './s
 import { buildArtifactsFrom, readPlanInput } from '../../model/artifacts.js';
 import { listOpenBlockers } from '../../store/ticketRelations.js';
 import { formatId, formatTicketRef } from '../../model/entityId.js';
+import { buildSandboxView } from './sandboxView.js';
 
 export type {
   DashboardAgentContext,
@@ -720,6 +721,11 @@ export function buildDashboardState(
     ship: buildShipSlot(currentStage, 'repos' in mergeGate ? mergeGate : undefined),
     agentSwitch,
     capabilityIdentity,
+    sandbox: buildSandboxView({
+      project: agentContext.agentBackend,
+      ticketOverride: ticket.agentBackend,
+      core: ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude',
+    }),
     servers: serverRows,
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live

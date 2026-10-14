@@ -31,6 +31,44 @@ describe('backendSessionOptions', () => {
   });
 });
 
+describe('backendSessionOptions per-ticket opt-out and visible fallback (arch:AC-32)', () => {
+  const base = { core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() };
+  const sbxOk = { runner: { ...HOST_SESSION_RUNNER, kind: 'sbx' as const }, line: 'sbx (n)' };
+  const onHost = (reason: string) => ({ runner: HOST_SESSION_RUNNER, line: `host (${reason})` });
+
+  it('a ticket host opt-out resolves with backend host, even for a sandbox project', async () => {
+    const resolve = vi.fn().mockResolvedValue(onHost('agentBackend: host'));
+    const opts = backendSessionOptions({ ...base, backend: 'sbx', ticketOverride: 'host', resolve, warn: vi.fn() });
+    await opts.resolveRunner!();
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ backend: 'host' }));
+  });
+
+  it('a null override follows the project', async () => {
+    const resolve = vi.fn().mockResolvedValue(sbxOk);
+    await backendSessionOptions({ ...base, backend: 'docker', ticketOverride: null, resolve, warn: vi.fn() }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ backend: 'docker' }));
+  });
+
+  it('warns "running prompted on host: <reason>" when a chosen sandbox backend is unavailable', async () => {
+    const warn = vi.fn();
+    const resolve = vi.fn().mockResolvedValue(onHost('sbx not signed in (run `sbx login`)'));
+    await backendSessionOptions({ ...base, backend: 'sbx', resolve, warn }).resolveRunner!();
+    expect(warn).toHaveBeenCalledWith('Karst: K-7 running prompted on host: sbx not signed in (run `sbx login`)');
+  });
+
+  it('says nothing when the sandbox started, when the project is host, or after an explicit opt-out', async () => {
+    const warn = vi.fn();
+    await backendSessionOptions({ ...base, backend: 'sbx', resolve: vi.fn().mockResolvedValue(sbxOk), warn }).resolveRunner!();
+    await backendSessionOptions({ ...base, backend: 'host', resolve: vi.fn().mockResolvedValue(onHost('agentBackend: host')), warn }).resolveRunner!();
+    await backendSessionOptions({ ...base, backend: 'sbx', ticketOverride: 'host', resolve: vi.fn().mockResolvedValue(onHost('agentBackend: host')), warn }).resolveRunner!();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('adds nothing when neither project nor ticket picks a backend', () => {
+    expect(backendSessionOptions({ ...base, backend: undefined, ticketOverride: 'host' })).toEqual({});
+  });
+});
+
 describe('backendSessionOptions bridgeFor', () => {
   it('passes bridgeFor through only with a backend', () => {
     const bridgeFor = vi.fn();

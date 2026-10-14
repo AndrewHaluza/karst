@@ -97,6 +97,18 @@ describe('buildDashboardState', () => {
     expect(state.prs[0]!.openedTitle).toMatch(/^opened /);
   });
 
+  it('builds the sandbox card only under a sandbox backend, honouring the ticket opt-out', () => {
+    const t = createTicket(store, { key: 'PROJ-7', title: 'sb' });
+    const withBackend = (agentBackend: 'host' | 'sbx' | 'docker' | undefined) =>
+      buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackend }).sandbox;
+    expect(withBackend(undefined)).toBeNull();
+    expect(withBackend('host')).toBeNull();
+    expect(withBackend('sbx')).toMatchObject({ backend: 'sbx', core: 'claude', workspace: 'clone', actions: true });
+    expect(withBackend('docker')).toMatchObject({ backend: 'host', note: 'claude: docker backend unsupported', actions: false });
+    updateTicketFields(store, t.id, { agentBackend: 'host' });
+    expect(withBackend('sbx')).toMatchObject({ backend: 'host', note: 'ticket opted out of the sandbox backend', actions: true });
+  });
+
   it('carries the parent relationship for a follow-up and null otherwise', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
     const child = createTicket(store, {

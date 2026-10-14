@@ -57,6 +57,11 @@ export type SyncResult =
   | { readonly ok: true; readonly summary: string }
   | { readonly ok: false; readonly reason: string };
 
+/** The sandbox's commits not yet on the host branch, as a unified diff (never merged). */
+export type DiffResult =
+  | { readonly ok: true; readonly diff: string; readonly ref: string }
+  | { readonly ok: false; readonly reason: string };
+
 /** One published service port: host side always `127.0.0.1:<hostPort>`. */
 export interface PortMapping {
   readonly hostPort: number;
@@ -85,6 +90,8 @@ export interface SessionRunner {
   bridgeRunDir?(paths: BridgePaths): string;
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
+  /** Sandbox runners only: `git diff <host branch>...<sandbox branch>` after fetching; changes nothing on the host branch. */
+  diff?(ticket: SandboxTicketRef): Promise<DiffResult>;
   /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */
   stop?(): Promise<void>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */

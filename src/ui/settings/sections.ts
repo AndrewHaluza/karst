@@ -73,6 +73,7 @@ export const SECTION_FIELDS: Record<SettingsSection, readonly (keyof Manifest)[]
     'agentPresets',
     'activeAgentPreset',
     'defaultAgentPreset',
+    'agentBackend',
   ],
   ticketing: ['ticketing'],
   quality: ['uat', 'review'],

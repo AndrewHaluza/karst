@@ -2675,5 +2675,16 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 83) {
+    // v83: `tickets.agent_backend` — a per-ticket opt-OUT of the project's sandbox
+    // backend (arch:AC-32). NULL = follow the project setting; 'host' = run on
+    // host. Never derived: every pre-v83 ticket follows the project. The guard
+    // reads the CURRENT columns, so a fresh DB and a re-open are no-ops.
+    const cols83 = ticketColumns(db);
+    if (cols83.size > 0 && !cols83.has('agent_backend')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN agent_backend TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

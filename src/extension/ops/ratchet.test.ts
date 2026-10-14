@@ -56,7 +56,11 @@ import { join } from 'node:path';
 // `karst.sandbox.dispose` registration; logic is in `ops/bridgeWiring.ts`,
 // `ops/bootSweeps.ts:runBridgeSweep`, `ops/sandboxSyncOps.ts` and `agent/bridge/bridgeRegistry.ts`.
 // Raised by 2 (8601 -> 8603): `deactivate` stops every bridge poller (`detachAll`), keeping the dirs.
-const MAX_EXTENSION_LINES = 8603;
+// Raised by 4 (8603 -> 8607): sandbox rollout UI (ST9) — the settings `probeBackends` dep and its
+// import, the Sandbox card's four dashboard actions, the `sandboxLife` module-level handle those
+// actions reach, and the `showDiff`/`warn`/`ticketOverride` seams; logic is in `ops/sandboxDiffOp.ts`,
+// `ops/sandboxWiring.ts`, `ops/sandboxSyncOps.ts`, `agent/backendProbe.ts` and `ui/dashboard/sandboxView.ts`.
+const MAX_EXTENSION_LINES = 8607;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

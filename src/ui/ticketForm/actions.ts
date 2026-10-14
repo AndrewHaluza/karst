@@ -973,6 +973,14 @@ export function buildTicketFormActions(
       ctx.pushState();
     },
 
+    setBackend(id: 'host' | ''): void {
+      // The store writer throws on anything but 'host' / '' — a ticket can never
+      // opt INTO a backend (arch:AC-32).
+      if (ctx.ticketId === undefined) return;
+      updateTicketFields(deps.store, ctx.ticketId, { agentBackend: id });
+      ctx.pushState();
+    },
+
     setType(id: string): void {
       // Empty id = "Inherit (settings)": '' clears the column to NULL, so the
       // manifest's `conventions.defaultType` applies again.

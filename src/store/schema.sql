@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   selected_repos    TEXT,                 -- JSON array of confirmed repository names
   base_refs         TEXT,                 -- v48: JSON object of per-repo base branch overrides
   base_shas         TEXT,                 -- v80: JSON object of per-repo base commit shas
+  agent_backend     TEXT,                 -- v83: NULL = project agentBackend; 'host' = opt OUT of the sandbox backend
   -- v78 analysis columns (kept in sync with migrations.ts v78 ALTERs):
   intent            TEXT,                 -- canonical black-box test charter; NULL = none yet
   code_pointers     TEXT,                 -- unverified implementer hints; NULL = none

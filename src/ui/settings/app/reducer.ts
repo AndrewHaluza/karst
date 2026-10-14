@@ -33,7 +33,7 @@ import type { ModelCatalog } from '../../../agent/modelCatalog.js';
 import type { TicketList } from '../../../integrations/ticketing.js';
 import type { SettingsProcessAssignmentView } from '../processAssignmentViews.js';
 import type { SettingsSection } from '../sections.js';
-import type { SettingsState } from '../state.js';
+import type { BackendStatuses, SettingsState } from '../state.js';
 import type { SettingsHostMessage } from '../messages.js';
 import { clone, dirtySectionsOf, overlaySections, sectionsToKeep } from './draft.js';
 import { pickDefaultStartStatus } from './diagnostics.js';
@@ -102,6 +102,8 @@ export interface SettingsAppState {
     readonly body: string;
   } | null;
   readonly tokenConfigured: boolean;
+  /** Last sbx/docker probe; null until the host reports. */
+  readonly backendStatus: BackendStatuses | null;
   readonly implementedProviders: readonly AgentProvider[];
   readonly statuses: StatusFetch;
   readonly lists: ListFetch;
@@ -130,6 +132,7 @@ export const INITIAL_SETTINGS_APP_STATE: SettingsAppState = {
   saved: null,
   approachCommandBody: null,
   tokenConfigured: false,
+  backendStatus: null,
   implementedProviders: ['claude'],
   statuses: IDLE_STATUSES,
   lists: IDLE_LISTS,
@@ -318,6 +321,9 @@ export function settingsAppReducer(
 
     case 'token-state':
       return { ...state, tokenConfigured: message.configured };
+
+    case 'backend-status':
+      return { ...state, backendStatus: message.status };
 
     case 'repo-path-picked':
       return applyRepoPath(state, message.name, message.path);

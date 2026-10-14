@@ -44,6 +44,14 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'restart-servers' });
     sender.stopServers();
     expect(posted.at(-1)).toEqual({ type: 'stop-servers' });
+    sender.sandboxSync();
+    expect(posted.at(-1)).toEqual({ type: 'sandbox-sync' });
+    sender.sandboxDiff();
+    expect(posted.at(-1)).toEqual({ type: 'sandbox-diff' });
+    sender.sandboxStop();
+    expect(posted.at(-1)).toEqual({ type: 'sandbox-stop' });
+    sender.sandboxRemove('r9');
+    expect(posted.at(-1)).toEqual({ type: 'sandbox-remove', requestId: 'r9' });
     sender.showChanges();
     expect(posted.at(-1)).toEqual({ type: 'show-changes' });
 
@@ -167,7 +175,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(51);
+    expect(posted).toHaveLength(55);
   });
 
   it('rejects a wrong argument type at compile time', () => {

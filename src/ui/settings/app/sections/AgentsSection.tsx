@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 're
 import { useSettingsApp } from '../SettingsAppContext.js';
 import { Button } from '../primitives/Button.js';
 import { RolesTab } from './RolesTab.js';
+import { BackendPanel } from './BackendPanel.js';
 import { ProfilesTab } from './ProfilesTab.js';
 import { formatAgentsHash, parseAgentsHash, type AgentsRoute, type AgentsTab } from './agentsRoute.js';
 
@@ -110,6 +111,8 @@ export function AgentsSection() {
           </div>
         </div>
       </div>
+
+      <BackendPanel />
 
       <div className="agents-tabs" role="tablist" aria-label="Agents" data-region="tabs">
         {TABS.map((tab) => (

@@ -2130,6 +2130,8 @@
     <div class="pbody" id="subtasks"></div>
   </div>
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
+  <!-- Sandbox backend (arch:AC-32): where this ticket's session runs. Hidden for a host project. -->
+  <div class="panel hidden" id="sandboxPanel" data-region="sandbox"><div class="phead">Sandbox<span class="pops" id="sandboxOps"></span></div><div class="pbody" id="sandboxBody"></div></div>
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
@@ -3775,6 +3777,7 @@
     copy: 'copy',
     refresh: 'restart',
     'player-stop': 'stop',
+    trash: 'stop',
     'player-play': 'start',
     settings: 'open',
   };
@@ -3980,6 +3983,22 @@
       + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="toggle-base-form" data-repo="${esc(repo)}">Cancel</button>`
       + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}">Change base</button>`
       + `</div></div>`;
+  }
+
+  // Sandbox card: the configured placement (backend, workspace mode, network) and the
+  // actions on this ticket's sandbox. Remove is guarded host-side (syncs first, asks
+  // before dropping unsynced commits). Absent for a host project.
+  function renderSandbox(sb) {
+    el('sandboxPanel').classList.toggle('hidden', !sb);
+    if (!sb) return;
+    el('sandboxBody').innerHTML = `<div class="sub"><strong>${esc(sb.backend)}</strong> · ${esc(sb.core)} · workspace: ${esc(sb.workspace)} · network: ${esc(sb.network)}</div>`
+      + (sb.note ? `<div class="sub">${esc(sb.note)} — runs prompted on the host.</div>` : '');
+    el('sandboxOps').innerHTML = sb.actions
+      ? iact('sandbox-sync', null, 'Sync sandbox commits into the worktree', 'refresh')
+        + iact('sandbox-diff', null, 'Show what a sync would bring in', 'git-compare')
+        + iact('sandbox-stop', null, 'Stop the sandbox (kept for the next open)', 'player-stop')
+        + iact('sandbox-remove', null, 'Remove the sandbox', 'trash')
+      : '';
   }
 
   function renderWorktrees(wts) {
@@ -5582,6 +5601,7 @@
     renderSubtasks(state);
     renderShip(state);
     renderServers(state);
+    renderSandbox(state.sandbox);
     renderWorktrees(state.worktrees);
     renderPrs(state.prs, state.mergeChecks);
     renderArtifacts(state);
@@ -5913,6 +5933,10 @@
     'spin-servers': (btn, requestId) => karstSend.spinServers(requestId),
     'restart-servers': (btn, requestId) => karstSend.restartServers(requestId),
     'stop-servers': (btn, requestId) => karstSend.stopServers(requestId),
+    'sandbox-sync': (btn, requestId) => karstSend.sandboxSync(requestId),
+    'sandbox-diff': (btn, requestId) => karstSend.sandboxDiff(requestId),
+    'sandbox-stop': (btn, requestId) => karstSend.sandboxStop(requestId),
+    'sandbox-remove': (btn, requestId) => karstSend.sandboxRemove(requestId),
     'show-changes': (btn, requestId) => karstSend.showChanges(requestId),
     'open-worktree-terminal': (btn, requestId) => karstSend.openWorktreeTerminal(btn.dataset.path, requestId),
     'open-worktree-folder': (btn, requestId) => karstSend.openWorktreeFolder(btn.dataset.path, requestId),

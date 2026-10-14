@@ -100,6 +100,7 @@ function recordingFactory(
       setProvider: () => {},
       setPreset: () => {},
       setType: () => {},
+      setBackend: () => {},
       analyze: () => {},
       attachPick: async () => {},
       attachBytes: async () => {},

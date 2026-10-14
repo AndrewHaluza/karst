@@ -96,6 +96,7 @@ describe('ticketLabel', () => {
     type: null,
     agentProvider: null,
     agentPreset: null,
+    agentBackend: null,
     sessionProvider: null,
     projectId: null,
     parentTicketId: null,
@@ -514,6 +515,22 @@ describe('ticket + stage persistence', () => {
     expect(getTicket(store, t.id)?.agentPreset).toBe('fast');
     updateTicketFields(store, t.id, { agentPreset: '' });
     expect(getTicket(store, t.id)?.agentPreset).toBeNull();
+  });
+
+  it('persists and clears a per-ticket host opt-out', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'T' });
+    expect(getTicket(store, t.id).agentBackend).toBeNull();
+    updateTicketFields(store, t.id, { agentBackend: 'host' });
+    expect(getTicket(store, t.id).agentBackend).toBe('host');
+    updateTicketFields(store, t.id, { agentBackend: '' });
+    expect(getTicket(store, t.id).agentBackend).toBeNull();
+  });
+
+  it('refuses a per-ticket opt-IN to a backend, and ignores a stray stored value', () => {
+    const t = createTicket(store, { key: 'A-1', title: 'T' });
+    expect(() => updateTicketFields(store, t.id, { agentBackend: 'sbx' as never })).toThrow(/must be 'host'/);
+    store.db.prepare("UPDATE tickets SET agent_backend = 'sbx' WHERE id = ?").run(t.id);
+    expect(getTicket(store, t.id).agentBackend).toBeNull();
   });
 
   it('a new ticket has a null type (inherit the manifest default) until one is chosen', () => {
