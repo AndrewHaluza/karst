@@ -336,3 +336,49 @@ describe('Agents page — roles table layout markup', () => {
     expect(chip.querySelector('.sr-only')!.textContent).toBe('Karst default');
   });
 });
+
+describe('Agents page — sandbox backend', () => {
+  const withStatus = (manifest: Manifest, backendStatus: unknown) => {
+    const view = mount(manifest);
+    act(() => view.bridge.push({ type: 'state', state: { ...buildSettingsState(manifest, null, [], true, ['claude', 'opencode', 'antigravity'], AGENTS, {}, undefined, '/repo/karst.yml'), backendStatus } as never }));
+    return view;
+  };
+  const selector = (): HTMLSelectElement => screen.getByLabelText('Agent backend') as HTMLSelectElement;
+
+  it('defaults to host and offers host / sbx / docker', () => {
+    mount();
+    expect(selector().value).toBe('host');
+    expect([...selector().options].map((o) => o.value)).toEqual(['host', 'sbx', 'docker']);
+  });
+
+  it('choosing a backend edits the draft agentBackend', () => {
+    const { probe } = mount();
+    fireEvent.change(selector(), { target: { value: 'sbx' } });
+    expect(draftOf(probe).agentBackend).toBe('sbx');
+  });
+
+  it('choosing host again removes the key so the yml stays clean', () => {
+    const { probe } = mount({ ...BASE, agentBackend: 'docker' } as Manifest);
+    fireEvent.change(selector(), { target: { value: 'host' } });
+    expect('agentBackend' in draftOf(probe)).toBe(false);
+  });
+
+  it('shows the per-core effective backend with the fail-closed reason', () => {
+    withStatus({ ...BASE, agentBackend: 'sbx' } as Manifest, { sbx: { ok: true }, docker: { ok: false, reason: 'docker daemon unreachable' } });
+    const line = screen.getByTestId('effective-backend').textContent;
+    expect(line).toContain('claude: sbx');
+    expect(line).toContain('opencode: host (sbx backend unsupported)');
+    expect(line).toContain('antigravity: host (sbx backend unsupported)');
+  });
+
+  it('shows each backend status with its fix hint', () => {
+    withStatus(BASE, { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } });
+    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('sbx not signed in');
+    expect(screen.getByTestId('backend-status-docker').textContent).toContain('ready');
+  });
+
+  it('says status is not checked when the host has not reported', () => {
+    mount();
+    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('not checked');
+  });
+});

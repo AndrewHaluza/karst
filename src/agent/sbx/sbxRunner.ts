@@ -12,10 +12,8 @@ import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
 
-/** The cores an sbx sandbox can host (arch:AC-32). */
-export type SbxCore = 'claude' | 'codex';
-
-export const SBX_CORES: readonly SbxCore[] = ['claude', 'codex'];
+export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
+import type { SbxCore } from '../sandboxCores.js';
 
 export interface SbxRunnerOptions {
   readonly proc: SbxProcess;

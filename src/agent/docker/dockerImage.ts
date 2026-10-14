@@ -9,10 +9,10 @@ export const OPENCODE_V2_VERSION = '2.0.27';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
-/** The cores the docker backend can host. agy is deferred (no spike). */
-export type DockerCore = 'opencode' | 'opencode2';
+import { DOCKER_CORES, type DockerCore } from '../sandboxCores.js';
 
-export const DOCKER_CORES: readonly DockerCore[] = ['opencode', 'opencode2'];
+/** The cores the docker backend can host. agy is deferred (no spike). */
+export { DOCKER_CORES, type DockerCore };
 
 export function opencodeImageTag(v1: string, v2: string): string {
   if (!SEMVER.test(v1) || !SEMVER.test(v2)) {
