@@ -69,6 +69,8 @@ export interface SessionRunner {
   bridgeRunDir?(paths: BridgePaths): string;
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
+  /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */
+  stop?(): Promise<void>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */
   dispose?(ticket: SandboxTicketRef): Promise<void>;
 }

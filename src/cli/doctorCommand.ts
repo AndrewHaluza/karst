@@ -16,9 +16,13 @@ import {
 import { checkInotifyWatches } from '../doctor/inotifyWatchCheck.js';
 import { checkManifest } from '../doctor/manifestChecks.js';
 import { checkState } from '../doctor/stateChecks.js';
-import { checkStuckTickets } from '../doctor/stuckCheck.js';
+import { checkStuckTickets, STUCK_IDLE_MINUTES } from '../doctor/stuckCheck.js';
 import { checkWiring } from '../doctor/wiringChecks.js';
 import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
+import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
+import { listProjectSandboxes, type SandboxInventory } from '../agent/sandboxInventory.js';
+import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
+import { NODE_DOCKER_PROCESS } from '../agent/docker/dockerProcess.js';
 import { parseDbTimeMs, type FixEffects } from '../doctor/applyFixes.js';
 import * as probes from '../doctor/probes.js';
 import type { DoctorArea, DoctorCheck } from '../doctor/types.js';
@@ -35,7 +39,7 @@ function readAgyAllowRules(settingsPath: string): string[] | undefined {
 }
 
 /** Defaults until a manifest field exists for them. */
-export const DOCTOR_STUCK_MINUTES = 120;
+export const DOCTOR_STUCK_MINUTES = STUCK_IDLE_MINUTES;
 export const DOCTOR_WAL_LIMIT_BYTES = 64 * 1024 * 1024;
 
 export interface ParsedDoctorArgs {
@@ -136,8 +140,27 @@ function fixEffects(store: Store): FixEffects {
   };
 }
 
-function collector(store: Store, dbPath: string, manifest: Manifest | undefined, manifestError: string | undefined, env: Readonly<Record<string, string | undefined>>) {
-  return (areas: readonly DoctorArea[]): DoctorCheck[] => {
+/** This project's sandboxes (async, never `spawnSync`); injected by tests. */
+export type ListSandboxes = (projectRoot: string) => Promise<SandboxInventory>;
+
+const listSandboxesNode: ListSandboxes = (projectRoot) =>
+  listProjectSandboxes({ projectRoot, sbx: NODE_SBX_PROCESS, docker: NODE_DOCKER_PROCESS });
+
+/** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32). Only with a sandbox backend. */
+async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: ListSandboxes): Promise<DoctorCheck[]> {
+  if (manifestPath === undefined || manifest?.agentBackend === undefined) return [];
+  const live = new Set((store.db.prepare('SELECT id FROM tickets WHERE archived_at IS NULL').all() as { id: number }[]).map((r) => r.id));
+  const inv = await list(manifestPath);
+  return checkSandboxOrphans(inv.sandboxes.filter((s) => !live.has(s.ticketId)));
+}
+
+interface CollectorInput {
+  readonly manifestPath: string | undefined;
+  readonly listSandboxes: ListSandboxes;
+}
+
+function collector(store: Store, dbPath: string, manifest: Manifest | undefined, manifestError: string | undefined, env: Readonly<Record<string, string | undefined>>, io: CollectorInput) {
+  return async (areas: readonly DoctorArea[]): Promise<DoctorCheck[]> => {
     const out: DoctorCheck[] = [];
     const nowMs = Date.now();
     if (areas.includes('tools')) {
@@ -177,6 +200,7 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
     }
     if (areas.includes('state')) {
       out.push(...checkState(stateProbes(store, dbPath)), ...checkStuckTickets(stuckProbes(store, nowMs)));
+      out.push(...(await sandboxOrphanChecks(store, io.manifestPath, manifest, io.listSandboxes)));
     }
     if (areas.includes('wiring')) {
       out.push(...checkWiring({ karstCli: env.KARST_CLI ?? process.argv[1], isRunnableJsFile: runnableJs }));
@@ -186,13 +210,14 @@ function collector(store: Store, dbPath: string, manifest: Manifest | undefined,
 }
 
 /** `karst doctor` — read-only unless `--fix`. Throws `DoctorExit` so main sets the exit code. */
-export function runDoctorCommand(
+export async function runDoctorCommand(
   store: Store,
   dbPath: string,
   manifestPath: string | undefined,
   rest: readonly string[],
   env: Readonly<Record<string, string | undefined>> = process.env,
-): never {
+  listSandboxes: ListSandboxes = listSandboxesNode,
+): Promise<never> {
   const args = parseDoctorArgs(rest);
   let manifest: Manifest | undefined;
   let manifestError: string | undefined;
@@ -200,9 +225,9 @@ export function runDoctorCommand(
     try { manifest = loadManifestWithDiagnostics(manifestPath).manifest; }
     catch (e) { manifestError = (e as Error).message; }
   }
-  const report = runDoctor({
+  const report = await runDoctor({
     areas: args.areas, fix: args.fix,
-    collect: collector(store, dbPath, manifest, manifestError, env),
+    collect: collector(store, dbPath, manifest, manifestError, env, { manifestPath, listSandboxes }),
     effects: fixEffects(store),
   });
   throw new DoctorExit(args.json ? JSON.stringify(report) : renderDoctorText(report), report.exitCode);

@@ -11,7 +11,7 @@ export interface RunDoctorOptions {
   areas?: readonly DoctorArea[];
   fix: boolean;
   /** Gathers probes and runs the pure checks for the given areas (read-only). */
-  collect: (areas: readonly DoctorArea[]) => DoctorCheck[];
+  collect: (areas: readonly DoctorArea[]) => DoctorCheck[] | Promise<DoctorCheck[]>;
   /** Only touched when `fix` is true. */
   effects: FixEffects;
 }
@@ -26,13 +26,13 @@ export function summarize(checks: readonly DoctorCheck[]): DoctorReport['summary
  * Read-only unless `fix`. With `fix`, auto fixes run once, then the checks are
  * re-collected so the report (and exit code) reflects the state AFTER fixing.
  */
-export function runDoctor(opts: RunDoctorOptions): DoctorReport {
+export async function runDoctor(opts: RunDoctorOptions): Promise<DoctorReport> {
   const areas = opts.areas && opts.areas.length > 0 ? [...opts.areas] : [...DOCTOR_AREAS];
-  let checks = opts.collect(areas);
+  let checks = await opts.collect(areas);
   let applied: AppliedFix[] = [];
   if (opts.fix) {
     applied = applyFixes(checks, opts.effects);
-    if (applied.some((a) => a.ok)) checks = opts.collect(areas);
+    if (applied.some((a) => a.ok)) checks = await opts.collect(areas);
   }
   const summary = summarize(checks);
   return {
