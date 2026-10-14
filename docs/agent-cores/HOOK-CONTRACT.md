@@ -49,6 +49,8 @@ END_DOC_BLOCK: [@core:HOOK-01]
 | endpoint rebind after reload | ✓ (bridge re-reads `current-endpoint`) | ✓ | ✓ | n/a (no channel) |
 | hook failure logging | ✓ (`claude/hook-failures.jsonl`) | ✓ (`codex/hook-failures.jsonl`) | ✓ (`opencode/hook-failures.jsonl`) | n/a |
 
+Sandbox (sbx, docker): the same shared `bridge.cjs` (claude, codex, opencode, opencode2 plugins) runs over a file channel (`file://` transport, `HookChannel.runDir`) instead of HTTP. See `arch:AC-34`.
+
 **opencode resume is special-cased.** opencode 1.18.35 DROPS `--prompt` when
 `--session` is present and never emits `session.created` for the resumed session
 (verified on a real TUI, pty via `script`, with a probe plugin logging every
@@ -119,6 +121,8 @@ delivery time and picks a route:
 | `hook-block` | claude, codex | the endpoint answers the core's `Stop` hook with `{decision:"block",reason:"<pointer>"}`; the shared `HOOK_BRIDGE` prints it to stdout, so the agent continues with the pointer as its next instruction |
 | `plugin-idle` | opencode v1 | the endpoint answers the plugin's `session.idle` POST with the same body; the plugin reads `.reason` and pushes it through `client.session.promptAsync` |
 | `typed` | opencode2, antigravity, unknown/retired | the #56 typed nudge into the live terminal |
+
+**No reply channel in a sandbox**: the file channel is one-way, so a sandboxed session gets no `hook-block` or `plugin-idle` reply. Its pointers use the `typed` route (typed-pointer sweep) regardless of core.
 
 The endpoint returns a body **only** for a hook it ADMITTED (known worktree +
 current launch generation), so a stale bridge from a retired core gets no reply
@@ -201,4 +205,6 @@ END_DOC_BLOCK: [@core:HOOK-03]
 5. Interactive usage is measured or it is absent — never invented. Record the answer in
    `PROVIDER_INTERACTIVE_USAGE`, since a zero from an unmeasured core would read as a
    measured free call.
+6. A sandbox channel is a transport of the SAME shared script, never a second script; an
+   adapter composes command paths from `runDir ?? configDir`.
 END_DOC_BLOCK: [@core:HOOK-04]
