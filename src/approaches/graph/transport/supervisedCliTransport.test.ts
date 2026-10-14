@@ -655,6 +655,64 @@ describe('SupervisedCLITransport', () => {
     expect(failures).toEqual([]);
   });
 
+  it('reports a launch failure for a fresh session after a Stop, not just the first', async () => {
+    // The high review finding: the Stop marker was never cleared, so a LATER
+    // launch of the same reserved visit never reported its own early exit.
+    const terminals = [fakeTerminal(4242), fakeTerminal(4243)];
+    const closeHandlers: Array<(exitCode?: number) => void> = [];
+    terminals.forEach((terminal, index) => {
+      terminal.onDidClose = (handler) => {
+        closeHandlers[index] = handler;
+      };
+    });
+    let next = 0;
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminals[next++]! },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    const first = await transport.start(LAUNCH);
+    await transport.terminate(first);
+    clock += 200;
+    closeHandlers[0]?.(undefined);
+    // The Stop's own close ends no launch; its marker must not survive it.
+    expect(failures).toEqual([]);
+
+    const second = await transport.start(LAUNCH);
+    expect(second).not.toBe(first);
+    clock += 200;
+    closeHandlers[1]?.(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]!.request.nodeRunId).toBe(LAUNCH.nodeRunId);
+  });
+
+  it('does not report a planner launch failure — a planner id is not a node run id', async () => {
+    // The critical review finding: planners pass their planner-run id in
+    // `nodeRunId`, and that small integer also names an UNRELATED node run, so
+    // reporting the early exit here parked the wrong node.
+    const terminal = fakeTerminal(4242);
+    let closeHandler: ((exitCode?: number) => void) | undefined;
+    terminal.onDidClose = (handler) => {
+      closeHandler = handler;
+    };
+    const failures: LaunchFailure[] = [];
+    let clock = Date.parse('2026-08-12T00:00:00.000Z');
+    const transport = createSupervisedCliTransport({
+      ...harness(4242).deps,
+      terminalHost: { createTerminal: () => terminal },
+      now: () => new Date(clock).toISOString(),
+      onLaunchFailed: (failure) => failures.push(failure),
+    });
+    await transport.start({ ...LAUNCH, runKind: 'planner' });
+    clock += 200;
+    closeHandler?.(1);
+    // The planner death sweep owns relaunching a planner; nothing to park.
+    expect(failures).toEqual([]);
+  });
+
   it('pins SessionManager: its terminals map stays keyed by ticket id only', () => {    const source = readFileSync(join(import.meta.dirname, '..', '..', '..', 'ui', 'session.ts'), 'utf8');
     expect(source).toMatch(/terminals = new Map<number, TrackedSession>\(\)/);
     expect(source).not.toMatch(/Map<\[number, number\]/);

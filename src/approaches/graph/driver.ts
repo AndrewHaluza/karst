@@ -57,6 +57,8 @@ import {
   transitionPlannerRun,
 } from '../../store/graph/plannerRuns.js';
 import {
+  clearNodeRunLaunchFailStreak,
+  incrementNodeRunLaunchFailStreak,
   nodeRunBaseHeads,
   nodeRunStatus,
   runnableNodeRunsForGraphRun,
@@ -434,6 +436,7 @@ export async function bootstrapAndLaunchPlanner(
   try {
     session = await deps.transport.start({
       nodeRunId: plannerRunId,
+      runKind: 'planner',
       ticketId: input.ticketId,
       graphRunId,
       repo: workspace.repo,
@@ -580,6 +583,7 @@ export async function relaunchBootstrapPlanner(
   try {
     session = await deps.transport.start({
       nodeRunId: plannerRunId,
+      runKind: 'planner',
       ticketId: run.ticket_id,
       graphRunId: input.graphRunId,
       repo: workspace.repo,
@@ -862,9 +866,17 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
   }
-  const launched = deps.transaction(() =>
-    casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running'),
-  );
+  const launched = deps.transaction(() => {
+    if (
+      !casStatus(deps.db, 'approach_node_runs', NODE_RUN_TRANSITIONS, row.id, 'launching', 'running')
+    ) {
+      return false;
+    }
+    // The provider is running: whatever launch failures came before, this
+    // visit is no longer launch-looping.
+    clearNodeRunLaunchFailStreak(deps.db, row.id);
+    return true;
+  });
   if (!launched) {
     deps.debug?.(
       `[graph] run ${graphRunId}: agent node ${row.node_id} (run ${row.id}) launched but lost launching→running CAS`,
@@ -1105,6 +1117,10 @@ export function parkLaunchFailure(
     ) {
       return;
     }
+    // One more consecutive launch failure on this reserved visit. It is
+    // restored to zero only by a launch that actually started — so the counter
+    // the loop guard reads is "in a row", unlike `launch_attempt`.
+    incrementNodeRunLaunchFailStreak(deps.db, nodeRunId);
     setNodeRunFailure(deps.db, nodeRunId, {
       failureCategory: 'failed-to-launch',
       reason,
@@ -1138,17 +1154,18 @@ export function parkNodeLaunchExit(
   outputLine: string,
 ): void {
   const row = deps.db
-    .prepare('SELECT launch_attempt FROM approach_node_runs WHERE id = ?')
-    .get(nodeRunId) as { launch_attempt: number } | undefined;
+    .prepare('SELECT launch_fail_streak FROM approach_node_runs WHERE id = ? AND graph_run_id = ?')
+    .get(nodeRunId, graphRunId) as { launch_fail_streak: number } | undefined;
   if (row === undefined) return;
   const captured = collapseDiagnostic(outputLine, LAUNCH_FAILURE_LINE_MAX);
   const line = captured === '' ? '' : `: ${captured}`;
-  // `launch_attempt` counts RETRIES (a fresh visit is 0), so >= 1 means this is
-  // the second launch of the same reserved visit that died before starting.
-  const reason =
-    row.launch_attempt >= 1
-      ? `launched twice and exited before starting${line} — the agent CLI is probably not trusting this folder; check its folder trust`
-      : `failed-to-launch${line}`;
+  // The streak this park is about to create: `parkLaunchFailure` increments
+  // it. A prior failure on the SAME reserved visit (streak >= 1, never reset
+  // because no launch started in between) makes this the second in a row.
+  const repeated = row.launch_fail_streak >= 1;
+  const reason = repeated
+    ? `launched twice and exited before starting${line} — the agent CLI is probably not trusting this folder; check its folder trust`
+    : `failed-to-launch${line}`;
   parkLaunchFailure(deps, graphRunId, nodeRunId, reason);
 }
 
@@ -1205,6 +1222,7 @@ export async function launchReplanPlanner(
   try {
     session = await deps.transport.start({
       nodeRunId: launch.plannerRunId,
+      runKind: 'planner',
       ticketId: run.ticket_id,
       graphRunId: launch.graphRunId,
       repo: launch.repo,

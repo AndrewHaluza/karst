@@ -247,6 +247,9 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
       // out: the 869ed2n50 detached-process class, re-opened one line below
       // the guard that closes it.
       sessions.set(key, session);
+      // A fresh launch of this (ticket, run) key never continues a Stop — clear
+      // any marker left by a session whose close never fired.
+      terminating.delete(key);
       // The provider's last non-empty output line, kept for the launch-failure
       // reason. Bounded per line so a hostile/garbage stream can never grow
       // this in memory; the consumer sanitizes the text before it is recorded.
@@ -261,6 +264,10 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         });
       }
       const startedAtMs = startedAt === null ? undefined : Date.parse(startedAt);
+      // Only NODE launches report a launch failure: a planner's id lives in a
+      // different table, and the planner death sweep already owns relaunching
+      // it. Reporting it here would name a node run that merely shares the id.
+      const reportsLaunchFailure = request.runKind !== 'planner' && deps.onLaunchFailed !== undefined;
       let closed = false;
       // The terminal's close is the session's end: close the accounting row
       // with the exit verdict, exactly once (the terminal close handler fires
@@ -271,6 +278,11 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         // registry makes reconcile treat a dead node as owned by this window
         // forever, so the graph remains stuck at `running`.
         if (sessions.get(key) === session) sessions.delete(key);
+        // The Stop marker is scoped to the session that just ended — a later
+        // launch of the same reserved visit must report its own failures. Read
+        // it BEFORE clearing: this close is the Stop when it is set.
+        const stopping = terminating.has(key);
+        terminating.delete(key);
         if (processRunId !== null && deps.closeProcessRun) {
           try {
             deps.closeProcessRun(
@@ -288,19 +300,19 @@ export function createSupervisedCliTransport(deps: SupervisedTransportDeps): Sup
         // is a LAUNCH failure, not a session death — unless this window is
         // STOPPING the session (Stop), which is a deliberate end, never a
         // failure to launch.
-        if (
-          closed ||
-          terminating.has(key) ||
-          deps.onLaunchFailed === undefined ||
-          startedAtMs === undefined
-        ) {
+        if (closed || !reportsLaunchFailure || stopping || startedAtMs === undefined) {
           return;
         }
         const closedAtMs = Date.parse(deps.now());
         if (!Number.isFinite(closedAtMs) || closedAtMs - startedAtMs >= LAUNCH_EXIT_WINDOW_MS) return;
         closed = true;
         try {
-          deps.onLaunchFailed({ request, session, exitCode, outputLine: lastOutputLine });
+          deps.onLaunchFailed?.({
+            request,
+            session,
+            exitCode,
+            outputLine: lastOutputLine,
+          });
         } catch (error) {
           deps.debug?.(
             `[graph] node ${request.nodeRunId}: reporting the launch failure failed (${String(error)})`,

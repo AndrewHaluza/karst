@@ -68,6 +68,14 @@ export interface CreateTransportTerminalOpts {
 /** One node activation's launch request. */
 export interface AgentNodeLaunch {
   nodeRunId: number;
+  /**
+   * Which run table `nodeRunId` names. A graph NODE launch passes its node-run
+   * id (the default); a PLANNER launch passes its planner-run id — the two
+   * tables have independent id sequences, so a consumer that must resolve the
+   * row (the launch-failure parker) has to know which one it holds, or it can
+   * park an unrelated node run that happens to share the id.
+   */
+  runKind?: 'node' | 'planner';
   ticketId: number;
   graphRunId: number;
   /** The repository whose worktree the session runs in (`servers.repo`). */

@@ -58,9 +58,14 @@ export function graphRefusalHandling(
   mode: GraphRecoveryMode,
   reason: RecoveryRefusalReason,
 ): GraphRefusalHandling {
+  const notice = graphRecoveryRefusalNotice(ticketId, mode === 'replan' ? 'replan' : 'resume', reason);
+  const offerForce = reason === 'launch-loop' && mode === 'resume';
+  // The Force mention rides ONLY where the button does — the modal. The plain
+  // notice is shown by Resume routes that offer no Force, so promising one
+  // there named a control that was not on screen.
   return {
-    message: graphRecoveryRefusalNotice(ticketId, mode === 'replan' ? 'replan' : 'resume', reason),
-    offerForce: reason === 'launch-loop' && mode === 'resume',
+    message: offerForce ? `${notice} Force a retry to launch it again anyway.` : notice,
+    offerForce,
   };
 }
 
@@ -125,8 +130,7 @@ export function graphRecoveryRefusalNotice(
     case 'launch-loop':
       return (
         `${head} The same node launched twice and exited before starting — the agent ` +
-        `CLI is probably not trusting this folder; check its folder trust. ` +
-        `Force a retry to launch it once more anyway, or Replan.`
+        `CLI is probably not trusting this folder; check its folder trust, then Replan.`
       );
   }
 }

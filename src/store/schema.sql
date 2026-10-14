@@ -1065,6 +1065,7 @@ CREATE TABLE IF NOT EXISTS approach_node_runs (
   effort                   TEXT,
   prompt_hash              TEXT,
   launch_attempt           INTEGER NOT NULL DEFAULT 0,
+  launch_fail_streak       INTEGER NOT NULL DEFAULT 0,
   generation               TEXT,
   process_run_id           INTEGER REFERENCES process_runs(id) ON DELETE SET NULL,
   owner_nonce              TEXT,

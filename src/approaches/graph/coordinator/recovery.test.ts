@@ -295,12 +295,12 @@ describe('recoverGraphRun', () => {
       { id: 7, status: 'blocked' },
     ]);
     claimToken(7);
-    // `launch_attempt` counts RETRIES: 1 means this reserved visit has been
-    // launched twice and its last recorded failure is a launch failure.
+    // Two CONSECUTIVE launch failures on this reserved visit (the v83 streak),
+    // not a retry count: the node's own reason names the loop.
     store.db
       .prepare(
         `UPDATE approach_node_runs
-            SET launch_attempt = 1, failure_category = 'failed-to-launch',
+            SET launch_fail_streak = 2, failure_category = 'failed-to-launch',
                 reason = 'launched twice and exited before starting: trust this folder'
           WHERE id = 7`,
       )
@@ -324,9 +324,10 @@ describe('recoverGraphRun', () => {
       { id: 7, status: 'blocked' },
     ]);
     claimToken(7);
+    // One launch failure, whatever the retry history: not yet a loop.
     store.db
       .prepare(
-        `UPDATE approach_node_runs SET launch_attempt = 0, failure_category = 'failed-to-launch' WHERE id = 7`,
+        `UPDATE approach_node_runs SET launch_fail_streak = 1, launch_attempt = 4, failure_category = 'failed-to-launch' WHERE id = 7`,
       )
       .run();
     expect(recoverGraphRun(makeDeps(), { ticketId, graphRunId })).toEqual({
@@ -336,17 +337,20 @@ describe('recoverGraphRun', () => {
     });
   });
 
-  it('launchFailureStreak counts the retries of node runs whose last failure was a launch failure', () => {
+  it('launchFailureStreak reads the consecutive launch-failure count, not the retry count', () => {
     const { graphRunId } = blockedGraph('failed-to-launch: node run 7', [
       { id: 7, status: 'blocked' },
     ]);
     expect(launchFailureStreak(store.db, graphRunId)).toBe(0);
     store.db
       .prepare(
-        `UPDATE approach_node_runs SET launch_attempt = 2, failure_category = 'failed-to-launch' WHERE id = 7`,
+        `UPDATE approach_node_runs SET launch_fail_streak = 2, launch_attempt = 9 WHERE id = 7`,
       )
       .run();
     expect(launchFailureStreak(store.db, graphRunId)).toBe(2);
+    // Scoped to the visit the run's blocked reason names.
+    expect(launchFailureStreak(store.db, graphRunId, 7)).toBe(2);
+    expect(launchFailureStreak(store.db, graphRunId, 999)).toBe(0);
   });
 
   it('resource-claim-violated requires corrected claims + explicit Resume, never auto-retry', () => {

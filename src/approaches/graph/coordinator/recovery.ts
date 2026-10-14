@@ -128,13 +128,13 @@ export type RecoveryRefusalReason =
 export type GraphRecoveryMode = 'resume' | 'replan' | 'force-resume';
 
 /**
- * The number of consecutive launch failures recorded on a run's node runs —
- * the streak the launch-loop guard reads, DERIVED from node-run history (no new
- * column). A reserved visit is retried in place, so `launch_attempt` counts its
- * RETRIES: a node whose last recorded failure is a launch failure and which
- * carries at least one retry has been launched twice in a row and exited
- * before starting. `nodeRunId` scopes the read to the visit the run's blocked
- * reason names; absent, the highest such retry count on the run.
+ * The number of CONSECUTIVE launch failures recorded on a run's node runs —
+ * the streak the launch-loop guard reads, from `approach_node_runs.launch_fail_streak`
+ * (T693, v83). A reserved visit is retried in place; the counter is incremented
+ * by every park that could not launch and reset by a launch that actually
+ * started, so it counts "in a row" — unlike `launch_attempt`, which counts
+ * every retry whatever its cause. `nodeRunId` scopes the read to the visit the
+ * run's blocked reason names; absent, the highest such streak on the run.
  */
 export function launchFailureStreak(
   db: Store['db'],
@@ -145,14 +145,14 @@ export function launchFailureStreak(
     nodeRunId === undefined
       ? db
           .prepare(
-            `SELECT MAX(launch_attempt) AS streak FROM approach_node_runs
-              WHERE graph_run_id = ? AND failure_category = 'failed-to-launch'`,
+            `SELECT MAX(launch_fail_streak) AS streak FROM approach_node_runs
+              WHERE graph_run_id = ?`,
           )
           .get(graphRunId)
       : db
           .prepare(
-            `SELECT launch_attempt AS streak FROM approach_node_runs
-              WHERE graph_run_id = ? AND id = ? AND failure_category = 'failed-to-launch'`,
+            `SELECT launch_fail_streak AS streak FROM approach_node_runs
+              WHERE graph_run_id = ? AND id = ?`,
           )
           .get(graphRunId, nodeRunId)
   ) as { streak: number | null } | undefined;
@@ -769,7 +769,7 @@ export function recoverGraphRun(
   if (
     input.mode !== 'force-resume' &&
     run.blocked_reason?.startsWith('failed-to-launch') &&
-    launchFailureStreak(store.db, input.graphRunId, failedLaunchNodeRunId(run.blocked_reason)) >= 1
+    launchFailureStreak(store.db, input.graphRunId, failedLaunchNodeRunId(run.blocked_reason)) >= 2
   ) {
     emitGraphDiagnostic({ db: store.db, debug: deps.debug }, {
       category: 'recovery',

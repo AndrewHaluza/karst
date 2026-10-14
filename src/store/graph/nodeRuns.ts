@@ -696,6 +696,35 @@ export function incrementNodeRunLaunchAttempt(db: GraphDb, id: number): boolean 
   return res.changes === 1;
 }
 
+/** The reserved visit's CONSECUTIVE launch-failure count (T693): incremented
+ *  on every launch that could not proceed and reset by a launch that actually
+ *  started (see `clearNodeRunLaunchFailStreak`). Separate from `launch_attempt`,
+ *  which counts every retry whatever its cause — a visit retried after a
+ *  session death is not launch-looping. */
+export function nodeRunLaunchFailStreak(db: GraphDb, id: number): number {
+  const row = db
+    .prepare('SELECT launch_fail_streak AS streak FROM approach_node_runs WHERE id = ?')
+    .get(id) as { streak: number } | undefined;
+  return row?.streak ?? 0;
+}
+
+/** Record one more consecutive launch failure. Returns the new streak. */
+export function incrementNodeRunLaunchFailStreak(db: GraphDb, id: number): number {
+  db.prepare(
+    'UPDATE approach_node_runs SET launch_fail_streak = launch_fail_streak + 1 WHERE id = ?',
+  ).run(id);
+  return nodeRunLaunchFailStreak(db, id);
+}
+
+/** A launch that actually started (`launching → running`) ends any run of
+ *  launch failures. Returns whether the row was touched. */
+export function clearNodeRunLaunchFailStreak(db: GraphDb, id: number): boolean {
+  const res = db
+    .prepare('UPDATE approach_node_runs SET launch_fail_streak = 0 WHERE id = ?')
+    .run(id);
+  return res.changes === 1;
+}
+
 /** Complete a deterministic node: record its effective outcome and end. */
 export function setNodeRunOutcome(db: GraphDb, id: number, outcome: string, now: string): boolean {
   const res = db

@@ -108,24 +108,33 @@ describe('graphRecoveryRefusalNotice', () => {
     expect(notice).toContain('Resume');
   });
 
-  it('names the folder trust and the Force retry escape for a launch-loop refusal', () => {
+  it('names the folder trust and Replan for a launch-loop refusal, without promising Force', () => {
+    // The low review finding: this notice is shown by Resume routes that offer
+    // NO Force button, so it must not name one. Force rides on the modal's
+    // message alone (see graphRefusalHandling).
     const notice = graphRecoveryRefusalNotice(7, 'resume', 'launch-loop');
     expect(notice).toContain('launched twice');
     expect(notice).toContain('folder trust');
-    expect(notice).toContain('Force a retry');
+    expect(notice).toContain('Replan');
+    expect(notice).not.toContain('Force a retry');
   });
 });
 
 describe('graphRefusalHandling', () => {
   it('offers the Force retry only for a launch-loop refusal on a plain Resume', () => {
-    expect(graphRefusalHandling(1, 'resume', 'launch-loop')).toEqual({
-      message: graphRecoveryRefusalNotice(1, 'resume', 'launch-loop'),
-      offerForce: true,
-    });
+    const handling = graphRefusalHandling(1, 'resume', 'launch-loop');
+    expect(handling.offerForce).toBe(true);
+    // The Force mention rides only where the button does.
+    expect(handling.message).toContain('Force a retry');
+    expect(handling.message).toContain(graphRecoveryRefusalNotice(1, 'resume', 'launch-loop'));
     // A Replan is never the loop's control, and no other refusal is forcible.
     expect(graphRefusalHandling(1, 'replan', 'launch-loop').offerForce).toBe(false);
     expect(graphRefusalHandling(1, 'resume', 'explicit-resolution').offerForce).toBe(false);
     expect(graphRefusalHandling(1, 'force-resume', 'launch-loop').offerForce).toBe(false);
+    // Without the button, the message never names it.
+    expect(graphRefusalHandling(1, 'resume', 'explicit-resolution').message).not.toContain(
+      'Force a retry',
+    );
   });
 
   it('reports a replan attempt as a replan in the notice', () => {
