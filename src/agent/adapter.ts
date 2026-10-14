@@ -242,6 +242,13 @@ export interface HookChannel {
   configDir: string;
   /** Opaque per-terminal generation used only to order lifecycle hooks. */
   launchId?: string;
+  /**
+   * Set → the FILE channel (sandbox evidence bridge): `endpointUrl` is
+   * `file://<runDir>/events.ndjson`, `configDir` is the HOST bridge dir that
+   * scripts are written to, and `runDir` is that same dir as the agent sees it.
+   * Hook commands name `runDir` (`hookCommandDir`).
+   */
+  readonly runDir?: string;
 }
 
 /**

@@ -353,6 +353,45 @@ describe.each(IMPLEMENTED_PROVIDERS)('adapter conformance: %s', (provider) => {
     }
   });
 
+  /**
+   * Sandbox evidence bridge: a FILE hook channel writes its scripts to the
+   * host bridge dir but every command the agent runs names the dir as the
+   * agent sees it (`runDir`). The settings path claude reads is host-side by
+   * design, so its CONTENT is checked in place of the path.
+   */
+  it('composes file-channel hook commands from runDir and writes scripts to configDir', () => {
+    const support = surfacesOf(provider).hookChannel;
+    if (!support.supported) {
+      expect(reasonOf(support).length, `${provider}.hookChannel reason`).toBeGreaterThan(20);
+      return;
+    }
+    const hostBridgeDir = mkdtempSync(join(tmpdir(), 'karst-filechan-'));
+    const cwd = mkdtempSync(join(tmpdir(), 'karst-filechan-wt-'));
+    try {
+      const launch = resolveAdapter(provider).buildInteractiveCommand({
+        cwd,
+        hookChannel: {
+          endpointUrl: 'file:///karst-bridge/7/events.ndjson',
+          configDir: hostBridgeDir,
+          runDir: '/karst-bridge/7',
+        },
+        initialPrompt: 'go',
+      });
+      const args = launch.args.map((arg, i) =>
+        launch.args[i - 1] === '--settings' && existsSync(arg) ? readFileSync(arg, 'utf8') : arg,
+      );
+      let text = JSON.stringify({ args, env: launch.env });
+      for (const owned of launch.ownedPaths ?? []) text += readFileSync(owned, 'utf8');
+      expect(text).toContain('/karst-bridge/7');
+      expect(text).not.toContain(hostBridgeDir);
+      expect(existsSync(join(hostBridgeDir, provider, 'bridge.cjs'))).toBe(true);
+      expect(existsSync(join(hostBridgeDir, provider, 'emit-marker.cjs'))).toBe(true);
+    } finally {
+      rmSync(hostBridgeDir, { recursive: true, force: true });
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('denies the process-wide kill commands on a headless run when declared supported', async () => {
     const support = surfacesOf(provider).processKillDeny;
     if (!support.supported) return;

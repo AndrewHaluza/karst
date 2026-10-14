@@ -18,7 +18,7 @@ export function hookUrl(port: number): string {
  * excluded: it fires per tool call, and bridging it would cost ~6 seconds
  * per session for the least valuable signal (a liveness ping).
  */
-const BRIDGED_EVENTS = [
+export const BRIDGED_EVENTS = [
   'Stop',
   'Notification',
   'SessionEnd',

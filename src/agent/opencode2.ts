@@ -423,6 +423,7 @@ export class Opencode2Adapter implements AgentAdapter {
         opts.cwd,
         opts.hookChannel.endpointUrl,
         opts.hookChannel.configDir,
+        opts.hookChannel.runDir,
       );
       ownedPaths = [pluginPath];
     }

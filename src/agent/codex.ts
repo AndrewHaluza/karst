@@ -6,7 +6,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -24,6 +23,7 @@ import type {
   AgentAdapter,
   AgentCapabilities,
   HeadlessResult,
+  HookChannel,
   InstructionDelivery,
   InteractiveCommand,
   InteractiveCommandOpts,
@@ -51,7 +51,7 @@ import { renderConsoleStream } from './consoleFormat.js';
 import { headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { hookFailureLogPath } from './hookFailureLog.js';
 import { resolveNodeExecutable } from './nodeExecutable.js';
-import { HOOK_BRIDGE } from './hookBridge.js';
+import { hookCommandDir, hookNodeCommand, writeBridgeScripts } from './hookBridgeFiles.js';
 import { codexMcpConfigArgs, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
@@ -170,34 +170,27 @@ export function codexHookNormalizer(post: PostHook) {
   };
 }
 
-function appendHookArgs(
-  args: string[],
-  configDir: string,
-  endpointUrl: string,
-): void {
+function appendHookArgs(args: string[], channel: HookChannel): void {
+  const { configDir, endpointUrl } = channel;
   const target = new URL(endpointUrl);
+  const isFile = channel.runDir !== undefined && target.protocol === 'file:';
   if (
-    target.protocol !== 'http:' ||
-    target.hostname !== '127.0.0.1' ||
-    target.port === '' ||
-    target.port === '0'
+    !isFile &&
+    (target.protocol !== 'http:' ||
+      target.hostname !== '127.0.0.1' ||
+      target.port === '' ||
+      target.port === '0')
   ) {
     throw new Error(`karst: refusing non-loopback hook endpoint ${endpointUrl}`);
   }
-  const diagnosticsPath = hookFailureLogPath(configDir);
-  const bridgeDir = dirname(diagnosticsPath);
-  const bridgePath = join(bridgeDir, 'bridge.cjs');
-  mkdirSync(bridgeDir, { recursive: true });
-  const current = existsSync(bridgePath)
-    ? readFileSync(bridgePath, 'utf8')
-    : null;
-  if (current !== HOOK_BRIDGE) {
-    const temporaryPath = `${bridgePath}.${process.pid}.${Date.now()}.tmp`;
-    writeFileSync(temporaryPath, HOOK_BRIDGE);
-    renameSync(temporaryPath, bridgePath);
-  }
+  // Scripts are written under the HOST configDir; the command names the dir as
+  // the agent sees it (identical unless a sandbox remaps it).
+  writeBridgeScripts(dirname(hookFailureLogPath(configDir)));
+  const commandDir = hookCommandDir(channel);
+  const diagnosticsPath = hookFailureLogPath(commandDir);
+  const bridgePath = join(dirname(diagnosticsPath), 'bridge.cjs');
   const command = [
-    JSON.stringify(resolveNodeExecutable()),
+    JSON.stringify(isFile ? hookNodeCommand(channel) : resolveNodeExecutable()),
     JSON.stringify(bridgePath),
     JSON.stringify(endpointUrl),
     JSON.stringify(diagnosticsPath),
@@ -474,11 +467,7 @@ export class CodexAdapter implements AgentAdapter {
     if (opts.mcpConfigPath) args.push(...codexMcpConfigArgs(readMcpServersConfig(opts.mcpConfigPath)));
     if (opts.hookChannel) args.push('--dangerously-bypass-hook-trust');
     if (opts.hookChannel) {
-      appendHookArgs(
-        args,
-        opts.hookChannel.configDir,
-        opts.hookChannel.endpointUrl,
-      );
+      appendHookArgs(args, opts.hookChannel);
     }
     if (opts.instructions && opts.soloAgent !== true) {
       // The instruction layer is a POINTER through codex's developer-role
