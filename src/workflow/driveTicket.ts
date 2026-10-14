@@ -3,6 +3,8 @@ import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
+import { sandboxGateDeps } from './gates/sandboxGates.js';
+import type { GateProcessRunner } from './gates/run.js';
 import type { HeadlessOutputChunk } from '../agent/headlessSpawn.js';
 import type { GateOutputChunk } from './gates/run.js';
 import type { InsideProgressEvent } from '../model/inside/progress.js';
@@ -159,6 +161,12 @@ export interface DriveTicketDeps {
    * stage parks; absent with no verifier configured, it is unused.
    */
   runVerifier?: TesterGateRunner;
+  /**
+   * The ticket's sandbox gate runner (`SessionRunner.runGate`, arch:AC-32), or
+   * undefined for a host ticket. Present → its UAT/review gates and verifier
+   * run inside the sandbox against the agent's live edits; absent → unchanged.
+   */
+  gateProcessFor?: (ticketId: number) => GateProcessRunner | undefined;
   /**
    * The composed `karst context` prefix (Prompt 17, § context loader) — the
    * SAME opaque string `buildCliContextPrefix` composes for the generated
@@ -373,6 +381,7 @@ export async function driveTicket(
               runVerifier: deps.runVerifier,
               spin: deps.spin ?? spinTicket,
               stopServers: deps.stopServers ?? stopTicketServers,
+              ...sandboxGateDeps(deps.gateProcessFor?.(id)),
             },
           );
         },
@@ -458,6 +467,7 @@ export async function driveTicket(
               },
             },
             {
+              ...reviewGateDeps(deps.gateProcessFor?.(id)),
               openDiff: deps.openDiff,
               findingsAdapter: reviewProcess?.adapter,
               reviewProcess,
@@ -616,4 +626,10 @@ export async function driveTicket(
     // one per driver run for the window's lifetime.
     deps.signal?.removeEventListener('abort', onHostAbort);
   }
+}
+
+/** Review takes only the gate list from the sandbox deps (it has no verifier or gate-skip). */
+function reviewGateDeps(gate: GateProcessRunner | undefined): { runGates?: ReturnType<typeof sandboxGateDeps>['runGates'] } {
+  const { runGates } = sandboxGateDeps(gate);
+  return runGates ? { runGates } : {};
 }

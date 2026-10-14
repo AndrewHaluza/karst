@@ -1,3 +1,4 @@
+import { runProcess, type GateProcessRunner } from '../workflow/gates/run.js';
 import type { BridgePaths } from './bridge/bridgeDir.js';
 import {
   spawnHeadlessCli,
@@ -56,6 +57,21 @@ export type SyncResult =
   | { readonly ok: true; readonly summary: string }
   | { readonly ok: false; readonly reason: string };
 
+/** One published service port: host side always `127.0.0.1:<hostPort>`. */
+export interface PortMapping {
+  readonly hostPort: number;
+  readonly sandboxPort: number;
+}
+
+export type PublishResult =
+  | { readonly ok: true }
+  /** `portTaken`: the host port is busy, so a reallocation may succeed. */
+  | { readonly ok: false; readonly reason: string; readonly portTaken: boolean };
+
+export type StepOutcome = { readonly ok: true } | { readonly ok: false; readonly reason: string };
+
+export type { GateProcessRunner };
+
 export interface SessionRunner {
   readonly kind: 'host' | 'sbx' | 'docker';
   /**
@@ -71,11 +87,29 @@ export interface SessionRunner {
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */
   dispose?(ticket: SandboxTicketRef): Promise<void>;
+  /**
+   * Sandbox runners only: does this ticket's sandbox exist? A session that
+   * failed closed to the host has none, so its gates and services stay on the host.
+   */
+  hasSandbox?(): Promise<boolean>;
+  /** Sandbox runners only: publish ONE declared port on `127.0.0.1` (arch:AC-32). */
+  publishPort?(mapping: PortMapping): Promise<PublishResult>;
+  unpublishPort?(mapping: PortMapping): Promise<void>;
+  /** Sandbox runners only: the live mappings; null when the sandbox cannot answer (not running). */
+  listPorts?(): Promise<readonly PortMapping[] | null>;
+  /** Sandbox runners only: let the sandbox reach exactly these host ports (baseline services). */
+  allowHostPorts?(ports: readonly number[]): Promise<StepOutcome>;
+  /**
+   * Where a gate runs. The host runner's is `runProcess` itself (zero behaviour
+   * change); a sandbox runner execs into the sandbox, against the live edits.
+   */
+  runGate?: GateProcessRunner;
 }
 
 export function createHostSessionRunner(
   spawnHeadless: RunHeadless = (command, args, cwd, opts) =>
     spawnHeadlessCli(command, args, cwd, opts),
+  runGate: GateProcessRunner = runProcess,
 ): SessionRunner {
   return {
     kind: 'host',
@@ -87,6 +121,7 @@ export function createHostSessionRunner(
       env: { ...spec.env },
     }),
     runHeadless: spawnHeadless,
+    runGate,
   };
 }
 

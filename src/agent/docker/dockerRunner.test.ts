@@ -74,11 +74,13 @@ describe('createDockerSessionRunner', () => {
     expect(lines(proc).at(-1)).toBe('git -C /w/t7 merge --ff-only FETCH_HEAD');
   });
 
-  it('disposes exactly this ticket\'s container, proxy, network and volumes', async () => {
-    const proc = fakeDockerProcess();
+  it('disposes exactly this ticket\'s container, port relays, proxy, network and volumes', async () => {
+    const proc = fakeDockerProcess({ 'docker ps --all': { stdout: 'relay1\n' } });
     await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).dispose!(ticket);
     expect(lines(proc)).toEqual([
       `docker rm --force ${names.container}`,
+      `docker ps --all --quiet --filter label=karst.relay=${names.container}`,
+      'docker rm --force relay1',
       `docker rm --force ${names.proxy}`,
       `docker network rm ${names.network}`,
       `docker volume rm --force ${names.repoVolume} ${names.dataVolume}`,
@@ -101,6 +103,12 @@ describe('permissions under the docker runner (arch:AC-31)', () => {
 describe('prepareDockerSandbox', () => {
   const base = { core: 'opencode' as const, names, user: undefined, ticket, proxyScript: '/ext/proxy.mjs', temp };
 
+  it('starts the proxy with the baseline host ports (arch:AC-32)', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 } });
+    await prepareDockerSandbox({ ...base, proc, hostPorts: [5432] });
+    expect(lines(proc).find((l) => l.startsWith('docker run --detach'))).toContain('ALLOW_HOSTPORTS=host.docker.internal:5432');
+  });
+
   it('reuses everything that exists: no create, no clone, no seed', async () => {
     const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
     await expect(prepareDockerSandbox({ ...base, proc })).resolves.toEqual({ ok: true });
@@ -108,7 +116,7 @@ describe('prepareDockerSandbox', () => {
       `docker network inspect ${names.network}`,
       `docker volume inspect ${names.repoVolume}`,
       `docker volume inspect ${names.dataVolume}`,
-      `docker container inspect --format {{.State.Running}} ${names.proxy}`,
+      `docker container inspect --format {{.State.Running}} {{index .Config.Labels "karst.hostallow"}} ${names.proxy}`,
       expect.stringContaining('git -C /work/repo rev-parse --git-dir'),
     ]);
   });

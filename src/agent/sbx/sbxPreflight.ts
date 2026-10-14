@@ -42,7 +42,7 @@ function detail(result: ProcessResult): string {
 }
 
 /** First column of `sbx ls`, header row dropped. */
-function parseNames(stdout: string): string[] {
+export function parseNames(stdout: string): string[] {
   return stdout
     .split('\n')
     .slice(1)

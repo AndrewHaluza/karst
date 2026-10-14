@@ -41,9 +41,19 @@ export function parseConnectTarget(url: string | undefined): ConnectTarget | nul
   return { host: (match[1] ?? match[2])!, port };
 }
 
+/** `ALLOW_HOSTPORTS` env → exact `host:port` targets (baseline services); malformed entries dropped. */
+export function parseHostPorts(raw: string | undefined): ConnectTarget[] {
+  return (raw ?? '')
+    .split(',')
+    .map((entry) => parseConnectTarget(entry.trim().toLowerCase()))
+    .filter((t): t is ConnectTarget => t !== null);
+}
+
 export interface AllowlistProxyOptions {
   readonly allow: readonly string[];
   readonly ports?: readonly number[];
+  /** Exact targets allowed on their own port only (arch:AC-32 baseline services). */
+  readonly hostPorts?: readonly ConnectTarget[];
   /** One line per decision (`ALLOW host:port` / `DENY host:port`); no payload. */
   readonly log?: (line: string) => void;
 }
@@ -51,13 +61,17 @@ export interface AllowlistProxyOptions {
 export function createAllowlistProxy(opts: AllowlistProxyOptions): http.Server {
   const ports = opts.ports ?? DEFAULT_ALLOWED_PORTS;
   const log = opts.log ?? (() => undefined);
+  const exact = opts.hostPorts ?? [];
+  const allowed = (t: ConnectTarget): boolean =>
+    exact.some((e) => e.port === t.port && e.host === t.host.toLowerCase()) ||
+    (ports.includes(t.port) && isAllowedHost(t.host, opts.allow));
   const server = http.createServer((_req, res) => {
     res.writeHead(403);
     res.end('plain http denied');
   });
   server.on('connect', (req: http.IncomingMessage, client: net.Socket, head: Buffer) => {
     const target = parseConnectTarget(req.url);
-    if (!target || !ports.includes(target.port) || !isAllowedHost(target.host, opts.allow)) {
+    if (!target || !allowed(target)) {
       log(`DENY ${req.url ?? ''}`);
       client.end('HTTP/1.1 403 Forbidden\r\n\r\n');
       return;

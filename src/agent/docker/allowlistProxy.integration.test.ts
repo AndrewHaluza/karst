@@ -66,3 +66,14 @@ describe('allowlist proxy (real loopback sockets)', () => {
     expect(status).toBe(403);
   });
 });
+
+describe('allowlist proxy: baseline host ports (arch:AC-32)', () => {
+  it('tunnels to a declared baseline host port and refuses every other port on that host', async () => {
+    const echo = net.createServer((s) => s.on('data', (d) => s.write(`echo:${d.toString('utf8')}`)));
+    const echoPort = await listen(echo);
+    const other = await listen(net.createServer((s) => s.end()));
+    const proxyPort = await listen(createAllowlistProxy({ allow: [], hostPorts: [{ host: '127.0.0.1', port: echoPort }] }));
+    await expect(connectThrough(proxyPort, `127.0.0.1:${echoPort}`, 'db')).resolves.toContain('echo:db');
+    await expect(connectThrough(proxyPort, `127.0.0.1:${other}`, '')).resolves.toContain('403 Forbidden');
+  });
+});

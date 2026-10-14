@@ -1,6 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { spawnHeadlessCli } from '../headlessSpawn.js';
-import type { PlacedInteractiveLaunch, RunHeadless, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import { runProcess } from '../../workflow/gates/run.js';
+import type { GateProcessRunner, PlacedInteractiveLaunch, RunHeadless, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
+import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { chownVolumes, ensureClone, ensureVolume, OS_TEMP_DIRS, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
 import { seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore } from './dockerImage.js';
@@ -9,6 +12,7 @@ import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
 import {
   containerCommand,
+  gateRunArgs,
   headlessExecArgs,
   headlessKillArgs,
   interactiveRunArgs,
@@ -27,6 +31,10 @@ export interface DockerRunnerOptions {
   readonly spawnHeadless?: RunHeadless;
   readonly temp?: TempDirs;
   readonly newRunId?: () => string;
+  /** The host gate boundary `runGate` wraps (default `runProcess`). */
+  readonly gateProcess?: GateProcessRunner;
+  /** Agent-visible evidence dir (the bridge mount), exported to gates as `KARST_EVIDENCE_DIR`. */
+  readonly evidenceDir?: string;
 }
 
 /**
@@ -40,6 +48,21 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
   const spawnHeadless = opts.spawnHeadless ?? spawnHeadlessCli;
   const newRunId = opts.newRunId ?? (() => randomBytes(8).toString('hex'));
   const ctx: CloneContext = { proc: opts.proc, names: opts.names, user: opts.user, temp: opts.temp ?? OS_TEMP_DIRS };
+  const gateProcess = opts.gateProcess ?? runProcess;
+  const gateEnv: Record<string, string> = opts.evidenceDir ? { [EVIDENCE_DIR_ENV]: opts.evidenceDir } : {};
+  /** Runs `body` with a recorded in-container pid, killed on abort and when the run ends. */
+  const execTracked = async <T>(signal: AbortSignal | undefined, body: (runId: string) => Promise<T>): Promise<T> => {
+    const runId = newRunId();
+    const kill = () => opts.proc.run(DOCKER_BIN, headlessKillArgs(opts.names.container, runId));
+    const onAbort = () => void kill();
+    signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      return await body(runId);
+    } finally {
+      signal?.removeEventListener('abort', onAbort);
+      await kill();
+    }
+  };
   return {
     kind: 'docker',
     enforcesSandbox: true,
@@ -54,33 +77,51 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       env: { ...spec.env },
     }),
     bridgeRunDir: (paths) => paths.runDir,
-    runHeadless: async (command, args, cwd, headlessOpts) => {
-      const runId = newRunId();
-      // Killing the `docker exec` client leaves the process running in the
-      // container; an abort also kills it there, by its recorded pid.
-      // A timeout inside spawnHeadless kills only the client too, so the
-      // kill (a no-op once the process exited; it also drops the pid file)
-      // always runs when the run ends.
-      const kill = () => opts.proc.run(DOCKER_BIN, headlessKillArgs(opts.names.container, runId));
-      const onAbort = () => void kill();
-      headlessOpts?.signal?.addEventListener('abort', onAbort, { once: true });
+    // Killing the `docker exec` client leaves the process running in the
+    // container; an abort also kills it there, by its recorded pid. A timeout
+    // inside the spawn kills only the client too, so the kill (a no-op once the
+    // process exited; it also drops the pid file) always runs when the run ends.
+    runHeadless: (command, args, cwd, headlessOpts) =>
+      execTracked(headlessOpts?.signal, (runId) =>
+        spawnHeadless(DOCKER_BIN, headlessExecArgs(opts.names.container, runId, containerCommand(opts.core, command), rewritePaths(args, cwd)), cwd, headlessOpts)),
+    runGate: async (command, args, cwd, gateOpts) => {
+      if (await containerRunning(opts.proc, opts.names.container)) {
+        return execTracked(gateOpts?.signal, (runId) =>
+          gateProcess(DOCKER_BIN, headlessExecArgs(opts.names.container, runId, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts));
+      }
+      // The interactive container is `--rm`: once its terminal closed, a gate
+      // runs in a one-shot container on the same clone, removed by name.
+      const runName = `${opts.names.container}-gate-${newRunId()}`;
+      const remove = () => opts.proc.run(DOCKER_BIN, ['rm', '--force', runName]);
+      const onAbort = () => void remove();
+      gateOpts?.signal?.addEventListener('abort', onAbort, { once: true });
       try {
-        const argv = headlessExecArgs(opts.names.container, runId, containerCommand(opts.core, command), rewritePaths(args, cwd));
-        return await spawnHeadless(DOCKER_BIN, argv, cwd, headlessOpts);
+        return await gateProcess(DOCKER_BIN, gateRunArgs(opts.names, opts.user, runName, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts);
       } finally {
-        headlessOpts?.signal?.removeEventListener('abort', onAbort);
-        await kill();
+        gateOpts?.signal?.removeEventListener('abort', onAbort);
+        await remove();
       }
     },
+    // The clone volume is the sandbox: it outlives the interactive container.
+    hasSandbox: async () => (await opts.proc.run(DOCKER_BIN, ['volume', 'inspect', opts.names.repoVolume])).code === 0,
+    publishPort: (m) => publishRelay(opts.proc, opts.names, m),
+    unpublishPort: (m) => unpublishRelay(opts.proc, opts.names, m),
+    listPorts: () => listRelayPorts(opts.proc, opts.names),
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
     dispose: async (): Promise<void> => {
       const n = opts.names;
       await opts.proc.run(DOCKER_BIN, ['rm', '--force', n.container]);
+      await removeAllRelays(opts.proc, n);
       await stopProxySidecar(opts.proc, n.proxy);
       await opts.proc.run(DOCKER_BIN, ['network', 'rm', n.network]);
       await opts.proc.run(DOCKER_BIN, ['volume', 'rm', '--force', n.repoVolume, n.dataVolume]);
     },
   };
+}
+
+async function containerRunning(proc: DockerProcess, container: string): Promise<boolean> {
+  const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', '{{.State.Running}}', container]);
+  return state.code === 0 && state.stdout.trim() === 'true';
 }
 
 export interface PrepareInput {
@@ -95,6 +136,8 @@ export interface PrepareInput {
   readonly opencode2Host?: { readonly command: string; readonly env: Readonly<Record<string, string>> };
   readonly temp?: TempDirs;
   readonly debug?: (message: string) => void;
+  /** Baseline host ports the proxy lets the sandbox reach (arch:AC-32). */
+  readonly hostPorts?: readonly number[];
 }
 
 async function ensureNetwork(proc: DockerProcess, network: string): Promise<StepResult> {
@@ -121,7 +164,7 @@ export async function prepareDockerSandbox(input: PrepareInput): Promise<StepRes
   // Every launch, not only on create: an interrupted first chown must be retried (idempotent).
   const owned = await chownVolumes(ctx);
   if (!owned.ok) return owned;
-  const proxy = await startProxySidecar(proc, { proxy: names.proxy, network: names.network, scriptPath: input.proxyScript });
+  const proxy = await startProxySidecar(proc, { proxy: names.proxy, network: names.network, scriptPath: input.proxyScript, ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) });
   if (!proxy.ok) return proxy;
   const rest = await cloneAndSeed(input, ctx);
   // The proxy is the one object with egress: never leave it up for a ticket

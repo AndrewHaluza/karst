@@ -163,3 +163,19 @@ describe('disposeSandboxOp', () => {
     expect(r.errors).toEqual(['Karst: K-7 has no worktree branch.', 'Karst: K-7 has no sandbox (core gemini).', 'Karst: K-7 has no sandbox (core unknown).']);
   });
 });
+
+describe('backendSessionOptions: baseline host ports (arch:AC-32)', () => {
+  it('hands the docker resolver the baseline ports, alone or with debug', async () => {
+    const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'x' });
+    const base = { backend: 'docker' as const, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve };
+    await backendSessionOptions({ ...base, hostPorts: [5432] }).resolveRunner!();
+    expect(resolve.mock.calls[0]![0].docker).toEqual({ hostPorts: [5432] });
+    const debug = vi.fn();
+    await backendSessionOptions({ ...base, hostPorts: [5432], debug }).resolveRunner!();
+    expect(resolve.mock.calls[1]![0].docker).toEqual({ hostPorts: [5432], debug });
+    await backendSessionOptions({ ...base, debug }).resolveRunner!();
+    expect(resolve.mock.calls[2]![0].docker).toEqual({ debug });
+    await backendSessionOptions(base).resolveRunner!();
+    expect(resolve.mock.calls[3]![0]).not.toHaveProperty('docker');
+  });
+});

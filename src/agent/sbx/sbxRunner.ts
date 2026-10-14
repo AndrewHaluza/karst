@@ -1,13 +1,16 @@
 import { spawnHeadlessCli } from '../headlessSpawn.js';
+import { runProcess } from '../../workflow/gates/run.js';
 import type {
+  GateProcessRunner,
   PlacedInteractiveLaunch,
   RunHeadless,
   SandboxTicketRef,
   SessionRunner,
   SyncResult,
 } from '../sessionRunner.js';
-import { SBX_BIN } from './sbxPreflight.js';
+import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
+import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
 
 /** The cores an sbx sandbox can host (arch:AC-32). */
 export type SbxCore = 'claude' | 'codex';
@@ -21,7 +24,14 @@ export interface SbxRunnerOptions {
   /** `sbx ls` names from preflight: picks create vs reattach without a sync call. */
   readonly existing: readonly string[];
   readonly spawnHeadless?: RunHeadless;
+  /** The host gate boundary `runGate` wraps (default `runProcess`). */
+  readonly gateProcess?: GateProcessRunner;
+  /** Agent-visible evidence dir (the bridge, arch:AC-34), exported to gates as `KARST_EVIDENCE_DIR`. */
+  readonly evidenceDir?: string;
 }
+
+/** Env name a sandboxed gate reads to know where evidence files go (the bridge dir). */
+export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
 
 /**
  * Relaxed-permission argv for a core. Empty unless the runner ITSELF enforces a
@@ -50,6 +60,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const spawnHeadless = opts.spawnHeadless ?? spawnHeadlessCli;
   const remote = sandboxRemote(opts.name);
   const git = (wt: string, args: string[]) => opts.proc.run('git', ['-C', wt, ...args]);
+  const gateProcess = opts.gateProcess ?? runProcess;
+  const sbx = (args: string[]) => opts.proc.run(SBX_BIN, args);
+  const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
@@ -73,6 +86,34 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     bridgeRunDir: (paths) => paths.dir,
     runHeadless: (command, args, cwd, headlessOpts) =>
       spawnHeadless(SBX_BIN, ['exec', opts.name, '--', command, ...args], cwd, headlessOpts),
+    // Gates run against the agent's live edits; killing the `sbx exec` client
+    // on abort ends the command (the same contract `runHeadless` relies on).
+    runGate: (command, args, cwd, gateOpts) =>
+      gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
+    hasSandbox: async () => {
+      const ls = await sbx(['ls']);
+      return ls.code === 0 && parseNames(ls.stdout).includes(opts.name);
+    },
+    publishPort: async (m) => {
+      const out = await sbx(sbxPublishArgs(opts.name, m));
+      if (out.code === 0) return { ok: true };
+      const text = `${out.stderr}\n${out.stdout}`;
+      return { ok: false, reason: `sbx ports --publish ${m.hostPort} failed: ${text.trim()}`, portTaken: isPortTakenError(text) };
+    },
+    unpublishPort: async (m) => {
+      await sbx(sbxUnpublishArgs(opts.name, m));
+    },
+    // ST2 exp 8: the listing is empty while the sandbox is stopped, so only a
+    // successful answer counts; a failure is "cannot tell", never "none".
+    listPorts: async () => {
+      const out = await sbx(['ports', opts.name]);
+      return out.code === 0 ? parseSbxPorts(out.stdout) : null;
+    },
+    allowHostPorts: async (ports) => {
+      if (ports.length === 0) return { ok: true };
+      const out = await sbx(sbxPolicyArgs('allow', opts.name, ports));
+      return out.code === 0 ? { ok: true } : { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}` };
+    },
     sync: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
       const wt = ticket.hostWorktreePath;
       if ((await git(wt, ['remote', 'get-url', remote])).code !== 0) {

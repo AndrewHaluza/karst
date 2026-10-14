@@ -10,6 +10,8 @@ import {
 } from '../../runtime/startOne.js';
 import { MissingAllocationError } from '../../resolver/recordedAllocator.js';
 import { PortRangeExhaustedError } from '../../resolver/allocator.js';
+import { stopSandboxService } from '../../agent/sandboxServices.js';
+import { ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps } from './sandboxTicketOps.js';
 
 /**
  * The dashboard Servers panel's row-scoped operations, extracted from
@@ -34,10 +36,29 @@ export interface ServerOpsDeps {
   /** Write to the clipboard (bound to `vscode.env.clipboard.writeText`). */
   copyText: (text: string) => void;
   debug: (message: string) => void;
+  /** Sandboxed tickets (arch:AC-32): absent → every row is a host row, as before. */
+  sandbox?: TicketSandboxDeps;
+}
+
+/**
+ * Stop one row. A sandboxed row (`servers.sandbox`) has no host pid: it is
+ * stopped inside its sandbox and its 127.0.0.1 mapping removed. When its
+ * runner is gone (backend changed), the row is still retired on the host side.
+ */
+async function stopRow(deps: ServerOpsDeps, serverId: number): Promise<void> {
+  const row = deps.store.db
+    .prepare('SELECT ticket_id AS ticketId, sandbox FROM servers WHERE id = ?')
+    .get(serverId) as { ticketId: number | null; sandbox: string | null } | undefined;
+  const found = row?.sandbox && row.ticketId !== null && deps.sandbox ? ticketSandboxRunner(deps.sandbox, row.ticketId) : undefined;
+  if (found) {
+    await stopSandboxService(deps.store, serverId, found.runner);
+    return;
+  }
+  await stopServer(deps.store, serverId);
 }
 
 export async function stopServerRow(deps: ServerOpsDeps, serverId: number): Promise<void> {
-  await stopServer(deps.store, serverId);
+  await stopRow(deps, serverId);
   deps.afterServerChange();
 }
 
@@ -95,9 +116,11 @@ async function runStart(
   if (!manifest) return;
 
   try {
-    if (stopFirst) await stopServer(deps.store, serverId);
+    if (stopFirst) await stopRow(deps, serverId);
+    const sandbox = deps.sandbox ? await ticketSandboxContext(deps.sandbox, row.ticketId) : undefined;
     const result = await startTicketService(deps.store, manifest, row.ticketId, repo, {
       debug: deps.debug,
+      ...(sandbox ? { sandbox } : {}),
     });
     deps.notify.info(startMessage(verb, repo, result));
   } catch (err) {
