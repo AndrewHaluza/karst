@@ -701,16 +701,23 @@ export async function runReview(
       // messages (deduped: a multi-repo review repeats the SAME denial per
       // target), re-collapsed so joining cannot exceed the cap — rides onto the
       // run so the inside Review detail renders the NAMED diagnostic (an agy
-      // permission denial, say) instead of a fixed string (T652). An
-      // unreadable-only block has no crash message; its detail stays NULL and
-      // the generic wording stands.
+      // permission denial, say) instead of a fixed string (T652).
+      //
+      // An unreadable-only block has no crash message, but it DOES have the
+      // aggregate's own reason ("unreadable output from <repo> — no findings
+      // could be read"). Storing that is what makes the inside Review row show
+      // the real cause instead of the generic "the agent did not return a
+      // result. Retry review." — which pointed T694's reader at a retry when the
+      // answer was present and the parser had dropped it.
       const uniqueCrashes = [...new Set(crashes)];
       const failureDetail =
         usageLimited && findingsLane.kind === 'usage-limited'
           ? findingsLane.detail
           : uniqueCrashes.length > 0
             ? collapseDiagnostic(uniqueCrashes.join('; '))
-            : null;
+            : unreadableBlock && outcome.kind === 'blocked'
+              ? collapseDiagnostic(outcome.reason)
+              : null;
       finishProcessRun(
         store,
         processRunId,

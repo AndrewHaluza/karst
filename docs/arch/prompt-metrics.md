@@ -49,7 +49,7 @@ is never a metric input.
 |---|---|---|---|
 | marker compliance rate | `process_runs` `session`/`fix` closure: `passed` vs `interrupted`/`stale` | % of impl/fix sessions that fired the marker vs ended silent | read-only (pre-existing) |
 | silent-turn rate | existing needs-you detection (#320/#321) | prompt failing to elicit any output | read-only (pre-existing) |
-| findings parse-failure rate | `process_runs(prompt_telemetry).parseTiers` on the `review` run | how often the salvage parser fell back, and to which tier (whole-doc → fenced → balanced) | `review/findings.ts` → `findingsLane.ts` |
+| findings parse-failure rate | `process_runs(prompt_telemetry).parseTiers` on the `review` run | how often the salvage parser fell back, and to which tier (whole-doc → JSONL → fenced → balanced; the tail-suffix scan reports as `balanced`) | `review/findings.ts` → `findingsLane.ts` |
 | tester re-ask rate | `process_runs(prompt_telemetry).silenceNudges` on the `tester` run | `TESTER_SILENCE_NUDGE` fire count — output-contract compliance | `uat/tester.ts` |
 | tester reformat-nudge rate | `process_runs(prompt_telemetry).reformatNudges` on the `tester` run | reformat-nudge fire count, kept SEPARATE from `silenceNudges` — how often a target answered in prose and needed a reshape (UAT-19); this is the rate the park's rollback trigger below reads | `uat/tester.ts` |
 | wrong-checkout stop rate | `uat_findings` where `title LIKE 'UAT skipped: checkout is on%'` | orientation-block effectiveness | read-only (pre-existing) |
