@@ -180,6 +180,21 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-docker', status: 'warn' }));
   });
 
+  it('checks both backends when different cores select sbx and docker', async () => {
+    const list = vi.fn(async () => ({ sandboxes: [], errors: [] }));
+    const backends = vi.fn(ready.backends);
+    const checks = await doctorWith('agentBackends:\n  claude: sbx\n  opencode: docker\n', list, { ...ready, backends }, 'tools');
+    expect(backends).toHaveBeenCalledWith({ sbx: true, docker: true });
+    expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-sbx', status: 'ok' }));
+    expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-docker', status: 'warn' }));
+  });
+
+  it('probes only the selected backend', async () => {
+    const backends = vi.fn(ready.backends);
+    await doctorWith('agentBackends:\n  codex: sbx\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), { ...ready, backends }, 'tools');
+    expect(backends).toHaveBeenCalledWith({ sbx: true, docker: false });
+  });
+
   it('warns about disk above 10 GB in the state area', async () => {
     const dockerBox = { runner: 'docker' as const, name: 'karst-ab12cd34-1-opencode', ticketId: 1, core: 'opencode', state: 'running' as const };
     const list = vi.fn(async () => ({ sandboxes: [dockerBox], errors: [] }));

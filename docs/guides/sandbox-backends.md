@@ -7,7 +7,7 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
   awk "/^## \[@guide:SBB-01\]/,/END_DOC_BLOCK: \[@guide:SBB-01\]/" docs/guides/sandbox-backends.md
 -->
 
-# Sandbox backends: using `agentBackend`
+# Sandbox backends: using `agentBackends`
 
 How to run agent sessions inside a sandbox so they ask for fewer permissions.
 The design rules are in `arch:AC-31` (fail closed), `arch:AC-32` (sbx), `arch:AC-33`
@@ -15,8 +15,11 @@ The design rules are in `arch:AC-31` (fail closed), `arch:AC-32` (sbx), `arch:AC
 
 ## [@guide:SBB-01] Choose a backend
 
-Set it in **Settings → Agents → Sandbox backend**, or `agentBackend:` in `karst.yml`.
+Set it in **Settings → Agents → Sandbox backend**, or `agentBackends:` in `karst.yml`, one entry per core
+(`claude: sbx`, `opencode: docker`; an absent core is `host`; agy is host only).
 It is opt-in. `host` is the default and keeps today's prompted behaviour.
+The old single `agentBackend:` value is still read as a fallback, but Settings
+writes only the map.
 
 | Backend | Cores | Needs |
 |---|---|---|

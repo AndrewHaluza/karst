@@ -1,3 +1,5 @@
+import type { BackendWant } from '../agent/backendChoices.js';
+import { selectedSandboxBackends, wantedBackends } from '../agent/backendChoices.js';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -150,7 +152,7 @@ const listSandboxesNode: ListSandboxes = (projectRoot) =>
 
 /** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32). Only with a sandbox backend. */
 async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: ListSandboxes): Promise<DoctorCheck[]> {
-  if (manifestPath === undefined || manifest?.agentBackend === undefined) return [];
+  if (manifestPath === undefined || manifest?.agentBackends === undefined) return [];
   const live = new Set((store.db.prepare('SELECT id FROM tickets WHERE archived_at IS NULL').all() as { id: number }[]).map((r) => r.id));
   const inv = await list(manifestPath);
   return checkSandboxOrphans(inv.sandboxes.filter((s) => !live.has(s.ticketId)));
@@ -158,7 +160,7 @@ async function sandboxOrphanChecks(store: Store, manifestPath: string | undefine
 
 /** Backend readiness + docker disk use; injected by tests. */
 export interface SandboxProbe {
-  readonly backends: () => Promise<BackendProbes>;
+  readonly backends: (want: BackendWant) => Promise<BackendProbes>;
   readonly dockerDisk: () => Promise<number | undefined>;
 }
 
@@ -166,11 +168,11 @@ const SANDBOX_PROBE_NODE: SandboxProbe = { backends: probeBackends, dockerDisk: 
 
 /** Selected backend status and sandbox disk use (arch:AC-32); only with a sandbox backend, and only the checks of `area`. */
 async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | undefined, manifest: Manifest | undefined, io: CollectorInput): Promise<DoctorCheck[]> {
-  const setting = manifest?.agentBackend;
-  if (manifestPath === undefined || setting === undefined || setting === 'host') return [];
-  const [probes, inv] = await Promise.all([io.probe.backends(), io.listSandboxes(manifestPath)]);
+  const selected = selectedSandboxBackends(manifest?.agentBackends);
+  if (manifestPath === undefined || selected.length === 0) return [];
+  const [probes, inv] = await Promise.all([io.probe.backends(wantedBackends(manifest?.agentBackends)), io.listSandboxes(manifestPath)]);
   const docker = inv.sandboxes.filter((s) => s.runner === 'docker').length > 0 ? await io.probe.dockerDisk() : undefined;
-  return checkSandboxBackends({ setting, ...probes, sandboxCount: inv.sandboxes.length, diskBytes: docker })
+  return checkSandboxBackends({ selected, ...probes, sandboxCount: inv.sandboxes.length, diskBytes: docker })
     .filter((c) => c.area === area);
 }
 

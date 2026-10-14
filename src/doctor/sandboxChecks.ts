@@ -1,4 +1,3 @@
-import type { AgentBackend } from '../manifest/types.js';
 import type { BackendStatus } from '../agent/effectiveBackend.js';
 import type { DoctorCheck } from './types.js';
 
@@ -6,7 +5,8 @@ import type { DoctorCheck } from './types.js';
 export const SANDBOX_DISK_WARN_BYTES = 10e9;
 
 export interface SandboxCheckInput {
-  readonly setting: AgentBackend | undefined;
+  /** The sandbox backends some core selects; sbx and docker can both be on. */
+  readonly selected: readonly ('sbx' | 'docker')[];
   readonly sbx: BackendStatus;
   readonly docker: BackendStatus;
   readonly sandboxCount: number;
@@ -15,26 +15,27 @@ export interface SandboxCheckInput {
 }
 
 /**
- * Status of the SELECTED sandbox backend plus sandbox count and disk use
+ * Status of every SELECTED sandbox backend plus sandbox count and disk use
  * (arch:AC-32). Report-only: an unavailable backend means sessions run prompted
  * on host, so it warns with the preflight reason as the fix hint.
  */
 export function checkSandboxBackends(input: SandboxCheckInput): DoctorCheck[] {
-  if (input.setting === undefined || input.setting === 'host') return [];
-  const status = input.setting === 'sbx' ? input.sbx : input.docker;
-  const out: DoctorCheck[] = [
-    status.ok
-      ? { id: `tools.sandbox-${input.setting}`, area: 'tools', status: 'ok', detail: `${input.setting} sandbox backend ready` }
-      : {
-          id: `tools.sandbox-${input.setting}`,
-          area: 'tools',
-          status: 'warn',
-          detail: `${input.setting} backend unavailable: sessions run prompted on host (${status.reason})`,
-          fix: { tier: 'report', summary: `${input.setting} backend unavailable`, nextStep: status.reason },
-        },
-  ];
+  if (input.selected.length === 0) return [];
+  const out: DoctorCheck[] = input.selected.map((backend) => backendCheck(backend, backend === 'sbx' ? input.sbx : input.docker));
   if (input.sandboxCount > 0) out.push(diskCheck(input.sandboxCount, input.diskBytes));
   return out;
+}
+
+function backendCheck(backend: 'sbx' | 'docker', status: BackendStatus): DoctorCheck {
+  return status.ok
+    ? { id: `tools.sandbox-${backend}`, area: 'tools', status: 'ok', detail: `${backend} sandbox backend ready` }
+    : {
+        id: `tools.sandbox-${backend}`,
+        area: 'tools',
+        status: 'warn',
+        detail: `${backend} backend unavailable: sessions run prompted on host (${status.reason})`,
+        fix: { tier: 'report', summary: `${backend} backend unavailable`, nextStep: status.reason },
+      };
 }
 
 function diskCheck(count: number, bytes: number | undefined): DoctorCheck {

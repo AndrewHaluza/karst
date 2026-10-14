@@ -184,7 +184,7 @@ describe('routeSettingsAction', () => {
       resolvePendingOutputs: (id, accepted) => { calls['resolvePendingOutputs']!.push({ id, accepted }); },
       setToken: () => { calls['setToken']!.push(true); },
       clearToken: () => { calls['clearToken']!.push(true); },
-      checkBackends: () => { calls['checkBackends']!.push(true); },
+      checkBackends: (want) => { calls['checkBackends']!.push(want); },
       setApproachEnabled: (id, enabled) => { calls['setApproachEnabled']!.push({ id, enabled }); },
       setAgentEnabled: (name, enabled) => { calls['setAgentEnabled']!.push({ name, enabled }); },
       saveAgentFile: (name, body) => { calls['saveAgentFile']!.push({ name, body }); },
@@ -248,8 +248,8 @@ describe('routeSettingsAction', () => {
     expect(a.calls.uninstallApproach).toEqual(['my-id']);
     expect(a.calls.setToken).toEqual([true]);
     expect(a.calls.clearToken).toEqual([true]);
-    routeSettingsAction({ type: 'check-backends' }, a);
-    expect(a.calls.checkBackends).toEqual([true]);
+    routeSettingsAction({ type: 'check-backends', want: { sbx: true, docker: false } }, a);
+    expect(a.calls.checkBackends).toEqual([{ sbx: true, docker: false }]);
     expect(a.calls.setApproachEnabled).toEqual([{ id: 'a', enabled: false }]);
     expect(a.calls.setAgentEnabled).toEqual([{ name: 'reviewer', enabled: false }]);
     expect(a.calls.saveAgentFile).toEqual([{ name: 'r', body: '# body' }]);

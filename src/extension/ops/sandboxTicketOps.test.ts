@@ -19,7 +19,7 @@ const SBX = sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' });
 const bridge = { dir: '/g/events/7', runDir: '/karst-bridge/7' } as never;
 
 function deps(over: Partial<TicketSandboxDeps> = {}): TicketSandboxDeps {
-  return { backend: () => 'sbx', projectRoot: () => '/p', coreOf: () => 'claude', ...over };
+  return { backends: () => ({ claude: 'sbx', codex: 'sbx' }), projectRoot: () => '/p', coreOf: () => 'claude', ...over };
 }
 
 describe('ticketSandboxRunner (arch:AC-32)', () => {
@@ -27,12 +27,12 @@ describe('ticketSandboxRunner (arch:AC-32)', () => {
     expect(ticketSandboxRunner(deps(), 7)).toMatchObject({ sandboxName: SBX, runner: { kind: 'sbx' } });
     expect(ticketSandboxRunner(deps({ coreOf: () => 'codex' }), 7)?.runner.kind).toBe('sbx');
     expect(ticketSandboxRunner(deps({ coreOf: () => 'opencode' }), 7)).toBeUndefined();
-    expect(ticketSandboxRunner(deps({ backend: () => 'docker', coreOf: () => 'opencode' }), 7)).toMatchObject({
+    expect(ticketSandboxRunner(deps({ backends: () => ({ opencode: 'docker', opencode2: 'docker' }), coreOf: () => 'opencode' }), 7)).toMatchObject({
       sandboxName: dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' }).container, runner: { kind: 'docker' },
     });
-    expect(ticketSandboxRunner(deps({ backend: () => 'docker', coreOf: () => 'claude' }), 7)).toBeUndefined();
-    expect(ticketSandboxRunner(deps({ backend: () => 'host' }), 7)).toBeUndefined();
-    expect(ticketSandboxRunner(deps({ backend: () => undefined }), 7)).toBeUndefined();
+    expect(ticketSandboxRunner(deps({ backends: () => ({ opencode: 'docker', opencode2: 'docker' }), coreOf: () => 'claude' }), 7)).toBeUndefined();
+    expect(ticketSandboxRunner(deps({ backends: () => ({}) }), 7)).toBeUndefined();
+    expect(ticketSandboxRunner(deps({ backends: () => undefined }), 7)).toBeUndefined();
     expect(ticketSandboxRunner(deps({ coreOf: () => null }), 7)).toBeUndefined();
   });
 
@@ -42,7 +42,7 @@ describe('ticketSandboxRunner (arch:AC-32)', () => {
     await ticketSandboxRunner(deps({ bridgeOf: () => bridge, proc: fakeSbxProcess() }), 7)!.runner.runGate!('true', [], '/wt');
     expect(vi.mocked(runProcess).mock.calls[0]![1]).toEqual(['exec', '--env', 'KARST_EVIDENCE_DIR=/g/events/7', SBX, '--', 'true']);
     const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } });
-    await ticketSandboxRunner(deps({ backend: () => 'docker', coreOf: () => 'opencode', bridgeOf: () => bridge, dockerProc: proc, platform: 'linux' }), 7)!
+    await ticketSandboxRunner(deps({ backends: () => ({ opencode: 'docker', opencode2: 'docker' }), coreOf: () => 'opencode', bridgeOf: () => bridge, dockerProc: proc, platform: 'linux' }), 7)!
       .runner.runGate!('true', [], '/wt');
     expect(vi.mocked(runProcess).mock.calls[1]![1]).toContain('KARST_EVIDENCE_DIR=/karst-bridge/7');
     vi.mocked(runProcess).mockClear();
@@ -56,7 +56,7 @@ describe('ticketSandboxContext', () => {
     const live = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${SBX}\n` } });
     await expect(ticketSandboxContext(deps({ proc: live }), 7)).resolves.toMatchObject({ sandboxName: SBX });
     await expect(ticketSandboxContext(deps({ proc: fakeSbxProcess() }), 7)).resolves.toBeUndefined();
-    await expect(ticketSandboxContext(deps({ backend: () => 'host' }), 7)).resolves.toBeUndefined();
+    await expect(ticketSandboxContext(deps({ backends: () => ({}) }), 7)).resolves.toBeUndefined();
   });
 });
 
@@ -131,7 +131,7 @@ describe('reattachTicketSandbox', () => {
 });
 
 describe('scheduleSandboxReattach / withSandboxSpin / createTicketSandboxBindings', () => {
-  const m = (agentBackend?: string) => ({ repositories: {}, agentBackend }) as unknown as Manifest;
+  const m = (agentBackend?: string) => ({ repositories: {}, agentBackends: agentBackend ? { claude: agentBackend } : undefined }) as unknown as Manifest;
 
   it('schedules nothing without deps, manifest or a sandbox backend', async () => {
     const { scheduleSandboxReattach } = await import('./sandboxTicketOps.js');
@@ -182,7 +182,7 @@ describe('scheduleSandboxReattach / withSandboxSpin / createTicketSandboxBinding
     const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
     const store = openStore(':memory:');
     store.db.prepare("INSERT INTO baseline_refs (ticket_id, repo) VALUES (7, 'db')").run();
-    const manifest = { agentBackend: 'sbx', repositories: { db: { repoPath: '/r/db', service: { start: 'x', ports: [{ name: 'pg', default: 5432 }] } } } } as unknown as Manifest;
+    const manifest = { agentBackends: { claude: 'sbx' }, repositories: { db: { repoPath: '/r/db', service: { start: 'x', ports: [{ name: 'pg', default: 5432 }] } } } } as unknown as Manifest;
     let root: string | undefined;
     const b = createTicketSandboxBindings({ ...deps({ proc: fakeSbxProcess() }), store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => root });
     expect(b.deps.bridgeOf!(7)).toBeUndefined();

@@ -1,4 +1,4 @@
-import type { AgentBackend } from '../../manifest/types.js';
+import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
@@ -17,7 +17,7 @@ import type { Notify } from './notify.js';
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
 
 export interface BackendSessionInput {
-  readonly backend: AgentBackend | undefined;
+  readonly backends: AgentBackends | undefined;
   /** The ticket's opt-out (`tickets.agent_backend`); it can only select host, never a backend. */
   readonly ticketOverride?: 'host' | null;
   /** Shown to the user when a chosen sandbox backend fell back to a prompted host session. */
@@ -38,7 +38,7 @@ export interface BackendSessionInput {
 }
 
 /**
- * The `openSession` options for the manifest's `agentBackend` (arch:AC-32).
+ * The `openSession` options for the manifest's `agentBackends` entry of the session core (arch:AC-32).
  * Absent → no options at all, so a host launch is byte-identical to before.
  */
 export function backendSessionOptions(input: BackendSessionInput): {
@@ -47,12 +47,12 @@ export function backendSessionOptions(input: BackendSessionInput): {
   bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
 } {
   // The project owns whether the feature is on: a ticket opt-out alone changes nothing.
-  if (input.backend === undefined) return {};
-  const backend = ticketBackendSetting(input.backend, input.ticketOverride)!;
+  if (input.backends === undefined) return {};
+  const backend = ticketBackendSetting(backendForCore(input.backends, input.core), input.ticketOverride)!;
   const resolve = input.resolve ?? resolveBackend;
   const resolveRunner = async (): Promise<ResolvedBackend> => {
     const out = await resolve({
-      backend, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
+      backends: { ...input.backends, [input.core]: backend }, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
       ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
       ...(input.debug || input.hostPorts ? {
         docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) },

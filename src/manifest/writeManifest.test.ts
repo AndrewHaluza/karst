@@ -368,8 +368,8 @@ describe('writeManifest', () => {
         debug: true,
         // Same reason: absent agentSandbox round-trips regardless of the overlay.
         agentSandbox: true,
-        // Same reason: absent agentBackend round-trips regardless of the overlay.
-        agentBackend: 'sbx',
+        // Same reason: absent agentBackends round-trips regardless of the overlay.
+        agentBackends: { claude: 'sbx', opencode: 'docker' },
         // Same reason again: absent closeDoneTerminalsWithTicket would round-trip
         // whether or not the overlay wrote it, so the populated manifest pins the
         // explicit value.

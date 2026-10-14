@@ -184,8 +184,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // "sessions stay prompted" (AC-31 opt-in).
     agentSandbox: manifest.agentSandbox,
     // Optional: written when set, dropped when cleared, so it falls back to
-    // "sessions run on the host" (AC-32).
-    agentBackend: manifest.agentBackend,
+    // "sessions run on the host" (AC-32). The legacy scalar `agentBackend` is
+    // never written back (it is folded into this map on load).
+    agentBackends: manifest.agentBackends,
     // Optional: written when set, dropped when cleared, so it falls back to
     // "closing a ticket leaves its done terminals alone".
     closeDoneTerminalsWithTicket: manifest.closeDoneTerminalsWithTicket,

@@ -576,7 +576,7 @@ describe('buildTicketFormState — sandbox backend override', () => {
   beforeEach(() => (store = openStore(':memory:')));
 
   it('create mode reports the project backend and no opt-out', () => {
-    const state = buildTicketFormState(store, { ...MANIFEST, agentBackend: 'sbx' }, () => [], () => []);
+    const state = buildTicketFormState(store, { ...MANIFEST, agentBackends: { claude: 'sbx' } }, () => [], () => []);
     expect(state.projectBackend).toBe('sbx');
     expect(state.selectedBackend).toBeNull();
   });
@@ -588,7 +588,7 @@ describe('buildTicketFormState — sandbox backend override', () => {
   it('edit mode surfaces the ticket host opt-out', () => {
     const t = createTicket(store, { key: 'A-1', title: 'T' });
     updateTicketFields(store, t.id, { agentBackend: 'host' });
-    const state = buildTicketFormState(store, { ...MANIFEST, agentBackend: 'docker' }, () => [], () => [], t.id);
+    const state = buildTicketFormState(store, { ...MANIFEST, agentBackends: { opencode: 'docker' } }, () => [], () => [], t.id);
     expect(state.projectBackend).toBe('docker');
     expect(state.selectedBackend).toBe('host');
   });

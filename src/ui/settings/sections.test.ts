@@ -44,7 +44,7 @@ describe('settings sections — vocabulary', () => {
     expect([...seen].sort()).toEqual(
       [
         'activeAgentPreset',
-        'agentBackend',
+        'agentBackends',
         'agentPresets',
         'agentProvider',
         'agents',

@@ -1,4 +1,4 @@
-import type { AgentBackend } from '../manifest/types.js';
+import { backendForCore, type AgentBackends } from './backendChoices.js';
 import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
@@ -8,7 +8,8 @@ import { HOST_SESSION_RUNNER, type SandboxTicketRef, type SessionRunner } from '
 
 
 export interface ResolveBackendInput {
-  readonly backend: AgentBackend | undefined;
+  /** The per-core map; the session core's entry decides (absent → host). */
+  readonly backends: AgentBackends | undefined;
   readonly core: string;
   readonly projectRoot: string;
   readonly ticketId: number;
@@ -34,8 +35,8 @@ export interface ResolvedBackend {
 export async function resolveBackend(input: ResolveBackendInput): Promise<ResolvedBackend> {
   const host = input.host ?? HOST_SESSION_RUNNER;
   const onHost = (reason: string): ResolvedBackend => ({ runner: host, line: `host (${reason})` });
-  const backend = input.backend ?? 'host';
-  if (backend === 'host') return onHost('agentBackend: host');
+  const backend = backendForCore(input.backends, input.core);
+  if (backend === 'host') return onHost(`agentBackends.${input.core}: host`);
   if (backend === 'docker') {
     const docker = await resolveDocker({
       core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId, worktree: input.worktree,

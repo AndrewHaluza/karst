@@ -1,3 +1,4 @@
+import type { BackendWant } from '../../agent/backendChoices.js';
 import type { ApproachDef, Manifest, OutputDef } from '../../manifest/types.js';
 import { withAcceptedOutputs } from '../../approaches/pendingOutputs.js';
 import { validateManifest, ManifestError } from '../../manifest/schema.js';
@@ -77,7 +78,7 @@ export interface SettingsActionsDeps {
   /** Clear the stored ClickUp token. */
   clearToken(): Promise<void>;
   /** Probe sbx/docker readiness for the Agents backend selector (arch:AC-32). */
-  probeBackends?(): Promise<BackendStatuses>;
+  probeBackends?(want: BackendWant): Promise<BackendStatuses>;
   /** Whether a ClickUp token is currently stored (drives the state flag). */
   hasToken(): Promise<boolean>;
   /** Write an agent file's full body under agentsDir (create or overwrite). */
@@ -514,10 +515,10 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         }
       },
 
-      async checkBackends(): Promise<void> {
+      async checkBackends(want: BackendWant): Promise<void> {
         if (!deps.probeBackends) return;
         try {
-          ctx.post({ type: 'backend-status', status: await deps.probeBackends() });
+          ctx.post({ type: 'backend-status', status: await deps.probeBackends(want) });
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

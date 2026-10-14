@@ -1,4 +1,4 @@
-import type { AgentBackend } from '../manifest/types.js';
+import { backendForCore, type AgentBackends, type CoreBackend as AgentBackend } from './backendChoices.js';
 import { DOCKER_CORES, SBX_CORES } from './sandboxCores.js';
 
 /** Result of a backend's preflight, reduced to what the UI needs. */
@@ -12,13 +12,13 @@ export interface EffectiveBackend {
 }
 
 export interface EffectiveBackendInput {
-  readonly setting: AgentBackend | undefined;
+  readonly backends: AgentBackends | undefined;
   readonly cores: readonly string[];
   readonly sbx: BackendStatus;
   readonly docker: BackendStatus;
 }
 
-const HOST_SETTING_REASON = 'agentBackend: host';
+const HOST_SETTING_REASON = 'agentBackends: host';
 
 /**
  * Pure mirror of `resolveBackend`'s decision per core (arch:AC-31/AC-32): a core
@@ -26,8 +26,7 @@ const HOST_SETTING_REASON = 'agentBackend: host';
  * reason. Never picks a sandbox the preflight did not clear.
  */
 export function deriveEffectiveBackends(input: EffectiveBackendInput): readonly EffectiveBackend[] {
-  const setting = input.setting ?? 'host';
-  return input.cores.map((core) => resolveCore(setting, core, input));
+  return input.cores.map((core) => resolveCore(backendForCore(input.backends, core), core, input));
 }
 
 function resolveCore(setting: AgentBackend, core: string, input: EffectiveBackendInput): EffectiveBackend {
@@ -47,8 +46,9 @@ export function formatEffectiveBackends(rows: readonly EffectiveBackend[]): stri
 }
 
 /**
- * The backend setting one ticket launches with. The per-ticket override can only
- * opt OUT to host; it never selects a backend the project did not (arch:AC-32).
+ * The backend setting one ticket launches with, given the session core's own
+ * entry (`backendForCore`). The per-ticket override can only opt OUT to host; it
+ * never selects a backend the project did not (arch:AC-32).
  */
 export function ticketBackendSetting(
   project: AgentBackend | undefined,

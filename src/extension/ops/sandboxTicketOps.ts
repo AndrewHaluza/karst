@@ -1,4 +1,5 @@
-import type { AgentBackend, Manifest } from '../../manifest/types.js';
+import type { Manifest } from '../../manifest/types.js';
+import { backendForCore, selectedSandboxBackends, type AgentBackends } from '../../agent/backendChoices.js';
 import type { Store } from '../../store/db.js';
 import { bridgePaths, type BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
@@ -20,13 +21,13 @@ import { isServing } from '../../runtime/health.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
- * sandboxed only when the manifest's `agentBackend` hosts its session core
+ * sandboxed only when the manifest's `agentBackends` entry for its session core
  * (sbx: claude/codex, docker: opencode/opencode2) AND its sandbox exists — a
  * session that failed closed to the host has none, so it keeps today's host
  * services and gates. No `vscode` import (ops ratchet).
  */
 export interface TicketSandboxDeps {
-  readonly backend: () => AgentBackend | undefined;
+  readonly backends: () => AgentBackends | undefined;
   readonly projectRoot: () => string;
   /** The ticket's session core (`tickets.session_provider`), or null. */
   readonly coreOf: (ticketId: number) => string | null;
@@ -45,9 +46,9 @@ export interface TicketSandbox {
 
 /** The runner the backend would use for this ticket's core, or undefined (host). Sync: no probe. */
 export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number): TicketSandbox | undefined {
-  const backend = deps.backend();
   const core = deps.coreOf(ticketId);
   if (core === null) return undefined;
+  const backend = backendForCore(deps.backends(), core);
   const bridge = deps.bridgeOf?.(ticketId);
   const projectRoot = deps.projectRoot();
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
@@ -133,7 +134,7 @@ export function scheduleSandboxReattach(
   onError: (err: unknown) => void,
   delayMs = SANDBOX_REATTACH_DELAY_MS,
 ): boolean {
-  if (!deps || !manifest || manifest.agentBackend === undefined || manifest.agentBackend === 'host') return false;
+  if (!deps || !manifest || selectedSandboxBackends(manifest.agentBackends).length === 0) return false;
   setTimeout(() => {
     reattachTicketSandbox(deps, store, manifest, ticketId, isHealthy).catch(onError);
   }, delayMs).unref?.();

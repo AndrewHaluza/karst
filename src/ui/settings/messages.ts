@@ -1,3 +1,4 @@
+import type { BackendWant } from '../../agent/backendChoices.js';
 import type { Manifest, OutputDef } from '../../manifest/types.js';
 import type { BackendStatuses, SettingsState } from './state.js';
 import type { SettingsProcessAssignmentView } from './processAssignmentViews.js';
@@ -33,7 +34,7 @@ export type SettingsWebviewMessage =
   | { type: 'set-token' }
   | { type: 'clear-token' }
   /** Re-probe sbx/docker readiness; the host answers with `backend-status`. */
-  | { type: 'check-backends' }
+  | { type: 'check-backends'; want: BackendWant }
   | { type: 'set-approach-enabled'; id: string; enabled: boolean }
   | { type: 'set-agent-enabled'; name: string; enabled: boolean }
   | { type: 'save-agent-file'; name: string; body: string }
@@ -175,7 +176,7 @@ export interface SettingsActions {
   setToken(): void | Promise<void>;
   /** Clear the stored ClickUp token. */
   clearToken(): void | Promise<void>;
-  checkBackends(): void | Promise<void>;
+  checkBackends(want: BackendWant): void | Promise<void>;
   /** Flip an approach's `enabled` flag in the manifest and persist. */
   setApproachEnabled(id: string, enabled: boolean): void | Promise<void>;
   /** Flip an agent's `enabled` flag (manifest `agents[name]`) and persist. */
@@ -251,7 +252,10 @@ export function parseSettingsMessage(raw: unknown): SettingsWebviewMessage | nul
     case 'clear-token':
       return { type: 'clear-token' };
     case 'check-backends':
-      return { type: 'check-backends' };
+      return typeof raw.want === 'object' && raw.want !== null
+        && typeof (raw.want as BackendWant).sbx === 'boolean' && typeof (raw.want as BackendWant).docker === 'boolean'
+        ? { type: 'check-backends', want: { sbx: (raw.want as BackendWant).sbx, docker: (raw.want as BackendWant).docker } }
+        : null;
     case 'set-approach-enabled':
       return str('id') && typeof raw.enabled === 'boolean'
         ? { type: 'set-approach-enabled', id: raw.id as string, enabled: raw.enabled }
@@ -327,7 +331,7 @@ export function routeSettingsAction(raw: unknown, actions: SettingsActions): voi
     case 'clear-token':
       return actions.clearToken();
     case 'check-backends':
-      return actions.checkBackends();
+      return actions.checkBackends(msg.want);
     case 'set-approach-enabled':
       return actions.setApproachEnabled(msg.id, msg.enabled);
     case 'set-agent-enabled':

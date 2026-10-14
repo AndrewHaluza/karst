@@ -13,6 +13,7 @@
  * `pageHostBridge` reads.
  */
 
+import type { BackendWant } from '../../agent/backendChoices.js';
 import type { SettingsWebviewMessage } from './messages.js';
 
 /** The minimal host API a sender posts through. */
@@ -60,7 +61,7 @@ export function createSender(api: WebviewApi) {
     ) => send({ type: 'resolve-pending-outputs', id, accepted }, requestId),
     setToken: (requestId?: string) => send({ type: 'set-token' }, requestId),
     clearToken: (requestId?: string) => send({ type: 'clear-token' }, requestId),
-    checkBackends: (requestId?: string) => send({ type: 'check-backends' }, requestId),
+    checkBackends: (want: BackendWant, requestId?: string) => send({ type: 'check-backends', want }, requestId),
     setApproachEnabled: (
       id: Msg<'set-approach-enabled'>['id'],
       enabled: Msg<'set-approach-enabled'>['enabled'],

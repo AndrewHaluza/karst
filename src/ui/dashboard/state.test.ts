@@ -99,14 +99,22 @@ describe('buildDashboardState', () => {
 
   it('builds the sandbox card only under a sandbox backend, honouring the ticket opt-out', () => {
     const t = createTicket(store, { key: 'PROJ-7', title: 'sb' });
-    const withBackend = (agentBackend: 'host' | 'sbx' | 'docker' | undefined) =>
-      buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackend }).sandbox;
+    const withBackend = (backend: 'host' | 'sbx' | 'docker' | undefined) =>
+      buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackends: backend ? { claude: backend } : undefined }).sandbox;
     expect(withBackend(undefined)).toBeNull();
     expect(withBackend('host')).toBeNull();
     expect(withBackend('sbx')).toMatchObject({ backend: 'sbx', core: 'claude', workspace: 'clone', actions: true });
     expect(withBackend('docker')).toMatchObject({ backend: 'host', note: 'claude: docker backend unsupported', actions: false });
     updateTicketFields(store, t.id, { agentBackend: 'host' });
     expect(withBackend('sbx')).toMatchObject({ backend: 'host', note: 'ticket opted out of the sandbox backend', actions: true });
+  });
+
+  it('shows the sandbox card by the ticket session core, not by any core', () => {
+    const t = createTicket(store, { key: 'PROJ-8', title: 'cores' });
+    const agentBackends = { opencode: 'docker' } as const;
+    expect(buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'claude', { agentBackends }).sandbox).toBeNull();
+    expect(buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, 'opencode', { agentBackends }).sandbox)
+      .toMatchObject({ backend: 'docker', core: 'opencode', workspace: 'clone' });
   });
 
   it('carries the parent relationship for a follow-up and null otherwise', () => {

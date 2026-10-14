@@ -32,7 +32,7 @@ function setup(sandboxColumn: string | null, proc = fakeSbxProcess({ 'sbx ls': {
   const deps: ServerOpsDeps = {
     store, notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() }, afterServerChange: vi.fn(),
     loadManifest: vi.fn().mockResolvedValue(manifest(stack())), openExternal: vi.fn(), copyText: vi.fn(), debug: vi.fn(),
-    sandbox: { backend: () => 'sbx', projectRoot: () => '/p', coreOf: () => 'claude', proc },
+    sandbox: { backends: () => ({ claude: 'sbx', codex: 'sbx' }), projectRoot: () => '/p', coreOf: () => 'claude', proc },
   };
   return { store, id, deps, proc };
 }

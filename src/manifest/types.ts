@@ -3,6 +3,8 @@
  * validation; every downstream consumer (resolver, spin) reads this shape.
  */
 
+import type { AgentBackends, CoreBackend } from '../agent/backendChoices.js';
+
 export interface PortSlot {
   name: string; // slot identity, e.g. "port", referenced by dependsOn.port
   env: string; // the env var that sets this port
@@ -807,7 +809,7 @@ export interface ResilienceConfig {
 }
 
 /** `Manifest.agentBackend` values (arch:AC-32). */
-export type AgentBackend = 'host' | 'sbx' | 'docker';
+export type AgentBackend = CoreBackend;
 
 export interface Manifest {
   /**
@@ -949,13 +951,14 @@ export interface Manifest {
    */
   agentSandbox?: boolean;
   /**
-   * Where interactive agent sessions run (`arch:AC-32`): `host` (default),
-   * `sbx` (a Docker sbx microVM in clone mode; claude/codex only) or `docker`
-   * (reserved, not implemented). Anything that cannot run in the requested
-   * backend fails closed to the host, prompted; the effective backend is logged
-   * per launch. Independent of `agentSandbox`.
+   * Where each core's interactive sessions run (`arch:AC-32`): claude/codex
+   * `host`|`sbx`, opencode/opencode2 `host`|`docker`, agy `host`. Absent key =
+   * host. Anything that cannot run in the requested backend fails closed to the
+   * host, prompted; the effective backend is logged per launch. A legacy scalar
+   * `agentBackend` in the yml is folded into this map on load and never written.
+   * Independent of `agentSandbox`.
    */
-  agentBackend?: AgentBackend;
+  agentBackends?: AgentBackends;
   /**
    * When a ticket is closed (archived), also dispose its agent terminals whose
    * process has already exited — the dead tabs VS Code keeps with a "Done"
