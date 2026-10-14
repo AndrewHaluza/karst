@@ -196,3 +196,16 @@ describe('scheduleSandboxReattach / withSandboxSpin / createTicketSandboxBinding
     expect(none.reattach(7)).toBe(false);
   });
 });
+
+describe('bindings.stopTicket (review fix)', () => {
+  it('stops the sandboxed services inside the sandbox, with the ticket runner', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status, cwd, sandbox) VALUES (7, 'api', '127.0.0.1', 4100, 'running', '/wt', ?)").run(`sbx:${SBX}:4100`);
+    const proc = fakeSbxProcess();
+    const b = createTicketSandboxBindings({ ...deps({ proc }), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
+    await b.stopTicket(store, 7);
+    expect(proc.calls.map((c) => c.args.join(' '))).toContain(`ports ${SBX} --unpublish 127.0.0.1:4100:4100`);
+    expect(store.db.prepare('SELECT status FROM servers').get()).toEqual({ status: 'stopped' });
+  });
+});

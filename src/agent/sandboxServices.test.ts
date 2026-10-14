@@ -170,3 +170,30 @@ describe('stop, restart re-verify, cleanup', () => {
     await expect(reverifySandboxServices(store, 99, f.runner, () => Promise.resolve(false))).resolves.toEqual({ republished: [], dropped: [] });
   });
 });
+
+describe('review fixes', () => {
+  it('stopAllTicketServers stops sandboxed services inside the sandbox and unpublishes before the host path', async () => {
+    const { stopAllTicketServers } = await import('./sandboxServices.js');
+    const store = openStore(':memory:');
+    const f = fakeRunner();
+    await startSandboxService(input(store, f.runner));
+    await stopAllTicketServers(store, 7, f.runner);
+    expect(f.execs.at(-1)!.slice(1)).toEqual([STOP_SCRIPT, 'karst-svc-stop', 'api']);
+    expect(f.unpublished).toEqual([{ hostPort: 4100, sandboxPort: 4100 }]);
+    expect(rows(store)).toMatchObject([{ status: 'stopped' }]);
+    const host = openStore(':memory:');
+    host.db.prepare("INSERT INTO servers (ticket_id, repo, status) VALUES (7, 'x', 'running')").run();
+    await stopAllTicketServers(host, 7, undefined);
+    expect(host.db.prepare('SELECT status FROM servers').get()).toEqual({ status: 'stopped' });
+  });
+
+  it('re-verify drops a row whose missing mapping cannot be republished, even if something answers', async () => {
+    const store = openStore(':memory:');
+    await startSandboxService(input(store, fakeRunner().runner));
+    const f = fakeRunner({ live: [], publish: [{ ok: false, reason: 'down', portTaken: false }] });
+    const healthy = vi.fn(() => Promise.resolve(true));
+    await expect(reverifySandboxServices(store, 7, f.runner, healthy)).resolves.toEqual({ republished: [], dropped: ['api'] });
+    expect(healthy).not.toHaveBeenCalled();
+    expect(rows(store)).toEqual([]);
+  });
+});

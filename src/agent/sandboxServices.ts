@@ -1,6 +1,6 @@
 import type { Store } from '../store/db.js';
 import type { ServerRecord } from '../runtime/supervisor.js';
-import { markServerStopped } from '../runtime/supervisor.js';
+import { markServerStopped, stopTicketServers } from '../runtime/supervisor.js';
 import { PUBLISH_HOST } from './sandboxPorts.js';
 import type { PortMapping, SessionRunner } from './sessionRunner.js';
 
@@ -176,6 +176,16 @@ export async function stopTicketSandboxServices(store: Store, ticketId: number, 
   for (const row of sandboxRows(store, ticketId)) await stopSandboxService(store, row.id, runner);
 }
 
+/**
+ * Stop ALL of a ticket's servers: its sandboxed ones inside the sandbox (and
+ * their 127.0.0.1 mappings) first, then the host path for everything else.
+ * Without a runner a sandbox row can only be marked stopped by the host path.
+ */
+export async function stopAllTicketServers(store: Store, ticketId: number, runner: SandboxServiceRunner | undefined): Promise<void> {
+  if (runner) await stopTicketSandboxServices(store, ticketId, runner);
+  await stopTicketServers(store, ticketId);
+}
+
 export interface ReverifyResult {
   readonly republished: string[];
   readonly dropped: string[];
@@ -202,11 +212,14 @@ export async function reverifySandboxServices(
   for (const row of rows) {
     const mapping = mappingOf(row);
     const present = mapping !== null && live.some((m) => m.hostPort === mapping.hostPort && m.sandboxPort === mapping.sandboxPort);
+    let reachable = mapping !== null;
     if (mapping && !present) {
       const r = await needs(runner, 'publishPort')(mapping);
       if (r.ok) republished.push(row.repo);
+      // A mapping that cannot be restored leaves the row pointing at nothing.
+      else reachable = false;
     }
-    if (!mapping || !(await isHealthy(row))) {
+    if (!reachable || !(await isHealthy(row))) {
       if (mapping) await runner.unpublishPort?.(mapping);
       store.db.prepare('DELETE FROM servers WHERE id = ?').run(row.id);
       dropped.push(row.repo);

@@ -29,6 +29,7 @@ import {
 import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 import { serviceUnits, unitByKey, unitsOfRepos } from '../manifest/runnable.js';
 import { startResolvedService, type SandboxServiceContext } from './startService.js';
+import { stopAllTicketServers } from '../agent/sandboxServices.js';
 import { formatId } from '../model/entityId.js';
 // Re-exported: the token expansion moved to `serviceLaunch.ts` (baseline needs
 // it too), and this is where its tests and callers have always found it.
@@ -284,7 +285,7 @@ export async function spinTicket(
   // the row, re-resolve re-picks the same port, and startHot spawns a second
   // server fighting the first — the "retry makes a duplicate on the same port"
   // bug. killTree reaps the whole tree (launcher + Vite grandchild).
-  await stopTicketServers(store, ticketId);
+  await stopAllTicketServers(store, ticketId, opts.sandbox?.runner);
   // Then drop the rows whose repository the manifest no longer declares. A
   // rename re-keys the registry (servers are keyed by service unit key: the repo name, or repo/service), so the
   // pre-rename row is unreachable — no spin can start a manifest key that is

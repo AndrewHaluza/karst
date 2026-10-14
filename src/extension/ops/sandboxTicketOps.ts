@@ -10,7 +10,7 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '../../agent/sandboxHostAllow.js';
-import { reverifySandboxServices, type ReverifyResult } from '../../agent/sandboxServices.js';
+import { reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { SandboxServiceContext } from '../../runtime/startService.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
@@ -170,6 +170,8 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   return {
     deps,
     gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
+    /** Stop-all: sandboxed services stop inside the sandbox and lose their 127.0.0.1 mappings too. */
+    stopTicket: (store: Store, ticketId: number) => stopAllTicketServers(store, ticketId, ticketSandboxRunner(deps, ticketId)?.runner),
     hostPorts: (ticketId: number) => {
       const manifest = input.manifest();
       return manifest ? baselineHostPorts(manifest, ticketBaselineKeys(input.store, ticketId)) : [];
