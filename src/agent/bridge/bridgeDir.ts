@@ -1,6 +1,7 @@
 import { constants as fsConstants } from 'node:fs';
 import { chmod, mkdir, open, readdir, rm, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import type { HookChannel } from '../adapter.js';
 
 const EVENTS_FLAGS =
   fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
@@ -23,6 +24,20 @@ export function bridgePaths(root: string, ticketId: number): BridgePaths {
     eventsFile: join(dir, 'events.ndjson'),
     stateFile: join(root, 'state', `${ticketId}.json`),
     runDir: `${SANDBOX_BRIDGE_MOUNT_ROOT}/${ticketId}`,
+  };
+}
+
+/**
+ * The FILE hook channel for a sandboxed launch: scripts are written to the
+ * host bridge dir, the agent appends to `<runDir>/events.ndjson` as it sees it.
+ * `runDir` comes from the runner (`SessionRunner.bridgeRunDir`).
+ */
+export function sandboxHookChannel(paths: BridgePaths, launchId: string | undefined, runDir: string): HookChannel {
+  return {
+    endpointUrl: `file://${runDir}/events.ndjson`,
+    configDir: paths.dir,
+    runDir,
+    ...(launchId !== undefined ? { launchId } : {}),
   };
 }
 

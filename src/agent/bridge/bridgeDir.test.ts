@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { bridgePaths, ensureBridgeDir, listBridgeTicketIds, removeBridgeDir } from './bridgeDir.js';
+import { bridgePaths, ensureBridgeDir, listBridgeTicketIds, removeBridgeDir, sandboxHookChannel } from './bridgeDir.js';
 
 let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'bridge-')); });
@@ -57,5 +57,20 @@ describe('bridgeDir', () => {
   });
   it('lists nothing when the root has no events dir', async () => {
     expect(await listBridgeTicketIds(join(root, 'nope'))).toEqual([]);
+  });
+});
+
+describe('sandboxHookChannel', () => {
+  const paths = bridgePaths('/root', 7);
+  it('names the runner run dir in the endpoint and the host dir as configDir', () => {
+    expect(sandboxHookChannel(paths, 'L1', '/karst-bridge/7')).toEqual({
+      endpointUrl: 'file:///karst-bridge/7/events.ndjson',
+      configDir: paths.dir,
+      runDir: '/karst-bridge/7',
+      launchId: 'L1',
+    });
+  });
+  it('omits launchId when the launch has none', () => {
+    expect('launchId' in sandboxHookChannel(paths, undefined, paths.dir)).toBe(false);
   });
 });

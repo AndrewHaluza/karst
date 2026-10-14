@@ -17,6 +17,7 @@ import { NudgeQueue, type NudgeHooks } from './nudgeQueue.js';
 import { formatId } from '../model/entityId.js';
 import type { DeliveryChannel } from '../workflow/messageDelivery.js';
 import { HOST_SESSION_RUNNER, type SessionRunner } from '../agent/sessionRunner.js';
+import { ensureBridgeDir, sandboxHookChannel, type BridgePaths } from '../agent/bridge/bridgeDir.js';
 
 /**
  * The subset of a `vscode.Terminal` the manager touches. Modeling it as an
@@ -111,6 +112,8 @@ export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
 
 /** Host command context that must survive a failed-resume retry. */
 export interface OpenSessionOptions {
+  /** Per-ticket evidence bridge for a sandboxed launch (arch:AC-34). Host-internal. */
+  bridge?: { readonly paths: BridgePaths };
   reveal?: boolean;
   recovery?: boolean;
   /**
@@ -570,6 +573,10 @@ export class SessionManager {
     // MCP config) do not exist, and the core's own OS sandbox is redundant.
     const inSandbox = runner.enforcesSandbox;
     const hookChannel = this.hookChannelFor(ticketId);
+    // arch:AC-34: a sandbox reaches the host only through its bridge file, and
+    // only when the runner says where the bridge dir appears inside it.
+    const bridge = inSandbox ? sandboxBridge(runner, options.bridge?.paths, hookChannel.launchId) : undefined;
+    if (bridge) await ensureBridgeDir(bridge.paths);
     const mcpConfigPath = inSandbox ? undefined : this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     // AC-31: the core's own sandbox only when it can be enforced; otherwise the
     // launch fails closed to prompted mode and the reason is reported.
@@ -591,7 +598,7 @@ export class SessionManager {
       // A human watches: normal approvals stay, pattern kills and home-config
       // writes are always denied (D170).
       policy: 'attended',
-      ...(inSandbox ? {} : { hookChannel }),
+      ...(inSandbox ? (bridge ? { hookChannel: bridge.channel } : {}) : { hookChannel }),
       sessionName: terminalName,
       ...(initialPrompt ? { initialPrompt } : {}),
       ...(extraArgs && extraArgs.length > 0 ? { extraArgs } : {}),
@@ -642,6 +649,7 @@ export class SessionManager {
       const placed = runner.placeInteractive({
         ticketId,
         hostWorktreePath: worktreePath,
+        ...(bridge ? { bridgeDir: bridge.paths.dir } : {}),
         command: cmd.command,
         args: cmd.args,
         env: {
@@ -920,4 +928,13 @@ export class SessionManager {
       tracked.terminal.dispose();
     }
   }
+}
+
+function sandboxBridge(
+  runner: SessionRunner,
+  paths: BridgePaths | undefined,
+  launchId: string | undefined,
+): { readonly paths: BridgePaths; readonly channel: HookChannel } | undefined {
+  const runDir = paths && runner.bridgeRunDir?.(paths);
+  return paths && runDir !== undefined ? { paths, channel: sandboxHookChannel(paths, launchId, runDir) } : undefined;
 }
