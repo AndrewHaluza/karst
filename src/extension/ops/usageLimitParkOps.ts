@@ -71,18 +71,23 @@ export function formatModelChoices(
 }
 
 function findTargetPark(store: Store, ticketId: number, stageKey: StageKey): UsageLimitParkRow | null {
-  const open = listOpenParks(store, ticketId);
-  const park = open.find((p) => p.stage === stageKey);
-  if (!park) {
+  const atStage = listOpenParks(store, ticketId).filter((p) => p.stage === stageKey);
+  if (atStage.length === 0) {
     return null;
   }
-  if (park.kind === 'stage-block') {
-    const block = stageBlock(store, ticketId, stageKey);
-    if (block?.kind !== 'usage-limit') {
-      return null;
-    }
+  // A usage-limit STAGE BLOCK is what the dashboard banner speaks for, and it
+  // always carries its own `stage-block` park. A sibling `op` park (classify,
+  // analysis, suggest) merely RAN at the same stage and can be newer, so
+  // selecting by stage alone would hijack the stage action onto an unrelated
+  // op. When the stage is blocked on usage-limit, target THAT park.
+  const block = stageBlock(store, ticketId, stageKey);
+  if (block?.kind === 'usage-limit') {
+    return atStage.find((p) => p.kind === 'stage-block') ?? null;
   }
-  return park;
+  // No usage-limit block: an op park at this stage is the target (the op-park
+  // notification path). A stage-block park whose block is already gone is
+  // stale and must not be actioned.
+  return atStage.find((p) => p.kind === 'op') ?? null;
 }
 
 export interface UsageLimitActionCommonDeps {

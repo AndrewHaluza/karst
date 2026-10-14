@@ -5,6 +5,7 @@ import type { AgentAdapter } from '../agent/adapter.js';
 import { claimUsageLimitPark, type UsageLimitParkRow } from '../store/usageLimitParks.js';
 import { openGateRun } from './gates/evidence.js';
 import { commitGateOutcome, type RecoveryTriggerInput } from './gates/commit.js';
+import { closeStageRun } from '../store/stageRuns.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { ReviewArtifacts } from './review/conformance.js';
 import { capForGate, type GateStageKey } from './fixAttempts.js';
@@ -46,6 +47,49 @@ import {
   TESTER_OBSERVATIONS_FAILURE_PREFIX,
   type TesterGateRunner,
 } from './uat/testerVerifier.js';
+
+/** A sibling target's status carried on a UAT park row's `keptOutcome`. */
+interface UatKeptTarget {
+  repo: string;
+  status?: string;
+  observations?: number;
+}
+
+/**
+ * Merge a re-run's fresh UAT outcome with the siblings the earlier park kept.
+ *
+ * `testerResult.keptOutcome` names only the target THIS run touched; a re-run
+ * that parks AGAIN would otherwise drop everything a partner target answered
+ * before the first park — the very evidence the one-shot merge exists to
+ * protect, lost on the second quota stop. Sibling observations lead (they were
+ * observed first), and the fresh target statuses win for the re-run target (a
+ * re-parked target must read `usage-limited`, not its stale prior status).
+ */
+function mergeUatKeptOutcome(
+  fresh: string,
+  siblingObservations: readonly UatFindingInput[],
+  siblingTargets: readonly UatKeptTarget[],
+): string {
+  let freshObservations: unknown[] = [];
+  let freshTargets: unknown[] = [];
+  try {
+    const parsed = JSON.parse(fresh);
+    if (Array.isArray(parsed.observations)) freshObservations = parsed.observations;
+    if (Array.isArray(parsed.targets)) freshTargets = parsed.targets;
+  } catch {
+    // A malformed fresh outcome degrades to the siblings alone, never drops them.
+  }
+  const freshRepos = new Set(
+    freshTargets
+      .map((t) => (t && typeof t === 'object' ? (t as { repo?: unknown }).repo : undefined))
+      .filter((r): r is string => typeof r === 'string'),
+  );
+  const preservedTargets = siblingTargets.filter((t) => !freshRepos.has(t.repo));
+  return JSON.stringify({
+    observations: [...siblingObservations, ...freshObservations],
+    targets: [...preservedTargets, ...freshTargets],
+  });
+}
 
 export interface DismissParkOptions {
   manifest?: Manifest;
@@ -312,6 +356,11 @@ async function rerunReviewParkedStage(
     if (laneOutcome.processRunId) {
       finishProcessRun(store, laneOutcome.processRunId, 'interrupted', now(), 'interrupted');
     }
+    // The run this re-run OPENED must be closed even on a Stop: nothing else
+    // ever will (the process stays alive, so the activation sweep never marks
+    // it stale), and a `running` row no process will finish is a lie the
+    // dashboard renders as a live stage.
+    closeStageRun(store, newStageRunId, 'stopped', now());
     return { kind: 'stopped' };
   }
 
@@ -578,6 +627,8 @@ async function rerunUatParkedStage(
   );
 
   if (testerResult.kind === 'interrupted') {
+    // Close the run this re-run opened (see the review stopped path).
+    closeStageRun(store, newStageRunId, 'stopped', now());
     return { kind: 'stopped' };
   }
 
@@ -590,12 +641,18 @@ async function rerunUatParkedStage(
     }
   }
 
-  mkdirSync(artifactDir, { recursive: true });
-  const artifactPath = join(artifactDir, `uat-ticket-${parkRow.ticketId}-${newStageRunId}.log`);
-  writeFileSync(
-    artifactPath,
-    `! re-run parked uat: target ${targetRepo} with ${provider}/${model ?? 'default'}\n`,
-  );
+  // The host may pass an empty artifactDir (no artifact directory configured);
+  // `mkdirSync('')` throws ENOENT, so guard it exactly like the review path.
+  const artifactPath = artifactDir
+    ? join(artifactDir, `uat-ticket-${parkRow.ticketId}-${newStageRunId}.log`)
+    : '';
+  if (artifactPath) {
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(
+      artifactPath,
+      `! re-run parked uat: target ${targetRepo} with ${provider}/${model ?? 'default'}\n`,
+    );
+  }
 
   const previousGateRuns = listGateRuns(store, parkRow.ticketId).filter(
     (r) => r.stageKey === 'uat' && r.stageRunId === parkRow.stageRunId,
@@ -612,8 +669,11 @@ async function rerunUatParkedStage(
     summary: r.summary ?? undefined,
   }));
 
-  // Parse sibling observations from keptOutcome
+  // Parse the sibling observations AND target statuses the earlier park kept.
+  // Both must survive a re-park: the observations to re-record and count, the
+  // target statuses to carry forward on the next park row.
   const siblingObservations: UatFindingInput[] = [];
+  const siblingTargets: UatKeptTarget[] = [];
   try {
     if (parkRow.keptOutcome) {
       const parsed = JSON.parse(parkRow.keptOutcome);
@@ -627,6 +687,13 @@ async function rerunUatParkedStage(
               file: obs.file ?? null,
               line: obs.line ?? null,
             });
+          }
+        }
+      }
+      if (Array.isArray(parsed.targets)) {
+        for (const t of parsed.targets) {
+          if (t && typeof t === 'object' && typeof t.repo === 'string') {
+            siblingTargets.push(t as UatKeptTarget);
           }
         }
       }
@@ -704,7 +771,11 @@ async function rerunUatParkedStage(
           lane: 'uat',
           target: testerResult.target,
           detail: testerResult.detail,
-          keptOutcome: testerResult.keptOutcome,
+          keptOutcome: mergeUatKeptOutcome(
+            testerResult.keptOutcome,
+            siblingObservations,
+            siblingTargets,
+          ),
         },
       },
       stageRunId: newStageRunId,
@@ -781,6 +852,7 @@ async function rerunUatParkedStage(
         });
       }
       case 'interrupted':
+        closeStageRun(store, newStageRunId, 'stopped', now());
         return { kind: 'stopped' };
     }
   }

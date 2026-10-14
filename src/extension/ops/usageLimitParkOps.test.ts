@@ -668,6 +668,57 @@ describe('usageLimitParkOps', () => {
       expect(adapterFor).toHaveBeenCalledWith('claude', 'claude-3-7-sonnet');
     });
 
+    it('targets the stage-block park, not a newer op park at the same stage', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-OP-PARK', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      // The stage-block park is the one the dashboard banner speaks for.
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+      // A newer, unrelated op park merely RAN at the same stage (e.g. the
+      // classify op); it must not be selected for the stage action.
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'op',
+        lane: 'analysis',
+        target: null,
+        provider: 'codex',
+        model: 'gpt-4o',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const adapterFor = vi.fn().mockReturnValue({
+        runHeadless: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' }),
+      } as unknown as AgentAdapter);
+
+      await handleUsageLimitRetry({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        redrive: vi.fn(),
+        refresh: vi.fn(),
+        adapterFor,
+      });
+
+      expect(adapterFor).toHaveBeenCalledWith('claude', 'claude-3-7-sonnet');
+    });
+
     it('handles formatModelChoices when parkedModel is null or choice has no description', () => {
       const emptyCatalog = {
         modelsByTier: () => ({ primary: [], fast: [], reasoning: [] }),

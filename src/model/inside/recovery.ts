@@ -78,6 +78,10 @@ function triggerProse(round: RecoveryRound): string {
       return 'UAT blocking observations';
     case 'blocking-review-findings':
       return 'Review blocking findings';
+    case 'usage-limit-dismissed':
+      // D159: a dismissed usage-limit park opens a recovery round; the cause is
+      // the dismissal, named in curated prose rather than the raw park detail.
+      return 'Usage limit dismissed';
     default:
       // A future trigger kind degrades to the recorded prose, never a blank.
       return collapseDiagnostic(round.triggerDetail, TRIGGER_DETAIL_MAX);
