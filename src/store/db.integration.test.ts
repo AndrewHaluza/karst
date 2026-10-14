@@ -2472,6 +2472,29 @@ expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION
 expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   });
 
+  it('migrates a v82 DB to v83, adding tickets.agent_backend as NULL (project default)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'karst.db');
+    const legacy = new Database(path);
+    legacy.exec("CREATE TABLE tickets (id INTEGER PRIMARY KEY, key TEXT, stage_current TEXT NOT NULL DEFAULT 'draft');");
+    legacy.prepare("INSERT INTO tickets (id, key) VALUES (1, 'T-1')").run();
+    legacy.pragma('user_version = 82');
+    legacy.close();
+
+    const migrated = openStore(path);
+    cleanups.push(() => migrated.close());
+    const cols = new Set((migrated.db.prepare("PRAGMA table_info('tickets')").all() as { name: string }[]).map((c) => c.name));
+    expect(cols.has('agent_backend')).toBe(true);
+    expect(migrated.db.prepare('SELECT agent_backend FROM tickets WHERE id = 1').get()).toEqual({ agent_backend: null });
+    expect(migrated.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+
+    migrated.close();
+    const reopened = openStore(path);
+    cleanups.push(() => reopened.close());
+    expect(reopened.db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  });
+
   it('migrates a v80 DB to v81, adding process_runs.failure_detail without touching rows', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));

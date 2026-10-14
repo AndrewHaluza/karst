@@ -45,3 +45,14 @@ export function formatEffectiveBackends(rows: readonly EffectiveBackend[]): stri
     .map((r) => (r.backend !== 'host' || r.reason === undefined || r.reason === HOST_SETTING_REASON ? `${r.core}: ${r.backend}` : `${r.core}: host (${r.reason})`))
     .join(' · ');
 }
+
+/**
+ * The backend setting one ticket launches with. The per-ticket override can only
+ * opt OUT to host; it never selects a backend the project did not (arch:AC-32).
+ */
+export function ticketBackendSetting(
+  project: AgentBackend | undefined,
+  ticketOverride: 'host' | null | undefined,
+): AgentBackend | undefined {
+  return ticketOverride === 'host' ? 'host' : project;
+}

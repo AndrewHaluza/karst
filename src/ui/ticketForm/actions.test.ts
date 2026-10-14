@@ -2069,6 +2069,25 @@ describe('buildTicketFormActions', () => {
     expect(ctx.pushes).toBe(2); // setProvider re-pushed, then setPreset
   });
 
+  it('setBackend persists a host opt-out and clears it, re-pushing state', () => {
+    const t = createTicket(store, { key: 'P-BACKEND', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+    actions.setBackend('host');
+    expect(getTicket(store, t.id).agentBackend).toBe('host');
+    actions.setBackend('');
+    expect(getTicket(store, t.id).agentBackend).toBeNull();
+    expect(ctx.pushes).toBe(2);
+  });
+
+  it('setBackend refuses an opt-in and does nothing without a ticket', () => {
+    const t = createTicket(store, { key: 'P-BACKEND-2', title: 't' });
+    const actions = buildTicketFormActions(deps)(mkCtx(t.id));
+    expect(() => actions.setBackend('sbx' as never)).toThrow();
+    expect(getTicket(store, t.id).agentBackend).toBeNull();
+    expect(() => buildTicketFormActions(deps)(mkCtx(undefined)).setBackend('host')).not.toThrow();
+  });
+
   it('picking an explicit core clears the ticket preset', () => {
     const t = createTicket(store, { key: 'P-PRESET-2', title: 't' });
     const ctx = mkCtx(t.id);

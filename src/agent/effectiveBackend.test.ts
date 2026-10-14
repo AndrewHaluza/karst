@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveEffectiveBackends, formatEffectiveBackends, type BackendStatus } from './effectiveBackend.js';
+import { deriveEffectiveBackends, formatEffectiveBackends, ticketBackendSetting, type BackendStatus } from './effectiveBackend.js';
 
 const OK: BackendStatus = { ok: true };
 const DOWN: BackendStatus = { ok: false, reason: 'down' };
@@ -46,5 +46,19 @@ describe('formatEffectiveBackends', () => {
   it('plain host row has no suffix when setting is host', () => {
     const rows = deriveEffectiveBackends({ setting: 'host', cores: ['claude'], sbx: OK, docker: OK });
     expect(formatEffectiveBackends(rows)).toBe('claude: host');
+  });
+});
+
+describe('ticketBackendSetting', () => {
+  it.each([
+    ['sbx', null, 'sbx'],
+    ['docker', undefined, 'docker'],
+    ['sbx', 'host', 'host'],
+    ['docker', 'host', 'host'],
+    [undefined, 'host', 'host'],
+    [undefined, null, undefined],
+    ['host', null, 'host'],
+  ] as const)('project %s + ticket %s -> %s', (project, ticket, want) => {
+    expect(ticketBackendSetting(project, ticket)).toBe(want);
   });
 });

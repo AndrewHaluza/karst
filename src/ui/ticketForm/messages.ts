@@ -108,6 +108,7 @@ export type TicketFormMessage =
   | { type: 'set-preset'; id: string }
   // id may be '' — "Inherit (settings)", which clears the ticket's type.
   | { type: 'set-type'; id: string }
+  | { type: 'set-backend'; id: 'host' | '' }
   | { type: 'analyze'; prompt: string }
   // Open the native file picker. Carries nothing — the host owns the dialog, so
   // a crafted message can neither choose a path nor pre-fill one.
@@ -222,6 +223,8 @@ export interface TicketFormActions {
    */
   setPreset: (id: string) => void | Promise<void>;
   setType: (id: string) => void | Promise<void>;
+  /** `'host'` opts the ticket out of the project's sandbox backend; `''` inherits. Never opts in. */
+  setBackend: (id: 'host' | '') => void | Promise<void>;
   analyze: (prompt: string) => void | Promise<void>;
   attachPick: () => Promise<void>;
   attachBytes: (name: string, base64: string) => Promise<void>;
@@ -405,6 +408,9 @@ export function parseTicketFormMessage(raw: unknown): TicketFormMessage | null {
       // id may be '' ("Inherit"); require a string, not a non-empty one. The
       // vocabulary itself is enforced by the store writer, the single authority.
       return typeof m.id === 'string' ? { type: 'set-type', id: m.id } : null;
+    case 'set-backend':
+      // Opt-OUT only: anything but 'host' or the empty inherit choice is dropped.
+      return m.id === 'host' || m.id === '' ? { type: 'set-backend', id: m.id } : null;
     case 'analyze':
       // prompt may be empty (a fetched ticket with no typed prompt yet); the
       // host has the persisted brief to reason over in that case.
@@ -512,6 +518,9 @@ export function routeTicketFormAction(
       return;
     case 'set-type':
       actions.setType(msg.id);
+      return;
+    case 'set-backend':
+      actions.setBackend(msg.id);
       return;
     case 'analyze':
       actions.analyze(msg.prompt);

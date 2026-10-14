@@ -349,3 +349,35 @@ describe('ticket form — reopen shows stored intent and code pointers', () => {
     expect('codePointers' in save).toBe(false);
   });
 });
+
+describe('ticket form — sandbox backend opt-out', () => {
+  const picker = (v: RenderHandle) => v.query<HTMLElement>('#backendPicker')!;
+  const select = (v: RenderHandle) => v.query<HTMLSelectElement>('#backendSelect')!;
+
+  it('shows in edit mode when the project uses a sandbox backend', () => {
+    const v = open(baseState({ mode: 'edit', projectBackend: 'sbx', selectedBackend: null }));
+    expect(picker(v).classList.contains('hidden')).toBe(false);
+    expect(select(v).options[0]!.textContent).toBe('Inherit (project: sbx)');
+    expect([...select(v).options].map((o) => o.value)).toEqual(['', 'host']);
+    expect(select(v).value).toBe('');
+  });
+
+  it('is hidden in create mode and for a host project', () => {
+    expect(picker(open(baseState({ mode: 'create', projectBackend: 'sbx' }))).classList.contains('hidden')).toBe(true);
+    h?.close();
+    expect(picker(open(baseState({ mode: 'edit', projectBackend: null }))).classList.contains('hidden')).toBe(true);
+  });
+
+  it('stays visible with host selected so the opt-out can be undone', () => {
+    const v = open(baseState({ mode: 'edit', projectBackend: null, selectedBackend: 'host' }));
+    expect(picker(v).classList.contains('hidden')).toBe(false);
+    expect(select(v).value).toBe('host');
+  });
+
+  it('posts set-backend on change', () => {
+    const v = open(baseState({ mode: 'edit', projectBackend: 'docker', selectedBackend: null }));
+    select(v).value = 'host';
+    select(v).dispatchEvent(new Event('change', { bubbles: true }));
+    expect(v.posted).toContainEqual(expect.objectContaining({ type: 'set-backend', id: 'host' }));
+  });
+});

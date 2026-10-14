@@ -66,6 +66,8 @@ export interface Ticket {
   agentProvider: AgentProvider | null;
   /** Per-ticket agent-preset override; `null` = inherit `manifest.defaultAgentPreset`. */
   agentPreset: string | null;
+  /** Per-ticket sandbox opt-OUT (v83): `'host'` runs on host; `null` follows `manifest.agentBackend`. Never opts INTO a backend. */
+  agentBackend?: 'host' | null;
   /**
    * Agent core that minted `sessionId` (§5.3). A session id is private to the
    * CLI that created it, so this is what makes a resume provably safe; `null`
@@ -151,6 +153,7 @@ interface TicketRow {
   model: string | null;
   agent_provider: string | null;
   agent_preset: string | null;
+  agent_backend?: string | null;
   session_provider: string | null;
   type: string | null;
   effort: string | null;
@@ -228,6 +231,7 @@ function rowToTicket(r: TicketRow): Ticket {
     effort: r.effort,
     agentProvider: isKnownProvider(r.agent_provider) ? r.agent_provider : null,
     agentPreset: r.agent_preset,
+    agentBackend: r.agent_backend === 'host' ? 'host' : null,
     sessionProvider: isKnownProvider(r.session_provider) ? r.session_provider : null,
     // Narrow on read too: the column is plain TEXT, and a value that predates a
     // vocabulary change must degrade to "inherit the default", never render.
@@ -581,6 +585,8 @@ export interface TicketFieldsPatch {
   agentProvider?: string;
   /** Per-ticket agent-preset name; empty string clears it back to inherit. */
   agentPreset?: string;
+  /** `'host'` opts this ticket out of the project's sandbox backend; empty string clears it back to inherit. Anything else throws: a ticket can never opt INTO a backend. */
+  agentBackend?: 'host' | '';
   /**
    * Conventional-commit type; empty string clears it back to inherit. Validated
    * against `TICKET_TYPES` here — the value reaches branch names and PR titles,
@@ -638,6 +644,12 @@ export function updateTicketFields(
   // ticket at a different core without any ticket row being written.
   if (patch.agentProvider !== undefined) {
     columns.agent_provider = patch.agentProvider === '' ? null : patch.agentProvider;
+  }
+  if (patch.agentBackend !== undefined) {
+    if (patch.agentBackend !== 'host' && patch.agentBackend !== '') {
+      throw new Error(`agentBackend override must be 'host' or empty, got '${String(patch.agentBackend)}'`);
+    }
+    columns.agent_backend = patch.agentBackend === '' ? null : patch.agentBackend;
   }
   if (patch.agentPreset !== undefined) {
     columns.agent_preset = patch.agentPreset === '' ? null : patch.agentPreset;
