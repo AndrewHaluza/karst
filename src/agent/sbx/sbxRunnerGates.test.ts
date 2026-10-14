@@ -70,3 +70,12 @@ describe('sbx runner: gates, ports, baseline allow (arch:AC-32)', () => {
     await expect(broken.hasSandbox!()).resolves.toBe(false);
   });
 });
+
+describe('sbx canHostServices (review fix #109)', () => {
+  it('whenever sbx lists the sandbox', async () => {
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX\n${NAME}\n` } });
+    await expect(createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] }).canHostServices!()).resolves.toBe(true);
+    const none = createSbxSessionRunner({ proc: fakeSbxProcess({ 'sbx ls': { code: 1, stdout: NAME } }), core: 'claude', name: NAME, existing: [] });
+    await expect(none.canHostServices!()).resolves.toBe(false);
+  });
+});

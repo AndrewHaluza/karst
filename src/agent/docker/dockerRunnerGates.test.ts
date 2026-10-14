@@ -73,3 +73,14 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     await expect(no.hasSandbox!()).resolves.toBe(false);
   });
 });
+
+describe('docker canHostServices (review fix #109)', () => {
+  it('is true only while the interactive container runs', async () => {
+    const up = createDockerSessionRunner({ ...base, proc: fakeDockerProcess(RUNNING) });
+    await expect(up.canHostServices!()).resolves.toBe(true);
+    const gone = createDockerSessionRunner({ ...base, proc: fakeDockerProcess({ 'docker container inspect': { stdout: 'false' } }) });
+    await expect(gone.canHostServices!()).resolves.toBe(false);
+    const missing = createDockerSessionRunner({ ...base, proc: fakeDockerProcess({ 'docker container inspect': { code: 1, stdout: 'true' } }) });
+    await expect(missing.canHostServices!()).resolves.toBe(false);
+  });
+});

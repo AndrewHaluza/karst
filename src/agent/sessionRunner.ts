@@ -92,6 +92,12 @@ export interface SessionRunner {
    * failed closed to the host has none, so its gates and services stay on the host.
    */
   hasSandbox?(): Promise<boolean>;
+  /**
+   * Sandbox runners only: can a long-lived service run there NOW? docker:
+   * only while the interactive container runs (a gate's one-shot container
+   * exits with its command); sbx: whenever the sandbox exists (exec starts it).
+   */
+  canHostServices?(): Promise<boolean>;
   /** Sandbox runners only: publish ONE declared port on `127.0.0.1` (arch:AC-32). */
   publishPort?(mapping: PortMapping): Promise<PublishResult>;
   unpublishPort?(mapping: PortMapping): Promise<void>;

@@ -197,3 +197,16 @@ describe('review fixes', () => {
     expect(rows(store)).toEqual([]);
   });
 });
+
+describe('review fix #109', () => {
+  it('refuses to start a service when the sandbox cannot host one now: no publish, no exec, no row', async () => {
+    const store = openStore(':memory:');
+    const f = fakeRunner();
+    const runner = { ...f.runner, canHostServices: () => Promise.resolve(false) };
+    await expect(startSandboxService(input(store, runner))).rejects.toThrow('api: the sbx sandbox is not running — open the ticket');
+    expect(f.published).toEqual([]);
+    expect(f.execs).toEqual([]);
+    expect(rows(store)).toEqual([]);
+    await expect(startSandboxService(input(store, { ...f.runner, canHostServices: () => Promise.resolve(true) }))).resolves.toMatchObject({ port: 4100 });
+  });
+});

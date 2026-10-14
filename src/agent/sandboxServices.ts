@@ -11,7 +11,7 @@ import type { PortMapping, SessionRunner } from './sessionRunner.js';
  * sandbox handle (`servers.sandbox`), never a host pid.
  */
 
-export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox'>;
+export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices'>;
 
 export class SandboxServiceError extends Error {
   constructor(message: string) {
@@ -108,6 +108,11 @@ async function execIn(runner: SandboxServiceRunner, worktree: string, args: stri
 }
 
 export async function startSandboxService(input: SandboxServiceStart): Promise<ServerRecord> {
+  if (input.runner.canHostServices && !(await input.runner.canHostServices())) {
+    throw new SandboxServiceError(
+      `${input.service}: the ${input.runner.kind} sandbox is not running — open the ticket's session first, then start the service`,
+    );
+  }
   const mapping = await publish(input);
   const token = serviceToken(input.service);
   const unpublish = () => input.runner.unpublishPort?.(mapping) ?? Promise.resolve();

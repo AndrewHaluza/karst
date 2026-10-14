@@ -62,6 +62,10 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const git = (wt: string, args: string[]) => opts.proc.run('git', ['-C', wt, ...args]);
   const gateProcess = opts.gateProcess ?? runProcess;
   const sbx = (args: string[]) => opts.proc.run(SBX_BIN, args);
+  const listed = async (): Promise<boolean> => {
+    const ls = await sbx(['ls']);
+    return ls.code === 0 && parseNames(ls.stdout).includes(opts.name);
+  };
   const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
   const runner: SessionRunner = {
     kind: 'sbx',
@@ -90,10 +94,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     // on abort ends the command (the same contract `runHeadless` relies on).
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
-    hasSandbox: async () => {
-      const ls = await sbx(['ls']);
-      return ls.code === 0 && parseNames(ls.stdout).includes(opts.name);
-    },
+    hasSandbox: listed,
+    // `sbx exec` starts a stopped sandbox, so an existing one can host a service.
+    canHostServices: listed,
     publishPort: async (m) => {
       const out = await sbx(sbxPublishArgs(opts.name, m));
       if (out.code === 0) return { ok: true };

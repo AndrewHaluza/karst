@@ -102,6 +102,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
         await remove();
       }
     },
+    canHostServices: () => containerRunning(opts.proc, opts.names.container),
     // The clone volume is the sandbox: it outlives the interactive container.
     hasSandbox: async () => (await opts.proc.run(DOCKER_BIN, ['volume', 'inspect', opts.names.repoVolume])).code === 0,
     publishPort: (m) => publishRelay(opts.proc, opts.names, m),
