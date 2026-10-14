@@ -24,7 +24,12 @@ import {
   list as listRelationViews,
 } from '../../store/ticketRelations.js';
 import { queueAutostart } from '../../store/autostart.js';
-import { recordUsageLimitOpPark, claimUsageLimitPark, listParks } from '../../store/usageLimitParks.js';
+import {
+  recordUsageLimitOpPark,
+  claimUsageLimitPark,
+  listParks,
+  type UsageLimitParkRow,
+} from '../../store/usageLimitParks.js';
 import { postMessage } from '../../store/ticketMessages.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, subtaskParentBranch, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
@@ -622,6 +627,20 @@ export function buildTicketFormActions(
       );
     };
 
+    /**
+     * D159: re-run exactly the op a park names. The recording call site stamped
+     * its op in `lane`; an unrecognised (or unbound) park falls back to the
+     * analysis, the ticket form's quota-prone op. The one-shot override (if any)
+     * rides the closure and is consumed by that op.
+     */
+    const rerunParkedOp = async (park: UsageLimitParkRow): Promise<void> => {
+      if (park.lane === 'suggest' && park.target !== null) {
+        await actions.suggestSignals(park.target);
+        return;
+      }
+      await actions.analyze('');
+    };
+
     const actions: TicketFormActions = {
     attachPick: async (): Promise<void> => {
       try {
@@ -865,8 +884,27 @@ export function buildTicketFormActions(
         return;
       }
       ctx.post({ type: 'busy', what: 'suggest', on: true });
+      // D159: consume the one-shot override (a parked-op pick/retry) so a
+      // re-run goes to the picked core/model for THIS call only. The signal
+      // suggestion has no process of its own, so the override comes from the
+      // ticket-analysis process's adapter.
+      const override = analysisOverride;
+      analysisOverride = undefined;
+      let adapter = deps.adapter;
+      if (override && ctx.ticketId !== undefined) {
+        const process = deps.resolveAnalysisProcess(ctx.ticketId, override);
+        if (process === null) {
+          ctx.post({ type: 'busy', what: 'suggest', on: false });
+          ctx.post({
+            type: 'error',
+            message: 'Ticket analysis is disabled in Settings — cannot re-run with a picked agent/model.',
+          });
+          return;
+        }
+        adapter = process.adapter;
+      }
       try {
-        const signals = await suggestSignalsAI(deps.adapter, {
+        const signals = await suggestSignalsAI(adapter, {
           service,
           repoPath: repo.repoPath,
         });
@@ -874,10 +912,16 @@ export function buildTicketFormActions(
       } catch (e) {
         // K11: park the quota failure when this form is bound to a ticket.
         // D159: the row id rides the error so the page can offer Pick/Retry/
-        // Dismiss for the parked suggest op.
+        // Dismiss for the parked suggest op, and `lane` names the op so the
+        // re-run repeats *this* op rather than the analysis.
         let parkId: number | null = null;
         if (ctx.ticketId !== undefined) {
-          parkId = recordUsageLimitOpPark(deps.store, e, { ticketId: ctx.ticketId, stage: 'scope' });
+          parkId = recordUsageLimitOpPark(deps.store, e, {
+            ticketId: ctx.ticketId,
+            stage: 'scope',
+            lane: 'suggest',
+            target: service,
+          });
         }
         ctx.post({
           type: 'error',
@@ -1146,6 +1190,7 @@ export function buildTicketFormActions(
               parkId = recordUsageLimitOpPark(deps.store, error, {
                 ticketId,
                 stage: 'scope',
+                lane: 'analysis',
                 provider: process.assignment.provider,
                 model: process.assignment.model ?? null,
               });
@@ -1399,9 +1444,9 @@ export function buildTicketFormActions(
 
     // D159: resolve an op usage-limit park from its error notification. Each
     // claims the row FIRST (one conditional UPDATE, so a concurrent window or
-    // the driver loses and touches nothing), then re-runs the parked op with a
-    // ONE-SHOT agent/model — never persisted. The classify op's re-run IS the
-    // analysis, so the override rides the next `analyze`.
+    // the driver loses and touches nothing), then re-runs ONLY the parked op
+    // with a ONE-SHOT agent/model — never persisted. The op is named by the
+    // row's `lane`, which the recording call site set.
     async usageLimitParkPick(parkId: number): Promise<void> {
       const park = findUsageLimitPark(parkId);
       if (!park) {
@@ -1420,7 +1465,7 @@ export function buildTicketFormActions(
       }
       ctx.post({ type: 'usage-limit-park-resolved' });
       analysisOverride = { provider: picked.provider, model: picked.model };
-      await actions.analyze('');
+      await rerunParkedOp(park);
     },
 
     async usageLimitParkRetry(parkId: number): Promise<void> {
@@ -1435,7 +1480,7 @@ export function buildTicketFormActions(
       }
       ctx.post({ type: 'usage-limit-park-resolved' });
       analysisOverride = { provider: park.provider as AgentProvider, model: park.model };
-      await actions.analyze('');
+      await rerunParkedOp(park);
     },
 
     usageLimitParkDismiss(parkId: number): void {

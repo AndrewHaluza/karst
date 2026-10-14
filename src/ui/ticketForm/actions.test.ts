@@ -25,7 +25,7 @@ import { routeTicketFormAction } from './messages.js';
 import type { TicketFormHostMessage } from './messages.js';
 import type { ContextBrief, TicketingProvider } from '../../integrations/ticketing.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
-import type { Manifest, RepositoryDef } from '../../manifest/types.js';
+import type { AgentProvider, Manifest, RepositoryDef } from '../../manifest/types.js';
 import { manifest as buildManifest, runnableRepo, slot } from '../../manifest/fixtures.js';
 import {
   getAttachment,
@@ -710,9 +710,9 @@ describe('buildTicketFormActions', () => {
     expect(open[0]).toMatchObject({ kind: 'op', stage: 'scope', provider: 'claude' });
   });
 
-  /** Park an op by driving a quota-failing suggest, returning its id. */
-  async function parkOpOnQuota(ticketId: number): Promise<number> {
-    deps.adapter = {
+  /** A quota-throwing adapter, so the next AI op parks. */
+  function quotaAdapter(): AgentAdapter {
+    return {
       ...fakeAdapter(),
       runHeadless: async () => {
         throw new UsageLimitError('Claude usage limit reached — out of credits.', {
@@ -722,6 +722,11 @@ describe('buildTicketFormActions', () => {
         });
       },
     };
+  }
+
+  /** Park the SUGGEST op (lane `suggest`, target the service), returning its id. */
+  async function parkSuggestOnQuota(ticketId: number): Promise<number> {
+    deps.adapter = quotaAdapter();
     const ctx = mkCtx(ticketId);
     const actions = buildTicketFormActions(deps)(ctx);
     await actions.suggestSignals('fe');
@@ -732,9 +737,23 @@ describe('buildTicketFormActions', () => {
     return err.usageLimitParkId;
   }
 
+  /** Park the ANALYSIS op (lane `analysis`), returning its id. */
+  async function parkAnalysisOnQuota(ticketId: number): Promise<number> {
+    updateTicketFields(store, ticketId, { description: 'do the thing' });
+    deps.adapter = quotaAdapter();
+    const ctx = mkCtx(ticketId);
+    const actions = buildTicketFormActions(deps)(ctx);
+    await actions.analyze('');
+    const err = ctx.posted.find((m) => m.type === 'error') as
+      | { usageLimitParkId?: number }
+      | undefined;
+    if (err?.usageLimitParkId === undefined) throw new Error('no op park id on the error');
+    return err.usageLimitParkId;
+  }
+
   it('a quota error rides its op park id and Dismiss resolves the row (D159)', async () => {
     const t = createTicket(store, { key: 'T-K11-DISMISS', title: 't' });
-    const parkId = await parkOpOnQuota(t.id);
+    const parkId = await parkSuggestOnQuota(t.id);
     const ctx = mkCtx(t.id);
     const actions = buildTicketFormActions(deps)(ctx);
 
@@ -757,12 +776,8 @@ describe('buildTicketFormActions', () => {
     });
   });
 
-  it('Retry re-runs the parked op with the parked provider/model, one-shot (D159)', async () => {
-    const t = createTicket(store, { key: 'T-K11-RETRY', title: 't' });
-    updateTicketFields(store, t.id, { description: 'do the thing' });
-    const parkId = await parkOpOnQuota(t.id);
-    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
-
+  /** The one-shot override capture used by the re-run tests. */
+  function captureOverrides(): ({ provider: string; model: string | null } | undefined)[] {
     const seen: ({ provider: string; model: string | null } | undefined)[] = [];
     deps.resolveAnalysisProcess = vi.fn((_id, override) => {
       seen.push(override);
@@ -771,30 +786,55 @@ describe('buildTicketFormActions', () => {
         adapter: deps.adapter,
       };
     });
+    return seen;
+  }
+
+  it('Retry re-runs ONLY the parked SUGGEST op with the parked pair (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+
+    const seen = captureOverrides();
     const ctx = mkCtx(t.id);
     const actions = buildTicketFormActions(deps)(ctx);
 
     await actions.usageLimitParkRetry(parkId);
 
     expect(seen.at(-1)).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    // It repeated the SUGGEST, never the analysis.
+    expect(ctx.posted.some((m) => m.type === 'signals-suggested')).toBe(true);
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(false);
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('Retry re-runs ONLY the parked ANALYSIS op with the parked pair (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY-ANALYSIS', title: 't' });
+    const parkId = await parkAnalysisOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+
+    const seen = captureOverrides();
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkRetry(parkId);
+
+    expect(seen.at(-1)).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(true);
     expect(listOpenParks(store, t.id)).toHaveLength(0);
   });
 
   it('Pick asks for an agent/model and re-runs the parked op with the one-shot pick (D159)', async () => {
     const t = createTicket(store, { key: 'T-K11-PICK', title: 't' });
-    updateTicketFields(store, t.id, { description: 'do the thing' });
-    const parkId = await parkOpOnQuota(t.id);
+    const parkId = await parkSuggestOnQuota(t.id);
     deps.adapter = fakeAdapter(); // the re-run itself must not re-park
 
-    const seen: ({ provider: string; model: string | null } | undefined)[] = [];
-    deps.resolveAnalysisProcess = vi.fn((_id, override) => {
-      seen.push(override);
-      return {
-        assignment: { provider: override?.provider ?? 'claude', model: override?.model ?? null },
-        adapter: deps.adapter,
-      };
-    });
-    deps.pickUsageLimitAgentModel = vi.fn(async () => ({ provider: 'codex', model: 'gpt-4o' }));
+    const seen = captureOverrides();
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({
+        provider: 'codex',
+        model: 'gpt-4o',
+      }),
+    );
     const ctx = mkCtx(t.id);
     const actions = buildTicketFormActions(deps)(ctx);
 
