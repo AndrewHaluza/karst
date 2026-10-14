@@ -109,8 +109,11 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
   const auth = input.authFile
     ? ['--mount', bindMount(input.authFile, `${CONTAINER_DATA}/auth.json`, true)]
     : [];
+  if (input.bridgeDir !== undefined && input.ticketId === undefined) {
+    throw new Error('karst: a bridge mount needs a ticketId');
+  }
   const bridge =
-    input.bridgeDir !== undefined && input.ticketId !== undefined
+    input.bridgeDir !== undefined
       ? ['--mount', bindMount(input.bridgeDir, `${SANDBOX_BRIDGE_MOUNT_ROOT}/${input.ticketId}`, false)]
       : [];
   return [

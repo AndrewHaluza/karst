@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
+import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import type { HookChannel } from './adapter.js';
 import { HOOK_BRIDGE, MARKER_EMIT } from './hookBridge.js';
@@ -14,21 +15,34 @@ export function hookCommandDir(channel: HookChannel): string {
 }
 
 /**
- * The node a hook command invokes. The host's resolved node is valid whenever
- * the agent sees the host filesystem (no `runDir`, or `runDir === configDir`,
- * e.g. sbx). A remapped `runDir` means a container: use its own `node`.
+ * The node a hook command invokes. Any FILE channel (`runDir` set) runs inside
+ * a sandbox (docker container or sbx microVM) where the host's node path does
+ * not exist: use the sandbox's own `node`. Host launches use the host's node.
  */
 export function hookNodeCommand(channel: HookChannel): string {
-  if (channel.runDir !== undefined && channel.runDir !== channel.configDir) return 'node';
+  if (channel.runDir !== undefined) return 'node';
   return resolveNodeExecutable();
 }
 
+/**
+ * The dir may be sandbox-writable: never follow a symlink. Only a regular file
+ * is read for the skip check; the temp file is created exclusively ('wx') under
+ * an unpredictable name, then renamed over whatever entry is there.
+ */
 function writeIfChanged(path: string, body: string): void {
-  const current = existsSync(path) ? readFileSync(path, 'utf8') : null;
-  if (current === body) return;
-  const temporaryPath = `${path}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(temporaryPath, body);
+  const entry = lstatOrUndefined(path);
+  if (entry?.isFile() && readFileSync(path, 'utf8') === body) return;
+  const temporaryPath = `${path}.${randomBytes(8).toString('hex')}.tmp`;
+  writeFileSync(temporaryPath, body, { flag: 'wx' });
   renameSync(temporaryPath, path);
+}
+
+function lstatOrUndefined(path: string): Stats | undefined {
+  try {
+    return lstatSync(path);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

@@ -6752,7 +6752,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await syncSandboxOp({ notify: vscodeNotify, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
     }),
     vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => {
-      const ticketId = ticketIdArg(arg); if (ticketId === undefined || !bridges) return;
+      const ticketId = ticketIdArg(arg); if (ticketId === undefined) return;
       const t = getTicket(localStore, ticketId), wt = listWorktreesByTicket(localStore, ticketId)[0];
       await disposeSandboxOp({ notify: vscodeNotify, bridges, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
     }),

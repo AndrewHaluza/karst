@@ -112,7 +112,8 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
 
 export interface SandboxDisposeDeps extends SandboxSyncDeps {
   /** The ticket's evidence bridge (arch:AC-34): removed only after the sandbox is. */
-  readonly bridges: { dispose(ticketId: number): Promise<void> };
+  /** `undefined` until the hook endpoint is bound (activation still running). */
+  readonly bridges: { dispose(ticketId: number): Promise<void> } | undefined;
 }
 
 /**
@@ -120,6 +121,11 @@ export interface SandboxDisposeDeps extends SandboxSyncDeps {
  * A failed removal keeps the dir, so a retry never leaves a sandbox without one.
  */
 export async function disposeSandboxOp(deps: SandboxDisposeDeps, target: SandboxSyncTarget): Promise<boolean> {
+  const bridges = deps.bridges;
+  if (!bridges) {
+    await deps.notify.error(`Karst: cannot remove the sandbox for ${target.ticketLabel} yet: the hook endpoint is still starting. Try again.`);
+    return false;
+  }
   if (!target.worktree?.branch) {
     await deps.notify.error(`Karst: ${target.ticketLabel} has no worktree branch.`);
     return false;
@@ -136,7 +142,7 @@ export async function disposeSandboxOp(deps: SandboxDisposeDeps, target: Sandbox
     return false;
   }
   try {
-    await deps.bridges.dispose(target.ticketId);
+    await bridges.dispose(target.ticketId);
   } catch (err) {
     await deps.notify.error(`Karst: ${target.ticketLabel} sandbox removed, but its evidence dir was not: ${message(err)}`);
     return false;

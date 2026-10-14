@@ -25,8 +25,14 @@ export type BridgeAttachment = Pick<BridgePoller, 'start' | 'stop' | 'pollOnce'>
 export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttachment {
   const log = (m: string): void => deps.debug?.(`[bridge] ${m}`);
   const id = deps.expect.ticketId;
+  let running = false;
   const runMarker = (stage: MarkerStage): void => {
-    void deps.runMarker(stage).then(
+    if (running) {
+      log(`ticket ${id} marker ${stage} dropped: run in progress`);
+      return;
+    }
+    running = true;
+    void deps.runMarker(stage).finally(() => { running = false; }).then(
       (r) => {
         if (r.code !== 0) log(`ticket ${id} marker ${stage} exited ${r.code}: ${r.stderr.trim()}`);
       },

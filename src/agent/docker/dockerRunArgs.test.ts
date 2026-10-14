@@ -132,6 +132,9 @@ describe('interactiveRunArgs bridge mount', () => {
     expect(withBridge.join(' ')).not.toContain('readonly,target=/karst-bridge');
     expect(withBridge.length).toBe(plain.length + 2);
   });
+  it('throws when bridgeDir is set without ticketId (programming error)', () => {
+    expect(() => interactiveRunArgs({ ...base, bridgeDir: '/g/events/7' })).toThrow('karst: a bridge mount needs a ticketId');
+  });
   it('omits the bridge mount without bridgeDir', () => {
     expect(interactiveRunArgs(base).join(' ')).not.toContain('karst-bridge');
   });

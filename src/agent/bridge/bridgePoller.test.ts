@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MAX_BRIDGE_LINE_BYTES } from './bridgeVerifier.js';
-import { createBridgePoller } from './bridgePoller.js';
+import { createBridgePoller, MAX_LINES_PER_POLL } from './bridgePoller.js';
 
 let dir: string; let file: string; let stateFile: string;
 let lines: string[]; let logs: string[];
@@ -110,5 +110,22 @@ describe('bridgePoller', () => {
     const p = createBridgePoller({ file, stateFile, intervalMs: 5, onLine: (l) => { seen.push(l); if (l === 'a') throw new Error('boom'); }, debug: (m) => logs.push(m) });
     await p.pollOnce();
     expect(seen).toEqual(['a', 'b']);
+  });
+  it('handles at most MAX_LINES_PER_POLL lines per poll and persists the first unconsumed byte', async () => {
+    expect(MAX_LINES_PER_POLL).toBe(500);
+    const all = Array.from({ length: MAX_LINES_PER_POLL + 3 }, (_, i) => `l${i}`);
+    await writeFile(file, `${all.join('\n')}\npart`);
+    const p = make();
+    await p.pollOnce();
+    expect(lines).toEqual(all.slice(0, MAX_LINES_PER_POLL));
+    const consumed = all.slice(0, MAX_LINES_PER_POLL).join('\n').length + 1;
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ offset: consumed });
+    await appendFile(file, 'ial\n');
+    await p.pollOnce();
+    expect(lines).toEqual([...all, 'partial']);
+    const fresh = make();
+    lines = [];
+    await fresh.pollOnce();
+    expect(lines).toEqual([]);
   });
 });

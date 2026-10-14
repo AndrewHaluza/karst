@@ -42,7 +42,7 @@ Sorted by line count descending.
 | 22 | `karst.scmUnstage` | 5 | 1 | 1 | 1 | 6739–6743 |
 | 23 | `karst.archiveTicket` | 5 | 1 | 1 | 1 | 6744–6748 |
 | 24 | `karst.sandbox.sync` | 5 | 1 | 1 | 5 | 6749–6753 |
-| 25 | `karst.sandbox.dispose` | 5 | 1 | 1 | 6 | 6754–6758 |
+| 25 | `karst.sandbox.dispose` | 5 | 1 | 1 | 5 | 6754–6758 |
 | 26 | `karst.unarchiveTicket` | 5 | 1 | 1 | 1 | 6759–6763 |
 | 27 | `karst.deleteTicket` | 5 | 1 | 1 | 1 | 6784–6788 |
 | 28 | `karst.openTicketScmDiff` | 4 | 1 | 1 | 2 | 6725–6728 |
@@ -61,7 +61,7 @@ Lines ≥ 25 only. Sorted by line count descending.
 
 | Name | Lines | vsc | br | Range | Notes |
 |---|---|---|---|---|---|
-| `openTicketFormCreate` | 905 | 72 | 121 | 6013–6917 |  |
+| `openTicketFormCreate` | 905 | 72 | 120 | 6013–6917 |  |
 | `storedArtifacts` | 322 | 5 | 16 | 2895–3216 |  |
 | `sessions` | 207 | 2 | 18 | 1014–1220 |  |
 | `settings` | 184 | 10 | 12 | 2256–2439 |  |

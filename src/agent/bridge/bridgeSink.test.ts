@@ -97,4 +97,28 @@ describe('createBridgeAttachment', () => {
     await flush();
     expect(logs.filter((l) => l.includes('marker'))).toEqual([]);
   });
+  it('runs one marker at a time: a marker line during a run is dropped and logged', async () => {
+    let finish!: () => void;
+    const run = vi.fn<MarkerRunner>(() => new Promise((r) => { finish = () => r({ code: 0, stderr: '' }); }));
+    const a = make(run);
+    await write(markerLine(), markerLine());
+    await a.pollOnce();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(logs).toContain('[bridge] ticket 7 marker impl dropped: run in progress');
+    finish();
+    await flush();
+    await write(markerLine());
+    await a.pollOnce();
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+  it('a failed marker run also frees the slot', async () => {
+    const run = vi.fn<MarkerRunner>(() => Promise.reject(new Error('x')));
+    const a = make(run);
+    await write(markerLine());
+    await a.pollOnce();
+    await flush();
+    await write(markerLine());
+    await a.pollOnce();
+    expect(run).toHaveBeenCalledTimes(2);
+  });
 });

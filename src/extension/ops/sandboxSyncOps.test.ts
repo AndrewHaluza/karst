@@ -145,6 +145,14 @@ describe('disposeSandboxOp', () => {
     expect(r.errors).toEqual(['Karst: K-7 sandbox removed, but its evidence dir was not: EBUSY']);
   });
 
+  it('reports when the bridge registry is not ready, touching nothing', async () => {
+    const r = recorder();
+    const proc = fakeSbxProcess();
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc, bridges: undefined }, target)).resolves.toBe(false);
+    expect(proc.calls).toEqual([]);
+    expect(r.errors).toEqual(['Karst: cannot remove the sandbox for K-7 yet: the hook endpoint is still starting. Try again.']);
+  });
+
   it('refuses a ticket without a worktree or a sandbox core, touching nothing', async () => {
     const r = recorder();
     const bridges = { dispose: vi.fn(async () => {}) };

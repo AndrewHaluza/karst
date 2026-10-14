@@ -3,6 +3,8 @@ import { open, readFile, rename, writeFile, type FileHandle } from 'node:fs/prom
 import { MAX_BRIDGE_LINE_BYTES } from './bridgeVerifier.js';
 
 const MAX_READ_BYTES = 1024 * 1024;
+/** Lines handled per poll; the rest wait for the next tick, so a flood never starves the host. */
+export const MAX_LINES_PER_POLL = 500;
 const NEWLINE = 0x0a;
 // O_NONBLOCK: a planted FIFO must not block open(); the isFile() check then refuses it.
 const OPEN_FLAGS = fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
@@ -105,7 +107,16 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
       buf = buf.subarray(nl + 1);
       discarding = false;
     }
+    let handled = 0;
     for (let nl = buf.indexOf(NEWLINE); nl !== -1; nl = buf.indexOf(NEWLINE)) {
+      if (handled === MAX_LINES_PER_POLL) {
+        // Leave the rest unconsumed: the next tick re-reads from here.
+        offset -= buf.length;
+        carry = Buffer.alloc(0);
+        await saveOffset(opts.stateFile, offset);
+        return;
+      }
+      handled += 1;
       const line = buf.subarray(0, nl).toString('utf8');
       buf = buf.subarray(nl + 1);
       if (line.length === 0) continue;
