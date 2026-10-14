@@ -3,6 +3,9 @@ import type { DoctorCheck } from './types.js';
 /** Stages where an agent or gate is expected to be doing work. */
 const ACTIVE_STAGES: ReadonlySet<string> = new Set(['impl', 'fix', 'uat', 'review']);
 
+/** A ticket untouched this long with no live session is idle (doctor "stuck"; sandbox idle stop, arch:AC-32). */
+export const STUCK_IDLE_MINUTES = 120;
+
 const STUCK_NEXT_STEP = 'Open the ticket in the dashboard and resume or reset the stage';
 
 export interface StuckTicket {

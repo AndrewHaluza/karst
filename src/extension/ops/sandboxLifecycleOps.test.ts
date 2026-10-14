@@ -3,7 +3,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import type { ProjectSandbox, SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
-  backendKindOf, cleanupOrphansOp, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
+  backendKindOf, cleanupOrphansOp, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
@@ -269,5 +269,24 @@ describe('lifecycle edge cases', () => {
     expect(choose).toHaveBeenCalledWith(`Karst: remove 2 orphan sandbox(es) of this project? ${name(8)}, ${name(9, 'opencode')}`, [REMOVE_ORPHANS, CANCEL]);
     expect(notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${name(9, 'opencode')} failed: locked`);
     expect(notify.info).toHaveBeenCalledWith('Karst: removed 1 orphan sandbox(es).');
+  });
+});
+
+describe('idleSandboxes', () => {
+  const H = 60 * 60_000;
+  const inv = { sandboxes: [box(1), box(2), box(3), box(4, 'claude', 'stopped'), box(5)], errors: [] };
+  const tickets = [
+    { id: 1, updatedAtMs: 0, sessionOpen: false },            // idle → stop
+    { id: 2, updatedAtMs: 0, sessionOpen: true },             // session open → keep
+    { id: 3, updatedAtMs: 3 * H - 1, sessionOpen: false },    // recent → keep
+    { id: 4, updatedAtMs: 0, sessionOpen: false },            // already stopped
+    { id: 5, updatedAtMs: 0, sessionOpen: false },            // other window
+  ];
+  it('picks only running, owned, session-less tickets idle past the threshold', () => {
+    expect(idleSandboxes(inv, tickets, (id) => id !== 5, 3 * H, 2 * H).map((b) => b.ticketId)).toEqual([1]);
+  });
+  it('exactly at the threshold is not idle; unknown ticket is never idle', () => {
+    expect(idleSandboxes(inv, [{ id: 1, updatedAtMs: H, sessionOpen: false }], () => true, 3 * H, 2 * H)).toEqual([]);
+    expect(idleSandboxes({ sandboxes: [box(9)], errors: [] }, tickets, () => true, 3 * H, 2 * H)).toEqual([]);
   });
 });

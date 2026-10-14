@@ -20,7 +20,7 @@ function wiring(over: Partial<SandboxWiringInput> = {}) {
   const choose = vi.fn(async () => undefined);
   const w = makeSandboxWiring({
     store, notify, choose, projectRoot: () => '/p/karst.yml', backendOn: () => false, projectId: () => undefined,
-    owned: new Set([id]), bridges: () => undefined, openSyncDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(), ...over,
+    owned: new Set([id]), bridges: () => undefined, sessionOpen: () => false, openSyncDiff: vi.fn(async () => {}), info: vi.fn(), logError: vi.fn(), ...over,
   });
   return { w, notify, choose };
 }
@@ -132,5 +132,55 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     const { w, notify } = wiring({ projectRoot: () => undefined });
     await w.sync(a);
     expect(notify.error).toHaveBeenCalledWith('Karst: A-1 has no worktree branch to sync into.');
+  });
+});
+
+describe('makeSandboxWiring idle sweep', () => {
+  const ROOT = '/p/karst.yml';
+  function setup(sessionOpen: boolean, ageMin: number) {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'I-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    store.db.prepare(`UPDATE tickets SET updated_at = datetime('now', '-${ageMin} minutes') WHERE id = ?`).run(a);
+    const n = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${n} claude running\n` } });
+    const info = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, owned: new Set([a]),
+      proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), sessionOpen: () => sessionOpen, info });
+    const stops = () => proc.calls.filter((c) => c.args[0] === 'stop').map((c) => c.args[1]);
+    return { w, n, stops, info };
+  }
+  it('stops a sandbox idle past 120 min with no open session, and logs it', async () => {
+    const { w, n, stops, info } = setup(false, 121);
+    await expect(w.idleSweep()).resolves.toBe(1);
+    expect(stops()).toEqual([n]);
+    expect(info).toHaveBeenCalledWith(`karst: stopped 1 idle sandbox(es): ${n}`);
+  });
+  it('keeps a recent or session-attached sandbox', async () => {
+    const recent = setup(false, 60);
+    await expect(recent.w.idleSweep()).resolves.toBe(0);
+    expect(recent.stops()).toEqual([]);
+    expect(recent.info).not.toHaveBeenCalled();
+  });
+  it('keeps a sandbox whose session is open', async () => {
+    const open = setup(true, 500);
+    await expect(open.w.idleSweep()).resolves.toBe(0);
+  });
+  it('no backend → no sweep', async () => {
+    const { w } = wiring();
+    await expect(w.idleSweep()).resolves.toBe(0);
+  });
+  it('timer runs the sweep every 10 min and logs a failure', async () => {
+    let tick: (() => void) | undefined;
+    const dispose = vi.fn();
+    const logError = vi.fn();
+    const { w } = wiring({ backendOn: () => true, projectId: () => 1, logError,
+      proc: { run: vi.fn(async () => { throw new Error('down'); }) },
+      setInterval: (fn, ms) => { expect(ms).toBe(600_000); tick = fn; return { dispose }; } });
+    const handle = w.startIdleSweep();
+    tick!();
+    await vi.waitFor(() => expect(logError).toHaveBeenCalledWith('karst: sandbox idle sweep failed', expect.any(Error)));
+    handle.dispose();
+    expect(dispose).toHaveBeenCalled();
   });
 });

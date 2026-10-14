@@ -163,6 +163,28 @@ export function reconcileSandboxes(
   return { running, stopped, missing, orphans: inv.sandboxes.filter((s) => !liveIds.has(s.ticketId)) };
 }
 
+export interface IdleTicket {
+  readonly id: number;
+  readonly updatedAtMs: number;
+  /** A terminal/session is open: never stopped under it. */
+  readonly sessionOpen: boolean;
+}
+
+/**
+ * Running sandboxes to stop for idleness: owned by this window, live ticket,
+ * no open session, ticket untouched longer than the threshold. Stop, never remove.
+ */
+export function idleSandboxes(
+  inv: SandboxInventory,
+  tickets: readonly IdleTicket[],
+  owns: (ticketId: number) => boolean,
+  nowMs: number,
+  thresholdMs: number,
+): ProjectSandbox[] {
+  const idle = new Set(tickets.filter((t) => !t.sessionOpen && nowMs - t.updatedAtMs > thresholdMs).map((t) => t.id));
+  return inv.sandboxes.filter((s) => s.state === 'running' && idle.has(s.ticketId) && owns(s.ticketId));
+}
+
 /** `karst.sandbox.cleanupOrphans`: remove this project's orphan sandboxes, only on confirmation. */
 export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds: ReadonlySet<number>): Promise<number> {
   const inv = await inventoryOf(deps);
