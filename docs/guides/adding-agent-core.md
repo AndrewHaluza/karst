@@ -485,3 +485,18 @@ rather than its docs.
   events. This was re-verified against agy 1.1.12; the earlier "no usage
   channel" note was written against 1.1.11.
 END_DOC_BLOCK: [@guide:ADD-14]
+
+## [@guide:ADD-15] Sandbox runners
+
+A new core does not choose its sandbox. `agentBackend` picks a `SessionRunner`
+(`agent/backendResolver.ts`) and the adapter stays unaware of it.
+
+- To run in `sbx` or `docker`, add the core to `SBX_CORES` or `DOCKER_CORES` in
+  `agent/sandboxCores.ts`. The resolver, the Settings "effective backend" line, the
+  Doctor checks and the dashboard Sandbox card all read that file.
+- A core in neither list runs on the host, prompted, with the reason shown. That is
+  the correct result for a core you have not verified in a sandbox.
+- The adapter must never emit a bypass flag. `autonomousPermissionArgs` adds one
+  only when the runner enforces a sandbox (`arch:AC-31`).
+- Setup for users: `docs/guides/sandbox-backends.md`. UI rules: `arch:AC-35`.
+END_DOC_BLOCK: [@guide:ADD-15]
