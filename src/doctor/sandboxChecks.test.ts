@@ -2,12 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { SANDBOX_DISK_WARN_BYTES, checkSandboxBackends, parseDockerSize } from './sandboxChecks.js';
 
 const OK = { ok: true } as const;
-const base = { setting: 'sbx', sbx: OK, docker: OK, sandboxCount: 0, diskBytes: undefined } as const;
+const base = { selected: ['sbx'], sbx: OK, docker: OK, sandboxCount: 0, diskBytes: undefined } as const;
 
 describe('checkSandboxBackends', () => {
   it('emits nothing when no backend is selected', () => {
-    expect(checkSandboxBackends({ ...base, setting: undefined })).toEqual([]);
-    expect(checkSandboxBackends({ ...base, setting: 'host' })).toEqual([]);
+    expect(checkSandboxBackends({ ...base, selected: [] })).toEqual([]);
   });
   it('reports the selected backend ok', () => {
     const [c] = checkSandboxBackends(base);
@@ -19,8 +18,12 @@ describe('checkSandboxBackends', () => {
     expect(c!.detail).toContain('prompted on host');
   });
   it('checks only the selected backend', () => {
-    const ids = checkSandboxBackends({ ...base, setting: 'docker', sbx: { ok: false, reason: 'x' } }).map((c) => c.id);
+    const ids = checkSandboxBackends({ ...base, selected: ['docker'], sbx: { ok: false, reason: 'x' } }).map((c) => c.id);
     expect(ids).toEqual(['tools.sandbox-docker']);
+  });
+  it('checks both backends when sbx and docker are both selected', () => {
+    const out = checkSandboxBackends({ ...base, selected: ['sbx', 'docker'], docker: { ok: false, reason: 'docker not installed' } });
+    expect(out.map((c) => [c.id, c.status])).toEqual([['tools.sandbox-sbx', 'ok'], ['tools.sandbox-docker', 'warn']]);
   });
   it('shows sandbox count and size, ok under the threshold', () => {
     const c = checkSandboxBackends({ ...base, sandboxCount: 3, diskBytes: 2e9 }).find((x) => x.id === 'state.sandbox-disk');

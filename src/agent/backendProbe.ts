@@ -1,4 +1,5 @@
 import { parseDockerSize } from '../doctor/sandboxChecks.js';
+import type { BackendWant } from './backendChoices.js';
 import type { BackendStatus } from './effectiveBackend.js';
 import { sbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
@@ -12,17 +13,19 @@ export interface BackendProbes {
 }
 
 /**
- * Readiness of both sandbox backends, via the same preflights `resolveBackend`
+ * Readiness of the wanted sandbox backends (the rest are skipped and read `not selected`), via the same preflights `resolveBackend`
  * runs (arch:AC-31), so the status the UI shows is the decision a session start
  * would make. Never throws.
  */
-export async function probeBackends(): Promise<BackendProbes> {
+export async function probeBackends(want: BackendWant = { sbx: true, docker: true }): Promise<BackendProbes> {
   const [sbx, docker] = await Promise.all([
-    sbxPreflight(NODE_SBX_PROCESS),
-    dockerPreflight(NODE_DOCKER_PROCESS, DOCKER_ASSETS_DIR),
+    want.sbx ? sbxPreflight(NODE_SBX_PROCESS) : NOT_SELECTED,
+    want.docker ? dockerPreflight(NODE_DOCKER_PROCESS, DOCKER_ASSETS_DIR) : NOT_SELECTED,
   ]);
   return { sbx: toStatus(sbx), docker: toStatus(docker) };
 }
+
+const NOT_SELECTED = { ok: false, reason: 'not selected' } as const;
 
 function toStatus(p: { readonly ok: true } | { readonly ok: false; readonly reason: string }): BackendStatus {
   return p.ok ? { ok: true } : { ok: false, reason: p.reason };

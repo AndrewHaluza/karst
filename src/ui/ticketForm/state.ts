@@ -1,3 +1,4 @@
+import { selectedSandboxBackends } from '../../agent/backendChoices.js';
 import type { TicketFormPrefill } from './panel.js';
 import type { Store } from '../../store/db.js';
 import { getTicket } from '../../store/tickets.js';
@@ -216,7 +217,7 @@ export interface TicketFormState {
   defaultAgentPreset: string | null;
   /** Per-ticket preset override; null = inherit `manifest.defaultAgentPreset`. */
   selectedAgentPreset: string | null;
-  /** The project's `agentBackend`; null = host. The webview shows the opt-out only for a sandbox backend. */
+  /** The project's first selected sandbox backend (`agentBackends`); null = every core on host. The webview shows the opt-out only for a sandbox backend. */
   projectBackend: AgentBackend | null;
   /** Per-ticket opt-out; `'host'` = run on host, null = follow the project. */
   selectedBackend: 'host' | null;
@@ -444,7 +445,7 @@ export function buildTicketFormState(
       agentPresetNames,
       defaultAgentPreset: manifest.defaultAgentPreset ?? null,
       selectedAgentPreset: null,
-      projectBackend: manifest.agentBackend ?? null,
+      projectBackend: selectedSandboxBackends(manifest.agentBackends)[0] ?? null,
       selectedBackend: null,
       ticketTypes: [...TICKET_TYPES],
       selectedType: null,
@@ -512,7 +513,7 @@ export function buildTicketFormState(
     agentPresetNames,
     defaultAgentPreset: manifest.defaultAgentPreset ?? null,
     selectedAgentPreset: ticket.agentPreset ?? null,
-    projectBackend: manifest.agentBackend ?? null,
+    projectBackend: selectedSandboxBackends(manifest.agentBackends)[0] ?? null,
     selectedBackend: ticket.agentBackend ?? null,
     ticketTypes: [...TICKET_TYPES],
     selectedType: ticket.type ?? null,

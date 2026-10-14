@@ -1998,29 +1998,68 @@ describe('archiveDoneAfterDays', () => {
   });
 });
 
-describe('agentBackend (AC-32: default host)', () => {
+describe('agentBackends (AC-32: per-core, default host)', () => {
+  const load = (extra: string) => {
+    const { path, cleanup } = fixture(`${VALID}\n${extra}\n`);
+    try {
+      return loadManifest(path);
+    } finally {
+      cleanup();
+    }
+  };
+
   it('is undefined when omitted (sessions run on the host)', () => {
-    const { path, cleanup } = fixture(VALID);
-    try {
-      expect(loadManifest(path).agentBackend).toBeUndefined();
-    } finally {
-      cleanup();
-    }
+    expect(load('').agentBackends).toBeUndefined();
   });
 
-  it.each(['host', 'sbx', 'docker'])('parses agentBackend: %s', (value) => {
-    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
-    try {
-      expect(loadManifest(path).agentBackend).toBe(value);
-    } finally {
-      cleanup();
-    }
+  it('parses a valid per-core map', () => {
+    const m = load('agentBackends:\n  claude: sbx\n  codex: host\n  opencode: docker\n  opencode2: docker\n  agy: host');
+    expect(m.agentBackends).toEqual({ claude: 'sbx', opencode: 'docker', opencode2: 'docker' });
   });
 
-  it.each(['Sbx', 'true', '1'])('throws ManifestError on %s', (value) => {
-    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
+  it.each([
+    ['claude: docker', /agentBackends\.claude must be one of host, sbx/],
+    ['codex: docker', /agentBackends\.codex must be one of host, sbx/],
+    ['opencode: sbx', /agentBackends\.opencode must be one of host, docker/],
+    ['opencode2: sbx', /agentBackends\.opencode2 must be one of host, docker/],
+    ['agy: sbx', /agentBackends\.agy must be one of host/],
+    ['agy: docker', /agentBackends\.agy must be one of host/],
+    ['claude: Sbx', /agentBackends\.claude must be one of/],
+    ['claude: true', /agentBackends\.claude must be one of/],
+    ['gemini: sbx', /unknown core 'gemini'/],
+  ])('throws ManifestError on %s', (entry, message) => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackends:\n  ${entry}\n`);
     try {
       expect(() => loadManifest(path)).toThrow(ManifestError);
+      expect(() => loadManifest(path)).toThrow(message);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('rejects a non-map', () => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackends: sbx\n`);
+    try {
+      expect(() => loadManifest(path)).toThrow(/agentBackends must be a map/);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('reads the legacy scalar as a fallback for the cores that support it', () => {
+    expect(load('agentBackend: sbx').agentBackends).toEqual({ claude: 'sbx', codex: 'sbx' });
+    expect(load('agentBackend: docker').agentBackends).toEqual({ opencode: 'docker', opencode2: 'docker' });
+    expect(load('agentBackend: host').agentBackends).toBeUndefined();
+  });
+
+  it('a map entry wins over the legacy scalar', () => {
+    expect(load('agentBackend: sbx\nagentBackends:\n  claude: host\n  opencode: docker').agentBackends)
+      .toEqual({ codex: 'sbx', opencode: 'docker' });
+  });
+
+  it.each(['Sbx', 'true', '1'])('throws ManifestError on legacy agentBackend %s', (value) => {
+    const { path, cleanup } = fixture(`${VALID}\nagentBackend: ${value}\n`);
+    try {
       expect(() => loadManifest(path)).toThrow(/agentBackend must be one of host, sbx, docker/);
     } finally {
       cleanup();

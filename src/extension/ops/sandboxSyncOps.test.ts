@@ -15,17 +15,17 @@ function recorder() {
 }
 
 describe('backendSessionOptions', () => {
-  it('adds nothing when agentBackend is absent', () => {
-    expect(backendSessionOptions({ backend: undefined, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() })).toEqual({});
+  it('adds nothing when agentBackends is absent', () => {
+    expect(backendSessionOptions({ backends: undefined, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() })).toEqual({});
   });
 
   it('resolves per launch and logs the backend line', async () => {
     const resolved = { runner: HOST_SESSION_RUNNER, line: 'host (sbx not signed in)' };
     const resolve = vi.fn().mockResolvedValue(resolved);
     const info = vi.fn();
-    const opts = backendSessionOptions({ backend: 'sbx', core: 'codex', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, resolve });
+    const opts = backendSessionOptions({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, resolve });
     await expect(opts.resolveRunner!()).resolves.toBe(resolved);
-    expect(resolve).toHaveBeenCalledWith({ backend: 'sbx', core: 'codex', projectRoot: '/p', ticketId: 7 });
+    expect(resolve).toHaveBeenCalledWith({ backends: { claude: 'sbx', codex: 'sbx' }, core: 'codex', projectRoot: '/p', ticketId: 7 });
     opts.onBackend!(resolved.line);
     expect(info).toHaveBeenCalledWith('[session] ticket K-7 backend: host (sbx not signed in)');
   });
@@ -37,35 +37,35 @@ describe('backendSessionOptions per-ticket opt-out and visible fallback (arch:AC
   const onHost = (reason: string) => ({ runner: HOST_SESSION_RUNNER, line: `host (${reason})` });
 
   it('a ticket host opt-out resolves with backend host, even for a sandbox project', async () => {
-    const resolve = vi.fn().mockResolvedValue(onHost('agentBackend: host'));
-    const opts = backendSessionOptions({ ...base, backend: 'sbx', ticketOverride: 'host', resolve, warn: vi.fn() });
+    const resolve = vi.fn().mockResolvedValue(onHost('agentBackends.claude: host'));
+    const opts = backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' }, ticketOverride: 'host', resolve, warn: vi.fn() });
     await opts.resolveRunner!();
-    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ backend: 'host' }));
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ backends: { claude: 'host', codex: 'sbx' } }));
   });
 
   it('a null override follows the project', async () => {
     const resolve = vi.fn().mockResolvedValue(sbxOk);
-    await backendSessionOptions({ ...base, backend: 'docker', ticketOverride: null, resolve, warn: vi.fn() }).resolveRunner!();
-    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ backend: 'docker' }));
+    await backendSessionOptions({ ...base, core: 'opencode', backends: { opencode: 'docker', opencode2: 'docker' }, ticketOverride: null, resolve, warn: vi.fn() }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ backends: { opencode: 'docker', opencode2: 'docker' } }));
   });
 
   it('warns "running prompted on host: <reason>" when a chosen sandbox backend is unavailable', async () => {
     const warn = vi.fn();
     const resolve = vi.fn().mockResolvedValue(onHost('sbx not signed in (run `sbx login`)'));
-    await backendSessionOptions({ ...base, backend: 'sbx', resolve, warn }).resolveRunner!();
+    await backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' }, resolve, warn }).resolveRunner!();
     expect(warn).toHaveBeenCalledWith('Karst: K-7 running prompted on host: sbx not signed in (run `sbx login`)');
   });
 
   it('says nothing when the sandbox started, when the project is host, or after an explicit opt-out', async () => {
     const warn = vi.fn();
-    await backendSessionOptions({ ...base, backend: 'sbx', resolve: vi.fn().mockResolvedValue(sbxOk), warn }).resolveRunner!();
-    await backendSessionOptions({ ...base, backend: 'host', resolve: vi.fn().mockResolvedValue(onHost('agentBackend: host')), warn }).resolveRunner!();
-    await backendSessionOptions({ ...base, backend: 'sbx', ticketOverride: 'host', resolve: vi.fn().mockResolvedValue(onHost('agentBackend: host')), warn }).resolveRunner!();
+    await backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' }, resolve: vi.fn().mockResolvedValue(sbxOk), warn }).resolveRunner!();
+    await backendSessionOptions({ ...base, backends: {}, resolve: vi.fn().mockResolvedValue(onHost('agentBackends.claude: host')), warn }).resolveRunner!();
+    await backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' }, ticketOverride: 'host', resolve: vi.fn().mockResolvedValue(onHost('agentBackends.claude: host')), warn }).resolveRunner!();
     expect(warn).not.toHaveBeenCalled();
   });
 
   it('adds nothing when neither project nor ticket picks a backend', () => {
-    expect(backendSessionOptions({ ...base, backend: undefined, ticketOverride: 'host' })).toEqual({});
+    expect(backendSessionOptions({ ...base, backends: undefined, ticketOverride: 'host' })).toEqual({});
   });
 });
 
@@ -73,8 +73,8 @@ describe('backendSessionOptions bridgeFor', () => {
   it('passes bridgeFor through only with a backend', () => {
     const bridgeFor = vi.fn();
     const base = { core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), bridgeFor };
-    expect(backendSessionOptions({ ...base, backend: 'sbx' }).bridgeFor).toBe(bridgeFor);
-    expect(backendSessionOptions({ ...base, backend: undefined })).toEqual({});
+    expect(backendSessionOptions({ ...base, backends: { claude: 'sbx', codex: 'sbx' } }).bridgeFor).toBe(bridgeFor);
+    expect(backendSessionOptions({ ...base, backends: undefined })).toEqual({});
   });
 });
 
@@ -137,12 +137,12 @@ describe('backendSessionOptions worktree', () => {
   it('passes the worktree branch and debug to the resolver only when present', async () => {
     const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'x' });
     const debug = vi.fn();
-    const opts = backendSessionOptions({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: 'b' }, debug, resolve });
+    const opts = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: 'b' }, debug, resolve });
     await opts.resolveRunner!();
-    expect(resolve).toHaveBeenCalledWith({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, docker: { debug } });
-    const bare = backendSessionOptions({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
+    expect(resolve).toHaveBeenCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, worktree: { hostWorktreePath: '/wt', branch: 'b' }, docker: { debug } });
+    const bare = backendSessionOptions({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
     await bare.resolveRunner!();
-    expect(resolve).toHaveBeenLastCalledWith({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7 });
+    expect(resolve).toHaveBeenLastCalledWith({ backends: { opencode: 'docker', opencode2: 'docker' }, core: 'opencode', projectRoot: '/p', ticketId: 7 });
   });
 });
 
@@ -205,7 +205,7 @@ describe('disposeSandboxOp', () => {
 describe('backendSessionOptions: baseline host ports (arch:AC-32)', () => {
   it('hands the docker resolver the baseline ports, alone or with debug', async () => {
     const resolve = vi.fn().mockResolvedValue({ runner: HOST_SESSION_RUNNER, line: 'x' });
-    const base = { backend: 'docker' as const, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve };
+    const base = { backends: { opencode: 'docker', opencode2: 'docker' } as const, core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve };
     await backendSessionOptions({ ...base, hostPorts: [5432] }).resolveRunner!();
     expect(resolve.mock.calls[0]![0].docker).toEqual({ hostPorts: [5432] });
     const debug = vi.fn();

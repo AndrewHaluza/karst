@@ -1,3 +1,4 @@
+import { backendForCore } from '../../agent/backendChoices.js';
 import type { Store } from '../../store/db.js';
 import { getProposalForTicket } from '../../store/planningProposals.js';
 import { getTicket, listSubtasks } from '../../store/tickets.js';
@@ -291,6 +292,7 @@ export function buildDashboardState(
     recentByCore: listRecentlyUsedModels(store, ticket.projectId, 5),
   });
 
+  const sessionCore = ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude';
   const capabilityIdentity = agentContext.capabilityIdentity ?? {
     implementation: null,
     uatTester: null,
@@ -722,9 +724,9 @@ export function buildDashboardState(
     agentSwitch,
     capabilityIdentity,
     sandbox: buildSandboxView({
-      project: agentContext.agentBackend,
+      project: backendForCore(agentContext.agentBackends, sessionCore),
       ticketOverride: ticket.agentBackend,
-      core: ticket.agentProvider ?? ticket.sessionProvider ?? defaultProvider ?? 'claude',
+      core: sessionCore,
     }),
     servers: serverRows,
     // Drives whether "Start servers" is offered at all. A ticket scoping only

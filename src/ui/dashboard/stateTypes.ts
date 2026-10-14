@@ -1,5 +1,6 @@
 import type { ServerView, WorktreeView } from '../../store/dashboard.js';
-import type { AgentBackend, AgentProvider, PresetCapability } from '../../manifest/types.js';
+import type { AgentBackends } from '../../agent/backendChoices.js';
+import type { AgentProvider, PresetCapability } from '../../manifest/types.js';
 import type { DashboardSandboxView } from './sandboxView.js';
 import type { BaselineReviewRow } from './baselineRows.js';
 import type { StoredArtifactsView } from './storedArtifacts.js';
@@ -46,8 +47,8 @@ export interface DashboardAgentContext {
   /** Manifest default effort/variant, for the switch popover's inherit row. */
   defaultEffort?: string | null;
   modelCatalog?: ModelCatalog;
-  /** The manifest's `agentBackend`; the dashboard's Sandbox card shows only for a sandbox backend. */
-  agentBackend?: AgentBackend;
+  /** The manifest's `agentBackends`; the Sandbox card shows only for a ticket whose session core uses a sandbox. */
+  agentBackends?: AgentBackends;
   /**
    * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
    * Plain data (no functions) suitable for serialization via postMessage.

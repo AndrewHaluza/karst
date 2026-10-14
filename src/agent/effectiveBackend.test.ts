@@ -8,43 +8,53 @@ const by = (rows: ReturnType<typeof deriveEffectiveBackends>, core: string) => r
 
 describe('deriveEffectiveBackends', () => {
   it('host setting: every core on host', () => {
-    const rows = deriveEffectiveBackends({ setting: 'host', cores, sbx: OK, docker: OK });
+    const rows = deriveEffectiveBackends({ backends: undefined, cores, sbx: OK, docker: OK });
     expect(rows.every((r) => r.backend === 'host')).toBe(true);
-    expect(by(rows, 'claude')?.reason).toBe('agentBackend: host');
+    expect(by(rows, 'claude')?.reason).toBe('agentBackends: host');
   });
   it('undefined setting behaves as host', () => {
-    expect(by(deriveEffectiveBackends({ setting: undefined, cores, sbx: OK, docker: OK }), 'claude')?.backend).toBe('host');
+    expect(by(deriveEffectiveBackends({ backends: undefined, cores, sbx: OK, docker: OK }), 'claude')?.backend).toBe('host');
   });
   it('sbx: claude/codex on sbx, others host unsupported', () => {
-    const rows = deriveEffectiveBackends({ setting: 'sbx', cores, sbx: OK, docker: OK });
+    const rows = deriveEffectiveBackends({ backends: { claude: 'sbx', codex: 'sbx' }, cores, sbx: OK, docker: OK });
     expect(by(rows, 'claude')?.backend).toBe('sbx');
     expect(by(rows, 'codex')?.backend).toBe('sbx');
-    expect(by(rows, 'opencode')).toMatchObject({ backend: 'host', reason: 'sbx backend unsupported' });
+    expect(by(rows, 'opencode')).toMatchObject({ backend: 'host', reason: 'agentBackends: host' });
   });
   it('sbx unavailable: fail closed to host with reason', () => {
-    expect(by(deriveEffectiveBackends({ setting: 'sbx', cores, sbx: DOWN, docker: OK }), 'claude')).toMatchObject({ backend: 'host', reason: 'down' });
+    expect(by(deriveEffectiveBackends({ backends: { claude: 'sbx', codex: 'sbx' }, cores, sbx: DOWN, docker: OK }), 'claude')).toMatchObject({ backend: 'host', reason: 'down' });
   });
   it('docker: opencode cores on docker, claude host unsupported', () => {
-    const rows = deriveEffectiveBackends({ setting: 'docker', cores, sbx: OK, docker: OK });
+    const rows = deriveEffectiveBackends({ backends: { opencode: 'docker', opencode2: 'docker' }, cores, sbx: OK, docker: OK });
     expect(by(rows, 'opencode')?.backend).toBe('docker');
     expect(by(rows, 'opencode2')?.backend).toBe('docker');
-    expect(by(rows, 'claude')).toMatchObject({ backend: 'host', reason: 'docker backend unsupported' });
+    expect(by(rows, 'claude')).toMatchObject({ backend: 'host', reason: 'agentBackends: host' });
   });
   it('docker unavailable: host with reason', () => {
-    expect(by(deriveEffectiveBackends({ setting: 'docker', cores, sbx: OK, docker: DOWN }), 'opencode')).toMatchObject({ backend: 'host', reason: 'down' });
+    expect(by(deriveEffectiveBackends({ backends: { opencode: 'docker', opencode2: 'docker' }, cores, sbx: OK, docker: DOWN }), 'opencode')).toMatchObject({ backend: 'host', reason: 'down' });
   });
   it('agy never sandboxed', () => {
-    expect(by(deriveEffectiveBackends({ setting: 'sbx', cores, sbx: OK, docker: OK }), 'agy')?.backend).toBe('host');
+    expect(by(deriveEffectiveBackends({ backends: { claude: 'sbx', codex: 'sbx' }, cores, sbx: OK, docker: OK }), 'agy')?.backend).toBe('host');
+  });
+  it('mixed: claude on sbx and opencode on docker, each against its own status', () => {
+    const rows = deriveEffectiveBackends({ backends: { claude: 'sbx', opencode: 'docker' }, cores, sbx: OK, docker: DOWN });
+    expect(by(rows, 'claude')?.backend).toBe('sbx');
+    expect(by(rows, 'opencode')).toMatchObject({ backend: 'host', reason: 'down' });
+    expect(by(rows, 'codex')?.backend).toBe('host');
+  });
+  it('a pair the core cannot use resolves to host with a reason', () => {
+    const rows = deriveEffectiveBackends({ backends: { claude: 'docker' } as never, cores, sbx: OK, docker: OK });
+    expect(by(rows, 'claude')).toMatchObject({ backend: 'host', reason: 'docker backend unsupported' });
   });
 });
 
 describe('formatEffectiveBackends', () => {
   it('joins with middle dot and marks unsandboxed host', () => {
-    const rows = deriveEffectiveBackends({ setting: 'sbx', cores: ['claude', 'agy'], sbx: OK, docker: OK });
-    expect(formatEffectiveBackends(rows)).toBe('claude: sbx · agy: host (sbx backend unsupported)');
+    const rows = deriveEffectiveBackends({ backends: { claude: 'sbx' }, cores: ['claude', 'agy'], sbx: DOWN, docker: OK });
+    expect(formatEffectiveBackends(rows)).toBe('claude: host (down) · agy: host');
   });
   it('plain host row has no suffix when setting is host', () => {
-    const rows = deriveEffectiveBackends({ setting: 'host', cores: ['claude'], sbx: OK, docker: OK });
+    const rows = deriveEffectiveBackends({ backends: undefined, cores: ['claude'], sbx: OK, docker: OK });
     expect(formatEffectiveBackends(rows)).toBe('claude: host');
   });
 });

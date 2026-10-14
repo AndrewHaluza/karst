@@ -369,49 +369,89 @@ describe('Agents page — sandbox backend', () => {
     act(() => view.bridge.push({ type: 'backend-status', status } as never));
     return view;
   };
-  const selector = (): HTMLSelectElement => screen.getByLabelText('Agent backend') as HTMLSelectElement;
+  const group = (core: string) => within(screen.getByTestId(`backend-row-${core}`));
+  const radio = (core: string, value: string) => group(core).getByRole('radio', { name: value });
+  const checkedOf = (core: string) =>
+    group(core).getAllByRole('radio').filter((r) => r.getAttribute('aria-checked') === 'true').map((r) => r.textContent);
+  const lastWant = (bridge: { posted: readonly unknown[] }) =>
+    (bridge.posted.filter((m) => (m as { type: string }).type === 'check-backends').at(-1) as { want: unknown }).want;
 
-  it('defaults to host and offers host / sbx / docker', () => {
+  it('all host: one row per core, each offering only its allowed values', () => {
     mount();
-    expect(selector().value).toBe('host');
-    expect([...selector().options].map((o) => o.value)).toEqual(['host', 'sbx', 'docker']);
+    const values = (core: string) => group(core).getAllByRole('radio').map((r) => r.textContent);
+    expect(values('claude')).toEqual(['host', 'sbx']);
+    expect(values('codex')).toEqual(['host', 'sbx']);
+    expect(values('opencode')).toEqual(['host', 'docker']);
+    expect(values('opencode2')).toEqual(['host', 'docker']);
+    expect(values('agy')).toEqual(['host']);
+    for (const core of ['claude', 'codex', 'opencode', 'opencode2', 'agy']) expect(checkedOf(core)).toEqual(['host']);
   });
 
-  it('choosing a backend edits the draft agentBackend', () => {
+  it('the agy row is host only, disabled, with a "no sandbox yet" note', () => {
+    mount();
+    expect((radio('agy', 'host') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByTestId('backend-row-agy').textContent).toContain('no sandbox yet');
+  });
+
+  it('choosing a backend edits only that core in the draft map', () => {
     const { probe } = mount();
-    fireEvent.change(selector(), { target: { value: 'sbx' } });
-    expect(draftOf(probe).agentBackend).toBe('sbx');
-  });
-
-  it('choosing host again removes the key so the yml stays clean', () => {
-    const { probe } = mount({ ...BASE, agentBackend: 'docker' } as Manifest);
-    fireEvent.change(selector(), { target: { value: 'host' } });
+    fireEvent.click(radio('claude', 'sbx'));
+    fireEvent.click(radio('opencode', 'docker'));
+    expect(draftOf(probe).agentBackends).toEqual({ claude: 'sbx', opencode: 'docker' });
     expect('agentBackend' in draftOf(probe)).toBe(false);
   });
 
-  it('shows the per-core effective backend with the fail-closed reason', () => {
-    withStatus({ ...BASE, agentBackend: 'sbx' } as Manifest, { sbx: { ok: true }, docker: { ok: false, reason: 'docker daemon unreachable' } });
-    const line = screen.getByTestId('effective-backend').textContent;
-    expect(line).toContain('claude: sbx');
-    expect(line).toContain('opencode: host (sbx backend unsupported)');
+  it('choosing host again deletes the core key, and the map when empty, so the yml stays clean', () => {
+    const { probe } = mount({ ...BASE, agentBackends: { claude: 'sbx', opencode: 'docker' } } as Manifest);
+    fireEvent.click(radio('claude', 'host'));
+    expect(draftOf(probe).agentBackends).toEqual({ opencode: 'docker' });
+    fireEvent.click(radio('opencode', 'host'));
+    expect('agentBackends' in draftOf(probe)).toBe(false);
   });
 
-  it('shows each backend status with its fix hint', () => {
-    withStatus(BASE, { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } });
-    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('sbx not signed in');
+  it('mixed sbx + docker: effective line per core and both statuses shown', () => {
+    withStatus(
+      { ...BASE, agentBackends: { claude: 'sbx', opencode: 'docker' } } as Manifest,
+      { sbx: { ok: true }, docker: { ok: true } },
+    );
+    const line = screen.getByTestId('effective-backend').textContent;
+    expect(line).toContain('claude: sbx');
+    expect(line).toContain('opencode: docker');
+    expect(line).toContain('codex: host');
+    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('ready');
     expect(screen.getByTestId('backend-status-docker').textContent).toContain('ready');
   });
 
-  it('asks the host to probe on mount and on Re-check', () => {
+  it('preflight fail: the core falls back to host with the reason and the fix hint shows', () => {
+    withStatus(
+      { ...BASE, agentBackends: { claude: 'sbx' } } as Manifest,
+      { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } },
+    );
+    expect(screen.getByTestId('effective-backend').textContent).toContain('claude: host (sbx not signed in (run `sbx login`))');
+    expect(screen.getByTestId('backend-status-sbx').textContent).toContain('sbx not signed in');
+    expect(screen.queryByTestId('backend-status-docker')).toBeNull();
+  });
+
+  it('shows no backend status while every core is on host', () => {
+    mount();
+    expect(screen.queryByTestId('backend-status-sbx')).toBeNull();
+    expect(screen.queryByTestId('backend-status-docker')).toBeNull();
+  });
+
+  it('asks the host to probe only the backends some core selects, on mount, on change and on Re-check', () => {
     const { bridge } = mount();
     const checks = () => bridge.posted.filter((m) => (m as { type: string }).type === 'check-backends').length;
     expect(checks()).toBe(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(lastWant(bridge)).toEqual({ sbx: false, docker: false });
+    fireEvent.click(radio('opencode2', 'docker'));
     expect(checks()).toBe(2);
+    expect(lastWant(bridge)).toEqual({ sbx: false, docker: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(checks()).toBe(3);
   });
 
   it('says status is not checked when the host has not reported', () => {
-    mount();
+    mount({ ...BASE, agentBackends: { codex: 'sbx' } } as Manifest);
     expect(screen.getByTestId('backend-status-sbx').textContent).toContain('not checked');
   });
 });

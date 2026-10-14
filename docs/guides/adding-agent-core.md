@@ -488,7 +488,7 @@ END_DOC_BLOCK: [@guide:ADD-14]
 
 ## [@guide:ADD-15] Sandbox runners
 
-A new core does not choose its sandbox. `agentBackend` picks a `SessionRunner`
+A new core does not choose its sandbox. `agentBackends` (per core) picks a `SessionRunner`
 (`agent/backendResolver.ts`) and the adapter stays unaware of it.
 
 - To run in `sbx` or `docker`, add the core to `SBX_CORES` or `DOCKER_CORES` in

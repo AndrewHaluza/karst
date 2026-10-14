@@ -388,7 +388,7 @@ export class Opencode2Adapter implements AgentAdapter {
     sandboxInteractive: unsupported(
       'opencode v2 has no OS-level sandbox: its permission config only allows, asks or denies a ' +
         'tool, and an allowed bash command runs uncontained on the host; contain it with the ' +
-        'docker backend (agentBackend: docker, arch:AC-33)',
+        'docker backend (agentBackends: docker, arch:AC-33)',
     ),
     processKillDeny: SUPPORTED,
     headlessPolicy: SUPPORTED,

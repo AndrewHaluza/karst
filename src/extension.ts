@@ -1248,7 +1248,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
-  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backend: () => currentManifest()?.agentBackend, projectRoot: () => cliEntryAndManifest(context).manifestPath ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: () => cliEntryAndManifest(context).manifestPath ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
@@ -1264,7 +1264,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   sandboxLife = makeSandboxWiring({ // arch:AC-32
     store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
-    projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackend !== undefined,
+    projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
     store: localStore, beforeArchive: sandboxLife.beforeArchive,
@@ -3085,7 +3085,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog, agentBackend: currentManifest()?.agentBackend,
+      modelCatalog, agentBackends: currentManifest()?.agentBackends,
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -6583,7 +6583,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
-            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
+            ...backendSessionOptions({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

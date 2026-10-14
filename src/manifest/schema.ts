@@ -1,6 +1,6 @@
 import { CHAIN_EDGES } from './types.js';
+import { allowedBackends, BACKEND_CORES, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
 import type {
-  AgentBackend,
   Manifest,
   ChainEdge,
   RepositoryDef,
@@ -458,15 +458,41 @@ function validateDebug(raw: unknown): boolean | undefined {
   return raw;
 }
 
-const AGENT_BACKENDS: readonly AgentBackend[] = ['host', 'sbx', 'docker'];
+const AGENT_BACKENDS: readonly CoreBackend[] = ['host', 'sbx', 'docker'];
 
-/** Parse `agentBackend` (default undefined → host). A typo must never pick a backend. */
-function validateAgentBackend(raw: unknown): AgentBackend | undefined {
-  if (raw === undefined) return undefined;
-  if (typeof raw !== 'string' || !(AGENT_BACKENDS as readonly string[]).includes(raw)) {
-    throw new ManifestError(`agentBackend must be one of ${AGENT_BACKENDS.join(', ')}`);
+/**
+ * Parse `agentBackends` (core → backend; absent key = host). A backend the core
+ * cannot use is rejected: a typo must never pick a backend. The legacy scalar
+ * `agentBackend` fills in only the cores that support it and never overrides a
+ * map entry.
+ */
+function validateAgentBackends(raw: unknown, legacy: unknown): AgentBackends | undefined {
+  const out: Partial<Record<BackendCore, CoreBackend>> = {};
+  if (raw !== undefined) {
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new ManifestError('agentBackends must be a map of core to backend');
+    }
+    for (const [core, value] of Object.entries(raw)) {
+      if (!(BACKEND_CORES as readonly string[]).includes(core)) {
+        throw new ManifestError(`agentBackends: unknown core '${core}' (expected ${BACKEND_CORES.join(', ')})`);
+      }
+      const allowed = allowedBackends(core);
+      if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) {
+        throw new ManifestError(`agentBackends.${core} must be one of ${allowed.join(', ')}`);
+      }
+      out[core as BackendCore] = value as CoreBackend;
+    }
   }
-  return raw as AgentBackend;
+  if (legacy !== undefined) {
+    if (typeof legacy !== 'string' || !(AGENT_BACKENDS as readonly string[]).includes(legacy)) {
+      throw new ManifestError(`agentBackend must be one of ${AGENT_BACKENDS.join(', ')}`);
+    }
+    for (const core of BACKEND_CORES) {
+      if (out[core] === undefined && allowedBackends(core).includes(legacy as CoreBackend)) out[core] = legacy as CoreBackend;
+    }
+  }
+  const kept = Object.fromEntries(Object.entries(out).filter(([, v]) => v !== 'host'));
+  return Object.keys(kept).length === 0 ? undefined : (kept as AgentBackends);
 }
 
 /**
@@ -723,7 +749,7 @@ export function validateManifest(raw: unknown): Manifest {
     subtasks: validateSubtasks(raw.subtasks),
     debug: validateDebug(raw.debug),
     agentSandbox: validateAgentSandbox(raw.agentSandbox),
-    agentBackend: validateAgentBackend(raw.agentBackend),
+    agentBackends: validateAgentBackends(raw.agentBackends, raw.agentBackend),
     closeDoneTerminalsWithTicket: validateCloseDoneTerminalsWithTicket(
       raw.closeDoneTerminalsWithTicket,
     ),

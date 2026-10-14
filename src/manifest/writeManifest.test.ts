@@ -81,6 +81,19 @@ describe('writeManifest', () => {
     }
   });
 
+  it('drops the legacy agentBackend scalar so a core set back to host stays host', () => {
+    const { path, cleanup } = fixture(`${RAW}agentBackend: sbx\n`);
+    try {
+      const m = loadManifest(path);
+      expect(m.agentBackends).toEqual({ claude: 'sbx', codex: 'sbx' });
+      writeManifest(path, { ...m, agentBackends: undefined });
+      expect(readFileSync(path, 'utf8')).not.toMatch(/agentBackend/);
+      expect(loadManifest(path).agentBackends).toBeUndefined();
+    } finally {
+      cleanup();
+    }
+  });
+
   it('preserves unknown top-level keys and unmodeled repository fields', () => {
     const { path, cleanup } = fixture();
     try {
@@ -368,8 +381,8 @@ describe('writeManifest', () => {
         debug: true,
         // Same reason: absent agentSandbox round-trips regardless of the overlay.
         agentSandbox: true,
-        // Same reason: absent agentBackend round-trips regardless of the overlay.
-        agentBackend: 'sbx',
+        // Same reason: absent agentBackends round-trips regardless of the overlay.
+        agentBackends: { claude: 'sbx', opencode: 'docker' },
         // Same reason again: absent closeDoneTerminalsWithTicket would round-trip
         // whether or not the overlay wrote it, so the populated manifest pins the
         // explicit value.
