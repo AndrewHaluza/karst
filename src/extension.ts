@@ -685,6 +685,7 @@ const MERGE_SYNC_MIN_AGE_MS = 5 * 60_000;
 
 let store: Store | undefined;
 let endpoint: HookEndpoint | undefined;
+let bridges: BridgeRegistry | undefined; // arch:AC-34, built once the hook endpoint is bound
 let graphEndpoint: GraphWakeupEndpoint | undefined;
 let graphCoordinatorStore: Store | undefined;
 let graphTransport: SupervisedCliTransport | undefined;
@@ -1010,7 +1011,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const snapshot = [...ownedSessionTickets].sort((a, b) => a - b);
     return ownershipWriter.enqueue(snapshot);
   };
-  let bridges: BridgeRegistry | undefined; // arch:AC-34, built once the hook endpoint is bound
   const sessions = new SessionManager(
     makeTerminalHost(terminalIdentity),
     (ticketId) => {
@@ -1029,7 +1029,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
     (ticketId) => {
-      void bridges?.detach(ticketId); // the sandbox lives on: keep its bridge dir (arch:AC-32)
+      bridges?.detach(ticketId).catch((e: unknown) => logError('karst: bridge detach failed', e)); // the sandbox lives on: keep its bridge dir (arch:AC-32)
       // The agy watch's per-ticket memory dies with the terminal: a closed
       // session must not keep a stale conversation/awaiting state behind.
       agyWatchStates.delete(ticketId);
@@ -7141,6 +7141,8 @@ export async function deactivate(): Promise<void> {
   }
   await Promise.allSettled([...pendingApproachInstalls]);
   pendingApproachInstalls.clear();
+  await bridges?.detachAll().catch((error: unknown) => cleanupErrors.push(error)); // stop pollers, keep dirs
+  bridges = undefined;
   try {
     await endpoint?.close();
   } catch (error) {

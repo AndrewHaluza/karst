@@ -136,3 +136,57 @@ describe('bridgeRegistry', () => {
     expect(debug).toHaveBeenCalledWith('[bridge] sweep skipped ticket 2: nope');
   });
 });
+
+describe('bridgeRegistry serialization', () => {
+  it('concurrent attach(7) x2 builds once and starts once', async () => {
+    const a = fakeAttachment();
+    const build = vi.fn(() => a);
+    const reg = createBridgeRegistry({ root, build });
+    await Promise.all([reg.attach(7), reg.attach(7)]);
+    expect(build).toHaveBeenCalledTimes(1);
+    expect(a.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('attach overlapping a detach waits for the stop: never two live pollers', async () => {
+    let live = 0;
+    let max = 0;
+    let release!: () => void;
+    const make = () => ({
+      start: vi.fn(() => { live += 1; max = Math.max(max, live); }),
+      stop: vi.fn(() => new Promise<void>((r) => { release = () => { live -= 1; r(); }; })),
+      pollOnce: vi.fn(async () => {}),
+    });
+    const reg = createBridgeRegistry({ root, build: make });
+    await reg.attach(7);
+    const d = reg.detach(7);
+    const at = reg.attach(7);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(live).toBe(1);
+    release();
+    await Promise.all([d, at]);
+    expect(live).toBe(1);
+    expect(max).toBe(1);
+  });
+
+  it('a failed operation does not wedge the ticket queue', async () => {
+    let fail = true;
+    const reg = createBridgeRegistry({ root, build: () => { if (fail) throw new Error('x'); return fakeAttachment(); } });
+    await expect(reg.attach(7)).rejects.toThrow('x');
+    fail = false;
+    await expect(reg.attach(7)).resolves.toEqual(bridgePaths(root, 7));
+  });
+
+  it('detachAll stops every poller and keeps the dirs', async () => {
+    const a = fakeAttachment();
+    const b = fakeAttachment();
+    const reg = createBridgeRegistry({ root, build: (id) => (id === 1 ? a : b) });
+    const p1 = await reg.attach(1);
+    await reg.attach(2);
+    await reg.detachAll();
+    expect(a.stop).toHaveBeenCalledTimes(1);
+    expect(b.stop).toHaveBeenCalledTimes(1);
+    expect(await exists(p1.eventsFile)).toBe(true);
+    await reg.detachAll();
+    expect(a.stop).toHaveBeenCalledTimes(1);
+  });
+});

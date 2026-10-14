@@ -22,6 +22,8 @@ export interface BridgeRegistry {
    * With `owned`, an open ticket outside it (another window's) is left alone.
    */
   sweep(openTicketIds: ReadonlySet<number>, owned?: ReadonlySet<number>): Promise<BridgeSweepResult>;
+  /** Extension shutdown: stop every poller, keep every dir. */
+  detachAll(): Promise<void>;
 }
 
 /**
@@ -31,8 +33,20 @@ export interface BridgeRegistry {
 export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
   const log = (m: string): void => deps.debug?.(`[bridge] ${m}`);
   const live = new Map<number, BridgeAttachment>();
+  // One operation per ticket at a time: an attach never races another attach
+  // or a detach still awaiting its poller's stop().
+  const queues = new Map<number, Promise<unknown>>();
+  const serial = <T>(ticketId: number, op: () => Promise<T>): Promise<T> => {
+    const next = (queues.get(ticketId) ?? Promise.resolve()).then(op, op);
+    const settled = next.then(() => undefined, () => undefined);
+    queues.set(ticketId, settled);
+    void settled.then(() => {
+      if (queues.get(ticketId) === settled) queues.delete(ticketId);
+    });
+    return next;
+  };
 
-  const attach = async (ticketId: number): Promise<BridgePaths> => {
+  const attachNow = async (ticketId: number): Promise<BridgePaths> => {
     const paths = bridgePaths(deps.root, ticketId);
     if (live.has(ticketId)) return paths;
     await ensureBridgeDir(paths);
@@ -43,14 +57,20 @@ export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
     }
     return paths;
   };
-  const detach = async (ticketId: number): Promise<void> => {
+  const detachNow = async (ticketId: number): Promise<void> => {
     const attachment = live.get(ticketId);
     live.delete(ticketId);
     if (attachment) await attachment.stop();
   };
-  const dispose = async (ticketId: number): Promise<void> => {
-    await detach(ticketId);
-    await removeBridgeDir(bridgePaths(deps.root, ticketId));
+  const attach = (ticketId: number): Promise<BridgePaths> => serial(ticketId, () => attachNow(ticketId));
+  const detach = (ticketId: number): Promise<void> => serial(ticketId, () => detachNow(ticketId));
+  const dispose = (ticketId: number): Promise<void> =>
+    serial(ticketId, async () => {
+      await detachNow(ticketId);
+      await removeBridgeDir(bridgePaths(deps.root, ticketId));
+    });
+  const detachAll = async (): Promise<void> => {
+    await Promise.all([...live.keys()].map((id) => detach(id)));
   };
   const sweep: BridgeRegistry['sweep'] = async (open, owned) => {
     const reattached: number[] = [];
@@ -58,6 +78,9 @@ export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
     for (const id of await listBridgeTicketIds(deps.root)) {
       try {
         if (!open.has(id)) {
+          // Accepted even if the closed ticket's sandbox still exists: its events
+          // are moot (a marker for a non-current stage is rejected; hooks for a
+          // closed ticket carry no signal).
           await dispose(id);
           removed.push(id);
         } else if (!owned || owned.has(id)) {
@@ -70,5 +93,5 @@ export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
     }
     return { reattached, removed };
   };
-  return { attach, detach, dispose, sweep };
+  return { attach, detach, dispose, sweep, detachAll };
 }

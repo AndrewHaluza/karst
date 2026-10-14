@@ -55,7 +55,8 @@ import { join } from 'node:path';
 // re-attach sweep, terminal-close detach, the `bridgeFor` launch spread and the
 // `karst.sandbox.dispose` registration; logic is in `ops/bridgeWiring.ts`,
 // `ops/bootSweeps.ts:runBridgeSweep`, `ops/sandboxSyncOps.ts` and `agent/bridge/bridgeRegistry.ts`.
-const MAX_EXTENSION_LINES = 8601;
+// Raised by 2 (8601 -> 8603): `deactivate` stops every bridge poller (`detachAll`), keeping the dirs.
+const MAX_EXTENSION_LINES = 8603;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
