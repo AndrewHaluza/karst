@@ -4,7 +4,7 @@ import { archiveTicket, createTicket, getTicket, setSessionId } from '../../stor
 import { upsertProject } from '../../store/projects.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
-import { REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
+import { OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS } from './sandboxLifecycleOps.js';
 import { makeSandboxWiring, type SandboxWiringInput } from './sandboxWiring.js';
 
 let store: Store;
@@ -254,6 +254,31 @@ describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
     choose.mockResolvedValue(REMOVE_ANYWAY as never);
     await w.remove(id);
     expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+  });
+
+  it('remove: "Open sync diff" opens this ticket\'s diff, and a confirmed removal also drops the bridge dir', async () => {
+    const { proc, dockerProc } = withSandbox();
+    const openSyncDiff = vi.fn(async () => {});
+    const bridges = { dispose: vi.fn(async () => {}) };
+    const { w, choose } = wiring({ projectRoot: () => ROOT, proc, dockerProc, openSyncDiff, bridges: () => bridges });
+    choose.mockResolvedValueOnce(OPEN_SYNC_DIFF as never);
+    await w.remove(id);
+    expect(openSyncDiff).toHaveBeenCalledWith(id);
+    expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(false);
+    choose.mockResolvedValueOnce(REMOVE_ANYWAY as never);
+    await w.remove(id);
+    expect(bridges.dispose).toHaveBeenCalledWith(id);
+  });
+
+  it('diff hands the sandbox diff to the editor binding', async () => {
+    const wt = createTicket(store, { key: 'K-9', title: 'w' }).id;
+    setSessionId(store, wt, 's9', 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(wt);
+    const proc = fakeSbxProcess({ 'git -C /wt/r diff': { stdout: 'diff --git a/f b/f\n+x\n' } });
+    const showDiff = vi.fn(async () => {});
+    const { w } = wiring({ projectRoot: () => ROOT, proc, showDiff });
+    await w.diff(wt);
+    expect(showDiff).toHaveBeenCalledWith(expect.stringContaining('K-9'), 'diff --git a/f b/f\n+x\n');
   });
 
   it('diff reports a missing worktree', async () => {
