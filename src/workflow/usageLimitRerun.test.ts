@@ -17,6 +17,9 @@ import { listProcessRuns } from '../store/processRuns.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { Manifest } from '../manifest/types.js';
 import type { GateRunInput } from '../store/gateRuns.js';
+import { recordGateRun } from '../store/gateRuns.js';
+import type { GitRunner } from '../integrations/git.js';
+import { UsageLimitError } from '../agent/cliFailure.js';
 
 describe('dismissUsageLimitPark', () => {
   let store: Store;
@@ -937,6 +940,435 @@ describe('rerunParkedStage', () => {
     const logContent = readFileSync(join(artifactDir, artifactFiles[0]!), 'utf-8');
     expect(logContent).toContain('review findings lane unreadable output: web');
     expect(logContent).toContain('unreadable output from web — no findings could be read');
+  });
+
+  it('uat re-run runs the deterministic tester verifier and fails the stage on a nonzero exit (K11)', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-VERIFIER', title: 'Test uat verifier rerun' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ observations: 0, targets: [] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'uat',
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ observations: 0, targets: [] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: JSON.stringify([]) }),
+    };
+
+    const manifest: Manifest = {
+      uat: {
+        testerObservations: { blockingSeverity: 'none' },
+        testerVerifier: { name: 'verify', kind: 'script', script: 'verify' },
+        maxFixAttempts: 2,
+      },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      // The deterministic verifier: a completed nonzero exit MUST fail the stage,
+      // exactly as the full UAT stage does.
+      runVerifier: async () => ({ kind: 'completed', exitCode: 1, output: '' }),
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    const rounds = listRecoveryRounds(store, ticket.id);
+    expect(rounds[0]).toMatchObject({ triggerKind: 'tester-verifier-failure' });
+  });
+
+  it('uat re-run with a configured verifier but no runner parks capability-missing (K11)', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-VERIFIER-NORUN', title: 'Test uat verifier no runner' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ observations: 0, targets: [] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'uat',
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ observations: 0, targets: [] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: JSON.stringify([]) }),
+    };
+
+    const manifest: Manifest = {
+      uat: {
+        testerObservations: { blockingSeverity: 'none' },
+        testerVerifier: { name: 'verify', kind: 'script', script: 'verify' },
+      },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+  });
+
+  it('review re-run defaults requireIndependentSignal to true (R7) when the manifest omits it', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-R7-DEFAULT', title: 'Test R7 default' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    // The UAT stage asked the exact same question the review re-run will ask.
+    recordGateRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T09:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0, repo: 'web', command: 'npm', args: ['run', 'lint'] }],
+    });
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0, repo: 'web', command: 'npm', args: ['run', 'lint'] }],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: JSON.stringify([]) }),
+    };
+
+    // NOTE: no `requireIndependentSignal` key — the re-run must default it TRUE,
+    // exactly like `stages/review.ts`, and fail on a review that adds no signal.
+    const manifest: Manifest = {
+      review: { findings: { blockingSeverity: 'high' }, maxFixAttempts: 2 },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
+  });
+
+  it('review re-run threads git and the conformance artifacts into the findings lane', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-GIT-ARTIFACTS', title: 'Test git+artifacts' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0, repo: 'web', command: 'npm', args: ['run', 'lint'] }],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: JSON.stringify([]) }),
+    };
+
+    const gitCalls: string[] = [];
+    const git: GitRunner = async (args) => {
+      gitCalls.push(args.join(' '));
+      return { exitCode: 1, stdout: '', stderr: '' };
+    };
+    let artifactsLoaded = 0;
+
+    const manifest: Manifest = {
+      review: { requireIndependentSignal: false, findings: { blockingSeverity: 'high' } },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      git,
+      loadArtifacts: async () => {
+        artifactsLoaded += 1;
+        return { intent: 'INTENT', spec: null, plan: null };
+      },
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'ship' });
+    // The lane attempts a worktree SNAPSHOT (never a committed-only range) …
+    expect(gitCalls).toContain('rev-parse HEAD');
+    // … and the conformance artifacts were loaded and judged.
+    expect(artifactsLoaded).toBe(1);
+  });
+
+  it('review re-run that hits the quota again re-parks and closes its Review process run', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-RERUN-REPARK', title: 'Test review re-park' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0, repo: 'web', command: 'npm', args: ['run', 'lint'] }],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    // The picked core is ALSO out of quota: the re-run must re-park, and the
+    // Review process run it opened must not be left `running` forever.
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockRejectedValue(
+        new UsageLimitError('Claude usage limit reached — out of credits.', {
+          tool: 'Claude',
+          provider: 'claude',
+          model: 'claude-3-7-sonnet',
+        }),
+      ),
+    };
+
+    const manifest: Manifest = {
+      review: { requireIndependentSignal: false, findings: { blockingSeverity: 'high' } },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'claude',
+      model: 'claude-3-7-sonnet',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'usage-limit' });
+    const reviewRuns = listProcessRuns(store, ticket.id).filter((r) => r.processId === 'review');
+    expect(reviewRuns.length).toBeGreaterThan(0);
+    expect(reviewRuns.at(-1)?.resultKind).toBe('execution-failed');
   });
 });
 

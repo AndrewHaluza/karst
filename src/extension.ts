@@ -65,7 +65,7 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
-import { createUsageLimitParkBinding, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
+import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
@@ -1406,14 +1406,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const processFor = (
     ticketId: number,
     role: ProcessRole,
+    // D159: a one-shot provider/model override for a usage-limit op re-run.
+    override?: { provider: AgentProvider; model: string | null },
   ): DriveProcessBundle | null => {
     const t = getTicket(localStore, ticketId);
     const assignment = resolveProcessAssignment(
       currentManifest() ?? emptyManifest(),
       role,
       {
-        provider: t.agentProvider ?? undefined,
-        model: t.model || undefined,
+        provider: override?.provider ?? t.agentProvider ?? undefined,
+        model: override ? (override.model ?? undefined) : t.model || undefined,
         effort: t.effort || undefined,
         preset: t.agentPreset ?? undefined,
       },
@@ -1499,8 +1501,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
    * The ticket's own `single-subagent` pick drives the SESSION, never this
    * headless analysis.
    */
-  const analysisProcess = (ticketId: number): DriveProcessBundle | null =>
-    processFor(ticketId, 'ticket-analysis');
+  const analysisProcess = (ticketId: number, override?: { provider: AgentProvider; model: string | null }): DriveProcessBundle | null => processFor(ticketId, 'ticket-analysis', override);
 
   // Drop the cached copy so the next read re-reads from disk. Shared by
   // the ticket form (after a signal writeback) and settings (after a save) so both
@@ -2176,6 +2177,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // `processes.ticketAnalysis` picks its core/model and `enabled: false`
       // reads as configured absence (the form's analyze refuses).
       resolveAnalysisProcess: analysisProcess,
+      pickUsageLimitAgentModel: makeUsageLimitAgentModelPicker(() => modelCatalog),
       onChange: () => provider.refresh(),
       startTicket,
       requestSubtaskAutostart: () => void subtaskAutostart.sweep(),

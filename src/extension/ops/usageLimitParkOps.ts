@@ -4,6 +4,9 @@ import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { Notify } from './notify.js';
+import type { GitRunner } from '../../integrations/git.js';
+import type { ReviewArtifacts } from '../../workflow/review/conformance.js';
+import type { TesterGateRunner } from '../../workflow/uat/testerVerifier.js';
 import {
   agentSwitchCoreChoices,
   agentSwitchModelChoices,
@@ -93,6 +96,16 @@ export interface UsageLimitActionCommonDeps {
   artifactDir?: string;
   cwd?: string;
   debug?: (msg: string) => void;
+  /**
+   * The git runner the review re-run snapshots the worktree with, so it reviews
+   * the SAME committed+uncommitted tree the stage would — never a committed-only
+   * range. Absent → no snapshot (fallback wording); the host passes the real one.
+   */
+  git?: GitRunner;
+  /** Review conformance artifacts for the re-run; absent → the lane runs without them. */
+  loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
+  /** The `uat.testerVerifier` host boundary (`runProcess`); absent → a configured verifier parks. */
+  runVerifier?: TesterGateRunner;
 }
 
 export interface UsageLimitPickDeps extends UsageLimitActionCommonDeps {
@@ -130,6 +143,9 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
+    git: deps.git,
+    loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
+    runVerifier: deps.runVerifier,
     debug: deps.debug,
   });
 
@@ -166,6 +182,9 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
+    git: deps.git,
+    loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
+    runVerifier: deps.runVerifier,
     debug: deps.debug,
   });
 
@@ -215,6 +234,9 @@ export interface UsageLimitParkActionsDeps {
   adapterFor: (provider: AgentProvider, model: string | null) => AgentAdapter;
   artifactDir: () => string;
   cwd?: () => string;
+  git?: GitRunner;
+  loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
+  runVerifier?: TesterGateRunner;
   debug?: (msg: string) => void;
 }
 
@@ -241,6 +263,9 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         adapterFor: deps.adapterFor,
         artifactDir: deps.artifactDir(),
         cwd: deps.cwd?.(),
+        git: deps.git,
+        loadArtifacts: deps.loadArtifacts,
+        runVerifier: deps.runVerifier,
         debug: deps.debug,
       }),
     usageLimitRetry: (ticketId: number, stageKey: StageKey) =>
@@ -255,6 +280,9 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         adapterFor: deps.adapterFor,
         artifactDir: deps.artifactDir(),
         cwd: deps.cwd?.(),
+        git: deps.git,
+        loadArtifacts: deps.loadArtifacts,
+        runVerifier: deps.runVerifier,
         debug: deps.debug,
       }),
     usageLimitDismiss: (ticketId: number, stageKey: StageKey) =>
