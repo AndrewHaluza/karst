@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { openStore } from '../store/db.js';
-import { DoctorExit, parseDoctorArgs, runDoctorCommand, type ListSandboxes } from './doctorCommand.js';
+import { DoctorExit, parseDoctorArgs, runDoctorCommand, type ListSandboxes, type SandboxProbe } from './doctorCommand.js';
 
 function seed() {
   const store = openStore(':memory:');
@@ -134,14 +134,14 @@ describe('karst doctor command', () => {
 
 describe('karst doctor sandbox orphans (arch:AC-32)', () => {
   const MANIFEST = 'host: localhost\nportRange: [4000, 4999]\nbaselineBranch: develop\nrepositories:\n  app:\n    repoPath: ../app\n';
-  async function doctorWith(backend: string, list: ListSandboxes): Promise<{ id: string; status: string }[]> {
+  async function doctorWith(backend: string, list: ListSandboxes, probe?: SandboxProbe, area = 'state'): Promise<{ id: string; status: string }[]> {
     const dir = mkdtempSync(join(tmpdir(), 'doctor-sbx-'));
     const path = join(dir, 'karst.yml');
     writeFileSync(path, `${MANIFEST}${backend}`);
     const store = seed();
     store.db.prepare("INSERT INTO tickets (id, key, stage_current, archived_at) VALUES (2, 'T-2', 'impl', datetime('now'))").run();
     try {
-      await runDoctorCommand(store, ':memory:', path, ['doctor', '--json', '--area', 'state'], {}, list);
+      await runDoctorCommand(store, ':memory:', path, ['doctor', '--json', '--area', area], {}, list, probe);
     } catch (e) {
       return JSON.parse((e as DoctorExit).output).checks;
     } finally {
@@ -164,5 +164,32 @@ describe('karst doctor sandbox orphans (arch:AC-32)', () => {
     const checks = await doctorWith('', list);
     expect(list).not.toHaveBeenCalled();
     expect(checks.some((c) => c.id.startsWith('state.sandbox-orphan.'))).toBe(false);
+  });
+
+  const ready: SandboxProbe = { backends: async () => ({ sbx: { ok: true }, docker: { ok: false, reason: 'docker not installed (not on PATH)' } }), dockerDisk: async () => 12e9 };
+
+  it('reports the selected backend status in the tools area', async () => {
+    const list = vi.fn(async () => ({ sandboxes: [], errors: [] }));
+    const checks = await doctorWith('agentBackend: sbx\n', list, ready, 'tools');
+    expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-sbx', status: 'ok' }));
+  });
+
+  it('warns when the selected backend is unavailable', async () => {
+    const list = vi.fn(async () => ({ sandboxes: [], errors: [] }));
+    const checks = await doctorWith('agentBackend: docker\n', list, ready, 'tools');
+    expect(checks).toContainEqual(expect.objectContaining({ id: 'tools.sandbox-docker', status: 'warn' }));
+  });
+
+  it('warns about disk above 10 GB in the state area', async () => {
+    const dockerBox = { runner: 'docker' as const, name: 'karst-ab12cd34-1-opencode', ticketId: 1, core: 'opencode', state: 'running' as const };
+    const list = vi.fn(async () => ({ sandboxes: [dockerBox], errors: [] }));
+    const checks = await doctorWith('agentBackend: docker\n', list, ready);
+    expect(checks).toContainEqual(expect.objectContaining({ id: 'state.sandbox-disk', status: 'warn' }));
+  });
+
+  it('host backend runs no probes', async () => {
+    const probe: SandboxProbe = { backends: vi.fn(ready.backends), dockerDisk: vi.fn(ready.dockerDisk) };
+    await doctorWith('agentBackend: host\n', vi.fn(async () => ({ sandboxes: [], errors: [] })), probe, 'tools');
+    expect(probe.backends).not.toHaveBeenCalled();
   });
 });

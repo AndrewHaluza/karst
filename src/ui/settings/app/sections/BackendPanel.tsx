@@ -3,7 +3,7 @@
  * `agentBackend`, what each core actually resolves to, and the readiness of each
  * backend. Opt-in; host is the default and a cleared selection deletes the key.
  */
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import type { AgentBackend, Manifest } from '../../../../manifest/types.js';
 import {
   deriveEffectiveBackends,
@@ -11,6 +11,7 @@ import {
   type BackendStatus,
 } from '../../../../agent/effectiveBackend.js';
 import { readField, useSettingsApp } from '../SettingsAppContext.js';
+import { Button } from '../primitives/Button.js';
 import { Field } from '../primitives/Field.js';
 import { usePickerInputs } from './usePickerInputs.js';
 
@@ -35,10 +36,15 @@ function statusText(status: BackendStatus | undefined): string {
 }
 
 export function BackendPanel() {
-  const { state, edit } = useSettingsApp();
+  const { state, edit, send } = useSettingsApp();
   const draft = state.draft;
   const { cores } = usePickerInputs();
-  const status = state.host?.backendStatus;
+  const status = state.backendStatus ?? undefined;
+  // Probe once on mount; the host answers with `backend-status`.
+  useEffect(() => {
+    send.checkBackends();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per mount
+  }, []);
   const setting = readField<AgentBackend>(draft, 'agentBackend', 'host');
   const rows = useMemo(
     () =>
@@ -78,6 +84,9 @@ export function BackendPanel() {
         <div data-testid="backend-status-sbx">sbx: {statusText(status?.sbx)}</div>
         <div data-testid="backend-status-docker">docker: {statusText(status?.docker)}</div>
       </div>
+      <Button variant="secondary" size="sm" onClick={() => send.checkBackends()}>
+        Re-check
+      </Button>
     </div>
   );
 }

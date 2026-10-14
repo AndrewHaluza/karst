@@ -125,6 +125,7 @@ import {
   type RecoveryCandidate,
 } from './ui/sessionRecovery.js';
 import { resolveAdapter } from './agent/registry.js';
+import { probeBackends } from './agent/backendProbe.js';
 import { resolveLaunchIdentity, resolveTicketProvider } from './agent/launchIdentity.js';
 import { resolvePresetDefaults } from './agent/agentPresets.js';
 import { resolvePlanningDefaults } from './agent/planningDefaults.js';
@@ -2331,6 +2332,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         return true;
       },
       clearToken: (): Promise<void> => clearToken(context),
+      probeBackends,
       hasToken: (): Promise<boolean> => hasToken(context),
       // Native folder picker for a repository's repoPath (§ settings). No
       // validation here — whatever the user picks is just text in the field,

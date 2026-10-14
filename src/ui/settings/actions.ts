@@ -9,7 +9,7 @@ import {
   withBuiltInApproaches,
 } from '../../approaches/withBuiltInApproaches.js';
 import type { SettingsActions, SettingsHostMessage } from './messages.js';
-import { buildSettingsState, type SettingsState } from './state.js';
+import { buildSettingsState, type BackendStatuses, type SettingsState } from './state.js';
 import { buildProcessAssignmentViews } from './processAssignmentViews.js';
 import type { LoadedManifest } from './panel.js';
 import type { TicketingProvider } from '../../integrations/ticketing.js';
@@ -76,6 +76,8 @@ export interface SettingsActionsDeps {
   setToken(): Promise<boolean>;
   /** Clear the stored ClickUp token. */
   clearToken(): Promise<void>;
+  /** Probe sbx/docker readiness for the Agents backend selector (arch:AC-32). */
+  probeBackends?(): Promise<BackendStatuses>;
   /** Whether a ClickUp token is currently stored (drives the state flag). */
   hasToken(): Promise<boolean>;
   /** Write an agent file's full body under agentsDir (create or overwrite). */
@@ -507,6 +509,15 @@ export function buildSettingsActions(deps: SettingsActionsDeps): SettingsActions
         try {
           await deps.setToken();
           await pushTokenState();
+        } catch (e) {
+          ctx.post({ type: 'error', message: errorMessage(e) });
+        }
+      },
+
+      async checkBackends(): Promise<void> {
+        if (!deps.probeBackends) return;
+        try {
+          ctx.post({ type: 'backend-status', status: await deps.probeBackends() });
         } catch (e) {
           ctx.post({ type: 'error', message: errorMessage(e) });
         }

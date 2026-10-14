@@ -119,13 +119,9 @@ export interface SettingsState {
    * package, never from karst.yml.
    */
   pendingOutputs: Record<string, PendingOutputsView>;
-  /**
-   * Host-probed readiness of the sandbox backends (sbx, docker), shown next to the
-   * Agents backend selector. Absent until the host reports (arch:AC-32).
-   */
-  backendStatus?: BackendStatuses;
 }
 
+/** Host-probed readiness of the sandbox backends, shown next to the Agents backend selector (arch:AC-32). */
 export interface BackendStatuses {
   readonly sbx: BackendStatus;
   readonly docker: BackendStatus;

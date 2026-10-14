@@ -338,9 +338,9 @@ describe('Agents page — roles table layout markup', () => {
 });
 
 describe('Agents page — sandbox backend', () => {
-  const withStatus = (manifest: Manifest, backendStatus: unknown) => {
+  const withStatus = (manifest: Manifest, status: unknown) => {
     const view = mount(manifest);
-    act(() => view.bridge.push({ type: 'state', state: { ...buildSettingsState(manifest, null, [], true, ['claude', 'opencode', 'antigravity'], AGENTS, {}, undefined, '/repo/karst.yml'), backendStatus } as never }));
+    act(() => view.bridge.push({ type: 'backend-status', status } as never));
     return view;
   };
   const selector = (): HTMLSelectElement => screen.getByLabelText('Agent backend') as HTMLSelectElement;
@@ -368,13 +368,20 @@ describe('Agents page — sandbox backend', () => {
     const line = screen.getByTestId('effective-backend').textContent;
     expect(line).toContain('claude: sbx');
     expect(line).toContain('opencode: host (sbx backend unsupported)');
-    expect(line).toContain('antigravity: host (sbx backend unsupported)');
   });
 
   it('shows each backend status with its fix hint', () => {
     withStatus(BASE, { sbx: { ok: false, reason: 'sbx not signed in (run `sbx login`)' }, docker: { ok: true } });
     expect(screen.getByTestId('backend-status-sbx').textContent).toContain('sbx not signed in');
     expect(screen.getByTestId('backend-status-docker').textContent).toContain('ready');
+  });
+
+  it('asks the host to probe on mount and on Re-check', () => {
+    const { bridge } = mount();
+    const checks = () => bridge.posted.filter((m) => (m as { type: string }).type === 'check-backends').length;
+    expect(checks()).toBe(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Re-check' }));
+    expect(checks()).toBe(2);
   });
 
   it('says status is not checked when the host has not reported', () => {
