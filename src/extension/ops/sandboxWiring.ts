@@ -48,9 +48,21 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     if (!w.backendOn() || projectRoot === undefined) return undefined;
     const bridges = w.bridges();
     return {
-      notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: (id) => w.owned.has(id), ...(bridges ? { bridges } : {}),
+      notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls, ...(bridges ? { bridges } : {}),
       openSyncDiff: (t) => w.openSyncDiff(t.ticketId),
     };
+  };
+  /**
+   * This window controls a ticket's sandbox when it holds the session, or when
+   * the ticket is in this window's project and NO window runs a session for it
+   * (closed terminal, idle, done, archive). A ticket running here-not / elsewhere
+   * (agent_state running, no session in this window) belongs to another window.
+   */
+  const controls = (id: number): boolean => {
+    if (w.owned.has(id)) return true;
+    const t = getTicket(w.store, id);
+    if (t.projectId === null || t.projectId !== w.projectId()) return false;
+    return w.sessionOpen(id) || t.agentState !== 'running';
   };
   const clearSession = (id: number): void => setSessionId(w.store, id, null, null);
   const liveTickets = () => {
@@ -82,7 +94,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       if (!d || w.projectId() === undefined) return;
       await runSandboxReconcile({
         inventory: () => inventoryOf(d),
-        live: liveTickets, owns: (id) => w.owned.has(id), clearSession, info: w.info, logError: w.logError,
+        live: liveTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
       });
     },
     /** Stop (never remove) running sandboxes idle past the stuck threshold (arch:AC-32). */

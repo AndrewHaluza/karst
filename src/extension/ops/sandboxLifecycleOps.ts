@@ -103,8 +103,8 @@ export async function stopSandboxOp(deps: SandboxLifecycleDeps, target: SandboxS
 }
 
 /**
- * The ticket's core changed. Same backend kind → nothing. Otherwise the old
- * sandbox is synced and removed (guarded) and the stored provider session id
+ * The ticket's core changed. The old core's sandbox is synced and removed
+ * (guarded) and the stored provider session id
  * dropped, so a foreign id never reaches a different core.
  */
 export async function switchProviderOp(
@@ -113,7 +113,8 @@ export async function switchProviderOp(
   newCore: string,
 ): Promise<boolean> {
   if (target.core === newCore) return true;
-  if (backendKindOf(target.core) !== backendKindOf(newCore) && !(await removeSandboxGuarded(deps, target))) return false;
+  // The sandbox name carries the core, so ANY core change orphans the old one (sbx claude → codex too).
+  if (!(await removeSandboxGuarded(deps, target))) return false;
   deps.clearSession(target.ticketId);
   return true;
 }

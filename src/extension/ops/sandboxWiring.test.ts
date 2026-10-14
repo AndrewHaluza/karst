@@ -184,3 +184,36 @@ describe('makeSandboxWiring idle sweep', () => {
     expect(dispose).toHaveBeenCalled();
   });
 });
+
+describe('makeSandboxWiring ownership after the session closed (review fix)', () => {
+  const ROOT = '/p/karst.yml';
+  function setup(agentState: string, projectOf: 'same' | 'other' = 'same') {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'O-1', title: 'a', projectId }).id;
+    setSessionId(store, a, 's', 'claude');
+    store.db.prepare("UPDATE tickets SET agent_state = ?, updated_at = datetime('now', '-500 minutes') WHERE id = ?").run(agentState, a);
+    const n = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${n} claude running\n` } });
+    const r = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => (projectOf === 'same' ? projectId : projectId + 1),
+      owned: new Set(), proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }) });
+    r.choose.mockResolvedValue(REMOVE_ANYWAY as never);
+    return { ...r, a, proc };
+  }
+  it('closed terminal (not owned, idle): archive removes and idle sweep stops', async () => {
+    const { w, a, proc } = setup('idle');
+    await expect(w.idleSweep()).resolves.toBe(1);
+    await expect(w.beforeArchive(a)).resolves.toBe(true);
+    expect(proc.calls.some((c) => c.args[0] === 'rm')).toBe(true);
+  });
+  it('a session running in another window is left alone', async () => {
+    const { w, a, proc, notify } = setup('running');
+    await expect(w.idleSweep()).resolves.toBe(0);
+    await expect(w.beforeArchive(a)).resolves.toBe(false);
+    expect(notify.warn).toHaveBeenCalledWith('Karst: O-1 is owned by another window; its sandbox was left alone.');
+    expect(proc.calls.some((c) => c.args[0] === 'rm' || c.args[0] === 'stop')).toBe(false);
+  });
+  it('another project\'s ticket is never controlled', async () => {
+    const { w, a } = setup('idle', 'other');
+    await expect(w.beforeArchive(a)).resolves.toBe(false);
+  });
+});

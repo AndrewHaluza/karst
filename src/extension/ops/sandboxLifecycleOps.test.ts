@@ -125,11 +125,11 @@ describe('switchProviderOp', () => {
     expect(lines()).toContain(`sbx rm --force ${name(7)}`);
     expect(clearSession).toHaveBeenCalledWith(7);
   });
-  it('same kind → no dispose, but a foreign session id is still dropped', async () => {
+  it('same backend kind (claude → codex) still removes the old core sandbox', async () => {
     const clearSession = vi.fn();
-    const { d, proc } = deps();
+    const { d, lines } = deps();
     await expect(switchProviderOp({ ...d, clearSession }, target, 'codex')).resolves.toBe(true);
-    expect(proc.calls).toEqual([]);
+    expect(lines()).toContain(`sbx rm --force ${name(7)}`);
     expect(clearSession).toHaveBeenCalledWith(7);
   });
   it('blocked remove keeps the session id', async () => {
