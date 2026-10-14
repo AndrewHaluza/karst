@@ -69,3 +69,21 @@ describe('proxySidecar', () => {
     expect(lines(proc)).toEqual(['docker rm --force k-proxy']);
   });
 });
+
+describe('proxy sidecar: baseline host ports (arch:AC-32)', () => {
+  it('passes exactly the declared host ports and maps host.docker.internal for the proxy only', () => {
+    const args = sidecarRunArgs({ proxy: 'p', network: 'n', scriptPath: '/s.mjs', hostPorts: [5432, 6379] });
+    const v = 'host.docker.internal:5432,host.docker.internal:6379';
+    expect(args).toEqual(expect.arrayContaining([`ALLOW_HOSTPORTS=${v}`, `karst.hostallow=${v}`, 'host.docker.internal:host-gateway']));
+    expect(sidecarRunArgs({ proxy: 'p', network: 'n', scriptPath: '/s.mjs' }).join(' ')).not.toMatch(/HOSTPORTS|host-gateway|hostallow/);
+  });
+
+  it('recreates a running proxy whose baseline ports differ, keeps one that matches', async () => {
+    const stale = fakeDockerProcess({ 'docker container inspect': { stdout: 'true <no value>\n' } });
+    await startProxySidecar(stale, { proxy: 'p', network: 'n', scriptPath: '/s.mjs', hostPorts: [5432] });
+    expect(stale.calls.map((c) => c.args[0])).toEqual(['container', 'rm', 'run', 'network']);
+    const same = fakeDockerProcess({ 'docker container inspect': { stdout: 'true host.docker.internal:5432\n' } });
+    await startProxySidecar(same, { proxy: 'p', network: 'n', scriptPath: '/s.mjs', hostPorts: [5432] });
+    expect(same.calls).toHaveLength(1);
+  });
+});

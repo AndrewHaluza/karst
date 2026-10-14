@@ -2664,5 +2664,16 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 82) {
+    // v82: `servers.sandbox` — the sandbox (`sbx:<name>` / `docker:<container>`)
+    // a ticket service runs inside (arch:AC-32). NULL is honest for every
+    // pre-v82 row: all of them ran on the host. The guard reads the CURRENT
+    // columns, so a fresh DB and a re-open are no-ops.
+    const cols82 = tableColumns(db, 'servers');
+    if (cols82.size > 0 && !cols82.has('sandbox')) {
+      db.exec('ALTER TABLE servers ADD COLUMN sandbox TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

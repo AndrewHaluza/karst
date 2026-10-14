@@ -28,6 +28,8 @@ export interface DockerResolveDeps {
   readonly hostAuthFile?: () => Promise<string | undefined>;
   readonly opencode2Host?: () => { readonly command: string; readonly env: Readonly<Record<string, string>> };
   readonly debug?: (message: string) => void;
+  /** Baseline host ports the sandbox may reach through its proxy (arch:AC-32). */
+  readonly hostPorts?: readonly number[];
 }
 
 export interface DockerResolveInput {
@@ -79,6 +81,7 @@ export async function resolveDocker(input: DockerResolveInput): Promise<DockerRe
       proxyScript: join(assetsDir, 'allowlist-proxy.mjs'),
       ...(input.core === 'opencode2' ? { opencode2Host: (deps.opencode2Host ?? defaultOpencode2Host)() } : {}),
       ...(deps.debug ? { debug: deps.debug } : {}),
+      ...(deps.hostPorts && deps.hostPorts.length > 0 ? { hostPorts: deps.hostPorts } : {}),
     });
     if (!prepared.ok) return prepared;
     const authFile = input.core === 'opencode' ? await (deps.hostAuthFile ?? defaultHostAuthFile)() : undefined;

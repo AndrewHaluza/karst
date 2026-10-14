@@ -8,6 +8,20 @@ import { serverLogPath } from './serverLog.js';
 import { unitByKey } from '../manifest/runnable.js';
 import { serviceLaunch } from './serviceLaunch.js';
 import type { ResolveResult } from '../resolver/resolve.js';
+import { renderHealthUrl } from './healthUrl.js';
+import { waitForHealth } from './health.js';
+import { reallocateHostPort } from './sandboxHostPort.js';
+import {
+  SandboxServiceError,
+  startSandboxService,
+  type SandboxServiceRunner,
+} from '../agent/sandboxServices.js';
+
+/** A sandboxed ticket's services run inside its sandbox (arch:AC-32). */
+export interface SandboxServiceContext {
+  readonly runner: SandboxServiceRunner;
+  readonly sandboxName: string;
+}
 
 export interface StartResolvedServiceArgs {
   store: Store;
@@ -24,6 +38,8 @@ export interface StartResolvedServiceArgs {
   signal?: AbortSignal;
   onReclaim?: (pid: number) => void;
   debug?: (message: string) => void;
+  /** Present → the service starts inside the ticket's sandbox, never on the host. */
+  sandbox?: SandboxServiceContext;
 }
 
 export async function startResolvedService(args: StartResolvedServiceArgs): Promise<ServerRecord> {
@@ -59,6 +75,28 @@ export async function startResolvedService(args: StartResolvedServiceArgs): Prom
   // pin the port in the command (independent of the worktree's own config).
   const httpSlot = service.ports.find((p) => p.name === 'http') ?? service.ports[0]!;
   const ownPort = resolvedSvc.ports[httpSlot.name]!;
+  if (args.sandbox) {
+    if (service.docker) {
+      throw new SandboxServiceError(`${args.name}: a docker-image service cannot run inside a sandbox (arch:AC-32)`);
+    }
+    const { command, args: cmdArgs } = serviceLaunch({
+      service, name: args.name, ticketId: args.ticketId, env: spawnEnv, host: args.manifest.host, port: ownPort, cwd,
+    });
+    const range = service.portRange ?? args.manifest.portRange;
+    return await startSandboxService({
+      store: args.store, runner: args.sandbox.runner, sandboxName: args.sandbox.sandboxName,
+      ticketId: args.ticketId, service: args.name, command, args: cmdArgs, env: spawnEnv,
+      worktree: args.cwd, serviceCwd: cwd, port: ownPort,
+      // Health always hits the published host side, never the manifest host.
+      healthUrlFor: (hostPort) =>
+        service.health ? renderHealthUrl(service.health, '127.0.0.1', hostPort) : `http://127.0.0.1:${hostPort}/health`,
+      logPath: serverLogPath(args.cwd, args.name),
+      reallocate: (taken) => Promise.resolve(reallocateHostPort(args.store, range, args.ticketId, args.name, httpSlot.name, taken)),
+      waitHealthy: (url, signal) => waitForHealth(url, signal ? { signal } : {}),
+      ...(args.signal ? { signal: args.signal } : {}),
+      ...(args.debug ? { debug: args.debug } : {}),
+    });
+  }
   // A command in the worktree or a container image — `serviceLaunch` is the
   // one place that difference is decided, so baseline cannot drift from it.
   const { command, args: cmdArgs, container, healthUrl } = serviceLaunch({

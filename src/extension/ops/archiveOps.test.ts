@@ -372,3 +372,36 @@ describe('unarchiveTicketOp', () => {
     expect(unarchiveTicket).toHaveBeenCalledWith(d.store, 1);
   });
 });
+
+describe('archiveTicketOp: sandboxed services (arch:AC-32 task 9)', () => {
+  it('stops the ticket services before any worktree is archived', async () => {
+    const order: string[] = [];
+    vi.mocked(listWorktreesByTicket).mockReturnValue([{ repo: '/r', path: '/wt', branch: 'b', baseRef: 'main' }] as never);
+    vi.mocked(archiveWorktree).mockImplementation(async () => { order.push('archive'); return { reapedServers: [] } as never; });
+    const deps = makeDeps({ stopTicketServices: async (s, id) => { order.push(`stop:${id}:${s === deps.store}`); } });
+    await archiveTicketOp(deps, 7);
+    expect(order).toEqual(['stop:7:true', 'archive']);
+  });
+
+  it('a failed stop is logged and never blocks the archive', async () => {
+    vi.mocked(listWorktreesByTicket).mockReturnValue([{ repo: '/r', path: '/wt', branch: 'b', baseRef: 'main' }] as never);
+    const err = new Error('sandbox gone');
+    const deps = makeDeps({ stopTicketServices: () => Promise.reject(err) });
+    await archiveTicketOp(deps, 7);
+    expect(deps.log.error).toHaveBeenCalledWith("karst: stopping the ticket's sandboxed services before archive failed", err);
+    expect(archiveWorktree).toHaveBeenCalled();
+  });
+});
+
+describe('archiveTicketOp: services stop before the sandbox guard removes the sandbox', () => {
+  it('unpublishes first, then the guard runs; a kept ticket is not archived', async () => {
+    const order: string[] = [];
+    const deps = makeDeps({
+      stopTicketServices: async () => { order.push('stop'); },
+      beforeArchive: async () => { order.push('guard'); return false; },
+    });
+    await archiveTicketOp(deps, 7);
+    expect(order).toEqual(['stop', 'guard']);
+    expect(archiveTicket).not.toHaveBeenCalled();
+  });
+});

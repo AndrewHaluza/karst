@@ -69,6 +69,18 @@ export interface RunProcessOptions extends RunCommandOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * A gate process boundary — structurally `runProcess`. A sandbox runner
+ * supplies one that execs into the sandbox (arch:AC-32); only a `completed`
+ * outcome is a verdict either way.
+ */
+export type GateProcessRunner = (
+  command: string,
+  args: readonly string[],
+  cwd: string,
+  options?: RunProcessOptions,
+) => Promise<ProcessOutcome>;
+
 export function runProcess(
   command: string,
   args: readonly string[],

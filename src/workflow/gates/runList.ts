@@ -1,7 +1,7 @@
 import { nowIso } from '../../model/time.js';
 import type { GateResult } from './result.js';
 import type { ResolvedGate } from './resolve.js';
-import { runProcess, type GateOutputChunk } from './run.js';
+import { runProcess, type GateOutputChunk, type GateProcessRunner } from './run.js';
 
 /**
  * Run a resolved gate list sequentially in one worktree.
@@ -67,6 +67,8 @@ export interface RunGatesOptions {
    * sanitized at the console boundary, never here.
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
+  /** Where each gate runs; absent → the host `runProcess`. A sandboxed ticket passes its runner's `runGate` (arch:AC-32). */
+  runProcess?: GateProcessRunner;
 }
 
 export async function runGateList(
@@ -106,7 +108,7 @@ export async function runGateList(
       continue;
     }
 
-    const outcome = await runProcess(gate.command, gate.args, cwd, {
+    const outcome = await (opts.runProcess ?? runProcess)(gate.command, gate.args, cwd, {
       signal: opts.signal,
       onDebug,
       onOutput: opts.onGateOutput ? (chunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,

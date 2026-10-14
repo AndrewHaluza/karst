@@ -136,9 +136,17 @@ function checkRunId(runId: string): string {
 }
 
 /** Headless: `docker exec` into the ticket's container; the command is argv, the script fixed. */
-export function headlessExecArgs(container: string, runId: string, command: string, args: readonly string[]): string[] {
+export function headlessExecArgs(
+  container: string,
+  runId: string,
+  command: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): string[] {
+  // Only karst-made, non-secret values (a container path) ride here as `K=V`.
+  const envFlags = Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
   return [
-    'exec', '--interactive', '--workdir', CONTAINER_REPO, container,
+    'exec', '--interactive', ...envFlags, '--workdir', CONTAINER_REPO, container,
     'sh', '-c', PID_SCRIPT, 'karst-run', checkRunId(runId), command, ...args,
   ];
 }
@@ -151,4 +159,26 @@ export function headlessKillArgs(container: string, runId: string): string[] {
 export function containerCommand(core: DockerCore, command: string): string {
   const base = command.split(/[\\/]/).at(-1) ?? command;
   return base.startsWith('opencode') ? containerBinary(core) : command;
+}
+
+/**
+ * A one-shot gate container for when the interactive one (`--rm`) is gone: the
+ * same internal network, hardening, volumes and uid, so the gate still sees
+ * the clone and still has only the proxy as a way out.
+ */
+export function gateRunArgs(
+  names: DockerNames,
+  user: LinuxUser | undefined,
+  runName: string,
+  command: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>>,
+): string[] {
+  const envFlags = Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
+  return [
+    'run', '--rm', '--name', runName, '--network', names.network, ...HARDENING,
+    ...volumeMounts(names), ...userArgs(user),
+    ...envFlags, ...PROXY_ENV.flatMap((e) => ['--env', e]), '--workdir', CONTAINER_REPO,
+    OPENCODE_IMAGE, command, ...args,
+  ];
 }

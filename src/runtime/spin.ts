@@ -28,7 +28,8 @@ import {
 } from './ticketBranch.js';
 import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
 import { serviceUnits, unitByKey, unitsOfRepos } from '../manifest/runnable.js';
-import { startResolvedService } from './startService.js';
+import { startResolvedService, type SandboxServiceContext } from './startService.js';
+import { stopAllTicketServers } from '../agent/sandboxServices.js';
 import { formatId } from '../model/entityId.js';
 // Re-exported: the token expansion moved to `serviceLaunch.ts` (baseline needs
 // it too), and this is where its tests and callers have always found it.
@@ -47,6 +48,11 @@ export interface SpinResult {
 export interface SpinOptions {
   /** Abort a running spin (cancel button); triggers teardown of this run's work. */
   signal?: AbortSignal;
+  /**
+   * Present → the ticket's HOT services start inside its sandbox, published on
+   * 127.0.0.1 only; baseline services still start on the host (arch:AC-32).
+   */
+  sandbox?: SandboxServiceContext;
   /**
    * Verbose decision-point logging (§ debug logging), prefixed `[runtime]`.
    * Absent → no debug lines; the host binds it to `Logger.debug` (a no-op
@@ -279,7 +285,7 @@ export async function spinTicket(
   // the row, re-resolve re-picks the same port, and startHot spawns a second
   // server fighting the first — the "retry makes a duplicate on the same port"
   // bug. killTree reaps the whole tree (launcher + Vite grandchild).
-  await stopTicketServers(store, ticketId);
+  await stopAllTicketServers(store, ticketId, opts.sandbox?.runner);
   // Then drop the rows whose repository the manifest no longer declares. A
   // rename re-keys the registry (servers are keyed by service unit key: the repo name, or repo/service), so the
   // pre-rename row is unreachable — no spin can start a manifest key that is
@@ -373,6 +379,7 @@ export async function spinTicket(
         store, manifest, ticketId, name, resolved,
         cwd: worktreePath[unit.repo]!, envOverrides, signal,
         onReclaim: (pid) => reclaimedPids.push(pid), debug,
+        ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
       });
       servers.push(rec);
       debug?.(`[runtime] ticket ${ticketId}: ${name} healthy (pid ${rec.pid})`);

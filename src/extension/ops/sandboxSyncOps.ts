@@ -13,6 +13,8 @@ import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import type { Notify } from './notify.js';
 
+export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
+
 export interface BackendSessionInput {
   readonly backend: AgentBackend | undefined;
   readonly core: string;
@@ -26,6 +28,8 @@ export interface BackendSessionInput {
   readonly resolve?: typeof resolveBackend;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
+  /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
+  readonly hostPorts?: readonly number[];
 }
 
 /**
@@ -44,7 +48,9 @@ export function backendSessionOptions(input: BackendSessionInput): {
       resolve({
         backend: input.backend, core: input.core, projectRoot: input.projectRoot, ticketId: input.ticketId,
         ...(input.worktree?.branch ? { worktree: { hostWorktreePath: input.worktree.path, branch: input.worktree.branch } } : {}),
-        ...(input.debug ? { docker: { debug: input.debug } } : {}),
+        ...(input.debug || input.hostPorts ? {
+          docker: { ...(input.debug ? { debug: input.debug } : {}), ...(input.hostPorts ? { hostPorts: input.hostPorts } : {}) },
+        } : {}),
       }),
     onBackend: (line) => input.info(`[session] ticket ${input.ticketLabel} backend: ${line}`),
     ...(input.bridgeFor ? { bridgeFor: input.bridgeFor } : {}),

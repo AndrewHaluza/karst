@@ -40,3 +40,14 @@ describe('parseConnectTarget', () => {
     expect(parseConnectTarget('a:65535')).toEqual({ host: 'a', port: 65535 });
   });
 });
+
+describe('parseHostPorts', () => {
+  it('reads exact host:port pairs and drops malformed entries', async () => {
+    const { parseHostPorts } = await import('./allowlistProxy.js');
+    expect(parseHostPorts('host.docker.internal:5432, HOST.docker.internal:6379 ,bad,x:0,')).toEqual([
+      { host: 'host.docker.internal', port: 5432 },
+      { host: 'host.docker.internal', port: 6379 },
+    ]);
+    expect(parseHostPorts(undefined)).toEqual([]);
+  });
+});

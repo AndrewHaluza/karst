@@ -1,6 +1,7 @@
 import { SANDBOX_NETWORK_ALLOWLIST } from '../sandbox.js';
 import { PROXY_PORT } from './allowlistProxy.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
+import { checkPort, SANDBOX_HOST_ALIAS } from '../sandboxPorts.js';
 import { bindMount } from './dockerRunArgs.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
@@ -21,6 +22,16 @@ export interface SidecarSpec {
   /** Host path of the bundled `allowlist-proxy.mjs`, mounted read-only. */
   readonly scriptPath: string;
   readonly allow?: readonly string[];
+  /** Baseline host ports the sandbox may reach at `host.docker.internal` (arch:AC-32); nothing else on the host. */
+  readonly hostPorts?: readonly number[];
+}
+
+const HOSTALLOW_LABEL = 'karst.hostallow';
+/** Running state + the baseline ports the proxy was started with, in one inspect. */
+const INSPECT_FORMAT = `{{.State.Running}} {{index .Config.Labels "${HOSTALLOW_LABEL}"}}`;
+
+function hostAllowValue(ports: readonly number[] | undefined): string {
+  return (ports ?? []).map((p) => `${SANDBOX_HOST_ALIAS}:${checkPort(p)}`).join(',');
 }
 
 export type SidecarResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
@@ -32,19 +43,32 @@ export function sidecarRunArgs(spec: SidecarSpec): string[] {
     '--network', spec.network, '--network-alias', PROXY_ALIAS,
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--env', `ALLOW=${(spec.allow ?? DOCKER_ALLOWLIST).join(',')}`,
+    ...hostAllowArgs(spec.hostPorts),
     '--mount', bindMount(spec.scriptPath, SCRIPT_IN_CONTAINER, true),
     OPENCODE_IMAGE, 'node', SCRIPT_IN_CONTAINER,
   ];
 }
 
+/** Linux has no `host.docker.internal` by default: the proxy (only) gets it, with the exact ports. */
+function hostAllowArgs(ports: readonly number[] | undefined): string[] {
+  const value = hostAllowValue(ports);
+  if (value === '') return [];
+  return [
+    '--env', `ALLOW_HOSTPORTS=${value}`, '--label', `${HOSTALLOW_LABEL}=${value}`,
+    '--add-host', `${SANDBOX_HOST_ALIAS}:host-gateway`,
+  ];
+}
+
 /**
- * Start the proxy unless it already runs, then give it (and only it) a second,
+ * Start the proxy unless it already runs with the same baseline ports, then give it (and only it) a second,
  * routable network: the ticket network is `--internal`, so the proxy is the
  * agent container's single way out.
  */
 export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec): Promise<SidecarResult> {
-  const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', '{{.State.Running}}', spec.proxy]);
-  if (state.code === 0 && state.stdout.trim() === 'true') return { ok: true };
+  const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', INSPECT_FORMAT, spec.proxy]);
+  const [running = '', label = ''] = state.stdout.trim().split(/\s+/);
+  const sameAllow = (label === '<no value>' ? '' : label) === hostAllowValue(spec.hostPorts);
+  if (state.code === 0 && running === 'true' && sameAllow) return { ok: true };
   if (state.code === 0) await proc.run(DOCKER_BIN, ['rm', '--force', spec.proxy]);
   const run = await proc.run(DOCKER_BIN, sidecarRunArgs(spec));
   if (run.code !== 0) return { ok: false, reason: `proxy sidecar failed to start: ${detail(run)}` };

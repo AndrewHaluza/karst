@@ -80,3 +80,13 @@ describe('linuxUser', () => {
     expect(linuxUser('linux', 1, undefined)).toBeUndefined();
   });
 });
+
+describe('resolveDocker: baseline host ports (arch:AC-32)', () => {
+  it('passes declared baseline ports to prepare, and none when empty', async () => {
+    const prepare = vi.fn().mockResolvedValue({ ok: true });
+    await resolveDocker({ ...base, core: 'opencode', deps: deps({ prepare, hostPorts: [5432] }) });
+    expect(prepare.mock.calls[0]![0].hostPorts).toEqual([5432]);
+    await resolveDocker({ ...base, core: 'opencode', deps: deps({ prepare, hostPorts: [] }) });
+    expect(prepare.mock.calls[1]![0]).not.toHaveProperty('hostPorts');
+  });
+});

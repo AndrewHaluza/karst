@@ -949,7 +949,7 @@ createServer((_req, res) => {
     expect(row.status).toBe('stopped'); // retired with the kill, not left phantom-running
     expect(row.pid).toBeNull();
     await new Promise((r) => setTimeout(r, 200));
-    expect(alive(old.pid)).toBe(false);
+    expect(alive(old.pid!)).toBe(false);
   });
 
   it('kills the grandchild when a launcher fails health (no orphan)', async () => {
@@ -1036,9 +1036,9 @@ createServer((_req, res) => {
     expect(row(other.id)?.status).toBe('running'); // untouched — different ticket
 
     await new Promise((r) => setTimeout(r, 200));
-    expect(alive(a.pid)).toBe(false);
-    expect(alive(b.pid)).toBe(false);
-    expect(alive(other.pid)).toBe(true);
+    expect(alive(a.pid!)).toBe(false);
+    expect(alive(b.pid!)).toBe(false);
+    expect(alive(other.pid!)).toBe(true);
 
     await stopServer(store, other.id);
   });
@@ -1145,7 +1145,7 @@ createServer((_req, res) => {
     expect(await isPortOpen('127.0.0.1', port)).toBe(false);
     // The process is reaped a beat after its socket closes; wait for the OS to
     // stop reporting it rather than racing the reap.
-    await waitUntilDead(rec.pid);
+    await waitUntilDead(rec.pid!);
   });
 
   it('stopServer waits for process teardown when server has no recorded port', async () => {

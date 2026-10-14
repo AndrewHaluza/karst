@@ -41,3 +41,14 @@ describe('host runner and the bridge', () => {
     expect(HOST_SESSION_RUNNER.bridgeRunDir).toBeUndefined();
   });
 });
+
+describe('host runner runGate (arch:AC-32, zero behaviour change)', () => {
+  it('is the host gate path itself, and takes no publish/list/allow methods', async () => {
+    const { runProcess } = await import('../workflow/gates/run.js');
+    const { HOST_SESSION_RUNNER: host } = await import('./sessionRunner.js');
+    expect(host.runGate).toBe(runProcess);
+    expect(host.publishPort).toBeUndefined();
+    expect(host.listPorts).toBeUndefined();
+    expect(host.allowHostPorts).toBeUndefined();
+  });
+});
