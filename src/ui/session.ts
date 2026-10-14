@@ -114,6 +114,8 @@ export type RestoredSessionDisposition = 'resume' | 'idle' | 'ignore';
 export interface OpenSessionOptions {
   /** Per-ticket evidence bridge for a sandboxed launch (arch:AC-34). Host-internal. */
   bridge?: { readonly paths: BridgePaths };
+  /** Attaches the ticket's bridge; called only when the resolved runner enforces a sandbox. */
+  bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   reveal?: boolean;
   recovery?: boolean;
   /**
@@ -575,7 +577,8 @@ export class SessionManager {
     const hookChannel = this.hookChannelFor(ticketId);
     // arch:AC-34: a sandbox reaches the host only through its bridge file, and
     // only when the runner says where the bridge dir appears inside it.
-    const bridge = inSandbox ? sandboxBridge(runner, options.bridge?.paths, hookChannel.launchId) : undefined;
+    const bridgePathsFor = inSandbox ? (options.bridge?.paths ?? (await options.bridgeFor?.(ticketId))) : undefined;
+    const bridge = sandboxBridge(runner, bridgePathsFor, hookChannel.launchId);
     if (bridge) await ensureBridgeDir(bridge.paths);
     const mcpConfigPath = inSandbox ? undefined : this.writeMcpConfig(adapter, ticketId, options, hookChannel);
     // AC-31: the core's own sandbox only when it can be enforced; otherwise the

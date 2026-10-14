@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { backendSessionOptions, syncSandboxOp } from './sandboxSyncOps.js';
+import { backendSessionOptions, disposeSandboxOp, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -28,6 +28,15 @@ describe('backendSessionOptions', () => {
     expect(resolve).toHaveBeenCalledWith({ backend: 'sbx', core: 'codex', projectRoot: '/p', ticketId: 7 });
     opts.onBackend!(resolved.line);
     expect(info).toHaveBeenCalledWith('[session] ticket K-7 backend: host (sbx not signed in)');
+  });
+});
+
+describe('backendSessionOptions bridgeFor', () => {
+  it('passes bridgeFor through only with a backend', () => {
+    const bridgeFor = vi.fn();
+    const base = { core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), bridgeFor };
+    expect(backendSessionOptions({ ...base, backend: 'sbx' }).bridgeFor).toBe(bridgeFor);
+    expect(backendSessionOptions({ ...base, backend: undefined })).toEqual({});
   });
 });
 
@@ -96,5 +105,53 @@ describe('backendSessionOptions worktree', () => {
     const bare = backendSessionOptions({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), worktree: { path: '/wt', branch: null }, resolve });
     await bare.resolveRunner!();
     expect(resolve).toHaveBeenLastCalledWith({ backend: 'docker', core: 'opencode', projectRoot: '/p', ticketId: 7 });
+  });
+});
+
+describe('disposeSandboxOp', () => {
+  const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
+
+  it('removes the sandbox, THEN the ticket bridge, and reports it', async () => {
+    const r = recorder();
+    const order: string[] = [];
+    const proc = fakeSbxProcess();
+    const run = proc.run;
+    const traced = { ...proc, run: (c: string, a: readonly string[], o?: never) => { order.push(`${c} ${a[0]}`); return run(c, a, o); } };
+    const bridges = { dispose: vi.fn(async (id: number) => { order.push(`bridge ${id}`); }) };
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: traced, bridges }, target)).resolves.toBe(true);
+    expect(order.at(-1)).toBe('bridge 7');
+    expect(order).toContain('sbx rm');
+    expect(proc.calls.some((c) => c.args.slice(0, 4).join(' ') === '-C /wt/a remote remove')).toBe(true);
+    expect(r.infos).toEqual(['Karst: K-7 sandbox removed.']);
+    expect(r.errors).toEqual([]);
+  });
+
+  it('keeps the bridge dir when the sandbox removal fails, and reports it', async () => {
+    const r = recorder();
+    const proc = { run: () => Promise.reject(new Error('sbx gone')) };
+    const bridges = { dispose: vi.fn(async () => {}) };
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc, bridges }, target)).resolves.toBe(false);
+    expect(bridges.dispose).not.toHaveBeenCalled();
+    expect(r.errors).toEqual(['Karst: removing the sandbox for K-7 failed: sbx gone']);
+    const r2 = recorder();
+    await disposeSandboxOp({ notify: r2.notify, projectRoot: '/p', proc: { run: () => Promise.reject('x') }, bridges }, target);
+    expect(r2.errors).toEqual(['Karst: removing the sandbox for K-7 failed: x']);
+  });
+
+  it('a bridge removal failure is reported after the sandbox is gone', async () => {
+    const r = recorder();
+    const bridges = { dispose: vi.fn(async () => { throw new Error('EBUSY'); }) };
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, target)).resolves.toBe(false);
+    expect(r.errors).toEqual(['Karst: K-7 sandbox removed, but its evidence dir was not: EBUSY']);
+  });
+
+  it('refuses a ticket without a worktree or a sandbox core, touching nothing', async () => {
+    const r = recorder();
+    const bridges = { dispose: vi.fn(async () => {}) };
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, worktree: undefined })).resolves.toBe(false);
+    await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, core: 'gemini' })).resolves.toBe(false);
+    expect(bridges.dispose).not.toHaveBeenCalled();
+    await disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: fakeSbxProcess(), bridges }, { ...target, core: null });
+    expect(r.errors).toEqual(['Karst: K-7 has no worktree branch.', 'Karst: K-7 has no sandbox (core gemini).', 'Karst: K-7 has no sandbox (core unknown).']);
   });
 });

@@ -10,8 +10,8 @@ let root: string;
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'bridge-reg-')); });
 afterEach(() => rm(root, { recursive: true, force: true }));
 
-function fakeAttachment(): BridgeAttachment & { start: ReturnType<typeof vi.fn>; stop: ReturnType<typeof vi.fn> } {
-  return { start: vi.fn(), stop: vi.fn(async () => {}), pollOnce: vi.fn(async () => {}) };
+function fakeAttachment() {
+  return { start: vi.fn<() => void>(), stop: vi.fn(async () => {}), pollOnce: vi.fn(async () => {}) } satisfies BridgeAttachment;
 }
 
 const exists = async (p: string): Promise<boolean> => stat(p).then(() => true, () => false);

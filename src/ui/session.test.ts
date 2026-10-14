@@ -356,6 +356,39 @@ describe('SessionManager', () => {
         expect(calls[0]!.hookChannel).toBeUndefined();
         expect(specs[0]!.bridgeDir).toBeUndefined();
       });
+
+      it('bridgeFor is asked for the ticket\'s bridge only on a sandbox launch', async () => {
+        const { adapter, calls } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const specs: InteractiveLaunchSpec[] = [];
+        const paths = bridgePaths(root, 7);
+        const bridgeFor = vi.fn(() => Promise.resolve(paths));
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          resolveRunner: () => Promise.resolve({ runner: bridgeRunner(specs, true), line: 'docker' }),
+          bridgeFor,
+        });
+
+        expect(bridgeFor).toHaveBeenCalledWith(7);
+        expect(specs[0]!.bridgeDir).toBe(paths.dir);
+        expect(calls[0]!.hookChannel?.endpointUrl).toBe(`file://${paths.runDir}/events.ndjson`);
+      });
+
+      it('a host launch never calls bridgeFor', async () => {
+        const { adapter } = fakeAdapter('claude');
+        const { host } = fakeHost();
+        const bridgeFor = vi.fn(() => Promise.resolve(bridgePaths(root, 7)));
+        const mgr = new DefaultedSessionManager(host, channelFor);
+
+        await mgr.openSession(adapter, 7, '/wt/a', undefined, undefined, undefined, undefined, undefined, undefined, undefined, {
+          ...cli,
+          bridgeFor,
+        });
+
+        expect(bridgeFor).not.toHaveBeenCalled();
+      });
     });
 
     it('a docker resolution runs the opencode launch in the container, sandboxed, with no bypass flag', async () => {

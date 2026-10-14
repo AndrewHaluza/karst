@@ -21,6 +21,8 @@ import { isPortOpen } from '../../runtime/portConflict.js';
 import { removeContainer } from '../../runtime/dockerContainer.js';
 import { removeOrphanContainers } from '../../runtime/orphanContainers.js';
 import { formatId } from '../../model/entityId.js';
+import type { BridgeRegistry } from '../../agent/bridge/bridgeRegistry.js';
+import { openBridgeTicketIds } from './bridgeWiring.js';
 
 export interface BootSweepDeps {
   store: Store;
@@ -288,6 +290,32 @@ export async function runBootSweeps(deps: BootSweepDeps): Promise<BootSweepResul
     deps.logError('karst: artifact-dir orphan sweep failed', err);
   }
   return { strandedFixResumes };
+}
+
+export interface BridgeSweepDeps {
+  readonly store: Store;
+  readonly bridges: Pick<BridgeRegistry, 'sweep'>;
+  /** Tickets whose session this window owns: only those are re-attached. */
+  readonly owned: ReadonlySet<number>;
+  readonly info: (message: string) => void;
+  readonly logError: (message: string, err: unknown) => void;
+}
+
+/**
+ * Sandbox evidence-bridge sweep (arch:AC-34). Runs after `runBootSweeps` (so
+ * after `reconcileOnStart` re-derived every stage) and once the hook endpoint
+ * is bound — a re-attached poller dispatches through the endpoint's closures.
+ * Re-attaches this window's open sandboxed tickets, removes dirs of closed
+ * ones; another window's open ticket is left alone. Never throws.
+ */
+export async function runBridgeSweep(deps: BridgeSweepDeps): Promise<void> {
+  try {
+    const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), deps.owned);
+    if (reattached.length > 0) deps.info(`karst: re-attached sandbox evidence bridge(s) for ticket(s) ${reattached.join(', ')}`);
+    if (removed.length > 0) deps.info(`karst: removed sandbox evidence bridge(s) of closed ticket(s) ${removed.join(', ')}`);
+  } catch (err) {
+    deps.logError('karst: sandbox bridge sweep failed', err);
+  }
 }
 
 /**
