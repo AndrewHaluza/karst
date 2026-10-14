@@ -210,3 +210,24 @@ describe('review fix #109', () => {
     await expect(startSandboxService(input(store, { ...f.runner, canHostServices: () => Promise.resolve(true) }))).resolves.toMatchObject({ port: 4100 });
   });
 });
+
+describe('resetSandboxServices (decision 8)', () => {
+  it('runs only declared resets, in the service dir, on running sandboxed rows; failures are warnings', async () => {
+    const { resetSandboxServices, RESET_SCRIPT } = await import('./sandboxServices.js');
+    const store = openStore(':memory:');
+    const f = fakeRunner();
+    await startSandboxService(input(store, f.runner, { service: 'api' }));
+    await startSandboxService(input(store, f.runner, { service: 'web', port: 4101 }));
+    await startSandboxService(input(store, f.runner, { service: 'db', port: 4102 }));
+    store.db.prepare("UPDATE servers SET status = 'stopped' WHERE repo = 'db'").run();
+    f.execs.length = 0;
+    const defs: Record<string, { reset?: string; cwd?: string }> = { api: { reset: 'npm run reset', cwd: 'apps/api' }, web: {}, db: { reset: 'x' } };
+    await expect(resetSandboxServices(store, 7, f.runner, (k) => defs[k])).resolves.toEqual([]);
+    expect(f.execs).toEqual([['-c', RESET_SCRIPT, 'karst-reset', '/wt/apps/api', 'npm run reset']]);
+    const bad = fakeRunner({ start: { kind: 'completed', exitCode: 2, output: 'boom' } });
+    await expect(resetSandboxServices(store, 7, bad.runner, () => ({ reset: 'r' }))).resolves.toEqual([
+      'api: reset failed (exit 2: boom)', 'web: reset failed (exit 2: boom)',
+    ]);
+    expect(bad.execs[0]![3]).toBe('/wt');
+  });
+});

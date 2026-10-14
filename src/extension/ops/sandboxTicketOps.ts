@@ -10,7 +10,9 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '../../agent/sandboxHostAllow.js';
-import { reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
+import { resetSandboxServices, reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
+import { createUserUatGate } from '../../agent/userUatGate.js';
+import { unitByKey } from '../../manifest/runnable.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { SandboxServiceContext } from '../../runtime/startService.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
@@ -167,8 +169,28 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       return root === undefined ? undefined : bridgePaths(root, ticketId);
     },
   };
+  const uatGate = createUserUatGate();
   return {
     deps,
+    /** Decision 7: open/copy of a ticket's service link is withheld during agent UAT. */
+    userUatWithheld: (ticketId: number) => uatGate.isWithheld(ticketId),
+    /** Decisions 7-8 for the UAT stage: keep a sandboxed stack, reset it, gate the link. */
+    userUat: {
+      // Only a stack that really runs in the sandbox: a host fallback is stopped as before.
+      keepStackForUserUat: (ticketId: number) =>
+        ticketSandboxRunner(deps, ticketId) !== undefined &&
+        input.store.db.prepare("SELECT 1 FROM servers WHERE ticket_id = ? AND status = 'running' AND sandbox IS NOT NULL").get(ticketId) !== undefined,
+      prepareUserUat: async (store: Store, ticketId: number): Promise<string[]> => {
+        const found = ticketSandboxRunner(deps, ticketId);
+        const manifest = input.manifest();
+        if (!found || !manifest) return [];
+        return resetSandboxServices(store, ticketId, found.runner, (key) => unitByKey(manifest, key)?.def);
+      },
+      agentUatPhase: (ticketId: number, phase: 'start' | 'end') => {
+        if (phase === 'start') uatGate.withhold(ticketId);
+        else uatGate.release(ticketId);
+      },
+    },
     gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
     /** Stop-all: sandboxed services stop inside the sandbox and lose their 127.0.0.1 mappings too. */
     stopTicket: (store: Store, ticketId: number) => stopAllTicketServers(store, ticketId, ticketSandboxRunner(deps, ticketId)?.runner),

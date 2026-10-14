@@ -4,6 +4,7 @@ import type { Manifest } from '../manifest/types.js';
 import type { DriveProcessBundle } from '../agent/processAssignment.js';
 import type { TesterGateRunner } from './uat/testerVerifier.js';
 import { sandboxGateDeps } from './gates/sandboxGates.js';
+import type { UatDeps } from './stages/uat.js';
 import type { GateProcessRunner } from './gates/run.js';
 import type { HeadlessOutputChunk } from '../agent/headlessSpawn.js';
 import type { GateOutputChunk } from './gates/run.js';
@@ -167,6 +168,8 @@ export interface DriveTicketDeps {
    * run inside the sandbox against the agent's live edits; absent → unchanged.
    */
   gateProcessFor?: (ticketId: number) => GateProcessRunner | undefined;
+  /** arch:AC-32 decisions 7-8, threaded into the UAT stage verbatim (see `UatDeps`). */
+  userUat?: Pick<UatDeps, 'keepStackForUserUat' | 'prepareUserUat' | 'agentUatPhase'>;
   /**
    * The composed `karst context` prefix (Prompt 17, § context loader) — the
    * SAME opaque string `buildCliContextPrefix` composes for the generated
@@ -382,6 +385,7 @@ export async function driveTicket(
               spin: deps.spin ?? spinTicket,
               stopServers: deps.stopServers ?? stopTicketServers,
               ...sandboxGateDeps(deps.gateProcessFor?.(id)),
+              ...deps.userUat,
             },
           );
         },

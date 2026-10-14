@@ -1259,7 +1259,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     appendLine: (m) => channel.appendLine(m),
     closeDoneTerminals: closeTicketTerminals,
     manifest: currentManifest,
-    beforeRemove: artifactCapture.beforeRemove,
+    beforeRemove: artifactCapture.beforeRemove, stopTicketServices: (s, id) => sandboxB?.stopTicket(s, id) ?? Promise.resolve(), // AC-32
     refresh: () => { provider.refresh(); void subtaskAutostart.sweep(); }, // an archived blocker unblocks children
   };
   /**
@@ -3573,7 +3573,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), // AC-32
+          runVerifier: runProcess, gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -8017,7 +8017,7 @@ function makeDashboardActions(
     loadManifest: async () => (await resolveManifest(debug)) ?? null,
     openExternal: (url) => void vscode.env.openExternal(vscode.Uri.parse(url)),
     copyText: (text) => void vscode.env.clipboard.writeText(text),
-    debug, ...(sandboxB ? { sandbox: sandboxB.deps } : {}), // AC-32
+    debug, ...(sandboxB ? { sandbox: sandboxB.deps, userUatWithheld: sandboxB.userUatWithheld } : {}), // AC-32
   };
 
   const dependencyOps = makeDependencyOps(store, {

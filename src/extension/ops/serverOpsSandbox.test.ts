@@ -76,3 +76,22 @@ describe('serverOps: sandboxed rows (arch:AC-32)', () => {
     expect(vi.mocked(startTicketService).mock.calls[2]![4]).not.toHaveProperty('sandbox');
   });
 });
+
+describe('serverOps: user UAT link withheld during agent UAT (decision 7)', () => {
+  it('open and copy warn instead of acting while withheld; act once released', async () => {
+    const { openServerRow, copyServerUrlRow } = await import('./serverOps.js');
+    const { id, deps } = setup(`sbx:${SBX}:4100`);
+    let held = true;
+    const d = { ...deps, userUatWithheld: (t: number) => t === 7 && held };
+    openServerRow(d, id);
+    copyServerUrlRow(d, id);
+    expect(d.openExternal).not.toHaveBeenCalled();
+    expect(d.copyText).not.toHaveBeenCalled();
+    expect(d.notify.warn).toHaveBeenCalledWith('The agent UAT is still running on this service. Its link opens when the agent UAT finishes.');
+    held = false;
+    openServerRow(d, id);
+    copyServerUrlRow(d, id);
+    expect(d.openExternal).toHaveBeenCalledWith('http://127.0.0.1:4100');
+    expect(d.copyText).toHaveBeenCalledWith('http://127.0.0.1:4100');
+  });
+});

@@ -22,10 +22,22 @@ export interface ArchiveOpsDeps {
   readonly refresh: () => void;
   /** Artifact final sweep, awaited before each worktree is archived. */
   readonly beforeRemove?: (target: ArchiveTarget) => Promise<void>;
+  /**
+   * arch:AC-32: stop the ticket's sandboxed services and unpublish every one
+   * of its 127.0.0.1 mappings before its worktrees go (this ticket's only).
+   */
+  readonly stopTicketServices?: (store: Store, ticketId: number) => Promise<void>;
 }
 
 export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): Promise<void> {
   archiveTicket(deps.store, ticketId);
+  if (deps.stopTicketServices) {
+    try {
+      await deps.stopTicketServices(deps.store, ticketId);
+    } catch (err) {
+      deps.log.error('karst: stopping the ticket\'s sandboxed services before archive failed', err);
+    }
+  }
   // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
   // ticket is being closed, so its DONE terminals go with it — dead tabs
   // whose process already exited, never a live session. A disposal failure

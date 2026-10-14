@@ -174,6 +174,19 @@ export interface UatDeps {
    */
   stopServers?: UatStopServers;
   /**
+   * Sandboxed ticket (arch:AC-32 decision 7): user UAT uses the SAME instance
+   * the Tester used, so a stack THIS run started is kept running after a
+   * passed verdict instead of stopped. Absent / false → stopped, as before.
+   */
+  keepStackForUserUat?: (ticketId: number) => boolean;
+  /**
+   * Between agent and user UAT (decision 8): run each kept service's declared
+   * `reset`. Resolves to warnings (a failed reset); absent → no reset.
+   */
+  prepareUserUat?: (store: Store, ticketId: number) => Promise<string[]>;
+  /** The agent UAT window: the user UAT link is withheld from `start` until `end` (decision 7). */
+  agentUatPhase?: (ticketId: number, phase: 'start' | 'end') => void;
+  /**
    * The host gate boundary for the optional `uat.testerVerifier` (Task 8) —
    * `runProcess` from `workflow/gates/run.ts`. Absent with a configured
    * verifier, the stage parks (the verifier could not be asked).
@@ -356,7 +369,9 @@ export async function runUat(
    * whole evidence and there is nothing left to hand over but the outcome — and
    * the run id that closes the open `stage_runs` row.
    */
+  let verdictPassed = false;
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
+    verdictPassed = outcome.kind === 'verdict' && outcome.verdict.kind === 'passed';
     mkdirSync(opts.artifactDir, { recursive: true });
     const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}-${evidence.runId}.log`);
     writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
@@ -929,6 +944,7 @@ export async function runUat(
     return finish({ kind: 'verdict', verdict: outcome.verdict }, outcome.warnings);
   };
 
+  if (ownsStack) deps.agentUatPhase?.(opts.ticketId, 'start');
   try {
     // The spin is INSIDE this try so its `finally` covers a partial failure too:
     // `spinTicket` leaves the services it already started running when a later
@@ -964,10 +980,15 @@ export async function runUat(
     }
     return await finishAfterServices();
   } finally {
+    // Decision 7: a sandboxed stack that passed agent UAT stays up for user
+    // UAT — same instance — after its optional reset (decision 8).
+    const keep = ownsStack && verdictPassed && deps.keepStackForUserUat?.(opts.ticketId) === true;
+    if (keep) await resetForUserUat(store, opts.ticketId, deps, opts.debug);
+    if (ownsStack) deps.agentUatPhase?.(opts.ticketId, 'end');
     // Stop the services UAT started on every exit path — the rows stay offline
     // so the dashboard offers Restart. Best-effort: a stop that cannot run must
     // never replace the stage's own outcome. A stack the user owns is untouched.
-    if (ownsStack && stopFn) {
+    if (ownsStack && stopFn && !keep) {
       try {
         await stopFn(store, opts.ticketId);
         opts.debug?.(`[gate] uat ticket ${opts.ticketId}: stopped the ticket's services after UAT`);
@@ -978,6 +999,22 @@ export async function runUat(
         );
       }
     }
+  }
+}
+
+/** Best-effort: a failed reset is a warning, never a change to the committed verdict. */
+async function resetForUserUat(
+  store: Store,
+  ticketId: number,
+  deps: UatDeps,
+  debug: ((message: string) => void) | undefined,
+): Promise<void> {
+  try {
+    const warnings = (await deps.prepareUserUat?.(store, ticketId)) ?? [];
+    for (const w of warnings) deps.warn?.(`uat: ${w}`);
+    debug?.(`[gate] uat ticket ${ticketId}: kept the sandboxed services for user UAT (${warnings.length} reset warning(s))`);
+  } catch (error) {
+    deps.warn?.(`uat: reset before user UAT failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

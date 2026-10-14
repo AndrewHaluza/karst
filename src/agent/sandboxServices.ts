@@ -232,3 +232,28 @@ export async function reverifySandboxServices(
   }
   return { republished, dropped };
 }
+
+/** Runs a declared `reset` in the service's own dir; the command text is one argv element. */
+export const RESET_SCRIPT = 'cd "$1" || exit 1; exec sh -c "$2"';
+
+/**
+ * Decision 8: between agent and user UAT, run each RUNNING sandboxed service's
+ * declared `reset` on that same instance (no restart). A service without one is
+ * left as the Tester left it. Returns one warning per failed reset.
+ */
+export async function resetSandboxServices(
+  store: Store,
+  ticketId: number,
+  runner: SandboxServiceRunner,
+  resetOf: (unitKey: string) => { readonly reset?: string; readonly cwd?: string } | undefined,
+): Promise<string[]> {
+  const warnings: string[] = [];
+  for (const row of sandboxRows(store, ticketId)) {
+    const def = resetOf(row.repo);
+    if (!def?.reset) continue;
+    const dir = def.cwd ? `${row.cwd}/${def.cwd}` : row.cwd;
+    const failed = await execIn(runner, row.cwd, ['-c', RESET_SCRIPT, 'karst-reset', dir, def.reset]);
+    if (failed !== null) warnings.push(`${row.repo}: reset failed (${failed})`);
+  }
+  return warnings;
+}

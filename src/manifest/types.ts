@@ -70,6 +70,13 @@ export interface ServiceDef {
   docker?: DockerDef;
   health?: string;
   /**
+   * Optional command that resets the service's state between agent UAT and
+   * user UAT in a sandboxed ticket (arch:AC-32 decision 8). Run inside the
+   * sandbox (`sh -c`, in the service's cwd) on the SAME running instance.
+   * Absent → state is left as the Tester left it.
+   */
+  reset?: string;
+  /**
    * Directory the process runs in, relative to the repository/worktree root
    * (e.g. `apps/api`). Absent → the root. Lets several services of one
    * monorepo share its single worktree yet start from their own folder.

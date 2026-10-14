@@ -209,3 +209,68 @@ describe('bindings.stopTicket (review fix)', () => {
     expect(store.db.prepare('SELECT status FROM servers').get()).toEqual({ status: 'stopped' });
   });
 });
+
+describe('bindings.userUat (decisions 7-8)', () => {
+  async function make(over: Partial<TicketSandboxDeps> = {}, manifest?: Manifest) {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const b = createTicketSandboxBindings({ ...deps(over), store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => undefined });
+    return { store, b };
+  }
+
+  it('keeps the stack only when a running row is sandboxed and the backend hosts the core', async () => {
+    const { store, b } = await make();
+    expect(b.userUat.keepStackForUserUat(7)).toBe(false);
+    store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status) VALUES (7, 'h', '127.0.0.1', 1, 'running')").run();
+    expect(b.userUat.keepStackForUserUat(7)).toBe(false);
+    store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status, sandbox) VALUES (7, 's', '127.0.0.1', 2, 'stopped', ?)").run(`sbx:${SBX}:2`);
+    expect(b.userUat.keepStackForUserUat(7)).toBe(false);
+    store.db.prepare("UPDATE servers SET status = 'running' WHERE repo = 's'").run();
+    expect(b.userUat.keepStackForUserUat(7)).toBe(true);
+    expect(b.userUat.keepStackForUserUat(8)).toBe(false);
+    const other = await make({ coreOf: () => 'agy' });
+    other.store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status, sandbox) VALUES (7, 's', '127.0.0.1', 2, 'running', ?)").run(`sbx:${SBX}:2`);
+    expect(other.b.userUat.keepStackForUserUat(7)).toBe(false);
+  });
+
+  it('withholds the link between start and end, per ticket', async () => {
+    const { b } = await make();
+    b.userUat.agentUatPhase(7, 'start');
+    expect(b.userUatWithheld(7)).toBe(true);
+    expect(b.userUatWithheld(8)).toBe(false);
+    b.userUat.agentUatPhase(7, 'end');
+    expect(b.userUatWithheld(7)).toBe(false);
+  });
+
+  it('runs declared resets through the sandbox runner; nothing without manifest or runner', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    const manifest = { repositories: { api: { repoPath: '/r', service: { start: 'x', reset: 'npm run reset', ports: [{ name: 'http', default: 1 }] } } } } as unknown as Manifest;
+    const { store, b } = await make({ proc: fakeSbxProcess() }, manifest);
+    store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status, cwd, sandbox) VALUES (7, 'api', '127.0.0.1', 4100, 'running', '/wt', ?)").run(`sbx:${SBX}:4100`);
+    vi.mocked(runProcess).mockClear();
+    await expect(b.userUat.prepareUserUat(store, 7)).resolves.toEqual([]);
+    expect(vi.mocked(runProcess).mock.calls[0]![1]).toEqual(expect.arrayContaining(['exec', SBX, 'karst-reset', '/wt', 'npm run reset']));
+    const noManifest = await make();
+    await expect(noManifest.b.userUat.prepareUserUat(store, 7)).resolves.toEqual([]);
+    const noRunner = await make({ coreOf: () => null }, manifest);
+    await expect(noRunner.b.userUat.prepareUserUat(store, 7)).resolves.toEqual([]);
+  });
+});
+
+describe('bindings.stopTicket on archive: only this ticket (task 9)', () => {
+  it('unpublishes ticket 7 mappings and leaves the bystander ticket 8 running and published', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const store = openStore(':memory:');
+    const SBX8 = sbxName({ projectRoot: '/p', ticketId: 8, core: 'claude' });
+    const ins = store.db.prepare("INSERT INTO servers (ticket_id, repo, host, port, status, cwd, sandbox) VALUES (?, 'api', '127.0.0.1', ?, 'running', '/wt', ?)");
+    ins.run(7, 4100, `sbx:${SBX}:4100`);
+    ins.run(8, 4200, `sbx:${SBX8}:4200`);
+    const proc = fakeSbxProcess();
+    const b = createTicketSandboxBindings({ ...deps({ proc }), store, manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
+    await b.stopTicket(store, 7);
+    const lines = proc.calls.map((c) => c.args.join(' '));
+    expect(lines).toContain(`ports ${SBX} --unpublish 127.0.0.1:4100:4100`);
+    expect(lines.join('\n')).not.toContain(SBX8);
+    expect(store.db.prepare('SELECT ticket_id AS t, status FROM servers ORDER BY t').all()).toEqual([{ t: 7, status: 'stopped' }, { t: 8, status: 'running' }]);
+  });
+});

@@ -38,6 +38,25 @@ export interface ServerOpsDeps {
   debug: (message: string) => void;
   /** Sandboxed tickets (arch:AC-32): absent → every row is a host row, as before. */
   sandbox?: TicketSandboxDeps;
+  /** arch:AC-32 decision 7: true while the agent UAT runs on this ticket's services. */
+  userUatWithheld?: (ticketId: number) => boolean;
+}
+
+const WITHHELD = 'The agent UAT is still running on this service. Its link opens when the agent UAT finishes.';
+
+/** The row's address, or null after a warning (gone, or withheld during agent UAT). */
+function reachableAddress(deps: ServerOpsDeps, serverId: number): { host: string; port: number } | null {
+  const addr = serverAddress(deps.store, serverId);
+  if (!addr) {
+    deps.notify.warn('That server is no longer running.');
+    return null;
+  }
+  const row = deps.store.db.prepare('SELECT ticket_id AS ticketId FROM servers WHERE id = ?').get(serverId) as { ticketId: number | null } | undefined;
+  if (row?.ticketId != null && deps.userUatWithheld?.(row.ticketId) === true) {
+    deps.notify.warn(WITHHELD);
+    return null;
+  }
+  return addr;
 }
 
 /**
@@ -63,20 +82,14 @@ export async function stopServerRow(deps: ServerOpsDeps, serverId: number): Prom
 }
 
 export function openServerRow(deps: ServerOpsDeps, serverId: number): void {
-  const addr = serverAddress(deps.store, serverId);
-  if (!addr) {
-    deps.notify.warn('That server is no longer running.');
-    return;
-  }
+  const addr = reachableAddress(deps, serverId);
+  if (!addr) return;
   deps.openExternal(`http://${addr.host}:${addr.port}`);
 }
 
 export function copyServerUrlRow(deps: ServerOpsDeps, serverId: number): void {
-  const addr = serverAddress(deps.store, serverId);
-  if (!addr) {
-    deps.notify.warn('That server is no longer running.');
-    return;
-  }
+  const addr = reachableAddress(deps, serverId);
+  if (!addr) return;
   deps.copyText(`http://${addr.host}:${addr.port}`);
 }
 

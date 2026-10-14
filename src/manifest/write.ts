@@ -262,6 +262,8 @@ function overlayService(rawService: Record<string, unknown>, svc: ServiceDef): R
     cwd: svc.cwd,
     health: svc.health,
     healthIdentity: svc.healthIdentity,
+    // Written when set, dropped when cleared → no reset between UATs.
+    reset: svc.reset,
     ports: svc.ports,
     // Written when set, dropped (undefined → omitted by the dumper) when cleared,
     // so the service falls back to the global range.
