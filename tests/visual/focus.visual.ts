@@ -82,6 +82,13 @@ const FOCUS_CAP = 12;
  * fields; neither folds into the description textarea, whose role (WHAT/WHY)
  * is distinct. The pointers textarea sits in a `hidden` row but the sweep's
  * selector still counts it.
+ *
+ * Updated a tenth time by the sandbox backend rollout (arch:AC-35): `ticketForm`
+ * +1 — `#backendSelect`, the per-ticket opt-OUT of the project's sandbox backend
+ * ("Inherit" / "Host"). It is a net-new decision (it picks where THIS ticket's
+ * session runs), so it cannot fold into the preset or core pickers, which choose
+ * the agent identity. The row is `hidden` unless the ticket is in edit mode under
+ * an sbx or docker project, but the sweep's selector still counts it.
  */
 const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   dashboard: 47,
@@ -91,7 +98,7 @@ const FOCUS_COUNT_RATCHET: Record<ViewId, number> = {
   sidebar: 69, // restored: the sidebar corpus still renders 69 focusables (see seventh note); was 57 before the planning-tree redesign
   diffs: 35,
   settings: 193,
-  ticketForm: 27,
+  ticketForm: 28,
   gettingStarted: 6,
 };
 
