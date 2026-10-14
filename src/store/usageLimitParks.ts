@@ -18,8 +18,11 @@ import { UsageLimitError } from '../agent/cliFailure.js';
  * Three kinds:
  * - `stage-block`: written INSIDE `parkGateStage`, in the same transaction as
  *   the block — review/UAT.
- * - `op`: a non-stage AI op (fix resume, PR description, alignment, classify)
- *   that failed on quota; `stage` names where it ran, `lane` is NULL.
+ * - `op`: a non-stage AI op (fix resume, PR description, alignment, classify,
+ *   suggest) that failed on quota; `stage` names where it ran. `lane` is NULL
+ *   unless the call site names the specific op (`'analysis'`/`'suggest'`), which
+ *   D159's re-run dispatches on — and which keeps two different ops at one stage
+ *   from collapsing into a single open row.
  * - `interactive`: reserved for the interactive-detection part (D160).
  *
  * At most ONE open park per `(ticket_id, stage, kind, lane, target, session_id)`
@@ -342,6 +345,9 @@ export function recordUsageLimitOpPark(
     stage: StageKey | null;
     provider?: string | null;
     model?: string | null;
+    /** The specific op this park belongs to (`'analysis'`/`'suggest'`), when the
+     * call site can name one. D159's re-run dispatches on it. */
+    lane?: string | null;
     target?: string | null;
     sessionId?: string | null;
     parkedAt?: string;
@@ -353,7 +359,7 @@ export function recordUsageLimitOpPark(
     ticketId: input.ticketId,
     stage: input.stage,
     kind: 'op',
-    lane: null,
+    lane: input.lane ?? null,
     target: input.target ?? null,
     sessionId: input.sessionId ?? null,
     stageRunId: null,

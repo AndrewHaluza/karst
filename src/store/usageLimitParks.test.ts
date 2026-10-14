@@ -156,6 +156,30 @@ describe('usage_limit_parks', () => {
     expect(listOpenParks(store, ticketId)).toHaveLength(1);
   });
 
+  it('keeps two different ops at one stage as separate open parks, keyed by `lane` (D159)', () => {
+    const limit = new UsageLimitError('Claude usage limit reached — out of credits.', {
+      tool: 'Claude',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+    });
+    // The ticket form records the analysis op and the signal-suggest op at the
+    // SAME stage; without the discriminator the second would overwrite the first.
+    recordUsageLimitOpPark(store, limit, { ticketId, stage: 'scope', lane: 'analysis' });
+    recordUsageLimitOpPark(store, limit, {
+      ticketId,
+      stage: 'scope',
+      lane: 'suggest',
+      target: 'fe',
+    });
+
+    const open = listOpenParks(store, ticketId);
+    expect(open).toHaveLength(2);
+    expect(open.map((p) => p.lane).sort()).toEqual(['analysis', 'suggest']);
+    // Re-recording one op still collapses onto its own row.
+    recordUsageLimitOpPark(store, limit, { ticketId, stage: 'scope', lane: 'analysis' });
+    expect(listOpenParks(store, ticketId)).toHaveLength(2);
+  });
+
   it('overwriting blockedKind with another kind resolves the park', () => {
     setStage(store, ticketId, 'review', {
       status: 'running',
