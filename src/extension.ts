@@ -25,7 +25,9 @@ import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/p
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
-import { runBootSweeps } from './extension/ops/bootSweeps.js';
+import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
+import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
+import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
 import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
@@ -342,7 +344,7 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
-import { backendSessionOptions, syncSandboxOp } from './extension/ops/sandboxSyncOps.js';
+import { backendSessionOptions, disposeSandboxOp, syncSandboxOp } from './extension/ops/sandboxSyncOps.js';
 import {
   LAUNCH_BUILD_SCRIPT,
   LAUNCH_BUILD_TIMEOUT_MS,
@@ -1008,6 +1010,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const snapshot = [...ownedSessionTickets].sort((a, b) => a - b);
     return ownershipWriter.enqueue(snapshot);
   };
+  let bridges: BridgeRegistry | undefined; // arch:AC-34, built once the hook endpoint is bound
   const sessions = new SessionManager(
     makeTerminalHost(terminalIdentity),
     (ticketId) => {
@@ -1026,6 +1029,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Session-close sweep: when the agent's terminal ends, drive the ticket if it
     // is parked at a gate — no dependence on a SessionEnd hook reaching the endpoint.
     (ticketId) => {
+      void bridges?.detach(ticketId); // the sandbox lives on: keep its bridge dir (arch:AC-32)
       // The agy watch's per-ticket memory dies with the terminal: a closed
       // session must not keep a stale conversation/awaiting state behind.
       agyWatchStates.delete(ticketId);
@@ -3812,6 +3816,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   if (endpoint.port !== rememberedPort) {
     await context.workspaceState.update(HOOK_PORT_KEY, endpoint.port);
   }
+  bridges = createBridgeRegistry({ root: join(settingsDir, 'bridge'), debug: (m) => logger.debug(m), build: makeBridgeBuild({
+    store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
+    hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
+    cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
+  await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, info: (m) => logger.info(m), logError });
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -6501,7 +6510,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
-            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m) }), // AC-32
+            ...backendSessionOptions({ backend: currentManifest()?.agentBackend, core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}) }), // AC-32
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
@@ -6741,6 +6750,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const ticketId = ticketIdArg(arg); if (ticketId === undefined) return;
       const t = getTicket(localStore, ticketId), wt = listWorktreesByTicket(localStore, ticketId)[0];
       await syncSandboxOp({ notify: vscodeNotify, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
+    }),
+    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => {
+      const ticketId = ticketIdArg(arg); if (ticketId === undefined || !bridges) return;
+      const t = getTicket(localStore, ticketId), wt = listWorktreesByTicket(localStore, ticketId)[0];
+      await disposeSandboxOp({ notify: vscodeNotify, bridges, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
     }),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
