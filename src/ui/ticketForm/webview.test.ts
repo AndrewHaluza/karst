@@ -49,6 +49,21 @@ function htmlConstNumber(name: string): number {
  * that these regex checks can pin, even though nothing actually renders a DOM.
  */
 describe('ticket-form webview.html', () => {
+  it('offers Pick/Retry/Dismiss on a usage-limit op-park error (D159)', () => {
+    const err = { innerHTML: '', classList: { remove: () => {} } };
+    const showUsageLimitErr = loadFunction('showUsageLimitErr', { el: () => err });
+    showUsageLimitErr('out of credits', 7);
+    expect(err.innerHTML).toContain('data-act="usage-limit-park-pick"');
+    expect(err.innerHTML).toContain('data-act="usage-limit-park-retry"');
+    expect(err.innerHTML).toContain('data-act="usage-limit-park-dismiss"');
+    expect(err.innerHTML).toContain('data-parkid="7"');
+    expect(err.innerHTML).toContain('out of credits');
+    // The `error` handler routes a park-bearing error to the actions block, and
+    // a resolve clears the buttons.
+    expect(HTML).toMatch(/if \(msg\.usageLimitParkId\) showUsageLimitErr\(/);
+    expect(HTML).toMatch(/case 'usage-limit-park-resolved': clearErr\(\); break;/);
+  });
+
   it('gates Phase 2 on the title alone, whatever the provider — the key is never required', () => {
     // The literal bug (869echhyr): typing a title without clicking Fetch left
     // Phase 2 hidden on any board-backed provider, because phase1Valid()

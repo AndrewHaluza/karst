@@ -710,6 +710,101 @@ describe('buildTicketFormActions', () => {
     expect(open[0]).toMatchObject({ kind: 'op', stage: 'scope', provider: 'claude' });
   });
 
+  /** Park an op by driving a quota-failing suggest, returning its id. */
+  async function parkOpOnQuota(ticketId: number): Promise<number> {
+    deps.adapter = {
+      ...fakeAdapter(),
+      runHeadless: async () => {
+        throw new UsageLimitError('Claude usage limit reached — out of credits.', {
+          tool: 'Claude',
+          provider: 'claude',
+          model: 'claude-sonnet-5',
+        });
+      },
+    };
+    const ctx = mkCtx(ticketId);
+    const actions = buildTicketFormActions(deps)(ctx);
+    await actions.suggestSignals('fe');
+    const err = ctx.posted.find((m) => m.type === 'error') as
+      | { usageLimitParkId?: number }
+      | undefined;
+    if (err?.usageLimitParkId === undefined) throw new Error('no op park id on the error');
+    return err.usageLimitParkId;
+  }
+
+  it('a quota error rides its op park id and Dismiss resolves the row (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-DISMISS', title: 't' });
+    const parkId = await parkOpOnQuota(t.id);
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.usageLimitParkDismiss(parkId);
+
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'usage-limit-park-resolved' });
+  });
+
+  it('Dismiss on an already-handled op park reports it and touches nothing (D159)', () => {
+    const t = createTicket(store, { key: 'T-K11-HANDLED', title: 't' });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.usageLimitParkDismiss(999);
+
+    expect(ctx.posted.at(-1)).toMatchObject({
+      type: 'error',
+      message: 'This usage limit was already handled.',
+    });
+  });
+
+  it('Retry re-runs the parked op with the parked provider/model, one-shot (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-RETRY', title: 't' });
+    updateTicketFields(store, t.id, { description: 'do the thing' });
+    const parkId = await parkOpOnQuota(t.id);
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+
+    const seen: ({ provider: string; model: string | null } | undefined)[] = [];
+    deps.resolveAnalysisProcess = vi.fn((_id, override) => {
+      seen.push(override);
+      return {
+        assignment: { provider: override?.provider ?? 'claude', model: override?.model ?? null },
+        adapter: deps.adapter,
+      };
+    });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkRetry(parkId);
+
+    expect(seen.at(-1)).toEqual({ provider: 'claude', model: 'claude-sonnet-5' });
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
+  it('Pick asks for an agent/model and re-runs the parked op with the one-shot pick (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK', title: 't' });
+    updateTicketFields(store, t.id, { description: 'do the thing' });
+    const parkId = await parkOpOnQuota(t.id);
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+
+    const seen: ({ provider: string; model: string | null } | undefined)[] = [];
+    deps.resolveAnalysisProcess = vi.fn((_id, override) => {
+      seen.push(override);
+      return {
+        assignment: { provider: override?.provider ?? 'claude', model: override?.model ?? null },
+        adapter: deps.adapter,
+      };
+    });
+    deps.pickUsageLimitAgentModel = vi.fn(async () => ({ provider: 'codex', model: 'gpt-4o' }));
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    expect(deps.pickUsageLimitAgentModel).toHaveBeenCalledWith('claude', 'claude-sonnet-5');
+    expect(seen.at(-1)).toEqual({ provider: 'codex', model: 'gpt-4o' });
+    expect(listOpenParks(store, t.id)).toHaveLength(0);
+  });
+
   it('saveSignals writes to the manifest and re-pushes state', async () => {
     let pushes = 0;
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };

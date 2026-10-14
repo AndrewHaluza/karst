@@ -1,6 +1,7 @@
 import { dirname } from 'node:path';
 import type { Store } from '../../store/db.js';
 import type { Manifest } from '../../manifest/types.js';
+import type { AgentProvider } from '../../manifest/types.js';
 import type { TicketingProvider, ContextBrief } from '../../integrations/ticketing.js';
 import { renderBrief } from '../../integrations/briefMarkdown.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
@@ -23,7 +24,7 @@ import {
   list as listRelationViews,
 } from '../../store/ticketRelations.js';
 import { queueAutostart } from '../../store/autostart.js';
-import { recordUsageLimitOpPark } from '../../store/usageLimitParks.js';
+import { recordUsageLimitOpPark, claimUsageLimitPark, listParks } from '../../store/usageLimitParks.js';
 import { postMessage } from '../../store/ticketMessages.js';
 import { createTicketFlow } from '../../workflow/stages/create.js';
 import { resolvePlannedBaseRef, subtaskParentBranch, assertSharedRepoBaseOverrides } from '../../workflow/baseRef.js';
@@ -82,6 +83,9 @@ import {
  */
 export type StartTicketResult = { ok: true } | { ok: false; message: string };
 
+/** D159: a one-shot agent/model override for a parked-op re-run (never persisted). */
+export type AnalysisOverride = { provider: AgentProvider; model: string | null };
+
 /** Per-launch choices the ticket form makes for a start it is triggering. */
 export interface StartTicketOptions {
   /**
@@ -121,7 +125,24 @@ export interface TicketFormActionsDeps {
    * analyzer refuses rather than running on a guessed default. The plain
    * `adapter` above stays the panel-wide default for the signal-word suggestion.
    */
-  resolveAnalysisProcess: (ticketId: number) => DriveProcessBundle | null;
+  resolveAnalysisProcess: (
+    ticketId: number,
+    /**
+     * D159: a ONE-SHOT agent/model override for a usage-limit op re-run. Absent
+     * → the configured ticket-analysis identity; a pick threads the chosen
+     * core/model through and NOTHING is persisted to the ticket or Settings.
+     */
+    override?: { provider: AgentProvider; model: string | null },
+  ) => DriveProcessBundle | null;
+  /**
+   * D159: show the two-step core → model picker for a parked op re-run, tagging
+   * the parked pair. Absent → the "Pick agent/model…" action is unavailable
+   * (only "Retry same" and "Dismiss" are offered).
+   */
+  pickUsageLimitAgentModel?: (
+    parkedProvider: string,
+    parkedModel: string | null,
+  ) => Promise<{ provider: AgentProvider; model: string | null } | undefined>;
   /** Notify the host to refresh sidebar/dashboard after a create/edit. */
   onChange: () => void;
   confirmBlockedStart?: (message: string) => Promise<boolean>;
@@ -590,7 +611,18 @@ export function buildTicketFormActions(
       }
     };
 
-    return {
+    // D159: the ONE-SHOT agent/model override a usage-limit op re-run applies to
+    // the next analyze, consumed at the top of `analyze` (never persisted).
+    let analysisOverride: AnalysisOverride | undefined;
+    /** The open op park for this ticket's panel, if any. */
+    const findUsageLimitPark = (parkId: number) => {
+      if (ctx.ticketId === undefined) return undefined;
+      return listParks(deps.store, ctx.ticketId).find(
+        (p) => p.id === parkId && p.resolvedAt === null,
+      );
+    };
+
+    const actions: TicketFormActions = {
     attachPick: async (): Promise<void> => {
       try {
         const paths = await deps.pickAttachment();
@@ -841,10 +873,17 @@ export function buildTicketFormActions(
         ctx.post({ type: 'signals-suggested', service, signals });
       } catch (e) {
         // K11: park the quota failure when this form is bound to a ticket.
+        // D159: the row id rides the error so the page can offer Pick/Retry/
+        // Dismiss for the parked suggest op.
+        let parkId: number | null = null;
         if (ctx.ticketId !== undefined) {
-          void recordUsageLimitOpPark(deps.store, e, { ticketId: ctx.ticketId, stage: 'scope' });
+          parkId = recordUsageLimitOpPark(deps.store, e, { ticketId: ctx.ticketId, stage: 'scope' });
         }
-        ctx.post({ type: 'error', message: errorMessage(e) });
+        ctx.post({
+          type: 'error',
+          message: errorMessage(e),
+          ...(parkId !== null ? { usageLimitParkId: parkId } : {}),
+        });
       } finally {
         ctx.post({ type: 'busy', what: 'suggest', on: false });
       }
@@ -995,6 +1034,10 @@ export function buildTicketFormActions(
     },
 
     async analyze(livePrompt: string): Promise<void> {
+      // D159: consume the one-shot override (a parked-op pick/retry), so it
+      // applies to THIS run only and never leaks into a later user analyze.
+      const override = analysisOverride;
+      analysisOverride = undefined;
       // Match the ticket-form picker: offer built-in (sourceless) approaches
       // always, sourced ones only when installed. Otherwise the analyzer could
       // never pick `direct`/`single-subagent`, or pick one that won't launch.
@@ -1028,6 +1071,9 @@ export function buildTicketFormActions(
       );
 
       ctx.post({ type: 'busy', what: 'analyze', on: true });
+      // D159: the op park id this analysis records, if a pass dies on quota
+      // (declared before the try so the catch can offer the park actions).
+      let parkId: number | null = null;
       try {
         // The analysis is the ticket's first AI process — the scope stage's
         // `prefill` row. It needs a ticket to attach to, so a pure create-mode
@@ -1037,7 +1083,7 @@ export function buildTicketFormActions(
         // (`tracking.processRunId`). The draft is re-keyed and retitled at
         // submit.
         const ticketId = ensureTicket();
-        const process = deps.resolveAnalysisProcess(ticketId);
+        const process = deps.resolveAnalysisProcess(ticketId, override);
         if (process === null) {
           // Configured absence (`processes.ticketAnalysis.enabled: false`),
           // exactly like every other disabled inside process: the analyzer
@@ -1094,13 +1140,16 @@ export function buildTicketFormActions(
             warn: deps.warn,
             // K11: any pass that dies on quota records one re-runnable op park
             // (kind `op`, stage `scope`); the passes still degrade as before.
-            onUsageLimit: (error) =>
-              void recordUsageLimitOpPark(deps.store, error, {
+            // D159: the row id rides the error below so the page can offer
+            // Pick agent/model… / Retry same / Dismiss for it.
+            onUsageLimit: (error) => {
+              parkId = recordUsageLimitOpPark(deps.store, error, {
                 ticketId,
                 stage: 'scope',
                 provider: process.assignment.provider,
                 model: process.assignment.model ?? null,
-              }),
+              });
+            },
           });
         } catch (error) {
           // The call's spend is already recorded (a 429 arrives after the input
@@ -1168,8 +1217,21 @@ export function buildTicketFormActions(
           codePointers: result.codePointers,
           warnings: result.degraded,
         });
+        // D159: a pass that degraded on quota leaves an op park; offer the
+        // actions so the row has a user path (the analysis itself still landed).
+        if (parkId !== null) {
+          ctx.post({
+            type: 'error',
+            message: 'Usage limit reached — pick another agent/model to re-run this step.',
+            usageLimitParkId: parkId,
+          });
+        }
       } catch (e) {
-        ctx.post({ type: 'error', message: errorMessage(e) });
+        ctx.post({
+          type: 'error',
+          message: errorMessage(e),
+          ...(parkId !== null ? { usageLimitParkId: parkId } : {}),
+        });
       } finally {
         ctx.post({ type: 'busy', what: 'analyze', on: false });
       }
@@ -1335,6 +1397,61 @@ export function buildTicketFormActions(
       }
     },
 
+    // D159: resolve an op usage-limit park from its error notification. Each
+    // claims the row FIRST (one conditional UPDATE, so a concurrent window or
+    // the driver loses and touches nothing), then re-runs the parked op with a
+    // ONE-SHOT agent/model — never persisted. The classify op's re-run IS the
+    // analysis, so the override rides the next `analyze`.
+    async usageLimitParkPick(parkId: number): Promise<void> {
+      const park = findUsageLimitPark(parkId);
+      if (!park) {
+        ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
+        return;
+      }
+      if (!deps.pickUsageLimitAgentModel) {
+        ctx.post({ type: 'error', message: 'No agent/model picker is available for this step.' });
+        return;
+      }
+      const picked = await deps.pickUsageLimitAgentModel(park.provider, park.model);
+      if (!picked) return; // cancelled
+      if (!claimUsageLimitPark(deps.store, parkId, 'pick').claimed) {
+        ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
+        return;
+      }
+      ctx.post({ type: 'usage-limit-park-resolved' });
+      analysisOverride = { provider: picked.provider, model: picked.model };
+      await actions.analyze('');
+    },
+
+    async usageLimitParkRetry(parkId: number): Promise<void> {
+      const park = findUsageLimitPark(parkId);
+      if (!park) {
+        ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
+        return;
+      }
+      if (!claimUsageLimitPark(deps.store, parkId, 'retry').claimed) {
+        ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
+        return;
+      }
+      ctx.post({ type: 'usage-limit-park-resolved' });
+      analysisOverride = { provider: park.provider as AgentProvider, model: park.model };
+      await actions.analyze('');
+    },
+
+    usageLimitParkDismiss(parkId: number): void {
+      const park = findUsageLimitPark(parkId);
+      if (!park) {
+        ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
+        return;
+      }
+      // An op park has no stage block to fail: resolving the row IS the dismiss.
+      if (!claimUsageLimitPark(deps.store, parkId, 'dismiss').claimed) {
+        ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
+        return;
+      }
+      ctx.post({ type: 'usage-limit-park-resolved' });
+    },
+
     requestState(): void {
       ctx.pushState();
     },
@@ -1347,5 +1464,6 @@ export function buildTicketFormActions(
       ctx.close();
     },
     };
+    return actions;
   };
 }
