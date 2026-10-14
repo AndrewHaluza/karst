@@ -1083,13 +1083,20 @@ function completeDeterministic(deps: GraphDriverDeps, nodeRunId: number, effecti
  *  claimed passes through `launching` — the same two steps a claimed launch
  *  takes. A node the driver already moved to `running` (a provider that exited
  *  a moment after spawn, before any session existed) parks straight from
- *  `running`. */
+ *  `running`.
+ *
+ *  `providerExit` marks the ONE park that is the provider early-exit loop — a
+ *  provider process that exited before its session started. It alone advances
+ *  `launch_fail_streak`; a red-blocked node or an unresolved workspace parks
+ *  `failed-to-launch` too but is a different failure, and must not trip the
+ *  launch-loop guard. */
 export function parkLaunchFailure(
   deps: GraphDriverDeps,
   graphRunId: number,
   nodeRunId: number,
   /** What could not be launched — recorded verbatim as the node's reason. */
   reason = 'launch failed before the session started',
+  providerExit = false,
 ): void {
   deps.transaction(() => {
     const status = nodeRunStatus(deps.db, nodeRunId);
@@ -1117,10 +1124,10 @@ export function parkLaunchFailure(
     ) {
       return;
     }
-    // One more consecutive launch failure on this reserved visit. It is
-    // restored to zero only by a launch that actually started — so the counter
-    // the loop guard reads is "in a row", unlike `launch_attempt`.
-    incrementNodeRunLaunchFailStreak(deps.db, nodeRunId);
+    // One more consecutive PROVIDER-exit failure on this reserved visit. It is
+    // reset to zero only by a launch that actually started — so the counter the
+    // loop guard reads is "in a row", unlike `launch_attempt`.
+    if (providerExit) incrementNodeRunLaunchFailStreak(deps.db, nodeRunId);
     setNodeRunFailure(deps.db, nodeRunId, {
       failureCategory: 'failed-to-launch',
       reason,
@@ -1145,7 +1152,9 @@ export const LAUNCH_FAILURE_LINE_MAX = 200;
  * "dead at reconcile". On the SECOND launch failure of the same reserved visit
  * it records the launch-loop message instead — the text the dashboard shows
  * and the state the recovery's launch-loop guard reads — plus the folder-trust
- * hint that fits the T661/D146 failure.
+ * hint that fits the T661/D146 failure. This is the ONLY parker that advances
+ * the loop counter (`providerExit`): a red-blocked or unresolved-workspace park
+ * is a different failure and must not read as the folder-trust loop.
  */
 export function parkNodeLaunchExit(
   deps: GraphDriverDeps,
@@ -1159,14 +1168,15 @@ export function parkNodeLaunchExit(
   if (row === undefined) return;
   const captured = collapseDiagnostic(outputLine, LAUNCH_FAILURE_LINE_MAX);
   const line = captured === '' ? '' : `: ${captured}`;
-  // The streak this park is about to create: `parkLaunchFailure` increments
-  // it. A prior failure on the SAME reserved visit (streak >= 1, never reset
-  // because no launch started in between) makes this the second in a row.
+  // The streak this park is about to create: `parkLaunchFailure` increments it
+  // for a provider exit. A prior PROVIDER exit on the SAME reserved visit
+  // (streak >= 1, never reset because no launch started in between) makes this
+  // the second in a row.
   const repeated = row.launch_fail_streak >= 1;
   const reason = repeated
     ? `launched twice and exited before starting${line} — the agent CLI is probably not trusting this folder; check its folder trust`
     : `failed-to-launch${line}`;
-  parkLaunchFailure(deps, graphRunId, nodeRunId, reason);
+  parkLaunchFailure(deps, graphRunId, nodeRunId, reason, true);
 }
 
 /* ------------------------------------------------------------------ */

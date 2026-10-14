@@ -30,6 +30,7 @@ import {
   sha256Hex,
   nodeWorkspaceDirective,
   resolveGraphNodeProfile,
+  parkLaunchFailure,
   parkNodeLaunchExit,
 } from './driver.js';
 import type { SupervisedAgentSession, SupervisedLaunchRequest } from './transport/supervisedCliTransport.js';
@@ -2449,5 +2450,18 @@ describe('parkNodeLaunchExit', () => {
     // The foreign node keeps its `running` state and no failure line.
     expect(nodeOf(h, nodeRunId).status).toBe('running');
     expect(nodeOf(h, nodeRunId).reason).toBeNull();
+  });
+
+  it('does not advance the loop counter for a park that is not a provider exit', () => {
+    // The medium review finding: a red-blocked node and an unresolved
+    // workspace park `failed-to-launch` through the same `parkLaunchFailure`,
+    // but they are NOT the folder-trust loop — only the provider early exit
+    // (see `parkNodeLaunchExit`) may count.
+    const h = harness();
+    const { graphRunId, nodeRunId } = graphWithRunningNode(h, 0);
+    parkLaunchFailure(h.deps, graphRunId, nodeRunId, 'launch failed before the session started');
+    expect(nodeOf(h, nodeRunId).status).toBe('blocked');
+    expect(nodeOf(h, nodeRunId).failure_category).toBe('failed-to-launch');
+    expect(nodeOf(h, nodeRunId).launch_fail_streak).toBe(0);
   });
 });
