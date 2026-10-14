@@ -75,7 +75,7 @@ export interface SandboxSyncDeps {
 }
 
 /** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
-function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
+export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
     return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [] });

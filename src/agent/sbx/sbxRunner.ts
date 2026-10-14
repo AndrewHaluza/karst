@@ -132,6 +132,10 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only ${ref} failed: ${merged.stderr.trim()}` };
       return { ok: true, summary: `fast-forwarded ${ticket.branch} to ${ref}` };
     },
+    // Stopped, not removed: `sbx run --name` restarts it on the next open.
+    stop: async (): Promise<void> => {
+      await opts.proc.run(SBX_BIN, ['stop', opts.name]);
+    },
     dispose: async (ticket: SandboxTicketRef): Promise<void> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
       await opts.proc.run(SBX_BIN, ['rm', '--force', opts.name]);

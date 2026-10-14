@@ -188,6 +188,10 @@
         "icon": "$(trash)"
       },
       {
+        "command": "karst.sandbox.cleanupOrphans",
+        "title": "Karst: Clean Up Orphan Sandboxes"
+      },
+      {
         "command": "karst.unarchiveTicket",
         "title": "Karst: Unarchive Ticket",
         "icon": "$(history)"

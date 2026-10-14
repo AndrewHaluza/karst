@@ -27,10 +27,17 @@ export interface ArchiveOpsDeps {
    * of its 127.0.0.1 mappings before its worktrees go (this ticket's only).
    */
   readonly stopTicketServices?: (store: Store, ticketId: number) => Promise<void>;
+  /**
+   * Sandbox guard (arch:AC-32): sync, then remove the ticket's sandbox. `false`
+   * (unsynced and the user kept it, or another window owns it) stops the archive.
+   */
+  readonly beforeArchive?: (ticketId: number) => Promise<boolean>;
 }
 
 export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): Promise<void> {
-  archiveTicket(deps.store, ticketId);
+  // Services first: their 127.0.0.1 mappings are unpublished while the sandbox
+  // still exists, before the guard below removes it (arch:AC-32). A guard that
+  // then keeps the ticket leaves them stopped, offline and restartable.
   if (deps.stopTicketServices) {
     try {
       await deps.stopTicketServices(deps.store, ticketId);
@@ -38,6 +45,8 @@ export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): P
       deps.log.error('karst: stopping the ticket\'s sandboxed services before archive failed', err);
     }
   }
+  if (deps.beforeArchive && !(await deps.beforeArchive(ticketId))) return;
+  archiveTicket(deps.store, ticketId);
   // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
   // ticket is being closed, so its DONE terminals go with it — dead tabs
   // whose process already exited, never a live session. A disposal failure

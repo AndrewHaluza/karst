@@ -23,6 +23,9 @@ import { removeOrphanContainers } from '../../runtime/orphanContainers.js';
 import { formatId } from '../../model/entityId.js';
 import type { BridgeRegistry } from '../../agent/bridge/bridgeRegistry.js';
 import { openBridgeTicketIds } from './bridgeWiring.js';
+import type { SandboxInventory } from '../../agent/sandboxInventory.js';
+import { checkSandboxOrphans } from '../../doctor/sandboxOrphanCheck.js';
+import { reconcileSandboxes, type ReconcileResult, type ReconcileTicket } from './sandboxLifecycleOps.js';
 
 export interface BootSweepDeps {
   store: Store;
@@ -353,4 +356,35 @@ function containerOf(store: Store, id: number): string | null {
     | { container: string | null }
     | undefined;
   return row?.container ?? null;
+}
+
+export interface SandboxReconcileDeps {
+  readonly inventory: () => Promise<SandboxInventory>;
+  /** This project's live (non-archived) tickets. */
+  readonly live: () => readonly ReconcileTicket[];
+  readonly owns: (ticketId: number) => boolean;
+  readonly clearSession: (ticketId: number) => void;
+  readonly info: (message: string) => void;
+  readonly logError: (message: string, err: unknown) => void;
+}
+
+/**
+ * Sandbox recovery on activation (arch:AC-32), next to the bridge sweep:
+ * adopt running, leave stopped, give a missing sandbox a fresh session, report
+ * orphans (removed only by the confirmed cleanup command). Never throws.
+ */
+export async function runSandboxReconcile(deps: SandboxReconcileDeps): Promise<ReconcileResult | undefined> {
+  try {
+    const inv = await deps.inventory();
+    for (const e of inv.errors) deps.info(`karst: sandbox listing: ${e}`);
+    const r = reconcileSandboxes(inv, deps.live(), deps.owns, deps.clearSession);
+    if (r.running.length > 0) deps.info(`karst: sandbox(es) running for ticket(s) ${r.running.join(', ')}: reattached on open`);
+    if (r.stopped.length > 0) deps.info(`karst: sandbox(es) stopped for ticket(s) ${r.stopped.join(', ')}: restarted on open`);
+    if (r.missing.length > 0) deps.info(`karst: sandbox(es) missing for ticket(s) ${r.missing.join(', ')}: next open starts a fresh session`);
+    for (const c of checkSandboxOrphans(r.orphans)) deps.info(`karst: ${c.detail} — ${c.fix?.tier === 'report' ? c.fix.nextStep : ''}`);
+    return r;
+  } catch (err) {
+    deps.logError('karst: sandbox reconcile failed', err);
+    return undefined;
+  }
 }

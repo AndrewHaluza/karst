@@ -669,7 +669,7 @@ export async function runCliAsync(
     if (!db) throw new Error('missing --db <path>');
     const store = parseDoctorArgs(rest).fix ? openWritableStore(db) : openReadonlyStore(db);
     try {
-      return runDoctorCommand(store, db, manifestPath, rest, env);
+      return await runDoctorCommand(store, db, manifestPath, rest, env);
     } finally {
       store.close();
     }
