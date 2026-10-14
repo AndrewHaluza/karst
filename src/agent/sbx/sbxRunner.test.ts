@@ -122,6 +122,16 @@ describe('createSbxSessionRunner.dispose', () => {
   });
 });
 
+describe('createSbxSessionRunner.stop', () => {
+  it('stops only its own sandbox and keeps it known for reattach', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await runner.stop!();
+    expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([`sbx stop ${NAME}`]);
+    expect(runner.placeInteractive(spec()).shellArgs).not.toContain('--clone');
+  });
+});
+
 describe('autonomousPermissionArgs (arch:AC-31 conformance)', () => {
   it.each(['claude', 'codex', 'opencode'])('never relaxes %s on the host runner', (core) => {
     expect(autonomousPermissionArgs(core, HOST_SESSION_RUNNER)).toEqual([]);

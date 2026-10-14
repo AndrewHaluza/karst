@@ -74,6 +74,12 @@ describe('createDockerSessionRunner', () => {
     expect(lines(proc).at(-1)).toBe('git -C /w/t7 merge --ff-only FETCH_HEAD');
   });
 
+  it('stops only this ticket\'s container, keeping clone and data volumes', async () => {
+    const proc = fakeDockerProcess();
+    await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).stop!();
+    expect(lines(proc)).toEqual([`docker stop ${names.container}`]);
+  });
+
   it('disposes exactly this ticket\'s container, proxy, network and volumes', async () => {
     const proc = fakeDockerProcess();
     await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).dispose!(ticket);

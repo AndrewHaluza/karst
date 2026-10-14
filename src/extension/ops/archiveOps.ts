@@ -22,9 +22,15 @@ export interface ArchiveOpsDeps {
   readonly refresh: () => void;
   /** Artifact final sweep, awaited before each worktree is archived. */
   readonly beforeRemove?: (target: ArchiveTarget) => Promise<void>;
+  /**
+   * Sandbox guard (arch:AC-32): sync, then remove the ticket's sandbox. `false`
+   * (unsynced and the user kept it, or another window owns it) stops the archive.
+   */
+  readonly beforeArchive?: (ticketId: number) => Promise<boolean>;
 }
 
 export async function archiveTicketOp(deps: ArchiveOpsDeps, ticketId: number): Promise<void> {
+  if (deps.beforeArchive && !(await deps.beforeArchive(ticketId))) return;
   archiveTicket(deps.store, ticketId);
   // Setting-gated (`closeDoneTerminalsWithTicket`, OFF by default): the
   // ticket is being closed, so its DONE terminals go with it — dead tabs

@@ -73,6 +73,10 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       }
     },
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
+    // Volumes survive a stop; the next open restarts the container.
+    stop: async (): Promise<void> => {
+      await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);
+    },
     dispose: async (): Promise<void> => {
       const n = opts.names;
       await opts.proc.run(DOCKER_BIN, ['rm', '--force', n.container]);

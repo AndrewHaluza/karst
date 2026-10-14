@@ -92,6 +92,23 @@ describe('archiveTicketOp', () => {
     expect(archiveWorktree).not.toHaveBeenCalled();
   });
 
+  it('sandbox guard ok → archive proceeds after it', async () => {
+    const order: string[] = [];
+    const beforeArchive = vi.fn(async () => { order.push('guard'); return true; });
+    vi.mocked(archiveTicket).mockImplementationOnce(() => { order.push('archive'); });
+    await archiveTicketOp({ ...makeDeps(), beforeArchive }, 1);
+    expect(beforeArchive).toHaveBeenCalledWith(1);
+    expect(order).toEqual(['guard', 'archive']);
+  });
+
+  it('sandbox guard refused → ticket not archived, nothing removed', async () => {
+    const d = { ...makeDeps(), beforeArchive: vi.fn(async () => false) };
+    await archiveTicketOp(d, 1);
+    expect(archiveTicket).not.toHaveBeenCalled();
+    expect(archiveWorktree).not.toHaveBeenCalled();
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
+
   it('archives with two worktrees', async () => {
     const d = makeDeps();
     vi.mocked(listWorktreesByTicket).mockReturnValue([

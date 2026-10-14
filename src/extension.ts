@@ -344,7 +344,8 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
-import { backendSessionOptions, disposeSandboxOp, syncSandboxOp } from './extension/ops/sandboxSyncOps.js';
+import { backendSessionOptions } from './extension/ops/sandboxSyncOps.js';
+import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
   LAUNCH_BUILD_TIMEOUT_MS,
@@ -1250,8 +1251,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fsWatch,
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
+  const sandboxLife = makeSandboxWiring({ // arch:AC-32
+    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, info: (m) => logger.info(m), logError,
+    choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
+    projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackend !== undefined,
+    projectId: () => currentProject()?.id, openSyncDiff: async (id) => { await vscode.commands.executeCommand('karst.sandbox.sync', id); } });
   const archiveDeps: ArchiveOpsDeps = {
-    store: localStore,
+    store: localStore, beforeArchive: sandboxLife.beforeArchive,
     git: defaultGitRunner,
     notify,
     log: { info: (m) => logger.info(m), error: logError },
@@ -1792,7 +1798,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             },
             'Switch and continue',
           );
-          return choice === 'Switch and continue';
+          return choice === 'Switch and continue' && sandboxLife.onProviderSwitch(ticketId, targetProvider);
         },
         persist: ({ provider: p, model: m, effort: e }) => updateTicketFields(localStore, ticketId, {
           agentProvider: p,
@@ -3820,7 +3826,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
-  await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, info: (m) => logger.info(m), logError });
+  await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, info: (m) => logger.info(m), logError }); void sandboxLife.reconcile();
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -5594,6 +5600,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (event) => dashboard.postInsideProgress(ticketId, event),
     );
     if (getTicket(localStore, ticketId).stageCurrent === 'done') {
+      sandboxLife.onDone(ticketId); // done → stop, never remove
       await pushDoneStatus(ticketId, warn);
     }
     provider.refresh();
@@ -6746,16 +6753,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await archiveTicketOp(archiveDeps, ticketId);
     }),
-    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => {
-      const ticketId = ticketIdArg(arg); if (ticketId === undefined) return;
-      const t = getTicket(localStore, ticketId), wt = listWorktreesByTicket(localStore, ticketId)[0];
-      await syncSandboxOp({ notify: vscodeNotify, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
-    }),
-    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => {
-      const ticketId = ticketIdArg(arg); if (ticketId === undefined) return;
-      const t = getTicket(localStore, ticketId), wt = listWorktreesByTicket(localStore, ticketId)[0];
-      await disposeSandboxOp({ notify: vscodeNotify, bridges, projectRoot: cliEntryAndManifest(context).manifestPath ?? wt?.path ?? '' }, { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: wt });
-    }),
+    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.sync(id); }),
+    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.dispose(id); }),
+    vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
       if (ticketId === undefined) return;
