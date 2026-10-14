@@ -42,8 +42,15 @@ import { claudeSandboxSettings } from './claudeSandbox.js';
 import { headlessFailureError } from './cliFailure.js';
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { sanitizeSessionName } from './sessionName.js';
-import { writeBridgeScripts } from './hookBridgeFiles.js';
+import { writeBridgeScripts, hookCommandDir, hookNodeCommand } from './hookBridgeFiles.js';
 import { writeFileHookSettings } from './fileHookSettings.js';
+import { claudeConfigDir } from './quota/claude.js';
+import {
+  buildStatuslineEntry,
+  readChainedStatuslineCommand,
+  writeStatuslineWrapper,
+  CLAUDE_STATUSLINE_WRAPPER_BASENAME,
+} from './quota/claudeStatusline.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
 import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
@@ -209,8 +216,15 @@ export class ClaudeAdapter implements AgentAdapter {
       // events are routed through it (PROMPT-16). The bridge re-reads
       // `current-endpoint` when the launch-time URL dies, logs failures to
       // `hook-failures.jsonl`, and carries the generation onto every candidate.
-      writeBridgeScripts(join(opts.hookChannel.configDir, 'claude'));
-      const extraSettings = (
+      const claudeDir = join(opts.hookChannel.configDir, 'claude');
+      writeBridgeScripts(claudeDir);
+      // The quota PRODUCER (`arch:AC-29`): register the statusline wrapper so
+      // Claude pushes its rate-limit windows to the cache `quota/claude.ts`
+      // reads. The operator's own statusline is chained so the rendered line is
+      // unchanged; with none, the wrapper prints nothing.
+      const claudeConfig = claudeConfigDir(process.env);
+      writeStatuslineWrapper(claudeDir);
+      const extraSettings = {
         // claude's DENY rules: a `Bash(...)` deny blocks the matching call in
         // EVERY permission mode, including `bypassPermissions`
         // (docs.claude.com/en/docs/claude-code/permissions). The process
@@ -218,8 +232,18 @@ export class ClaudeAdapter implements AgentAdapter {
         // ticket session (which always has this channel) cannot `pkill` a
         // sibling agent. `--disallowedTools` carries the same rules on the
         // read-only and headless paths, which take no settings file.
-        { permissions: { deny: claudeProcessKillDeny() } }
-      );
+        permissions: { deny: claudeProcessKillDeny() },
+        statusLine: buildStatuslineEntry({
+          node: hookNodeCommand(opts.hookChannel),
+          wrapperPath: join(
+            hookCommandDir(opts.hookChannel),
+            'claude',
+            CLAUDE_STATUSLINE_WRAPPER_BASENAME,
+          ),
+          cachePath: join(claudeConfig, 'cache', 'quota.json'),
+          chainedCommand: readChainedStatuslineCommand(claudeConfig),
+        }),
+      };
       const hookSettingsPath = opts.hookChannel.runDir !== undefined
         ? writeFileHookSettings(opts.hookChannel, 'claude', extraSettings)
         : writeHookSettings(opts.hookChannel.endpointUrl, opts.hookChannel.configDir, 'claude', extraSettings);
