@@ -133,6 +133,7 @@ export interface RerunParkOptions {
   model: string | null;
   adapter: AgentAdapter;
   manifest?: Manifest;
+  resolution?: string;
   cwd: string;
   artifactDir: string;
   signal?: AbortSignal;
@@ -147,7 +148,7 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
   const runAt = now();
 
   // 1. Claim the park row atomically before building anything or running.
-  const claim = claimUsageLimitPark(store, parkRow.id, 'rerun', runAt);
+  const claim = claimUsageLimitPark(store, parkRow.id, opts.resolution ?? 'rerun', runAt);
   if (!claim.claimed) {
     opts.debug?.(`[usageLimit] park ${parkRow.id} already claimed or invalid`);
     return { kind: 'stopped' };
@@ -249,6 +250,9 @@ async function rerunReviewParkedStage(
   // Sibling targets count + the current target
   const siblingCount = keptTargets.filter((t) => t.repo !== targetRepo).length;
   const totalTargetCount = siblingCount + 1;
+  const siblingUnreadable = keptTargets
+    .filter((t) => t.repo !== targetRepo && t.status === 'unreadable')
+    .map((t) => t.repo);
 
   // Retrieve sibling findings from store for this specific attempt (so we don't query across all historical attempts)
   const existingFindings = findingsForAttempt(store, parkRow.ticketId, attempt);
@@ -267,13 +271,18 @@ async function rerunReviewParkedStage(
     ...newFindings,
   ];
 
+  const mergedUnreadable = [
+    ...(laneOutcome.kind === 'ran' ? (laneOutcome.unreadable ?? []) : []),
+    ...siblingUnreadable,
+  ];
+
   const effectiveLaneOutcome: FindingsLaneOutcome =
     laneOutcome.kind === 'ran'
       ? {
           kind: 'ran',
           findings: mergedFindings,
           crashes: laneOutcome.crashes,
-          unreadable: laneOutcome.unreadable,
+          unreadable: mergedUnreadable.length > 0 ? mergedUnreadable : undefined,
           targetCount: totalTargetCount,
           processRunId: laneOutcome.processRunId,
         }
@@ -313,17 +322,19 @@ async function rerunReviewParkedStage(
       aggregateOutcome.kind === 'verdict' &&
       aggregateOutcome.verdict.kind === 'failed' &&
       (aggregateOutcome.verdict.reason ?? '').startsWith(FINDINGS_FAILURE_PREFIX);
+    const crashes = laneOutcome.kind === 'ran' ? laneOutcome.crashes : undefined;
+    const isUnreadable =
+      laneOutcome.kind === 'ran' && (laneOutcome.unreadable?.length ?? 0) > 0;
     const unreadableBlock =
-      effectiveLaneOutcome.kind === 'ran' &&
-      (effectiveLaneOutcome.unreadable?.length ?? 0) > 0 &&
-      effectiveLaneOutcome.findings.length === 0 &&
+      isUnreadable &&
       aggregateOutcome.kind === 'blocked' &&
       aggregateOutcome.blocker === 'capability-missing';
 
-    mkdirSync(artifactDir, { recursive: true });
-    const logPath = join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`);
+    if (artifactDir) {
+      mkdirSync(artifactDir, { recursive: true });
+    }
+    const logPath = artifactDir ? join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`) : '';
 
-    const crashes = laneOutcome.kind === 'ran' ? laneOutcome.crashes : undefined;
     if ((crashes?.length ?? 0) > 0 || unreadableBlock) {
       const uniqueCrashes = [...new Set(crashes ?? [])];
       finishProcessRun(
@@ -342,12 +353,28 @@ async function rerunReviewParkedStage(
     }
   }
 
-  mkdirSync(artifactDir, { recursive: true });
-  const artifactPath = join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`);
-  writeFileSync(
-    artifactPath,
-    `! re-run parked review: target ${targetRepo} with ${provider}/${model ?? 'default'}\n`,
-  );
+  if (artifactDir) {
+    mkdirSync(artifactDir, { recursive: true });
+  }
+  const artifactPath = artifactDir ? join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`) : '';
+  const artifactLines = [
+    `! re-run parked review: target ${targetRepo} with ${provider}/${model ?? 'default'}`,
+  ];
+  if (aggregateOutcome.kind === 'blocked') {
+    artifactLines.push(`! ${aggregateOutcome.reason}`);
+    debug?.(`[gate] review ticket ${parkRow.ticketId}: blocked (${aggregateOutcome.blocker}: ${aggregateOutcome.reason})`);
+  }
+  if (laneOutcome.kind === 'ran') {
+    for (const crash of laneOutcome.crashes ?? []) {
+      artifactLines.push(`! review findings lane failed: ${crash}`);
+    }
+    for (const u of laneOutcome.unreadable ?? []) {
+      artifactLines.push(`! review findings lane unreadable output: ${u}`);
+    }
+  }
+  if (artifactPath) {
+    writeFileSync(artifactPath, artifactLines.join('\n') + '\n');
+  }
 
   let recoveryTrigger: RecoveryTriggerInput | undefined;
   if (aggregateOutcome.kind === 'verdict' && aggregateOutcome.verdict.kind === 'failed') {

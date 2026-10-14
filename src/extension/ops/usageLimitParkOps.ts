@@ -10,9 +10,9 @@ import {
   type AgentSwitchCoreChoice,
   type AgentSwitchModelChoice,
 } from '../../agent/sessionSwitch.js';
+import { stageBlock } from '../../store/stageBlocks.js';
 import {
   listOpenParks,
-  claimUsageLimitPark,
   type UsageLimitParkRow,
 } from '../../store/usageLimitParks.js';
 import {
@@ -61,7 +61,7 @@ export function formatModelChoices(
       model: choice.model,
       label: choice.label,
       description: isParked
-        ? choice.description ? `${choice.description} (usage limit)` : '(usage limit)'
+        ? `${choice.description} (usage limit)`
         : choice.description,
     };
   });
@@ -69,7 +69,17 @@ export function formatModelChoices(
 
 function findTargetPark(store: Store, ticketId: number, stageKey: StageKey): UsageLimitParkRow | null {
   const open = listOpenParks(store, ticketId);
-  return open.find((p) => p.stage === stageKey) ?? null;
+  const park = open.find((p) => p.stage === stageKey);
+  if (!park) {
+    return null;
+  }
+  if (park.kind === 'stage-block') {
+    const block = stageBlock(store, ticketId, stageKey);
+    if (block?.kind !== 'usage-limit') {
+      return null;
+    }
+  }
+  return park;
 }
 
 export interface UsageLimitActionCommonDeps {
@@ -107,27 +117,26 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
   const pickedModel = await deps.pickModel(modelChoices);
   if (!pickedModel) return;
 
-  // Claim then build
-  const claimResult = claimUsageLimitPark(deps.store, park.id, 'pick');
-  if (!claimResult.claimed || !claimResult.park) {
-    deps.notify.warn('This usage limit was already handled.');
-    return;
-  }
-
   const adapter = deps.adapterFor(pickedCore.id, pickedModel.model);
   const manifest = deps.manifest?.();
 
-  await rerunParkedStage({
+  const result = await rerunParkedStage({
     store: deps.store,
-    parkRow: claimResult.park,
+    parkRow: park,
     provider: pickedCore.id,
     model: pickedModel.model,
+    resolution: 'pick',
     adapter,
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
     debug: deps.debug,
   });
+
+  if (result.kind === 'stopped') {
+    deps.notify.warn('This usage limit was already handled.');
+    return;
+  }
 
   deps.redrive(deps.ticketId);
   deps.refresh(deps.ticketId);
@@ -144,26 +153,26 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
     return;
   }
 
-  const claimResult = claimUsageLimitPark(deps.store, park.id, 'retry');
-  if (!claimResult.claimed || !claimResult.park) {
-    deps.notify.warn('This usage limit was already handled.');
-    return;
-  }
-
-  const adapter = deps.adapterFor(claimResult.park.provider as AgentProvider, claimResult.park.model);
+  const adapter = deps.adapterFor(park.provider as AgentProvider, park.model);
   const manifest = deps.manifest?.();
 
-  await rerunParkedStage({
+  const result = await rerunParkedStage({
     store: deps.store,
-    parkRow: claimResult.park,
-    provider: claimResult.park.provider as AgentProvider,
-    model: claimResult.park.model,
+    parkRow: park,
+    provider: park.provider as AgentProvider,
+    model: park.model,
+    resolution: 'retry',
     adapter,
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
     debug: deps.debug,
   });
+
+  if (result.kind === 'stopped') {
+    deps.notify.warn('This usage limit was already handled.');
+    return;
+  }
 
   deps.redrive(deps.ticketId);
   deps.refresh(deps.ticketId);
@@ -178,11 +187,16 @@ export async function handleUsageLimitDismiss(deps: UsageLimitDismissDeps): Prom
     return;
   }
 
-  dismissUsageLimitPark(deps.store, park, {
+  const result = dismissUsageLimitPark(deps.store, park, {
     manifest: deps.manifest?.(),
     artifactDir: deps.artifactDir,
     debug: deps.debug,
   });
+
+  if (result.kind === 'stopped') {
+    deps.notify.warn('This usage limit was already handled.');
+    return;
+  }
 
   deps.redrive(deps.ticketId);
   deps.refresh(deps.ticketId);

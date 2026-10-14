@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
@@ -13,6 +13,7 @@ import { transition } from './machine.js';
 import { dismissUsageLimitPark, rerunParkedStage, type RerunParkOptions } from './usageLimitRerun.js';
 import { listFindings, recordFindings } from '../store/reviewFindings.js';
 import { listUatFindings } from '../store/uatFindings.js';
+import { listProcessRuns } from '../store/processRuns.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { Manifest } from '../manifest/types.js';
 import type { GateRunInput } from '../store/gateRuns.js';
@@ -828,6 +829,114 @@ describe('rerunParkedStage', () => {
     const uatFindings = listUatFindings(store, ticket.id);
     expect(uatFindings).toHaveLength(1);
     expect(uatFindings[0]?.title).toBe('Sibling API endpoint returns 500');
+  });
+
+  it('review re-run with unreadable output marks process run execution-failed, logs notes to artifact, and parks capability-missing', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UNREADABLE-RERUN', title: 'Test review rerun unreadable' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    const gateRun: GateRunInput = {
+      gateName: 'lint (web)',
+      exitCode: 0,
+      repo: 'web',
+      command: 'npm',
+      args: ['run', 'lint'],
+    };
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic/claude-3-7-sonnet out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [gateRun],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ findings: 0, targets: [{ repo: 'web', status: 'usage-limited', findings: 0 }] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ findings: 0, targets: [{ repo: 'web', status: 'usage-limited', findings: 0 }] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    // Headless call returns unparseable prose (unreadable)
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({
+        sessionId: '',
+        verdict: null,
+        raw: 'This is not json at all, completely unstructured text.',
+      }),
+    };
+
+    const manifest: Manifest = {
+      review: {
+        requireIndependentSignal: false,
+        findings: { blockingSeverity: 'high' },
+      },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toMatchObject({
+      kind: 'blocked',
+      blocker: 'capability-missing',
+    });
+
+    // Check process run closed as execution-failed
+    const processRuns = listProcessRuns(store, ticket.id);
+    expect(processRuns.length).toBeGreaterThan(0);
+    const reviewRun = processRuns.find((r) => r.processId === 'review');
+    expect(reviewRun?.resultKind).toBe('execution-failed');
+
+    // Check artifact was written and contains unreadable notes
+    const artifactFiles = readdirSync(artifactDir);
+    expect(artifactFiles.length).toBeGreaterThan(0);
+    const logContent = readFileSync(join(artifactDir, artifactFiles[0]!), 'utf-8');
+    expect(logContent).toContain('review findings lane unreadable output: web');
+    expect(logContent).toContain('unreadable output from web — no findings could be read');
   });
 });
 

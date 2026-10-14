@@ -237,10 +237,9 @@ export function resolveOpenParks(
   return info.changes;
 }
 
-export interface ClaimParkResult {
-  claimed: boolean;
-  park: UsageLimitParkRow | null;
-}
+export type ClaimParkResult =
+  | { claimed: true; park: UsageLimitParkRow }
+  | { claimed: false; park: null };
 
 /**
  * Claim an open usage-limit park atomically.
@@ -261,7 +260,7 @@ export function claimUsageLimitPark(
   at?: string,
 ): ClaimParkResult {
   const resolvedAt = at ?? nowIso();
-  const apply = store.db.transaction(() => {
+  const apply = store.db.transaction((): ClaimParkResult => {
     const raw = store.db
       .prepare(
         `UPDATE usage_limit_parks
