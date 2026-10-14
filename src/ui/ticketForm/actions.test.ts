@@ -845,6 +845,31 @@ describe('buildTicketFormActions', () => {
     expect(listOpenParks(store, t.id)).toHaveLength(0);
   });
 
+  it('a suggest re-run whose repo is gone does not leak its one-shot override (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-LEAK', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id); // target 'fe'
+    deps.adapter = fakeAdapter();
+
+    // The parked op's repo has since been removed from the manifest, so the
+    // suggest re-run hits the "Unknown repository" early return.
+    const repositories = { ...MANIFEST.repositories };
+    delete (repositories as Record<string, unknown>).fe;
+    deps.manifest = { ...MANIFEST, repositories };
+
+    const seen = captureOverrides();
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkRetry(parkId);
+    expect(ctx.posted.some((m) => m.type === 'error')).toBe(true);
+
+    // The override was consumed by the re-run and must NOT stay armed: the
+    // user's next analyze runs on the configured identity, not the stale pick.
+    updateTicketFields(store, t.id, { description: 'do the thing' });
+    await actions.analyze('');
+    expect(seen.at(-1)).toBeUndefined();
+  });
+
   it('saveSignals writes to the manifest and re-pushes state', async () => {
     let pushes = 0;
     const ctx: TicketFormActionsCtx = { post: () => {}, pushState: () => (pushes += 1), mode: 'create', bindTicket: () => {}, commitPrefill: () => {}, close: () => {} };

@@ -876,6 +876,13 @@ export function buildTicketFormActions(
     },
 
     async suggestSignals(service: string): Promise<void> {
+      // D159: consume the one-shot override (a parked-op pick/retry) FIRST, so
+      // it is applied to THIS call only and cannot leak into a later user action
+      // through any early return below. The signal suggestion has no process of
+      // its own, so the override comes from the ticket-analysis process's
+      // adapter.
+      const override = analysisOverride;
+      analysisOverride = undefined;
       // Signals classify a SOURCE TREE, so this works for a non-runnable
       // repository too — only `repoPath` is read.
       const repo = deps.manifest.repositories[service];
@@ -884,12 +891,6 @@ export function buildTicketFormActions(
         return;
       }
       ctx.post({ type: 'busy', what: 'suggest', on: true });
-      // D159: consume the one-shot override (a parked-op pick/retry) so a
-      // re-run goes to the picked core/model for THIS call only. The signal
-      // suggestion has no process of its own, so the override comes from the
-      // ticket-analysis process's adapter.
-      const override = analysisOverride;
-      analysisOverride = undefined;
       let adapter = deps.adapter;
       if (override && ctx.ticketId !== undefined) {
         const process = deps.resolveAnalysisProcess(ctx.ticketId, override);
