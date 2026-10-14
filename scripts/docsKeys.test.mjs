@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { buildIndex, collectRefSources, keyIndex, lintDoc, lintRefs, MAX_BLOCK_BYTES } from './docsKeys.mjs';
+import {
+  buildCovers,
+  buildIndex,
+  collectRefSources,
+  coversJson,
+  coversStale,
+  keyIndex,
+  lintCovers,
+  lintDoc,
+  lintRefs,
+  MAX_BLOCK_BYTES,
+  symbolRange,
+} from './docsKeys.mjs';
 
 const header = (p) => `<!-- AGENT INSTRUCTIONS:
 1. TOC:
@@ -164,5 +176,134 @@ describe('collectRefSources', () => {
     expect(paths.some((p) => p.startsWith('docs/plans/'))).toBe(true);
     expect(paths.some((p) => p.startsWith('docs/superpowers/'))).toBe(true);
     expect(paths.some((p) => p.startsWith('src/'))).toBe(true);
+  });
+});
+
+describe('lintDoc -00 overview', () => {
+  const good = [
+    '### Purpose',
+    'One sentence.',
+    '',
+    '### Connections',
+    '- in: x',
+    '- out: y',
+    '',
+    '### Flow',
+    '```mermaid',
+    'flowchart TD',
+    '  A --> B',
+    '```',
+  ].join('\n');
+
+  it('accepts a well-formed -00 block', () => {
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-00', good)))).toEqual([]);
+  });
+
+  it('flags a missing required section', () => {
+    const body = good.replace(/### Connections[\s\S]*?### Flow/, '### Flow');
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-00', body))).join()).toMatch(/missing required section: Connections/);
+  });
+
+  it('flags sections out of order', () => {
+    const body = ['### Connections', '- in: x', '', '### Purpose', 'P.', '', '### Flow', '```mermaid', 'flowchart TD', '  A --> B', '```'].join('\n');
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-00', body))).join()).toMatch(/out of order/);
+  });
+
+  it('flags a fence after the mermaid fence', () => {
+    const body = `${good}\n~~~\ntrailing\n~~~`;
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-00', body))).join()).toMatch(/fence after the mermaid fence/);
+  });
+
+  it('flags a missing mermaid fence', () => {
+    const body = ['### Purpose', 'P.', '', '### Connections', '- in: x', '', '### Flow', 'see the code'].join('\n');
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-00', body))).join()).toMatch(/missing mermaid fence/);
+  });
+
+  it('flags a -00 block owned by another file', () => {
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:CLI-00', good))).join()).toMatch(/belongs in docs\/arch\/cli\.md/);
+  });
+
+  it('flags an unknown prefix', () => {
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ZZ-00', good))).join()).toMatch(/unknown prefix/);
+  });
+
+  it('flags more than one -00 block per file', () => {
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-00', good), block('arch:ABI-00', good))).join()).toMatch(/more than one -00/);
+  });
+
+  it('passes a file with no -00 block', () => {
+    expect(lintDoc(doc('docs/arch/ABI.md', block('arch:ABI-01', 'one statement')))).toEqual([]);
+  });
+});
+
+describe('covers', () => {
+  const at = (path, ...blocks) => doc(path, ...blocks);
+
+  it('accepts a glob that matches and a path#symbol that exists', () => {
+    const d = at('docs/arch/a.md', block('arch:A-01', 'covers: scripts/docsKeys.mjs, src/**/entityId.ts'));
+    expect(lintCovers([d])).toEqual([]);
+  });
+
+  it('flags a glob that matches nothing', () => {
+    const d = at('docs/arch/a.md', block('arch:A-01', 'covers: no/such/**/*.ts'));
+    expect(lintCovers([d]).join()).toMatch(/glob matches no files/);
+  });
+
+  it('flags a missing file', () => {
+    const d = at('docs/arch/a.md', block('arch:A-01', 'covers: scripts/nope.ts#x'));
+    expect(lintCovers([d]).join()).toMatch(/file not found/);
+  });
+
+  it('flags a symbol that does not exist', () => {
+    const d = at('docs/arch/a.md', block('arch:A-01', 'covers: scripts/docsKeys.mjs#nopeSymbol'));
+    expect(lintCovers([d]).join()).toMatch(/symbol not found/);
+  });
+
+  it('accepts a path#symbol that exists', () => {
+    const d = at('docs/arch/a.md', block('arch:A-01', 'covers: scripts/docsKeys.mjs#symbolRange'));
+    expect(lintCovers([d])).toEqual([]);
+  });
+
+  it('builds an inverted map with sorted keys and values', () => {
+    const docs = [
+      at('docs/arch/b.md', block('arch:B-01', 'covers: z.ts, a.ts')),
+      at('docs/arch/a.md', block('arch:A-01', 'covers: z.ts')),
+    ];
+    expect(buildCovers(docs)).toEqual({ 'a.ts': ['arch:B-01'], 'z.ts': ['arch:A-01', 'arch:B-01'] });
+  });
+
+  it('detects a stale COVERS.json but accepts a fresh one', () => {
+    const docs = [at('docs/arch/a.md', block('arch:A-01', 'covers: a.ts'))];
+    expect(coversStale(docs, coversJson(docs))).toBe(false);
+    expect(coversStale(docs, '{}\n')).toBe(true);
+  });
+});
+
+describe('symbolRange', () => {
+  it('finds a function and the line of its closing brace', () => {
+    const text = ['export function foo() {', '  return 1;', '}', 'const after = 1;'].join('\n');
+    expect(symbolRange(text, 'foo')).toEqual({ start: 1, end: 3 });
+  });
+
+  it('finds a const object literal', () => {
+    expect(symbolRange(['const BAR = {', '  a: 1,', '};'].join('\n'), 'BAR')).toEqual({ start: 1, end: 3 });
+  });
+
+  it('finds a class method', () => {
+    const text = ['class X {', '  bar() {', '    return 1;', '  }', '}'].join('\n');
+    expect(symbolRange(text, 'bar')).toEqual({ start: 2, end: 4 });
+  });
+
+  it('ignores braces inside strings and comments', () => {
+    const text = ['function f() {', "  const s = '}';", '  // }', '}'].join('\n');
+    expect(symbolRange(text, 'f')).toEqual({ start: 1, end: 4 });
+  });
+
+  it('returns the start line when there is no brace', () => {
+    expect(symbolRange('type X = A | B;', 'X')).toEqual({ start: 1, end: 1 });
+  });
+
+  it('returns null for an unknown symbol', () => {
+    expect(symbolRange('const x = 1;', 'y')).toBeNull();
   });
 });
