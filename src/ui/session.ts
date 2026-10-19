@@ -17,6 +17,7 @@ import { NudgeQueue, type NudgeHooks } from './nudgeQueue.js';
 import { formatId } from '../model/entityId.js';
 import type { DeliveryChannel } from '../workflow/messageDelivery.js';
 import { HOST_SESSION_RUNNER, type SessionRunner } from '../agent/sessionRunner.js';
+import { captureFilesFor, readLaunchFailure, wrapWithStderrCapture } from '../agent/launchCapture.js';
 import { ensureBridgeDir, sandboxHookChannel, type BridgePaths } from '../agent/bridge/bridgeDir.js';
 
 /**
@@ -185,6 +186,13 @@ export interface OpenSessionOptions {
   resolveRunner?: () => Promise<{ runner: SessionRunner; line: string }>;
   /** Receives the launch's effective backend line (`sbx (<name>)` / `host (<reason>)`). */
   onBackend?: (line: string) => void;
+  /**
+   * Per-ticket dir (globalStorage `artifacts/<ticket>`) where a sandbox launch's
+   * stderr is teed (`arch:AC-32`). Absent → the launch is not wrapped.
+   */
+  launchCaptureDir?: string;
+  /** Fired when a sandboxed launch exits non-zero within the fast-fail window. */
+  onSandboxLaunchFailed?: (info: { runner: string; exitCode: number; tail: string }) => void;
 }
 
 /**
@@ -435,6 +443,7 @@ export class SessionManager {
     identity?: SessionIdentity,
     mcp?: boolean,
     submitDelayMs?: number,
+    launchFailure?: () => void,
   ): void {
     if (cleanupOwned) this.cleanupByTerminal.set(terminal, cleanupOwned);
     this.terminals.set(ticketId, {
@@ -468,6 +477,8 @@ export class SessionManager {
         if (wasCurrent) cleanupOwned?.();
       } finally {
         if (wasCurrent) this.onDidCloseSession?.(ticketId);
+        // After the close sweep, so a failure's state is not overwritten by it.
+        if (wasCurrent) launchFailure?.();
         this.onDidCloseTerminal?.(ticketId, launchId);
         // Retire the failed generation completely before asking the host to
         // recover it. The callback may immediately open a fresh replacement;
@@ -648,8 +659,9 @@ export class SessionManager {
       options.debug,
     );
     let terminal: SessionTerminal;
+    let launchFailure: (() => void) | undefined;
     try {
-      const placed = runner.placeInteractive({
+      const interactive = runner.placeInteractive({
         ticketId,
         hostWorktreePath: worktreePath,
         ...(bridge ? { bridgeDir: bridge.paths.dir } : {}),
@@ -663,6 +675,19 @@ export class SessionManager {
           ...(identity?.provider ? { [KARST_PROVIDER_ENV]: identity.provider } : {}),
         },
       });
+      // arch:AC-32: keep a sandbox launcher's stderr so a launch that dies at
+      // once leaves a reason. Host launches are never wrapped.
+      const capture =
+        inSandbox && options.launchCaptureDir && process.platform !== 'win32'
+          ? captureFilesFor(options.launchCaptureDir, ticketId)
+          : undefined;
+      const placed = capture ? wrapWithStderrCapture(interactive, capture) : interactive;
+      if (capture) {
+        launchFailure = () => {
+          const failure = readLaunchFailure(capture);
+          if (failure) options.onSandboxLaunchFailed?.({ runner: runner.kind, ...failure });
+        };
+      }
       terminal = this.host.createTerminal({
         name: terminalName,
         description: naming ? undefined : (label?.title ?? undefined),
@@ -695,6 +720,7 @@ export class SessionManager {
       identity,
       Boolean(mcpConfigPath),
       adapter.capabilities.submitDelayMs,
+      launchFailure,
     );
     if (options.reveal !== false) terminal.show();
   }
