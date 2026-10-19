@@ -19,26 +19,26 @@ function pathWith(...binaries) {
 describe('missingBuildTools', () => {
   it('reports nothing missing when every tool is on PATH', () => {
     const dir = pathWith('python3', 'make', 'cc');
-    expect(missingBuildTools(dir)).toEqual([]);
+    expect(missingBuildTools(dir, 'linux')).toEqual([]);
   });
 
   it('names python3 when only the interpreter is missing', () => {
     const dir = pathWith('make', 'cc');
-    expect(missingBuildTools(dir)).toEqual(['python3']);
+    expect(missingBuildTools(dir, 'linux')).toEqual(['python3']);
   });
 
   it('accepts "python" as the interpreter', () => {
     const dir = pathWith('python', 'make', 'cc');
-    expect(missingBuildTools(dir)).toEqual([]);
+    expect(missingBuildTools(dir, 'linux')).toEqual([]);
   });
 
   it('names the compiler when only g++ is present', () => {
     const dir = pathWith('python3', 'make', 'g++');
-    expect(missingBuildTools(dir)).toEqual([]);
+    expect(missingBuildTools(dir, 'linux')).toEqual([]);
   });
 
   it('names every missing tool on an empty PATH', () => {
-    expect(missingBuildTools('')).toEqual(['python3', 'make', 'a C++ compiler']);
+    expect(missingBuildTools('', 'linux')).toEqual(['python3', 'make', 'a C++ compiler']);
   });
 
   it('covers exactly the tools a node-gyp source build needs', () => {

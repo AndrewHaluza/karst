@@ -354,7 +354,7 @@ export function gatesOutcomeBeforeFindings(
     // without the toolchain a native addon needs). That is a missing
     // capability, not a defect in the ticket's code — park (no fix round spent)
     // and name the capability, like UAT's own capability gaps.
-    const gap = capabilityGap(ran.map((e) => e.result));
+    const gap = capabilityGap(failing.map((e) => e.result));
     if (gap) {
       return { kind: 'blocked', blocker: 'capability-missing', reason: gap.reason };
     }

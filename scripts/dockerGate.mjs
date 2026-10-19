@@ -21,7 +21,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { hasBinary } from './onPath.mjs';
 
 /** POSIX's "command not found" exit code. */
 export const EXIT_COMMAND_NOT_FOUND = 127;
@@ -48,11 +48,8 @@ export function missingDockerMessage(script) {
 }
 
 /** Is `docker` on PATH? */
-export function hasDocker(pathEnv = process.env.PATH) {
-  return (pathEnv ?? '')
-    .split(delimiter)
-    .filter((dir) => dir.length > 0)
-    .some((dir) => existsSync(join(dir, 'docker')));
+export function hasDocker(pathEnv = process.env.PATH, platform = process.platform) {
+  return hasBinary('docker', pathEnv, platform);
 }
 
 /**

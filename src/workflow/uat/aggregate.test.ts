@@ -86,6 +86,23 @@ describe('aggregateUat', () => {
     });
   });
 
+  it('still fails an ordinary failure that sits beside a capability gap', () => {
+    // The gap does not swallow the failure the ticket can fix: the real one
+    // wins, and the gap's own output stays on its recorded row.
+    const out = aggregateUat(
+      [
+        { result: { name: 'visual (extention)', exitCode: 127, output: 'no docker' }, identity: npmE2e },
+        { result: { name: 'unit (extention)', exitCode: 1, output: 'assertion failed' }, identity: npmTest },
+      ],
+      [npmTest],
+    );
+    expect(out).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: visual (extention), unit (extention)' },
+      warnings: [],
+    });
+  });
+
   it('fails when any gate that ran exits non-zero, naming the gates', () => {
     const out = aggregateUat(
       [entry('test', 0, npmTest), entry('e2e', 2, npmE2e)],

@@ -167,7 +167,7 @@ export function aggregateUat(
     // ticket cannot clear. Park instead (no attempt consumed), naming the
     // capability, exactly like a dependency tree that drifted from the
     // lockfile.
-    const gap = capabilityGap(ran.map((e) => e.result));
+    const gap = capabilityGap(failing.map((e) => e.result));
     if (gap) {
       return { kind: 'blocked', blocker: 'capability-missing', reason: gap.reason };
     }

@@ -22,11 +22,11 @@ function pathWith(...binaries) {
 
 describe('hasDocker', () => {
   it('is false on an empty PATH', () => {
-    expect(hasDocker('')).toBe(false);
+    expect(hasDocker('', 'linux')).toBe(false);
   });
 
   it('is true when docker is on PATH', () => {
-    expect(hasDocker(pathWith('docker'))).toBe(true);
+    expect(hasDocker(pathWith('docker'), 'linux')).toBe(true);
   });
 });
 

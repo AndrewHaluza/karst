@@ -20,16 +20,22 @@ export interface CapabilityGap {
 }
 
 /**
- * The capability gaps among a run's gates, or null when there are none.
+ * The capability gaps among the gates that FAILED, or null when there are none.
+ *
+ * "All of them" is the rule: the park replaces a failed verdict only when
+ * EVERY failure is a missing command. A gate that failed for an ordinary
+ * reason (a test assertion, a lint error) is something the ticket can fix,
+ * and a capability gap must never swallow it — the failed gate is the
+ * actionable one, and its own output is on the recorded row.
  *
  * Only gates that RAN are considered: a gate that never ran (no script, no
  * question) says nothing about the environment.
  */
-export function capabilityGap(results: readonly GateResult[]): CapabilityGap | null {
-  const gaps = results.filter((r) => r.exitCode === EXIT_COMMAND_NOT_FOUND);
-  if (gaps.length === 0) return null;
-  const names = gaps.map((r) => r.name);
-  const detail = gaps
+export function capabilityGap(failed: readonly GateResult[]): CapabilityGap | null {
+  if (failed.length === 0) return null;
+  if (!failed.every((r) => r.exitCode === EXIT_COMMAND_NOT_FOUND)) return null;
+  const names = failed.map((r) => r.name);
+  const detail = failed
     .map((r) => summarizeGateFailure(r.output) ?? r.name)
     .join(' | ')
     .slice(0, MAX_GATE_SUMMARY_CHARS);

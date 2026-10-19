@@ -12,8 +12,7 @@
 // Pure and dependency-free: the probe is a PATH lookup (no spawn), so a test
 // can inject the PATH it wants to see.
 
-import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { hasBinary } from './onPath.mjs';
 
 /**
  * The tools a source build needs, each with the binaries that satisfy it. The
@@ -29,21 +28,19 @@ export const BUILD_TOOLS = [
 export const EXIT_COMMAND_NOT_FOUND = 127;
 
 /**
- * The binaries on PATH, as an absolute-path lookup. Injected by the tests.
+ * The binaries on PATH, as an absolute-path lookup. The PATH is injectable, so
+ * a test can ask about a PATH it made up.
  */
-function pathLookup(pathEnv) {
-  return (binary) => {
-    const dirs = (pathEnv ?? '').split(delimiter).filter((d) => d.length > 0);
-    return dirs.some((dir) => existsSync(join(dir, binary)));
-  };
+function pathLookup(pathEnv, platform) {
+  return (binary) => hasBinary(binary, pathEnv, platform);
 }
 
 /**
  * The build tools this machine is MISSING, in `BUILD_TOOLS` order. Empty means
  * a source build can run here.
  */
-export function missingBuildTools(pathEnv = process.env.PATH) {
-  const has = pathLookup(pathEnv);
+export function missingBuildTools(pathEnv = process.env.PATH, platform = process.platform) {
+  const has = pathLookup(pathEnv, platform);
   return BUILD_TOOLS.filter((tool) => !tool.alternatives.some(has)).map((tool) => tool.label);
 }
 

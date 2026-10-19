@@ -7,17 +7,24 @@ function result(name: string, exitCode: number | null, output = ''): GateResult 
 }
 
 describe('capabilityGap', () => {
-  it('is null when no gate exited 127', () => {
-    expect(capabilityGap([result('unit', 0), result('visual', 1)])).toBeNull();
+  it('is null when no gate failed', () => {
+    expect(capabilityGap([])).toBeNull();
   });
 
-  it('is null when a gate never ran (null is not a number it earned)', () => {
-    expect(capabilityGap([result('visual', null)])).toBeNull();
+  it('is null when a failing gate is not a missing command', () => {
+    // A real failure is the ticket's to fix; a capability gap must never
+    // swallow it.
+    expect(capabilityGap([result('unit', 1, 'assertion failed')])).toBeNull();
+  });
+
+  it('is null when one of the failures is a real one', () => {
+    expect(
+      capabilityGap([result('unit', EXIT_COMMAND_NOT_FOUND, 'no toolchain'), result('e2e', 1, 'assertion failed')]),
+    ).toBeNull();
   });
 
   it('names the gate and quotes what it said about the missing command', () => {
     const gap = capabilityGap([
-      result('unit', 0),
       result('visual (extention)', EXIT_COMMAND_NOT_FOUND, 'docker is not installed\nsh: 1: docker: not found'),
     ]);
     expect(gap).not.toBeNull();
