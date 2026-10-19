@@ -25,11 +25,14 @@ export function hookNodeCommand(channel: HookChannel): string {
 }
 
 /**
+ * Write `body` to `path`, idempotently and atomically. Shared by the hook
+ * bridge scripts and the Claude statusline quota wrapper.
+ *
  * The dir may be sandbox-writable: never follow a symlink. Only a regular file
  * is read for the skip check; the temp file is created exclusively ('wx') under
  * an unpredictable name, then renamed over whatever entry is there.
  */
-function writeIfChanged(path: string, body: string): void {
+export function writeFileIfChanged(path: string, body: string): void {
   const entry = lstatOrUndefined(path);
   if (entry?.isFile() && readFileSync(path, 'utf8') === body) return;
   const temporaryPath = `${path}.${randomBytes(8).toString('hex')}.tmp`;
@@ -52,8 +55,8 @@ function lstatOrUndefined(path: string): Stats | undefined {
 export function writeBridgeScripts(dir: string): string {
   mkdirSync(dir, { recursive: true });
   const bridgePath = join(dir, 'bridge.cjs');
-  writeIfChanged(bridgePath, HOOK_BRIDGE);
-  writeIfChanged(join(dir, 'emit-marker.cjs'), MARKER_EMIT);
+  writeFileIfChanged(bridgePath, HOOK_BRIDGE);
+  writeFileIfChanged(join(dir, 'emit-marker.cjs'), MARKER_EMIT);
   return bridgePath;
 }
 

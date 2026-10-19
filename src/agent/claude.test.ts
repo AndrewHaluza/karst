@@ -6,6 +6,8 @@ import { join, dirname } from 'node:path';
 import { ClaudeAdapter, makeDefaultSpawn, type SpawnHeadless, type SpawnImpl } from './claude.js';
 import { HOOK_BRIDGE } from './hookBridge.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
+import { claudeConfigDir } from './quota/claude.js';
+import { CLAUDE_STATUSLINE_WRAPPER } from './quota/claudeStatusline.js';
 
 /** The `--disallowedTools` kill-deny tokens a hook-channel-less interactive launch carries. */
 const KILL_DENY_ARGS = ['--disallowedTools', ...claudeProcessKillDeny()];
@@ -161,6 +163,63 @@ describe('ClaudeAdapter.buildInteractiveCommand', () => {
       expect(require('node:fs').statSync(bridgePath).mtimeMs).toBe(old.getTime());
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes the quota statusline wrapper beside bridge.cjs and bakes a statusLine entry', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
+    try {
+      adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+      const wrapperPath = join(dir, 'claude', 'statusline.cjs');
+      expect(existsSync(wrapperPath)).toBe(true);
+      expect(readFileSync(wrapperPath, 'utf8')).toBe(CLAUDE_STATUSLINE_WRAPPER);
+      const settings = JSON.parse(
+        readFileSync(join(dir, 'karst-hooks.4567.settings.json'), 'utf8'),
+      );
+      expect(settings.statusLine.type).toBe('command');
+      // The wrapper, the cache the reader reads, and no chained command (none configured).
+      expect(settings.statusLine.command).toContain('statusline.cjs');
+      expect(settings.statusLine.command).toContain(
+        join(claudeConfigDir(process.env), 'cache', 'quota.json'),
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("chains the operator's own statusLine from CLAUDE_CONFIG_DIR/settings.json", () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-claude-hooks-'));
+    const claudeConfig = mkdtempSync(join(tmpdir(), 'karst-claude-cfg-'));
+    const previous = process.env.CLAUDE_CONFIG_DIR;
+    process.env.CLAUDE_CONFIG_DIR = claudeConfig;
+    try {
+      writeFileSync(
+        join(claudeConfig, 'settings.json'),
+        JSON.stringify({ statusLine: { type: 'command', command: 'bash my-status.sh' } }),
+      );
+      adapter.buildInteractiveCommand({
+        cwd: '/wt/a',
+        hookChannel: {
+          endpointUrl: 'http://127.0.0.1:4567/hooks',
+          configDir: dir,
+        },
+      });
+      const settings = JSON.parse(
+        readFileSync(join(dir, 'karst-hooks.4567.settings.json'), 'utf8'),
+      );
+      expect(settings.statusLine.command).toContain("'bash my-status.sh'");
+      expect(settings.statusLine.command).toContain(join(claudeConfig, 'cache', 'quota.json'));
+    } finally {
+      if (previous === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = previous;
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(claudeConfig, { recursive: true, force: true });
     }
   });
 
