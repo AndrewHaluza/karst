@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getFixDelivery, currentFixDelivery, claimArmed, claimRead, upsertFixDelivery } from '../../store/fixDeliveries.js';
 import { recordSessionLaunchIntent } from '../../store/sessionLaunchIntents.js';
-import { deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
+import { ackFixDeliveryRef, deliverLiveFix, eligibleFixDelivery, failPointer, sendTypedPointer } from './fixDeliveryOps.js';
 import { makeHarness, type Harness } from '../../store/fixtures/fixDeliveryHarness.js';
 
 describe('fixDeliveryOps', () => {
@@ -202,5 +202,38 @@ describe('fixDeliveryOps', () => {
     failPointer(h.host, row);
     failPointer(h.host, row);
     expect(h.needsYou).toHaveLength(1);
+  });
+});
+
+describe('ackFixDeliveryRef (sandbox ack line, F10)', () => {
+  let h: Harness;
+  beforeEach(() => {
+    h = makeHarness();
+  });
+  afterEach(() => h.store.close());
+  const at = '2026-10-19T10:00:00.000Z';
+  const make = () => {
+    deliverLiveFix(h.host, { ticketId: h.ticketId, roundId: null, body: 'B', truncatedFooter: 'F' });
+    return currentFixDelivery(h.store, h.ticketId)!;
+  };
+
+  it('marks this ticket\'s pending delivery read, via the pointer', () => {
+    const row = make();
+    expect(ackFixDeliveryRef(h.store, h.ticketId, `fix-${row.id}`, at)).toBe(true);
+    expect(getFixDelivery(h.store, row.id)).toMatchObject({ readAt: at, deliveredVia: 'pointer' });
+  });
+  it('a second ack, a malformed ref and another kind change nothing', () => {
+    const row = make();
+    expect(ackFixDeliveryRef(h.store, h.ticketId, `fix-${row.id}`, at)).toBe(true);
+    expect(ackFixDeliveryRef(h.store, h.ticketId, `fix-${row.id}`, at)).toBe(false);
+    for (const ref of ['fix-0', 'fix-01x', 'mail-1', 'fix-', `fix-${row.id}-x`]) expect(ackFixDeliveryRef(h.store, h.ticketId, ref, at)).toBe(false);
+  });
+  it('a ref naming another ticket\'s delivery is refused', () => {
+    const row = make();
+    expect(ackFixDeliveryRef(h.store, h.ticketId + 1, `fix-${row.id}`, at)).toBe(false);
+    expect(getFixDelivery(h.store, row.id)!.readAt).toBeNull();
+  });
+  it('a missing delivery is ignored', () => {
+    expect(ackFixDeliveryRef(h.store, h.ticketId, 'fix-999', at)).toBe(false);
   });
 });

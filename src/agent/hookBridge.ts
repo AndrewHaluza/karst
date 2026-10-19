@@ -515,3 +515,22 @@ const deadline = Date.now() + waitMs;
   setTimeout(poll, 250);
 })();
 `;
+
+/**
+ * The ack emitter the sandboxed agent runs after reading an inbox brief:
+ * `node <runDir>/<core>/emit-ack.cjs <events.ndjson> <ref>` appends
+ * `{"v":1,"kind":"ack","ticket":<n>,"ref":"<ref>"}`. The ticket is the events
+ * file's parent dir name; the host verifies that `ref` is a pending delivery of
+ * this ticket (a line never decides anything by itself).
+ */
+export const ACK_EMIT = String.raw`const fs = require('node:fs');
+const path = require('node:path');
+const [eventsPath, ref] = process.argv.slice(2);
+const ticketDir = eventsPath ? path.basename(path.dirname(eventsPath)) : '';
+if (!eventsPath || !/^[A-Za-z0-9_-]{1,64}$/.test(ref || '') || !/^\d+$/.test(ticketDir)) {
+  process.stderr.write('usage: emit-ack.cjs <dir>/<ticket>/events.ndjson <ref>\n');
+  process.exit(1);
+}
+fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'ack', ticket: Number(ticketDir), ref }) + '\n');
+process.stdout.write('karst: ' + ref + ' acknowledged.\n');
+`;

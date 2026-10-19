@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync, renameSync, writeFileSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import type { HookChannel } from './adapter.js';
-import { HOOK_BRIDGE, MARKER_EMIT } from './hookBridge.js';
+import { HOOK_BRIDGE, ACK_EMIT, MARKER_EMIT } from './hookBridge.js';
 import { resolveNodeExecutable } from './nodeExecutable.js';
 
 /**
@@ -57,6 +57,7 @@ export function writeBridgeScripts(dir: string): string {
   const bridgePath = join(dir, 'bridge.cjs');
   writeFileIfChanged(bridgePath, HOOK_BRIDGE);
   writeFileIfChanged(join(dir, 'emit-marker.cjs'), MARKER_EMIT);
+  writeFileIfChanged(join(dir, 'emit-ack.cjs'), ACK_EMIT);
   return bridgePath;
 }
 

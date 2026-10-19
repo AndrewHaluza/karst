@@ -15,6 +15,7 @@ import type { Store } from '../../store/db.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { findTicketById } from '../../store/tickets.js';
 import type { MarkerFailure } from '../../agent/bridge/markerFlow.js';
+import { ackFixDeliveryRef } from './fixDeliveryOps.js';
 import { createMarkerRunner, type MarkerSpawn } from './markerRunner.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
@@ -77,6 +78,10 @@ export function makeBridgeBuild(
       dispatch: (payload) => dispatch(deps, ticketId, payload, log),
       runMarker: deps.spawn ? createMarkerRunner(facts, deps.spawn) : createMarkerRunner(facts),
       intervalMs: BRIDGE_POLL_INTERVAL_MS,
+      onAck: (ref) => {
+        const claimed = ackFixDeliveryRef(deps.store, ticketId, ref, new Date().toISOString());
+        log(`ticket ${ticketId} ack ${ref}: ${claimed ? 'delivery marked read' : 'ignored (not a pending delivery of this ticket)'}`);
+      },
       onMarkerFailure: (failure) => markerFailed(deps, ticketId, ticketKey, failure),
       ...(deps.debug ? { debug: deps.debug } : {}),
     });

@@ -14,6 +14,8 @@ export interface BridgeAttachmentDeps {
   readonly expect: BridgeExpectation;
   readonly dispatch: (payload: HookPayload) => void;
   readonly runMarker: MarkerRunner;
+  /** A verified ack line: the agent read inbox brief `ref`. The host decides whether `ref` is a pending delivery. */
+  readonly onAck?: (ref: string) => void;
   readonly intervalMs: number;
   readonly debug?: (message: string) => void;
   /** A marker failure the user must see (WARN log + notification); the sink logs it either way. */
@@ -81,6 +83,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
         return;
       }
       if (verdict.event.kind === 'hook') deps.dispatch(verdict.event.payload);
+      else if (verdict.event.kind === 'ack') deps.onAck?.(verdict.event.ref);
       else void flow.handle(verdict.event.stage, verdict.event.seq).catch((err: unknown) => log(`ticket ${id} marker failed: ${err instanceof Error ? err.message : String(err)}`));
     },
   });

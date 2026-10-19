@@ -9,7 +9,9 @@ import {
   claimPointerFailed,
   claimRepointed,
   clearEnqueued,
+  claimRead,
   currentFixDelivery,
+  getFixDelivery,
   supersedeFixDelivery,
   upsertFixDelivery,
   type FixDelivery,
@@ -169,4 +171,18 @@ export function deliverLiveFix(host: FixDeliveryHost, input: DeliverLiveFixInput
   }
   // 'queued' is delivered; 'held' (agy not idle yet) is retried by the sweep.
   return true;
+}
+
+/**
+ * The ack line from a sandboxed agent (arch:AC-34): `fix-<id>` marks that fix
+ * delivery read, but only when it is a pending (unread, not superseded) delivery
+ * of THIS ticket. A line never carries authority by itself: a foreign-ticket or
+ * stale ref changes nothing. Returns whether a delivery was claimed.
+ */
+export function ackFixDeliveryRef(store: Store, ticketId: number, ref: string, at: string): boolean {
+  const m = /^fix-([1-9][0-9]{0,9})$/.exec(ref);
+  if (!m) return false;
+  const row = getFixDelivery(store, Number(m[1]));
+  if (row === null || row.ticketId !== ticketId || row.readAt !== null || row.supersededAt !== null) return false;
+  return claimRead(store, row.id, 'pointer', at);
 }
