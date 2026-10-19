@@ -619,6 +619,14 @@ export function buildTicketFormActions(
     // D159: the ONE-SHOT agent/model override a usage-limit op re-run applies to
     // the next analyze, consumed at the top of `analyze` (never persisted).
     let analysisOverride: AnalysisOverride | undefined;
+    /**
+     * The prompt the last analysis actually ran on. A create-mode panel holds
+     * the typed prompt in the webview until submit, and the draft `ensureTicket`
+     * binds carries no brief or description — so re-running the parked analysis
+     * with an empty prompt would silently no-op AFTER the park was claimed. Keep
+     * the input so the re-run repeats the analysis that parked.
+     */
+    let lastAnalysisPrompt = '';
     /** The open op park for this ticket's panel, if any. */
     const findUsageLimitPark = (parkId: number) => {
       if (ctx.ticketId === undefined) return undefined;
@@ -638,7 +646,9 @@ export function buildTicketFormActions(
         await actions.suggestSignals(park.target);
         return;
       }
-      await actions.analyze('');
+      // Reuse the prompt the parked analysis ran on: a create-mode draft has no
+      // persisted brief/description, so `''` would return before the AI call.
+      await actions.analyze(lastAnalysisPrompt);
     };
 
     const actions: TicketFormActions = {
@@ -892,6 +902,8 @@ export function buildTicketFormActions(
       }
       ctx.post({ type: 'busy', what: 'suggest', on: true });
       let adapter = deps.adapter;
+      let model: string | undefined;
+      let effort: string | undefined;
       if (override && ctx.ticketId !== undefined) {
         const process = deps.resolveAnalysisProcess(ctx.ticketId, override);
         if (process === null) {
@@ -903,11 +915,18 @@ export function buildTicketFormActions(
           return;
         }
         adapter = process.adapter;
+        // The picked model is a PER-CALL choice (`resolveAdapter` binds only
+        // the core); passing it here is what makes the pick real.
+        model = process.assignment.model;
+        effort = process.assignment.effort;
       }
       try {
         const signals = await suggestSignalsAI(adapter, {
           service,
           repoPath: repo.repoPath,
+          ticketId: ctx.ticketId ?? null,
+          model,
+          effort,
         });
         ctx.post({ type: 'signals-suggested', service, signals });
       } catch (e) {
@@ -1101,6 +1120,9 @@ export function buildTicketFormActions(
       const brief = bound?.brief ?? ctx.prefillSummary ?? '';
       const prompt = livePrompt.trim() || bound?.description || '';
       if (!brief.trim() && !prompt.trim()) return;
+      // Only an analysis that HAS input is re-runnable later; an empty call
+      // never parked anything, so it must not overwrite the remembered prompt.
+      lastAnalysisPrompt = prompt;
 
       // Score services against the ticket text so the analyzer gets keyword hints
       // (and a deterministic repo fallback when the AI call yields none).

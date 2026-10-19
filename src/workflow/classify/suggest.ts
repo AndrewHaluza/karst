@@ -21,6 +21,13 @@ export interface SuggestInput {
    * same (§ token consumption stats).
    */
   ticketId?: number | null;
+  /**
+   * D159: the one-shot model/effort a parked-op re-run picked. The adapter is
+   * bound to the CORE only, so an absent value would silently run the core's
+   * default model instead of the user's pick.
+   */
+  model?: string;
+  effort?: string;
 }
 
 /**
@@ -106,6 +113,8 @@ export async function suggestSignals(
   const result = await adapter.runHeadless({
     prompt: buildPrompt(input),
     cwd: input.repoPath,
+    ...(input.model !== undefined ? { model: input.model } : {}),
+    ...(input.effort !== undefined ? { effort: input.effort } : {}),
     tracking: { callSite: 'signal-suggestion', ticketId: input.ticketId ?? null },
   });
   const arr = extractArray(result.raw);

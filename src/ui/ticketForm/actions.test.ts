@@ -823,6 +823,62 @@ describe('buildTicketFormActions', () => {
     expect(listOpenParks(store, t.id)).toHaveLength(0);
   });
 
+  it('Retry re-runs a CREATE-mode analysis with the prompt it analyzed (D159)', async () => {
+    // A create page holds the typed prompt in the webview; the draft that
+    // `ensureTicket` binds on the first analysis carries no brief/description.
+    // Passing '' on the re-run would return before the AI call — consuming the
+    // park without doing anything.
+    deps.adapter = quotaAdapter();
+    const ctx = mkCtx();
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.analyze('do the thing');
+    const err = ctx.posted.find((m) => m.type === 'error') as
+      | { usageLimitParkId?: number }
+      | undefined;
+    if (err?.usageLimitParkId === undefined) throw new Error('no op park id on the error');
+    const boundTicketId = ctx.boundTicketId;
+    expect(boundTicketId).toBeDefined();
+
+    deps.adapter = fakeAdapter(); // the re-run itself must not re-park
+    captureOverrides();
+    await actions.usageLimitParkRetry(err.usageLimitParkId);
+
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(true);
+    expect(listOpenParks(store, boundTicketId!)).toHaveLength(0);
+  });
+
+  it('Pick forwards the picked model to the parked suggest call (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK-MODEL', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    const adapter = fakeAdapter();
+    deps.adapter = adapter; // the re-run itself must not re-park
+    deps.resolveAnalysisProcess = vi.fn((_id, override) => ({
+      assignment: {
+        provider: override?.provider ?? 'claude',
+        model: override?.model ?? null,
+        effort: 'high',
+      },
+      adapter: deps.adapter,
+    }));
+    deps.pickUsageLimitAgentModel = vi.fn(
+      async (): Promise<{ provider: AgentProvider; model: string | null }> => ({
+        provider: 'codex',
+        model: 'gpt-4o',
+      }),
+    );
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    // The adapter is bound to the CORE only; the model (and effort) must ride
+    // the call, or the pick silently runs the core's default.
+    expect(adapter.runHeadless).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'gpt-4o', effort: 'high' }),
+    );
+  });
+
   it('Pick asks for an agent/model and re-runs the parked op with the one-shot pick (D159)', async () => {
     const t = createTicket(store, { key: 'T-K11-PICK', title: 't' });
     const parkId = await parkSuggestOnQuota(t.id);

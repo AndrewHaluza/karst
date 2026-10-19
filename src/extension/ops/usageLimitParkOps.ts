@@ -3,6 +3,7 @@ import type { StageKey } from '../../model/types.js';
 import type { AgentProvider, Manifest } from '../../manifest/types.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
 import type { Notify } from './notify.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { ReviewArtifacts } from '../../workflow/review/conformance.js';
@@ -113,6 +114,17 @@ export interface UsageLimitActionCommonDeps {
   loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
   /** The `uat.testerVerifier` host boundary (`runProcess`); absent → a configured verifier parks. */
   runVerifier?: TesterGateRunner;
+  /**
+   * The role's per-run assignment (profile instructions, effort, agent name),
+   * resolved from the picked provider/model by the host. The override changes
+   * which core runs, never the role's prompt or its recorded identity.
+   */
+  assignmentFor?: (
+    ticketId: number,
+    stageKey: StageKey,
+    provider: AgentProvider,
+    model: string | null,
+  ) => ProcessAssignmentSnapshot | undefined;
 }
 
 export interface UsageLimitPickDeps extends UsageLimitActionCommonDeps {
@@ -148,6 +160,10 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
     // Built only if the claim wins (inside `rerunParkedStage`), so a racing
     // window never constructs an adapter it will not use.
     buildAdapter: deps.adapterFor,
+    resolveAssignment: deps.assignmentFor
+      ? (stageKey, provider, model) =>
+          deps.assignmentFor!(deps.ticketId, stageKey, provider, model)
+      : undefined,
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
@@ -187,6 +203,10 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
     resolution: 'retry',
     // Built only if the claim wins (inside `rerunParkedStage`).
     buildAdapter: deps.adapterFor,
+    resolveAssignment: deps.assignmentFor
+      ? (stageKey, provider, model) =>
+          deps.assignmentFor!(deps.ticketId, stageKey, provider, model)
+      : undefined,
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
@@ -245,6 +265,12 @@ export interface UsageLimitParkActionsDeps {
   git?: GitRunner;
   loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
   runVerifier?: TesterGateRunner;
+  assignmentFor?: (
+    ticketId: number,
+    stageKey: StageKey,
+    provider: AgentProvider,
+    model: string | null,
+  ) => ProcessAssignmentSnapshot | undefined;
   debug?: (msg: string) => void;
 }
 
@@ -274,6 +300,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         git: deps.git,
         loadArtifacts: deps.loadArtifacts,
         runVerifier: deps.runVerifier,
+        assignmentFor: deps.assignmentFor,
         debug: deps.debug,
       }),
     usageLimitRetry: (ticketId: number, stageKey: StageKey) =>
@@ -291,6 +318,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         git: deps.git,
         loadArtifacts: deps.loadArtifacts,
         runVerifier: deps.runVerifier,
+        assignmentFor: deps.assignmentFor,
         debug: deps.debug,
       }),
     usageLimitDismiss: (ticketId: number, stageKey: StageKey) =>

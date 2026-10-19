@@ -152,6 +152,13 @@ describe('usageLimitParkOps', () => {
       const refresh = vi.fn();
       const mockAdapter = { runHeadless: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' }) } as unknown as AgentAdapter;
       const adapterFor = vi.fn().mockReturnValue(mockAdapter);
+      const assignmentFor = vi.fn(() => ({
+        provider: 'codex' as const,
+        model: 'gpt-4o',
+        effort: 'high',
+        agentName: 'Review Agent',
+        instructions: 'ROLE PROMPT',
+      }));
 
       await handleUsageLimitPick({
         store,
@@ -164,6 +171,7 @@ describe('usageLimitParkOps', () => {
         redrive,
         refresh,
         adapterFor,
+        assignmentFor,
         cwd: '/tmp',
         artifactDir: '/tmp',
       });
@@ -171,7 +179,12 @@ describe('usageLimitParkOps', () => {
       expect(pickCore).toHaveBeenCalled();
       expect(pickModel).toHaveBeenCalled();
       expect(adapterFor).toHaveBeenCalledWith('codex', 'gpt-4o');
-      expect(mockAdapter.runHeadless).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/tmp' }));
+      // The role assignment is resolved for the picked pair and reaches the
+      // lane's prompt — the pick never strips the role.
+      expect(assignmentFor).toHaveBeenCalledWith(ticket.id, 'review', 'codex', 'gpt-4o');
+      expect(mockAdapter.runHeadless).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: '/tmp', prompt: expect.stringContaining('ROLE PROMPT') }),
+      );
       expect(getStage(store, ticket.id, 'review')?.artifactPath).toContain('/tmp');
       expect(listOpenParks(store, ticket.id)).toHaveLength(0);
       expect(redrive).toHaveBeenCalledWith(ticket.id);

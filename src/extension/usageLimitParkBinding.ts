@@ -2,8 +2,10 @@ import * as vscode from 'vscode';
 import { dirname } from 'node:path';
 import type { Store } from '../store/db.js';
 import type { Manifest, AgentProvider } from '../manifest/types.js';
+import type { StageKey } from '../model/types.js';
 import type { ModelCatalog } from '../agent/modelCatalog.js';
 import type { AgentAdapter } from '../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import type { GitRunner } from '../integrations/git.js';
 import { defaultGitRunner } from '../integrations/git.js';
 import { runProcess } from '../workflow/gates/run.js';
@@ -48,6 +50,13 @@ export interface UsageLimitParkBindingDeps {
   redrive: (ticketId: number) => void;
   refresh: (ticketId: number) => void;
   adapterFor: (provider: AgentProvider, model: string | null) => AgentAdapter;
+  /** Resolve the role's assignment (profile prompt/effort/agent name) for the run. */
+  assignmentFor?: (
+    ticketId: number,
+    stageKey: StageKey,
+    provider: AgentProvider,
+    model: string | null,
+  ) => ProcessAssignmentSnapshot | undefined;
   artifactDirFor: (ticketId: number) => string;
   cwd: () => string;
   /** Test seam; defaults to the real git-backed snapshot runner. */
@@ -94,6 +103,7 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
           return picked;
         },
         adapterFor: deps.adapterFor,
+        assignmentFor: deps.assignmentFor,
         artifactDir: () => deps.artifactDirFor(ticketId),
         cwd: deps.cwd,
         git,

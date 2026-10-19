@@ -2,6 +2,7 @@ import type { Store } from '../store/db.js';
 import type { StageRunResult, StageKey, BlockerKind } from '../model/types.js';
 import type { Manifest, AgentProvider } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
+import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
 import { claimUsageLimitPark, type UsageLimitParkRow } from '../store/usageLimitParks.js';
 import { openGateRun } from './gates/evidence.js';
 import { commitGateOutcome, type RecoveryTriggerInput } from './gates/commit.js';
@@ -252,6 +253,19 @@ export interface RerunParkOptions {
    * only after `claimUsageLimitPark` wins, never for a loser.
    */
   buildAdapter?: (provider: AgentProvider, model: string | null) => AgentAdapter;
+  /**
+   * Resolve the role's per-run assignment (the profile `instructions`, the
+   * `effort` and the display `agentName`) from the picked provider/model. The
+   * override changes WHO runs the lane, never the role's prompt: dropping the
+   * instructions would ask the new core a generic question and the effort/name
+   * would lie in the process-run snapshot. Absent → the minimal identity, for
+   * callers that own only an adapter (and tests).
+   */
+  resolveAssignment?: (
+    stageKey: GateStageKey,
+    provider: AgentProvider,
+    model: string | null,
+  ) => ProcessAssignmentSnapshot | undefined;
   manifest?: Manifest;
   resolution?: string;
   cwd: string;
@@ -287,8 +301,29 @@ export interface RerunParkOptions {
   runVerifier?: TesterGateRunner;
 }
 
+/**
+ * The per-run identity: the role-resolved snapshot (instructions/effort/name)
+ * with the picked provider/model forced on top. The pick wins over whatever the
+ * resolver read from the ticket, exactly like the parked op's one-shot override.
+ */
+function assignmentFor(
+  resolve: RerunParkOptions['resolveAssignment'],
+  stageKey: GateStageKey,
+  provider: AgentProvider,
+  model: string | null,
+): ProcessAssignmentSnapshot {
+  return {
+    ...(resolve?.(stageKey, provider, model) ?? {}),
+    provider,
+    ...(model !== null ? { model } : {}),
+  };
+}
+
 /** The options a re-run uses once the claim won and its adapter exists. */
-type ClaimedRerunOptions = RerunParkOptions & { adapter: AgentAdapter };
+type ClaimedRerunOptions = RerunParkOptions & {
+  adapter: AgentAdapter;
+  assignment: ProcessAssignmentSnapshot;
+};
 
 export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRunResult> {
   const store = opts.store;
@@ -332,7 +367,11 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
   if (!adapter) {
     throw new Error('usage-limit re-run: no adapter was provided');
   }
-  const claimed: ClaimedRerunOptions = { ...opts, adapter };
+  const claimed: ClaimedRerunOptions = {
+    ...opts,
+    adapter,
+    assignment: assignmentFor(opts.resolveAssignment, stageKey, opts.provider, opts.model),
+  };
 
   if (parkRow.lane === 'review' || stageKey === 'review') {
     return rerunReviewParkedStage(claimed, { stageKey, runAt, now });
@@ -345,7 +384,17 @@ async function rerunReviewParkedStage(
   opts: ClaimedRerunOptions,
   ctx: { stageKey: GateStageKey; runAt: string; now: () => string },
 ): Promise<StageRunResult> {
-  const { store, parkRow, provider, model, adapter, manifest, cwd, artifactDir, signal, debug } = opts;
+  const {
+    store,
+    parkRow,
+    adapter,
+    assignment,
+    manifest,
+    cwd,
+    artifactDir,
+    signal,
+    debug,
+  } = opts;
   const { stageKey, runAt, now } = ctx;
 
   // Opened with the SHARED gate-run handle, never the bare `openStageRun`:
@@ -386,10 +435,9 @@ async function rerunReviewParkedStage(
     ...(manifest?.review?.findings ?? {}),
   };
   const overrideProcess: FindingsProcessInput = {
-    assignment: {
-      provider,
-      ...(model !== null ? { model } : {}),
-    },
+    // The role's resolved snapshot, not a provider/model stub: the profile body
+    // is the review prompt and the effort/agent name are the run's identity.
+    assignment,
     adapter,
     stageRunId: newStageRunId,
     attempt,
@@ -596,7 +644,7 @@ async function rerunReviewParkedStage(
   }
   const artifactPath = artifactDir ? join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`) : '';
   const artifactLines = [
-    `! re-run parked review: target ${targetRepo} with ${provider}/${model ?? 'default'}`,
+    `! re-run parked review: target ${targetRepo} with ${assignment.provider}/${assignment.model ?? 'default'}`,
   ];
   if (aggregateOutcome.kind === 'blocked') {
     artifactLines.push(`! ${aggregateOutcome.reason}`);
@@ -667,7 +715,17 @@ async function rerunUatParkedStage(
   opts: ClaimedRerunOptions,
   ctx: { stageKey: GateStageKey; runAt: string; now: () => string },
 ): Promise<StageRunResult> {
-  const { store, parkRow, provider, model, adapter, manifest, cwd, artifactDir, signal, debug } = opts;
+  const {
+    store,
+    parkRow,
+    adapter,
+    assignment,
+    manifest,
+    cwd,
+    artifactDir,
+    signal,
+    debug,
+  } = opts;
   const { stageKey, runAt, now } = ctx;
 
   // The shared gate-run handle (see the review re-run): a run opened while a
@@ -705,10 +763,9 @@ async function rerunUatParkedStage(
     {
       ticketId: parkRow.ticketId,
       targets: [target],
-      assignment: {
-        provider,
-        ...(model !== null ? { model } : {}),
-      },
+      // The role-resolved snapshot (profile instructions, effort, agent name),
+      // with the one-shot pick on top — never a provider/model stub.
+      assignment,
       adapter,
       stageRunId: newStageRunId,
       attempt,
@@ -744,7 +801,7 @@ async function rerunUatParkedStage(
     mkdirSync(artifactDir, { recursive: true });
     writeFileSync(
       artifactPath,
-      `! re-run parked uat: target ${targetRepo} with ${provider}/${model ?? 'default'}\n`,
+      `! re-run parked uat: target ${targetRepo} with ${assignment.provider}/${assignment.model ?? 'default'}\n`,
     );
   }
 
@@ -952,11 +1009,12 @@ async function rerunUatParkedStage(
   }
 
   // The opt-in observation threshold, AFTER the verifier so the deterministic
-  // boundary keeps precedence — exactly the stage's order.
-  if (
-    (testerResult.kind === 'observed' || testerResult.kind === 'partial') &&
-    combinedBlocking > 0
-  ) {
+  // boundary keeps precedence — exactly the stage's order. `combinedBlocking`
+  // covers BOTH shapes this re-run can produce: observations the tester just
+  // recorded, and — when its call could not execute — the sibling observations
+  // the earlier park kept. A failed re-run must never discard a blocking
+  // observation a partner target already reported and call the stage clean.
+  if (combinedBlocking > 0) {
     const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${combinedSummary ?? `${combinedBlocking} blocking`}`;
     const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
     return commitGateOutcome(store, {

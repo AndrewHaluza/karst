@@ -2984,9 +2984,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   let serverLifecycleDeps!: ServerLifecycleDeps;
   const usageLimitParks = createUsageLimitParkBinding({
-    store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest,
-    redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
+    store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest, redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
+    assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
     artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)),
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m),
   });
