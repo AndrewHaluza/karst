@@ -28,6 +28,22 @@ describe('dockerImage', () => {
     expect(pkg.devDependencies['@playwright/test']).toBe(PLAYWRIGHT_VERSION);
   });
 
+  it('builds the image from a Dockerfile whose defaults are the same pins', () => {
+    // The Dockerfile ships in the image's build context, and the build passes
+    // the versions as args — but the defaults are what a MANUAL build uses, so
+    // they have to be the same pins. The base image tag reads the same
+    // argument, so the rendering environment the baselines belong to and the
+    // browser inside it cannot drift apart.
+    const dockerfile = readFileSync(
+      fileURLToPath(new URL('../../../sandbox/opencode/Dockerfile', import.meta.url)),
+      'utf8',
+    );
+    expect(dockerfile).toContain(`ARG PW=${PLAYWRIGHT_VERSION}`);
+    expect(dockerfile).toContain(`ARG OC1=${OPENCODE_V1_VERSION}`);
+    expect(dockerfile).toContain(`ARG OC2=${OPENCODE_V2_VERSION}`);
+    expect(dockerfile).toContain('FROM mcr.microsoft.com/playwright:v${PW}-noble AS baseline');
+  });
+
   it('refuses a version that is not a plain semver (it becomes an image tag)', () => {
     expect(() => opencodeImageTag('latest', '2.0.27')).toThrow(/unpinned/);
     expect(() => opencodeImageTag('1.19.0', '2.0.27;rm')).toThrow(/unpinned/);
