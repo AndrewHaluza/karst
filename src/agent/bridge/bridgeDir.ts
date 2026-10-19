@@ -55,7 +55,8 @@ export async function ensureBridgeDir(paths: BridgePaths): Promise<void> {
   // The host writes replies here; the sandbox only reads them.
   await mkdir(paths.resultsDir, { recursive: true, mode: 0o755 });
   // mode is masked by umask: enforce explicitly.
-  await chmod(paths.dir, 0o777);
+  // Sticky: another sandbox user cannot rename or replace the host-owned results dir.
+  await chmod(paths.dir, 0o1777);
 }
 
 /**

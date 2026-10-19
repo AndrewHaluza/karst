@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -21,5 +21,13 @@ describe('writeMarkerReply', () => {
   });
   it('refuses a seq that is not a plain token (path traversal)', async () => {
     await expect(writeMarkerReply(paths, '../x', { v: 1, stage: 'impl', ok: true, retrying: false, reason: '' })).rejects.toThrow(/seq/);
+  });
+  it('refuses a results dir swapped for a symlink, writing nothing through it', async () => {
+    const victim = await mkdtemp(join(tmpdir(), 'victim-'));
+    await mkdir(paths.dir, { recursive: true });
+    await symlink(victim, paths.resultsDir);
+    await expect(writeMarkerReply(paths, 'a1', { v: 1, stage: 'impl', ok: true, retrying: false, reason: '' })).rejects.toThrow(/plain directory/);
+    expect(await readdir(victim)).toEqual([]);
+    await rm(victim, { recursive: true, force: true });
   });
 });
