@@ -76,6 +76,32 @@ export function backendSessionOptions(input: BackendSessionInput): {
   };
 }
 
+export interface LaunchBackend {
+  /** The `openSession` options; a resolved runner is handed over as is so the session does not resolve (and prepare) it twice. */
+  readonly options: ReturnType<typeof backendSessionOptions>;
+  /** The runner enforces a sandbox: compose sandbox instructions, not the host CLI ones. */
+  readonly sandboxed: boolean;
+  /** The bridge dir as the agent sees it (ends in the ticket id); absent when no bridge is attached. */
+  readonly runDir?: string;
+}
+
+/**
+ * Resolve the launch runner BEFORE the seed is composed: the instructions an
+ * agent gets depend on where it runs (a sandbox has no host CLI, db or MCP).
+ * Fail-closed fallbacks resolve to the host runner here, so the text always
+ * matches the runner that really opens the session.
+ */
+export async function resolveLaunchBackend(input: BackendSessionInput): Promise<LaunchBackend> {
+  const options = backendSessionOptions(input);
+  if (!options.resolveRunner) return { options, sandboxed: false };
+  const resolved = await options.resolveRunner();
+  const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
+  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false };
+  const paths = await options.bridgeFor?.(input.ticketId);
+  const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
+  return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}) };
+}
+
 /** `host (<reason>)` → `<reason>`. */
 function fallbackReason(line: string): string {
   const m = /^host \((.*)\)$/s.exec(line);

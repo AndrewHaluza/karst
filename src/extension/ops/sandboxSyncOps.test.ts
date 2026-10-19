@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { backendSessionOptions, disposeSandboxOp, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -278,5 +278,36 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     const deps = { notify: recorder().notify, projectRoot: '/p', proc: slow };
     await Promise.all([ensureSandboxSynced(deps, target), ensureSandboxSynced(deps, target)]);
     expect(peak).toBe(1);
+  });
+});
+
+describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
+  const base = { backends: { opencode2: 'docker' as const }, core: 'opencode2', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() };
+  const paths = { dir: '/g/events/7', runDir: '/karst-bridge/7' } as never;
+
+  it('a sandbox runner reports the container-visible run dir and is handed over, not resolved twice', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const resolve = vi.fn(async () => ({ runner, line: 'docker (x)' }));
+    const out = await resolveLaunchBackend({ ...base, resolve, bridgeFor: async () => paths });
+    expect(out).toMatchObject({ sandboxed: true, runDir: '/karst-bridge/7' });
+    await out.options.resolveRunner!();
+    await out.options.resolveRunner!();
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fail-closed fallback is a host launch: host instructions', async () => {
+    const resolve = vi.fn(async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host (docker down)' }));
+    await expect(resolveLaunchBackend({ ...base, resolve, bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: false });
+  });
+
+  it('a sandbox without a bridge is sandboxed with no run dir (no marker to promise)', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }) });
+    expect(out.sandboxed).toBe(true);
+    expect(out.runDir).toBeUndefined();
+  });
+
+  it('no backends configured: a plain host launch with no resolver', async () => {
+    await expect(resolveLaunchBackend({ ...base, backends: undefined })).resolves.toEqual({ options: {}, sandboxed: false });
   });
 });
