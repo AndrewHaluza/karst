@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { suggestSignals } from './suggest.js';
-import type { AgentAdapter, HeadlessResult } from '../../agent/adapter.js';
+import type { AgentAdapter, HeadlessResult, RunHeadlessOpts } from '../../agent/adapter.js';
 
 /** A fake adapter whose runHeadless returns a canned raw string. */
 function fakeAdapter(raw: string): AgentAdapter {
@@ -25,7 +25,11 @@ function rejectingAdapter(): AgentAdapter {
 
 describe('suggestSignals', () => {
   it('forwards a one-shot model/effort to the call and omits them when absent', async () => {
-    const runHeadless = vi.fn(async () => ({ sessionId: 's1', verdict: null, raw: '[]' }));
+    const runHeadless = vi.fn(async (_opts: RunHeadlessOpts) => ({
+      sessionId: 's1',
+      verdict: null,
+      raw: '[]',
+    }));
     const adapter = {
       ...fakeAdapter('[]'),
       runHeadless,
