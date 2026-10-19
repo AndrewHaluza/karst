@@ -86,7 +86,9 @@ function findTargetPark(store: Store, ticketId: number, stageKey: StageKey): Usa
   }
   // No usage-limit block: an op park at this stage is the target (the op-park
   // notification path). A stage-block park whose block is already gone is
-  // stale and must not be actioned.
+  // stale and must not be actioned. An op park is DISMISSED here (resolving
+  // its row IS the dismiss), but it is never RE-RUN here — the op's own path
+  // re-runs the op, never a stage lane.
   return atStage.find((p) => p.kind === 'op') ?? null;
 }
 

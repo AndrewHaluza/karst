@@ -261,10 +261,16 @@ describe('usageLimitParkOps', () => {
         adapterFor,
         cwd: '/tmp',
         artifactDir: '/tmp',
+        // The review artifacts the re-run judges the change against: the
+        // ticket's intent reaches the lane's prompt as the conformance block.
+        loadArtifacts: async () => ({ intent: 'THE INTENT', spec: null, plan: null }),
       });
 
       expect(adapterFor).toHaveBeenCalledWith('claude', 'claude-3-7-sonnet');
       expect(mockAdapter.runHeadless).toHaveBeenCalledWith(expect.objectContaining({ cwd: '/tmp' }));
+      expect(mockAdapter.runHeadless).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: expect.stringContaining('fulfils the ticket') }),
+      );
       expect(getStage(store, ticket.id, 'review')?.artifactPath).toContain('/tmp');
       expect(listOpenParks(store, ticket.id)).toHaveLength(0);
       const parks = listParks(store, ticket.id);
@@ -447,10 +453,11 @@ describe('usageLimitParkOps', () => {
       expect(redrive).not.toHaveBeenCalled();
     });
 
-    it('warns and does not redrive when dismiss returns stopped', async () => {
+    it('warns and does not redrive for an op park (the op path owns it)', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-STOPPED', title: 'Test ticket' });
-      // Park row with op kind (dismissUsageLimitPark returns stopped for op kind)
+      // An op park (classify/analysis/suggest) names no lane and no target:
+      // dismissing it resolves the row — there is no stage block to fail.
       insertOpenPark(store, {
         ticketId: ticket.id,
         stage: 'review',
@@ -479,6 +486,8 @@ describe('usageLimitParkOps', () => {
       expect(warn).toHaveBeenCalledWith('This usage limit was already handled.');
       expect(redrive).not.toHaveBeenCalled();
       expect(refresh).not.toHaveBeenCalled();
+      // The dismiss resolved the row — the op park is closed.
+      expect(listOpenParks(store, ticket.id)).toHaveLength(0);
     });
   });
 
@@ -671,6 +680,57 @@ describe('usageLimitParkOps', () => {
       });
 
       // Verify it claimed and retried the 'review' park (claude), not the 'plan' park (codex)
+      expect(adapterFor).toHaveBeenCalledWith('claude', 'claude-3-7-sonnet');
+    });
+
+    it('never targets a park from another stage, even a newer one', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-STAGE-SCOPE', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      // The park the banner speaks for: the REVIEW one.
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+      // A NEWER park from another stage: the action is scoped to its own
+      // stage, so this one is never the target.
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'uat',
+        kind: 'stage-block',
+        lane: 'uat',
+        target: 'repo',
+        provider: 'codex',
+        model: 'gpt-4o',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const adapterFor = vi.fn().mockReturnValue({
+        runHeadless: vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' }),
+      } as unknown as AgentAdapter);
+
+      await handleUsageLimitRetry({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        redrive: vi.fn(),
+        refresh: vi.fn(),
+        adapterFor,
+      });
+
       expect(adapterFor).toHaveBeenCalledWith('claude', 'claude-3-7-sonnet');
     });
 

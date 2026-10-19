@@ -276,6 +276,60 @@ describe('rerunParkedStage', () => {
     rmSync(artifactDir, { recursive: true, force: true });
   });
 
+  it('never re-runs an op park as a stage lane (the op path owns it)', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-OP', title: 'Test op park ticket' });
+    const parkId = insertOpenPark(store, {
+      ticketId: ticket.id,
+      kind: 'op',
+      stage: 'review',
+      lane: 'analysis',
+      target: null,
+      keptOutcome: null,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exhausted',
+    });
+    const park: UsageLimitParkRow = {
+      id: parkId,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'op',
+      lane: 'analysis',
+      target: null,
+      sessionId: null,
+      stageRunId: null,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exhausted',
+      keptOutcome: null,
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+    const adapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn(),
+    } as unknown as AgentAdapter;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter,
+      cwd: '/wt/web',
+      artifactDir,
+    });
+
+    expect(res).toEqual({ kind: 'stopped' });
+    // No lane ran, and the park stays OPEN for the op's own path.
+    expect(adapter.runHeadless).not.toHaveBeenCalled();
+    expect(listOpenParks(store, ticket.id)).toHaveLength(1);
+    expect(listStageRuns(store, ticket.id)).toHaveLength(0);
+  });
+
   it('re-runs a parked review target with override adapter and advances stage when clean', async () => {
     const ticket = createTicketFlow(store, { key: 'TEST-3', title: 'Test review rerun ticket' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });

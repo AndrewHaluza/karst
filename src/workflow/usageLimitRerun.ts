@@ -302,6 +302,15 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
     throw new Error('usage-limit re-run: no adapter was provided');
   }
 
+  // An OP park (classify, analysis, suggest) names no lane and no target: its
+  // re-run is the OP's business — the ticket form's error notification re-runs
+  // exactly that op (D159). A stage lane must never stand in for it, so the
+  // park is left OPEN for the op path (the claim below would resolve it).
+  if (parkRow.kind !== 'stage-block') {
+    opts.debug?.(`[usageLimit] park ${parkRow.id} is an op park — the op path owns it`);
+    return { kind: 'stopped' };
+  }
+
   // 1. Claim the park row atomically before building anything or running. A
   // racing window loses here and returns `stopped` without constructing an
   // adapter, opening a stage run, or touching any state.
