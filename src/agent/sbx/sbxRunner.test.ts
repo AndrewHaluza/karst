@@ -175,3 +175,25 @@ describe('createSbxSessionRunner bridge dir', () => {
     expect(runner.bridgeRunDir?.(paths)).toBe('/g/events/7');
   });
 });
+
+describe('createSbxSessionRunner cloneDir', () => {
+  const cloneDir = '/p/.karst/sbx-clones/' + NAME;
+  it('uses the standalone clone, never the worktree, as the --clone source', () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [], cloneDir });
+    const placed = runner.placeInteractive(spec());
+    expect(placed.shellArgs).toContain(cloneDir);
+    expect(placed.shellArgs).not.toContain('/wt/with space');
+    expect(placed.cwd).toBe(cloneDir);
+  });
+
+  it('syncs by fetching the sandbox remote in the clone, relaying it to the worktree, then fast-forwarding', async () => {
+    const proc = fakeSbxProcess();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir });
+    await expect(runner.sync!(ticket)).resolves.toMatchObject({ ok: true });
+    const lines = proc.calls.map((c) => c.args.join(' '));
+    const remote = sandboxRemote(NAME);
+    expect(lines).toContain(`-C ${cloneDir} fetch ${remote}`);
+    expect(lines).toContain(`-C /wt/a fetch ${cloneDir} +refs/remotes/${remote}/feat/x:refs/remotes/${remote}/feat/x`);
+    expect(lines).toContain(`-C /wt/a merge --ff-only ${remote}/feat/x`);
+  });
+});

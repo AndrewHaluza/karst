@@ -1,4 +1,5 @@
 import { backendForCore, type AgentBackends } from './backendChoices.js';
+import { prepareSbxClone, sbxCloneDir } from './sbx/sbxClone.js';
 import { sbxName } from './sbx/sbxName.js';
 import { sbxPreflight, type SbxPreflight } from './sbx/sbxPreflight.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from './sbx/sbxProcess.js';
@@ -54,8 +55,16 @@ export async function resolveBackend(input: ResolveBackendInput): Promise<Resolv
   const proc = input.proc ?? NODE_SBX_PROCESS;
   const check = await (input.preflight ?? sbxPreflight)(proc);
   if (!check.ok) return onHost(check.reason);
+  const cloneDir = sbxCloneDir(input.projectRoot, name);
+  if (!check.existing.includes(name)) {
+    // sbx refuses `--clone` from a linked worktree: fail closed before the terminal opens.
+    if (!input.worktree?.branch) return onHost('sbx: no ticket worktree branch to clone');
+    const cloned = await prepareSbxClone(proc, { worktree: input.worktree.hostWorktreePath, branch: input.worktree.branch, dir: cloneDir })
+      .catch((err: unknown) => ({ ok: false as const, reason: `sandbox clone failed: ${err instanceof Error ? err.message : String(err)}` }));
+    if (!cloned.ok) return onHost(cloned.reason);
+  }
   return {
-    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing }),
+    runner: createSbxSessionRunner({ proc, core: input.core, name, existing: check.existing, cloneDir }),
     line: `sbx (${name})`,
   };
 }
