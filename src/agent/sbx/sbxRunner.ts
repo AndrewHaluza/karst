@@ -11,6 +11,7 @@ import type {
 } from '../sessionRunner.js';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { removeSbxClone } from './sbxClone.js';
+import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { withXfer } from '../xfer.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
@@ -107,7 +108,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
           'run', ...create, '--name', opts.name, opts.core, ...workspace,
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
-        env: { ...spec.env },
+        env: withoutHostOnlyEnv(spec.env),
       };
     },
     // sbx mounts extra workspaces at the same absolute path.

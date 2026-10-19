@@ -222,3 +222,19 @@ describe('prepareDockerSandbox', () => {
     expect(runner.bridgeRunDir?.(paths)).toBe('/karst-bridge/7');
   });
 });
+
+describe('host-only env never enters the container (F2, arch:AC-33)', () => {
+  const hostEnv = {
+    KARST_CLI: '/h/cli.js', KARST_DB: '/h/db.sqlite', KARST_MANIFEST: '/h/.karst/karst.yml', KARST_INSTRUCTIONS: '/h/i.md',
+    KARST_BRIDGE_DIR: '/karst-bridge/7', KARST_TICKET: 'K-7', KARST_TICKET_ID: '7', KARST_LAUNCH_ID: 'l1', KARST_PROVIDER: 'opencode',
+  };
+  it('drops the host-path vars from the placed env and from the docker --env flags', () => {
+    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined, authFile: '/h/auth.json', temp });
+    const placed = runner.placeInteractive({ ticketId: 7, hostWorktreePath: WT, command: 'opencode', args: [WT], env: hostEnv });
+    for (const k of ['KARST_CLI', 'KARST_DB', 'KARST_MANIFEST', 'KARST_INSTRUCTIONS']) {
+      expect(placed.env).not.toHaveProperty(k);
+      expect(placed.shellArgs).not.toContain(k);
+    }
+    for (const k of ['KARST_BRIDGE_DIR', 'KARST_TICKET', 'KARST_TICKET_ID', 'KARST_LAUNCH_ID', 'KARST_PROVIDER']) expect(placed.env).toHaveProperty(k);
+  });
+});

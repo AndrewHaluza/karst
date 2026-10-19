@@ -152,3 +152,11 @@ export function cliTokensFor(exported: ExportedCliEnv | undefined, literal: CliT
     ...(ticket !== undefined ? { ticket } : {}),
   };
 }
+
+/** Env that holds host-only paths (host db, manifest, CLI, instructions file): never valid inside a sandbox (arch:AC-33). */
+const HOST_ONLY_ENV: readonly string[] = [KARST_CLI_ENV, KARST_DB_ENV, KARST_MANIFEST_ENV, KARST_INSTRUCTIONS_ENV];
+
+/** `env` without the host-path vars; the choke point both sandbox runners apply to every launch. */
+export function withoutHostOnlyEnv(env: Readonly<Record<string, string>>): Record<string, string> {
+  return Object.fromEntries(Object.entries(env).filter(([k]) => !HOST_ONLY_ENV.includes(k)));
+}

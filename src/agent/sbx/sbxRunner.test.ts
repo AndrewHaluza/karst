@@ -176,3 +176,14 @@ describe('createSbxSessionRunner cloneDir', () => {
     expect(placed.cwd).toBe(cloneDir);
   });
 });
+
+describe('createSbxSessionRunner env (F2, arch:AC-33)', () => {
+  it('drops host-path vars, keeps the bridge dir and ids', () => {
+    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'codex', name: NAME, existing: [] });
+    const placed = runner.placeInteractive({
+      ...spec(),
+      env: { KARST_CLI: '/h/cli.js', KARST_DB: '/h/db', KARST_MANIFEST: '/h/m.yml', KARST_INSTRUCTIONS: '/h/i.md', KARST_BRIDGE_DIR: '/b/7', KARST_TICKET_ID: '7' },
+    });
+    expect(placed.env).toEqual({ KARST_BRIDGE_DIR: '/b/7', KARST_TICKET_ID: '7' });
+  });
+});
