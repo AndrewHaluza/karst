@@ -11,6 +11,8 @@ export interface ProcessRunOptions {
   readonly signal?: AbortSignal;
   /** Extra env, merged over the host's (e.g. git config isolation). */
   readonly env?: Readonly<Record<string, string>>;
+  /** Kill the child and fail (code 1) once stdout passes this many bytes, so a runaway stream never fills host memory. */
+  readonly maxStdoutBytes?: number;
 }
 
 /**
@@ -28,15 +30,30 @@ export const NODE_SBX_PROCESS: SbxProcess = {
     new Promise((resolve) => {
       let stdout = '';
       let stderr = '';
+      let stdoutBytes = 0;
+      let overflowed = false;
       const child = spawn(command, [...args], {
         cwd: opts?.cwd,
         signal: opts?.signal,
         ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
-      child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });
+      child.stdout.on('data', (chunk: Buffer) => {
+        if (overflowed) return;
+        stdoutBytes += chunk.length;
+        if (opts?.maxStdoutBytes !== undefined && stdoutBytes > opts.maxStdoutBytes) {
+          overflowed = true;
+          stdout = '';
+          child.kill();
+          return;
+        }
+        stdout += chunk.toString('utf8');
+      });
       child.stderr.on('data', (chunk: Buffer) => { stderr += chunk.toString('utf8'); });
       child.on('error', (err) => resolve({ code: 127, stdout, stderr: stderr || err.message }));
-      child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+      child.on('close', (code) =>
+        resolve(overflowed
+          ? { code: 1, stdout: '', stderr: `output exceeded ${String(opts?.maxStdoutBytes)} bytes` }
+          : { code: code ?? 1, stdout, stderr }));
     }),
 };

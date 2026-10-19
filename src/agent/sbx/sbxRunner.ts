@@ -46,6 +46,9 @@ const BUNDLE_OUT = [
 const HARDENED_GIT = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] as const;
 const HARDENED_ENV = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } as const;
 
+/** Cap on the base64 bundle stream held in host memory (about 96 MiB of bundle). */
+export const MAX_BUNDLE_STDOUT_BYTES = 128 * 1024 * 1024;
+
 /** Env name a sandboxed gate reads to know where evidence files go (the bridge dir). */
 export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
 
@@ -81,7 +84,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
    */
   const fetchSandbox = (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> =>
     withXfer(async (xfer) => {
-      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
       if (made.code !== 0) return { ok: false as const, reason: `no sandbox clone to sync from: ${made.stderr.trim()}` };
       const bytes = Buffer.from(made.stdout, 'base64');
       if (bytes.length === 0) return { ok: false as const, reason: 'sandbox returned an empty bundle' };

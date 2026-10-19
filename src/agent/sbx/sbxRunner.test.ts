@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HOST_SESSION_RUNNER } from '../sessionRunner.js';
 import { fakeSbxProcess } from './fakeSbxProcess.js';
-import { createSbxSessionRunner, sandboxRemote } from './sbxRunner.js';
+import { createSbxSessionRunner, MAX_BUNDLE_STDOUT_BYTES, sandboxRemote } from './sbxRunner.js';
 
 const NAME = 'karst-ab12cd34-7-claude';
 const spec = (args: string[] = []) => ({
@@ -78,7 +78,7 @@ describe('createSbxSessionRunner.sync', () => {
     await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: "fast-forwarded feat/x to the sbx sandbox's commits" });
     const lines = proc.calls.map(text);
     expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x$`));
-    expect(proc.calls[0]!.opts).toEqual({ cwd: '/p/clone' });
+    expect(proc.calls[0]!.opts).toEqual({ cwd: '/p/clone', maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
     expect(lines[1]).toMatch(new RegExp(`^${G} fetch \\S+/out\\.bundle refs/heads/feat/x$`));
     expect(lines.slice(2)).toEqual([`${G} merge-base --is-ancestor HEAD FETCH_HEAD`, `${G} merge --ff-only FETCH_HEAD`]);
     expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);
