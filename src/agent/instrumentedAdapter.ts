@@ -79,6 +79,12 @@ export interface InstrumentOptions {
    * construction.
    */
   env?: (tracking?: UsageTracking) => Readonly<Record<string, string>> | undefined;
+  /**
+   * Every headless run executes on the host (arch:AC-33), so a `--resume` of a
+   * sandbox session id must be refused here, at the one seam all of them cross.
+   * Throws (or rejects) to refuse; the call never starts.
+   */
+  guardResume?: (opts: RunHeadlessOpts) => void | Promise<void>;
   /** Injected clock, for tests. */
   now?: () => string;
 }
@@ -153,6 +159,7 @@ export function instrumentAdapter(
       options.debug?.(
         `[agent] instrumented runHeadless (${opts.tracking?.callSite ?? 'unknown'} for ticket ${opts.tracking?.ticketId ?? '?'})`,
       );
+      await options.guardResume?.(opts);
       // The headless counterpart of the launch-path trust hook: every headless
       // run in production reaches its core through this ONE seam, so a graph /
       // worktree directory is trusted before the CLI starts there too. AWAIT it:

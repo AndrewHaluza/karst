@@ -231,6 +231,8 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const uatGate = createUserUatGate();
   return {
     deps,
+    /** Does the runners' listing show a sandbox for this ticket? (false when it cannot tell: no backend, listing failed) */
+    hasSandbox: async (ticketId: number): Promise<boolean> => (await resolveTicketSandbox(deps, ticketId)).listed !== undefined,
     /** Record (or clear, `null`) the core whose sandbox serves a ticket: set at launch, read back by the sync callers. */
     remember: (ticketId: number, core: string | null) => deps.remember?.(ticketId, core),
     /**

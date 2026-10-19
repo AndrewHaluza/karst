@@ -349,6 +349,7 @@ import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } fr
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
 import { renderSandboxMarkerInstruction, scrubHostCli } from './agent/sandboxInstructions.js';
+import { assertNoSandboxResumeOnHost, SandboxResumeOnHostError } from './agent/sandboxResumeGuard.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -1340,6 +1341,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The karst CLI env (`"$KARST_CLI"`/`"$KARST_DB"`/...), injected at the
       // same seam: a headless prompt carrying a `buildCli*Prefix` command
       // (UAT tester context, review/fix markers) resolves by construction.
+      // A headless run is a host run: refuse to resume a session id that lives in the ticket's sandbox (AC-33).
+      guardResume: async (opts) => {
+        const ticketId = opts.tracking?.ticketId;
+        if (opts.resume === undefined || ticketId === undefined || ticketId === null || !sandboxB) return;
+        assertNoSandboxResumeOnHost({ ticketId, resume: opts.resume, runner: 'host', hasSandbox: await sandboxB.hasSandbox(ticketId) });
+      },
       env: (tracking) =>
         sessionCliEnv(
           cliSessionInput(cliLiteral(context, dbPath, headlessTicketKey(tracking?.ticketId))),
@@ -6414,6 +6421,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
         ? (t.sessionId ?? undefined)
         : undefined;
+      // The same guard as the headless seam: a host launch never resumes a sandbox session id; it starts fresh.
+      if (resumeId && sandboxB) {
+        try {
+          assertNoSandboxResumeOnHost({ ticketId, resume: resumeId, runner: launchBackend.sandboxed ? 'docker' : 'host', hasSandbox: await sandboxB.hasSandbox(ticketId) });
+        } catch (err) {
+          if (!(err instanceof SandboxResumeOnHostError)) throw err;
+          vscodeNotify.warn(`Karst: ${t.key ?? ticketId} has a sandbox but this launch runs on the host: starting a fresh host session instead of resuming the sandbox session.`);
+          resumeId = undefined;
+        }
+      }
       // A core whose resume id can go stale validates it here (opencode2). A
       // missing id is dropped BEFORE the seed is composed, so the launch is a
       // fresh full seed rather than a dangling `--session`. Adapters with no
