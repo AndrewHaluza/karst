@@ -6,6 +6,7 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
 import { basename, dirname, extname, isAbsolute, join } from 'node:path';
@@ -56,7 +57,7 @@ import {
 } from './gatePolicy.js';
 import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
-import { isFileChannel, pluginFileTransport, writeBridgeScripts } from './hookBridgeFiles.js';
+import { isFileChannel, pluginFileTransport, sandboxPluginLocation, writeBridgeScripts } from './hookBridgeFiles.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
 
 const OPENCODE_BIN = 'opencode';
@@ -892,7 +893,11 @@ function writeKarstBridge(
   if (!fileMode) assertLoopbackEndpoint(endpointUrl);
   // A file channel's emit-marker.cjs (and bridge.cjs) live in the HOST bridge dir.
   if (fileMode && configDir) writeBridgeScripts(join(configDir, 'opencode'));
-  const pluginPath = join(cwd, '.opencode', 'plugins', 'karst-bridge.js');
+  // A sandbox clone never receives an untracked worktree file: a file channel's plugin lives in the
+  // mounted bridge dir and is loaded through OPENCODE_CONFIG_DIR (see `sandboxPluginLocation`).
+  const pluginPath = fileMode && configDir && runDir !== undefined
+    ? sandboxPluginLocation({ configDir, runDir }, 'opencode', 'karst-bridge.js').hostPath
+    : join(cwd, '.opencode', 'plugins', 'karst-bridge.js');
   // Absent configDir (older callers, tests) → no fallback file; the plugin then
   // uses its launch-time URL alone, exactly as it did before.
   const body = renderHookBridge(
@@ -921,14 +926,17 @@ function writeResumeKickoff(
   cwd: string,
   launchId: string | undefined,
   prompt: string,
-): string {
-  const dir = join(cwd, '.opencode', 'plugins');
+  /** A sandbox: the file goes into the mounted bridge dir, and the env names it as the agent sees it. */
+  sandbox?: { readonly configDir: string; readonly runDir: string },
+): { readonly path: string; readonly envPath: string } {
+  const dir = sandbox ? join(sandbox.configDir, 'opencode') : join(cwd, '.opencode', 'plugins');
   mkdirSync(dir, { recursive: true });
   const suffix =
     launchId && launchId.length > 0 ? launchId : `${process.pid}-${Date.now()}`;
-  const kickoffPath = join(dir, `karst-kickoff-${suffix}.json`);
+  const name = `karst-kickoff-${suffix}.json`;
+  const kickoffPath = join(dir, name);
   writeFileSync(kickoffPath, JSON.stringify({ prompt }));
-  return kickoffPath;
+  return { path: kickoffPath, envPath: sandbox ? `${sandbox.runDir}/opencode/${name}` : kickoffPath };
 }
 
 export class OpencodeAdapter implements AgentAdapter {
@@ -1049,7 +1057,13 @@ export class OpencodeAdapter implements AgentAdapter {
         opts.hookChannel.configDir,
         opts.hookChannel.runDir,
       );
-      ownedPaths = [pluginPath];
+      if (opts.hookChannel.runDir === undefined) ownedPaths = [pluginPath];
+      else {
+        // Sandbox (file channel): the plugin sits in the mounted bridge dir and opencode is pointed at it;
+        // a stale plugin left in the worktree is removed so only this one can load.
+        env.OPENCODE_CONFIG_DIR = sandboxPluginLocation({ configDir: opts.hookChannel.configDir, runDir: opts.hookChannel.runDir }, 'opencode', 'karst-bridge.js').configDirEnv;
+        rmSync(join(opts.cwd, '.opencode', 'plugins', 'karst-bridge.js'), { force: true });
+      }
       // `--pure` is not the only way to disable the plugin: opencode reads the
       // `OPENCODE_PURE` env var directly and skips every external plugin when it
       // is present and not "0"/"false" (verified on 1.18.35: `1`, `true` and
@@ -1085,9 +1099,13 @@ export class OpencodeAdapter implements AgentAdapter {
       // the legacy `--prompt` is kept (harmless but dropped by opencode).
       env[KARST_RESUME_SESSION_ENV] = opts.resume as string;
       if (kickoff) {
-        const kickoffPath = writeResumeKickoff(opts.cwd, opts.hookChannel.launchId, kickoff);
-        env[KARST_KICKOFF_FILE_ENV] = kickoffPath;
-        ownedPaths = [...(ownedPaths ?? []), kickoffPath];
+        const sandboxed = opts.hookChannel.runDir !== undefined;
+        const written = writeResumeKickoff(
+          opts.cwd, opts.hookChannel.launchId, kickoff,
+          sandboxed ? { configDir: opts.hookChannel.configDir, runDir: opts.hookChannel.runDir! } : undefined,
+        );
+        env[KARST_KICKOFF_FILE_ENV] = written.envPath;
+        if (!sandboxed) ownedPaths = [...(ownedPaths ?? []), written.path];
       }
     } else if (kickoff) {
       args.push('--prompt', kickoff);

@@ -155,6 +155,28 @@ describe('OpencodeAdapter interactive commands', () => {
     expect(cmd.ownedPaths).toContain(kickoffPath);
   });
 
+  it('sandbox (file channel): plugin and resume kickoff live in the bridge dir, named by OPENCODE_CONFIG_DIR / env; nothing in the worktree', () => {
+    const worktree = makeWorktree();
+    const bridge = makeWorktree();
+    const stale = join(worktree, '.opencode', 'plugins', 'karst-bridge.js');
+    mkdirSync(join(worktree, '.opencode', 'plugins'), { recursive: true });
+    writeFileSync(stale, 'stale');
+    const cmd = new OpencodeAdapter().buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'file:///karst-bridge/7/events.ndjson', configDir: bridge, runDir: '/karst-bridge/7', launchId: 'gen-1' },
+      resume: 'ses_abc',
+      initialPrompt: 'go',
+    });
+    expect(cmd.env['OPENCODE_CONFIG_DIR']).toBe('/karst-bridge/7/opencode/opencode-config');
+    expect(cmd.env['OPENCODE_PURE']).toBe('0');
+    expect(existsSync(join(bridge, 'opencode', 'opencode-config', 'plugins', 'karst-bridge.js'))).toBe(true);
+    expect(existsSync(stale)).toBe(false);
+    expect(cmd.env[KARST_KICKOFF_FILE_ENV]).toBe('/karst-bridge/7/opencode/karst-kickoff-gen-1.json');
+    expect(JSON.parse(readFileSync(join(bridge, 'opencode', 'karst-kickoff-gen-1.json'), 'utf8'))).toEqual({ prompt: 'go' });
+    expect(cmd.ownedPaths).toBeUndefined();
+    expect(existsSync(join(worktree, '.opencode', 'plugins', 'karst-kickoff-gen-1.json'))).toBe(false);
+  });
+
   it('confirms a resumed launch even when there is no kickoff to deliver', () => {
     const worktree = makeWorktree();
     const cmd = new OpencodeAdapter().buildInteractiveCommand({

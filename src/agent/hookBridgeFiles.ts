@@ -90,3 +90,26 @@ export function isFileChannel(endpointUrl: string, runDir: string | undefined): 
   if (runDir === undefined) throw new Error(`karst: a file hook endpoint needs a runDir`);
   return true;
 }
+
+/** Subdir of `<bridge dir>/<core>/` that opencode loads as an extra config dir (`OPENCODE_CONFIG_DIR`). */
+export const OPENCODE_CONFIG_SUBDIR = 'opencode-config';
+
+/**
+ * Where a sandboxed opencode core's bridge plugin lives. The sandbox is a bundle
+ * clone, so a plugin written into the host worktree never arrives (T700/T706:
+ * events.ndjson stayed empty). Instead it goes into the mounted bridge dir and
+ * the launch points opencode at it with `OPENCODE_CONFIG_DIR`, whose `plugins/`
+ * subdir both opencode 1.x (documented) and 2.0.27 (verified: the `plugin`
+ * config entry is NOT honored there) auto-load. Never inside the clone, so it
+ * can neither dirty `git status` nor be committed.
+ */
+export function sandboxPluginLocation(
+  channel: { readonly configDir: string; readonly runDir: string },
+  core: 'opencode' | 'opencode2',
+  filename: string,
+): { readonly hostPath: string; readonly configDirEnv: string } {
+  return {
+    hostPath: join(channel.configDir, core, OPENCODE_CONFIG_SUBDIR, 'plugins', filename),
+    configDirEnv: `${channel.runDir}/${core}/${OPENCODE_CONFIG_SUBDIR}`,
+  };
+}

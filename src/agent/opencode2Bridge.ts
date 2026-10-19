@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { currentEndpointPath } from './hookFailureLog.js';
-import { isFileChannel, pluginFileTransport, writeBridgeScripts } from './hookBridgeFiles.js';
+import { isFileChannel, pluginFileTransport, sandboxPluginLocation, writeBridgeScripts } from './hookBridgeFiles.js';
 
 /**
  * The opencode v2 (`@opencode/cli` 2.x) hook bridge.
@@ -436,7 +436,11 @@ export function writeOpencode2Bridge(
   if (!fileMode) assertLoopbackEndpoint(endpointUrl);
   // A file channel's emit-marker.cjs (and bridge.cjs) live in the HOST bridge dir.
   if (fileMode && configDir) writeBridgeScripts(join(configDir, 'opencode2'));
-  const pluginPath = join(cwd, '.opencode', 'plugins', OPENCODE2_BRIDGE_FILENAME);
+  // A sandbox clone never receives an untracked worktree file: a file channel's plugin lives in the
+  // mounted bridge dir and is loaded through OPENCODE_CONFIG_DIR (see `sandboxPluginLocation`).
+  const pluginPath = fileMode && configDir && runDir !== undefined
+    ? sandboxPluginLocation({ configDir, runDir }, 'opencode2', OPENCODE2_BRIDGE_FILENAME).hostPath
+    : join(cwd, '.opencode', 'plugins', OPENCODE2_BRIDGE_FILENAME);
   const body = renderOpencode2Bridge(
     endpointUrl,
     configDir && !fileMode ? currentEndpointPath(configDir, 'opencode2') : null,

@@ -1,10 +1,12 @@
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
   statSync,
   utimesSync,
+  writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -605,6 +607,39 @@ describe('Opencode2Adapter interactive hook channel', () => {
     expect(cmd.env[KARST_OPENCODE_HEADLESS_ENV]).toBeUndefined();
     // Interactive must not pass an isolation flag that suppresses the plugin.
     expect(cmd.args).not.toContain('--pure');
+  });
+
+  it('sandbox (file channel): the plugin lives in the bridge dir, loaded via OPENCODE_CONFIG_DIR; nothing in the worktree', () => {
+    const worktree = makeWorktree();
+    const bridge = makeWorktree();
+    const adapter = new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const cmd = adapter.buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'file:///karst-bridge/7/events.ndjson', configDir: bridge, runDir: '/karst-bridge/7', launchId: 'gen-1' },
+      initialPrompt: 'go',
+    });
+    expect(cmd.env['OPENCODE_CONFIG_DIR']).toBe('/karst-bridge/7/opencode2/opencode-config');
+    const hostPlugin = join(bridge, 'opencode2', 'opencode-config', 'plugins', 'karst-bridge.js');
+    expect(existsSync(hostPlugin)).toBe(true);
+    expect(readFileSync(hostPlugin, 'utf8')).toContain('export default');
+    expect(existsSync(join(worktree, '.opencode', 'plugins', 'karst-bridge.js'))).toBe(false);
+    expect(cmd.ownedPaths).toBeUndefined();
+    expect(cmd.env['OPENCODE_CONFIG_CONTENT']).not.toContain('"plugin"');
+    expect(existsSync(join(bridge, 'opencode2', 'emit-marker.cjs'))).toBe(true);
+  });
+
+  it('sandbox: a stale plugin left in the worktree is removed so only the bridge-dir one loads', () => {
+    const worktree = makeWorktree();
+    const bridge = makeWorktree();
+    const stale = join(worktree, '.opencode', 'plugins', 'karst-bridge.js');
+    mkdirSync(join(worktree, '.opencode', 'plugins'), { recursive: true });
+    writeFileSync(stale, 'export const KarstBridge = async () => ({});');
+    new Opencode2Adapter(async () => ({ stdout: '', stderr: '', exitCode: 0 })).buildInteractiveCommand({
+      cwd: worktree,
+      hookChannel: { endpointUrl: 'file:///karst-bridge/7/events.ndjson', configDir: bridge, runDir: '/karst-bridge/7' },
+      initialPrompt: 'go',
+    });
+    expect(existsSync(stale)).toBe(false);
   });
 
   it('writes no plugin and owns nothing when hookChannel is absent', () => {

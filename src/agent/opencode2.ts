@@ -1,3 +1,5 @@
+import { rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { HOST_SESSION_RUNNER } from './sessionRunner.js';
 import {
   type AgentAdapter,
@@ -29,7 +31,8 @@ import {
   opencode2Config,
   opencode2IsolationEnv,
 } from './opencode2Binary.js';
-import { KARST_OPENCODE_HEADLESS_ENV, writeOpencode2Bridge } from './opencode2Bridge.js';
+import { KARST_OPENCODE_HEADLESS_ENV, OPENCODE2_BRIDGE_FILENAME, writeOpencode2Bridge } from './opencode2Bridge.js';
+import { sandboxPluginLocation } from './hookBridgeFiles.js';
 import { opencodeMcpSection, readMcpServersConfig } from './mcpConfig.js';
 
 /**
@@ -413,6 +416,7 @@ export class Opencode2Adapter implements AgentAdapter {
   buildInteractiveCommand(opts: InteractiveCommandOpts): InteractiveCommand {
     const args: string[] = ['--standalone'];
     let ownedPaths: string[] | undefined;
+    let configDirEnv: string | undefined;
     if (opts.hookChannel) {
       // The generated v2 plugin is the ONLY hook authority karst introduces. It
       // is auto-discovered from `.opencode/plugins/` for a session launched in
@@ -425,7 +429,13 @@ export class Opencode2Adapter implements AgentAdapter {
         opts.hookChannel.configDir,
         opts.hookChannel.runDir,
       );
-      ownedPaths = [pluginPath];
+      if (opts.hookChannel.runDir === undefined) ownedPaths = [pluginPath];
+      else {
+        // Sandbox (file channel): the plugin sits in the mounted bridge dir and opencode is pointed at it;
+        // a stale v1/v2 plugin left in the worktree is removed so only this one can load.
+        configDirEnv = sandboxPluginLocation({ configDir: opts.hookChannel.configDir, runDir: opts.hookChannel.runDir }, 'opencode2', OPENCODE2_BRIDGE_FILENAME).configDirEnv;
+        rmSync(join(opts.cwd, '.opencode', 'plugins', OPENCODE2_BRIDGE_FILENAME), { force: true });
+      }
     }
     if (opts.resume && opts.resume.length > 0) args.push('--session', opts.resume);
     if (opts.extraArgs?.length) args.push(...opts.extraArgs);
@@ -441,6 +451,7 @@ export class Opencode2Adapter implements AgentAdapter {
       : undefined;
     const env: Record<string, string> = {
       ...opencode2IsolationEnv(opencode2Config().home),
+      ...(configDirEnv ? { OPENCODE_CONFIG_DIR: configDirEnv } : {}),
       OPENCODE_CONFIG_CONTENT: buildOpencode2ConfigContent({
         model: opts.model,
         effort: opts.effort,
