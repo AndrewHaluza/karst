@@ -91,10 +91,12 @@ export interface LaunchBackend {
  * Fail-closed fallbacks resolve to the host runner here, so the text always
  * matches the runner that really opens the session.
  */
-export async function resolveLaunchBackend(input: BackendSessionInput): Promise<LaunchBackend> {
+export async function resolveLaunchBackend(input: BackendSessionInput, remember?: (core: string | null) => void): Promise<LaunchBackend> {
   const options = backendSessionOptions(input);
   if (!options.resolveRunner) return { options, sandboxed: false };
   const resolved = await options.resolveRunner();
+  // Pointer text follows THIS launch's runner (arch:AC-34).
+  remember?.(resolved.runner.enforcesSandbox ? input.core : null);
   const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
   if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false };
   const paths = await options.bridgeFor?.(input.ticketId);

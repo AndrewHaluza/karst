@@ -13,6 +13,7 @@ import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
 import type { SandboxChannel } from '../../workflow/messageDelivery.js';
+import { assertNoSandboxResumeOnHost } from '../../agent/sandboxResumeGuard.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '../../agent/sandboxHostAllow.js';
 import { resetSandboxServices, reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
@@ -231,6 +232,12 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const uatGate = createUserUatGate();
   return {
     deps,
+    /** The headless-run guard (`instrumentedAdapter.guardResume`): a host run never resumes a sandbox session id (AC-33). */
+    guardResume: async (opts: { readonly resume?: string; readonly tracking?: { readonly ticketId?: number | null } }): Promise<void> => {
+      const ticketId = opts.tracking?.ticketId;
+      if (opts.resume === undefined || ticketId === undefined || ticketId === null) return;
+      assertNoSandboxResumeOnHost({ ticketId, resume: opts.resume, runner: 'host', hasSandbox: (await resolveTicketSandbox(deps, ticketId)).listed !== undefined });
+    },
     /** Does the runners' listing show a sandbox for this ticket? (false when it cannot tell: no backend, listing failed) */
     hasSandbox: async (ticketId: number): Promise<boolean> => (await resolveTicketSandbox(deps, ticketId)).listed !== undefined,
     /** Record (or clear, `null`) the core whose sandbox serves a ticket: set at launch, read back by the sync callers. */

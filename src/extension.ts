@@ -348,8 +348,7 @@ import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
-import { renderSandboxMarkerInstruction, scrubHostCli } from './agent/sandboxInstructions.js';
-import { assertNoSandboxResumeOnHost, SandboxResumeOnHostError } from './agent/sandboxResumeGuard.js';
+import { guardLaunchResume, launchMarkerInstruction, sandboxScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -1269,8 +1268,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id,
-    // After a reload the ticket→core cache is empty: refill it from the listing so pointer/channel text matches the sandbox (AC-34).
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+    // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
     store: localStore, beforeArchive: sandboxLife.beforeArchive,
@@ -1344,12 +1343,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The karst CLI env (`"$KARST_CLI"`/`"$KARST_DB"`/...), injected at the
       // same seam: a headless prompt carrying a `buildCli*Prefix` command
       // (UAT tester context, review/fix markers) resolves by construction.
-      // A headless run is a host run: refuse to resume a session id that lives in the ticket's sandbox (AC-33).
-      guardResume: async (opts) => {
-        const ticketId = opts.tracking?.ticketId;
-        if (opts.resume === undefined || ticketId === undefined || ticketId === null || !sandboxB) return;
-        assertNoSandboxResumeOnHost({ ticketId, resume: opts.resume, runner: 'host', hasSandbox: await sandboxB.hasSandbox(ticketId) });
-      },
+      guardResume: (opts) => sandboxB?.guardResume(opts), // a headless run is a host run: never resume a sandbox session id (AC-33)
       env: (tracking) =>
         sessionCliEnv(
           cliSessionInput(cliLiteral(context, dbPath, headlessTicketKey(tracking?.ticketId))),
@@ -6327,18 +6321,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // set is exported into the session env (below) and decides which env
       // refs the seed and command files may use.
       const cliLit = cliLiteral(context, dbPath, t.key || String(ticketId));
-      // Re-derive the launch identity (provider/model/effort) up front: the runner
-      // is resolved BEFORE the seed is composed, because a sandboxed agent gets
-      // sandbox instructions (no host CLI/db/MCP), not the host ones (AC-34).
-      const identity = resolveLaunchIdentity(
-        currentManifest() ?? emptyManifest(),
-        t,
-        options.assignment,
-        modelCatalog,
-      );
+      // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
+      const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const launchBackend = await resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }); // AC-32
-      sandboxB?.remember(ticketId, launchBackend.sandboxed ? launchProvider : null); // pointer text follows the runner of THIS launch (AC-34)
+      const launchBackend = await resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }, (core) => sandboxB?.remember(ticketId, core)); // AC-32
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed;
@@ -6348,16 +6334,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         cliEntry: cliLit.cli,
         dbPath: cliLit.db,
       });
-      const markerInstruction =
-        markerStage === null || (sandboxed && launchBackend.runDir === undefined)
-          ? renderGateOnlyInstruction()
-          : sandboxed
-          ? renderSandboxMarkerInstruction({ runDir: launchBackend.runDir!, core: launchProvider, stage: markerStage })
-          : renderDoneMarkerInstruction(
-              buildCliStagePrefix(cliTok, markerStage),
-              t.key || String(ticketId),
-              hasMcp ? markerStage : undefined,
-            );
+      const markerInstruction = launchMarkerInstruction({ backend: launchBackend, stage: markerStage, core: launchProvider, stagePrefix: (stage) => buildCliStagePrefix(cliTok, stage), ticketKey: t.key || String(ticketId), hasMcp });
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
       // into agent-specific launch args (e.g. Claude's `--plugin-dir`) so its
@@ -6424,16 +6401,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
         ? (t.sessionId ?? undefined)
         : undefined;
-      // The same guard as the headless seam: a host launch never resumes a sandbox session id; it starts fresh.
-      if (resumeId && sandboxB) {
-        try {
-          assertNoSandboxResumeOnHost({ ticketId, resume: resumeId, runner: launchBackend.sandboxed ? 'docker' : 'host', hasSandbox: await sandboxB.hasSandbox(ticketId) });
-        } catch (err) {
-          if (!(err instanceof SandboxResumeOnHostError)) throw err;
-          vscodeNotify.warn(`Karst: ${t.key ?? ticketId} has a sandbox but this launch runs on the host: starting a fresh host session instead of resuming the sandbox session.`);
-          resumeId = undefined;
-        }
-      }
+      if (resumeId && sandboxB) resumeId = await guardLaunchResume({ ticketId, ticketLabel: t.key ?? String(ticketId), resumeId, sandboxed, hasSandbox: () => sandboxB!.hasSandbox(ticketId), warn: (m) => vscodeNotify.warn(m) });
       // A core whose resume id can go stale validates it here (opencode2). A
       // missing id is dropped BEFORE the seed is composed, so the launch is a
       // fresh full seed rather than a dangling `--session`. Adapters with no
@@ -6537,13 +6505,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // adapter delivers it through its DECLARED channel (native file, or a
       // pointer in the kickoff). A fallback launch inlined it, so nothing is
       // written and no `instructions` is threaded.
-      // Last line of defence for a sandboxed agent: no host command or MCP call may survive (AC-34).
-      const scrub = (text: string | undefined): string | undefined => {
-        if (!sandboxed || text === undefined) return text;
-        const out = scrubHostCli(text);
-        if (out.scrubbed > 0) logger.debug(`[session] ticket ${t.key ?? ticketId}: scrubbed ${out.scrubbed} host-only command(s) from the sandboxed seed`);
-        return out.text;
-      };
+      const scrub = sandboxScrubber(sandboxed, (m) => logger.debug(`[session] ticket ${t.key ?? ticketId}: ${m}`)); // no host command may survive (AC-34)
       const sessionInstructions = seed.instructions
         ? writeSessionInstructions(
             join(context.globalStorageUri.fsPath, 'session-instructions', String(ticketId)),
