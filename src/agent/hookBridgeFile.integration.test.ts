@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HOOK_BRIDGE, MARKER_EMIT } from './hookBridge.js';
+import { ACK_EMIT, HOOK_BRIDGE, MARKER_EMIT } from './hookBridge.js';
 import { resolveNodeExecutable } from './nodeExecutable.js';
 
 /**
@@ -42,6 +42,7 @@ function ticketDir(name: string): string {
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, 'bridge.cjs'), HOOK_BRIDGE);
   writeFileSync(join(dir, 'emit-marker.cjs'), MARKER_EMIT);
+  writeFileSync(join(dir, 'emit-ack.cjs'), ACK_EMIT);
   return dir;
 }
 
@@ -108,8 +109,12 @@ describe('HOOK_BRIDGE file transport', () => {
 
 describe('MARKER_EMIT', () => {
   const FAST = { KARST_MARKER_WAIT_MS: '400' };
-  /** A scratch dir that is not a git repo: the dirty-tree pre-check is skipped there. */
-  const scratch = (): string => mkdtempSync(join(root, 'cwd-'));
+  /** A clean scratch git repo: the dirty-tree pre-check passes there. */
+  const scratch = (): string => {
+    const repo = mkdtempSync(join(root, 'cwd-'));
+    spawnSync('git', ['init', '-q'], { cwd: repo });
+    return repo;
+  };
   const replyFile = (events: string, seq: string): string => join(events, '..', 'results', `${seq}.json`);
   const reply = (events: string, body: object): void => {
     // Answer as the host would: watch the events file, write results/<seq>.json.
@@ -174,6 +179,15 @@ describe('MARKER_EMIT', () => {
     expect(out.stderr).toContain('f.txt');
     expect(existsSync(events)).toBe(false);
   });
+  it('a failing `git status` refuses (exit 1) and writes no line: an unknown tree is never a done marker', async () => {
+    const notARepo = mkdtempSync(join(root, 'plain-'));
+    const dir = ticketDir('7');
+    const events = join(dir, 'events.ndjson');
+    const out = await runNode(join(dir, 'emit-marker.cjs'), [events, 'impl'], '', { cwd: notARepo, env: { ...FAST, GIT_CEILING_DIRECTORIES: root } });
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain('git status failed');
+    expect(existsSync(events)).toBe(false);
+  });
   it('a clean tree with zero commits is not refused', async () => {
     const repo = scratch();
     spawnSync('git', ['init', '-q'], { cwd: repo });
@@ -182,5 +196,23 @@ describe('MARKER_EMIT', () => {
     const out = await runNode(join(dir, 'emit-marker.cjs'), [events, 'impl'], '', { cwd: repo, env: { KARST_MARKER_WAIT_MS: '200' } });
     expect(out.code).toBe(3);
     expect(lines(events)).toHaveLength(1);
+  });
+});
+
+describe('ACK_EMIT (F10)', () => {
+  it('appends an ack line for the ticket named by the events dir', async () => {
+    const dir = ticketDir('7');
+    const events = join(dir, 'events.ndjson');
+    const out = await runNode(join(dir, 'emit-ack.cjs'), [events, 'fix-12'], '');
+    expect(out.code).toBe(0);
+    expect(lines(events)).toEqual([{ v: 1, kind: 'ack', ticket: 7, ref: 'fix-12' }]);
+  });
+  it('rejects a ref that is not a token and a dir that is not a ticket id', async () => {
+    const dir = ticketDir('7');
+    const events = join(dir, 'events.ndjson');
+    expect((await runNode(join(dir, 'emit-ack.cjs'), [events, '../x'], '')).code).toBe(1);
+    const odd = mkdtempSync(join(root, 'odd-'));
+    expect((await runNode(join(dir, 'emit-ack.cjs'), [join(odd, 'events.ndjson'), 'fix-1'], '')).code).toBe(1);
+    expect(existsSync(events)).toBe(false);
   });
 });

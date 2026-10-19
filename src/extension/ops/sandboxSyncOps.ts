@@ -11,7 +11,7 @@ import { dockerNames } from '../../agent/docker/dockerNames.js';
 import { NODE_DOCKER_PROCESS, type DockerProcess } from '../../agent/docker/dockerProcess.js';
 import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
 import { linuxUser } from '../../agent/docker/resolveDocker.js';
-import type { SessionRunner } from '../../agent/sessionRunner.js';
+import { HOST_SESSION_RUNNER, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import type { Notify } from './notify.js';
 
@@ -30,6 +30,8 @@ export interface BackendSessionInput {
   readonly info: (line: string) => void;
   /** The ticket worktree; the docker backend clones its branch. */
   readonly worktree?: { readonly path: string; readonly branch: string | null };
+  /** How many repos' worktrees the ticket has; more than one never gets a sandbox in v1 (decided at launch). */
+  readonly worktreeCount?: number;
   readonly debug?: (message: string) => void;
   readonly resolve?: typeof resolveBackend;
   /** Attaches the ticket's evidence bridge; `openSession` calls it only for a sandbox runner (arch:AC-34). */
@@ -50,6 +52,10 @@ export function backendSessionOptions(input: BackendSessionInput): {
   // The project owns whether the feature is on: a ticket opt-out alone changes nothing.
   if (input.backends === undefined) return {};
   const backend = ticketBackendSetting(backendForCore(input.backends, input.core), input.ticketOverride)!;
+  // v1: a multi-repo ticket starts as a normal host session from the beginning (host prompts as usual; arch:AC-31 host mode).
+  if (backend !== 'host' && (input.worktreeCount ?? 1) > 1) {
+    return { onBackend: (line) => input.info(`[session] ticket ${input.ticketLabel} backend: ${line}`), resolveRunner: () => Promise.resolve({ runner: HOST_SESSION_RUNNER, line: 'host (multi-repo ticket: no sandbox in v1)' }) };
+  }
   const resolve = input.resolve ?? resolveBackend;
   const resolveRunner = async (): Promise<ResolvedBackend> => {
     const out = await resolve({
@@ -68,6 +74,34 @@ export function backendSessionOptions(input: BackendSessionInput): {
     onBackend: (line) => input.info(`[session] ticket ${input.ticketLabel} backend: ${line}`),
     ...(input.bridgeFor ? { bridgeFor: input.bridgeFor } : {}),
   };
+}
+
+export interface LaunchBackend {
+  /** The `openSession` options; a resolved runner is handed over as is so the session does not resolve (and prepare) it twice. */
+  readonly options: ReturnType<typeof backendSessionOptions>;
+  /** The runner enforces a sandbox: compose sandbox instructions, not the host CLI ones. */
+  readonly sandboxed: boolean;
+  /** The bridge dir as the agent sees it (ends in the ticket id); absent when no bridge is attached. */
+  readonly runDir?: string;
+}
+
+/**
+ * Resolve the launch runner BEFORE the seed is composed: the instructions an
+ * agent gets depend on where it runs (a sandbox has no host CLI, db or MCP).
+ * Fail-closed fallbacks resolve to the host runner here, so the text always
+ * matches the runner that really opens the session.
+ */
+export async function resolveLaunchBackend(input: BackendSessionInput, remember?: (core: string | null) => void): Promise<LaunchBackend> {
+  const options = backendSessionOptions(input);
+  if (!options.resolveRunner) return { options, sandboxed: false };
+  const resolved = await options.resolveRunner();
+  // Pointer text follows THIS launch's runner (arch:AC-34).
+  remember?.(resolved.runner.enforcesSandbox ? input.core : null);
+  const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
+  if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false };
+  const paths = await options.bridgeFor?.(input.ticketId);
+  const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
+  return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}) };
 }
 
 /** `host (<reason>)` → `<reason>`. */

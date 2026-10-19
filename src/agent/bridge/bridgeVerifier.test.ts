@@ -64,4 +64,17 @@ describe('verifyBridgeLine', () => {
     const r = verifyBridgeLine(hook({ evil: 'x', ticketId: 99 }), expectOf());
     expect(r.ok && r.event.kind === 'hook' && 'evil' in r.event.payload).toBe(false);
   });
+
+  describe('ack lines (F10)', () => {
+    const ack = (o: Record<string, unknown> = {}) => JSON.stringify({ v: 1, kind: 'ack', ticket: 7, ref: 'fix-12', ...o });
+    it('accepts an own-ticket ack with a token ref', () => {
+      expect(verifyBridgeLine(ack(), expectOf())).toEqual({ ok: true, event: { kind: 'ack', ref: 'fix-12' } });
+    });
+    it('rejects a foreign ticket and a ref that is not a token', () => {
+      expect(verifyBridgeLine(ack({ ticket: 8 }), expectOf())).toEqual({ ok: false, reason: 'ticket 8 != 7' });
+      for (const ref of ['../x', 'a b', '', 'x'.repeat(65), 12, undefined]) {
+        expect(verifyBridgeLine(ack({ ref }), expectOf())).toEqual({ ok: false, reason: 'ack ref is not a token' });
+      }
+    });
+  });
 });

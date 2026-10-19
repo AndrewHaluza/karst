@@ -86,6 +86,72 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     return { projectId, a, b, gone, proc, dockerProc };
   }
 
+  it('palette command target (F5): an argument passes through untouched', async () => {
+    const { w } = wiring();
+    await expect(w.commandTarget(42, 'sync')).resolves.toBe(42);
+  });
+
+  it('palette command target: no argument → a picker of this project\'s sandboxed live tickets', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    const pickTicket = vi.fn(async (picks: readonly { ticketId: number }[]) => picks[0]!.ticketId);
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc, pickTicket });
+    await expect(w.commandTarget(undefined, 'sync')).resolves.toBe(a);
+    expect(pickTicket).toHaveBeenCalledTimes(1);
+    expect(pickTicket.mock.calls[0]![0]).toEqual([{ label: 'A-1', description: expect.stringContaining('sbx claude (running)'), ticketId: a }]);
+  });
+
+  it('palette command target: nothing sandboxed → an info message, never silent', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const pickTicket = vi.fn();
+    const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc: fakeSbxProcess(), dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), pickTicket });
+    await expect(w.commandTarget(undefined, 'sync')).resolves.toBeUndefined();
+    expect(pickTicket).not.toHaveBeenCalled();
+    expect(notify.info).toHaveBeenCalledWith('Karst: no ticket in this project has a sandbox to sync.');
+  });
+
+  it('palette command target: one pick per ticket (two sandboxes of one ticket list once) and invalid-core objects are skipped', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId }).id;
+    const claude = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const codex = sbxName({ projectRoot: ROOT, ticketId: a, core: 'codex' });
+    const bad = claude.replace(/claude$/, 'null');
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${claude} claude running\n${codex} codex stopped\n${bad} null running\n` } });
+    const pickTicket = vi.fn(async (_picks: readonly { ticketId: number }[], _placeHolder: string): Promise<number | undefined> => undefined);
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), pickTicket });
+    await expect(w.commandTarget(undefined, 'remove')).resolves.toBeUndefined();
+    expect(pickTicket).toHaveBeenCalledWith([expect.objectContaining({ ticketId: a })], 'Ticket whose sandbox to remove');
+    expect(pickTicket.mock.calls[0]![0]).toHaveLength(1);
+  });
+
+  it('a lookup that fails logs and falls back to the session provider instead of throwing', async () => {
+    setSessionId(store, id, 's1', 'claude');
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(id);
+    const logError = vi.fn();
+    const failing = { run: () => { throw new Error('spawn exploded'); } } as never;
+    const { w } = wiring({ projectRoot: () => ROOT, proc: failing, dockerProc: Object.assign(failing, { pipe: vi.fn() }), logError });
+    await w.diff(id);
+    expect(logError).toHaveBeenCalledWith(`karst: sandbox lookup failed for ticket ${id}`, expect.any(Error));
+  });
+
+  it('two sandboxes for one ticket: the lookup logs which one it chose', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const a = createTicket(store, { key: 'A-1', title: 'a', projectId }).id;
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/r', 'feat/r')").run(a);
+    const claude = sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' });
+    const codex = sbxName({ projectRoot: ROOT, ticketId: a, core: 'codex' });
+    const proc = fakeSbxProcess({ 'sbx ls': { stdout: `SANDBOX AGENT STATUS\n${claude} claude running\n${codex} codex running\n` } });
+    const info = vi.fn();
+    const { w } = wiring({ projectRoot: () => ROOT, proc, dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), info });
+    await w.diff(a);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining(`karst: ticket ${a} has 2 sandboxes`));
+  });
+
+  it('palette command target: no project root → says no backend is configured', async () => {
+    const { w, notify } = wiring({ projectRoot: () => undefined });
+    await expect(w.commandTarget(undefined, 'remove')).resolves.toBeUndefined();
+    expect(notify.info).toHaveBeenCalledWith('Karst: no sandbox backend is configured for this project.');
+  });
+
   it('reconcile drops only the missing owned sandbox session; logs the orphan', async () => {
     const { projectId, a, b, gone, proc, dockerProc } = live();
     const info = vi.fn();
@@ -294,5 +360,20 @@ describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
     const { w, notify } = wiring({ projectRoot: () => ROOT });
     await w.diff(id);
     expect(notify.error).toHaveBeenCalledWith('Karst: K-1 has no worktree branch to diff against.');
+  });
+});
+
+describe('makeSandboxWiring finds the sandbox by listing, not sessionProvider (F4)', () => {
+  const ROOT = '/p/karst.yml';
+  it('a null session provider still reaches the ticket sandbox found in the listing', async () => {
+    const t = createTicket(store, { key: 'K-5', title: 'n' }).id; // no setSessionId: provider null (T700)
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/n', 'feat/n')").run(t);
+    const container = sbxName({ projectRoot: ROOT, ticketId: t, core: 'opencode2' });
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess({ 'docker ps': { stdout: `${container}\trunning\n` } }), { pipe: vi.fn() });
+    const { w, notify } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
+    await w.diff(t);
+    expect(notify.error).not.toHaveBeenCalledWith(expect.stringContaining('core unknown'));
+    expect(dockerProc.calls.some((c) => c.args.includes('run') || c.args.includes('bundle'))).toBe(true);
   });
 });

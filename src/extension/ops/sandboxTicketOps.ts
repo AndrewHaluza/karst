@@ -11,6 +11,10 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
+import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
+import type { SandboxChannel } from '../../workflow/messageDelivery.js';
+import { assertNoSandboxResumeOnHost } from '../../agent/sandboxResumeGuard.js';
+import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '../../agent/sandboxHostAllow.js';
 import { resetSandboxServices, reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
 import { createUserUatGate } from '../../agent/userUatGate.js';
@@ -29,11 +33,20 @@ import { isServing } from '../../runtime/health.js';
  */
 export interface TicketSandboxDeps {
   readonly backends: () => AgentBackends | undefined;
-  readonly projectRoot: () => string;
+  /** The sandbox name hash input launch used: the manifest file, else the ticket worktree path (N10). */
+  readonly projectRoot: (ticketId: number) => string;
   /** The ticket's session core (`tickets.session_provider`), or null. */
   readonly coreOf: (ticketId: number) => string | null;
   /** The ticket's evidence bridge paths, when the hook endpoint is up. */
   readonly bridgeOf?: (ticketId: number) => BridgePaths | undefined;
+  /**
+   * This project's sandboxes from the runners' own listing (F4). Absent = the
+   * session provider alone decides (legacy / tests). It is the source of truth
+   * once present: `coreOf` is only a hint for ties.
+   */
+  readonly inventory?: (ticketId: number) => Promise<readonly ProjectSandbox[]>;
+  /** Last core the listing resolved for a ticket (sync callers read it back via `coreOf`). */
+  readonly remember?: (ticketId: number, core: string | null) => void;
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
@@ -46,12 +59,12 @@ export interface TicketSandbox {
 }
 
 /** The runner the backend would use for this ticket's core, or undefined (host). Sync: no probe. */
-export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number): TicketSandbox | undefined {
-  const core = deps.coreOf(ticketId);
+export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, coreOverride?: string | null): TicketSandbox | undefined {
+  const core = coreOverride === undefined ? deps.coreOf(ticketId) : coreOverride;
   if (core === null) return undefined;
   const backend = backendForCore(deps.backends(), core);
   const bridge = deps.bridgeOf?.(ticketId);
-  const projectRoot = deps.projectRoot();
+  const projectRoot = deps.projectRoot(ticketId);
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({
@@ -72,26 +85,64 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number): 
   return undefined;
 }
 
+export interface ResolvedTicketSandbox {
+  /** The runner for the resolved core, when the backend config can host it. */
+  readonly found: TicketSandbox | undefined;
+  /** The listed sandbox that proves this ticket HAS one (absent when only the hint matched). */
+  readonly listed: ProjectSandbox | undefined;
+}
+
+/** The ticket's sandbox from the listing first, `sessionProvider` as the hint (F4). Never throws. */
+export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: number): Promise<ResolvedTicketSandbox> {
+  const hint = deps.coreOf(ticketId);
+  let listed: ProjectSandbox | undefined;
+  if (deps.inventory) {
+    const all = await deps.inventory(ticketId).catch((err: unknown) => {
+      deps.debug?.(`[sandbox] ticket ${ticketId}: listing failed (${err instanceof Error ? err.message : String(err)}); using the session provider`);
+      return [] as readonly ProjectSandbox[];
+    });
+    listed = pickTicketSandbox(all, ticketId, hint, (m) => deps.debug?.(`[sandbox] ${m}`));
+    deps.remember?.(ticketId, listed?.core ?? null);
+  }
+  const core = listed?.core ?? hint;
+  let found: TicketSandbox | undefined;
+  try {
+    found = ticketSandboxRunner(deps, ticketId, core);
+  } catch (err) {
+    deps.debug?.(`[sandbox] ticket ${ticketId}: no runner for core ${String(core)} (${err instanceof Error ? err.message : String(err)})`);
+  }
+  return { found, listed };
+}
+
 /** The services context, only when the sandbox exists. */
 export async function ticketSandboxContext(deps: TicketSandboxDeps, ticketId: number): Promise<SandboxServiceContext | undefined> {
-  const found = ticketSandboxRunner(deps, ticketId);
-  if (!found || !(await found.runner.hasSandbox?.())) return undefined;
+  const { found, listed } = await resolveTicketSandbox(deps, ticketId);
+  if (!found || !(listed || (await found.runner.hasSandbox?.()))) return undefined;
   return { runner: found.runner, sandboxName: found.sandboxName };
 }
 
 /**
  * The ticket's gate boundary: inside its sandbox when it exists, else the host
- * `runProcess` (zero behaviour change). Undefined when the backend never hosts
- * this core, so the stage deps stay byte-identical for host tickets.
+ * `runProcess`. A ticket that HAS a sandbox never runs a gate on the host: with
+ * no runner able to exec there, the gate is refused (`spawnFailed`, no verdict;
+ * arch:AC-31/AC-32). Undefined when no sandbox backend is configured and the
+ * session provider names no sandboxed core, so host tickets stay byte-identical.
  */
 export function ticketGateProcess(deps: TicketSandboxDeps, ticketId: number): GateProcessRunner | undefined {
-  const found = ticketSandboxRunner(deps, ticketId);
-  if (!found?.runner.runGate) return undefined;
-  const sandboxGate = found.runner.runGate;
+  const legacy = ticketSandboxRunner(deps, ticketId);
+  const listing = deps.inventory !== undefined && selectedSandboxBackends(deps.backends()).length > 0;
+  if (!listing && !legacy?.runner.runGate) return undefined;
   return async (command, args, cwd, options) => {
-    const inside = (await found.runner.hasSandbox?.()) === true;
-    deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs ${inside ? `in ${found.runner.kind} (${found.sandboxName})` : 'on the host (no sandbox)'}`);
-    return inside ? sandboxGate(command, args, cwd, options) : runProcess(command, args, cwd, options);
+    const { found, listed } = await resolveTicketSandbox(deps, ticketId);
+    const sandboxGate = found?.runner.runGate;
+    if (listed && !sandboxGate) {
+      const reason = `gate refused: ticket ${ticketId} has a sandbox (${listed.name}) but no runner can execute gates there; gates never run on the host for a sandboxed ticket`;
+      deps.debug?.(`[gate] ${reason}`);
+      return { kind: 'spawnFailed', message: reason, output: reason };
+    }
+    const inside = sandboxGate !== undefined && (listed !== undefined || (await found!.runner.hasSandbox?.()) === true);
+    deps.debug?.(`[gate] ticket ${ticketId}: ${command} runs ${inside ? `in ${found!.runner.kind} (${found!.sandboxName})` : 'on the host (no sandbox)'}`);
+    return inside ? sandboxGate!(command, args, cwd, options) : runProcess(command, args, cwd, options);
   };
 }
 
@@ -164,8 +215,15 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
 
 /** Everything extension.ts binds for sandboxed tickets (arch:AC-32), so the host file stays bindings-only. */
 export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
+  const cores = new Map<number, string>();
   const deps: TicketSandboxDeps = {
     ...input,
+    // The listing's answer wins over the (possibly null) session provider for every sync reader too.
+    coreOf: (ticketId) => cores.get(ticketId) ?? input.coreOf(ticketId),
+    inventory: input.inventory ?? (async (ticketId) => (await listProjectSandboxes({
+      projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
+    })).sandboxes),
+    remember: (ticketId, core) => { if (core === null) cores.delete(ticketId); else cores.set(ticketId, core); },
     bridgeOf: (ticketId) => {
       const root = input.bridgeRoot();
       return root === undefined ? undefined : bridgePaths(root, ticketId);
@@ -174,6 +232,27 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const uatGate = createUserUatGate();
   return {
     deps,
+    /** The headless-run guard (`instrumentedAdapter.guardResume`): a host run never resumes a sandbox session id (AC-33). */
+    guardResume: async (opts: { readonly resume?: string; readonly tracking?: { readonly ticketId?: number | null } }): Promise<void> => {
+      const ticketId = opts.tracking?.ticketId;
+      if (opts.resume === undefined || ticketId === undefined || ticketId === null) return;
+      assertNoSandboxResumeOnHost({ ticketId, resume: opts.resume, runner: 'host', hasSandbox: (await resolveTicketSandbox(deps, ticketId)).listed !== undefined });
+    },
+    /** Does the runners' listing show a sandbox for this ticket? (false when it cannot tell: no backend, listing failed) */
+    hasSandbox: async (ticketId: number): Promise<boolean> => (await resolveTicketSandbox(deps, ticketId)).listed !== undefined,
+    /** Record (or clear, `null`) the core whose sandbox serves a ticket: set at launch, read back by the sync callers. */
+    remember: (ticketId: number, core: string | null) => deps.remember?.(ticketId, core),
+    /**
+     * How a sandboxed session reaches karst for pointer text (arch:AC-34): the bridge dir as the agent
+     * sees it plus its script dir. Undefined for a host session (no sandbox remembered for the ticket).
+     */
+    sandboxChannel: (ticketId: number): SandboxChannel | undefined => {
+      const core = cores.get(ticketId);
+      const bridge = deps.bridgeOf?.(ticketId);
+      if (core === undefined || !bridge) return undefined;
+      const runDir = ticketSandboxRunner(deps, ticketId, core)?.runner.bridgeRunDir?.(bridge);
+      return runDir === undefined ? undefined : { kind: 'sandbox', runDir, core };
+    },
     /** Decision 7: open/copy of a ticket's service link is withheld during agent UAT. */
     userUatWithheld: (ticketId: number) => uatGate.isWithheld(ticketId),
     /** Decisions 7-8 for the UAT stage: keep a sandboxed stack, reset it, gate the link. */

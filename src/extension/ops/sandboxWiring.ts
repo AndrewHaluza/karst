@@ -7,6 +7,8 @@ import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
 import { disposeSandboxOp, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import type { SandboxInventory } from '../../agent/sandboxInventory.js';
+import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
@@ -30,6 +32,10 @@ export interface SandboxWiringInput {
   readonly logError: (m: string, err: unknown) => void;
   /** A ticket's terminal/session is open (never stopped under it). */
   readonly sessionOpen: (ticketId: number) => boolean;
+  /** Quick pick over this project's sandboxed tickets (Command Palette); `undefined` = dismissed. */
+  readonly pickTicket?: (picks: readonly { label: string; description: string; ticketId: number }[], placeHolder: string) => Promise<number | undefined>;
+  /** Every listing the boot reconcile reads (after a reload the in-memory ticket→core cache is empty). */
+  readonly onInventory?: (inventory: SandboxInventory) => void;
   /** Test seams; default to the real async spawns and clock. */
   readonly now?: () => number;
   readonly setInterval?: (fn: () => void, ms: number) => { dispose(): void };
@@ -56,8 +62,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     };
   };
   /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
-  const manualDeps = (ticketId: number): { d: SandboxLifecycleDeps; t: SandboxSyncTarget } => {
-    const { t, projectRoot } = manual(ticketId);
+  const manualDeps = async (ticketId: number): Promise<{ d: SandboxLifecycleDeps; t: SandboxSyncTarget }> => {
+    const { t, projectRoot } = await manual(ticketId);
     const bridges = w.bridges();
     return {
       t,
@@ -84,51 +90,96 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const projectId = w.projectId();
     return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null);
   };
-  const manual = (ticketId: number) => {
+  /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
+  const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
-    return { t, projectRoot: w.projectRoot() ?? t.worktree?.path ?? '' };
+    try {
+      const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+      const found = pickTicketSandbox(inv.sandboxes, ticketId, t.core, (m) => w.info(`karst: ${m}`));
+      return found ? { ...t, core: found.core } : t;
+    } catch (err) {
+      w.logError(`karst: sandbox lookup failed for ticket ${ticketId}`, err);
+      return t;
+    }
+  };
+  const manual = async (ticketId: number) => {
+    const t0 = target(ticketId);
+    const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
+    return { t: await resolved(ticketId, projectRoot), projectRoot };
+  };
+  /**
+   * A palette command has no ticket argument: choose one of THIS project's tickets that has a
+   * sandbox (from the runners' listing). Never returns silently: no backend / no sandbox is said.
+   */
+  const commandTarget = async (arg: number | undefined, verb: string): Promise<number | undefined> => {
+    if (arg !== undefined) return arg;
+    const projectRoot = w.projectRoot();
+    if (projectRoot === undefined) {
+      w.notify.info('Karst: no sandbox backend is configured for this project.');
+      return undefined;
+    }
+    const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+    const live = new Map(liveTickets().map((t) => [t.id, t]));
+    const seen = new Set<number>();
+    const picks = inv.sandboxes.flatMap((box) => {
+      const t = live.get(box.ticketId);
+      if (box.invalidCore === true || t === undefined || seen.has(box.ticketId)) return [];
+      seen.add(box.ticketId);
+      return [{ label: t.key ?? String(t.id), description: `${box.runner} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
+    });
+    if (picks.length === 0) {
+      w.notify.info(`Karst: no ticket in this project has a sandbox to ${verb}.`);
+      return undefined;
+    }
+    return w.pickTicket?.(picks, `Ticket whose sandbox to ${verb}`);
   };
   const wiring = {
+    /** Palette entry for `karst.sandbox.sync` / `.dispose`: the given ticket, else a picker (F5). */
+    commandTarget,
     /** `karst.sandbox.sync` / `.dispose`: explicit user actions, independent of the configured backend. */
     sync: async (ticketId: number): Promise<void> => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       await syncSandboxOp({ notify: w.notify, projectRoot }, t);
     },
     /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
     ensureSynced: async (ticketId: number) => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       return ensureSandboxSynced({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       await diffSandboxOp({ notify: w.notify, projectRoot, showDiff: w.showDiff, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
     stop: async (ticketId: number): Promise<void> => {
-      const { d, t } = manualDeps(ticketId);
+      const { d, t } = await manualDeps(ticketId);
       if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
     },
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
-      const { d, t } = manualDeps(ticketId);
+      const { d, t } = await manualDeps(ticketId);
       await removeSandboxGuarded(d, t);
     },
     dispose: async (ticketId: number): Promise<void> => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot }, t);
     },
-    beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d ? removeSandboxGuarded(d, target(ticketId)) : true; },
-    onDone: (ticketId: number): void => { const d = deps(); if (d) void stopSandboxOp(d, target(ticketId)); },
+    beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d ? removeSandboxGuarded(d, await resolved(ticketId, d.projectRoot)) : true; },
+    onDone: (ticketId: number): void => { const d = deps(); if (d) void resolved(ticketId, d.projectRoot).then((t) => stopSandboxOp(d, t)).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
     onProviderSwitch: async (ticketId: number, newCore: string): Promise<boolean> => {
       const d = deps();
-      return d ? switchProviderOp({ ...d, clearSession }, target(ticketId), newCore) : true;
+      return d ? switchProviderOp({ ...d, clearSession }, await resolved(ticketId, d.projectRoot), newCore) : true;
     },
     reconcile: async (): Promise<void> => {
       const d = deps();
       if (!d || w.projectId() === undefined) return;
       await runSandboxReconcile({
-        inventory: () => inventoryOf(d),
+        inventory: async () => {
+          const inventory = await inventoryOf(d);
+          w.onInventory?.(inventory);
+          return inventory;
+        },
         live: liveTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
       });
     },

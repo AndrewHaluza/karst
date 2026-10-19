@@ -1,3 +1,4 @@
+import { DOCKER_CORES } from '../sandboxCores.js';
 import { sbxName, type SbxNameInput } from '../sbx/sbxName.js';
 
 /** Every docker object one ticket's sandbox owns. `dispose` touches these names and no others. */
@@ -16,6 +17,9 @@ export interface DockerNames {
  * same validation guards every handle `docker rm` ever gets. Throws like `sbxName`.
  */
 export function dockerNames(input: SbxNameInput): DockerNames {
+  if (!(DOCKER_CORES as readonly string[]).includes(input.core)) {
+    throw new Error(`docker names: core ${JSON.stringify(input.core)} is not a docker core`);
+  }
   const base = sbxName(input);
   return {
     container: base,

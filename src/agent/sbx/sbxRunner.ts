@@ -11,6 +11,8 @@ import type {
 } from '../sessionRunner.js';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { removeSbxClone } from './sbxClone.js';
+import { withoutHostOnlyEnv } from '../cliEnv.js';
+import { withXfer } from '../xfer.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
@@ -33,6 +35,20 @@ export interface SbxRunnerOptions {
   readonly cloneDir?: string;
 }
 
+/** Runs in the sandbox: bundle `$1` into a temp file and print it as base64 (no host path crosses). */
+const BUNDLE_OUT = [
+  'sh', '-c',
+  'set -e; t=$(mktemp); trap \'rm -f "$t"\' EXIT; git -c safe.directory=\'*\' bundle create -q "$t" "$1"; base64 < "$t"',
+  'karst-bundle',
+] as const;
+
+/** Host git never runs repo hooks/fsmonitor and ignores system/global config (the host worktree is the only repo it touches). */
+const HARDENED_GIT = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'protocol.allow=never', '-c', 'protocol.file.allow=always'] as const;
+const HARDENED_ENV = { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } as const;
+
+/** Cap on the base64 bundle stream held in host memory (about 96 MiB of bundle). */
+export const MAX_BUNDLE_STDOUT_BYTES = 128 * 1024 * 1024;
+
 /** Env name a sandboxed gate reads to know where evidence files go (the bridge dir). */
 export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
 
@@ -51,7 +67,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const known = new Set(opts.existing);
   const spawnHeadless = opts.spawnHeadless ?? spawnHeadlessCli;
   const remote = sandboxRemote(opts.name);
-  const git = (wt: string, args: string[]) => opts.proc.run('git', ['-C', wt, ...args]);
+  const git = (wt: string, args: string[]) => opts.proc.run('git', [...HARDENED_GIT, '-C', wt, ...args], { env: HARDENED_ENV });
   const gateProcess = opts.gateProcess ?? runProcess;
   const sbx = (args: string[]) => opts.proc.run(SBX_BIN, args);
   const listed = async (): Promise<boolean> => {
@@ -59,19 +75,24 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     return ls.code === 0 && parseNames(ls.stdout).includes(opts.name);
   };
   const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
-  /** Bring the sandbox's branch to `<remote>/<branch>` in the host worktree: direct, or relayed through the clone. */
-  const fetchSandbox = async (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> => {
-    const from = opts.cloneDir ?? wt;
-    if ((await git(from, ['remote', 'get-url', remote])).code !== 0) {
-      return { ok: false, reason: `no sandbox remote ${remote} (sandbox not created yet?)` };
-    }
-    const fetched = await git(from, ['fetch', remote]);
-    if (fetched.code !== 0) return { ok: false, reason: `git fetch ${remote} failed: ${fetched.stderr.trim()}` };
-    if (!opts.cloneDir) return { ok: true };
-    const refspec = `+refs/remotes/${remote}/${branch}:refs/remotes/${remote}/${branch}`;
-    const relayed = await git(wt, ['fetch', opts.cloneDir, refspec]);
-    return relayed.code === 0 ? { ok: true } : { ok: false, reason: `git fetch from sandbox clone failed: ${relayed.stderr.trim()}` };
-  };
+  /**
+   * Bring the sandbox's branch into the host worktree as FETCH_HEAD. The bundle
+   * is made INSIDE the sandbox (`sbx exec`) and streamed back as base64, so the
+   * host never runs git with cwd in the agent-written clone nor reads its config
+   * (hooks, fsmonitor, `ext::` remotes: arch:AC-31/AC-34). The host fetches only
+   * a bundle it wrote itself into a private xfer dir.
+   */
+  const fetchSandbox = (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> =>
+    withXfer(async (xfer) => {
+      const made = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', ...BUNDLE_OUT, branch], { ...(opts.cloneDir ? { cwd: opts.cloneDir } : {}), maxStdoutBytes: MAX_BUNDLE_STDOUT_BYTES });
+      if (made.code !== 0) return { ok: false as const, reason: `no sandbox clone to sync from: ${made.stderr.trim()}` };
+      const bytes = Buffer.from(made.stdout, 'base64');
+      if (bytes.length === 0) return { ok: false as const, reason: 'sandbox returned an empty bundle' };
+      const path = await xfer.write('out.bundle', bytes);
+      await xfer.verified('out.bundle');
+      const fetched = await opts.proc.run('git', [...HARDENED_GIT, '-C', wt, 'fetch', path, `refs/heads/${branch}`], { env: HARDENED_ENV });
+      return fetched.code === 0 ? { ok: true as const } : { ok: false as const, reason: `git fetch of the sandbox bundle failed: ${fetched.stderr.trim()}` };
+    }).catch((err: unknown) => ({ ok: false as const, reason: `sbx sync failed: ${err instanceof Error ? err.message : String(err)}` }));
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
@@ -90,7 +111,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
           'run', ...create, '--name', opts.name, opts.core, ...workspace,
           '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
-        env: { ...spec.env },
+        env: withoutHostOnlyEnv(spec.env),
       };
     },
     // sbx mounts extra workspaces at the same absolute path.
@@ -128,19 +149,19 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const wt = ticket.hostWorktreePath;
       const fetched = await fetchSandbox(wt, ticket.branch);
       if (!fetched.ok) return fetched;
-      const ref = `${remote}/${ticket.branch}`;
+      const ref = 'FETCH_HEAD';
       if ((await git(wt, ['merge-base', '--is-ancestor', 'HEAD', ref])).code !== 0) {
-        return { ok: false, reason: `refused: ${ref} is not a fast-forward of ${ticket.branch} (never forced)` };
+        return { ok: false, reason: `refused: the sandbox's ${ticket.branch} is not a fast-forward of the host branch (never forced)` };
       }
       const merged = await git(wt, ['merge', '--ff-only', ref]);
       if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only ${ref} failed: ${merged.stderr.trim()}` };
-      return { ok: true, summary: `fast-forwarded ${ticket.branch} to ${ref}` };
+      return { ok: true, summary: `fast-forwarded ${ticket.branch} to the sbx sandbox's commits` };
     },
     diff: async (ticket: SandboxTicketRef): Promise<DiffResult> => {
       const wt = ticket.hostWorktreePath;
       const fetched = await fetchSandbox(wt, ticket.branch);
       if (!fetched.ok) return fetched;
-      const ref = `${remote}/${ticket.branch}`;
+      const ref = 'FETCH_HEAD';
       const diff = await git(wt, ['diff', `HEAD...${ref}`]);
       if (diff.code !== 0) return { ok: false, reason: `git diff failed: ${diff.stderr.trim()}` };
       return { ok: true, diff: diff.stdout, ref };

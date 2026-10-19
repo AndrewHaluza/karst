@@ -10,6 +10,7 @@ import { openStore, type Store } from '../../store/db.js';
 import { createTicket, setSessionId } from '../../store/tickets.js';
 import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
 import type { BridgeAttachment, BridgeAttachmentDeps } from '../../agent/bridge/bridgeSink.js';
+import { getFixDelivery, upsertFixDelivery } from '../../store/fixDeliveries.js';
 import { BRIDGE_POLL_INTERVAL_MS, makeBridgeBuild, openBridgeTicketIds, type BridgeBuildDeps } from './bridgeWiring.js';
 
 const dispatchMock = vi.mocked(dispatchHook);
@@ -187,5 +188,18 @@ describe('openBridgeTicketIds', () => {
     store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(done);
     store.db.prepare("UPDATE tickets SET archived_at = 'x' WHERE id = ?").run(archived);
     expect(openBridgeTicketIds(store)).toEqual(new Set([ticketId]));
+  });
+});
+
+describe('makeBridgeBuild onAck (sandbox inbox ack, F10)', () => {
+  it('marks this ticket\'s pending fix delivery read and logs it; a stale ref is ignored and logged', () => {
+    const debug = vi.fn();
+    makeBridgeBuild(deps({ debug }))(ticketId, paths);
+    const row = upsertFixDelivery(store, { ticketId, recoveryRoundId: null, launchId: 'L1', body: 'B', truncatedFooter: 'F', at: '2026-10-19T10:00:00Z' });
+    captured[0]!.onAck!(`fix-${row}`);
+    expect(getFixDelivery(store, row)!.readAt).not.toBeNull();
+    expect(debug).toHaveBeenCalledWith(`[bridge] ticket ${ticketId} ack fix-${row}: delivery marked read`);
+    captured[0]!.onAck!(`fix-${row}`);
+    expect(debug).toHaveBeenCalledWith(`[bridge] ticket ${ticketId} ack fix-${row}: ignored (not a pending delivery of this ticket)`);
   });
 });

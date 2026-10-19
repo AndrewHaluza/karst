@@ -22,4 +22,8 @@ describe('sbxName', () => {
     expect(() => sbxName({ projectRoot: '/p', ticketId: 0, core: 'claude' })).toThrow(/sbx name/);
     expect(() => sbxName({ projectRoot: '/p', ticketId: 1.5, core: 'claude' })).toThrow(/sbx name/);
   });
+
+  it.each(['null', 'antigravity', 'agy', '', 'gemini'])('rejects the non-sandbox core %j', (core) => {
+    expect(() => sbxName({ projectRoot: '/p', ticketId: 7, core })).toThrow(/not a sandbox core/);
+  });
 });

@@ -5,6 +5,7 @@ import { runProcess } from '../../workflow/gates/run.js';
 import type { GateProcessRunner, PlacedInteractiveLaunch, RunHeadless, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
+import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { chownVolumes, ensureClone, ensureVolume, diffFromClone, OS_TEMP_DIRS, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
 import { seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore } from './dockerImage.js';
@@ -72,7 +73,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       // The allow-all opencode config rides the docker client's env (by name),
       // so it reaches only the container (arch:AC-31, arch:AC-33).
       const launch = autonomousLaunch(opts.core, { enforcesSandbox: true });
-      const env = launch.env(spec.env);
+      const env = launch.env(withoutHostOnlyEnv(spec.env));
       return {
         cwd: spec.hostWorktreePath,
         shellPath: DOCKER_BIN,

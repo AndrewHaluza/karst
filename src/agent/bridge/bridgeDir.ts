@@ -15,6 +15,10 @@ export interface BridgePaths {
   readonly stateFile: string;
   /** Host-written reply files, one per marker line (arch:AC-34); the host never reads them back. */
   readonly resultsDir: string;
+  /** Host-written briefs the agent reads (`<ref>.md`, e.g. `fix-12.md`); written through `inbox.ts` only. */
+  readonly inboxDir: string;
+  /** Host-private record of the marker `seq`s already handled (dedupe across reattach and file rewrites). */
+  readonly handledFile: string;
   /** Host-private retry record for a marker that failed transiently (outside the sandbox-writable dir). */
   readonly pendingFile: string;
   readonly runDir: string;
@@ -28,7 +32,9 @@ export function bridgePaths(root: string, ticketId: number): BridgePaths {
     eventsFile: join(dir, 'events.ndjson'),
     stateFile: join(root, 'state', `${ticketId}.json`),
     resultsDir: join(dir, 'results'),
+    inboxDir: join(dir, 'inbox'),
     pendingFile: join(root, 'state', `${ticketId}.marker.json`),
+    handledFile: join(root, 'state', `${ticketId}.handled.json`),
     runDir: `${SANDBOX_BRIDGE_MOUNT_ROOT}/${ticketId}`,
   };
 }
@@ -54,6 +60,7 @@ export async function ensureBridgeDir(paths: BridgePaths): Promise<void> {
   await prepareEventsFile(paths.eventsFile);
   // The host writes replies here; the sandbox only reads them.
   await mkdir(paths.resultsDir, { recursive: true, mode: 0o755 });
+  await mkdir(paths.inboxDir, { recursive: true, mode: 0o755 });
   // mode is masked by umask: enforce explicitly.
   // Sticky: another sandbox user cannot rename or replace the host-owned results dir.
   await chmod(paths.dir, 0o1777);
@@ -86,6 +93,7 @@ export async function removeBridgeDir(paths: BridgePaths): Promise<void> {
   await rm(paths.dir, { recursive: true, force: true });
   await rm(paths.stateFile, { force: true });
   await rm(paths.pendingFile, { force: true });
+  await rm(paths.handledFile, { force: true });
 }
 
 export async function listBridgeTicketIds(root: string): Promise<number[]> {

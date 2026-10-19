@@ -7,7 +7,7 @@ import { startSandboxService } from '../../agent/sandboxServices.js';
 import type { Manifest } from '../../manifest/types.js';
 import { openStore } from '../../store/db.js';
 import {
-  reattachTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
+  reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
 
 vi.mock('../../workflow/gates/run.js', async (orig) => ({
@@ -79,6 +79,86 @@ describe('ticketGateProcess', () => {
     await expect(host('npm', ['test'], '/wt')).resolves.toMatchObject({ output: 'host' });
     expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['npm', ['test']]);
     expect(debug).toHaveBeenCalledWith('[gate] ticket 7: npm runs on the host (no sandbox)');
+  });
+});
+
+describe('ticketGateProcess resolves the sandbox from the listing (F4)', () => {
+  const DOCKER = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' }).container;
+  const listed = (...boxes: Array<[string, string]>) => () => Promise.resolve(boxes.map(([core, name]) => ({
+    runner: core === 'claude' || core === 'codex' ? 'sbx' as const : 'docker' as const, name, ticketId: 7, core, state: 'running' as const,
+  })));
+  const dockerDeps = (over: Partial<TicketSandboxDeps> = {}) => deps({
+    backends: () => ({ opencode: 'docker', opencode2: 'docker' }), coreOf: () => null,
+    dockerProc: fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } }), platform: 'linux', ...over,
+  });
+
+  it('a null session provider still runs the gate in the listed docker sandbox, never on the host', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const gate = ticketGateProcess(dockerDeps({ inventory: listed(['opencode2', DOCKER]) }), 7)!;
+    await gate('npm', ['test'], '/wt');
+    expect(vi.mocked(runProcess).mock.calls[0]![0]).toBe('docker');
+  });
+
+  it('refuses the gate when the ticket has a sandbox but the backend config cannot run it (no host fallback)', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const gate = ticketGateProcess(dockerDeps({ backends: () => ({ claude: 'sbx' }), inventory: listed(['opencode2', DOCKER]) }), 7)!;
+    await expect(gate('npm', ['test'], '/wt')).resolves.toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('never run on the host') });
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
+  it('with no sandbox listed and no provider the gate runs on the host (a host ticket)', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const gate = ticketGateProcess(dockerDeps({ inventory: listed() }), 7)!;
+    await expect(gate('npm', ['test'], '/wt')).resolves.toMatchObject({ output: 'host' });
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['npm', ['test']]);
+  });
+
+  it('with two sandboxes the one matching the session provider wins; the choice is logged', async () => {
+    const debug = vi.fn();
+    const d = deps({ backends: () => ({ claude: 'sbx', opencode2: 'docker' }), coreOf: () => 'claude', proc: fakeSbxProcess(), debug,
+      inventory: listed(['claude', SBX], ['opencode2', DOCKER]) });
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    await ticketGateProcess(d, 7)!('npm', ['test'], '/wt');
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', SBX, '--', 'npm', 'test']]);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('has 2 sandboxes'));
+  });
+
+  it('a failing listing falls back to the session provider and never throws', async () => {
+    const d = deps({ proc: fakeSbxProcess(), inventory: () => Promise.reject(new Error('docker down')) });
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    await expect(ticketGateProcess(d, 7)!('npm', [], '/wt')).resolves.toBeDefined();
+  });
+});
+
+describe('resolveTicketSandbox after a reload (null session provider, F4/Reattach)', () => {
+  const DOCKER = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' });
+  const listing = (core: string, name: string) => () => Promise.resolve([{ runner: 'docker' as const, name, ticketId: 7, core, state: 'running' as const }]);
+
+  it('builds the same docker runner (name, bridge evidence dir) the launch built', async () => {
+    const d = deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null, bridgeOf: () => bridge, inventory: listing('opencode2', DOCKER.container), platform: 'linux' });
+    const { found, listed } = await resolveTicketSandbox(d, 7);
+    expect(listed?.core).toBe('opencode2');
+    expect(found).toMatchObject({ sandboxName: DOCKER.container, runner: { kind: 'docker', enforcesSandbox: true } });
+    const launched = ticketSandboxRunner(deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => 'opencode2', bridgeOf: () => bridge, platform: 'linux' }), 7);
+    expect(found!.sandboxName).toBe(launched!.sandboxName);
+    expect(found!.runner.bridgeRunDir?.(bridge)).toBe(launched!.runner.bridgeRunDir?.(bridge));
+  });
+
+  it('sbx: the listed claude sandbox yields the sbx runner with the clone under the project dir', async () => {
+    const listed = () => Promise.resolve([{ runner: 'sbx' as const, name: SBX, ticketId: 7, core: 'claude', state: 'running' as const }]);
+    const { found } = await resolveTicketSandbox(deps({ coreOf: () => null, projectRoot: () => '/p/.karst/karst.yml', inventory: listed }), 7);
+    expect(found?.runner.kind).toBe('sbx');
+  });
+
+  it('remembers the listed core so the sync readers (pointer channel, services) agree', async () => {
+    const remember = vi.fn();
+    await resolveTicketSandbox(deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null, inventory: listing('opencode2', DOCKER.container), remember }), 7);
+    expect(remember).toHaveBeenCalledWith(7, 'opencode2');
   });
 });
 
@@ -272,5 +352,117 @@ describe('bindings.stopTicket on archive: only this ticket (task 9)', () => {
     expect(lines).toContain(`ports ${SBX} --unpublish 127.0.0.1:4100:4100`);
     expect(lines.join('\n')).not.toContain(SBX8);
     expect(store.db.prepare('SELECT ticket_id AS t, status FROM servers ORDER BY t').all()).toEqual([{ t: 7, status: 'stopped' }, { t: 8, status: 'running' }]);
+  });
+});
+
+describe('bindings: listing-backed core cache, channel, resume guard (F4/F10/F16)', () => {
+  const DOCKER = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' });
+  const box = { runner: 'docker' as const, name: DOCKER.container, ticketId: 7, core: 'opencode2', state: 'running' as const };
+  async function make(over: Partial<TicketSandboxDeps> = {}, inventory: TicketSandboxDeps['inventory'] = async () => [box]) {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    return createTicketSandboxBindings({
+      ...deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null, platform: 'linux', ...over }),
+      store: openStore(':memory:'), manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => '/g', inventory,
+    });
+  }
+
+  it('sandboxChannel is undefined until a launch or the listing remembered a core, then names the container run dir', async () => {
+    const b = await make();
+    expect(b.sandboxChannel(7)).toBeUndefined();
+    b.remember(7, 'opencode2');
+    expect(b.sandboxChannel(7)).toEqual({ kind: 'sandbox', runDir: '/karst-bridge/7', core: 'opencode2' });
+    b.remember(7, null);
+    expect(b.sandboxChannel(7)).toBeUndefined();
+  });
+
+  it('sandboxChannel needs a bridge: without the hook endpoint there is no channel', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const b = createTicketSandboxBindings({ ...deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null }), store: openStore(':memory:'), manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => undefined });
+    b.remember(7, 'opencode2');
+    expect(b.sandboxChannel(7)).toBeUndefined();
+  });
+
+  it('sandboxChannel is undefined when the remembered core has no runner under the backend config', async () => {
+    const b = await make({ backends: () => ({}) });
+    b.remember(7, 'opencode2');
+    expect(b.sandboxChannel(7)).toBeUndefined();
+  });
+
+  it('hasSandbox reflects the listing and the remembered core feeds the sync readers', async () => {
+    const b = await make();
+    await expect(b.hasSandbox(7)).resolves.toBe(true);
+    expect(b.deps.coreOf(7)).toBe('opencode2');
+    await expect(b.hasSandbox(8)).resolves.toBe(false);
+  });
+
+  it('a listing without the ticket forgets the remembered core', async () => {
+    const b = await make({}, async () => []);
+    b.remember(7, 'opencode2');
+    await b.hasSandbox(7);
+    expect(b.deps.coreOf(7)).toBeNull();
+  });
+
+  it('guardResume refuses a host resume of a ticket with a sandbox, allows the rest', async () => {
+    const b = await make();
+    await expect(b.guardResume({ resume: 'ses_1', tracking: { ticketId: 7 } })).rejects.toThrow(/has a sandbox/);
+    await expect(b.guardResume({ resume: 'ses_1', tracking: { ticketId: 8 } })).resolves.toBeUndefined();
+    await expect(b.guardResume({ tracking: { ticketId: 7 } })).resolves.toBeUndefined();
+    await expect(b.guardResume({ resume: 'ses_1' })).resolves.toBeUndefined();
+    await expect(b.guardResume({ resume: 'ses_1', tracking: { ticketId: null } })).resolves.toBeUndefined();
+  });
+
+  it('guardResume allows a resume for a ticket the listing does not show', async () => {
+    const b = await make({}, async () => []);
+    await expect(b.guardResume({ resume: 'ses_1', tracking: { ticketId: 7 } })).resolves.toBeUndefined();
+  });
+
+  it('the default inventory lists through the injected sbx/docker processes with the per-ticket project root', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const dockerProc = Object.assign(fakeDockerProcess({ 'docker ps': { stdout: `${DOCKER.container}\trunning\n` } }), {});
+    const projectRoot = vi.fn(() => '/p');
+    const b = createTicketSandboxBindings({
+      ...deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null, proc: fakeSbxProcess(), dockerProc, projectRoot, platform: 'linux' }),
+      store: openStore(':memory:'), manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => '/g',
+    });
+    await expect(b.hasSandbox(7)).resolves.toBe(true);
+    expect(projectRoot).toHaveBeenCalledWith(7);
+    expect(dockerProc.calls.some((c) => c.args[0] === 'ps')).toBe(true);
+  });
+});
+
+describe('resolveTicketSandbox / ticketSandboxContext edge cases', () => {
+  it('a listing failure is logged and the session provider decides', async () => {
+    const debug = vi.fn();
+    const r = await resolveTicketSandbox(deps({ debug, inventory: () => Promise.reject(new Error('docker down')) }), 7);
+    expect(r.listed).toBeUndefined();
+    expect(r.found?.sandboxName).toBe(SBX);
+    expect(debug).toHaveBeenCalledWith('[sandbox] ticket 7: listing failed (docker down); using the session provider');
+  });
+
+  it('a runner that cannot be built for the resolved core is logged, not thrown', async () => {
+    const debug = vi.fn();
+    const r = await resolveTicketSandbox(deps({ debug, backends: () => ({ claude: 'sbx' }), coreOf: () => 'claude', projectRoot: () => { throw new Error('no root'); } }), 7);
+    expect(r.found).toBeUndefined();
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('no runner for core claude (no root)'));
+  });
+
+  it('services context: a listed sandbox needs no extra probe; an unlisted one must answer hasSandbox', async () => {
+    const listed = () => Promise.resolve([{ runner: 'sbx' as const, name: SBX, ticketId: 7, core: 'claude', state: 'running' as const }]);
+    const probe = fakeSbxProcess();
+    await expect(ticketSandboxContext(deps({ proc: probe, inventory: listed }), 7)).resolves.toMatchObject({ sandboxName: SBX });
+    expect(probe.calls).toHaveLength(0);
+    await expect(ticketSandboxContext(deps({ proc: fakeSbxProcess(), inventory: async () => [] }), 7)).resolves.toBeUndefined();
+  });
+
+  it('gate refusal is logged with the reason; a gate with no sandbox backend and no provider stays undefined', async () => {
+    const debug = vi.fn();
+    const DOCKER = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' });
+    const inventory = async () => [{ runner: 'docker' as const, name: DOCKER.container, ticketId: 7, core: 'opencode2', state: 'running' as const }];
+    const gate = ticketGateProcess(deps({ debug, backends: () => ({ claude: 'sbx' }), coreOf: () => null, inventory }), 7)!;
+    await gate('npm', [], '/wt');
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('[gate] gate refused: ticket 7 has a sandbox'));
+    expect(ticketGateProcess(deps({ backends: () => ({}), coreOf: () => null, inventory }), 7)).toBeUndefined();
+    // Listing configured but no sandbox backend selected: legacy behaviour (core-only decision).
+    expect(ticketGateProcess(deps({ backends: () => ({}), coreOf: () => 'claude', inventory }), 7)).toBeUndefined();
   });
 });

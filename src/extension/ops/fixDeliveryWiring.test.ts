@@ -6,6 +6,11 @@ import { setStage } from '../../store/stages.js';
 import { recordGateRun } from '../../store/gateRuns.js';
 import { openRecoveryRound } from '../../store/recoveryRoundsWrite.js';
 import { currentFixDelivery, claimRead, getFixDelivery } from '../../store/fixDeliveries.js';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { bridgePaths } from '../../agent/bridge/bridgeDir.js';
+import { ackFixDeliveryRef } from './fixDeliveryOps.js';
 import { composeFixSnapshot, makeFixDeliveryWiring, type FixDeliveryWiringDeps } from './fixDeliveryWiring.js';
 
 const LITERAL = { cli: '/ext/dist/cli.js', db: '/g/karst.db', manifest: '/w/karst.yml' };
@@ -224,6 +229,93 @@ describe('fixDeliveryWiring', () => {
       state.live = true;
       const g = make({ isGraphTicket: () => true });
       expect(g.pointAtLaunch(ticketId, 'LZ')).toBe('unsendable');
+    });
+  });
+
+  describe('sandboxed session (inbox file + ack line, arch:AC-34)', () => {
+    const CH = { kind: 'sandbox' as const, runDir: '/karst-bridge/7', core: 'opencode2' };
+    let root: string;
+    beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'karst-fixsbx-')); });
+    afterEach(() => rmSync(root, { recursive: true, force: true }));
+    const sandboxed = (over: Partial<FixDeliveryWiringDeps> = {}) => {
+      const paths = bridgePaths(root, 7);
+      mkdirSync(paths.dir, { recursive: true });
+      return { paths, w: make({ sessionChannel: () => CH, bridgePaths: () => paths, ...over }) };
+    };
+
+    it('the snapshot carries the emit-marker fix command and no host CLI text', () => {
+      const { body, footer } = composeFixSnapshot(store, ticketId, LITERAL, CH);
+      expect(body).toContain('node /karst-bridge/7/opencode2/emit-marker.cjs /karst-bridge/7/events.ndjson fix');
+      expect(body).not.toMatch(/KARST_|--db|stage fix pass|\/ext\/dist/);
+      expect(footer).toBe('… truncated');
+    });
+
+    it('routes typed even for a push-capable core, writes the brief file, types an inbox pointer; the ack line marks it read', () => {
+      const { paths, w } = sandboxed();
+      expect(w.deliver(ticketId, null)).toBe(true);
+      const row = currentFixDelivery(store, ticketId)!;
+      expect(nudge).toHaveBeenCalledTimes(1);
+      const line = nudge.mock.calls[0]![1];
+      expect(line).toBe(`karst: fix brief #${row.id} ready - read /karst-bridge/7/inbox/fix-${row.id}.md, then run node /karst-bridge/7/opencode2/emit-ack.cjs /karst-bridge/7/events.ndjson fix-${row.id}`);
+      expect(line).not.toMatch(/KARST_|--db|MCP/);
+      expect(readFileSync(join(paths.inboxDir, `fix-${row.id}.md`), 'utf8')).toBe(row.body);
+      nudge.mock.calls[0]![2]!.onTyped?.();
+      expect(ackFixDeliveryRef(store, ticketId, `fix-${row.id}`, '2026-10-19T10:00:00Z')).toBe(true);
+      expect(getFixDelivery(store, row.id)!.readAt).not.toBeNull();
+    });
+
+    it('a foreign ticket or bad ref ack leaves the delivery unread', () => {
+      const { w } = sandboxed();
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      expect(ackFixDeliveryRef(store, ticketId + 1, `fix-${row.id}`, 'x')).toBe(false);
+      expect(ackFixDeliveryRef(store, ticketId, 'fix-../1', 'x')).toBe(false);
+      expect(getFixDelivery(store, row.id)!.readAt).toBeNull();
+    });
+
+    it('a symlinked inbox/ is rejected: nothing typed or written outside, the sweep can retry', () => {
+      const { paths, w } = sandboxed();
+      const outside = join(root, 'outside');
+      mkdirSync(outside);
+      symlinkSync(outside, paths.inboxDir);
+      w.deliver(ticketId, null);
+      expect(nudge).not.toHaveBeenCalled();
+      expect(readdirSync(outside)).toEqual([]);
+    });
+
+    it('a delivery of another ticket is never written into this ticket\'s inbox', () => {
+      const { paths, w } = sandboxed();
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      const other = createTicket(store, { key: 'K-2', title: 'o', projectId }).id;
+      store.db.prepare('UPDATE fix_deliveries SET ticket_id = ? WHERE id = ?').run(other, row.id);
+      nudge.mockClear();
+      w.pointAtLaunch(ticketId, row.launchId ?? 'L1');
+      expect(nudge).not.toHaveBeenCalled();
+      expect(readdirSync(paths.inboxDir)).toEqual([`fix-${row.id}.md`]);
+    });
+
+    it('a refused inbox write is logged with the reason and nothing is typed', () => {
+      const debug = vi.fn();
+      const { paths, w } = sandboxed({ debug });
+      mkdirSync(join(root, 'out'));
+      symlinkSync(join(root, 'out'), paths.inboxDir);
+      w.deliver(ticketId, null);
+      const row = store.db.prepare('SELECT id FROM fix_deliveries').get() as { id: number };
+      expect(nudge).not.toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining(`fix delivery #${row.id}: inbox write refused (bridge: inbox was a symlink`));
+    });
+
+    it('a host session still gets the host CLI pointer (the sandbox branch is exact)', () => {
+      const w = make({ sessionChannel: () => 'cli-env' });
+      w.deliver(ticketId, null);
+      expect(nudge.mock.calls.length === 0 || !String(nudge.mock.calls[0]![1]).includes('inbox')).toBe(true);
+    });
+
+    it('no bridge dir known: unavailable, nothing typed', () => {
+      const w = make({ sessionChannel: () => CH });
+      w.deliver(ticketId, null);
+      expect(nudge).not.toHaveBeenCalled();
     });
   });
 });

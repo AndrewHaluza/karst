@@ -347,7 +347,8 @@ import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
-import { backendSessionOptions, createTicketSandboxBindings, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
+import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
+import { guardLaunchResume, launchMarkerInstruction, sandboxScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -1249,7 +1250,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
-  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: () => cliEntryAndManifest(context).manifestPath ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
@@ -1266,7 +1267,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
-    projectId: () => currentProject()?.id, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
+    projectId: () => currentProject()?.id,
+    pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
+    // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
+    onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
     store: localStore, beforeArchive: sandboxLife.beforeArchive,
     git: defaultGitRunner,
@@ -1339,6 +1343,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // The karst CLI env (`"$KARST_CLI"`/`"$KARST_DB"`/...), injected at the
       // same seam: a headless prompt carrying a `buildCli*Prefix` command
       // (UAT tester context, review/fix markers) resolves by construction.
+      guardResume: (opts) => sandboxB?.guardResume(opts), // a headless run is a host run: never resume a sandbox session id (AC-33)
       env: (tracking) =>
         sessionCliEnv(
           cliSessionInput(cliLiteral(context, dbPath, headlessTicketKey(tracking?.ticketId))),
@@ -2071,7 +2076,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
     nudge: (id, line, hooks) => sessions.nudge(id, line, hooks),
-    sessionChannel: (id) => sessions.sessionChannel(id),
+    sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
+    bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id),
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
@@ -2103,7 +2109,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     nudge: (id, line) => sessions.nudge(id, line),
-    sessionChannel: (id) => sessions.sessionChannel(id),
+    sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
     fixEligible: fixDelivery.eligible,
@@ -6315,21 +6321,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // set is exported into the session env (below) and decides which env
       // refs the seed and command files may use.
       const cliLit = cliLiteral(context, dbPath, t.key || String(ticketId));
+      // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
+      const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
+      const launchProvider = identity.provider;
+      const launchBackend = await resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }, (core) => sandboxB?.remember(ticketId, core)); // AC-32
       const cliTok = launchTokens(cliLit);
-      const hasMcp = launchHasMcp({
+      // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
+      const sandboxed = launchBackend.sandboxed;
+      const hasMcp = !sandboxed && launchHasMcp({
         adapter,
         hookChannel: true,
         cliEntry: cliLit.cli,
         dbPath: cliLit.db,
       });
-      const markerInstruction =
-        markerStage === null
-          ? renderGateOnlyInstruction()
-          : renderDoneMarkerInstruction(
-              buildCliStagePrefix(cliTok, markerStage),
-              t.key || String(ticketId),
-              hasMcp ? markerStage : undefined,
-            );
+      const markerInstruction = launchMarkerInstruction({ backend: launchBackend, stage: markerStage, core: launchProvider, stagePrefix: (stage) => buildCliStagePrefix(cliTok, stage), ticketKey: t.key || String(ticketId), hasMcp });
 
       // Materialize the ticket's approach package (and/or its chosen solo agent)
       // into agent-specific launch args (e.g. Claude's `--plugin-dir`) so its
@@ -6346,7 +6351,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           (soloAgent
             ? { id: t.approach!, label: t.approach! }
             : { id: t.approach ?? 'direct', label: t.approach ?? 'direct' });
-        if (matPkg && adapter.materializeApproach) {
+        if (matPkg && adapter.materializeApproach && !sandboxed) {
           materialized = adapter.materializeApproach({
             pkg: matPkg,
             baseDir: approachesDirOrThrow(),
@@ -6387,13 +6392,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
       // Resume the captured session when continuing interactive work, so the
       // agent keeps its context instead of re-deriving from a cold seed (§5.3).
-      const identity = resolveLaunchIdentity(
-        currentManifest() ?? emptyManifest(),
-        t,
-        options.assignment,
-        modelCatalog,
-      );
-      const launchProvider = identity.provider;
       let resumeId = shouldResumeSession({
         sessionId: t.sessionId,
         sessionProvider: t.sessionProvider,
@@ -6403,6 +6401,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
         ? (t.sessionId ?? undefined)
         : undefined;
+      if (resumeId && sandboxB) resumeId = await guardLaunchResume({ ticketId, ticketLabel: t.key ?? String(ticketId), resumeId, sandboxed, hasSandbox: () => sandboxB!.hasSandbox(ticketId), warn: (m) => vscodeNotify.warn(m) });
       // A core whose resume id can go stale validates it here (opencode2). A
       // missing id is dropped BEFORE the seed is composed, so the launch is a
       // fresh full seed rather than a dangling `--session`. Adapters with no
@@ -6430,11 +6429,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const driftNotes = await computeDriftNotes(ticketContext, undefined, (msg) => logger.debug(msg));
       const renderCtx = (sections: 'all' | 'narrative' | 'facts', headingId?: boolean): string =>
         renderTicketContext(ticketContext, (msg) => logger.debug(msg), { sections, headingId, driftNotes });
-      const guideInstruction = renderGuideInstruction(buildCliGuidePrefix(cliTok), hasMcp);
+      const guideInstruction = sandboxed ? null : renderGuideInstruction(buildCliGuidePrefix(cliTok), hasMcp);
       // A ticket scoping only non-runnable repositories can never have a server,
       // so the rule would be noise there — the same gate the dashboard's
       // `hasRunnableRepos` applies (`ui/dashboard/state.ts`).
-      const seedServersPrefix = (t.selectedRepos ?? []).some(
+      const seedServersPrefix = !sandboxed && (t.selectedRepos ?? []).some(
         (r) => currentManifest()?.repositories?.[r]?.service !== undefined,
       )
         ? buildCliServersPrefix(cliTok)
@@ -6506,13 +6505,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // adapter delivers it through its DECLARED channel (native file, or a
       // pointer in the kickoff). A fallback launch inlined it, so nothing is
       // written and no `instructions` is threaded.
+      const scrub = sandboxScrubber(sandboxed, (m) => logger.debug(`[session] ticket ${t.key ?? ticketId}: ${m}`)); // no host command may survive (AC-34)
       const sessionInstructions = seed.instructions
         ? writeSessionInstructions(
             join(context.globalStorageUri.fsPath, 'session-instructions', String(ticketId)),
-            seed.instructions,
+            scrub(seed.instructions)!,
           )
         : undefined;
-      const seedPrompt: string | undefined = seed.kickoff || undefined;
+      const seedPrompt: string | undefined = scrub(seed.kickoff) || undefined;
       const extraArgs =
         materialized.extraArgs.length > 0
           ? materialized.extraArgs
@@ -6586,7 +6586,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ...cliSessionInput(cliLit),
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
-            ...backendSessionOptions({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
+            ...launchBackend.options, // AC-32
             ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started') }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
@@ -6822,8 +6822,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await archiveTicketOp(archiveDeps, ticketId);
     }),
-    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.sync(id); }),
-    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.dispose(id); }),
+    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'sync'); if (id !== undefined) await sandboxLife.sync(id); }),
+    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);

@@ -206,6 +206,44 @@ describe('cleanupOrphansOp', () => {
   });
 });
 
+describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () => {
+  const bad = (runner: 'sbx' | 'docker', core: string): ProjectSandbox => ({ runner, name: name(7).replace(/claude$/, core), ticketId: 7, core, state: 'running', invalidCore: true });
+
+  it('reconcile reports them as orphans, not as the ticket\'s running sandbox', () => {
+    const r = reconcileSandboxes({ sandboxes: [bad('docker', 'null')], errors: [] }, [{ id: 7, sessionId: null, sessionProvider: null }], () => true, vi.fn());
+    expect(r.orphans).toHaveLength(1);
+    expect(r.running).toEqual([]);
+  });
+
+  it('cleanup removes the docker one by exact name through the docker process and the sbx one through sbx, after confirmation', async () => {
+    const dockerBad = bad('docker', 'null');
+    const sbxBad = bad('sbx', 'agy');
+    const { d, lines, proc, notify } = deps({ inv: [box(7), dockerBad, sbxBad], choose: vi.fn(async () => REMOVE_ORPHANS) });
+    await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(2);
+    expect(lines()).toContain(`docker rm --force ${dockerBad.name}`);
+    expect(lines()).toContain(`sbx rm --force ${sbxBad.name}`);
+    expect(lines().some((l) => l.includes(`rm --force ${name(7)}`))).toBe(false);
+    expect(proc.calls.some((c) => c.command === 'docker')).toBe(false);
+    expect(notify.info).toHaveBeenCalledWith('Karst: removed 2 orphan sandbox(es).');
+  });
+
+  it('a failing remove is reported with its stderr (or exit code) and not counted', async () => {
+    const dockerBad = bad('docker', 'null');
+    const failing = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 1, stderr: 'in use\n' } } });
+    await expect(cleanupOrphansOp(failing.d, new Set())).resolves.toBe(0);
+    expect(failing.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: in use`);
+    const silent = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 3 } } });
+    await cleanupOrphansOp(silent.d, new Set());
+    expect(silent.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: rm exited 3`);
+  });
+
+  it('a proper-core sandbox of a live ticket is not an orphan', async () => {
+    const { d, acted } = deps({ inv: [box(7)], choose: vi.fn(async () => REMOVE_ORPHANS) });
+    await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
+    expect(acted()).toEqual([]);
+  });
+});
+
 describe('lifecycle edge cases', () => {
   it('non-owner is told why', async () => {
     const { d, notify } = deps({ owns: () => false });
@@ -216,7 +254,7 @@ describe('lifecycle edge cases', () => {
   it('a failed listing does not prove absence: sync is still attempted', async () => {
     const { d, lines } = deps({ inv: [], answers: { 'sbx ls': { code: 1, stderr: 'down' } } });
     await expect(removeSandboxGuarded(d, target)).resolves.toBe(true);
-    expect(lines()).toContain('git -C /wt merge --ff-only sandbox-' + name(7) + '/feat/x');
+    expect(lines().some((l) => l.endsWith('-C /wt merge --ff-only FETCH_HEAD'))).toBe(true);
   });
 
   it('a docker sandbox is matched by core too', async () => {
@@ -231,7 +269,7 @@ describe('lifecycle edge cases', () => {
     await expect(removeSandboxGuarded(d, { ...target, worktree: undefined })).resolves.toBe(true);
     expect(choose.mock.calls[0]![0]).toBe(
       'Karst: the sandbox of T-7 has commits that could not be synced (no worktree branch to sync into). Removing it loses them.');
-    expect(lines()).toContain(`git -C /p remote remove sandbox-${name(7)}`);
+    expect(lines().some((l) => l.endsWith(`-C /p remote remove sandbox-${name(7)}`))).toBe(true);
     expect(lines().some((l) => l.includes('fetch'))).toBe(false);
     expect(notify.info).toHaveBeenCalledWith('Karst: T-7 sandbox removed.');
   });

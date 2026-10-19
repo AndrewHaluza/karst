@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
+import { DOCKER_CORES, SBX_CORES } from '../sandboxCores.js';
 
 const MAX_LEN = 63;
+/** Every core a sandbox may be named for (sbx + docker); a null or unknown core never names an object. */
+const ALLOWED_CORES: readonly string[] = [...SBX_CORES, ...DOCKER_CORES];
 const SAFE = /^[a-z0-9-]+$/;
 
 export interface SbxNameInput {
@@ -17,6 +20,9 @@ export interface SbxNameInput {
 export function sbxName(input: SbxNameInput): string {
   if (!Number.isInteger(input.ticketId) || input.ticketId <= 0) {
     throw new Error(`sbx name: invalid ticket id ${String(input.ticketId)}`);
+  }
+  if (!(ALLOWED_CORES as readonly string[]).includes(input.core)) {
+    throw new Error(`sbx name: core ${JSON.stringify(input.core)} is not a sandbox core`);
   }
   const hash = createHash('sha256').update(input.projectRoot).digest('hex').slice(0, 8);
   const name = `karst-${hash}-${input.ticketId}-${input.core}`;

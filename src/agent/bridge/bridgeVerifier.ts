@@ -2,6 +2,7 @@ import type { HookPayload } from '../../hooks/dispatch.js';
 import type { StageKey } from '../../model/types.js';
 import { SEQ_PATTERN } from './markerReply.js';
 import { isMarkerStage, type MarkerStage } from '../markerStage.js';
+import { INBOX_REF_PATTERN } from './inbox.js';
 
 export const MAX_BRIDGE_LINE_BYTES = 65536;
 
@@ -18,7 +19,9 @@ export interface BridgeExpectation {
 
 export type BridgeAccepted =
   | { readonly kind: 'hook'; readonly payload: HookPayload }
-  | { readonly kind: 'marker'; readonly stage: MarkerStage; readonly seq?: string };
+  | { readonly kind: 'marker'; readonly stage: MarkerStage; readonly seq?: string }
+  /** The agent read an inbox brief (`fix-12`); the host still checks it is a pending delivery of THIS ticket. */
+  | { readonly kind: 'ack'; readonly ref: string };
 
 export type BridgeVerdict =
   | { readonly ok: true; readonly event: BridgeAccepted }
@@ -77,6 +80,11 @@ export function verifyBridgeLine(line: string, expect: BridgeExpectation): Bridg
     // `seq` names the reply file: a token or nothing (a malformed one never reaches a path).
     const seq = typeof parsed.seq === 'string' && SEQ_PATTERN.test(parsed.seq) ? parsed.seq : undefined;
     return { ok: true, event: { kind: 'marker', stage, ...(seq !== undefined ? { seq } : {}) } };
+  }
+  if (parsed.kind === 'ack') {
+    const ref = parsed.ref;
+    if (typeof ref !== 'string' || !INBOX_REF_PATTERN.test(ref)) return reject('ack ref is not a token');
+    return { ok: true, event: { kind: 'ack', ref } };
   }
   return reject('unknown kind');
 }

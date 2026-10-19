@@ -1,4 +1,5 @@
 import { constants as fsConstants } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { open, readFile, rename, writeFile, type FileHandle } from 'node:fs/promises';
 import { MAX_BRIDGE_LINE_BYTES } from './bridgeVerifier.js';
 
@@ -24,19 +25,40 @@ export interface BridgePollerOptions {
   readonly debug?: (message: string) => void;
 }
 
-async function loadOffset(stateFile: string): Promise<number> {
+/** How many leading bytes fingerprint the file: a rewritten file has a different head. */
+const HEAD_BYTES = 64;
+
+interface PollerState {
+  readonly offset: number;
+  /** sha1 of the first `min(HEAD_BYTES, offset)` bytes at save time; absent for an empty/legacy state. */
+  readonly head?: string;
+}
+
+async function loadState(stateFile: string): Promise<PollerState> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(stateFile, 'utf8'));
-    const offset = (parsed as { offset?: unknown }).offset;
-    return typeof offset === 'number' && Number.isInteger(offset) && offset >= 0 ? offset : 0;
+    const parsed = JSON.parse(await readFile(stateFile, 'utf8')) as { offset?: unknown; head?: unknown };
+    const offset = parsed.offset;
+    if (typeof offset !== 'number' || !Number.isInteger(offset) || offset < 0) return { offset: 0 };
+    return { offset, ...(typeof parsed.head === 'string' ? { head: parsed.head } : {}) };
   } catch {
-    return 0;
+    return { offset: 0 };
   }
 }
 
-async function saveOffset(stateFile: string, offset: number): Promise<void> {
+const hashOf = (bytes: Buffer): string => createHash('sha1').update(bytes).digest('hex');
+
+/** Fingerprint of the first `min(HEAD_BYTES, upTo)` bytes of `handle`'s file, or undefined when it is shorter. */
+async function headHash(handle: FileHandle, upTo: number): Promise<string | undefined> {
+  const length = Math.min(HEAD_BYTES, upTo);
+  if (length === 0) return undefined;
+  const buf = Buffer.alloc(length);
+  const { bytesRead } = await handle.read(buf, 0, length, 0);
+  return bytesRead === length ? hashOf(buf) : undefined;
+}
+
+async function saveState(stateFile: string, state: PollerState): Promise<void> {
   const tmp = `${stateFile}.${process.pid}.tmp`;
-  await writeFile(tmp, JSON.stringify({ offset }));
+  await writeFile(tmp, JSON.stringify(state));
   await rename(tmp, stateFile);
 }
 
@@ -48,6 +70,10 @@ async function saveOffset(stateFile: string, offset: number): Promise<void> {
 export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
   const log = (m: string): void => opts.debug?.(`[bridge] ${m}`);
   let offset: number | undefined;
+  /** Head fingerprint of the saved offset (loaded at first poll, refreshed on every save). */
+  let head: string | undefined;
+  /** Bytes the fingerprint covers (`min(HEAD_BYTES, saved offset)`). */
+  let headLen = 0;
   let carry: Buffer = Buffer.alloc(0);
   let timer: NodeJS.Timeout | undefined;
   let stopped = true;
@@ -59,6 +85,24 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
    * (no lstat-then-open TOCTOU), then sizes and reads through the handle.
    * Returns undefined when there is nothing new or the file is refused.
    */
+  /** Persist the first unconsumed byte plus the file's head fingerprint (read through a fresh no-follow handle). */
+  async function persist(saved: number): Promise<void> {
+    let fingerprint: string | undefined;
+    try {
+      const handle = await open(opts.file, OPEN_FLAGS);
+      try {
+        fingerprint = await headHash(handle, saved);
+      } finally {
+        await handle.close();
+      }
+    } catch {
+      fingerprint = undefined;
+    }
+    head = fingerprint;
+    headLen = Math.min(HEAD_BYTES, saved);
+    await saveState(opts.stateFile, { offset: saved, ...(fingerprint ? { head: fingerprint } : {}) });
+  }
+
   async function readChunk(): Promise<Buffer | undefined> {
     let handle: FileHandle;
     try {
@@ -77,6 +121,15 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
       if (stat.size < (offset ?? 0)) {
         log(`events file truncated (${stat.size} < ${offset}); restarting from 0`);
         offset = 0;
+        head = undefined;
+        carry = Buffer.alloc(0);
+        discarding = false;
+      } else if (head !== undefined && (await headHash(handle, headLen)) !== head) {
+        // Same or larger size but different start: the file was rewritten. Rescan from 0; the sink skips
+        // marker seqs the host already handled, so nothing replays and new lines are not hidden.
+        log(`events file rewritten (head changed at offset ${offset}); restarting from 0`);
+        offset = 0;
+        head = undefined;
         carry = Buffer.alloc(0);
         discarding = false;
       }
@@ -91,7 +144,12 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
   }
 
   async function readNew(): Promise<void> {
-    if (offset === undefined) offset = await loadOffset(opts.stateFile);
+    if (offset === undefined) {
+      const saved = await loadState(opts.stateFile);
+      offset = saved.offset;
+      head = saved.head;
+      headLen = Math.min(HEAD_BYTES, saved.offset);
+    }
     const chunk = await readChunk();
     if (chunk === undefined) return;
     offset += chunk.length;
@@ -101,7 +159,7 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
       const nl = buf.indexOf(NEWLINE);
       if (nl === -1) {
         carry = Buffer.alloc(0);
-        await saveOffset(opts.stateFile, offset);
+        await persist(offset);
         return;
       }
       buf = buf.subarray(nl + 1);
@@ -113,7 +171,7 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
         // Leave the rest unconsumed: the next tick re-reads from here.
         offset -= buf.length;
         carry = Buffer.alloc(0);
-        await saveOffset(opts.stateFile, offset);
+        await persist(offset);
         return;
       }
       handled += 1;
@@ -130,11 +188,11 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
       log(`dropped an oversized unterminated line (${buf.length} bytes)`);
       discarding = true;
       carry = Buffer.alloc(0);
-      await saveOffset(opts.stateFile, offset);
+      await persist(offset);
       return;
     }
     carry = buf;
-    await saveOffset(opts.stateFile, offset - carry.length);
+    await persist(offset - carry.length);
   }
 
   const pollOnce = (): Promise<void> => {

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { backendSessionOptions, disposeSandboxOp, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -13,6 +13,42 @@ function recorder() {
     notify: { info: (m: string) => infos.push(m), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
   };
 }
+
+describe('backendSessionOptions multi-repo guard (F4/F13 v1)', () => {
+  it.each([['claude', 'sbx'], ['opencode2', 'docker']] as const)('a multi-repo %s ticket resolves to the host without touching a sandbox', async (core, kind) => {
+    const resolve = vi.fn();
+    const warn = vi.fn();
+    const opts = backendSessionOptions({ backends: { [core]: kind }, core, projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), warn, resolve, worktreeCount: 2 });
+    const out = await opts.resolveRunner!();
+    expect(out.runner.kind).toBe('host');
+    expect(out.line).toContain('multi-repo');
+    expect(resolve).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(opts.bridgeFor).toBeUndefined();
+  });
+  it('logs the host decision through onBackend and defaults a missing count to single-repo', async () => {
+    const info = vi.fn();
+    const multi = backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, worktreeCount: 2 });
+    multi.onBackend!('host (multi-repo ticket: no sandbox in v1)');
+    expect(info).toHaveBeenCalledWith('[session] ticket K-7 backend: host (multi-repo ticket: no sandbox in v1)');
+    const resolve = vi.fn(async () => ({ runner: { kind: 'sbx' }, line: 'sbx (x)' }) as never);
+    await backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('a host-backend core with several repos is untouched by the guard (it is host already)', async () => {
+    const resolve = vi.fn(async () => ({ runner: { kind: 'host' }, line: 'host (agentBackends.claude: host)' }) as never);
+    const out = await backendSessionOptions({ backends: { claude: 'host' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve, worktreeCount: 3 }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(out.line).toBe('host (agentBackends.claude: host)');
+  });
+
+  it('a single-repo ticket still resolves normally', async () => {
+    const resolve = vi.fn(async () => ({ runner: { kind: 'sbx' }, line: 'sbx (x)' }) as never);
+    await backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve, worktreeCount: 1 }).resolveRunner!();
+    expect(resolve).toHaveBeenCalled();
+  });
+});
 
 describe('backendSessionOptions', () => {
   it('adds nothing when agentBackends is absent', () => {
@@ -85,7 +121,7 @@ describe('syncSandboxOp', () => {
     const r = recorder();
     const proc = fakeSbxProcess();
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(true);
-    expect(r.infos).toEqual([expect.stringMatching(/^Karst: K-7 fast-forwarded feat\/x to sandbox-karst-[0-9a-f]{8}-7-claude\/feat\/x\.$/)]);
+    expect(r.infos).toEqual([expect.stringMatching(/^Karst: K-7 fast-forwarded feat\/x to the sbx sandbox's commits\.$/)]);
     expect(r.errors).toEqual([]);
   });
 
@@ -159,7 +195,7 @@ describe('disposeSandboxOp', () => {
     await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: traced, bridges }, target)).resolves.toBe(true);
     expect(order.at(-1)).toBe('bridge 7');
     expect(order).toContain('sbx rm');
-    expect(proc.calls.some((c) => c.args.slice(0, 4).join(' ') === '-C /wt/a remote remove')).toBe(true);
+    expect(proc.calls.some((c) => c.args.join(' ').includes('-C /wt/a remote remove'))).toBe(true);
     expect(r.infos).toEqual(['Karst: K-7 sandbox removed.']);
     expect(r.errors).toEqual([]);
   });
@@ -259,5 +295,54 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     const deps = { notify: recorder().notify, projectRoot: '/p', proc: slow };
     await Promise.all([ensureSandboxSynced(deps, target), ensureSandboxSynced(deps, target)]);
     expect(peak).toBe(1);
+  });
+});
+
+describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
+  const base = { backends: { opencode2: 'docker' as const }, core: 'opencode2', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() };
+  const paths = { dir: '/g/events/7', runDir: '/karst-bridge/7' } as never;
+
+  it('a sandbox runner reports the container-visible run dir and is handed over, not resolved twice', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const resolve = vi.fn(async () => ({ runner, line: 'docker (x)' }));
+    const out = await resolveLaunchBackend({ ...base, resolve, bridgeFor: async () => paths });
+    expect(out).toMatchObject({ sandboxed: true, runDir: '/karst-bridge/7' });
+    await out.options.resolveRunner!();
+    await out.options.resolveRunner!();
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('a fail-closed fallback is a host launch: host instructions', async () => {
+    const resolve = vi.fn(async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host (docker down)' }));
+    await expect(resolveLaunchBackend({ ...base, resolve, bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: false });
+  });
+
+  it('a sandbox without a bridge is sandboxed with no run dir (no marker to promise)', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }) });
+    expect(out.sandboxed).toBe(true);
+    expect(out.runDir).toBeUndefined();
+  });
+
+  it('tells the caller which core serves the ticket (or null on a host launch)', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const remember = vi.fn();
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }), bridgeFor: async () => paths }, remember);
+    expect(remember).toHaveBeenLastCalledWith('opencode2');
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host (x)' }) }, remember);
+    expect(remember).toHaveBeenLastCalledWith(null);
+  });
+
+  it('the bridge is attached once per launch and its run dir is the runner\'s view of it', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: () => '/karst-bridge/7' } as never;
+    const bridgeFor = vi.fn(async () => paths);
+    const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }), bridgeFor });
+    expect(bridgeFor).toHaveBeenCalledWith(7);
+    expect(out.runDir).toBe('/karst-bridge/7');
+    expect(out.options.bridgeFor).toBe(bridgeFor);
+  });
+
+  it('no backends configured: a plain host launch with no resolver', async () => {
+    await expect(resolveLaunchBackend({ ...base, backends: undefined })).resolves.toEqual({ options: {}, sandboxed: false });
   });
 });

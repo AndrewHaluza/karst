@@ -449,10 +449,11 @@ process.stdin.on('end', () => {
 
 /**
  * The marker emitter the sandboxed agent runs instead of an HTTP marker call:
- * `node <runDir>/emit-marker.cjs <events.ndjson> <impl|fix>`.
+ * `node <runDir>/<core>/emit-marker.cjs <events.ndjson> <impl|fix>`.
  *
- * 1. Refuses (exit 1, nothing written) when the working tree has uncommitted
- *    changes. Commits are NOT a done signal: zero or many are both valid.
+ * 1. Refuses (exit 1, NOTHING written to events.ndjson) when the working tree has
+ *    uncommitted changes, or when `git status` itself fails (safe.directory or
+ *    ownership mismatch in the container): an unknown tree is never a done marker. Commits are NOT a done signal: zero or many are both valid.
  * 2. Appends `{"v":1,"kind":"marker","ticket":<n>,"stage":"<stage>","seq":"<nonce>"}`;
  *    the ticket is the events file's parent dir name (anything else: usage error, exit 1).
  * 3. Waits up to MARKER_WAIT_MS for the host's reply file `<dir>/results/<seq>.json`
@@ -473,7 +474,11 @@ if (!eventsPath || (stage !== 'impl' && stage !== 'fix') || !/^\d+$/.test(ticket
   process.exit(1);
 }
 const status = cp.spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
-if (status.status === 0 && status.stdout.trim() !== '') {
+if (status.status !== 0) {
+  process.stderr.write('karst: not marking ' + stage + ' done: git status failed (' + ((status.stderr || '').trim() || String(status.error || 'exit ' + status.status)) + '). Fix the repository state, then run this again.\n');
+  process.exit(1);
+}
+if (status.stdout.trim() !== '') {
   const shown = status.stdout.trim().split('\n').slice(0, 10).join('\n');
   process.stderr.write('karst: not marking ' + stage + ' done: the working tree has uncommitted changes. Commit your changes first, then run this again.\n' + shown + '\n');
   process.exit(1);
@@ -509,4 +514,23 @@ const deadline = Date.now() + waitMs;
   }
   setTimeout(poll, 250);
 })();
+`;
+
+/**
+ * The ack emitter the sandboxed agent runs after reading an inbox brief:
+ * `node <runDir>/<core>/emit-ack.cjs <events.ndjson> <ref>` appends
+ * `{"v":1,"kind":"ack","ticket":<n>,"ref":"<ref>"}`. The ticket is the events
+ * file's parent dir name; the host verifies that `ref` is a pending delivery of
+ * this ticket (a line never decides anything by itself).
+ */
+export const ACK_EMIT = String.raw`const fs = require('node:fs');
+const path = require('node:path');
+const [eventsPath, ref] = process.argv.slice(2);
+const ticketDir = eventsPath ? path.basename(path.dirname(eventsPath)) : '';
+if (!eventsPath || !/^[A-Za-z0-9_-]{1,64}$/.test(ref || '') || !/^\d+$/.test(ticketDir)) {
+  process.stderr.write('usage: emit-ack.cjs <dir>/<ticket>/events.ndjson <ref>\n');
+  process.exit(1);
+}
+fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'ack', ticket: Number(ticketDir), ref }) + '\n');
+process.stdout.write('karst: ' + ref + ' acknowledged.\n');
 `;

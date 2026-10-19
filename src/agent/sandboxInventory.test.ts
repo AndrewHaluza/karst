@@ -15,8 +15,21 @@ describe('parseSandboxName', () => {
   it('ignores other projects, sidecars and unknown cores', () => {
     expect(parseSandboxName(foreign, ROOT)).toBeUndefined();
     expect(parseSandboxName(`${own(7, 'opencode')}-proxy`, ROOT)).toBeUndefined();
-    expect(parseSandboxName(own(7, 'agy'), ROOT)).toBeUndefined();
+    expect(parseSandboxName(own(7, 'claude').replace(/claude$/, 'agy'), ROOT)).toBeUndefined();
     expect(parseSandboxName('karst-zz', ROOT)).toBeUndefined();
+    for (const suffix of ['-repo', '-data', '-net']) expect(parseSandboxName(`${own(7, 'opencode2')}${suffix}`, ROOT)).toBeUndefined();
+  });
+});
+
+describe('listProjectSandboxes invalid cores (F6)', () => {
+  it('reports a project sandbox named for a wrong core as an invalid-core orphan, not as a ticket sandbox', async () => {
+    const bad = own(7, 'claude').replace(/claude$/, 'null');
+    const docker = fakeSbxProcess({ 'docker ps': { stdout: `${bad}\trunning\n${own(7, 'opencode')}\texited\n${own(7, 'opencode')}-proxy\trunning\n` } });
+    const inv = await listProjectSandboxes({ projectRoot: ROOT, sbx: fakeSbxProcess(), docker });
+    expect(inv.sandboxes).toEqual([
+      { runner: 'docker', name: bad, ticketId: 7, core: 'null', state: 'running', invalidCore: true },
+      { runner: 'docker', name: own(7, 'opencode'), ticketId: 7, core: 'opencode', state: 'stopped' },
+    ]);
   });
 });
 

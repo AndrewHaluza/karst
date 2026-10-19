@@ -168,7 +168,7 @@ export function reconcileSandboxes(
       }
     }
   }
-  return { running, stopped, missing, orphans: inv.sandboxes.filter((s) => !liveIds.has(s.ticketId)) };
+  return { running, stopped, missing, orphans: inv.sandboxes.filter((s) => s.invalidCore === true || !liveIds.has(s.ticketId)) };
 }
 
 export interface IdleTicket {
@@ -193,10 +193,18 @@ export function idleSandboxes(
   return inv.sandboxes.filter((s) => s.state === 'running' && idle.has(s.ticketId) && owns(s.ticketId));
 }
 
+/** A sandbox named for a core no runner hosts has no runner to dispose it: remove the named object directly. */
+async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSandbox): Promise<void> {
+  const out = o.runner === 'docker'
+    ? await (deps.dockerProc ?? NODE_DOCKER_PROCESS).run('docker', ['rm', '--force', o.name])
+    : await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]);
+  if (out.code !== 0) throw new Error(out.stderr.trim() || `rm exited ${out.code}`);
+}
+
 /** `karst.sandbox.cleanupOrphans`: remove this project's orphan sandboxes, only on confirmation. */
 export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds: ReadonlySet<number>): Promise<number> {
   const inv = await inventoryOf(deps);
-  const orphans = inv.sandboxes.filter((s) => !liveTicketIds.has(s.ticketId));
+  const orphans = inv.sandboxes.filter((s) => s.invalidCore === true || !liveTicketIds.has(s.ticketId));
   if (orphans.length === 0) {
     deps.notify.info('Karst: no orphan sandboxes.');
     return 0;
@@ -209,7 +217,8 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
   let removed = 0;
   for (const o of orphans) {
     try {
-      await sandboxRunnerFor(deps, o.core, o.ticketId)!.dispose!({ hostWorktreePath: dirname(deps.projectRoot), branch: '' });
+      if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
+      else await sandboxRunnerFor(deps, o.core, o.ticketId)!.dispose!({ hostWorktreePath: dirname(deps.projectRoot), branch: '' });
       removed += 1;
     } catch (err) {
       deps.notify.warn(`Karst: removing orphan sandbox ${o.name} failed: ${message(err)}`);

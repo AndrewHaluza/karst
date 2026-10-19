@@ -12,6 +12,8 @@ export interface ProjectSandbox {
   readonly ticketId: number;
   readonly core: string;
   readonly state: 'running' | 'stopped';
+  /** Named for a core this runner cannot host (F6): never a live ticket's sandbox, always an orphan. */
+  readonly invalidCore?: true;
 }
 
 export interface SandboxInventory {
@@ -42,9 +44,12 @@ function failure(cmd: string, r: ProcessResult): string {
 }
 
 function own(runner: SandboxRunnerKind, name: string, projectRoot: string, running: boolean): ProjectSandbox | undefined {
+  const state = running ? 'running' : 'stopped';
   const id = parseSandboxName(name, projectRoot);
-  if (!id || !CORES_BY_RUNNER[runner].includes(id.core)) return undefined;
-  return { runner, name, ...id, state: running ? 'running' : 'stopped' };
+  if (id && CORES_BY_RUNNER[runner].includes(id.core)) return { runner, name, ...id, state };
+  // `karst-<hash>-<id>-<core>` of this project with a wrong core (null, agy, a docker core on sbx…): report it as an orphan.
+  const m = /^([1-9][0-9]*)-([a-z0-9]+)$/.exec(name.startsWith(projectPrefix(projectRoot)) ? name.slice(projectPrefix(projectRoot).length) : '');
+  return m ? { runner, name, ticketId: Number(m[1]), core: m[2]!, state, invalidCore: true } : undefined;
 }
 
 export interface InventoryDeps {

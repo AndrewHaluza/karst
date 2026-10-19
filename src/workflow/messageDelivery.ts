@@ -89,7 +89,25 @@ function assertPositiveInt(n: number, what: string): void {
  * How a recipient session reaches karst: its registered MCP server (`mcp`) or
  * the `"$KARST_*"` env refs every ticket terminal exports (`cli-env`).
  */
-export type DeliveryChannel = 'mcp' | 'cli-env';
+export type DeliveryChannel = 'mcp' | 'cli-env' | SandboxChannel;
+
+/**
+ * A runner-enforced sandbox has neither the host CLI nor MCP: the host writes the
+ * brief to `<runDir>/inbox/<ref>.md` and the agent acknowledges with `emit-ack.cjs`
+ * (arch:AC-34). `runDir` is the bridge dir as the agent sees it, `core` its script dir.
+ */
+export interface SandboxChannel {
+  readonly kind: 'sandbox';
+  readonly runDir: string;
+  readonly core: string;
+}
+
+export const isSandboxChannel = (channel: DeliveryChannel): channel is SandboxChannel => typeof channel === 'object';
+
+/** The inbox ref a pointer's brief is written under (`fix-12`, `mail`, `notes`). */
+export function inboxRef(pointer: MessagePointer): string {
+  return pointer.kind === 'fix' ? `fix-${pointer.deliveryId}` : pointer.kind;
+}
 
 /**
  * Fixed wording, the CLI command and MCP tool (same name) per pointer kind.
@@ -142,6 +160,12 @@ function pointerLead(pointer: MessagePointer): string {
 export function messagePointer(pointer: MessagePointer, channel: DeliveryChannel): string {
   const { command, ack, follow } = POINTER_TEXT[pointer.kind];
   const lead = pointerLead(pointer);
+  if (isSandboxChannel(channel)) {
+    const ref = inboxRef(pointer);
+    const read = `read ${channel.runDir}/inbox/${ref}.md`;
+    const ackStep = ack ? `, then run node ${channel.runDir}/${channel.core}/emit-ack.cjs ${channel.runDir}/events.ndjson ${ref}` : '';
+    return printable(`karst: ${lead} - ${read}${ackStep}${follow}`);
+  }
   if (channel === 'mcp') {
     return printable(`karst: ${lead} - call the karst MCP tool "${command}"${ack ? ' with ack: true' : ''}${follow}`);
   }
@@ -176,7 +200,10 @@ export function makeTerminalDelivery(deps: TerminalDeliveryDeps): MessageDeliver
       if (!deps.isLive(toTicketId) || deps.graphOwned(toTicketId)) return 'deferred';
       // agy only: hold the pointer until the turn ends, then the sweep retries.
       if (deps.agyBusy?.(toTicketId)) return 'deferred';
-      const line = messagePointer(pointer, deps.sessionChannel(toTicketId));
+      const channel = deps.sessionChannel(toTicketId);
+      // A sandbox reads briefs from its inbox dir, which only fix briefs have a writer for (arch:AC-34): hold the rest.
+      if (isSandboxChannel(channel) && pointer.kind !== 'fix') return 'deferred';
+      const line = messagePointer(pointer, channel);
       return deps.nudge(toTicketId, line) ? 'delivered' : 'deferred';
     },
   };

@@ -463,3 +463,27 @@ describe('instrumentAdapter', () => {
     expect(adapter.resolveResume).toBeUndefined();
   });
 });
+
+describe('instrumentAdapter guardResume (host headless refuses a sandbox session id)', () => {
+  const opts = (over: Partial<RunHeadlessOpts> = {}): RunHeadlessOpts =>
+    ({ prompt: 'p', policy: 'gate', cwd: '/wt', resume: 'ses_1', tracking: { callSite: 'fix-resume', ticketId: 7 }, ...over }) as RunHeadlessOpts;
+
+  it('a refusing guard stops the call before the core runs and records nothing', async () => {
+    const run = vi.fn(async (): Promise<HeadlessResult> => ({ sessionId: 's', verdict: null, raw: '', usage: { ...CLAUDE_ENVELOPE_USAGE } }));
+    const s = sink();
+    const wrapped = instrumentAdapter(fakeAdapter({ runHeadless: run }), {
+      sink: s,
+      guardResume: () => { throw new Error('refused'); },
+    });
+    await expect(wrapped.runHeadless(opts())).rejects.toThrow('refused');
+    expect(run).not.toHaveBeenCalled();
+    expect(s.entries).toEqual([]);
+  });
+
+  it('an allowing (async) guard sees the call and the run proceeds', async () => {
+    const guard = vi.fn(async () => undefined);
+    const wrapped = instrumentAdapter(fakeAdapter(), { sink: sink(), guardResume: guard });
+    await expect(wrapped.runHeadless(opts())).resolves.toMatchObject({ sessionId: 's1' });
+    expect(guard).toHaveBeenCalledWith(expect.objectContaining({ resume: 'ses_1' }));
+  });
+});

@@ -15,7 +15,13 @@ describe('dockerNames', () => {
     });
   });
 
-  it('throws on an unsafe core like sbxName', () => {
-    expect(() => dockerNames({ projectRoot: '/p', ticketId: 7, core: 'Bad Core' })).toThrow(/unsafe/);
+  it('throws on an unsafe core', () => {
+    expect(() => dockerNames({ projectRoot: '/p', ticketId: 7, core: 'Bad Core' })).toThrow(/not a docker core/);
+  });
+});
+
+describe('dockerNames core guard (F6)', () => {
+  it.each(['null', 'antigravity', 'claude', 'codex'])('rejects the non-docker core %s', (core) => {
+    expect(() => dockerNames({ projectRoot: '/p', ticketId: 7, core })).toThrow(/not a docker core/);
   });
 });

@@ -13,4 +13,14 @@ describe('NODE_SBX_PROCESS', () => {
     const out = await NODE_SBX_PROCESS.run('karst-no-such-binary-xyz', ['version']);
     expect(out.code).toBe(127);
   });
+
+  it('kills the child and fails once stdout passes maxStdoutBytes', async () => {
+    const out = await NODE_SBX_PROCESS.run(process.execPath, ['-e', 'setInterval(() => process.stdout.write("x".repeat(1024)), 1)'], { maxStdoutBytes: 4096 });
+    expect(out).toEqual({ code: 1, stdout: '', stderr: 'output exceeded 4096 bytes' });
+  });
+
+  it('keeps output at or under maxStdoutBytes', async () => {
+    const out = await NODE_SBX_PROCESS.run(process.execPath, ['-e', 'process.stdout.write("abcd")'], { maxStdoutBytes: 4 });
+    expect(out).toMatchObject({ code: 0, stdout: 'abcd' });
+  });
 });
