@@ -216,7 +216,7 @@ describe('lifecycle edge cases', () => {
   it('a failed listing does not prove absence: sync is still attempted', async () => {
     const { d, lines } = deps({ inv: [], answers: { 'sbx ls': { code: 1, stderr: 'down' } } });
     await expect(removeSandboxGuarded(d, target)).resolves.toBe(true);
-    expect(lines()).toContain('git -C /wt merge --ff-only sandbox-' + name(7) + '/feat/x');
+    expect(lines().some((l) => l.endsWith('-C /wt merge --ff-only FETCH_HEAD'))).toBe(true);
   });
 
   it('a docker sandbox is matched by core too', async () => {
@@ -231,7 +231,7 @@ describe('lifecycle edge cases', () => {
     await expect(removeSandboxGuarded(d, { ...target, worktree: undefined })).resolves.toBe(true);
     expect(choose.mock.calls[0]![0]).toBe(
       'Karst: the sandbox of T-7 has commits that could not be synced (no worktree branch to sync into). Removing it loses them.');
-    expect(lines()).toContain(`git -C /p remote remove sandbox-${name(7)}`);
+    expect(lines().some((l) => l.endsWith(`-C /p remote remove sandbox-${name(7)}`))).toBe(true);
     expect(lines().some((l) => l.includes('fetch'))).toBe(false);
     expect(notify.info).toHaveBeenCalledWith('Karst: T-7 sandbox removed.');
   });

@@ -85,7 +85,7 @@ describe('syncSandboxOp', () => {
     const r = recorder();
     const proc = fakeSbxProcess();
     await expect(syncSandboxOp({ notify: r.notify, projectRoot: '/p', proc }, target)).resolves.toBe(true);
-    expect(r.infos).toEqual([expect.stringMatching(/^Karst: K-7 fast-forwarded feat\/x to sandbox-karst-[0-9a-f]{8}-7-claude\/feat\/x\.$/)]);
+    expect(r.infos).toEqual([expect.stringMatching(/^Karst: K-7 fast-forwarded feat\/x to the sbx sandbox's commits\.$/)]);
     expect(r.errors).toEqual([]);
   });
 
@@ -159,7 +159,7 @@ describe('disposeSandboxOp', () => {
     await expect(disposeSandboxOp({ notify: r.notify, projectRoot: '/p', proc: traced, bridges }, target)).resolves.toBe(true);
     expect(order.at(-1)).toBe('bridge 7');
     expect(order).toContain('sbx rm');
-    expect(proc.calls.some((c) => c.args.slice(0, 4).join(' ') === '-C /wt/a remote remove')).toBe(true);
+    expect(proc.calls.some((c) => c.args.join(' ').includes('-C /wt/a remote remove'))).toBe(true);
     expect(r.infos).toEqual(['Karst: K-7 sandbox removed.']);
     expect(r.errors).toEqual([]);
   });

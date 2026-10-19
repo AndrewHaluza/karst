@@ -9,6 +9,8 @@ export interface ProcessResult {
 export interface ProcessRunOptions {
   readonly cwd?: string;
   readonly signal?: AbortSignal;
+  /** Extra env, merged over the host's (e.g. git config isolation). */
+  readonly env?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -29,6 +31,7 @@ export const NODE_SBX_PROCESS: SbxProcess = {
       const child = spawn(command, [...args], {
         cwd: opts?.cwd,
         signal: opts?.signal,
+        ...(opts?.env ? { env: { ...process.env, ...opts.env } } : {}),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       child.stdout.on('data', (chunk: Buffer) => { stdout += chunk.toString('utf8'); });

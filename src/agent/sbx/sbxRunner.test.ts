@@ -66,68 +66,58 @@ describe('createSbxSessionRunner.runHeadless', () => {
   });
 });
 
-describe('createSbxSessionRunner.sync', () => {
-  const remote = sandboxRemote(NAME);
+const G = 'git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.allow=never -c protocol.file.allow=always -C /wt/a';
+const BUNDLE_B64 = Buffer.from('bundle').toString('base64');
+const EXEC = `sbx exec ${NAME} --`;
+const text = (c: { command: string; args: readonly string[] }) => [c.command, ...c.args].join(' ');
 
-  it('fast-forwards the ticket branch from the sandbox remote', async () => {
-    const proc = fakeSbxProcess();
-    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
-    await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: `fast-forwarded feat/x to ${remote}/feat/x` });
-    expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([
-      `git -C /wt/a remote get-url ${remote}`,
-      `git -C /wt/a fetch ${remote}`,
-      `git -C /wt/a merge-base --is-ancestor HEAD ${remote}/feat/x`,
-      `git -C /wt/a merge --ff-only ${remote}/feat/x`,
-    ]);
+describe('createSbxSessionRunner.sync', () => {
+  it('bundles inside the sandbox, fetches that bundle, then fast-forwards (no git in the clone)', async () => {
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir: '/p/clone' });
+    await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: "fast-forwarded feat/x to the sbx sandbox's commits" });
+    const lines = proc.calls.map(text);
+    expect(lines[0]).toMatch(new RegExp(`^${EXEC} sh -c .*bundle create.* karst-bundle feat/x$`));
+    expect(proc.calls[0]!.opts).toEqual({ cwd: '/p/clone' });
+    expect(lines[1]).toMatch(new RegExp(`^${G} fetch \\S+/out\\.bundle refs/heads/feat/x$`));
+    expect(lines.slice(2)).toEqual([`${G} merge-base --is-ancestor HEAD FETCH_HEAD`, `${G} merge --ff-only FETCH_HEAD`]);
+    expect(proc.calls.every((c) => c.command !== 'git' || (c.opts?.env?.GIT_CONFIG_GLOBAL === '/dev/null' && c.opts.env.GIT_CONFIG_NOSYSTEM === '1'))).toBe(true);
+    expect(lines.some((l) => l.includes('/p/clone') && l.startsWith('git'))).toBe(false);
   });
 
   it('refuses a non-fast-forward and never merges', async () => {
-    const proc = fakeSbxProcess({ 'git -C /wt/a merge-base': { code: 1 } });
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} merge-base`]: { code: 1 } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
     const out = await runner.sync!(ticket);
     expect(out).toEqual({ ok: false, reason: expect.stringMatching(/not a fast-forward.*never forced/) });
     expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
   });
 
-  it('reports a missing remote', async () => {
-    const proc = fakeSbxProcess({ 'git -C /wt/a remote get-url': { code: 2 } });
-    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
-    await expect(runner.sync!(ticket)).resolves.toEqual({ ok: false, reason: expect.stringContaining(`no sandbox remote ${remote}`) });
-    expect(proc.calls).toHaveLength(1);
-  });
-
-  it('reports fetch and merge failures', async () => {
-    const fetchFail = fakeSbxProcess({ 'git -C /wt/a fetch': { code: 1, stderr: 'net down\n' } });
-    await expect(createSbxSessionRunner({ proc: fetchFail, core: 'claude', name: NAME, existing: [] }).sync!(ticket))
-      .resolves.toEqual({ ok: false, reason: `git fetch ${remote} failed: net down` });
-    const mergeFail = fakeSbxProcess({ 'git -C /wt/a merge --ff-only': { code: 1, stderr: 'dirty\n' } });
-    await expect(createSbxSessionRunner({ proc: mergeFail, core: 'claude', name: NAME, existing: [] }).sync!(ticket))
-      .resolves.toEqual({ ok: false, reason: `git merge --ff-only ${remote}/feat/x failed: dirty` });
+  it('reports a failed bundle, an empty bundle, a failed fetch and a failed merge', async () => {
+    const make = (answers: Record<string, { code?: number; stdout?: string; stderr?: string }>) =>
+      createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] }).sync!(ticket);
+    await expect(make({ [EXEC]: { code: 1, stderr: 'no repo\n' } })).resolves.toEqual({ ok: false, reason: 'no sandbox clone to sync from: no repo' });
+    await expect(make({ [EXEC]: { stdout: '' } })).resolves.toEqual({ ok: false, reason: 'sandbox returned an empty bundle' });
+    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} fetch`]: { code: 1, stderr: 'bad\n' } }))
+      .resolves.toEqual({ ok: false, reason: 'git fetch of the sandbox bundle failed: bad' });
+    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} merge --ff-only`]: { code: 1, stderr: 'dirty\n' } }))
+      .resolves.toEqual({ ok: false, reason: 'git merge --ff-only FETCH_HEAD failed: dirty' });
   });
 });
 
 describe('createSbxSessionRunner.diff', () => {
-  const remote = sandboxRemote(NAME);
-
-  it('fetches the sandbox remote and diffs the host branch against it, never merging', async () => {
-    const proc = fakeSbxProcess({ [`git -C /wt/a diff HEAD...${remote}/feat/x`]: { stdout: 'diff --git a/f b/f\n' } });
+  it('fetches the sandbox bundle and diffs the host branch against it, never merging', async () => {
+    const proc = fakeSbxProcess({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} diff HEAD...FETCH_HEAD`]: { stdout: 'diff --git a/f b/f\n' } });
     const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
-    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: `${remote}/feat/x` });
-    expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([
-      `git -C /wt/a remote get-url ${remote}`,
-      `git -C /wt/a fetch ${remote}`,
-      `git -C /wt/a diff HEAD...${remote}/feat/x`,
-    ]);
+    await expect(runner.diff!(ticket)).resolves.toEqual({ ok: true, diff: 'diff --git a/f b/f\n', ref: 'FETCH_HEAD' });
+    expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
   });
 
-  it('reports a missing remote, a failed fetch and a failed diff', async () => {
-    const make = (answers: Record<string, { code: number; stderr?: string }>) =>
-      createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] });
-    await expect(make({ 'git -C /wt/a remote get-url': { code: 2 } }).diff!(ticket))
-      .resolves.toEqual({ ok: false, reason: expect.stringContaining(`no sandbox remote ${remote}`) });
-    await expect(make({ 'git -C /wt/a fetch': { code: 1, stderr: 'net down\n' } }).diff!(ticket))
-      .resolves.toEqual({ ok: false, reason: `git fetch ${remote} failed: net down` });
-    await expect(make({ 'git -C /wt/a diff': { code: 128, stderr: 'bad rev\n' } }).diff!(ticket))
+  it('reports a failed bundle and a failed diff', async () => {
+    const make = (answers: Record<string, { code?: number; stdout?: string; stderr?: string }>) =>
+      createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] }).diff!(ticket);
+    await expect(make({ [EXEC]: { code: 2, stderr: 'gone\n' } })).resolves.toEqual({ ok: false, reason: 'no sandbox clone to sync from: gone' });
+    await expect(make({ [EXEC]: { stdout: BUNDLE_B64 }, [`${G} diff`]: { code: 128, stderr: 'bad rev\n' } }))
       .resolves.toEqual({ ok: false, reason: 'git diff failed: bad rev' });
   });
 });
@@ -140,7 +130,7 @@ describe('createSbxSessionRunner.dispose', () => {
     expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([
       `sbx stop ${NAME}`,
       `sbx rm --force ${NAME}`,
-      `git -C /wt/a remote remove ${sandboxRemote(NAME)}`,
+      `${G} remote remove ${sandboxRemote(NAME)}`,
     ]);
     expect(proc.calls.some((c) => c.args.includes('bystander'))).toBe(false);
     // Disposed: the next launch creates again.
@@ -184,16 +174,5 @@ describe('createSbxSessionRunner cloneDir', () => {
     expect(placed.shellArgs).toContain(cloneDir);
     expect(placed.shellArgs).not.toContain('/wt/with space');
     expect(placed.cwd).toBe(cloneDir);
-  });
-
-  it('syncs by fetching the sandbox remote in the clone, relaying it to the worktree, then fast-forwarding', async () => {
-    const proc = fakeSbxProcess();
-    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir });
-    await expect(runner.sync!(ticket)).resolves.toMatchObject({ ok: true });
-    const lines = proc.calls.map((c) => c.args.join(' '));
-    const remote = sandboxRemote(NAME);
-    expect(lines).toContain(`-C ${cloneDir} fetch ${remote}`);
-    expect(lines).toContain(`-C /wt/a fetch ${cloneDir} +refs/remotes/${remote}/feat/x:refs/remotes/${remote}/feat/x`);
-    expect(lines).toContain(`-C /wt/a merge --ff-only ${remote}/feat/x`);
   });
 });
