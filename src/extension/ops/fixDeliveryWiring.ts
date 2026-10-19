@@ -1,15 +1,19 @@
 import type { Store } from '../../store/db.js';
 import type { CliTokens } from '../../agent/cliEnv.js';
 import type { NudgeHooks } from '../../ui/nudgeQueue.js';
-import { fixPointer, messagePointer, type DeliveryChannel } from '../../workflow/messageDelivery.js';
+import { fixPointer, inboxRef, isSandboxChannel, messagePointer, type DeliveryChannel, type SandboxChannel } from '../../workflow/messageDelivery.js';
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import {
   claimPointed,
+  getFixDelivery,
   openFixDeliveryForLaunch,
   supersedeFixDeliveries,
   upsertFixDelivery,
 } from '../../store/fixDeliveries.js';
 import { renderDoneMarkerInstruction } from '../../agent/workflowCommand.js';
+import { renderSandboxMarkerInstruction } from '../../agent/sandboxInstructions.js';
+import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
+import { writeInboxFile } from '../../agent/bridge/inbox.js';
 import { composeStageCommand } from '../../cli/stage.js';
 import { composeFixBriefCommand } from '../../cli/fixBriefCommand.js';
 import { formatTicketRef } from '../../model/entityId.js';
@@ -32,17 +36,24 @@ export const FIX_DELIVERY_INTERVAL_MS = 15_000;
  * built from LITERAL host tokens (never session env refs), so the same body is
  * valid for any session generation and a re-arm never re-renders it. The seed
  * itself keeps today's env-ref composition; only the stored copy is literal.
+ * A sandboxed session (`sandbox`) has no host CLI: its marker is emit-marker and
+ * the truncation footer names no command (the inbox file is the whole brief).
  */
 export function composeFixSnapshot(
   store: Store,
   ticketId: number,
   literal: CliTokens,
+  sandbox?: SandboxChannel,
 ): { body: string; footer: string } {
   const t = getTicket(store, ticketId);
   const label = formatTicketRef(ticketId, t.key);
   const brief =
     fixBriefForTicket(store, ticketId, label) ??
     `A gate failed for ticket ${label}. Re-run the checks, fix what they report, and confirm they pass.`;
+  if (sandbox) {
+    const marker = renderSandboxMarkerInstruction({ runDir: sandbox.runDir, core: sandbox.core, stage: 'fix' });
+    return { body: `${brief}\n\n${marker}`, footer: '… truncated' };
+  }
   const marker = renderDoneMarkerInstruction(
     composeStageCommand(literal.cli, literal.db, 'fix', literal.manifest),
     t.key || String(ticketId),
@@ -66,6 +77,8 @@ export interface FixDeliveryWiringDeps {
   /** Queue one typed line into the live terminal; false when none took it. */
   nudge: (ticketId: number, line: string, hooks: NudgeHooks) => boolean;
   sessionChannel: (ticketId: number) => DeliveryChannel;
+  /** Host paths of the ticket's bridge dir, for writing a sandboxed agent's inbox brief. */
+  bridgePaths?: (ticketId: number) => BridgePaths | undefined;
   literal: () => CliTokens;
   /** agy has not reported idle (its TUI swallows a line typed mid-turn). */
   agyBusy: (ticketId: number) => boolean;
@@ -87,6 +100,25 @@ export interface FixDeliveryWiring {
   claimPointed: (ticketId: number, deliveryId: number) => boolean;
 }
 
+function sandboxOf(deps: FixDeliveryWiringDeps, ticketId: number): SandboxChannel | undefined {
+  const channel = deps.sessionChannel(ticketId);
+  return isSandboxChannel(channel) ? channel : undefined;
+}
+
+/** Host-written inbox brief for a sandboxed agent (arch:AC-34); false = nothing to point at (retried by the sweep). */
+function writeFixBrief(deps: FixDeliveryWiringDeps, ticketId: number, deliveryId: number): boolean {
+  const paths = deps.bridgePaths?.(ticketId);
+  const row = getFixDelivery(deps.store, deliveryId);
+  if (!paths || row === null || row.ticketId !== ticketId) return false;
+  try {
+    writeInboxFile(paths, inboxRef(fixPointer(deliveryId)), row.body);
+    return true;
+  } catch (err) {
+    deps.debug(`[driver] fix delivery #${deliveryId}: inbox write refused (${err instanceof Error ? err.message : String(err)})`);
+    return false;
+  }
+}
+
 export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryWiring {
   const now = (): string => new Date().toISOString();
   const host: FixDeliveryHost = {
@@ -95,13 +127,15 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
     debug: deps.debug,
     isGraphTicket: deps.isGraphTicket,
     isLive: deps.isLive,
-    routeFor: (id) => messageRouteFor(deps.sessionProvider(id), CODEX_STOP_BLOCK_SUPPORTED),
+    routeFor: (id) => (isSandboxChannel(deps.sessionChannel(id)) ? 'typed' : messageRouteFor(deps.sessionProvider(id), CODEX_STOP_BLOCK_SUPPORTED)),
     currentLaunchId: deps.currentLaunchId,
     isRunning: (id) => getTicket(deps.store, id).agentState === 'running',
     sendPointer: (id, deliveryId, hooks): TypedSendResult => {
       if (!deps.isLive(id) || deps.isGraphTicket(id)) return 'unavailable';
       if (deps.agyBusy(id)) return 'held';
-      const line = messagePointer(fixPointer(deliveryId), deps.sessionChannel(id));
+      const channel = deps.sessionChannel(id);
+      if (isSandboxChannel(channel) && !writeFixBrief(deps, id, deliveryId)) return 'unavailable';
+      const line = messagePointer(fixPointer(deliveryId), channel);
       return deps.nudge(id, line, hooks) ? 'queued' : 'unavailable';
     },
     needsYou: (id, reason) => {
@@ -116,11 +150,11 @@ export function makeFixDeliveryWiring(deps: FixDeliveryWiringDeps): FixDeliveryW
   return {
     sweep: makeFixDeliverySweep({ ...host, projectId: deps.projectId }),
     deliver: (ticketId, roundId) => {
-      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal());
+      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId));
       return deliverLiveFix(host, { ticketId, roundId, body, truncatedFooter: footer });
     },
     recordSeed: (ticketId, roundId, launchId) => {
-      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal());
+      const { body, footer } = composeFixSnapshot(deps.store, ticketId, deps.literal(), sandboxOf(deps, ticketId));
       upsertFixDelivery(deps.store, {
         ticketId,
         recoveryRoundId: roundId,

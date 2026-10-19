@@ -12,6 +12,7 @@ import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
+import type { SandboxChannel } from '../../workflow/messageDelivery.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '../../agent/sandboxHostAllow.js';
 import { resetSandboxServices, reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
@@ -230,6 +231,19 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
   const uatGate = createUserUatGate();
   return {
     deps,
+    /** Record (or clear, `null`) the core whose sandbox serves a ticket: set at launch, read back by the sync callers. */
+    remember: (ticketId: number, core: string | null) => deps.remember?.(ticketId, core),
+    /**
+     * How a sandboxed session reaches karst for pointer text (arch:AC-34): the bridge dir as the agent
+     * sees it plus its script dir. Undefined for a host session (no sandbox remembered for the ticket).
+     */
+    sandboxChannel: (ticketId: number): SandboxChannel | undefined => {
+      const core = cores.get(ticketId);
+      const bridge = deps.bridgeOf?.(ticketId);
+      if (core === undefined || !bridge) return undefined;
+      const runDir = ticketSandboxRunner(deps, ticketId, core)?.runner.bridgeRunDir?.(bridge);
+      return runDir === undefined ? undefined : { kind: 'sandbox', runDir, core };
+    },
     /** Decision 7: open/copy of a ticket's service link is withheld during agent UAT. */
     userUatWithheld: (ticketId: number) => uatGate.isWithheld(ticketId),
     /** Decisions 7-8 for the UAT stage: keep a sandboxed stack, reset it, gate the link. */

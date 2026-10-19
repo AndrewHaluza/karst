@@ -2072,7 +2072,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
     nudge: (id, line, hooks) => sessions.nudge(id, line, hooks),
-    sessionChannel: (id) => sessions.sessionChannel(id),
+    sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
+    bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id),
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
@@ -2104,7 +2105,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     graphOwned: (id) => nudgeSurface(localStore.db, id) === 'no-op',
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     nudge: (id, line) => sessions.nudge(id, line),
-    sessionChannel: (id) => sessions.sessionChannel(id),
+    sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
     sessionProvider: (id) => sessions.sessionIdentity(id)?.provider ?? null,
     isCurrentHook: (id, launchId) => recoveryLifecycle.isCurrentHook(id, launchId),
     fixEligible: fixDelivery.eligible,
@@ -6327,6 +6328,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       );
       const launchProvider = identity.provider;
       const launchBackend = await resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }); // AC-32
+      sandboxB?.remember(ticketId, launchBackend.sandboxed ? launchProvider : null); // pointer text follows the runner of THIS launch (AC-34)
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed;

@@ -6,6 +6,7 @@ import { makeHookReply, type BlockedAt, type BlockedAtFix } from '../../hooks/ma
 import {
   makeRoutedDelivery,
   makeTerminalDelivery,
+  isSandboxChannel,
   type DeliveryChannel,
   type MessageRoute,
 } from '../../workflow/messageDelivery.js';
@@ -111,8 +112,9 @@ export function makeMailDeliveryWiring(deps: MailDeliveryWiringDeps): MailDelive
     nudge: deps.nudge,
     sessionChannel: deps.sessionChannel,
   });
+  // A sandboxed session has no hook reply channel: briefs go typed, through its inbox dir (arch:AC-34).
   const routeFor = (ticketId: number): MessageRoute =>
-    messageRouteFor(deps.sessionProvider(ticketId), CODEX_STOP_BLOCK_SUPPORTED);
+    isSandboxChannel(deps.sessionChannel(ticketId)) ? 'typed' : messageRouteFor(deps.sessionProvider(ticketId), CODEX_STOP_BLOCK_SUPPORTED);
   const isBusy = (ticketId: number): boolean =>
     getTicket(deps.store, ticketId).agentState === 'running';
 
