@@ -29,7 +29,8 @@ import { isServing } from '../../runtime/health.js';
  */
 export interface TicketSandboxDeps {
   readonly backends: () => AgentBackends | undefined;
-  readonly projectRoot: () => string;
+  /** The sandbox name hash input launch used: the manifest file, else the ticket worktree path (N10). */
+  readonly projectRoot: (ticketId: number) => string;
   /** The ticket's session core (`tickets.session_provider`), or null. */
   readonly coreOf: (ticketId: number) => string | null;
   /** The ticket's evidence bridge paths, when the hook endpoint is up. */
@@ -51,7 +52,7 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number): 
   if (core === null) return undefined;
   const backend = backendForCore(deps.backends(), core);
   const bridge = deps.bridgeOf?.(ticketId);
-  const projectRoot = deps.projectRoot();
+  const projectRoot = deps.projectRoot(ticketId);
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({

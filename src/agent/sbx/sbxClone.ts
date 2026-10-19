@@ -1,10 +1,21 @@
 import { mkdir, rm } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { SbxProcess } from './sbxProcess.js';
+
+/**
+ * The project DIRECTORY for a sandbox's hash input. Call sites pass the manifest
+ * FILE (`<project>/.karst/karst.yml`) or, without one, the ticket worktree; only
+ * the directory may hold the clone (a path under `karst.yml` fails ENOTDIR).
+ */
+export function sandboxProjectDir(hashInput: string): string {
+  if (!/\.ya?ml$/i.test(hashInput)) return hashInput;
+  const dir = dirname(hashInput);
+  return basename(dir) === '.karst' ? dirname(dir) : dir;
+}
 
 /** Where a sandbox's standalone clone lives: karst-owned, inside the project, keyed by the sandbox name. */
 export function sbxCloneDir(projectRoot: string, name: string): string {
-  return join(projectRoot, '.karst', 'sbx-clones', name);
+  return join(sandboxProjectDir(projectRoot), '.karst', 'sbx-clones', name);
 }
 
 export type CloneResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
