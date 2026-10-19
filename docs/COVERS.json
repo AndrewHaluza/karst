@@ -11,8 +11,14 @@
   "scripts/archSchema.ts": [
     "arch:MAP-00"
   ],
+  "scripts/dockerGate.mjs": [
+    "arch:GATE-CAPABILITY"
+  ],
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
+  ],
+  "scripts/nativeToolchain.mjs": [
+    "arch:GATE-CAPABILITY"
   ],
   "src/agent/settings.ts#writeHookSettings": [
     "arch:GLOBAL"
@@ -100,5 +106,14 @@
   ],
   "src/workflow/changeBaseRef.ts#changeBaseRef": [
     "arch:BASEBRANCH"
+  ],
+  "src/workflow/gates/capabilityGap.ts": [
+    "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/review/aggregate.ts#gatesOutcomeBeforeFindings": [
+    "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/uat/aggregate.ts#aggregateUat": [
+    "arch:GATE-CAPABILITY"
   ]
 }

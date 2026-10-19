@@ -4,6 +4,7 @@ import type { FindingInput } from '../../store/reviewFindings.js';
 import type { UsageLimitParkPayload } from '../../store/usageLimitParks.js';
 import type { Severity } from '../../manifest/types.js';
 import { usageLimitReason } from '../../agent/cliFailure.js';
+import { capabilityGap } from '../gates/capabilityGap.js';
 import type { AggregateEntry } from '../uat/aggregate.js';
 
 export type { AggregateEntry };
@@ -348,6 +349,15 @@ export function gatesOutcomeBeforeFindings(
   // R5 — a red gate always wins the wording over R6/R7: gates are cheaper to act on.
   const failing = ran.filter((e) => e.result.exitCode !== 0);
   if (failing.length > 0) {
+    // A gate that exited 127 never RAN the thing it names: the command is not
+    // installed in this environment (a sandbox without docker, a machine
+    // without the toolchain a native addon needs). That is a missing
+    // capability, not a defect in the ticket's code — park (no fix round spent)
+    // and name the capability, like UAT's own capability gaps.
+    const gap = capabilityGap(ran.map((e) => e.result));
+    if (gap) {
+      return { kind: 'blocked', blocker: 'capability-missing', reason: gap.reason };
+    }
     return {
       kind: 'verdict',
       verdict: {
