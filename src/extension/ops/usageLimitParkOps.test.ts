@@ -785,6 +785,56 @@ describe('usageLimitParkOps', () => {
       expect(adapterFor).toHaveBeenCalledWith('claude', 'claude-3-7-sonnet');
     });
 
+    it('targets the op park, not a newer stale stage-block park whose block is gone', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-STALE-BLOCK', title: 'Test ticket' });
+      // The op park first (OLDER), then a NEWER stage-block row for the same
+      // stage whose block is already gone (the stage is not blocked at all).
+      // `listOpenParks` is newest-first, so a kind-BLIND `find` would pick the
+      // stale stage-block and try to fail the stage; the kind filter must pick
+      // the op park instead.
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'op',
+        lane: null,
+        target: null,
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'codex',
+        model: 'gpt-4o',
+        detail: 'stale block',
+        keptOutcome: null,
+      });
+
+      const warn = vi.fn();
+      const redrive = vi.fn();
+      await handleUsageLimitDismiss({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        notify: { info: vi.fn(), warn, error: vi.fn() },
+        redrive,
+        refresh: vi.fn(),
+      });
+
+      // The op park was dismissed (resolving its row IS the dismiss) and the
+      // stale stage-block row was left untouched — no stage verdict, no redrive.
+      const parks = listParks(store, ticket.id);
+      expect(parks.find((p) => p.kind === 'op')?.resolution).toBe('dismiss');
+      expect(parks.find((p) => p.kind === 'stage-block')?.resolvedAt).toBeNull();
+      expect(redrive).not.toHaveBeenCalled();
+    });
+
     it('handles formatModelChoices when parkedModel is null or choice has no description', () => {
       const emptyCatalog = {
         modelsByTier: () => ({ primary: [], fast: [], reasoning: [] }),
