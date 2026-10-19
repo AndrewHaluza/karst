@@ -16,7 +16,7 @@ const dispatchMock = vi.mocked(dispatchHook);
 let store: Store;
 let ticketId: number;
 let captured: BridgeAttachmentDeps[];
-const attachment: BridgeAttachment = { start: vi.fn(), stop: vi.fn(async () => {}), pollOnce: vi.fn(async () => {}) };
+const attachment: BridgeAttachment = { start: vi.fn(), stop: vi.fn(async () => {}), pollOnce: vi.fn(async () => {}), retryPending: vi.fn(async () => {}) };
 const paths = bridgePaths('/g', 1);
 
 const addWorktree = (id: number, path: string): void => {
@@ -124,6 +124,28 @@ describe('makeBridgeBuild', () => {
     makeBridgeBuild(deps({ spawn }))(ticketId, paths);
     await captured[0]!.runMarker('impl');
     expect((spawn.mock.calls[0] as unknown as [string, string[]])[1].at(-1)).toBe(String(ticketId));
+  });
+
+  it('syncs the sandbox before the CLI and carries a sync failure out as a transient marker failure (T700)', async () => {
+    const spawn = vi.fn(async () => ({ exitCode: 0, stdout: '', stderr: '' }));
+    const ensureSynced = vi.fn(async () => ({ ok: false as const, reason: 'sbx down', diverged: false }));
+    makeBridgeBuild(deps({ spawn, ensureSynced }))(ticketId, paths);
+    expect(await captured[0]!.runMarker('impl')).toMatchObject({ code: 1, stderr: 'sbx down', transient: true });
+    expect(ensureSynced).toHaveBeenCalledWith(ticketId);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+
+  it('a marker failure is a WARN plus a user notification; a diverged branch asks the user', () => {
+    const warn = vi.fn();
+    const notifyFailure = vi.fn();
+    makeBridgeBuild(deps({ warn, notifyFailure }))(ticketId, paths);
+    captured[0]!.onMarkerFailure!({ stage: 'impl', reason: 'no repository has changes', diverged: false });
+    captured[0]!.onMarkerFailure!({ stage: 'impl', reason: 'not a fast-forward', diverged: true });
+    expect(warn).toHaveBeenCalledWith('Karst: K-1 impl done marker failed: no repository has changes');
+    expect(notifyFailure.mock.calls).toEqual([
+      [ticketId, 'Karst: K-1 impl done marker failed: no repository has changes', false],
+      [ticketId, 'Karst: K-1 impl done marker failed: not a fast-forward', true],
+    ]);
   });
 
   it('passes debug to the attachment', () => {

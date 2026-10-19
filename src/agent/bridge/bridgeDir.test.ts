@@ -11,7 +11,8 @@ afterEach(() => rm(root, { recursive: true, force: true }));
 describe('bridgeDir', () => {
   it('derives host and in-sandbox paths from the ticket id only', () => {
     expect(bridgePaths('/g', 7)).toEqual({
-      dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', runDir: '/karst-bridge/7',
+      dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json',
+      resultsDir: '/g/events/7/results', pendingFile: '/g/state/7.marker.json', runDir: '/karst-bridge/7',
     });
   });
   it('rejects a non-integer ticket id (path traversal guard)', () => {
@@ -25,12 +26,12 @@ describe('bridgeDir', () => {
     expect(await readFile(p.eventsFile, 'utf8')).toBe('');
     expect((await stat(p.stateFile.replace(/7\.json$/, ''))).isDirectory()).toBe(true);
   });
-  it('enforces 0777 dir and 0666 events file regardless of umask or a pre-existing file', async () => {
+  it('enforces sticky 1777 dir and 0666 events file regardless of umask or a pre-existing file', async () => {
     const p = bridgePaths(root, 9);
     await mkdir(p.dir, { recursive: true });
     await writeFile(p.eventsFile, '', { mode: 0o644 });
     await ensureBridgeDir(p);
-    expect((await stat(p.dir)).mode & 0o777).toBe(0o777);
+    expect((await stat(p.dir)).mode & 0o1777).toBe(0o1777);
     expect((await stat(p.eventsFile)).mode & 0o777).toBe(0o666);
   });
   it('refuses a pre-planted symlink at the events file and leaves its target mode alone', async () => {

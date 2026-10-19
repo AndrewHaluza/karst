@@ -135,6 +135,38 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
   return true;
 }
 
+export type EnsureSyncResult =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: string; readonly diverged: boolean };
+
+const syncChains = new Map<number, Promise<unknown>>();
+
+/**
+ * THE choke point before any host step that reads a sandboxed ticket's
+ * worktree (done marker, stop, close; arch:AC-32): fast-forward the host
+ * branch to the sandbox's commits, never forced. A host ticket (no sandbox
+ * runner) is a no-op. Serialised per ticket. `diverged` = the host branch
+ * is not an ancestor of the sandbox's: the only case that needs the user.
+ */
+export function ensureSandboxSynced(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<EnsureSyncResult> {
+  const run = async (): Promise<EnsureSyncResult> => {
+    const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+    if (!runner?.sync) return { ok: true };
+    if (!target.worktree?.branch) return { ok: false, reason: 'no worktree branch to sync into', diverged: false };
+    try {
+      const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+      return result.ok ? { ok: true } : { ok: false, reason: result.reason, diverged: /not a fast-forward/i.test(result.reason) };
+    } catch (err) {
+      return { ok: false, reason: `sandbox sync failed: ${message(err)}`, diverged: false };
+    }
+  };
+  const next = (syncChains.get(target.ticketId) ?? Promise.resolve()).then(run, run);
+  const settled = next.then(() => undefined, () => undefined);
+  syncChains.set(target.ticketId, settled);
+  void settled.then(() => { if (syncChains.get(target.ticketId) === settled) syncChains.delete(target.ticketId); });
+  return next;
+}
+
 export interface SandboxDisposeDeps extends SandboxSyncDeps {
   /** The ticket's evidence bridge (arch:AC-34): removed only after the sandbox is. */
   /** `undefined` until the hook endpoint is bound (activation still running). */

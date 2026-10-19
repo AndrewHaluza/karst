@@ -171,7 +171,7 @@ describe('createSbxSessionRunner bridge dir', () => {
   });
   it('the agent sees the bridge dir at its host path', () => {
     const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [] });
-    const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', runDir: '/karst-bridge/7' };
+    const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', resultsDir: '/g/events/7/results', pendingFile: '/g/state/7.marker.json', runDir: '/karst-bridge/7' };
     expect(runner.bridgeRunDir?.(paths)).toBe('/g/events/7');
   });
 });

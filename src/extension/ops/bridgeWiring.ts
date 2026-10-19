@@ -14,7 +14,9 @@ import type { StageKey } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { findTicketById } from '../../store/tickets.js';
+import type { MarkerFailure } from '../../agent/bridge/markerFlow.js';
 import { createMarkerRunner, type MarkerSpawn } from './markerRunner.js';
+import type { EnsureSyncResult } from './sandboxSyncOps.js';
 
 /** How often a ticket's bridge file is tailed (arch:AC-34). */
 export const BRIDGE_POLL_INTERVAL_MS = 250;
@@ -38,6 +40,12 @@ export interface BridgeBuildDeps {
   readonly cli: () => { readonly cliEntry: string; readonly dbPath: string; readonly manifestPath: string | undefined };
   readonly nodePath: string;
   readonly debug?: (message: string) => void;
+  /** A marker failure is a WARN, never DEBUG-only (arch:AC-34). */
+  readonly warn?: (message: string) => void;
+  /** Shows the user a failed done marker; `diverged` = a Needs-you blocker with Open sync diff. */
+  readonly notifyFailure?: (ticketId: number, message: string, diverged: boolean) => void;
+  /** Fast-forwards a sandboxed ticket's host worktree before its stage CLI runs; a host ticket is a no-op (arch:AC-32). */
+  readonly ensureSynced?: (ticketId: number) => Promise<EnsureSyncResult>;
   readonly spawn?: MarkerSpawn;
   readonly attach?: typeof createBridgeAttachment;
 }
@@ -58,16 +66,27 @@ export function makeBridgeBuild(
     if (!worktreePath) return skip('no worktree');
     const { cliEntry, dbPath, manifestPath } = deps.cli();
     if (!manifestPath) return skip('manifest unresolved');
-    const facts = { nodePath: deps.nodePath, cliEntry, dbPath, manifestPath, ticketKey: ticket.key || String(ticketId), cwd: worktreePath };
+    const ticketKey = ticket.key || String(ticketId);
+    const facts = {
+      nodePath: deps.nodePath, cliEntry, dbPath, manifestPath, ticketKey, cwd: worktreePath,
+      ...(deps.ensureSynced ? { ensureSynced: () => deps.ensureSynced!(ticketId) } : {}),
+    };
     return (deps.attach ?? createBridgeAttachment)({
       paths,
       expect: liveExpectation(deps, ticketId, worktreePath),
       dispatch: (payload) => dispatch(deps, ticketId, payload, log),
       runMarker: deps.spawn ? createMarkerRunner(facts, deps.spawn) : createMarkerRunner(facts),
       intervalMs: BRIDGE_POLL_INTERVAL_MS,
+      onMarkerFailure: (failure) => markerFailed(deps, ticketId, ticketKey, failure),
       ...(deps.debug ? { debug: deps.debug } : {}),
     });
   };
+}
+
+function markerFailed(deps: BridgeBuildDeps, ticketId: number, ticketKey: string, failure: MarkerFailure): void {
+  const message = `Karst: ${ticketKey} ${failure.stage} done marker failed: ${failure.reason}`;
+  deps.warn?.(message);
+  deps.notifyFailure?.(ticketId, message, failure.diverged);
 }
 
 function liveExpectation(deps: BridgeBuildDeps, ticketId: number, worktreePath: string): BridgeExpectation {
