@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { QuotaOps, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
+import { QuotaOps, makeClaudeGlobalStatuslineSync, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
+import type { Manifest } from '../../manifest/types.js';
 
 function sink(): QuotaStatusSink & { sets: Array<[string, string, boolean]>; hides: number } {
   const sets: Array<[string, string, boolean]> = [];
@@ -143,5 +144,95 @@ describe('QuotaOps.warnBeforeLaunch', () => {
     const { ops, notify } = make({ get: () => openAtNow('codex', 95) });
     ops.warnBeforeLaunch('codex');
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('codex is at 95%'));
+  });
+});
+
+describe('makeClaudeGlobalStatuslineSync', () => {
+  function sync(over: {
+    manifest?: () => Manifest | undefined;
+    apply?: ReturnType<typeof vi.fn>;
+  }) {
+    const apply = over.apply ?? vi.fn(() => ({ installed: true, changed: false }));
+    const warn = vi.fn();
+    const info = vi.fn();
+    const error = vi.fn();
+    const run = makeClaudeGlobalStatuslineSync({
+      manifest: over.manifest ?? (() => ({}) as Manifest),
+      storageRoot: '/storage',
+      warn,
+      info,
+      error,
+      apply: apply as never,
+      node: () => '/usr/bin/node',
+    });
+    return { run, apply, warn, info, error };
+  }
+
+  it('installs when the manifest flags ON, with the wrapper outside the config dir', () => {
+    const { run, apply } = sync({ manifest: () => ({ quota: { claudeGlobalStatusline: true } }) as Manifest });
+    run();
+    expect(apply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        enabled: true,
+        wrapperDir: '/storage/claude-statusline',
+        node: '/usr/bin/node',
+      }),
+    );
+  });
+
+  it('reads an absent flag as OFF', () => {
+    const { run, apply } = sync({ manifest: () => ({ quota: { warnThresholdPct: 80 } }) as Manifest });
+    run();
+    expect(apply).toHaveBeenCalledWith(expect.objectContaining({ enabled: false }));
+  });
+
+  it('leaves global settings alone when no manifest is usable', () => {
+    const { run, apply } = sync({ manifest: () => undefined });
+    run();
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('warns instead of logging a change when the settings file is refused', () => {
+    const { run, warn, info } = sync({
+      manifest: () => ({ quota: { claudeGlobalStatusline: true } }) as Manifest,
+      apply: vi.fn(() => ({ installed: false, changed: false, refused: 'invalid-json' })),
+    });
+    run();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('not valid JSON'));
+    expect(info).not.toHaveBeenCalled();
+
+    const unreadable = sync({
+      manifest: () => ({ quota: { claudeGlobalStatusline: true } }) as Manifest,
+      apply: vi.fn(() => ({ installed: false, changed: false, refused: 'unreadable' })),
+    });
+    unreadable.run();
+    expect(unreadable.warn).toHaveBeenCalledWith(expect.stringContaining('unreadable'));
+  });
+
+  it('reports an install/restore change and never throws', () => {
+    const { run, info } = sync({
+      manifest: () => ({ quota: { claudeGlobalStatusline: true } }) as Manifest,
+      apply: vi.fn(() => ({ installed: true, changed: true })),
+    });
+    run();
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('installed'));
+
+    const restored = sync({
+      manifest: () => ({}) as Manifest,
+      apply: vi.fn(() => ({ installed: false, changed: true })),
+    });
+    restored.run();
+    expect(restored.info).toHaveBeenCalledWith(expect.stringContaining('restored'));
+
+    const failing = sync({
+      manifest: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(() => failing.run()).not.toThrow();
+    expect(failing.error).toHaveBeenCalledWith(
+      'karst: Claude global statusline sync failed',
+      expect.any(Error),
+    );
   });
 });

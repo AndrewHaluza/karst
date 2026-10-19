@@ -449,7 +449,7 @@ import { UsagePanelManager, type UsagePanel, type UsagePanelHost } from './ui/us
 import { makeUsagePanelHost } from './ui/usage/host.js';
 import { QuotaService, defaultQuotaReaders } from './agent/quota/service.js';
 import type { QuotaSnapshot } from './agent/quota/types.js';
-import { QuotaOps } from './extension/ops/quotaOps.js';
+import { QuotaOps, makeClaudeGlobalStatuslineSync } from './extension/ops/quotaOps.js';
 import { DEFAULT_QUOTA_WARN_THRESHOLD_PCT } from './manifest/validate/quota.js';
 import {
   ResourcesPanelManager,
@@ -1250,6 +1250,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
+  const syncClaudeGlobalStatusline = makeClaudeGlobalStatuslineSync({ manifest: currentManifest, storageRoot: context.globalStorageUri.fsPath, warn: (m) => logger.warn(m), info: (m) => logger.info(m), error: logError });
   sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
@@ -1503,7 +1504,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // re-applied the moment the file changed — including the external watcher.
   const reloadManifest = (): void => {
     manifests.reload();
-    applyManifestDebug(currentManifest());
+    applyManifestDebug(currentManifest()); syncClaudeGlobalStatusline();
   };
 
   // This window's project (§ projects / multi-window). Every window shares one
@@ -2749,7 +2750,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     tokenUsagePanel.refresh();
     quotaOps.applyStatus(snapshots);
   };
-  quotaService.start();
+  quotaService.start(); syncClaudeGlobalStatusline();
   context.subscriptions.push({ dispose: () => quotaService.dispose() });
 
 

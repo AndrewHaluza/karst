@@ -85,13 +85,20 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
   // loads as the default) and is flagged inline, so the snap-back is never
   // silent. Rendered on the Agents page (not General) because a new `useId`
   // there would shift every later section's React ids — and the layout ledger
-  // keys those ids.
+  // keys those ids. The opt-in global Claude install sits BESIDE it, after every
+  // existing field on this page, so no id that the ledger keys moves
+  // (`ui:UI-R39`, `ui:README-ORDER`; the f2d73f4a lesson).
   const quota = readField<Partial<QuotaConfig> | undefined>(draft, 'quota', undefined);
   const [quotaError, setQuotaError] = useState<string | undefined>(undefined);
-  const setQuota = (value: QuotaConfig | undefined) => (d: Manifest): Manifest => {
+  const setQuota = (patch: Partial<QuotaConfig>) => (d: Manifest): Manifest => {
+    const nextQuota: Record<string, unknown> = { ...d.quota };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete nextQuota[key];
+      else nextQuota[key] = value;
+    }
     const next = { ...d };
-    if (value === undefined) delete next.quota;
-    else next.quota = value;
+    if (Object.keys(nextQuota).length === 0) delete next.quota;
+    else next.quota = nextQuota as unknown as QuotaConfig;
     return next;
   };
   const setQuotaThreshold = (raw: string): void => {
@@ -99,7 +106,10 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
     const parsed = Number(raw);
     const valid = !blank && Number.isInteger(parsed) && parsed >= 1 && parsed <= 100;
     setQuotaError(blank || valid ? undefined : QUOTA_THRESHOLD_ERROR);
-    edit(setQuota(valid ? { warnThresholdPct: parsed } : undefined));
+    edit(setQuota({ warnThresholdPct: valid ? parsed : undefined }));
+  };
+  const setQuotaGlobal = (on: boolean): void => {
+    edit(setQuota({ claudeGlobalStatusline: on }));
   };
   const quotaText =
     quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
@@ -278,6 +288,16 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
             value: quotaText,
             placeholder: String(DEFAULT_QUOTA_WARN_THRESHOLD_PCT),
             onChange: setQuotaThreshold,
+          }}
+        />
+        <Field
+          label="Install for all Claude sessions"
+          help="Adds karst's statusline wrapper to your global Claude settings, so Claude sessions karst did not launch report quota too. Your own statusline command is kept and chained; turning this off restores it."
+          control={{
+            kind: 'checkbox',
+            name: 'quotaClaudeGlobalStatusline',
+            checked: quota?.claudeGlobalStatusline === true,
+            onChange: setQuotaGlobal,
           }}
         />
       </div>

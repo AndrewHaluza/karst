@@ -270,6 +270,30 @@ describe('Agents page — subscription quota', () => {
     fireEvent.change(field, { target: { value: '80' } });
     expect(field.getAttribute('aria-invalid')).toBeNull();
   });
+
+  it('renders the global Claude statusline install OFF by default', () => {
+    mount();
+    const toggle = screen.getByLabelText('Install for all Claude sessions') as HTMLInputElement;
+    expect(toggle.getAttribute('type')).toBe('checkbox');
+    expect(toggle.checked).toBe(false);
+  });
+
+  it('writes the opt-in flag while preserving the warn threshold', () => {
+    const { probe } = mount({ ...BASE, quota: { warnThresholdPct: 95 } } as unknown as Manifest);
+    fireEvent.click(screen.getByLabelText('Install for all Claude sessions'));
+    expect(draftOf(probe).quota).toEqual({ warnThresholdPct: 95, claudeGlobalStatusline: true });
+  });
+
+  it('writes OFF when the installed toggle is turned off', () => {
+    const { probe } = mount({
+      ...BASE,
+      quota: { warnThresholdPct: 95, claudeGlobalStatusline: true },
+    } as unknown as Manifest);
+    const toggle = screen.getByLabelText('Install for all Claude sessions') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+    fireEvent.click(toggle);
+    expect(draftOf(probe).quota).toEqual({ warnThresholdPct: 95, claudeGlobalStatusline: false });
+  });
 });
 
 describe('Agents page — roles table layout markup', () => {

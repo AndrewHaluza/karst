@@ -570,6 +570,13 @@ export interface QuotaConfig {
    * Always set by `validateManifest` (default 80). Whole number, 1–100.
    */
   warnThresholdPct: number;
+  /**
+   * Opt-in (default false) install of the Claude statusline wrapper into the
+   * operator's GLOBAL `<CLAUDE_CONFIG_DIR>/settings.json`, so Claude sessions
+   * karst did not launch also report quota. A pre-existing `statusLine` is
+   * chained; turning it off restores the backed-up entry.
+   */
+  claudeGlobalStatusline?: boolean;
 }
 
 export interface UatConfig {
