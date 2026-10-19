@@ -66,3 +66,25 @@ so the capabilities a repository's gates need are a repository change:
 The image tag carries the Playwright release and a revision, so a host
 rebuilds it instead of reusing the one it has.
 END_DOC_BLOCK: [@issue:GATE-02]
+
+## [@issue:GATE-03] How to run these gates today
+
+The four gates are the repository's own scripts, and on a host that has docker
+they all run — that is where they belong, and where the host run of this
+ticket already passed (the only red was the stale agents-page baselines, since
+repaired).
+
+| gate | command | on a host with docker |
+| --- | --- | --- |
+| unit | `npm run test:unit` | the published prebuild matches the host's Node, so the rebuild is a no-op |
+| integration | `npm run test:integration` | same |
+| visual | `npm run test:visual:docker` | the sweep runs in the pinned Playwright container, which is where the baselines were recorded |
+| layout | `npm run test:layout:docker` | same, with the layout ledger's authoritative env |
+
+In the karst sandbox the same four commands need the capabilities the image
+now carries, so they pass there once this branch is merged and the extension
+is rebuilt (the extension ships the image's context, and the gate container
+runs the tag the extension names). Until then a sandboxed ticket's gates exit
+127 and the stage parks with @arch:GATE-CAPABILITY — a park, not a red the
+ticket can clear.
+END_DOC_BLOCK: [@issue:GATE-03]

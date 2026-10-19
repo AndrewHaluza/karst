@@ -9,11 +9,15 @@
 #   - the pinned Playwright browser together with the fonts and fontconfig rules
 #     of the environment the visual baselines were recorded in, so a sweep run
 #     here renders the same pixels the baselines hold.
-FROM mcr.microsoft.com/playwright:v1.63.0-noble AS baseline
+#
+# The base image tag and the browser below come from ONE argument (PW), so the
+# rendering environment and the browser cannot drift apart.
+ARG PW=1.63.0
+FROM mcr.microsoft.com/playwright:v${PW}-noble AS baseline
 FROM node:22-bookworm-slim
+ARG PW
 ARG OC1=1.19.0
 ARG OC2=2.0.27
-ARG PW=1.63.0
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates procps \
     build-essential python3 fontconfig \
     && rm -rf /var/lib/apt/lists/*
