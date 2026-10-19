@@ -84,6 +84,8 @@ export interface SessionRunner {
    * permissions may only be granted when this is true (arch:AC-31, fail closed).
    */
   readonly enforcesSandbox: boolean;
+  /** The core runs here without permission prompts (arch:AC-31); diagnostics only. */
+  readonly autonomous?: boolean;
   placeInteractive(spec: InteractiveLaunchSpec): PlacedInteractiveLaunch;
   runHeadless: RunHeadless;
   /** Sandbox runners only: where the AGENT sees the bridge dir (host runner: undefined). */
