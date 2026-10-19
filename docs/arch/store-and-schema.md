@@ -226,7 +226,7 @@ At most one OPEN row per `(ticket_id, COALESCE(stage,''), kind, COALESCE(lane,''
 Resolution and one-shot re-run (D159):
 - `claimUsageLimitPark` (`store/usageLimitParks.ts`) claims an open park row atomically in one transaction (`UPDATE … SET resolved_at=?, resolution=? WHERE id=? AND resolved_at IS NULL RETURNING *`), verifying `blocked_kind = 'usage-limit'` inside the transaction for stage blocks, and clearing the block. Concurrent callers receive `claimed: false` and notify 'already handled'.
 - One-shot override re-run (`workflow/usageLimitRerun.ts`): re-runs only the parked lane/target with an ephemeral adapter and model, merges with sibling outcomes preserved in `kept_outcome`, and runs normal aggregation.
-- Dismiss: for stage blocks, opens its own stage run via `openStageRun` and commits a failed verdict via `commitGateOutcome` with `RecoveryTrigger` kind `'usage-limit-dismissed'`, moving the ticket into fix.
+- Dismiss: for stage blocks, opens its own stage run via the shared `openGateRun` handle (never the parked run's id, and never the bare `openStageRun` — a run opened while a recovery round awaits its revalidation must attach to that round) and commits a failed verdict via `commitGateOutcome` with `RecoveryTrigger` kind `'usage-limit-dismissed'`, moving the ticket into fix.
 END_DOC_BLOCK: [@arch:V82]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist

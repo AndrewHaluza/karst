@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
-import { insertOpenPark, listOpenParks, type UsageLimitParkRow } from '../store/usageLimitParks.js';
+import {
+  claimUsageLimitPark,
+  insertOpenPark,
+  listOpenParks,
+  type UsageLimitParkRow,
+} from '../store/usageLimitParks.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { listStageRuns, openStageRun } from '../store/stageRuns.js';
 import { listRecoveryRounds, openRecoveryRound, attachRevalidationStageRun } from '../store/recoveryRounds.js';
@@ -349,12 +354,13 @@ describe('rerunParkedStage', () => {
       },
     } as unknown as Manifest;
 
+    const buildAdapter = vi.fn(() => mockAdapter);
     const res = await rerunParkedStage({
       store,
       parkRow: park,
       provider: 'codex',
       model: 'gpt-4o',
-      adapter: mockAdapter,
+      buildAdapter,
       manifest,
       cwd: '/wt/web',
       artifactDir,
@@ -363,6 +369,57 @@ describe('rerunParkedStage', () => {
 
     expect(res).toEqual({ kind: 'advanced', next: 'ship' });
     expect(getTicket(store, ticket.id).stageCurrent).toBe('ship');
+    // The override adapter is built from the picked pair after the claim wins.
+    expect(buildAdapter).toHaveBeenCalledWith('codex', 'gpt-4o');
+  });
+
+  it('does not build an adapter when the park was already claimed', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-RACE', title: 'Race ticket' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic/claude-3-7-sonnet out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+    // A concurrent window claimed first.
+    claimUsageLimitPark(store, park.id, 'retry');
+
+    const buildAdapter = vi.fn();
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      buildAdapter,
+      cwd: '/wt/web',
+      artifactDir,
+    });
+
+    expect(res).toEqual({ kind: 'stopped' });
+    expect(buildAdapter).not.toHaveBeenCalled();
   });
 
   it('re-runs a parked uat target with override adapter and advances stage when clean', async () => {
@@ -1402,6 +1459,10 @@ describe('rerunParkedStage', () => {
       startedAt: '2026-10-13T10:00:00.000Z',
     });
 
+    const priorKeptOutcome = JSON.stringify({
+      findings: 2,
+      targets: [{ repo: 'api', status: 'unreadable', findings: 2 }],
+    });
     parkGateStage(store, {
       ticketId: ticket.id,
       stageKey: 'review',
@@ -1416,7 +1477,7 @@ describe('rerunParkedStage', () => {
         lane: 'review',
         target: 'web',
         detail: 'Monthly quota exceeded',
-        keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+        keptOutcome: priorKeptOutcome,
       },
     });
 
@@ -1432,7 +1493,7 @@ describe('rerunParkedStage', () => {
       provider: 'anthropic',
       model: 'claude-3-7-sonnet',
       detail: 'Monthly quota exceeded',
-      keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      keptOutcome: priorKeptOutcome,
       parkedAt: '2026-10-13T10:00:00.000Z',
       resolvedAt: null,
       resolution: null,
@@ -1473,6 +1534,13 @@ describe('rerunParkedStage', () => {
     const reviewRuns = listProcessRuns(store, ticket.id).filter((r) => r.processId === 'review');
     expect(reviewRuns.length).toBeGreaterThan(0);
     expect(reviewRuns.at(-1)?.resultKind).toBe('execution-failed');
+
+    // The NEW park keeps the sibling the earlier park answered (api) and the
+    // target this re-run touched (web), so a third pick still knows both.
+    const reparked = listOpenParks(store, ticket.id)[0]!;
+    const kept = JSON.parse(reparked.keptOutcome!);
+    expect(kept.targets.map((t: { repo: string }) => t.repo).sort()).toEqual(['api', 'web']);
+    expect(kept.findings).toBe(2);
   });
 
   it('review re-run that stops closes the stage run it opened', async () => {

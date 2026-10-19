@@ -135,7 +135,6 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
   const pickedModel = await deps.pickModel(modelChoices);
   if (!pickedModel) return;
 
-  const adapter = deps.adapterFor(pickedCore.id, pickedModel.model);
   const manifest = deps.manifest?.();
 
   const result = await rerunParkedStage({
@@ -144,7 +143,9 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
     provider: pickedCore.id,
     model: pickedModel.model,
     resolution: 'pick',
-    adapter,
+    // Built only if the claim wins (inside `rerunParkedStage`), so a racing
+    // window never constructs an adapter it will not use.
+    buildAdapter: deps.adapterFor,
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',
@@ -174,7 +175,6 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
     return;
   }
 
-  const adapter = deps.adapterFor(park.provider as AgentProvider, park.model);
   const manifest = deps.manifest?.();
 
   const result = await rerunParkedStage({
@@ -183,7 +183,8 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
     provider: park.provider as AgentProvider,
     model: park.model,
     resolution: 'retry',
-    adapter,
+    // Built only if the claim wins (inside `rerunParkedStage`).
+    buildAdapter: deps.adapterFor,
     manifest,
     cwd: deps.cwd ?? process.cwd(),
     artifactDir: deps.artifactDir ?? '',

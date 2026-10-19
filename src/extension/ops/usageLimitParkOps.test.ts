@@ -546,6 +546,7 @@ describe('usageLimitParkOps', () => {
       });
 
       const warn = vi.fn();
+      const adapterFor = vi.fn();
       const pickCore = vi.fn().mockImplementation(async () => {
         // simulate race: another actor claims park before user picks
         claimUsageLimitPark(store, parkId, 'retry');
@@ -563,11 +564,13 @@ describe('usageLimitParkOps', () => {
         pickModel,
         redrive: vi.fn(),
         refresh: vi.fn(),
-        adapterFor: vi.fn(),
+        adapterFor,
       });
 
       expect(pickCore).toHaveBeenCalled();
       expect(warn).toHaveBeenCalledWith('This usage limit was already handled.');
+      // Claim-before-build: the loser never constructs an adapter.
+      expect(adapterFor).not.toHaveBeenCalled();
     });
 
     it('handles claim failure in handleUsageLimitRetry (concurrent claim)', async () => {
@@ -601,6 +604,7 @@ describe('usageLimitParkOps', () => {
       });
 
       const warn = vi.fn();
+      const adapterFor = vi.fn();
       await handleUsageLimitRetry({
         store,
         ticketId: ticket.id,
@@ -608,10 +612,12 @@ describe('usageLimitParkOps', () => {
         notify: { info: vi.fn(), warn, error: vi.fn() },
         redrive: vi.fn(),
         refresh: vi.fn(),
-        adapterFor: vi.fn(),
+        adapterFor,
       });
 
       expect(warn).toHaveBeenCalledWith('This usage limit was already handled.');
+      // Claim-before-build: the loser never constructs an adapter.
+      expect(adapterFor).not.toHaveBeenCalled();
     });
 
     it('matches target park specifically by stageKey when multiple open parks exist', async () => {

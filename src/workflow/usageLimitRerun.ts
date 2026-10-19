@@ -55,6 +55,55 @@ interface UatKeptTarget {
   observations?: number;
 }
 
+/** A sibling target's status carried on a Review park row's `keptOutcome`. */
+interface ReviewKeptTarget {
+  repo: string;
+  status?: string;
+  findings?: number;
+}
+
+function parseReviewKeptOutcome(raw: string | null): {
+  findings: number;
+  targets: ReviewKeptTarget[];
+} {
+  try {
+    const parsed = raw ? JSON.parse(raw) : null;
+    return {
+      findings: typeof parsed?.findings === 'number' ? parsed.findings : 0,
+      targets: Array.isArray(parsed?.targets)
+        ? parsed.targets.filter(
+            (t: unknown): t is ReviewKeptTarget =>
+              !!t && typeof t === 'object' && typeof (t as { repo?: unknown }).repo === 'string',
+          )
+        : [],
+    };
+  } catch {
+    return { findings: 0, targets: [] };
+  }
+}
+
+/**
+ * Carry the earlier park's sibling TARGETS forward when a review re-run parks
+ * again. The fresh lane names only the target it touched; without this merge a
+ * second quota stop would forget a partner target's `unreadable`/`ok` status,
+ * which the next re-run's R6b ratio depends on. Findings themselves are already
+ * durable in `review_findings`; this is the status/count half.
+ */
+function mergeReviewKeptOutcome(fresh: string, prior: string | null): string {
+  const freshParsed = parseReviewKeptOutcome(fresh);
+  const priorParsed = parseReviewKeptOutcome(prior);
+  const freshRepos = new Set(freshParsed.targets.map((t) => t.repo));
+  const preserved = priorParsed.targets.filter((t) => !freshRepos.has(t.repo));
+  const preservedFindings = preserved.reduce(
+    (n, t) => n + (typeof t.findings === 'number' ? t.findings : 0),
+    0,
+  );
+  return JSON.stringify({
+    findings: preservedFindings + freshParsed.findings,
+    targets: [...preserved, ...freshParsed.targets],
+  });
+}
+
 /**
  * Merge a re-run's fresh UAT outcome with the siblings the earlier park kept.
  *
@@ -192,7 +241,17 @@ export interface RerunParkOptions {
   parkRow: UsageLimitParkRow;
   provider: AgentProvider;
   model: string | null;
-  adapter: AgentAdapter;
+  /**
+   * A prebuilt adapter. Prefer `buildAdapter`: the claim must win BEFORE this
+   * run's adapter is built, so a losing concurrent action touches nothing. This
+   * field stays for callers that already own an adapter (and tests).
+   */
+  adapter?: AgentAdapter;
+  /**
+   * Build the per-run adapter from the CLAIMED row's provider/model. Invoked
+   * only after `claimUsageLimitPark` wins, never for a loser.
+   */
+  buildAdapter?: (provider: AgentProvider, model: string | null) => AgentAdapter;
   manifest?: Manifest;
   resolution?: string;
   cwd: string;
@@ -228,13 +287,24 @@ export interface RerunParkOptions {
   runVerifier?: TesterGateRunner;
 }
 
+/** The options a re-run uses once the claim won and its adapter exists. */
+type ClaimedRerunOptions = RerunParkOptions & { adapter: AgentAdapter };
+
 export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRunResult> {
   const store = opts.store;
   const parkRow = opts.parkRow;
   const now = opts.now ?? nowIso;
   const runAt = now();
 
-  // 1. Claim the park row atomically before building anything or running.
+  // A caller with no adapter source cannot re-run; fail before resolving the
+  // park rather than leaving it claimed with nothing to run.
+  if (!opts.adapter && !opts.buildAdapter) {
+    throw new Error('usage-limit re-run: no adapter was provided');
+  }
+
+  // 1. Claim the park row atomically before building anything or running. A
+  // racing window loses here and returns `stopped` without constructing an
+  // adapter, opening a stage run, or touching any state.
   const claim = claimUsageLimitPark(store, parkRow.id, opts.resolution ?? 'rerun', runAt);
   if (!claim.claimed) {
     opts.debug?.(`[usageLimit] park ${parkRow.id} already claimed or invalid`);
@@ -242,20 +312,28 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
   }
 
   const stageKey = (parkRow.stage ?? (parkRow.lane === 'uat' ? 'uat' : 'review')) as GateStageKey;
+  if (parkRow.lane !== 'review' && parkRow.lane !== 'uat' && stageKey !== 'review' && stageKey !== 'uat') {
+    return { kind: 'stopped' };
+  }
+
+  // 2. Build the adapter ONLY after the claim. The host hands a factory so the
+  // override (and its injected resilient/instrumented chain) exists for this
+  // one run and never for a loser.
+  const adapter = opts.adapter ?? opts.buildAdapter?.(opts.provider, opts.model);
+  if (!adapter) {
+    throw new Error('usage-limit re-run: no adapter was provided');
+  }
+  const claimed: ClaimedRerunOptions = { ...opts, adapter };
 
   if (parkRow.lane === 'review' || stageKey === 'review') {
-    return rerunReviewParkedStage(opts, { stageKey, runAt, now });
+    return rerunReviewParkedStage(claimed, { stageKey, runAt, now });
   }
 
-  if (parkRow.lane === 'uat' || stageKey === 'uat') {
-    return rerunUatParkedStage(opts, { stageKey, runAt, now });
-  }
-
-  return { kind: 'stopped' };
+  return rerunUatParkedStage(claimed, { stageKey, runAt, now });
 }
 
 async function rerunReviewParkedStage(
-  opts: RerunParkOptions,
+  opts: ClaimedRerunOptions,
   ctx: { stageKey: GateStageKey; runAt: string; now: () => string },
 ): Promise<StageRunResult> {
   const { store, parkRow, provider, model, adapter, manifest, cwd, artifactDir, signal, debug } = opts;
@@ -414,7 +492,14 @@ async function rerunReviewParkedStage(
           targetCount: totalTargetCount,
           processRunId: laneOutcome.processRunId,
         }
-      : laneOutcome;
+      : laneOutcome.kind === 'usage-limited'
+        ? {
+            ...laneOutcome,
+            // A second quota stop must still name the siblings the earlier park
+            // kept, exactly like the UAT merge.
+            keptOutcome: mergeReviewKeptOutcome(laneOutcome.keptOutcome, parkRow.keptOutcome),
+          }
+        : laneOutcome;
 
   const previousGateRuns = listGateRuns(store, parkRow.ticketId).filter(
     (r) => r.stageKey === 'review' && r.stageRunId === parkRow.stageRunId,
@@ -570,7 +655,7 @@ async function rerunReviewParkedStage(
 }
 
 async function rerunUatParkedStage(
-  opts: RerunParkOptions,
+  opts: ClaimedRerunOptions,
   ctx: { stageKey: GateStageKey; runAt: string; now: () => string },
 ): Promise<StageRunResult> {
   const { store, parkRow, provider, model, adapter, manifest, cwd, artifactDir, signal, debug } = opts;
