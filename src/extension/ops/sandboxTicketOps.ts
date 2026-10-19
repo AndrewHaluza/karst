@@ -9,6 +9,7 @@ import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
 import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
+import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '../../agent/sandboxHostAllow.js';
 import { resetSandboxServices, reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
@@ -54,7 +55,7 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number): 
   if (backend === 'sbx' && (SBX_CORES as readonly string[]).includes(core)) {
     const name = sbxName({ projectRoot, ticketId, core });
     const runner = createSbxSessionRunner({
-      proc: deps.proc ?? NODE_SBX_PROCESS, core: core as 'claude' | 'codex', name, existing: [],
+      proc: deps.proc ?? NODE_SBX_PROCESS, core: core as 'claude' | 'codex', name, existing: [], cloneDir: sbxCloneDir(projectRoot, name),
       ...(bridge ? { evidenceDir: bridge.dir } : {}),
     });
     return { runner, sandboxName: name };

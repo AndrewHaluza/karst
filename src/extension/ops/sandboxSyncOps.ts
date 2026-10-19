@@ -3,6 +3,7 @@ import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolve
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
+import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES, type SbxCore } from '../../agent/sbx/sbxRunner.js';
 import type { TempDirs } from '../../agent/docker/dockerClone.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
@@ -96,7 +97,7 @@ export interface SandboxSyncDeps {
 export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [] });
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name) });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({

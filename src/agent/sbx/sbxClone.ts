@@ -1,0 +1,34 @@
+import { mkdir, rm, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import type { SbxProcess } from './sbxProcess.js';
+
+/** Where a sandbox's standalone clone lives: karst-owned, inside the project, keyed by the sandbox name. */
+export function sbxCloneDir(projectRoot: string, name: string): string {
+  return join(projectRoot, '.karst', 'sbx-clones', name);
+}
+
+export type CloneResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
+
+/**
+ * `sbx run --clone` refuses a linked git worktree (sbx v0.48.0), and every
+ * ticket is one. So the sandbox clones from a standalone, non-worktree clone of
+ * the ticket branch with its own `.git` (never hardlinked to, nor sharing, the
+ * host's: arch:AC-32). `origin` is dropped so the sandbox sees no host path.
+ */
+export async function prepareSbxClone(
+  proc: SbxProcess,
+  input: { readonly worktree: string; readonly branch: string; readonly dir: string },
+): Promise<CloneResult> {
+  const present = await stat(join(input.dir, '.git')).then((s) => s.isDirectory(), () => false);
+  if (present) return { ok: true };
+  await rm(input.dir, { recursive: true, force: true });
+  await mkdir(dirname(input.dir), { recursive: true });
+  const cloned = await proc.run('git', ['clone', '--no-hardlinks', '--branch', input.branch, input.worktree, input.dir]);
+  if (cloned.code !== 0) return { ok: false, reason: `sandbox clone failed: ${cloned.stderr.trim()}` };
+  await proc.run('git', ['-C', input.dir, 'remote', 'remove', 'origin']);
+  return { ok: true };
+}
+
+export async function removeSbxClone(dir: string): Promise<void> {
+  await rm(dir, { recursive: true, force: true });
+}

@@ -106,3 +106,4 @@ test-results/
 
 # UAT probe evidence (scripts/uat-host --out)
 .uat-out/
+.karst/sbx-clones/
