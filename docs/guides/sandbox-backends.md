@@ -59,6 +59,9 @@ END_DOC_BLOCK: [@guide:SBB-02]
 A sandbox works on a CLONE of the ticket branch. It never mounts the host worktree
 or its shared `.git`, so a hook the agent plants cannot run on the host.
 
+- The clone source is a standalone clone of the ticket branch that karst makes under
+  `.karst/sbx-clones/` (sbx refuses to clone a linked worktree). It has its own `.git`
+  and no `origin`. If it cannot be made, the session runs on the host instead.
 - The agent commits inside the sandbox. The host worktree does not change.
 - **Sync** fetches the sandbox commits and fast-forwards the ticket branch. A
   non-fast-forward is refused, never forced.

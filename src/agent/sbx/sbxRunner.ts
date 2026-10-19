@@ -9,6 +9,7 @@ import type {
   SyncResult,
   DiffResult,
 } from '../sessionRunner.js';
+import { removeSbxClone } from './sbxClone.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
@@ -27,6 +28,8 @@ export interface SbxRunnerOptions {
   readonly gateProcess?: GateProcessRunner;
   /** Agent-visible evidence dir (the bridge, arch:AC-34), exported to gates as `KARST_EVIDENCE_DIR`. */
   readonly evidenceDir?: string;
+  /** Standalone clone of the ticket branch (`sbxClone.ts`): the `--clone` source, since sbx refuses a linked worktree. */
+  readonly cloneDir?: string;
 }
 
 /** Env name a sandboxed gate reads to know where evidence files go (the bridge dir). */
@@ -66,6 +69,19 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     return ls.code === 0 && parseNames(ls.stdout).includes(opts.name);
   };
   const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
+  /** Bring the sandbox's branch to `<remote>/<branch>` in the host worktree: direct, or relayed through the clone. */
+  const fetchSandbox = async (wt: string, branch: string): Promise<SyncResult & { ok: false } | { ok: true }> => {
+    const from = opts.cloneDir ?? wt;
+    if ((await git(from, ['remote', 'get-url', remote])).code !== 0) {
+      return { ok: false, reason: `no sandbox remote ${remote} (sandbox not created yet?)` };
+    }
+    const fetched = await git(from, ['fetch', remote]);
+    if (fetched.code !== 0) return { ok: false, reason: `git fetch ${remote} failed: ${fetched.stderr.trim()}` };
+    if (!opts.cloneDir) return { ok: true };
+    const refspec = `+refs/remotes/${remote}/${branch}:refs/remotes/${remote}/${branch}`;
+    const relayed = await git(wt, ['fetch', opts.cloneDir, refspec]);
+    return relayed.code === 0 ? { ok: true } : { ok: false, reason: `git fetch from sandbox clone failed: ${relayed.stderr.trim()}` };
+  };
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
@@ -74,9 +90,10 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // not proof the sandbox exists: a first terminal can fail before
       // creation, so a retry must create again (preflight re-lists per launch).
       const create = known.has(opts.name) ? [] : ['--clone'];
-      const workspace = known.has(opts.name) ? [] : [spec.hostWorktreePath, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
+      const source = opts.cloneDir ?? spec.hostWorktreePath;
+      const workspace = known.has(opts.name) ? [] : [source, ...(spec.bridgeDir ? [spec.bridgeDir] : [])];
       return {
-        cwd: spec.hostWorktreePath,
+        cwd: opts.cloneDir ?? spec.hostWorktreePath,
         shellPath: SBX_BIN,
         shellArgs: [
           'run', ...create, '--name', opts.name, opts.core, ...workspace,
@@ -118,11 +135,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     sync: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
       const wt = ticket.hostWorktreePath;
-      if ((await git(wt, ['remote', 'get-url', remote])).code !== 0) {
-        return { ok: false, reason: `no sandbox remote ${remote} (sandbox not created yet?)` };
-      }
-      const fetched = await git(wt, ['fetch', remote]);
-      if (fetched.code !== 0) return { ok: false, reason: `git fetch ${remote} failed: ${fetched.stderr.trim()}` };
+      const fetched = await fetchSandbox(wt, ticket.branch);
+      if (!fetched.ok) return fetched;
       const ref = `${remote}/${ticket.branch}`;
       if ((await git(wt, ['merge-base', '--is-ancestor', 'HEAD', ref])).code !== 0) {
         return { ok: false, reason: `refused: ${ref} is not a fast-forward of ${ticket.branch} (never forced)` };
@@ -133,11 +147,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     diff: async (ticket: SandboxTicketRef): Promise<DiffResult> => {
       const wt = ticket.hostWorktreePath;
-      if ((await git(wt, ['remote', 'get-url', remote])).code !== 0) {
-        return { ok: false, reason: `no sandbox remote ${remote} (sandbox not created yet?)` };
-      }
-      const fetched = await git(wt, ['fetch', remote]);
-      if (fetched.code !== 0) return { ok: false, reason: `git fetch ${remote} failed: ${fetched.stderr.trim()}` };
+      const fetched = await fetchSandbox(wt, ticket.branch);
+      if (!fetched.ok) return fetched;
       const ref = `${remote}/${ticket.branch}`;
       const diff = await git(wt, ['diff', `HEAD...${ref}`]);
       if (diff.code !== 0) return { ok: false, reason: `git diff failed: ${diff.stderr.trim()}` };
@@ -152,6 +163,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       await opts.proc.run(SBX_BIN, ['rm', '--force', opts.name]);
       // A missing remote is fine: `sbx rm` usually removes it already.
       await git(ticket.hostWorktreePath, ['remote', 'remove', remote]);
+      if (opts.cloneDir) await removeSbxClone(opts.cloneDir);
       known.delete(opts.name);
     },
   };
