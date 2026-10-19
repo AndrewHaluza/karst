@@ -69,6 +69,27 @@ describe('createMarkerFlow', () => {
     await fire(t.timers[1]!, t.flow);
     expect(t.timers.map((x) => x.ms)).toEqual([10, 20, 20]);
   });
+  it('a failing retry does not notify again, and the marker is dropped after maxRetries with one final report', async () => {
+    const fails = Array.from({ length: 6 }, () => ({ code: 1, stderr: 'x', transient: true }));
+    const t = setup(fails, { maxRetries: 2 });
+    await t.flow.handle('impl', 'a1');
+    expect(t.reports).toHaveLength(1);
+    await fire(t.timers[0]!, t.flow);
+    await fire(t.timers[1]!, t.flow);
+    expect(t.reports).toHaveLength(1);
+    await fire(t.timers[2]!, t.flow);
+    expect(t.reports).toHaveLength(2);
+    expect(t.reports[1]!.reason).toContain('gave up after 2 retries');
+    expect(t.saved).toBeUndefined();
+    expect(t.timers).toHaveLength(3);
+  });
+  it('a retry that turns permanent is reported', async () => {
+    const t = setup([{ code: 1, stderr: 'x', transient: true }, { code: 1, stderr: 'karst: cannot mark this stage done: empty' }]);
+    await t.flow.handle('impl', 'a1');
+    await fire(t.timers[0]!, t.flow);
+    expect(t.reports).toHaveLength(2);
+    expect(t.saved).toBeUndefined();
+  });
   it('retryPending runs the persisted marker (boot sweep) and clears it once the stage advanced', async () => {
     const t = setup([{ code: 1, stderr: 'x', transient: true }]);
     await t.flow.handle('impl', 'a1');

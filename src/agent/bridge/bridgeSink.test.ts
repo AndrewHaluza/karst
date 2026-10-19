@@ -88,8 +88,7 @@ describe('createBridgeAttachment', () => {
   it('a runMarker rejection is swallowed and logged', async () => {
     await write(markerLine());
     await make(vi.fn<MarkerRunner>(async () => Promise.reject(new Error('spawn ENOENT')))).pollOnce();
-    await flush();
-    expect(logs).toContain('[bridge] ticket 7 marker impl failed: spawn ENOENT');
+    await vi.waitFor(() => expect(logs).toContain('[bridge] ticket 7 marker impl failed: spawn ENOENT'));
   });
   it('a successful marker run logs nothing', async () => {
     await write(markerLine());

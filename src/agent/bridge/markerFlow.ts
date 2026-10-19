@@ -33,6 +33,8 @@ export interface MarkerFlowDeps {
   /** Returns a cancel function. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
   readonly backoffMs?: readonly number[];
+  /** Retries after the first failure before the marker is dropped (default `MARKER_MAX_RETRIES`). */
+  readonly maxRetries?: number;
 }
 
 export interface MarkerFlow {
@@ -46,6 +48,9 @@ export interface MarkerFlow {
 }
 
 /** Retry steps after a transient failure; the last one repeats. */
+/** A transient failure that never clears is abandoned after this many retries and shown to the user once. */
+export const MARKER_MAX_RETRIES = 8;
+
 export const MARKER_BACKOFF_MS: readonly number[] = [5_000, 15_000, 60_000, 300_000];
 
 /**
@@ -58,6 +63,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
   let chain: Promise<void> = Promise.resolve();
   let cancelTimer: (() => void) | undefined;
   let attempt = 0;
+  const maxRetries = deps.maxRetries ?? MARKER_MAX_RETRIES;
   let stopped = false;
 
   const reply = async (seq: string | undefined, stage: MarkerStage, ok: boolean, retrying: boolean, reason: string): Promise<void> => {
@@ -75,7 +81,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     attempt += 1;
     cancelTimer = schedule(() => { void retryPending(); }, ms);
   };
-  const run = async (stage: MarkerStage, seq: string | undefined): Promise<void> => {
+  const run = async (stage: MarkerStage, seq: string | undefined, retry: boolean): Promise<void> => {
     if (deps.currentStage() !== stage) {
       await deps.pending.clear();
       await reply(seq, stage, true, false, `stage ${stage} already advanced`);
@@ -97,27 +103,36 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     const reason = outcome.stderr.trim() || `exited ${outcome.code}`;
     const diverged = outcome.diverged === true;
     const transient = outcome.transient === true && !diverged;
-    deps.report({ stage, reason, diverged });
+    if (transient && retry && attempt > maxRetries) {
+      // Out of retries: say so once, stop persisting.
+      deps.report({ stage, reason: `${reason} (gave up after ${maxRetries} retries)`, diverged });
+      attempt = 0;
+      await deps.pending.clear();
+      return;
+    }
+    // A retry that fails again was already shown; only the first failure notifies.
+    if (!retry) deps.report({ stage, reason, diverged });
     if (transient) {
       await deps.pending.save(stage);
       arm();
     } else {
+      if (retry) deps.report({ stage, reason, diverged });
       await deps.pending.clear();
     }
     await reply(seq, stage, false, transient, reason);
   };
-  const enqueue = (stage: MarkerStage, seq: string | undefined): Promise<void> => {
-    const next = chain.then(() => run(stage, seq));
+  const enqueue = (stage: MarkerStage, seq: string | undefined, retry: boolean): Promise<void> => {
+    const next = chain.then(() => run(stage, seq, retry));
     chain = next.catch(() => undefined);
     return next;
   };
   async function retryPending(): Promise<void> {
     const stage = await deps.pending.load();
     if (stage === undefined) return;
-    await enqueue(stage, undefined);
+    await enqueue(stage, undefined, true);
   }
   return {
-    handle: (stage, seq) => enqueue(stage, seq),
+    handle: (stage, seq) => enqueue(stage, seq, false),
     retryPending,
     idle: () => chain,
     stop: () => { stopped = true; cancelTimer?.(); },
