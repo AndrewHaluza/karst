@@ -10,7 +10,7 @@ import {
   missingDockerMessage,
   readLocalCommand,
 } from './dockerGate.mjs';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -136,5 +136,33 @@ describe('missingDockerMessage', () => {
 describe('the missing-docker exit code', () => {
   it('is the POSIX "command not found" code, so a caller can tell it from a failed test', () => {
     expect(EXIT_COMMAND_NOT_FOUND).toBe(127);
+  });
+});
+
+describe('the gate scripts', () => {
+  const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const steps = (command) => command.split('&&').map((step) => step.trim()).filter(Boolean);
+  const localOf = (script) => /--local "([^"]+)"/.exec(pkg.scripts[script])?.[1] ?? null;
+
+  it('runs the same sweep locally as the container runs', () => {
+    // The local run is what stands in for the container when the sandbox has
+    // no docker, so it must cover the same steps. `npm ci` is the one it may
+    // skip: the tree is already installed.
+    expect(steps(localOf('test:visual:docker'))).toEqual(
+      steps(pkg.scripts['test:visual:ci']).filter((step) => step !== 'npm ci'),
+    );
+  });
+
+  it('runs the same layout sweep locally as the container runs', () => {
+    expect(steps(localOf('test:layout:docker'))).toEqual(
+      steps(pkg.scripts['test:layout:ci']).filter((step) => step !== 'npm ci'),
+    );
+  });
+
+  it('keeps the container command in the gate script', () => {
+    // The container path is unchanged: the pinned image, the repo mounted at
+    // /work, and the CI script inside it.
+    expect(pkg.scripts['test:visual:docker']).toContain('mcr.microsoft.com/playwright:v1.63.0-noble');
+    expect(pkg.scripts['test:visual:docker']).toContain('npm run test:visual:ci');
   });
 });
