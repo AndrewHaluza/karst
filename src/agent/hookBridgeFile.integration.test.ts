@@ -108,8 +108,12 @@ describe('HOOK_BRIDGE file transport', () => {
 
 describe('MARKER_EMIT', () => {
   const FAST = { KARST_MARKER_WAIT_MS: '400' };
-  /** A scratch dir that is not a git repo: the dirty-tree pre-check is skipped there. */
-  const scratch = (): string => mkdtempSync(join(root, 'cwd-'));
+  /** A clean scratch git repo: the dirty-tree pre-check passes there. */
+  const scratch = (): string => {
+    const repo = mkdtempSync(join(root, 'cwd-'));
+    spawnSync('git', ['init', '-q'], { cwd: repo });
+    return repo;
+  };
   const replyFile = (events: string, seq: string): string => join(events, '..', 'results', `${seq}.json`);
   const reply = (events: string, body: object): void => {
     // Answer as the host would: watch the events file, write results/<seq>.json.
@@ -172,6 +176,15 @@ describe('MARKER_EMIT', () => {
     expect(out.code).toBe(1);
     expect(out.stderr).toContain('Commit your changes first');
     expect(out.stderr).toContain('f.txt');
+    expect(existsSync(events)).toBe(false);
+  });
+  it('a failing `git status` refuses (exit 1) and writes no line: an unknown tree is never a done marker', async () => {
+    const notARepo = mkdtempSync(join(root, 'plain-'));
+    const dir = ticketDir('7');
+    const events = join(dir, 'events.ndjson');
+    const out = await runNode(join(dir, 'emit-marker.cjs'), [events, 'impl'], '', { cwd: notARepo, env: { ...FAST, GIT_CEILING_DIRECTORIES: root } });
+    expect(out.code).toBe(1);
+    expect(out.stderr).toContain('git status failed');
     expect(existsSync(events)).toBe(false);
   });
   it('a clean tree with zero commits is not refused', async () => {
