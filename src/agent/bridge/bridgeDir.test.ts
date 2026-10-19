@@ -12,7 +12,7 @@ describe('bridgeDir', () => {
   it('derives host and in-sandbox paths from the ticket id only', () => {
     expect(bridgePaths('/g', 7)).toEqual({
       dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json',
-      resultsDir: '/g/events/7/results', inboxDir: '/g/events/7/inbox', pendingFile: '/g/state/7.marker.json', runDir: '/karst-bridge/7',
+      resultsDir: '/g/events/7/results', inboxDir: '/g/events/7/inbox', pendingFile: '/g/state/7.marker.json', handledFile: '/g/state/7.handled.json', runDir: '/karst-bridge/7',
     });
   });
   it('rejects a non-integer ticket id (path traversal guard)', () => {

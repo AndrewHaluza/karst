@@ -163,3 +163,59 @@ describe('createBridgeAttachment', () => {
     expect(run).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('reattach after a reload (events file truncated or rewritten)', () => {
+  const stateDir = async () => {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(root, 'state'), { recursive: true });
+  };
+  const settle = async (a: { pollOnce(): Promise<void> }) => {
+    await a.pollOnce();
+    await flush();
+    await flush();
+  };
+
+  it('a handled marker is not replayed after the file is truncated and rewritten; a new marker still runs', async () => {
+    await stateDir();
+    const run = okRunner();
+    await write(markerLine({ seq: 'aaaa' }));
+    await settle(make(run));
+    expect(run).toHaveBeenCalledTimes(1);
+
+    // Reload: a fresh attachment on the same paths; the agent side truncated the file and wrote again.
+    await writeFile(paths.eventsFile, '');
+    await write(hookLine(), markerLine({ seq: 'aaaa' }), markerLine({ seq: 'bbbb' }));
+    const again = okRunner();
+    await settle(make(again));
+    expect(again).toHaveBeenCalledTimes(1);
+    expect(logs.some((m) => m.includes('seq aaaa already handled'))).toBe(true);
+  });
+
+  it('a rewritten file larger than the saved offset neither replays nor hides', async () => {
+    await stateDir();
+    const run = okRunner();
+    await write(markerLine({ seq: 'aaaa' }));
+    await settle(make(run));
+    await writeFile(paths.eventsFile, `${hookLine()}\n${hookLine()}\n${markerLine({ seq: 'aaaa' })}\n${markerLine({ seq: 'cccc' })}\n`);
+    const again = okRunner();
+    await settle(make(again));
+    expect(again).toHaveBeenCalledTimes(1);
+    expect(logs.some((m) => m.includes('rewritten'))).toBe(true);
+  });
+
+  it('the handled record survives a restart and is host-side only', async () => {
+    await stateDir();
+    await write(markerLine({ seq: 'aaaa' }));
+    await settle(make(okRunner()));
+    expect(JSON.parse(await readFile(paths.handledFile, 'utf8'))).toEqual(['aaaa']);
+    expect(await readdir(paths.dir)).not.toContain('handled.json');
+  });
+
+  it('a marker without a seq is never deduped (old scripts)', async () => {
+    await stateDir();
+    const run = okRunner();
+    await write(markerLine(), markerLine());
+    await settle(make(run));
+    expect(run).toHaveBeenCalledTimes(2);
+  });
+});

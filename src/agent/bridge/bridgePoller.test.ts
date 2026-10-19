@@ -43,7 +43,7 @@ describe('bridgePoller', () => {
   it('restarts from the persisted offset and re-reads an unfinished partial line', async () => {
     await writeFile(file, 'a\npar');
     await make().pollOnce();
-    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ offset: 2 });
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toMatchObject({ offset: 2 });
     await appendFile(file, 'tial\nb\n');
     const second = make();
     await second.pollOnce();
@@ -58,6 +58,31 @@ describe('bridgePoller', () => {
     await p.pollOnce();
     expect(lines).toEqual(['one', 'two', 'three']);
     expect(logs.some((m) => m.startsWith('[bridge]') && m.includes('truncat'))).toBe(true);
+  });
+  it('a rewritten file (same size or larger, different head) restarts from 0 after a restart', async () => {
+    await writeFile(file, 'one\ntwo\n');
+    await make().pollOnce();
+    await writeFile(file, 'AAA\nBBB\nCCC\n');
+    await make().pollOnce();
+    expect(lines).toEqual(['one', 'two', 'AAA', 'BBB', 'CCC']);
+    expect(logs.some((m) => m.includes('rewritten'))).toBe(true);
+  });
+  it('a rewritten file is also noticed on a running poller', async () => {
+    await writeFile(file, 'one\ntwo\n');
+    const p = make();
+    await p.pollOnce();
+    await writeFile(file, 'XXX\nYYY\nZZZ\n');
+    await p.pollOnce();
+    expect(lines).toEqual(['one', 'two', 'XXX', 'YYY', 'ZZZ']);
+  });
+  it('an appended file keeps its head: no false rewrite', async () => {
+    await writeFile(file, 'one\n');
+    const p = make();
+    await p.pollOnce();
+    await appendFile(file, 'two\n');
+    await make().pollOnce();
+    await p.pollOnce();
+    expect(logs.some((m) => m.includes('rewritten'))).toBe(false);
   });
   it('refuses a symlinked events file', async () => {
     const target = join(dir, 'secret'); await writeFile(target, 'leak\n');
@@ -119,7 +144,7 @@ describe('bridgePoller', () => {
     await p.pollOnce();
     expect(lines).toEqual(all.slice(0, MAX_LINES_PER_POLL));
     const consumed = all.slice(0, MAX_LINES_PER_POLL).join('\n').length + 1;
-    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toEqual({ offset: consumed });
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toMatchObject({ offset: consumed });
     await appendFile(file, 'ial\n');
     await p.pollOnce();
     expect(lines).toEqual([...all, 'partial']);

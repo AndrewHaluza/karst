@@ -7,6 +7,7 @@ import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
 import { disposeSandboxOp, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
 import { runSandboxReconcile } from './bootSweeps.js';
@@ -31,6 +32,8 @@ export interface SandboxWiringInput {
   readonly logError: (m: string, err: unknown) => void;
   /** A ticket's terminal/session is open (never stopped under it). */
   readonly sessionOpen: (ticketId: number) => boolean;
+  /** Every listing the boot reconcile reads (after a reload the in-memory ticket→core cache is empty). */
+  readonly onInventory?: (inventory: SandboxInventory) => void;
   /** Test seams; default to the real async spawns and clock. */
   readonly now?: () => number;
   readonly setInterval?: (fn: () => void, ms: number) => { dispose(): void };
@@ -142,7 +145,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const d = deps();
       if (!d || w.projectId() === undefined) return;
       await runSandboxReconcile({
-        inventory: () => inventoryOf(d),
+        inventory: async () => {
+          const inventory = await inventoryOf(d);
+          w.onInventory?.(inventory);
+          return inventory;
+        },
         live: liveTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
       });
     },

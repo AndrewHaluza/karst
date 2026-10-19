@@ -17,6 +17,8 @@ export interface BridgePaths {
   readonly resultsDir: string;
   /** Host-written briefs the agent reads (`<ref>.md`, e.g. `fix-12.md`); written through `inbox.ts` only. */
   readonly inboxDir: string;
+  /** Host-private record of the marker `seq`s already handled (dedupe across reattach and file rewrites). */
+  readonly handledFile: string;
   /** Host-private retry record for a marker that failed transiently (outside the sandbox-writable dir). */
   readonly pendingFile: string;
   readonly runDir: string;
@@ -32,6 +34,7 @@ export function bridgePaths(root: string, ticketId: number): BridgePaths {
     resultsDir: join(dir, 'results'),
     inboxDir: join(dir, 'inbox'),
     pendingFile: join(root, 'state', `${ticketId}.marker.json`),
+    handledFile: join(root, 'state', `${ticketId}.handled.json`),
     runDir: `${SANDBOX_BRIDGE_MOUNT_ROOT}/${ticketId}`,
   };
 }
@@ -90,6 +93,7 @@ export async function removeBridgeDir(paths: BridgePaths): Promise<void> {
   await rm(paths.dir, { recursive: true, force: true });
   await rm(paths.stateFile, { force: true });
   await rm(paths.pendingFile, { force: true });
+  await rm(paths.handledFile, { force: true });
 }
 
 export async function listBridgeTicketIds(root: string): Promise<number[]> {

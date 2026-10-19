@@ -218,7 +218,7 @@ describe('prepareDockerSandbox', () => {
     const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined, authFile: undefined });
     const spec = { ticketId: 7, hostWorktreePath: WT, command: 'opencode', args: [WT], env: {}, bridgeDir: '/g/events/7' };
     expect(runner.placeInteractive(spec).shellArgs).toContain('type=bind,source=/g/events/7,target=/karst-bridge/7');
-    const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', resultsDir: '/g/events/7/results', inboxDir: '/g/events/7/inbox', pendingFile: '/g/state/7.marker.json', runDir: '/karst-bridge/7' };
+    const paths = { dir: '/g/events/7', eventsFile: '/g/events/7/events.ndjson', stateFile: '/g/state/7.json', resultsDir: '/g/events/7/results', inboxDir: '/g/events/7/inbox', pendingFile: '/g/state/7.marker.json', handledFile: '/g/state/7.handled.json', runDir: '/karst-bridge/7' };
     expect(runner.bridgeRunDir?.(paths)).toBe('/karst-bridge/7');
   });
 });

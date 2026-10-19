@@ -7,7 +7,7 @@ import { startSandboxService } from '../../agent/sandboxServices.js';
 import type { Manifest } from '../../manifest/types.js';
 import { openStore } from '../../store/db.js';
 import {
-  reattachTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
+  reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
 
 vi.mock('../../workflow/gates/run.js', async (orig) => ({
@@ -132,6 +132,33 @@ describe('ticketGateProcess resolves the sandbox from the listing (F4)', () => {
     const { runProcess } = await import('../../workflow/gates/run.js');
     vi.mocked(runProcess).mockClear();
     await expect(ticketGateProcess(d, 7)!('npm', [], '/wt')).resolves.toBeDefined();
+  });
+});
+
+describe('resolveTicketSandbox after a reload (null session provider, F4/Reattach)', () => {
+  const DOCKER = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' });
+  const listing = (core: string, name: string) => () => Promise.resolve([{ runner: 'docker' as const, name, ticketId: 7, core, state: 'running' as const }]);
+
+  it('builds the same docker runner (name, bridge evidence dir) the launch built', async () => {
+    const d = deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null, bridgeOf: () => bridge, inventory: listing('opencode2', DOCKER.container), platform: 'linux' });
+    const { found, listed } = await resolveTicketSandbox(d, 7);
+    expect(listed?.core).toBe('opencode2');
+    expect(found).toMatchObject({ sandboxName: DOCKER.container, runner: { kind: 'docker', enforcesSandbox: true } });
+    const launched = ticketSandboxRunner(deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => 'opencode2', bridgeOf: () => bridge, platform: 'linux' }), 7);
+    expect(found!.sandboxName).toBe(launched!.sandboxName);
+    expect(found!.runner.bridgeRunDir?.(bridge)).toBe(launched!.runner.bridgeRunDir?.(bridge));
+  });
+
+  it('sbx: the listed claude sandbox yields the sbx runner with the clone under the project dir', async () => {
+    const listed = () => Promise.resolve([{ runner: 'sbx' as const, name: SBX, ticketId: 7, core: 'claude', state: 'running' as const }]);
+    const { found } = await resolveTicketSandbox(deps({ coreOf: () => null, projectRoot: () => '/p/.karst/karst.yml', inventory: listed }), 7);
+    expect(found?.runner.kind).toBe('sbx');
+  });
+
+  it('remembers the listed core so the sync readers (pointer channel, services) agree', async () => {
+    const remember = vi.fn();
+    await resolveTicketSandbox(deps({ backends: () => ({ opencode2: 'docker' }), coreOf: () => null, inventory: listing('opencode2', DOCKER.container), remember }), 7);
+    expect(remember).toHaveBeenCalledWith(7, 'opencode2');
   });
 });
 
