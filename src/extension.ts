@@ -346,6 +346,7 @@ import { canonicalPath } from './runtime/pathScope.js';
 import { createHookChannelRecorder } from './diagnostics/hookChannel.js';
 import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
+import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { backendSessionOptions, createTicketSandboxBindings, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
@@ -6584,6 +6585,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...backendSessionOptions({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }), // AC-32
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started') }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this
