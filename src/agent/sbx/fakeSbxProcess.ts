@@ -22,7 +22,7 @@ export function fakeSbxProcess(
         .filter((k) => line.startsWith(k) || bare.startsWith(k))
         .sort((a, b) => b.length - a.length)[0];
       // `sbx exec … karst-bundle <branch>` (sync bundle-out) answers a tiny base64 bundle unless a test says otherwise.
-      const bundleOut = command === 'sbx' && args.includes('karst-bundle') ? { stdout: 'YnVuZGxl' } : {};
+      const bundleOut = command === 'sbx' && args.includes('karst-bundle') ? ({ stdout: 'YnVuZGxl' } as Partial<ProcessResult>) : ({} as Partial<ProcessResult>);
       const hit = key === undefined ? bundleOut : answers[key]!;
       return Promise.resolve({ code: hit.code ?? 0, stdout: hit.stdout ?? '', stderr: hit.stderr ?? '' });
     },
