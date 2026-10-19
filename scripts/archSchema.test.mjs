@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { catalogFromDb, erFromCatalog } from './archSchema.ts';
+import { buildCatalog, catalogFromDb, erFromCatalog, isMissingAddon } from './archSchema.ts';
 
 // A tiny fixture "migration list": the tables and foreign keys a schema would
 // leave behind, without needing the native addon in this unit test.
@@ -53,5 +53,35 @@ describe('erFromCatalog', () => {
     const a = erFromCatalog([{ name: 'b', foreignKeys: [] }, { name: 'a', foreignKeys: [] }]);
     const b = erFromCatalog([{ name: 'a', foreignKeys: [] }, { name: 'b', foreignKeys: [] }]);
     expect(a).toBe(b);
+  });
+});
+
+describe('isMissingAddon', () => {
+  it('recognises the failure of an addon that is not built for this Node', () => {
+    expect(isMissingAddon(new Error('Could not locate the bindings file'))).toBe(true);
+    expect(isMissingAddon(new Error('was compiled against a different Node.js version using NODE_MODULE_VERSION 127'))).toBe(true);
+  });
+
+  it('does not swallow any other failure', () => {
+    expect(isMissingAddon(new Error('SQLITE_CANTOPEN: unable to open database file'))).toBe(false);
+    expect(isMissingAddon('boom')).toBe(false);
+  });
+});
+
+describe('buildCatalog', () => {
+  it('reads the real schema, whichever driver this machine can load', () => {
+    // better-sqlite3 when its addon is built for this Node, node:sqlite when
+    // it is not — the CLI's own way of applying the schema. Either way the
+    // catalog is the store's, so the ER is the live one.
+    const catalog = buildCatalog();
+    return catalog.then((tables) => {
+      const names = tables.map((t) => t.name);
+      expect(names).toContain('tickets');
+      expect(names).toContain('stage_runs');
+      expect(names).toContain('gate_runs');
+      // A declared foreign key, read back from the live schema.
+      const graphRuns = tables.find((t) => t.name === 'approach_graph_runs');
+      expect(graphRuns?.foreignKeys).toContainEqual({ parent: 'tickets', column: 'ticket_id' });
+    });
   });
 });

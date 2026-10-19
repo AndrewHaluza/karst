@@ -82,13 +82,69 @@ export function catalogFromDb(db: SchemaReader): TableCatalog[] {
   });
 }
 
+/** The handle this script needs: prepare/all plus close. */
+export interface SchemaHandle extends SchemaReader {
+  close(): void;
+}
+
+/**
+ * Is this the "the native addon is not built for this Node" failure?
+ *
+ * better-sqlite3 loads its addon on require, so an ABI that does not exist
+ * (or a platform with no published prebuild and no toolchain to build one)
+ * fails right there, before any query. That is a missing capability, not a
+ * broken schema.
+ */
+export function isMissingAddon(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /bindings|Could not locate|NODE_MODULE_VERSION/i.test(message);
+}
+
+/**
+ * The live schema, in memory.
+ *
+ * better-sqlite3 — the store's own driver — is the primary path: the real
+ * migrations run against it. When its addon is not built for this Node (no
+ * published prebuild for the platform, no C++ toolchain to build one), the
+ * schema is applied through node:sqlite instead, the way the CLI's
+ * `karst test reset` applies it: exec the same schema.sql and stamp the
+ * version. A fresh schema.sql IS the complete current schema — every later
+ * version's columns and tables are mirrored into it, and `migrate()` reads
+ * that very file for a fresh DB (src/store/migrations.ts) — so the catalog
+ * read back is the same one either way.
+ */
+export async function openSchemaDb(): Promise<SchemaHandle> {
+  const { readSchema, SCHEMA_VERSION } = await import('../src/store/migrations.js');
+  try {
+    const { default: Database } = await import('better-sqlite3');
+    const { migrate } = await import('../src/store/migrations.js');
+    const db = new Database(':memory:');
+    try {
+      migrate(db);
+      return db as unknown as SchemaHandle;
+    } catch (err) {
+      db.close();
+      throw err;
+    }
+  } catch (err) {
+    if (!isMissingAddon(err)) throw err;
+    // The one `node:sqlite` ExperimentalWarning is dropped the way the CLI
+    // drops it (src/cli/suppressWarning.ts) — narrow: every other warning
+    // still reaches stderr.
+    const { installSqliteWarningFilter } = await import('../src/cli/suppressWarning.js');
+    installSqliteWarningFilter();
+    const { DatabaseSync } = await import('node:sqlite');
+    const db = new DatabaseSync(':memory:');
+    db.exec(readSchema());
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+    return db as unknown as SchemaHandle;
+  }
+}
+
 /** Apply the real migrations to :memory: and read the resulting catalog. */
 export async function buildCatalog(): Promise<TableCatalog[]> {
-  const { default: Database } = await import('better-sqlite3');
-  const { migrate } = await import('../src/store/migrations.js');
-  const db = new Database(':memory:');
+  const db = await openSchemaDb();
   try {
-    migrate(db);
     return catalogFromDb(db);
   } finally {
     db.close();

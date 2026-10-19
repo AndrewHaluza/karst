@@ -75,10 +75,12 @@ jobs:
         run: npm run build
 
       # docs:schema applies src/store/migrations.ts to an in-memory SQLite
-      # database, so it needs the Node ABI. Build/typecheck do not load the
-      # addon; this job never launches the extension host, so there is no
-      # Electron ABI to restore afterwards (@arch:ABI-01). pretest:unit below
-      # repeats this as a no-op.
+      # database. It answers through better-sqlite3 when the addon is built
+      # for this Node and through node:sqlite otherwise, so the rebuild below
+      # only decides WHICH driver answers — the store's own. Build/typecheck do
+      # not load the addon; this job never launches the extension host, so
+      # there is no Electron ABI to restore afterwards (@arch:ABI-01).
+      # pretest:unit below repeats the rebuild as a no-op.
       - name: Rebuild better-sqlite3 for the Node ABI
         run: npm run rebuild:node
 
