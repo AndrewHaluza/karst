@@ -296,3 +296,18 @@ describe('makeSandboxWiring dashboard actions (no backend gate)', () => {
     expect(notify.error).toHaveBeenCalledWith('Karst: K-1 has no worktree branch to diff against.');
   });
 });
+
+describe('makeSandboxWiring finds the sandbox by listing, not sessionProvider (F4)', () => {
+  const ROOT = '/p/karst.yml';
+  it('a null session provider still reaches the ticket sandbox found in the listing', async () => {
+    const t = createTicket(store, { key: 'K-5', title: 'n' }).id; // no setSessionId: provider null (T700)
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, 'r', '/wt/n', 'feat/n')").run(t);
+    const container = sbxName({ projectRoot: ROOT, ticketId: t, core: 'opencode2' });
+    const proc = fakeSbxProcess();
+    const dockerProc = Object.assign(fakeSbxProcess({ 'docker ps': { stdout: `${container}\trunning\n` } }), { pipe: vi.fn() });
+    const { w, notify } = wiring({ projectRoot: () => ROOT, proc, dockerProc });
+    await w.diff(t);
+    expect(notify.error).not.toHaveBeenCalledWith(expect.stringContaining('core unknown'));
+    expect(dockerProc.calls.some((c) => c.args.includes('run') || c.args.includes('bundle'))).toBe(true);
+  });
+});

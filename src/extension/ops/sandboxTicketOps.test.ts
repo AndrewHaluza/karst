@@ -82,6 +82,59 @@ describe('ticketGateProcess', () => {
   });
 });
 
+describe('ticketGateProcess resolves the sandbox from the listing (F4)', () => {
+  const DOCKER = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode2' }).container;
+  const listed = (...boxes: Array<[string, string]>) => () => Promise.resolve(boxes.map(([core, name]) => ({
+    runner: core === 'claude' || core === 'codex' ? 'sbx' as const : 'docker' as const, name, ticketId: 7, core, state: 'running' as const,
+  })));
+  const dockerDeps = (over: Partial<TicketSandboxDeps> = {}) => deps({
+    backends: () => ({ opencode: 'docker', opencode2: 'docker' }), coreOf: () => null,
+    dockerProc: fakeDockerProcess({ 'docker container inspect': { stdout: 'true' } }), platform: 'linux', ...over,
+  });
+
+  it('a null session provider still runs the gate in the listed docker sandbox, never on the host', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const gate = ticketGateProcess(dockerDeps({ inventory: listed(['opencode2', DOCKER]) }), 7)!;
+    await gate('npm', ['test'], '/wt');
+    expect(vi.mocked(runProcess).mock.calls[0]![0]).toBe('docker');
+  });
+
+  it('refuses the gate when the ticket has a sandbox but the backend config cannot run it (no host fallback)', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const gate = ticketGateProcess(dockerDeps({ backends: () => ({ claude: 'sbx' }), inventory: listed(['opencode2', DOCKER]) }), 7)!;
+    await expect(gate('npm', ['test'], '/wt')).resolves.toMatchObject({ kind: 'spawnFailed', message: expect.stringContaining('never run on the host') });
+    expect(runProcess).not.toHaveBeenCalled();
+  });
+
+  it('with no sandbox listed and no provider the gate runs on the host (a host ticket)', async () => {
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    const gate = ticketGateProcess(dockerDeps({ inventory: listed() }), 7)!;
+    await expect(gate('npm', ['test'], '/wt')).resolves.toMatchObject({ output: 'host' });
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['npm', ['test']]);
+  });
+
+  it('with two sandboxes the one matching the session provider wins; the choice is logged', async () => {
+    const debug = vi.fn();
+    const d = deps({ backends: () => ({ claude: 'sbx', opencode2: 'docker' }), coreOf: () => 'claude', proc: fakeSbxProcess(), debug,
+      inventory: listed(['claude', SBX], ['opencode2', DOCKER]) });
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    await ticketGateProcess(d, 7)!('npm', ['test'], '/wt');
+    expect(vi.mocked(runProcess).mock.calls[0]!.slice(0, 2)).toEqual(['sbx', ['exec', SBX, '--', 'npm', 'test']]);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('has 2 sandboxes'));
+  });
+
+  it('a failing listing falls back to the session provider and never throws', async () => {
+    const d = deps({ proc: fakeSbxProcess(), inventory: () => Promise.reject(new Error('docker down')) });
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    vi.mocked(runProcess).mockClear();
+    await expect(ticketGateProcess(d, 7)!('npm', [], '/wt')).resolves.toBeDefined();
+  });
+});
+
 describe('reattachTicketSandbox', () => {
   const manifest = { repositories: { db: { repoPath: '/r/db', service: { start: 'x', ports: [{ name: 'pg', default: 5432 }] } } } } as unknown as Manifest;
 

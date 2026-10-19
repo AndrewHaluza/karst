@@ -17,6 +17,7 @@ describe('parseSandboxName', () => {
     expect(parseSandboxName(`${own(7, 'opencode')}-proxy`, ROOT)).toBeUndefined();
     expect(parseSandboxName(own(7, 'claude').replace(/claude$/, 'agy'), ROOT)).toBeUndefined();
     expect(parseSandboxName('karst-zz', ROOT)).toBeUndefined();
+    for (const suffix of ['-repo', '-data', '-net']) expect(parseSandboxName(`${own(7, 'opencode2')}${suffix}`, ROOT)).toBeUndefined();
   });
 });
 

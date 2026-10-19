@@ -7,6 +7,7 @@ import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
 import { disposeSandboxOp, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
@@ -56,8 +57,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     };
   };
   /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
-  const manualDeps = (ticketId: number): { d: SandboxLifecycleDeps; t: SandboxSyncTarget } => {
-    const { t, projectRoot } = manual(ticketId);
+  const manualDeps = async (ticketId: number): Promise<{ d: SandboxLifecycleDeps; t: SandboxSyncTarget }> => {
+    const { t, projectRoot } = await manual(ticketId);
     const bridges = w.bridges();
     return {
       t,
@@ -84,45 +85,58 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const projectId = w.projectId();
     return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null);
   };
-  const manual = (ticketId: number) => {
+  /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
+  const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
     const t = target(ticketId);
-    return { t, projectRoot: w.projectRoot() ?? t.worktree?.path ?? '' };
+    try {
+      const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+      const found = pickTicketSandbox(inv.sandboxes, ticketId, t.core, (m) => w.info(`karst: ${m}`));
+      return found ? { ...t, core: found.core } : t;
+    } catch (err) {
+      w.logError(`karst: sandbox lookup failed for ticket ${ticketId}`, err);
+      return t;
+    }
+  };
+  const manual = async (ticketId: number) => {
+    const t0 = target(ticketId);
+    const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
+    return { t: await resolved(ticketId, projectRoot), projectRoot };
   };
   const wiring = {
     /** `karst.sandbox.sync` / `.dispose`: explicit user actions, independent of the configured backend. */
     sync: async (ticketId: number): Promise<void> => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       await syncSandboxOp({ notify: w.notify, projectRoot }, t);
     },
     /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
     ensureSynced: async (ticketId: number) => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       return ensureSandboxSynced({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       await diffSandboxOp({ notify: w.notify, projectRoot, showDiff: w.showDiff, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
     stop: async (ticketId: number): Promise<void> => {
-      const { d, t } = manualDeps(ticketId);
+      const { d, t } = await manualDeps(ticketId);
       if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
     },
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
-      const { d, t } = manualDeps(ticketId);
+      const { d, t } = await manualDeps(ticketId);
       await removeSandboxGuarded(d, t);
     },
     dispose: async (ticketId: number): Promise<void> => {
-      const { t, projectRoot } = manual(ticketId);
+      const { t, projectRoot } = await manual(ticketId);
       await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot }, t);
     },
-    beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d ? removeSandboxGuarded(d, target(ticketId)) : true; },
-    onDone: (ticketId: number): void => { const d = deps(); if (d) void stopSandboxOp(d, target(ticketId)); },
+    beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d ? removeSandboxGuarded(d, await resolved(ticketId, d.projectRoot)) : true; },
+    onDone: (ticketId: number): void => { const d = deps(); if (d) void resolved(ticketId, d.projectRoot).then((t) => stopSandboxOp(d, t)).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
     onProviderSwitch: async (ticketId: number, newCore: string): Promise<boolean> => {
       const d = deps();
-      return d ? switchProviderOp({ ...d, clearSession }, target(ticketId), newCore) : true;
+      return d ? switchProviderOp({ ...d, clearSession }, await resolved(ticketId, d.projectRoot), newCore) : true;
     },
     reconcile: async (): Promise<void> => {
       const d = deps();

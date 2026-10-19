@@ -14,6 +14,25 @@ function recorder() {
   };
 }
 
+describe('backendSessionOptions multi-repo guard (F4/F13 v1)', () => {
+  it.each([['claude', 'sbx'], ['opencode2', 'docker']] as const)('a multi-repo %s ticket resolves to the host without touching a sandbox', async (core, kind) => {
+    const resolve = vi.fn();
+    const warn = vi.fn();
+    const opts = backendSessionOptions({ backends: { [core]: kind }, core, projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), warn, resolve, worktreeCount: 2 });
+    const out = await opts.resolveRunner!();
+    expect(out.runner.kind).toBe('host');
+    expect(out.line).toContain('multi-repo');
+    expect(resolve).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(opts.bridgeFor).toBeUndefined();
+  });
+  it('a single-repo ticket still resolves normally', async () => {
+    const resolve = vi.fn(async () => ({ runner: { kind: 'sbx' }, line: 'sbx (x)' }) as never);
+    await backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve, worktreeCount: 1 }).resolveRunner!();
+    expect(resolve).toHaveBeenCalled();
+  });
+});
+
 describe('backendSessionOptions', () => {
   it('adds nothing when agentBackends is absent', () => {
     expect(backendSessionOptions({ backends: undefined, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn() })).toEqual({});
