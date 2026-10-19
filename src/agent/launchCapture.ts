@@ -6,6 +6,8 @@ import type { PlacedInteractiveLaunch } from './sessionRunner.js';
 export const FAST_FAIL_SECONDS = 10;
 /** Only the last bytes of the launcher's stderr are kept and shown. */
 export const TAIL_BYTES = 4096;
+/** Hard cap on the teed stderr file for the whole session. */
+export const MAX_CAPTURE_BYTES = 65536;
 
 export interface CaptureFiles {
   /** The launcher's stderr, teed. */
@@ -26,8 +28,12 @@ export function captureFilesFor(dir: string, ticketId: number): CaptureFiles {
 // hint until Enter, so the output does not vanish with the tab.
 const SCRIPT = [
   'f=$1; m=$2; shift 2',
-  '"$@" 2> >(tee "$f" >&2); rc=$?',
+  'rm -f "$f" "$m"',
+  // stderr still reaches the terminal; only the first MAX_CAPTURE_BYTES are kept
+  // (head, then drain so the launcher never sees a broken pipe).
+  `"$@" 2> >(tee >(head -c ${MAX_CAPTURE_BYTES} > "$f"; cat > /dev/null) >&2); rc=$?`,
   `if [ "$rc" -ne 0 ] && [ "$SECONDS" -lt ${FAST_FAIL_SECONDS} ]; then`,
+  '  sleep 0.2', // let the capture pipe flush
   '  printf "%s\\n" "$rc" > "$m"',
   '  printf "\\nkarst: sandbox launch failed (exit %s). Retry, or set agentBackends.<core>=host. Press Enter to close.\\n" "$rc" >&2',
   '  read -r _',

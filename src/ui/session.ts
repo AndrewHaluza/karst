@@ -1,5 +1,5 @@
 import { launchHasMcp } from '../agent/karstCommandText.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AgentAdapter, HookChannel } from '../agent/adapter.js';
 import { cleanupOwnedPaths } from '../agent/materializedCleanup.js';
@@ -683,9 +683,16 @@ export class SessionManager {
           : undefined;
       const placed = capture ? wrapWithStderrCapture(interactive, capture) : interactive;
       if (capture) {
+        // A stale marker from an earlier launch must not read as this one's failure.
+        rmSync(capture.stderr, { force: true });
+        rmSync(capture.fast, { force: true });
         launchFailure = () => {
-          const failure = readLaunchFailure(capture);
-          if (failure) options.onSandboxLaunchFailed?.({ runner: runner.kind, ...failure });
+          try {
+            const failure = readLaunchFailure(capture);
+            if (failure) options.onSandboxLaunchFailed?.({ runner: runner.kind, ...failure });
+          } catch (err) {
+            options.debug?.(`[session] ticket ${ticketId} launch-failure capture unreadable: ${String(err)}`);
+          }
         };
       }
       terminal = this.host.createTerminal({

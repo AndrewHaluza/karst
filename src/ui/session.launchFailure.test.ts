@@ -86,6 +86,24 @@ describe('sandbox launch failure capture (arch:AC-32)', () => {
     expect(seen).toEqual([]);
   });
 
+  it('drops a stale marker at launch so a healthy session reports nothing', async () => {
+    const files = captureFilesFor(dir, 7);
+    writeFileSync(files.fast, '1\n');
+    const seen: unknown[] = [];
+    const h = await open(sandboxRunner('sbx'), (i) => seen.push(i));
+    expect(existsSync(files.fast)).toBe(false);
+    h.close(0);
+    expect(seen).toEqual([]);
+  });
+
+  it('a throwing failure handler cannot break the close handler', async () => {
+    const h = await open(sandboxRunner('sbx'), () => {
+      throw new Error('boom');
+    });
+    writeFileSync(captureFilesFor(dir, 7).fast, '1\n');
+    expect(() => h.close(1)).not.toThrow();
+  });
+
   it('leaves a host launch untouched', async () => {
     const h = await open(HOST_SESSION_RUNNER, () => undefined);
     expect(h.created[0]!.shellPath).not.toBe('/bin/bash');
