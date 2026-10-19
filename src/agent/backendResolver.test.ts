@@ -36,6 +36,12 @@ describe('resolveBackend', () => {
     expect(out).toEqual({ runner: HOST_SESSION_RUNNER, line: 'host (sbx: no ticket worktree branch to clone)' });
   });
 
+  it('fails closed to host when origin cannot be dropped', async () => {
+    const proc = fakeSbxProcess({ 'git -C': { code: 1, stderr: 'locked' } });
+    const out = await resolveBackend({ ...base, projectRoot, proc, backends: { claude: 'sbx' }, preflight: ok, worktree });
+    expect(out.line).toBe('host (sandbox clone could not drop origin: locked)');
+  });
+
   it('fails closed to host when the clone fails', async () => {
     const proc = fakeSbxProcess({ 'git clone': { code: 128, stderr: 'boom' } });
     const out = await resolveBackend({ ...base, projectRoot, proc, backends: { claude: 'sbx' }, preflight: ok, worktree });

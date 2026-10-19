@@ -22,7 +22,9 @@ describe('prepareSbxClone with a real linked worktree', () => {
     expect(existsSync(join(dir, '.git', 'HEAD'))).toBe(true);
     expect(git(dir, 'rev-parse', '--abbrev-ref', 'HEAD').trim()).toBe('ticket');
     expect(git(dir, 'remote').trim()).toBe('');
+    git(wt, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '--allow-empty', '-m', 'next');
     await expect(prepareSbxClone(NODE_SBX_PROCESS, { worktree: wt, branch: 'ticket', dir })).resolves.toEqual({ ok: true });
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(git(wt, 'rev-parse', 'HEAD'));
     await removeSbxClone(dir);
     expect(existsSync(dir)).toBe(false);
   });

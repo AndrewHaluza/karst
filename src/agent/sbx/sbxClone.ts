@@ -1,4 +1,4 @@
-import { mkdir, rm, stat } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { SbxProcess } from './sbxProcess.js';
 
@@ -19,13 +19,16 @@ export async function prepareSbxClone(
   proc: SbxProcess,
   input: { readonly worktree: string; readonly branch: string; readonly dir: string },
 ): Promise<CloneResult> {
-  const present = await stat(join(input.dir, '.git')).then((s) => s.isDirectory(), () => false);
-  if (present) return { ok: true };
+  // Always rebuilt: this runs only while no sandbox exists, so a leftover clone is stale, never live work.
   await rm(input.dir, { recursive: true, force: true });
   await mkdir(dirname(input.dir), { recursive: true });
   const cloned = await proc.run('git', ['clone', '--no-hardlinks', '--branch', input.branch, input.worktree, input.dir]);
   if (cloned.code !== 0) return { ok: false, reason: `sandbox clone failed: ${cloned.stderr.trim()}` };
-  await proc.run('git', ['-C', input.dir, 'remote', 'remove', 'origin']);
+  const dropped = await proc.run('git', ['-C', input.dir, 'remote', 'remove', 'origin']);
+  if (dropped.code !== 0) {
+    await rm(input.dir, { recursive: true, force: true });
+    return { ok: false, reason: `sandbox clone could not drop origin: ${dropped.stderr.trim()}` };
+  }
   return { ok: true };
 }
 
