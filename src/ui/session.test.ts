@@ -279,7 +279,7 @@ describe('SessionManager', () => {
       });
 
       expect(lines).toEqual(['sbx (karst-ab12cd34-7-claude)']);
-      expect(modes).toEqual(['sandboxed (runner: sbx)']);
+      expect(modes).toEqual(['sandboxed (runner: sbx, autonomous)']);
       expect(terminals[0]!.shellPath).toBe('sbx');
       expect(terminals[0]!.shellArgs.slice(0, 3)).toEqual(['run', '--clone', '--name']);
       // Host-path channels and the core's own sandbox stay off inside sbx.
@@ -409,7 +409,7 @@ describe('SessionManager', () => {
       });
 
       expect(lines).toEqual([`docker (${names.container})`]);
-      expect(modes).toEqual(['sandboxed (runner: docker)']);
+      expect(modes).toEqual(['sandboxed (runner: docker, autonomous)']);
       expect(terminals[0]!.shellPath).toBe('docker');
       expect(terminals[0]!.shellArgs.slice(0, 6)).toEqual(['run', '--interactive', '--tty', '--rm', '--name', names.container]);
       for (const flag of ['--privileged', '--auto', '--yolo', '--dangerously-skip-permissions']) {

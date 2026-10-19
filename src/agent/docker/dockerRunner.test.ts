@@ -5,7 +5,7 @@ import { dockerNames } from './dockerNames.js';
 import { interactiveRunArgs } from './dockerRunArgs.js';
 import { createDockerSessionRunner, prepareDockerSandbox } from './dockerRunner.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
-import { autonomousPermissionArgs } from '../sbx/sbxRunner.js';
+import { autonomousLaunch } from '../autonomousLaunch.js';
 import { HOST_SESSION_RUNNER } from '../sessionRunner.js';
 
 const names = dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' });
@@ -23,12 +23,14 @@ describe('createDockerSessionRunner', () => {
     expect(runner.kind).toBe('docker');
     expect(runner.enforcesSandbox).toBe(true);
     const spec = { ticketId: 7, hostWorktreePath: WT, command: 'opencode', args: [WT], env: { OPENCODE_PURE: '0' } };
+    const env = autonomousLaunch('opencode', runner).env(spec.env);
     expect(runner.placeInteractive(spec)).toEqual({
       cwd: WT,
       shellPath: 'docker',
-      shellArgs: interactiveRunArgs({ names, core: 'opencode', user: undefined, authFile: '/h/auth.json', hostWorktreePath: WT, args: [WT], env: spec.env }),
-      env: { OPENCODE_PURE: '0' },
+      shellArgs: interactiveRunArgs({ names, core: 'opencode', user: undefined, authFile: '/h/auth.json', hostWorktreePath: WT, args: [WT], env }),
+      env,
     });
+    expect(env['OPENCODE_PURE']).toBe('0');
     expect(proc.calls).toHaveLength(0);
   });
 
@@ -111,11 +113,25 @@ describe('createDockerSessionRunner', () => {
 });
 
 describe('permissions under the docker runner (arch:AC-31)', () => {
-  it('adds no bypass flag for opencode or opencode2, under docker or on the host', () => {
-    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined });
+  const spec = { hostWorktreePath: '/wt', args: ['/wt'], env: { OPENCODE_CONFIG_CONTENT: '{"model":"m"}' }, ticketId: 1 } as never;
+
+  it.each(['opencode', 'opencode2'] as const)('%s gets the allow-all config through the container env, no flag', (core) => {
+    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core, names, user: undefined });
+    const placed = runner.placeInteractive(spec);
+    const cfg = JSON.parse(placed.env['OPENCODE_CONFIG_CONTENT']!);
+    expect(cfg.model).toBe('m');
+    expect(cfg.permission.edit).toBe('allow');
+    // by name only: the value never lands in the argv
+    expect(placed.shellArgs.join(' ')).not.toContain('"allow"');
+    expect(placed.shellArgs).toContain('OPENCODE_CONFIG_CONTENT');
+    expect(placed.shellArgs).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it('the host runner never relaxes opencode in any form', () => {
     for (const core of ['opencode', 'opencode2']) {
-      expect(autonomousPermissionArgs(core, runner)).toEqual([]);
-      expect(autonomousPermissionArgs(core, HOST_SESSION_RUNNER)).toEqual([]);
+      const launch = autonomousLaunch(core, HOST_SESSION_RUNNER);
+      expect(launch.args).toEqual([]);
+      expect(launch.env({ OPENCODE_CONFIG_CONTENT: '{}' })).toEqual({ OPENCODE_CONFIG_CONTENT: '{}' });
     }
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { HOST_SESSION_RUNNER } from '../sessionRunner.js';
 import { fakeSbxProcess } from './fakeSbxProcess.js';
-import { autonomousPermissionArgs, createSbxSessionRunner, sandboxRemote } from './sbxRunner.js';
+import { createSbxSessionRunner, sandboxRemote } from './sbxRunner.js';
 
 const NAME = 'karst-ab12cd34-7-claude';
 const spec = (args: string[] = []) => ({
@@ -155,19 +155,6 @@ describe('createSbxSessionRunner.stop', () => {
     await runner.stop!();
     expect(proc.calls.map((c) => [c.command, ...c.args].join(' '))).toEqual([`sbx stop ${NAME}`]);
     expect(runner.placeInteractive(spec()).shellArgs).not.toContain('--clone');
-  });
-});
-
-describe('autonomousPermissionArgs (arch:AC-31 conformance)', () => {
-  it.each(['claude', 'codex', 'opencode'])('never relaxes %s on the host runner', (core) => {
-    expect(autonomousPermissionArgs(core, HOST_SESSION_RUNNER)).toEqual([]);
-  });
-
-  it('relaxes only claude/codex on an enforcing runner', () => {
-    const sbx = { enforcesSandbox: true };
-    expect(autonomousPermissionArgs('claude', sbx)).toEqual(['--dangerously-skip-permissions']);
-    expect(autonomousPermissionArgs('codex', sbx)).toEqual(['--dangerously-bypass-approvals-and-sandbox']);
-    expect(autonomousPermissionArgs('opencode', sbx)).toEqual([]);
   });
 });
 

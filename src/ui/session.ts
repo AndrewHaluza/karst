@@ -584,7 +584,7 @@ export class SessionManager {
     // AC-31: the core's own sandbox only when it can be enforced; otherwise the
     // launch fails closed to prompted mode and the reason is reported.
     const sandbox = launchSandbox(adapter.surfaces?.sandboxInteractive, options.sandbox === true && !inSandbox, worktreePath);
-    options.onSandboxMode?.(inSandbox ? `sandboxed (runner: ${runner.kind})` : formatSandboxMode(sandbox));
+    options.onSandboxMode?.(inSandbox ? `sandboxed (runner: ${runner.kind}${runner.autonomous ? ', autonomous' : ''})` : formatSandboxMode(sandbox));
     // Trust the ticket worktree before the core starts: a fresh worktree is
     // untrusted, and claude would open on its folder-trust dialog and exit
     // (T661). Done here, at the one launch site, never as a UI action. The hook

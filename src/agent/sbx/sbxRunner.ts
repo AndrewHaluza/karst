@@ -9,6 +9,7 @@ import type {
   SyncResult,
   DiffResult,
 } from '../sessionRunner.js';
+import { autonomousLaunch } from '../autonomousLaunch.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
@@ -31,17 +32,6 @@ export interface SbxRunnerOptions {
 
 /** Env name a sandboxed gate reads to know where evidence files go (the bridge dir). */
 export const EVIDENCE_DIR_ENV = 'KARST_EVIDENCE_DIR';
-
-/**
- * Relaxed-permission argv for a core. Empty unless the runner ITSELF enforces a
- * sandbox (arch:AC-31, fail closed): a host runner never gets a bypass flag.
- */
-export function autonomousPermissionArgs(core: string, runner: Pick<SessionRunner, 'enforcesSandbox'>): string[] {
-  if (runner.enforcesSandbox !== true) return [];
-  if (core === 'claude') return ['--dangerously-skip-permissions'];
-  if (core === 'codex') return ['--dangerously-bypass-approvals-and-sandbox'];
-  return [];
-}
 
 /** The host remote clone mode leaves for a sandbox. */
 export function sandboxRemote(name: string): string {
@@ -69,6 +59,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const runner: SessionRunner = {
     kind: 'sbx',
     enforcesSandbox: true,
+    autonomous: autonomousLaunch(opts.core, { enforcesSandbox: true }).autonomous,
     placeInteractive: (spec): PlacedInteractiveLaunch => {
       // Only a sandbox `sbx ls` reported is reattached. Building the argv is
       // not proof the sandbox exists: a first terminal can fail before
@@ -80,7 +71,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         shellPath: SBX_BIN,
         shellArgs: [
           'run', ...create, '--name', opts.name, opts.core, ...workspace,
-          '--', ...autonomousPermissionArgs(opts.core, runner), ...spec.args,
+          '--', ...autonomousLaunch(opts.core, runner).args, ...spec.args,
         ],
         env: { ...spec.env },
       };

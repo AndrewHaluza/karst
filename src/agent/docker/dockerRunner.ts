@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { autonomousLaunch } from '../autonomousLaunch.js';
 import { spawnHeadlessCli } from '../headlessSpawn.js';
 import { runProcess } from '../../workflow/gates/run.js';
 import type { GateProcessRunner, PlacedInteractiveLaunch, RunHeadless, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
@@ -66,16 +67,23 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
   return {
     kind: 'docker',
     enforcesSandbox: true,
-    placeInteractive: (spec): PlacedInteractiveLaunch => ({
-      cwd: spec.hostWorktreePath,
-      shellPath: DOCKER_BIN,
-      shellArgs: interactiveRunArgs({
-        names: opts.names, core: opts.core, user: opts.user, authFile: opts.authFile,
-        hostWorktreePath: spec.hostWorktreePath, args: spec.args, env: spec.env,
-        ticketId: spec.ticketId, bridgeDir: spec.bridgeDir,
-      }),
-      env: { ...spec.env },
-    }),
+    autonomous: autonomousLaunch(opts.core, { enforcesSandbox: true }).autonomous,
+    placeInteractive: (spec): PlacedInteractiveLaunch => {
+      // The allow-all opencode config rides the docker client's env (by name),
+      // so it reaches only the container (arch:AC-31, arch:AC-33).
+      const launch = autonomousLaunch(opts.core, { enforcesSandbox: true });
+      const env = launch.env(spec.env);
+      return {
+        cwd: spec.hostWorktreePath,
+        shellPath: DOCKER_BIN,
+        shellArgs: interactiveRunArgs({
+          names: opts.names, core: opts.core, user: opts.user, authFile: opts.authFile,
+          hostWorktreePath: spec.hostWorktreePath, args: [...launch.args, ...spec.args], env,
+          ticketId: spec.ticketId, bridgeDir: spec.bridgeDir,
+        }),
+        env,
+      };
+    },
     bridgeRunDir: (paths) => paths.runDir,
     // Killing the `docker exec` client leaves the process running in the
     // container; an abort also kills it there, by its recorded pid. A timeout
