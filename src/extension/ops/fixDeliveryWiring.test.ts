@@ -283,6 +283,35 @@ describe('fixDeliveryWiring', () => {
       expect(readdirSync(outside)).toEqual([]);
     });
 
+    it('a delivery of another ticket is never written into this ticket\'s inbox', () => {
+      const { paths, w } = sandboxed();
+      w.deliver(ticketId, null);
+      const row = currentFixDelivery(store, ticketId)!;
+      const other = createTicket(store, { key: 'K-2', title: 'o', projectId }).id;
+      store.db.prepare('UPDATE fix_deliveries SET ticket_id = ? WHERE id = ?').run(other, row.id);
+      nudge.mockClear();
+      w.pointAtLaunch(ticketId, row.launchId ?? 'L1');
+      expect(nudge).not.toHaveBeenCalled();
+      expect(readdirSync(paths.inboxDir)).toEqual([`fix-${row.id}.md`]);
+    });
+
+    it('a refused inbox write is logged with the reason and nothing is typed', () => {
+      const debug = vi.fn();
+      const { paths, w } = sandboxed({ debug });
+      mkdirSync(join(root, 'out'));
+      symlinkSync(join(root, 'out'), paths.inboxDir);
+      w.deliver(ticketId, null);
+      const row = store.db.prepare('SELECT id FROM fix_deliveries').get() as { id: number };
+      expect(nudge).not.toHaveBeenCalled();
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining(`fix delivery #${row.id}: inbox write refused (bridge: inbox was a symlink`));
+    });
+
+    it('a host session still gets the host CLI pointer (the sandbox branch is exact)', () => {
+      const w = make({ sessionChannel: () => 'cli-env' });
+      w.deliver(ticketId, null);
+      expect(nudge.mock.calls.length === 0 || !String(nudge.mock.calls[0]![1]).includes('inbox')).toBe(true);
+    });
+
     it('no bridge dir known: unavailable, nothing typed', () => {
       const w = make({ sessionChannel: () => CH });
       w.deliver(ticketId, null);

@@ -226,12 +226,17 @@ describe('ackFixDeliveryRef (sandbox ack line, F10)', () => {
     const row = make();
     expect(ackFixDeliveryRef(h.store, h.ticketId, `fix-${row.id}`, at)).toBe(true);
     expect(ackFixDeliveryRef(h.store, h.ticketId, `fix-${row.id}`, at)).toBe(false);
-    for (const ref of ['fix-0', 'fix-01x', 'mail-1', 'fix-', `fix-${row.id}-x`]) expect(ackFixDeliveryRef(h.store, h.ticketId, ref, at)).toBe(false);
+    for (const ref of ['fix-0', 'fix-01x', 'mail-1', 'fix-', `fix-${row.id}-x`, `xfix-${row.id}`, `fix-${row.id}x`, `fix-${row.id}\n`, 'fix-12345678901', 'fix-a1']) expect(ackFixDeliveryRef(h.store, h.ticketId, ref, at)).toBe(false);
   });
   it('a ref naming another ticket\'s delivery is refused', () => {
     const row = make();
     expect(ackFixDeliveryRef(h.store, h.ticketId + 1, `fix-${row.id}`, at)).toBe(false);
     expect(getFixDelivery(h.store, row.id)!.readAt).toBeNull();
+  });
+  it('a superseded delivery is no longer pending', () => {
+    const row = make();
+    h.store.db.prepare('UPDATE fix_deliveries SET superseded_at = ? WHERE id = ?').run(at, row.id);
+    expect(ackFixDeliveryRef(h.store, h.ticketId, `fix-${row.id}`, at)).toBe(false);
   });
   it('a missing delivery is ignored', () => {
     expect(ackFixDeliveryRef(h.store, h.ticketId, 'fix-999', at)).toBe(false);

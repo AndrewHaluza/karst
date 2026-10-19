@@ -338,3 +338,17 @@ describe('makeMailDeliveryWiring', () => {
     });
   });
 });
+
+describe('mail delivery to a sandboxed recipient (arch:AC-34)', () => {
+  const sandbox = { kind: 'sandbox' as const, runDir: '/karst-bridge/7', core: 'opencode2' };
+
+  it('takes the typed route even for a push-capable core: no hook reply, and the inbox file has no mail writer so nothing is typed', () => {
+    const nudge = vi.fn(() => true);
+    send();
+    const mailbox = makeMailDeliveryWiring(deps({ nudge, sessionChannel: () => sandbox, sessionProvider: () => 'claude' }));
+    // A push route would answer the Stop hook with a block; the sandbox route never does.
+    expect(mailbox.hookReply({ ticketId: recipient, event: 'Stop', launchId: 'L1' })).toBeNull();
+    mailbox.sweep.sweep();
+    expect(nudge).not.toHaveBeenCalled();
+  });
+});

@@ -26,6 +26,23 @@ describe('backendSessionOptions multi-repo guard (F4/F13 v1)', () => {
     expect(warn).not.toHaveBeenCalled();
     expect(opts.bridgeFor).toBeUndefined();
   });
+  it('logs the host decision through onBackend and defaults a missing count to single-repo', async () => {
+    const info = vi.fn();
+    const multi = backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info, worktreeCount: 2 });
+    multi.onBackend!('host (multi-repo ticket: no sandbox in v1)');
+    expect(info).toHaveBeenCalledWith('[session] ticket K-7 backend: host (multi-repo ticket: no sandbox in v1)');
+    const resolve = vi.fn(async () => ({ runner: { kind: 'sbx' }, line: 'sbx (x)' }) as never);
+    await backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('a host-backend core with several repos is untouched by the guard (it is host already)', async () => {
+    const resolve = vi.fn(async () => ({ runner: { kind: 'host' }, line: 'host (agentBackends.claude: host)' }) as never);
+    const out = await backendSessionOptions({ backends: { claude: 'host' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve, worktreeCount: 3 }).resolveRunner!();
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(out.line).toBe('host (agentBackends.claude: host)');
+  });
+
   it('a single-repo ticket still resolves normally', async () => {
     const resolve = vi.fn(async () => ({ runner: { kind: 'sbx' }, line: 'sbx (x)' }) as never);
     await backendSessionOptions({ backends: { claude: 'sbx' }, core: 'claude', projectRoot: '/p', ticketId: 7, ticketLabel: 'K-7', info: vi.fn(), resolve, worktreeCount: 1 }).resolveRunner!();
@@ -305,6 +322,24 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }) });
     expect(out.sandboxed).toBe(true);
     expect(out.runDir).toBeUndefined();
+  });
+
+  it('tells the caller which core serves the ticket (or null on a host launch)', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+    const remember = vi.fn();
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }), bridgeFor: async () => paths }, remember);
+    expect(remember).toHaveBeenLastCalledWith('opencode2');
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host (x)' }) }, remember);
+    expect(remember).toHaveBeenLastCalledWith(null);
+  });
+
+  it('the bridge is attached once per launch and its run dir is the runner\'s view of it', async () => {
+    const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: () => '/karst-bridge/7' } as never;
+    const bridgeFor = vi.fn(async () => paths);
+    const out = await resolveLaunchBackend({ ...base, resolve: async () => ({ runner, line: 'docker' }), bridgeFor });
+    expect(bridgeFor).toHaveBeenCalledWith(7);
+    expect(out.runDir).toBe('/karst-bridge/7');
+    expect(out.options.bridgeFor).toBe(bridgeFor);
   });
 
   it('no backends configured: a plain host launch with no resolver', async () => {

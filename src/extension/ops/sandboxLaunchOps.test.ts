@@ -51,6 +51,9 @@ describe('sandboxScrubber', () => {
     expect(scrub('run `node "$KARST_CLI" guide --db "$KARST_DB"`')).toBe('run (not available in the sandbox)');
     expect(scrub(undefined)).toBeUndefined();
     expect(log).toHaveBeenCalledTimes(1);
+    expect(log).toHaveBeenCalledWith('scrubbed 1 host-only command(s) from the sandboxed seed');
+    scrub('nothing to scrub here');
+    expect(log).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -73,6 +76,11 @@ describe('guardLaunchResume', () => {
     const hasSandbox = vi.fn(async () => true);
     await expect(guardLaunchResume(input({ resumeId: undefined, hasSandbox }))).resolves.toBeUndefined();
     expect(hasSandbox).not.toHaveBeenCalled();
+  });
+  it('the guard sees the runner kind: a sandbox launch is not a host resume', async () => {
+    const hasSandbox = vi.fn(async () => true);
+    await expect(guardLaunchResume(input({ sandboxed: true, hasSandbox }))).resolves.toBe('ses_1');
+    expect(hasSandbox).toHaveBeenCalledTimes(1);
   });
   it('a listing failure propagates (never swallowed into a wrong resume)', async () => {
     await expect(guardLaunchResume(input({ hasSandbox: async () => { throw new Error('boom'); } }))).rejects.toThrow('boom');
