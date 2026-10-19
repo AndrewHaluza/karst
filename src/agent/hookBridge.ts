@@ -449,17 +449,64 @@ process.stdin.on('end', () => {
 
 /**
  * The marker emitter the sandboxed agent runs instead of an HTTP marker call:
- * `node <runDir>/emit-marker.cjs <events.ndjson> <impl|fix>` appends one
- * `{"v":1,"kind":"marker","ticket":<n>,"stage":"<stage>"}` line. The ticket is
- * the events file's parent dir name; anything else is a usage error (exit 1).
+ * `node <runDir>/emit-marker.cjs <events.ndjson> <impl|fix>`.
+ *
+ * 1. Refuses (exit 1, nothing written) when the working tree has uncommitted
+ *    changes. Commits are NOT a done signal: zero or many are both valid.
+ * 2. Appends `{"v":1,"kind":"marker","ticket":<n>,"stage":"<stage>","seq":"<nonce>"}`;
+ *    the ticket is the events file's parent dir name (anything else: usage error, exit 1).
+ * 3. Waits up to MARKER_WAIT_MS for the host's reply file `<dir>/results/<seq>.json`
+ *    and prints it. Exit 0 = the stage advanced; 1 = refused (the reason is printed,
+ *    do not retry: tell the user); 3 = queued, the host retries on its own (also the
+ *    timeout outcome). The host never reads the reply back.
  */
+export const MARKER_WAIT_MS = 60_000;
+
 export const MARKER_EMIT = String.raw`const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const cp = require('node:child_process');
 const [eventsPath, stage] = process.argv.slice(2);
 const ticketDir = eventsPath ? path.basename(path.dirname(eventsPath)) : '';
 if (!eventsPath || (stage !== 'impl' && stage !== 'fix') || !/^\d+$/.test(ticketDir)) {
   process.stderr.write('usage: emit-marker.cjs <dir>/<ticket>/events.ndjson <impl|fix>\n');
   process.exit(1);
 }
-fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'marker', ticket: Number(ticketDir), stage }) + '\n');
+const status = cp.spawnSync('git', ['status', '--porcelain'], { encoding: 'utf8' });
+if (status.status === 0 && status.stdout.trim() !== '') {
+  const shown = status.stdout.trim().split('\n').slice(0, 10).join('\n');
+  process.stderr.write('karst: not marking ' + stage + ' done: the working tree has uncommitted changes. Commit your changes first, then run this again.\n' + shown + '\n');
+  process.exit(1);
+}
+const seq = crypto.randomBytes(8).toString('hex');
+fs.appendFileSync(eventsPath, JSON.stringify({ v: 1, kind: 'marker', ticket: Number(ticketDir), stage, seq }) + '\n');
+const resultFile = path.join(path.dirname(eventsPath), 'results', seq + '.json');
+const waitMs = Number(process.env.KARST_MARKER_WAIT_MS) > 0 ? Number(process.env.KARST_MARKER_WAIT_MS) : ${MARKER_WAIT_MS};
+const deadline = Date.now() + waitMs;
+(function poll() {
+  let reply;
+  try {
+    reply = JSON.parse(fs.readFileSync(resultFile, 'utf8'));
+  } catch {
+    reply = undefined;
+  }
+  if (reply && typeof reply === 'object') {
+    if (reply.ok === true) {
+      process.stdout.write('karst: ' + stage + ' done marker accepted; the stage advanced.\n');
+      process.exit(0);
+    }
+    const reason = typeof reply.reason === 'string' ? reply.reason : 'unknown';
+    if (reply.retrying === true) {
+      process.stdout.write('karst: ' + stage + ' done marker is queued; the host will retry it (' + reason + ').\n');
+      process.exit(3);
+    }
+    process.stderr.write('karst: ' + stage + ' done marker refused: ' + reason + '\n');
+    process.exit(1);
+  }
+  if (Date.now() >= deadline) {
+    process.stdout.write('karst: ' + stage + ' done marker is queued; no reply yet. The host will retry it.\n');
+    process.exit(3);
+  }
+  setTimeout(poll, 250);
+})();
 `;

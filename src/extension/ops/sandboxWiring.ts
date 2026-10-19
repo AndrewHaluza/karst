@@ -6,7 +6,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
-import { disposeSandboxOp, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { disposeSandboxOp, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
@@ -22,7 +22,7 @@ export interface SandboxWiringInput {
   readonly backendOn: () => boolean;
   readonly projectId: () => number | undefined;
   readonly owned: ReadonlySet<number>;
-  readonly bridges: () => { dispose(ticketId: number): Promise<void> } | undefined;
+  readonly bridges: () => { dispose(ticketId: number): Promise<void>; retryPending?(ticketId: number): Promise<void> } | undefined;
   readonly openSyncDiff: (ticketId: number) => Promise<void>;
   /** Opens a unified diff in a read-only editor. */
   readonly showDiff: (title: string, diff: string) => Promise<void>;
@@ -93,6 +93,11 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     sync: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = manual(ticketId);
       await syncSandboxOp({ notify: w.notify, projectRoot }, t);
+    },
+    /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
+    ensureSynced: async (ticketId: number) => {
+      const { t, projectRoot } = manual(ticketId);
+      return ensureSandboxSynced({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {

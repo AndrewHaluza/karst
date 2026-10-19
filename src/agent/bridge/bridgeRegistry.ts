@@ -22,6 +22,8 @@ export interface BridgeRegistry {
    * With `owned`, an open ticket outside it (another window's) is left alone.
    */
   sweep(openTicketIds: ReadonlySet<number>, owned?: ReadonlySet<number>): Promise<BridgeSweepResult>;
+  /** A sync just succeeded: re-run this ticket's transiently failed marker, if any (arch:AC-34). */
+  retryPending(ticketId: number): Promise<void>;
   /** Extension shutdown: stop every poller, keep every dir. */
   detachAll(): Promise<void>;
 }
@@ -93,5 +95,8 @@ export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
     }
     return { reattached, removed };
   };
-  return { attach, detach, dispose, sweep, detachAll };
+  const retryPending = async (ticketId: number): Promise<void> => {
+    await live.get(ticketId)?.retryPending?.();
+  };
+  return { attach, detach, dispose, sweep, detachAll, retryPending };
 }

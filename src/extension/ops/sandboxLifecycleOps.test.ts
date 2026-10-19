@@ -106,7 +106,22 @@ describe('stopSandboxOp', () => {
   it('owner stops its own sandbox only', async () => {
     const { d, lines } = deps();
     await expect(stopSandboxOp(d, target)).resolves.toBe(true);
-    expect(lines()).toEqual([`sbx stop ${name(7)}`]);
+    expect(lines().at(-1)).toBe(`sbx stop ${name(7)}`);
+  });
+  it('syncs before it stops, and a good sync retries the ticket\'s pending marker (arch:AC-37)', async () => {
+    const retry = vi.fn(async () => {});
+    const { d, lines } = deps({ bridges: { dispose: async () => {}, retryPending: retry } });
+    await stopSandboxOp(d, target);
+    const all = lines();
+    expect(all.findIndex((l) => l.includes('merge'))).toBeGreaterThanOrEqual(0);
+    expect(all.findIndex((l) => l.includes('merge'))).toBeLessThan(all.indexOf(`sbx stop ${name(7)}`));
+    expect(retry).toHaveBeenCalledWith(7);
+  });
+  it('a failed sync warns but still stops the sandbox', async () => {
+    const { d, lines, notify } = deps({ answers: { 'git -C /wt merge-base': { code: 1 } } });
+    await expect(stopSandboxOp(d, target)).resolves.toBe(true);
+    expect(notify.warn).toHaveBeenCalledWith(expect.stringContaining('not synced before stop'));
+    expect(lines().at(-1)).toBe(`sbx stop ${name(7)}`);
   });
   it('non-owner and host core do nothing', async () => {
     const { d, proc } = deps({ owns: () => false });

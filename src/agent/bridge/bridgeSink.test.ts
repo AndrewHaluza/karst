@@ -1,4 +1,4 @@
-import { appendFile, mkdtemp, rm } from 'node:fs/promises';
+import { appendFile, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -80,7 +80,7 @@ describe('createBridgeAttachment', () => {
     await write(markerLine());
     await att.pollOnce();
     await flush();
-    expect(logs).toContain('[bridge] ticket 7 marker impl exited 1: boom');
+    expect(logs).toContain('[bridge] ticket 7 marker impl failed: boom');
     await write(hookLine());
     await att.pollOnce();
     expect(dispatched).toHaveLength(1);
@@ -97,19 +97,61 @@ describe('createBridgeAttachment', () => {
     await flush();
     expect(logs.filter((l) => l.includes('marker'))).toEqual([]);
   });
-  it('runs one marker at a time: a marker line during a run is dropped and logged', async () => {
+  it('queues markers: a marker line during a run waits, none is dropped', async () => {
     let finish!: () => void;
     const run = vi.fn<MarkerRunner>(() => new Promise((r) => { finish = () => r({ code: 0, stderr: '' }); }));
     const a = make(run);
     await write(markerLine(), markerLine());
     await a.pollOnce();
-    expect(run).toHaveBeenCalledTimes(1);
-    expect(logs).toContain('[bridge] ticket 7 marker impl dropped: run in progress');
-    finish();
     await flush();
-    await write(markerLine());
-    await a.pollOnce();
-    expect(run).toHaveBeenCalledTimes(2);
+    expect(run).toHaveBeenCalledTimes(1);
+    finish();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2));
+    finish();
+  });
+  it('writes the reply file named by the line seq, ok on a pass', async () => {
+    await write(markerLine({ seq: 'n1' }));
+    await make(okRunner()).pollOnce();
+    await flush();
+    await flush();
+    await vi.waitFor(async () => { await readFile(join(paths.resultsDir, 'n1.json')); });
+    expect(JSON.parse(await readFile(join(paths.resultsDir, 'n1.json'), 'utf8'))).toEqual({ v: 1, stage: 'impl', ok: true, retrying: false, reason: '' });
+  });
+  it('replies with the failure reason and reports it', async () => {
+    const seen: string[] = [];
+    const att = createBridgeAttachment({
+      paths, expect: expectation, dispatch: () => undefined, intervalMs: 5, debug: (m) => logs.push(m),
+      runMarker: async () => ({ code: 1, stderr: 'karst: cannot mark this stage done: empty' }),
+      onMarkerFailure: (f) => seen.push(`${f.stage}:${f.reason}`),
+    });
+    await write(markerLine({ seq: 'n2' }));
+    await att.pollOnce();
+    await flush();
+    await flush();
+    await vi.waitFor(async () => { await readFile(join(paths.resultsDir, 'n2.json')); });
+    expect(seen).toEqual(['impl:karst: cannot mark this stage done: empty']);
+    expect(JSON.parse(await readFile(join(paths.resultsDir, 'n2.json'), 'utf8'))).toMatchObject({ ok: false, retrying: false });
+  });
+  it('ignores a seq that is not a plain token: no reply file, marker still runs', async () => {
+    const run = okRunner();
+    await write(markerLine({ seq: '../evil' }));
+    await make(run).pollOnce();
+    await flush();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(await readdir(paths.resultsDir).catch(() => [])).toEqual([]);
+  });
+  it('start() retries a marker persisted by an earlier failure (boot sweep)', async () => {
+    const { mkdir } = await import('node:fs/promises');
+    await mkdir(join(paths.pendingFile, '..'), { recursive: true });
+    await writeFile(paths.pendingFile, JSON.stringify({ stage: 'impl' }));
+    const run = okRunner();
+    const att = make(run);
+    att.start();
+    await flush();
+    await flush();
+    await vi.waitFor(() => expect(run).toHaveBeenCalledWith('impl'));
+    await att.stop();
+    await vi.waitFor(async () => expect(await readFile(paths.pendingFile, 'utf8').catch(() => 'gone')).toBe('gone'));
   });
   it('a failed marker run also frees the slot', async () => {
     const run = vi.fn<MarkerRunner>(() => Promise.reject(new Error('x')));

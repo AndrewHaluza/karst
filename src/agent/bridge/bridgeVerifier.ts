@@ -1,5 +1,6 @@
 import type { HookPayload } from '../../hooks/dispatch.js';
 import type { StageKey } from '../../model/types.js';
+import { SEQ_PATTERN } from './markerReply.js';
 import { isMarkerStage, type MarkerStage } from '../markerStage.js';
 
 export const MAX_BRIDGE_LINE_BYTES = 65536;
@@ -17,7 +18,7 @@ export interface BridgeExpectation {
 
 export type BridgeAccepted =
   | { readonly kind: 'hook'; readonly payload: HookPayload }
-  | { readonly kind: 'marker'; readonly stage: MarkerStage };
+  | { readonly kind: 'marker'; readonly stage: MarkerStage; readonly seq?: string };
 
 export type BridgeVerdict =
   | { readonly ok: true; readonly event: BridgeAccepted }
@@ -73,7 +74,9 @@ export function verifyBridgeLine(line: string, expect: BridgeExpectation): Bridg
     if (typeof stage !== 'string' || !isMarkerStage(stage)) return reject(`stage ${String(stage)} is not markable`);
     const current = expect.stage();
     if (stage !== current) return reject(`stage ${stage} != ${current}`);
-    return { ok: true, event: { kind: 'marker', stage } };
+    // `seq` names the reply file: a token or nothing (a malformed one never reaches a path).
+    const seq = typeof parsed.seq === 'string' && SEQ_PATTERN.test(parsed.seq) ? parsed.seq : undefined;
+    return { ok: true, event: { kind: 'marker', stage, ...(seq !== undefined ? { seq } : {}) } };
   }
   return reject('unknown kind');
 }

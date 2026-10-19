@@ -4,7 +4,7 @@ import { SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
-import { sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { ensureSandboxSynced, sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
 
 /** A modal choice; `undefined` = dismissed (treated as the safe default). */
 export type Choose = (message: string, choices: readonly string[]) => Promise<string | undefined>;
@@ -19,7 +19,7 @@ export interface SandboxLifecycleDeps extends SandboxSyncDeps {
   /** Window ownership (arch:GLOBAL): only the owner stops/removes/adopts a ticket's sandbox. */
   readonly owns: (ticketId: number) => boolean;
   /** `undefined` until the hook endpoint is bound; no bridge dir to remove then. */
-  readonly bridges?: { dispose(ticketId: number): Promise<void> };
+  readonly bridges?: { dispose(ticketId: number): Promise<void>; retryPending?(ticketId: number): Promise<void> };
   readonly openSyncDiff: (target: SandboxSyncTarget) => Promise<void>;
 }
 
@@ -88,11 +88,18 @@ export async function removeSandboxGuarded(deps: SandboxLifecycleDeps, target: S
   return true;
 }
 
-/** Ticket done or session idle: stop (never remove) the owner's sandbox. */
+/**
+ * Ticket done or session idle: sync, then stop (never remove) the owner's
+ * sandbox (arch:AC-37). A failed sync only warns: stopping keeps the clone,
+ * so no commit is lost. A good sync also retries a transiently failed marker.
+ */
 export async function stopSandboxOp(deps: SandboxLifecycleDeps, target: SandboxSyncTarget): Promise<boolean> {
   if (!deps.owns(target.ticketId)) return false;
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
   if (!runner?.stop) return false;
+  const synced = await ensureSandboxSynced(deps, target);
+  if (synced.ok) void deps.bridges?.retryPending?.(target.ticketId);
+  else deps.notify.warn(`Karst: ${target.ticketLabel} sandbox not synced before stop: ${synced.reason}`);
   try {
     await runner.stop();
     return true;

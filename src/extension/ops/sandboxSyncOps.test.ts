@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { backendSessionOptions, disposeSandboxOp, syncSandboxOp } from './sandboxSyncOps.js';
+import { backendSessionOptions, disposeSandboxOp, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -215,5 +215,49 @@ describe('backendSessionOptions: baseline host ports (arch:AC-32)', () => {
     expect(resolve.mock.calls[2]![0].docker).toEqual({ debug });
     await backendSessionOptions(base).resolveRunner!();
     expect(resolve.mock.calls[3]![0]).not.toHaveProperty('docker');
+  });
+});
+
+describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
+  const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
+
+  it('fast-forwards a sandboxed ticket', async () => {
+    const proc = fakeSbxProcess();
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target)).resolves.toEqual({ ok: true });
+    expect(proc.calls.length).toBeGreaterThan(0);
+  });
+
+  it('a host ticket (no sandbox core) runs nothing', async () => {
+    const proc = fakeSbxProcess();
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: 'antigravity' })).resolves.toEqual({ ok: true });
+    await expect(ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, { ...target, core: null })).resolves.toEqual({ ok: true });
+    expect(proc.calls).toEqual([]);
+  });
+
+  it('a non-fast-forward is reported as diverged, never forced', async () => {
+    const proc = fakeSbxProcess({ 'git -C /wt/a merge-base': { code: 1 } });
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
+    expect(r).toMatchObject({ ok: false, diverged: true, reason: expect.stringContaining('not a fast-forward') });
+  });
+
+  it('a sandbox without a worktree branch is a plain failure', async () => {
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess() }, { ...target, worktree: undefined });
+    expect(r).toMatchObject({ ok: false, diverged: false });
+  });
+
+  it('a throwing runner is a transient failure, not an exception', async () => {
+    const proc = fakeSbxProcess();
+    const boom = { ...proc, run: () => { throw new Error('daemon gone'); } } as unknown as typeof proc;
+    const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: boom }, target);
+    expect(r).toMatchObject({ ok: false, diverged: false });
+  });
+
+  it('serialises concurrent syncs of one ticket', async () => {
+    let active = 0; let peak = 0;
+    const proc = fakeSbxProcess();
+    const slow = { ...proc, run: async (...a: Parameters<typeof proc.run>) => { active += 1; peak = Math.max(peak, active); await new Promise((r) => setTimeout(r, 3)); active -= 1; return proc.run(...a); } } as typeof proc;
+    const deps = { notify: recorder().notify, projectRoot: '/p', proc: slow };
+    await Promise.all([ensureSandboxSynced(deps, target), ensureSandboxSynced(deps, target)]);
+    expect(peak).toBe(1);
   });
 });
