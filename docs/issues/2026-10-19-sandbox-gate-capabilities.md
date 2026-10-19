@@ -41,22 +41,28 @@ END_DOC_BLOCK: [@issue:GATE-01]
 
 Two halves, one on each side of the boundary.
 
-**In the repo** (this change): a gate that could not RUN its command now says
-so and is classified as such. `scripts/rebuild-better-sqlite3.mjs` probes for
-Python, make and a C++ compiler before a source build and exits 127 with the
-apt line when one is missing; `scripts/dockerGate.mjs` wraps the
-container-pinned gate scripts and exits 127 with the docker repair when
-docker is absent. UAT and review treat exit 127 as a missing capability and
-PARK (`capability-missing`, no fix attempt consumed) instead of failing the
-ticket — the rule is @arch:GATE-CAPABILITY.
+**In the repo.** A gate that could not RUN its command now says so and is
+classified as such. `scripts/rebuild-better-sqlite3.mjs` probes for Python,
+make and a C++ compiler before a source build and exits 127 with the apt line
+when one is missing; `scripts/dockerGate.mjs` wraps the container-pinned gate
+scripts and exits 127 with the docker repair when docker is absent. UAT and
+review treat exit 127 as a missing capability and PARK (`capability-missing`,
+no fix attempt consumed) instead of failing the ticket — the rule is
+@arch:GATE-CAPABILITY.
 
-**In the environment** (not in the repo): the gates still need a place where
-they can run.
+**In the sandbox image.** The image is built from `sandbox/opencode/Dockerfile`,
+so the capabilities a repository's gates need are a repository change:
 
-- Provision the sandbox image with `build-essential` and `python3`, so
-  `rebuild:node` can build the addon, and give the sandbox a docker client
-  with access to a daemon for the container-pinned sweep — or
-- run these gates on a host that has both (the host already does: the
-  container-pinned sweep is what the baselines belong to, and the host's
-  `node_modules` carries the published prebuild).
+- a C++ toolchain and Python, so `rebuild:node` can build the addon that has
+  no published linux-arm64 prebuild;
+- the pinned Playwright browser, and the fonts and fontconfig rules of the
+  environment the visual baselines were recorded in, so a sweep here renders
+  the pixels the baselines hold. The image marks that environment with
+  `/opt/karst/visual-baseline-env`, and `scripts/dockerGate.mjs` reads the
+  marker to decide whether a local sweep may stand in for the container —
+  only there, because anywhere else a local sweep answers a different
+  question.
+
+The image tag carries the Playwright release and a revision, so a host
+rebuilds it instead of reusing the one it has.
 END_DOC_BLOCK: [@issue:GATE-02]
