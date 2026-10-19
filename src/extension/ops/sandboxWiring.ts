@@ -32,6 +32,8 @@ export interface SandboxWiringInput {
   readonly logError: (m: string, err: unknown) => void;
   /** A ticket's terminal/session is open (never stopped under it). */
   readonly sessionOpen: (ticketId: number) => boolean;
+  /** Quick pick over this project's sandboxed tickets (Command Palette); `undefined` = dismissed. */
+  readonly pickTicket?: (picks: readonly { label: string; description: string; ticketId: number }[], placeHolder: string) => Promise<number | undefined>;
   /** Every listing the boot reconcile reads (after a reload the in-memory ticket→core cache is empty). */
   readonly onInventory?: (inventory: SandboxInventory) => void;
   /** Test seams; default to the real async spawns and clock. */
@@ -105,7 +107,35 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const projectRoot = w.projectRoot() ?? t0.worktree?.path ?? '';
     return { t: await resolved(ticketId, projectRoot), projectRoot };
   };
+  /**
+   * A palette command has no ticket argument: choose one of THIS project's tickets that has a
+   * sandbox (from the runners' listing). Never returns silently: no backend / no sandbox is said.
+   */
+  const commandTarget = async (arg: number | undefined, verb: string): Promise<number | undefined> => {
+    if (arg !== undefined) return arg;
+    const projectRoot = w.projectRoot();
+    if (projectRoot === undefined) {
+      w.notify.info('Karst: no sandbox backend is configured for this project.');
+      return undefined;
+    }
+    const inv = await inventoryOf({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) });
+    const live = new Map(liveTickets().map((t) => [t.id, t]));
+    const seen = new Set<number>();
+    const picks = inv.sandboxes.flatMap((box) => {
+      const t = live.get(box.ticketId);
+      if (box.invalidCore === true || t === undefined || seen.has(box.ticketId)) return [];
+      seen.add(box.ticketId);
+      return [{ label: t.key ?? String(t.id), description: `${box.runner} ${box.core} (${box.state}) \u00b7 ${t.title}`, ticketId: t.id }];
+    });
+    if (picks.length === 0) {
+      w.notify.info(`Karst: no ticket in this project has a sandbox to ${verb}.`);
+      return undefined;
+    }
+    return w.pickTicket?.(picks, `Ticket whose sandbox to ${verb}`);
+  };
   const wiring = {
+    /** Palette entry for `karst.sandbox.sync` / `.dispose`: the given ticket, else a picker (F5). */
+    commandTarget,
     /** `karst.sandbox.sync` / `.dispose`: explicit user actions, independent of the configured backend. */
     sync: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);

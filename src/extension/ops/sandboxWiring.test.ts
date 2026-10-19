@@ -86,6 +86,35 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     return { projectId, a, b, gone, proc, dockerProc };
   }
 
+  it('palette command target (F5): an argument passes through untouched', async () => {
+    const { w } = wiring();
+    await expect(w.commandTarget(42, 'sync')).resolves.toBe(42);
+  });
+
+  it('palette command target: no argument → a picker of this project\'s sandboxed live tickets', async () => {
+    const { projectId, a, proc, dockerProc } = live();
+    const pickTicket = vi.fn(async (picks: readonly { ticketId: number }[]) => picks[0]!.ticketId);
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc, pickTicket });
+    await expect(w.commandTarget(undefined, 'sync')).resolves.toBe(a);
+    expect(pickTicket).toHaveBeenCalledTimes(1);
+    expect(pickTicket.mock.calls[0]![0]).toEqual([{ label: 'A-1', description: expect.stringContaining('sbx claude (running)'), ticketId: a }]);
+  });
+
+  it('palette command target: nothing sandboxed → an info message, never silent', async () => {
+    const projectId = upsertProject(store, { slug: 'p' }).id;
+    const pickTicket = vi.fn();
+    const { w, notify } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc: fakeSbxProcess(), dockerProc: Object.assign(fakeSbxProcess(), { pipe: vi.fn() }), pickTicket });
+    await expect(w.commandTarget(undefined, 'sync')).resolves.toBeUndefined();
+    expect(pickTicket).not.toHaveBeenCalled();
+    expect(notify.info).toHaveBeenCalledWith('Karst: no ticket in this project has a sandbox to sync.');
+  });
+
+  it('palette command target: no project root → says no backend is configured', async () => {
+    const { w, notify } = wiring({ projectRoot: () => undefined });
+    await expect(w.commandTarget(undefined, 'remove')).resolves.toBeUndefined();
+    expect(notify.info).toHaveBeenCalledWith('Karst: no sandbox backend is configured for this project.');
+  });
+
   it('reconcile drops only the missing owned sandbox session; logs the orphan', async () => {
     const { projectId, a, b, gone, proc, dockerProc } = live();
     const info = vi.fn();

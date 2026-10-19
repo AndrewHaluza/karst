@@ -1270,6 +1270,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id,
     // After a reload the ticket→core cache is empty: refill it from the listing so pointer/channel text matches the sandbox (AC-34).
+    pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
   const archiveDeps: ArchiveOpsDeps = {
     store: localStore, beforeArchive: sandboxLife.beforeArchive,
@@ -6859,8 +6860,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (ticketId === undefined) return;
       await archiveTicketOp(archiveDeps, ticketId);
     }),
-    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.sync(id); }),
-    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = ticketIdArg(arg); if (id !== undefined) await sandboxLife.dispose(id); }),
+    vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'sync'); if (id !== undefined) await sandboxLife.sync(id); }),
+    vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);
