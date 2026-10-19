@@ -1,4 +1,16 @@
 {
+  ".dependency-cruiser.cjs": [
+    "arch:MAP-00"
+  ],
+  "scripts/arch*.mjs": [
+    "arch:MAP-00"
+  ],
+  "scripts/arch-layers.json": [
+    "arch:MAP-00"
+  ],
+  "scripts/archSchema.ts": [
+    "arch:MAP-00"
+  ],
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
   ],

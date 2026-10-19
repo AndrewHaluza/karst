@@ -23,9 +23,9 @@ covers: scripts/docsKeys.mjs
 | debug-logging.md | DBG | worktrees-and-servers.md | WT |
 | diagnostics.md | DIAG | uat-host.md | UATHOST |
 | github-and-merge.md | GH | adr-impl-exit-condition.md | ADR |
-| ids.md | IDS | system-map.md (W2) | MAP |
+| ids.md | IDS | system-map.md | MAP |
 
-`model-store-workflow-layering.md` has no prefix (W2 folds its prose into `system-map.md`).
+`model-store-workflow-layering.md` was folded into `system-map.md` (@arch:MAP-03).
 
 - **covers:** optional first line after the heading: `covers: <item>, <item>`, repo-relative. Grammar: DOC-02.
 - **Required `### ` sections, in order:** Purpose, Connections, Flow. **Optional, after them:** State, Tradeoffs, Fallbacks, Rules.

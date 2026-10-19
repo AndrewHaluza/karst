@@ -30,7 +30,7 @@ const PLACEHOLDER_IDS = new Set(['KEY']);
 // The -00 overview block of every `docs/arch` file uses a fixed prefix, so a
 // key like `ABI-00` can only live in ABI.md. Rule keys are not renamed (refs
 // stay valid); only the overview block is pinned. `model-store-workflow-layering.md`
-// has no prefix (W2 folds its prose into `system-map.md`).
+// was folded into `system-map.md` (MAP-03).
 export const ARCH_PREFIXES = Object.freeze({
   'docs/arch/ABI.md': 'ABI',
   'docs/arch/approaches.md': 'APP',
