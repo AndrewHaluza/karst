@@ -969,6 +969,26 @@ describe('compileGraphDocument — overlaps and the serialization warning', () =
   });
 });
 
+describe('compileGraphDocument — oversize agent inputs', () => {
+  it('warns (does not reject) when a declared input will be pointered', () => {
+    const result = compile(
+      ref((d) => {
+        (d['artifacts'] as Array<Record<string, unknown>>)[0]!['maxBytes'] = 524288;
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const w = result.compiled.warnings.find((x) => x.code === 'warn-oversize-inputs');
+    expect(w?.where).toBe('a');
+    expect(w?.message).toContain('task');
+  });
+
+  it('does not warn when inputs fit', () => {
+    const result = compile(REF_JSON);
+    expect(result.ok && result.compiled.warnings.some((x) => x.code === 'warn-oversize-inputs')).toBe(false);
+  });
+});
+
 describe('compileGraphDocument — fork-lineage depth bound (Slice 5 T4)', () => {
   /** A loop chain: `count` agents, each self-looping (maxVisits each) and
    *  exiting to the next; the deepest lineage stack it can produce is

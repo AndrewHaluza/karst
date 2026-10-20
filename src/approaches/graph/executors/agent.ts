@@ -26,6 +26,7 @@
  */
 
 import type { AgentNode } from '../parse.js';
+import { planInputInlining } from '../../../agent/seedBudget.js';
 import type { TerminalNamingBag } from '../../../ui/terminalNaming.js';
 import type {
   AgentTransport,
@@ -33,6 +34,31 @@ import type {
   SupervisedLaunchRequest,
   AgentAdapter,
 } from '../transport/supervisedCliTransport.js';
+
+/** One declared input artifact as read from the snapshot store. */
+export interface NodeInputArtifact {
+  /** Path relative to `$KARST_GRAPH_ARTIFACT_ROOT`. */
+  path: string;
+  mediaType: string;
+  bytes: number;
+  body: string;
+}
+
+/**
+ * Inline each input that fits `GRAPH_INPUT_BUDGETS`; list the rest as a
+ * pointer line (path, size, media type) so the truncation is always stated.
+ * A head/tail excerpt is deliberately not offered — a partial patch misleads.
+ */
+export function boundInputs(inputs: readonly NodeInputArtifact[]): string[] {
+  const inline = planInputInlining(inputs.map((i) => i.bytes));
+  return inputs.map((input, idx) =>
+    inline[idx]
+      ? input.body
+      : `Input artifact not inlined (${input.bytes} bytes, ${input.mediaType}): ` +
+        `\`$KARST_GRAPH_ARTIFACT_ROOT/${input.path}\` — too large for this prompt; ` +
+        'read it from disk when you need it.',
+  );
+}
 
 export type AgentNodeLaunchResult =
   | { kind: 'launched'; session: SupervisedAgentSession; identity: FrozenIdentity }
@@ -50,10 +76,11 @@ export interface RunAgentNodeDeps {
   transport: AgentTransport;
   /** Resolve the node's profile to provider/model/effort. */
   resolveProfile: (profile: string) => { provider: string; model?: string; effort?: string };
-  /** Body of the instructions artifact (bounded), or undefined when missing. */
+  /** Body of the instructions artifact, or undefined when missing. */
   readInstructions: (snapshotPath: string) => string | undefined;
-  /** Bodies of the declared input artifacts, in declaration order (bounded). */
-  readInputs: (snapshotPaths: readonly string[]) => string[];
+  /** The declared input artifacts, in declaration order, UNBOUNDED — the
+   *  executor decides which are inlined and which are pointered. */
+  readInputs: (snapshotPaths: readonly string[]) => NodeInputArtifact[];
   /** Current ticket context (bounded by the ticket-context shaping). */
   ticketContext: string;
   /** The `karst-graph-node` base prompt. */
@@ -136,7 +163,7 @@ export async function runAgentNode(
   }
   const resolved = deps.resolveProfile(input.node.profile);
   const instructions = deps.readInstructions(input.instructionsSnapshot);
-  const inputs = deps.readInputs(input.inputSnapshots);
+  const inputs = boundInputs(deps.readInputs(input.inputSnapshots));
   const prompt = composeNodePrompt(deps.nodePrompt, deps.ticketContext, instructions, inputs);
   const identity: FrozenIdentity = {
     provider: resolved.provider,

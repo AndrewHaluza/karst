@@ -8,6 +8,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  boundInputs,
   composeNodePrompt,
   runAgentNode,
   type RunAgentNodeDeps,
@@ -79,7 +80,7 @@ function harness(transport: FakeTransport): {
     resolveProfile: (profile) =>
       profile === 'expert' ? { provider: 'claude', model: 'opus', effort: 'high' } : { provider: 'codex', effort: 'low' },
     readInstructions: () => '# instructions',
-    readInputs: () => ['# input task'],
+    readInputs: () => [{ path: 'in.md', mediaType: 'text/markdown', bytes: 12, body: '# input task' }],
     ticketContext: '# ticket',
     nodePrompt: '# karst-graph-node',
     promptHash: (text) => {
@@ -203,5 +204,37 @@ describe('runAgentNode', () => {
     const result = await runAgentNode(h.deps, h.input);
     expect(result).toMatchObject({ kind: 'red-blocked' });
     expect(transport.starts).toHaveLength(0);
+  });
+});
+
+describe('boundInputs', () => {
+  const art = (path: string, bytes: number, mediaType = 'text/markdown') => ({
+    path,
+    mediaType,
+    bytes,
+    body: `BODY-${path}`,
+  });
+
+  it('pointers an input over the per-artifact cap with no body', () => {
+    const [out] = boundInputs([art('artifacts/salvage.patch', 258_000, 'text/plain')]);
+    expect(out).not.toContain('BODY-');
+    expect(out).toContain('$KARST_GRAPH_ARTIFACT_ROOT/artifacts/salvage.patch');
+    expect(out).toContain('258000 bytes');
+    expect(out).toContain('text/plain');
+    expect(out).toContain('read it from disk');
+  });
+
+  it('keeps declaration order across mixed small and large inputs', () => {
+    const out = boundInputs([art('a.md', 10), art('big.patch', 100_000, 'text/plain'), art('c.md', 10)]);
+    expect(out[0]).toBe('BODY-a.md');
+    expect(out[1]).toContain('big.patch');
+    expect(out[2]).toBe('BODY-c.md');
+  });
+
+  it('pointers every input after the total cap is hit', () => {
+    const out = boundInputs([art('1', 16_000), art('2', 16_000), art('3', 16_000), art('4', 16_000), art('5', 10)]);
+    expect(out.slice(0, 3)).toEqual(['BODY-1', 'BODY-2', 'BODY-3']);
+    expect(out[3]).toContain('$KARST_GRAPH_ARTIFACT_ROOT/4');
+    expect(out[4]).toContain('$KARST_GRAPH_ARTIFACT_ROOT/5');
   });
 });

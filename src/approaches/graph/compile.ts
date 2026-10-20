@@ -15,6 +15,7 @@
  * scheduler layer and injected through `CompileContext` (Decision 29).
  */
 
+import { planInputInlining } from '../../agent/seedBudget.js';
 import { canonicalFingerprint, canonicalJson } from './canonicalize.js';
 import type {
   AgentNode,
@@ -117,7 +118,8 @@ export type CompileDiagnosticCode =
   | 'ambiguous-join-region'
   | 'join-budget-below-fork-multiplicity'
   | 'lineage-depth-exceeded'
-  | 'warn-serialized-plan';
+  | 'warn-serialized-plan'
+  | 'warn-oversize-inputs';
 
 export interface CompileDiagnostic {
   code: CompileDiagnosticCode;
@@ -1077,6 +1079,25 @@ export function compileGraphDocument(
       message: `${overlappingAgentPairs} overlapping agent write-claim pairs out of ${agentList.length} agent nodes — the plan serializes more than half of its agents`,
       severity: 'warning',
     });
+  }
+
+  const artifactsById = new Map(document.artifacts.map((a) => [a.id, a]));
+  for (const node of document.nodes) {
+    if (node.kind !== 'agent') continue;
+    const declared = node.inputs.flatMap((id) => {
+      const a = artifactsById.get(id);
+      return a ? [a] : [];
+    });
+    const inline = planInputInlining(declared.map((a) => a.maxBytes));
+    const pointered = declared.filter((_, i) => !inline[i]).map((a) => a.id);
+    if (pointered.length > 0) {
+      warnings.push({
+        code: 'warn-oversize-inputs',
+        where: node.id,
+        message: `agent node ${node.id}: input(s) ${pointered.join(', ')} may exceed the kickoff input budget and will be listed as on-disk pointers instead of inlined`,
+        severity: 'warning',
+      });
+    }
   }
 
   if (diags.length > 0) {
