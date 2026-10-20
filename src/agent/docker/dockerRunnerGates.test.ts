@@ -74,13 +74,30 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
   });
 });
 
-describe('docker canHostServices (review fix #109)', () => {
-  it('is true only while the interactive container runs', async () => {
-    const up = createDockerSessionRunner({ ...base, proc: fakeDockerProcess(RUNNING) });
-    await expect(up.canHostServices!()).resolves.toBe(true);
-    const gone = createDockerSessionRunner({ ...base, proc: fakeDockerProcess({ 'docker container inspect': { stdout: 'false' } }) });
-    await expect(gone.canHostServices!()).resolves.toBe(false);
-    const missing = createDockerSessionRunner({ ...base, proc: fakeDockerProcess({ 'docker container inspect': { code: 1, stdout: 'true' } }) });
-    await expect(missing.canHostServices!()).resolves.toBe(false);
+describe('docker canHostServices (review fix #109, T-B F15)', () => {
+  it('is true while the interactive container runs, without starting a service container', async () => {
+    const proc = fakeDockerProcess(RUNNING);
+    await expect(createDockerSessionRunner({ ...base, proc }).canHostServices!()).resolves.toBe(true);
+    expect(proc.calls.some((c) => c.args[0] === 'run')).toBe(false);
+  });
+
+  it('starts a detached hardened service container on the clone volume once the terminal is closed', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { stdout: 'false' } });
+    await expect(createDockerSessionRunner({ ...base, proc }).canHostServices!()).resolves.toBe(true);
+    const run = proc.calls.find((c) => c.args[0] === 'run')!.args;
+    expect(run).toEqual(expect.arrayContaining(['-d', '--cap-drop', 'ALL', 'no-new-privileges', '--network-alias', base.names.container]));
+    expect(run).not.toContain('--rm');
+    expect(run.join(' ')).toContain(base.names.repoVolume);
+  });
+
+  it('is false when the service container cannot start', async () => {
+    const proc = fakeDockerProcess({ 'docker container inspect': { code: 1 }, 'docker run': { code: 1 } });
+    await expect(createDockerSessionRunner({ ...base, proc }).canHostServices!()).resolves.toBe(false);
+  });
+
+  it('stopServices removes the service container', async () => {
+    const proc = fakeDockerProcess();
+    await createDockerSessionRunner({ ...base, proc }).stopServices!();
+    expect(proc.calls.at(-1)!.args).toEqual(['rm', '--force', `${base.names.container}-svc`]);
   });
 });

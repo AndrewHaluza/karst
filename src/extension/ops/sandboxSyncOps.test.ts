@@ -1,8 +1,12 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { sbxName } from '../../agent/sbx/sbxName.js';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -312,6 +316,23 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     expect(resolve).toHaveBeenCalledTimes(1);
   });
 
+  it('syncs an EXISTING sandbox before the session starts; a blocker stops the launch (F8)', async () => {
+    const mk = (has: boolean) => ({ kind: 'docker', enforcesSandbox: true, hasSandbox: async () => has, bridgeRunDir: (p: { runDir: string }) => p.runDir }) as never;
+    const syncExisting = vi.fn(async () => ({ ok: true as const }));
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(true), line: 'docker' }), syncExisting });
+    expect(syncExisting).toHaveBeenCalledTimes(1);
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(false), line: 'docker' }), syncExisting });
+    expect(syncExisting).toHaveBeenCalledTimes(1);
+    const blocked = vi.fn(async () => ({ ok: false as const, reason: 'uncommitted work', diverged: false }));
+    await expect(resolveLaunchBackend({ ...base, resolve: async () => ({ runner: mk(true), line: 'docker' }), syncExisting: blocked })).rejects.toThrow(/K-7 sandbox is not in sync.*uncommitted work/);
+  });
+
+  it('a host launch never syncs', async () => {
+    const syncExisting = vi.fn(async () => ({ ok: true as const }));
+    await resolveLaunchBackend({ ...base, resolve: async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host' }), syncExisting });
+    expect(syncExisting).not.toHaveBeenCalled();
+  });
+
   it('a fail-closed fallback is a host launch: host instructions', async () => {
     const resolve = vi.fn(async () => ({ runner: { kind: 'host', enforcesSandbox: false } as never, line: 'host (docker down)' }));
     await expect(resolveLaunchBackend({ ...base, resolve, bridgeFor: async () => paths })).resolves.toMatchObject({ sandboxed: false });
@@ -344,5 +365,70 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
 
   it('no backends configured: a plain host launch with no resolver', async () => {
     await expect(resolveLaunchBackend({ ...base, backends: undefined })).resolves.toEqual({ options: {}, sandboxed: false });
+  });
+});
+
+describe('ensureSandboxInSync (F8/F12: both directions)', () => {
+  const target = { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: '/wt/a', branch: 'feat/x' } };
+  const LS = { 'sbx ls': { stdout: `NAME\n${sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' })} running` } };
+  const withBridge = (proc: ReturnType<typeof fakeSbxProcess>) => ({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => '/nonexistent-bridge' });
+
+  it('a host ticket runs nothing', async () => {
+    const proc = fakeSbxProcess();
+    await expect(ensureSandboxInSync(withBridge(proc), { ...target, core: null })).resolves.toEqual({ ok: true });
+    expect(proc.calls).toEqual([]);
+  });
+
+  it('a host ticket in a sandbox-configured project (no listed sandbox) runs no sync', async () => {
+    const proc = fakeSbxProcess();
+    await expect(ensureSandboxInSync(withBridge(proc), target)).resolves.toEqual({ ok: true });
+    expect(proc.calls.map((c) => c.args[0])).toEqual(['ls']);
+  });
+
+  it('syncs sandbox → host first and refuses to refresh over a divergence', async () => {
+    const proc = fakeSbxProcess({ ...LS, 'git -C /wt/a merge-base': { code: 1 } });
+    const r = await ensureSandboxInSync(withBridge(proc), target);
+    expect(r).toMatchObject({ ok: false, diverged: true });
+    expect(proc.calls.some((c) => c.args.includes('karst-refresh'))).toBe(false);
+  });
+
+  it('a refresh failure (no usable bridge dir) is a blocker after a good sync', async () => {
+    const r = await ensureSandboxInSync({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(LS) }, target);
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('bridge') });
+  });
+
+  describe('refresh outcomes', () => {
+    const bundled = (a: Parameters<typeof fakeSbxProcess>[0] = {}, refresh?: { code: number; stdout?: string }) => {
+      const inner = fakeSbxProcess({ ...LS, ...a });
+      return {
+        calls: inner.calls,
+        run: async (c: string, args: readonly string[], o?: Parameters<typeof inner.run>[2]) => {
+          const r = await inner.run(c, args, o);
+          if (refresh && args.includes('karst-refresh')) return { code: refresh.code, stdout: refresh.stdout ?? '', stderr: '' };
+          if (c === 'git' && args.includes('bundle') && r.code === 0) writeFileSync(args[args.indexOf('-q') + 1]!, 'b');
+          return r;
+        },
+      };
+    };
+    const dep = (proc: ReturnType<typeof bundled>) => ({ notify: recorder().notify, projectRoot: '/p', proc, evidenceDirOf: () => mkdtempSync(join(tmpdir(), 'karst-sync-')) });
+    it('a good sync + refresh is ok', async () => {
+      await expect(ensureSandboxInSync(dep(bundled()), target)).resolves.toEqual({ ok: true });
+    });
+    it('a diverged refresh is a diverged blocker; a dirty one is not marked diverged', async () => {
+      expect(await ensureSandboxInSync(dep(bundled({}, { code: 4 })), target)).toMatchObject({ ok: false, diverged: true });
+      expect(await ensureSandboxInSync(dep(bundled({}, { code: 3, stdout: ' M a' })), target)).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('uncommitted work') });
+    });
+    it('refresh:false stops after the sync', async () => {
+      const proc = bundled();
+      await expect(ensureSandboxInSync(dep(proc), target, { refresh: false })).resolves.toEqual({ ok: true });
+      expect(proc.calls.some((c) => c.args.includes('karst-refresh'))).toBe(false);
+    });
+    it('runs concurrent calls for one ticket one after the other', async () => {
+      const proc = bundled();
+      const [a, b] = await Promise.all([ensureSandboxInSync(dep(proc), target), ensureSandboxInSync(dep(proc), target)]);
+      expect([a.ok, b.ok]).toEqual([true, true]);
+      const kinds = proc.calls.map((c) => (c.args.includes('karst-refresh') ? 'refresh' : c.args[0]));
+      expect(kinds.filter((k) => k === 'refresh')).toHaveLength(2);
+    });
   });
 });

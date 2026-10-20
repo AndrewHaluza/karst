@@ -70,3 +70,55 @@ export async function guardLaunchResume(input: ResumeGuardLaunch): Promise<strin
     return undefined;
   }
 }
+
+import { backendForCore } from '../../agent/backendChoices.js';
+import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
+import type { AgentBackends } from '../../agent/backendChoices.js';
+export const HOST_FALLBACK_RETRY = 'Retry';
+export const HOST_FALLBACK_HOST = 'Sync and remove sandbox, then run on host with a fresh session';
+
+export interface HostFallbackInput<T extends { readonly sandboxed: boolean }> {
+  readonly ticketLabel: string;
+  readonly launch: () => Promise<T>;
+  /** The project/ticket asked for a sandbox backend. */
+  readonly wantsSandbox: boolean;
+  readonly hasSandbox: () => Promise<boolean>;
+  readonly choose: (message: string, options: readonly string[]) => Promise<string | undefined>;
+  /** Modal naming the risk; true only on an explicit yes. */
+  readonly confirmHost: (message: string) => Promise<boolean>;
+  /** Sync (ff-only) then remove the sandbox; false when kept. */
+  readonly removeSandbox: () => Promise<boolean>;
+}
+
+export type HostFallbackResult<T> = { readonly kind: 'launched'; readonly backend: T; readonly freshSession: boolean } | { readonly kind: 'cancelled' };
+
+/** F14: a ticket with a sandbox never silently falls back to the host; the user picks Retry / host-after-removal / Cancel. */
+export async function launchWithoutSilentHostFallback<T extends { readonly sandboxed: boolean }>(input: HostFallbackInput<T>): Promise<HostFallbackResult<T>> {
+  for (;;) {
+    const backend = await input.launch();
+    if (backend.sandboxed || !input.wantsSandbox || !(await input.hasSandbox())) return { kind: 'launched', backend, freshSession: false };
+    const picked = await input.choose(
+      `Karst: the sandbox backend for ${input.ticketLabel} is unavailable, but the ticket has a sandbox with the agent's work in it.`,
+      [HOST_FALLBACK_RETRY, HOST_FALLBACK_HOST],
+    );
+    if (picked === HOST_FALLBACK_RETRY) continue;
+    if (picked !== HOST_FALLBACK_HOST) return { kind: 'cancelled' };
+    const ok = await input.confirmHost(
+      `The agent's sandbox commits for ${input.ticketLabel} will be synced to the host branch and the sandbox removed; the agent then runs on the host WITHOUT the sandbox boundary, in a fresh session. Continue?`,
+    );
+    if (!ok || !(await input.removeSandbox())) return { kind: 'cancelled' };
+    return { kind: 'launched', backend: await input.launch(), freshSession: true };
+  }
+}
+
+export function wantsSandboxBackend(backends: AgentBackends | undefined, core: string, override: 'host' | null | undefined): boolean {
+  return (ticketBackendSetting(backendForCore(backends, core), override) ?? 'host') !== 'host';
+}
+
+/** The two prompts of the host-fallback choice, over any `showWarningMessage`. */
+export function hostFallbackPrompts(win: { showWarningMessage(message: string, ...items: any[]): PromiseLike<string | undefined> }) {
+  return {
+    choose: async (msg: string, opts: readonly string[]) => win.showWarningMessage(msg, ...opts),
+    confirmHost: async (msg: string) => (await win.showWarningMessage(msg, { modal: true }, 'Run on host')) === 'Run on host',
+  };
+}

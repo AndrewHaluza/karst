@@ -1,3 +1,5 @@
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { spawnHeadlessCli } from '../headlessSpawn.js';
 import { runProcess } from '../../workflow/gates/run.js';
 import type {
@@ -12,7 +14,8 @@ import type {
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
-import { withXfer } from '../xfer.js';
+import { ensureXferDir, withXfer } from '../xfer.js';
+import { REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
@@ -156,6 +159,24 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const merged = await git(wt, ['merge', '--ff-only', ref]);
       if (merged.code !== 0) return { ok: false, reason: `git merge --ff-only ${ref} failed: ${merged.stderr.trim()}` };
       return { ok: true, summary: `fast-forwarded ${ticket.branch} to the sbx sandbox's commits` };
+    },
+    // Host → sandbox (F8): the host writes its bundle into the bridge's xfer/ and the
+    // sandbox fetches it itself (`sbx exec`); no host git ever runs in the agent clone.
+    refresh: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
+      if (!opts.evidenceDir) return { ok: false, reason: 'no bridge dir to hand the host bundle through' };
+      try {
+        const xfer = await ensureXferDir(opts.evidenceDir);
+        const file = join(xfer.dir, 'in.bundle');
+        await rm(file, { force: true });
+        const made = await git(ticket.hostWorktreePath, ['bundle', 'create', '-q', file, ticket.branch]);
+        if (made.code !== 0) return { ok: false, reason: `git bundle create ${ticket.branch} failed: ${made.stderr.trim()}` };
+        await xfer.verified('in.bundle');
+        const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', REFRESH_SCRIPT, 'karst-refresh', ticket.branch, file], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+        await rm(file, { force: true });
+        return refreshOutcome(out.code, out.stdout, out.stderr, ticket.branch);
+      } catch (err) {
+        return { ok: false, reason: `sbx refresh failed: ${err instanceof Error ? err.message : String(err)}` };
+      }
     },
     diff: async (ticket: SandboxTicketRef): Promise<DiffResult> => {
       const wt = ticket.hostWorktreePath;

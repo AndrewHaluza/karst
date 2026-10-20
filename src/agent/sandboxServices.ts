@@ -11,7 +11,7 @@ import type { PortMapping, SessionRunner } from './sessionRunner.js';
  * sandbox handle (`servers.sandbox`), never a host pid.
  */
 
-export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices'>;
+export type SandboxServiceRunner = Pick<SessionRunner, 'kind' | 'publishPort' | 'unpublishPort' | 'listPorts' | 'runGate' | 'allowHostPorts' | 'hasSandbox' | 'canHostServices' | 'stopServices'>;
 
 export class SandboxServiceError extends Error {
   constructor(message: string) {
@@ -179,6 +179,7 @@ export async function stopSandboxService(store: Store, serverId: number, runner:
 /** Stop every sandboxed service of ONE ticket; other tickets' rows and mappings are untouched. */
 export async function stopTicketSandboxServices(store: Store, ticketId: number, runner: SandboxServiceRunner): Promise<void> {
   for (const row of sandboxRows(store, ticketId)) await stopSandboxService(store, row.id, runner);
+  await runner.stopServices?.();
 }
 
 /**

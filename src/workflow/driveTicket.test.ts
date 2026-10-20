@@ -198,6 +198,22 @@ describe('driveTicket', () => {
     expect(ticketsToSweep([{ id: t.id, stageCurrent: t.stageCurrent, stages: t.stages }])).toEqual([]);
   });
 
+  it('refuses to run any gate while the sandbox cannot be brought in sync (F12)', async () => {
+    writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    const outcome = await driveTicket({ ...deps(), syncSandbox: () => Promise.resolve({ ok: false, reason: 'diverged' }) }, id);
+    expect(outcome).toEqual({ stage: 'uat', status: 'blocked', reason: 'sandbox-sync: diverged' });
+    expect(worktreeLookups).toBe(0);
+    expect(logs.some((l) => l.includes('sandbox not in sync — diverged'))).toBe(true);
+  });
+
+  it('syncs the sandbox first, then runs as before (F12)', async () => {
+    writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    const syncSandbox = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const outcome = await driveTicket({ ...deps(), syncSandbox }, id);
+    expect(syncSandbox).toHaveBeenCalledWith(id);
+    expect(outcome.reason).toMatch(/^nothing-to-run: /);
+  });
+
   it('skips driving when ticket is paused', async () => {
     pauseTicket(store, id);
     const outcome = await driveTicket(deps(), id);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chownVolumes, ensureClone, ensureVolume, syncFromClone, type TempDirs } from './dockerClone.js';
+import { chownVolumes, ensureClone, ensureVolume, refreshClone, syncFromClone, type TempDirs } from './dockerClone.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
@@ -156,5 +156,33 @@ describe('bind paths', () => {
     await expect(syncFromClone(ctx(fakeDockerProcess(), temp), input)).resolves.toEqual({
       ok: false, reason: 'docker sync failed: docker: unsafe bind path "/tmp/a,b"',
     });
+  });
+});
+
+describe('refreshClone', () => {
+  it('bundles the host branch and fast-forwards the clone offline from a read-only mount', async () => {
+    const temp = fakeTemp();
+    const proc = fakeDockerProcess();
+    await expect(refreshClone(ctx(proc, temp), input)).resolves.toEqual({ ok: true, summary: 'refreshed the sandbox clone of feat/x from the host' });
+    const l = lines(proc);
+    expect(l[0]).toBe('git -C /w t bundle create /tmp/k1/in.bundle feat/x');
+    expect(l[1]).toContain('docker run --rm --network none');
+    expect(l[1]).toContain('--mount type=bind,source=/tmp/k1,target=/bundle,readonly');
+    expect(l[1]).toContain('sh -c');
+    expect(l[1]).toContain('feat/x /bundle/in.bundle');
+    expect(temp.removed).toEqual(['/tmp/k1']);
+  });
+  it('reports uncommitted work in the clone with its diff', async () => {
+    const proc = fakeDockerProcess({ 'docker run': { code: 3, stdout: ' M a.ts\n' } });
+    const r = await refreshClone(ctx(proc), input);
+    expect(r).toEqual({ ok: false, reason: 'the sandbox clone has uncommitted work; nothing was overwritten:\nM a.ts' });
+  });
+  it('reports divergence', async () => {
+    const proc = fakeDockerProcess({ 'docker run': { code: 4 } });
+    expect(await refreshClone(ctx(proc), input)).toMatchObject({ ok: false, reason: expect.stringContaining('diverged') });
+  });
+  it('reports a failed host bundle', async () => {
+    const proc = fakeDockerProcess({ 'git -C /w t bundle': { code: 1, stderr: 'bad' } });
+    expect(await refreshClone(ctx(proc), input)).toEqual({ ok: false, reason: 'git bundle create feat/x failed: bad' });
   });
 });

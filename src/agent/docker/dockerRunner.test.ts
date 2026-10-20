@@ -100,7 +100,7 @@ describe('createDockerSessionRunner', () => {
     const proc = fakeDockerProcess({ 'docker ps --all': { stdout: 'relay1\n' } });
     await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).dispose!(ticket);
     expect(lines(proc)).toEqual([
-      `docker rm --force ${names.container}`,
+      `docker rm --force ${names.container} ${names.container}-svc`,
       `docker ps --all --quiet --filter label=karst.relay=${names.container}`,
       'docker rm --force relay1',
       `docker rm --force ${names.proxy}`,

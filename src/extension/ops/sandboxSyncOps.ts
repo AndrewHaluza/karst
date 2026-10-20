@@ -38,6 +38,11 @@ export interface BackendSessionInput {
   readonly bridgeFor?: (ticketId: number) => Promise<BridgePaths>;
   /** Baseline host ports the docker proxy lets the sandbox reach (arch:AC-32); sbx applies them on reattach. */
   readonly hostPorts?: readonly number[];
+  /**
+   * F8: before a session starts or resumes in a sandbox that already exists, sync sandbox → host
+   * and refresh host → sandbox. A blocker (dirty clone, divergence) stops the launch.
+   */
+  readonly syncExisting?: () => Promise<EnsureSyncResult>;
 }
 
 /**
@@ -99,6 +104,10 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   remember?.(resolved.runner.enforcesSandbox ? input.core : null);
   const handed = { ...options, resolveRunner: () => Promise.resolve(resolved) };
   if (!resolved.runner.enforcesSandbox) return { options: handed, sandboxed: false };
+  if (input.syncExisting && (await resolved.runner.hasSandbox?.())) {
+    const synced = await input.syncExisting();
+    if (!synced.ok) throw new Error(`Karst: ${input.ticketLabel} sandbox is not in sync with the host branch: ${synced.reason}`);
+  }
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
   return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}) };
@@ -125,13 +134,16 @@ export interface SandboxSyncDeps {
   readonly dockerProc?: DockerProcess;
   readonly temp?: TempDirs;
   readonly platform?: NodeJS.Platform;
+  /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
+  readonly evidenceDirOf?: (ticketId: number) => string | undefined;
 }
 
 /** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
 export function sandboxRunnerFor(deps: SandboxSyncDeps, core: string | null, ticketId: number): SessionRunner | undefined {
   if (isSbxCore(core)) {
     const name = sbxName({ projectRoot: deps.projectRoot, ticketId, core });
-    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name) });
+    const evidenceDir = deps.evidenceDirOf?.(ticketId);
+    return createSbxSessionRunner({ proc: deps.proc ?? NODE_SBX_PROCESS, core, name, existing: [], cloneDir: sbxCloneDir(deps.projectRoot, name), ...(evidenceDir ? { evidenceDir } : {}) });
   }
   if (core !== null && isDockerCore(core)) {
     return createDockerSessionRunner({
@@ -183,21 +195,48 @@ const syncChains = new Map<number, Promise<unknown>>();
  * is not an ancestor of the sandbox's: the only case that needs the user.
  */
 export function ensureSandboxSynced(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<EnsureSyncResult> {
-  const run = async (): Promise<EnsureSyncResult> => {
+  return serialised(target.ticketId, () => syncStep(deps, target));
+}
+
+/**
+ * Both directions before a host step that gates or hands the tree to another
+ * agent (F8/F12): sandbox → host (ff-only), then host → sandbox. A dirty clone
+ * or divergence is a blocker (`ok:false`), never an overwrite.
+ */
+export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTarget, opts: { readonly refresh?: boolean } = {}): Promise<EnsureSyncResult> {
+  return serialised(target.ticketId, async () => {
     const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
-    if (!runner?.sync) return { ok: true };
-    if (!target.worktree?.branch) return { ok: false, reason: 'no worktree branch to sync into', diverged: false };
+    // A host ticket in a sandbox-configured project has no sandbox: nothing to sync.
+    if (!runner || !(await runner.hasSandbox?.().catch(() => false))) return { ok: true };
+    const synced = await syncStep(deps, target);
+    if (!synced.ok || opts.refresh === false) return synced;
+    if (!runner.refresh || !target.worktree?.branch) return synced;
     try {
-      const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
-      return result.ok ? { ok: true } : { ok: false, reason: result.reason, diverged: /not a fast-forward/i.test(result.reason) };
+      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+      return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
-      return { ok: false, reason: `sandbox sync failed: ${message(err)}`, diverged: false };
+      return { ok: false, reason: `sandbox refresh failed: ${message(err)}`, diverged: false };
     }
-  };
-  const next = (syncChains.get(target.ticketId) ?? Promise.resolve()).then(run, run);
+  });
+}
+
+async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<EnsureSyncResult> {
+  const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+  if (!runner?.sync) return { ok: true };
+  if (!target.worktree?.branch) return { ok: false, reason: 'no worktree branch to sync into', diverged: false };
+  try {
+    const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+    return result.ok ? { ok: true } : { ok: false, reason: result.reason, diverged: /not a fast-forward/i.test(result.reason) };
+  } catch (err) {
+    return { ok: false, reason: `sandbox sync failed: ${message(err)}`, diverged: false };
+  }
+}
+
+function serialised<T>(ticketId: number, run: () => Promise<T>): Promise<T> {
+  const next = (syncChains.get(ticketId) ?? Promise.resolve()).then(run, run);
   const settled = next.then(() => undefined, () => undefined);
-  syncChains.set(target.ticketId, settled);
-  void settled.then(() => { if (syncChains.get(target.ticketId) === settled) syncChains.delete(target.ticketId); });
+  syncChains.set(ticketId, settled);
+  void settled.then(() => { if (syncChains.get(ticketId) === settled) syncChains.delete(ticketId); });
   return next;
 }
 

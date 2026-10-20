@@ -1,3 +1,6 @@
+import { mkdtempSync, symlinkSync, lstatSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { HOST_SESSION_RUNNER } from '../sessionRunner.js';
 import { fakeSbxProcess } from './fakeSbxProcess.js';
@@ -185,5 +188,47 @@ describe('createSbxSessionRunner env (F2, arch:AC-33)', () => {
       env: { KARST_CLI: '/h/cli.js', KARST_DB: '/h/db', KARST_MANIFEST: '/h/m.yml', KARST_INSTRUCTIONS: '/h/i.md', KARST_BRIDGE_DIR: '/b/7', KARST_TICKET_ID: '7' },
     });
     expect(placed.env).toEqual({ KARST_BRIDGE_DIR: '/b/7', KARST_TICKET_ID: '7' });
+  });
+});
+
+describe('createSbxSessionRunner.refresh', () => {
+  const G = 'git -c core.hooksPath=/dev/null -c core.fsmonitor=false -c protocol.allow=never -c protocol.file.allow=always -C /wt/a';
+  /** The fake host git creates no file: write the bundle it was asked for. */
+  const withBundleFile = (a: Parameters<typeof fakeSbxProcess>[0] = {}) => {
+    const inner = fakeSbxProcess(a);
+    return {
+      calls: inner.calls,
+      run: async (c: string, args: readonly string[], o?: Parameters<typeof inner.run>[2]) => {
+        const r = await inner.run(c, args, o);
+        if (c === 'git' && args.includes('bundle') && r.code === 0) writeFileSync(args[args.indexOf('-q') + 1]!, 'b');
+        return r;
+      },
+    };
+  };
+  it('bundles the host branch into xfer/ and lets the sandbox fetch it', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-refresh-'));
+    const proc = withBundleFile();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir: '/p/clone', evidenceDir: dir });
+    await expect(runner.refresh!(ticket)).resolves.toEqual({ ok: true, summary: 'refreshed the sandbox clone of feat/x from the host' });
+    const lines = proc.calls.map(text);
+    expect(lines[0]).toContain(`${G} bundle create -q ${dir}/xfer/in.bundle feat/x`);
+    expect(lines[1]).toMatch(new RegExp(`^${EXEC} sh -c [\\s\\S]* karst-refresh feat/x ${dir}/xfer/in.bundle$`));
+    expect(proc.calls[1]!.opts).toEqual({ cwd: '/p/clone' });
+    expect(lines.some((l) => l.startsWith('git') && l.includes('/p/clone'))).toBe(false);
+  });
+  it('recreates a symlinked xfer/', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-refresh-'));
+    symlinkSync(tmpdir(), join(dir, 'xfer'));
+    const runner = createSbxSessionRunner({ proc: withBundleFile(), core: 'claude', name: NAME, existing: [], evidenceDir: dir });
+    await runner.refresh!(ticket);
+    expect(lstatSync(join(dir, 'xfer')).isSymbolicLink()).toBe(false);
+  });
+  it('reports dirty, diverged and a failed bundle; needs a bridge dir', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-refresh-'));
+    const mk = (a: Parameters<typeof fakeSbxProcess>[0]) => createSbxSessionRunner({ proc: withBundleFile(a), core: 'claude', name: NAME, existing: [], evidenceDir: dir });
+    expect(await mk({ [EXEC]: { code: 3, stdout: ' M a\n' } }).refresh!(ticket)).toMatchObject({ ok: false, reason: expect.stringContaining('uncommitted work') });
+    expect(await mk({ [EXEC]: { code: 4 } }).refresh!(ticket)).toMatchObject({ ok: false, reason: expect.stringContaining('diverged') });
+    expect(await mk({ [`${G} bundle`]: { code: 1, stderr: 'bad' } }).refresh!(ticket)).toEqual({ ok: false, reason: 'git bundle create feat/x failed: bad' });
+    expect(await createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [] }).refresh!(ticket)).toMatchObject({ ok: false });
   });
 });

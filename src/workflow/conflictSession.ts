@@ -18,7 +18,7 @@ import { formatTicketRef } from '../model/entityId.js';
  *
  * Host-agnostic: store in, string out. No vscode, no git, no clock.
  */
-export function buildConflictBrief(store: Store, ticketId: number, repo: string): string | null {
+export function buildConflictBrief(store: Store, ticketId: number, repo: string, sandboxed = false): string | null {
   const check = getMergeCheck(store, ticketId, repo);
   if (!check || check.state !== 'conflicted') return null;
 
@@ -38,5 +38,6 @@ export function buildConflictBrief(store: Store, ticketId: number, repo: string)
     baseRef: check.baseRef ?? wt.baseRef,
     files: check.files,
     prUrl: pr?.url ?? null,
+    sandboxed,
   });
 }

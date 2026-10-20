@@ -197,8 +197,10 @@ export function scheduleSandboxReattach(
 export function withSandboxSpin<S, M, O extends object, R>(
   deps: () => TicketSandboxDeps | undefined,
   spin: (store: S, manifest: M, ticketId: number, hot: string[], opts?: O & { sandbox?: SandboxServiceContext }) => Promise<R>,
+  beforeSpin?: (ticketId: number) => Promise<void>,
 ): (store: S, manifest: M, ticketId: number, hot: string[], opts?: O) => Promise<R> {
   return async (store, manifest, ticketId, hot, opts) => {
+    await beforeSpin?.(ticketId);
     const d = deps();
     const sandbox = d ? await ticketSandboxContext(d, ticketId) : undefined;
     return spin(store, manifest, ticketId, hot, { ...(opts ?? ({} as O)), ...(sandbox ? { sandbox } : {}) });

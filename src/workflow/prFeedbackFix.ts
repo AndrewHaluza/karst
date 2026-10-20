@@ -139,8 +139,8 @@ export function prFeedbackFixState(store: Store, ticketId: number): PrFeedbackFi
  * This authors no verdict and consumes no stage attempt, exactly like
  * `sendBackToImplement`: it never calls `transition`. No `prs`, `ship_runs`,
  * `gate_runs`, `review_findings`, worktree or other append-only evidence is
- * touched; the existing pull requests stay open and the resumed agent pushes new
- * commits to them.
+ * touched; the existing pull requests stay open and the resumed agent commits; the host
+ * pushes to them (from the sandbox clone, after the marker sync).
  */
 export function enterPrFeedbackFix(
   store: Store,
