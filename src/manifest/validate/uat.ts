@@ -116,6 +116,12 @@ export function validateGate(raw: unknown, index: number, where: string): UatGat
     }
     gate.repo = raw.repo;
   }
+  if (raw.sandbox !== undefined) {
+    if (raw.sandbox !== 'host' && raw.sandbox !== 'inside') {
+      throw new ManifestError(`${where} "${name}".sandbox must be one of: host, inside`);
+    }
+    gate.sandbox = raw.sandbox;
+  }
   if (raw.report !== undefined) {
     if (typeof raw.report !== 'string') {
       throw new ManifestError(`${where} "${name}".report must be a string`);

@@ -69,6 +69,8 @@ export interface RunGatesOptions {
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
   /** Where each gate runs; absent → the host `runProcess`. A sandboxed ticket passes its runner's `runGate` (arch:AC-32). */
   runProcess?: GateProcessRunner;
+  /** Runs a gate declared `sandbox: host`; absent → such a gate uses `runProcess` like any other. Declared order is kept (arch:AC-36). */
+  hostProcess?: GateProcessRunner;
 }
 
 export async function runGateList(
@@ -108,7 +110,7 @@ export async function runGateList(
       continue;
     }
 
-    const outcome = await (opts.runProcess ?? runProcess)(gate.command, gate.args, cwd, {
+    const outcome = await (gate.sandbox === 'host' && opts.hostProcess ? opts.hostProcess : (opts.runProcess ?? runProcess))(gate.command, gate.args, cwd, {
       signal: opts.signal,
       onDebug,
       onOutput: opts.onGateOutput ? (chunk) => opts.onGateOutput?.(gate.name, chunk) : undefined,

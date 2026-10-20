@@ -22,6 +22,7 @@ What the manifest models, and the rules that keep a Settings write from silently
 - Legacy services: manifests migrate IN MEMORY
 - `uat.testerObservations.blockingSeverity` is a manifest knob only
 - Sub-task auto-start concurrency caps
+- Per-gate `sandbox: host`
 - New Manifest field checklist
 END_DOC_BLOCK: [@arch:CONTENTS]
 
@@ -100,6 +101,11 @@ END_DOC_BLOCK: [@arch:DIFFS]
 
 `subtasks:` (`SubtaskLimits` in manifest `types.ts`) holds two caps, `maxConcurrentPerParent` and `maxConcurrentTotal`. `validateSubtasks` (manifest `schema.ts`) fills each independently from `DEFAULT_SUBTASK_LIMITS` (`2` / `4`) when the block or the key is absent OR `null` (a bare `key:`), and throws `ManifestError` unless the value is a whole number `>= 0`; `0` means unlimited. So a validated manifest always carries the block, and `emptyManifest()` carries the defaults too. **Live:** `autostartCapsFrom(currentManifest())` is read on every autostart sweep, so a Settings save applies on the next tick without a reload. Per-parent counts a parent's direct children holding a slot; total counts every sub-task in the project holding a slot, nested included — see `docs/arch/stages-and-gates.md`, "Sub-task autostart". **Write:** `manifest/write.ts` writes `subtasks` when the manifest carries it and omits it (overriding a stale raw value) when it is undefined. **Settings → General** ("Sub-tasks") exposes both as editable number inputs (`min 0`, `step 1`, placeholders `2`/`4`, help "Blank = 2"/"Blank = 4"): a blank clears that cap (it reloads as its default), a negative or fractional entry clears it AND shows the inline error "Enter a whole number, 0 or more (0 = unlimited).", and the block is dropped from the draft once both caps are blank. No preset or per-ticket override; `karst subtask create --no-start` only skips queuing.
 END_DOC_BLOCK: [@arch:CONCURRENCY]
+
+## [@arch:SANDBOX-HOST] A gate may declare `sandbox: host` (D196)
+
+Optional per-gate field on `uat.gates` / `review.gates` entries (`GateDef.sandbox`: `host` | `inside`, default `inside`; validated per gate in `validateGate`, `manifest/validate/uat.ts`). It only matters for a sandboxed ticket (`arch:AC-36`): a `host` gate runs on the host worktree after a verified two-way sync, because its tool cannot live in the sandbox image; every other gate stays inside. Refusals (stopped sandbox, failed sync, dirty or HEAD-mismatched host tree) are `spawnFailed`, never a verdict. Example: `- { name: visual, kind: command, command: docker, args: [run, ...], sandbox: host }`. karst's own gates declare none (its image carries the visual baseline env, T706).
+END_DOC_BLOCK: [@arch:SANDBOX-HOST]
 
 ## [@arch:FIELDCHK] New `Manifest` field checklist
 

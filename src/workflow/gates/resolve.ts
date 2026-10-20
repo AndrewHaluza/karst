@@ -23,6 +23,7 @@ export interface DeclaredGate {
   script?: string; // kind: 'script' — the package.json script
   command?: string; // kind: 'command' — the binary, spawned without a shell
   args?: string[]; // kind: 'command'
+  sandbox?: 'host' | 'inside';
 }
 
 export interface ResolvedGate {
@@ -37,6 +38,8 @@ export interface ResolvedGate {
    * discovered one that is absent is simply not there, and says nothing.
    */
   required: boolean;
+  /** Set only for a gate declared `sandbox: host`: a sandboxed ticket runs it on the host after a verified sync. */
+  sandbox?: 'host';
 }
 
 export type GateResolution =
@@ -52,6 +55,7 @@ function resolveDeclared(gate: DeclaredGate): ResolvedGate {
       args: gate.args ?? [],
       script: null,
       required: true,
+      ...hostMark(gate),
     };
   }
   const script = gate.script!;
@@ -61,7 +65,12 @@ function resolveDeclared(gate: DeclaredGate): ResolvedGate {
     args: script === 'test' ? ['test'] : ['run', script],
     script,
     required: true,
+    ...hostMark(gate),
   };
+}
+
+function hostMark(gate: DeclaredGate): { sandbox?: 'host' } {
+  return gate.sandbox === 'host' ? { sandbox: 'host' } : {};
 }
 
 /**

@@ -9,14 +9,16 @@ import { runGateList } from './runList.js';
  * a sandbox's edits do not reach until sync, so a stale match would reuse an
  * old verdict for new code.
  */
-export function sandboxGateDeps(gate: GateProcessRunner | undefined): {
+export function sandboxGateDeps(gate: GateProcessRunner | undefined, hostGate?: () => GateProcessRunner): {
   runGates?: typeof runGateList;
   runVerifier?: GateProcessRunner;
   fingerprint?: () => Promise<null>;
 } {
   if (!gate) return {};
   return {
-    runGates: (gates, cwd, opts = {}) => runGateList(gates, cwd, { ...opts, runProcess: gate }),
+    // A fresh host runner per list: its one-time sync/dirty check covers exactly this run.
+    runGates: (gates, cwd, opts = {}) =>
+      runGateList(gates, cwd, { ...opts, runProcess: gate, ...(hostGate && gates.some((g) => g.sandbox === 'host') ? { hostProcess: hostGate() } : {}) }),
     runVerifier: gate,
     fingerprint: () => Promise.resolve(null),
   };
