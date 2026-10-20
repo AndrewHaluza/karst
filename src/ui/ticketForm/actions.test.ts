@@ -33,7 +33,7 @@ import {
   listAttachments,
 } from '../../store/attachments.js';
 import { listProcessRuns } from '../../store/processRuns.js';
-import { listOpenParks } from '../../store/usageLimitParks.js';
+import { insertOpenPark, listOpenParks } from '../../store/usageLimitParks.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import type { DriveProcessBundle } from '../../agent/processAssignment.js';
 import { MAX_PASTE_BYTES } from '../../attachments/ingest.js';
@@ -774,6 +774,34 @@ describe('buildTicketFormActions', () => {
       type: 'error',
       message: 'This usage limit was already handled.',
     });
+  });
+
+  it('never claims or re-runs a stage-block park from the ticket form (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-STAGE-PARK', title: 't' });
+    const parkId = insertOpenPark(store, {
+      ticketId: t.id,
+      kind: 'stage-block',
+      stage: 'review',
+      lane: 'review',
+      target: 'fe',
+      provider: 'claude',
+      model: 'claude-sonnet-5',
+      detail: 'out of credits',
+      keptOutcome: null,
+    });
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    actions.usageLimitParkDismiss(parkId);
+    await actions.usageLimitParkRetry(parkId);
+    deps.pickUsageLimitAgentModel = vi.fn();
+    await actions.usageLimitParkPick(parkId);
+
+    // The stage-block park stays open for the dashboard's stage action; the
+    // form must not clear it nor run the analysis in the parked lane's place.
+    expect(listOpenParks(store, t.id)).toHaveLength(1);
+    expect(deps.pickUsageLimitAgentModel).not.toHaveBeenCalled();
+    expect(ctx.posted.some((m) => m.type === 'analysis')).toBe(false);
   });
 
   /** The one-shot override capture used by the re-run tests. */

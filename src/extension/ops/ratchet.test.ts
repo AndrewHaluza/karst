@@ -79,7 +79,8 @@ import { join } from 'node:path';
 // Sidebar "Send CI failure to agent" peek CTA (T742, +2: 8689 -> 8691): one binding line + its comment; logic is `ops/ciFailureOps.ts`.
 // Servers stop on done (T762, +14: 8691 -> 8705): serverLifecycleDeps wiring, onTicketDone, onTicketCompleted, settleShipGates.
 // Usage-limit park actions binding (D159, +11: 8705 -> 8716): one import, the `createUsageLimitParkBinding` call, forTicket passed to `makeDashboardActions` and spread into `DashboardActions`.
-const MAX_EXTENSION_LINES = 8716;
+// Park re-run driver-lock binding (+3: 8716 -> 8719): the `withDriverRun` line plus the faithful-run seams merged with develop's tree; the wrapper lives in `usageLimitParkBinding.ts`.
+const MAX_EXTENSION_LINES = 8719;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

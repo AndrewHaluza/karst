@@ -1,6 +1,5 @@
 import { connect, isIP } from 'node:net';
 import { lookup } from 'node:dns/promises';
-import { readdir, readFile, readlink } from 'node:fs/promises';
 import type { Store } from '../store/db.js';
 import {
   attributeServer,
@@ -66,15 +65,13 @@ export function isPortOpen(host: string, port: number, timeoutMs = 1_000): Promi
 
 /**
  * Pids of processes LISTENING on `host:port`. `lsof` on macOS/Linux,
- * `netstat -ano` on Windows; on Linux without `lsof` the kernel's own
- * `/proc/net/tcp` table answers the same question. The query is
- * address-scoped: a v6-only listener does not license killing a process when
- * the service uses IPv4. Empty when none are found — or when the platform
- * cannot answer (another user's process, netstat output the parse does not
- * understand): the caller must treat empty-on-occupied as "cannot identify",
- * never as "no one is there". The subprocess is asynchronous and bounded so
- * this preflight never blocks the extension host's event loop or leaves Spin
- * waiting indefinitely.
+ * `netstat -ano` on Windows. The query is address-scoped: a v6-only listener
+ * does not license killing a process when the service uses IPv4. Empty when
+ * none are found — or when the platform cannot answer (lsof absent, another
+ * user's process, netstat output the parse does not understand): the caller
+ * must treat empty-on-occupied as "cannot identify", never as "no one is there".
+ * The subprocess is asynchronous and bounded so this preflight never blocks
+ * the extension host's event loop or leaves Spin waiting indefinitely.
  */
 async function discoverListenerPids(
   host: string,
@@ -114,11 +111,7 @@ async function discoverListenerPids(
     ['-nP', '-a', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpn'],
     options.timeoutMs,
   );
-  if (stdout === null) {
-    // No `lsof` on this host (a minimal container image, a CI sandbox): the
-    // Linux `/proc` fallback answers the same question from the kernel.
-    return procListenerPids(port, targets);
-  }
+  if (stdout === null) return [];
   const pids: number[] = [];
   let pid: number | null = null;
   for (const line of stdout.split('\n')) {
@@ -137,114 +130,6 @@ async function discoverListenerPids(
       targets.some((target) => target.address === localHost)
     ) {
       pids.push(pid);
-    }
-  }
-  return [...new Set(pids)];
-}
-
-/**
- * The Linux fallback for a host with no `lsof`: read the LISTENING socket out
- * of `/proc/net/tcp{,6}` and map its inode to the pid that holds it.
- *
- * The kernel's own table is the same answer `lsof` parses, so the reclaim
- * works on a minimal image (a CI sandbox, a slim runtime container) where
- * `lsof` is not installed — without it, karst could not reclaim a squatted
- * port there at all and the start was refused with "cannot identify". A host
- * with no `/proc` answers nothing, and the caller keeps its "cannot identify"
- * contract exactly as before.
- */
-async function procListenerPids(
-  port: number,
-  targets: readonly ResolvedAddress[],
-): Promise<number[]> {
-  const inodes = new Set<string>();
-  for (const [file, family] of [
-    ['/proc/net/tcp', 4],
-    ['/proc/net/tcp6', 6],
-  ] as const) {
-    const table = await readFile(file, 'utf8').catch(() => null);
-    if (table === null) continue;
-    for (const line of table.split('\n').slice(1)) {
-      const fields = line.trim().split(/\s+/);
-      if (fields[3] !== '0A') continue; // 0A = TCP_LISTEN
-      const [hexAddress, hexPort] = (fields[1] ?? '').split(':');
-      if (hexAddress === undefined || hexPort === undefined) continue;
-      if (parseInt(hexPort, 16) !== port) continue;
-      const localHost = procAddressString(family, hexAddress);
-      // The SAME rule the `lsof` parse applies: a wildcard listener occupies
-      // the address, a specific one only its own.
-      if (!wildcardListener(localHost) && !targets.some((t) => t.address === localHost)) {
-        continue;
-      }
-      const inode = fields[9];
-      if (inode !== undefined && inode !== '') inodes.add(inode);
-    }
-  }
-  if (inodes.size === 0) return [];
-  return pidsHoldingSockets(inodes);
-}
-
-/**
- * `/proc/net/tcp{,6}`'s hex local address → the address string `lsof` prints.
- *
- * The kernel writes every 32-bit word little-endian, so the bytes are read
- * back in reverse; an IPv6 address is four such words.
- */
-function procAddressString(family: 4 | 6, hex: string): string {
-  const bytes: number[] = [];
-  for (let word = 0; word + 8 <= hex.length; word += 8) {
-    const chunk = hex.slice(word, word + 8);
-    for (let i = 6; i >= 0; i -= 2) bytes.push(parseInt(chunk.slice(i, i + 2), 16));
-  }
-  if (family === 4) return bytes.join('.');
-  const groups: string[] = [];
-  for (let i = 0; i + 1 < 16; i += 2) {
-    groups.push(((bytes[i]! << 8) | bytes[i + 1]!).toString(16));
-  }
-  // The longest run of zero groups collapses to '::' — the same spelling
-  // `lsof` prints, so the wildcard and the exact-match rule are unchanged.
-  let bestStart = -1;
-  let bestLength = 0;
-  let start = -1;
-  let length = 0;
-  for (let i = 0; i < groups.length; i++) {
-    if (groups[i] === '0') {
-      if (start < 0) start = i;
-      length += 1;
-      if (length > bestLength) {
-        bestLength = length;
-        bestStart = start;
-      }
-    } else {
-      start = -1;
-      length = 0;
-    }
-  }
-  if (bestLength < 2) return groups.join(':');
-  const head = groups.slice(0, bestStart).join(':');
-  const tail = groups.slice(bestStart + bestLength).join(':');
-  return `${head}::${tail}`;
-}
-
-/**
- * The pids holding any of these socket inodes.
- *
- * `/proc/<pid>/fd/<n>` links to `socket:[<inode>]` — the kernel's own mapping
- * from a socket to its owner, which is exactly what `lsof` reports.
- */
-async function pidsHoldingSockets(inodes: ReadonlySet<string>): Promise<number[]> {
-  const pids: number[] = [];
-  const entries = await readdir('/proc').catch(() => [] as string[]);
-  for (const entry of entries) {
-    if (!/^\d+$/.test(entry)) continue;
-    const fds = await readdir(`/proc/${entry}/fd`).catch(() => [] as string[]);
-    for (const fd of fds) {
-      const link = await readlink(`/proc/${entry}/fd/${fd}`).catch(() => '');
-      const match = /^socket:\[(\d+)\]$/.exec(link);
-      if (match !== null && inodes.has(match[1]!)) {
-        pids.push(Number(entry));
-        break;
-      }
     }
   }
   return [...new Set(pids)];

@@ -636,10 +636,23 @@ export function buildTicketFormActions(
     };
 
     /**
-     * D159: re-run exactly the op a park names. The recording call site stamped
-     * its op in `lane`; an unrecognised (or unbound) park falls back to the
-     * analysis, the ticket form's quota-prone op. The one-shot override (if any)
-     * rides the closure and is consumed by that op.
+     * The park this form may action: an OP park whose lane names an op it can
+     * re-run. A stage-block park belongs to the dashboard, which re-runs the
+     * PARKED STAGE with a stage assignment — claiming it here would consume it,
+     * clear the stage block, and run the analysis instead of the parked lane.
+     */
+    const findRerunnableOpPark = (parkId: number) => {
+      const park = findUsageLimitPark(parkId);
+      if (park === undefined || park.kind !== 'op') return undefined;
+      if (park.lane === 'analysis') return park;
+      if (park.lane === 'suggest' && park.target !== null) return park;
+      return undefined;
+    };
+
+    /**
+     * D159: re-run exactly the op a park names — never a different one. The
+     * call site stamped its op in `lane`; `findRerunnableOpPark` has already
+     * rejected every lane this form does not own.
      */
     const rerunParkedOp = async (park: UsageLimitParkRow): Promise<void> => {
       if (park.lane === 'suggest' && park.target !== null) {
@@ -1471,7 +1484,7 @@ export function buildTicketFormActions(
     // with a ONE-SHOT agent/model — never persisted. The op is named by the
     // row's `lane`, which the recording call site set.
     async usageLimitParkPick(parkId: number): Promise<void> {
-      const park = findUsageLimitPark(parkId);
+      const park = findRerunnableOpPark(parkId);
       if (!park) {
         ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
         return;
@@ -1492,7 +1505,7 @@ export function buildTicketFormActions(
     },
 
     async usageLimitParkRetry(parkId: number): Promise<void> {
-      const park = findUsageLimitPark(parkId);
+      const park = findRerunnableOpPark(parkId);
       if (!park) {
         ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
         return;
@@ -1507,7 +1520,7 @@ export function buildTicketFormActions(
     },
 
     usageLimitParkDismiss(parkId: number): void {
-      const park = findUsageLimitPark(parkId);
+      const park = findRerunnableOpPark(parkId);
       if (!park) {
         ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
         return;

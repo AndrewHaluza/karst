@@ -37,11 +37,8 @@ import {
   countBlockingObservations,
   type TesterTarget,
 } from './uat/tester.js';
-import {
-  listUatFindings,
-  recordUatFindings,
-  type UatFindingInput,
-} from '../store/uatFindings.js';
+import { listUatFindings, type UatFindingInput } from '../store/uatFindings.js';
+import { getTicket } from '../store/tickets.js';
 import {
   runTesterVerifier,
   TESTER_VERIFIER_FAILURE_PREFIX,
@@ -693,17 +690,11 @@ async function rerunReviewParkedStage(
     stageKey,
     runAt,
     artifactPath,
-    gates: previousGateRuns.map((r) => ({
-      gateName: r.gateName,
-      exitCode: r.exitCode,
-      startedAt: r.startedAt ?? undefined,
-      endedAt: r.endedAt ?? undefined,
-      repo: r.repo ?? undefined,
-      command: r.command ?? undefined,
-      args: r.args ?? undefined,
-      skipped: r.skipped,
-      summary: r.summary ?? undefined,
-    })),
+    // The parked run's deterministic gate rows are INPUTS to this aggregate,
+    // never this run's own evidence: this re-run executes the AI lane only. The
+    // rows stay attached to the stage run that actually produced them; copying
+    // them onto this run would claim gate work nobody did here.
+    gates: [],
     outcome: aggregateOutcome,
     // Findings are NOT passed here: the lane already persisted each one as it
     // landed (`persistFindings`), so handing them over again would duplicate the
@@ -728,6 +719,7 @@ async function rerunUatParkedStage(
     cwd,
     artifactDir,
     signal,
+    git,
     debug,
   } = opts;
   const { stageKey, runAt, now } = ctx;
@@ -762,6 +754,11 @@ async function rerunUatParkedStage(
   };
 
   const blockingSeverity = manifest?.uat?.testerObservations?.blockingSeverity ?? 'none';
+  // The Tester is asked about the SAME ticket the stage asks about: its
+  // done-when criteria (`description`), its canonical intent and key. Without
+  // them the re-run would judge a different, weaker question than the run it
+  // replaces — and a passing re-run could advance on a generic "does it work".
+  const ticket = getTicket(store, parkRow.ticketId);
   const testerResult = await runUatTester(
     store,
     {
@@ -774,6 +771,12 @@ async function rerunUatParkedStage(
       stageRunId: newStageRunId,
       attempt,
       signal,
+      // Snapshot the worktree exactly like the stage's Tester: committed AND
+      // uncommitted work as one tree, never a committed-only branch range.
+      git,
+      criteria: ticket.description,
+      intent: ticket.intent,
+      ticketKey: ticket.key,
       debug,
       observationsBlockingSeverity: blockingSeverity,
       tokenBudget: manifest?.uat?.tester?.tokenBudget,
@@ -809,24 +812,10 @@ async function rerunUatParkedStage(
     );
   }
 
-  const previousGateRuns = listGateRuns(store, parkRow.ticketId).filter(
-    (r) => r.stageKey === 'uat' && r.stageRunId === parkRow.stageRunId,
-  );
-  const gates = previousGateRuns.map((r) => ({
-    gateName: r.gateName,
-    exitCode: r.exitCode,
-    startedAt: r.startedAt ?? undefined,
-    endedAt: r.endedAt ?? undefined,
-    repo: r.repo ?? undefined,
-    command: r.command ?? undefined,
-    args: r.args ?? undefined,
-    skipped: r.skipped,
-    summary: r.summary ?? undefined,
-  }));
-
   // Parse the sibling observations AND target statuses the earlier park kept.
-  // Both must survive a re-park: the observations to re-record and count, the
-  // target statuses to carry forward on the next park row.
+  // Both must survive a re-park: the observations to count (they are already
+  // durable from the run that made them), the target statuses to carry forward
+  // on the next park row.
   const siblingObservations: UatFindingInput[] = [];
   const siblingTargets: UatKeptTarget[] = [];
   try {
@@ -857,35 +846,31 @@ async function rerunUatParkedStage(
     // Ignore malformed keptOutcome
   }
 
-  // If there are sibling observations and we have a tester process run, record them into uat_findings
-  if (siblingObservations.length > 0 && testerRunId !== null) {
-    recordUatFindings(store, {
-      ticketId: parkRow.ticketId,
-      processRunId: testerRunId,
-      findings: siblingObservations,
-      createdAt: now(),
-    });
-  }
-
-  // Calculate merged blocking count across newly observed findings and sibling observations
+  // Calculate the blocking count across newly observed findings and the sibling
+  // observations the earlier park kept. The siblings are NOT re-inserted into
+  // `uat_findings`: they were recorded by the run that made them and still read
+  // back from the store, so writing them again under this run's process would
+  // duplicate every row across runs. They are only counted here — the verdict
+  // must not discard a blocking observation a partner target already reported.
   let combinedBlocking = 0;
   let combinedSummary: string | undefined;
-  if (testerResult.kind === 'observed' || testerResult.kind === 'partial') {
-    const newlyObservedFindings = listUatFindings(store, parkRow.ticketId)
-      .filter((f) => testerRunId !== null && f.processRunId === testerRunId)
-      .map((f) => ({
-        severity: f.severity,
-        repo: f.repo,
-        file: f.filePath,
-        line: f.line,
-        title: f.title,
-      }));
-    const allObservations = [...newlyObservedFindings];
-    const counted = countBlockingObservations(allObservations, blockingSeverity);
-    combinedBlocking = counted.blocking;
-    combinedSummary = counted.blockingSummary;
-  } else if (siblingObservations.length > 0) {
-    const counted = countBlockingObservations(siblingObservations, blockingSeverity);
+  {
+    const newlyObservedFindings =
+      testerResult.kind === 'observed' || testerResult.kind === 'partial'
+        ? listUatFindings(store, parkRow.ticketId)
+            .filter((f) => testerRunId !== null && f.processRunId === testerRunId)
+            .map((f) => ({
+              severity: f.severity,
+              repo: f.repo,
+              file: f.filePath,
+              line: f.line,
+              title: f.title,
+            }))
+        : [];
+    const counted = countBlockingObservations(
+      [...newlyObservedFindings, ...siblingObservations],
+      blockingSeverity,
+    );
     combinedBlocking = counted.blocking;
     combinedSummary = counted.blockingSummary;
   }
@@ -897,7 +882,7 @@ async function rerunUatParkedStage(
       stageKey,
       runAt,
       artifactPath,
-      gates,
+      gates: [],
       outcome: {
         kind: 'blocked',
         blocker: 'capability-missing',
@@ -915,7 +900,7 @@ async function rerunUatParkedStage(
       stageKey,
       runAt,
       artifactPath,
-      gates,
+      gates: [],
       outcome: {
         kind: 'blocked',
         blocker: 'usage-limit',
@@ -974,7 +959,7 @@ async function rerunUatParkedStage(
           stageKey,
           runAt,
           artifactPath,
-          gates,
+          gates: [],
           outcome: { kind: 'verdict', verdict: { kind: 'failed', reason } },
           stageRunId: newStageRunId,
           recoveryTrigger: {
@@ -999,7 +984,7 @@ async function rerunUatParkedStage(
           stageKey,
           runAt,
           artifactPath,
-          gates,
+          gates: [],
           outcome: { kind: 'blocked', blocker: 'capability-missing', reason },
           stageRunId: newStageRunId,
           now,
@@ -1014,10 +999,10 @@ async function rerunUatParkedStage(
 
   // The opt-in observation threshold, AFTER the verifier so the deterministic
   // boundary keeps precedence — exactly the stage's order. `combinedBlocking`
-  // covers BOTH shapes this re-run can produce: observations the tester just
-  // recorded, and — when its call could not execute — the sibling observations
-  // the earlier park kept. A failed re-run must never discard a blocking
-  // observation a partner target already reported and call the stage clean.
+  // counts BOTH the observations the tester just recorded and the sibling
+  // observations the earlier park kept, whether or not this call executed. A
+  // failed re-run must never discard a blocking observation a partner target
+  // already reported and call the stage clean.
   if (combinedBlocking > 0) {
     const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${combinedSummary ?? `${combinedBlocking} blocking`}`;
     const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
@@ -1026,7 +1011,7 @@ async function rerunUatParkedStage(
       stageKey,
       runAt,
       artifactPath,
-      gates,
+      gates: [],
       outcome: { kind: 'verdict', verdict: { kind: 'failed', reason } },
       stageRunId: newStageRunId,
       recoveryTrigger: {
@@ -1049,7 +1034,7 @@ async function rerunUatParkedStage(
     stageKey,
     runAt,
     artifactPath,
-    gates,
+    gates: [],
     outcome: {
       kind: 'verdict',
       verdict: { kind: 'passed' },

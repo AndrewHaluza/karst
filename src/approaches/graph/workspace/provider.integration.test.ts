@@ -210,15 +210,6 @@ describe('createNodeWorkspace', () => {
       const cwdA = a.paths[0]!.cwd;
       const cwdB = b.paths[0]!.cwd;
 
-      // Each workspace is its OWN repo (a clone, not a linked worktree), and a
-      // clone does not inherit the base repo's local config — so the fixture
-      // gives each one an identity of its own instead of relying on the
-      // machine's global git config ("Author identity unknown" without one).
-      for (const cwd of [cwdA, cwdB]) {
-        git(cwd, ['config', 'user.email', 't@karst']);
-        git(cwd, ['config', 'user.name', 'T']);
-      }
-
       // Independent common-dir identity — a linked worktree would share it.
       const commonA = git(cwdA, ['rev-parse', '--path-format=absolute', '--git-common-dir']);
       const commonB = git(cwdB, ['rev-parse', '--path-format=absolute', '--git-common-dir']);

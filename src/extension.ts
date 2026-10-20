@@ -65,7 +65,7 @@ import { makeShipPreviewLoader } from './workflow/shipPreview.js';
 import { makeSidebarArtifactCounts } from './extension/ops/storedArtifactOps.js';
 import { createStoredArtifactBinding, type StoredArtifactActions } from './extension/storedArtifactBinding.js';
 import { makeBaselineActions } from './extension/ops/baselineDecisionOps.js';
-import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
+import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker, driverLockedRun, type UsageLimitParkActions } from './extension/usageLimitParkBinding.js';
 import { readStageLog } from './ui/dashboard/stageLogReader.js';
 import { ServerLogsReader } from './ui/dashboard/serverLogsReader.js';
 import {
@@ -2985,6 +2985,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let serverLifecycleDeps!: ServerLifecycleDeps;
   const usageLimitParks = createUsageLimitParkBinding({
     store: localStore, notify: vscodeNotify, catalog: () => modelCatalog, manifest: currentManifest, redrive: (id) => maybeDrive(id, 'stage-resume'), refresh: (id) => dashboard.pushState(id),
+    withDriverRun: driverLockedRun(driver), // same single-flight lock + Stop signal as a stage run
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
     assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
     artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)),

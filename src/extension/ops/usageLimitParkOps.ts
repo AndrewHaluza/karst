@@ -93,6 +93,15 @@ function findTargetPark(store: Store, ticketId: number, stageKey: StageKey): Usa
   return atStage.find((p) => p.kind === 'op') ?? null;
 }
 
+/**
+ * Run one park action under the host's per-ticket single-flight lock, passing
+ * the run's Stop signal. Returns undefined when a stage run is already in
+ * flight — the action then touches nothing, exactly like a lost claim.
+ */
+export type ExclusiveRunner = <T>(
+  run: (signal: AbortSignal | undefined) => Promise<T>,
+) => Promise<T | undefined>;
+
 export interface UsageLimitActionCommonDeps {
   store: Store;
   ticketId: number;
@@ -100,6 +109,12 @@ export interface UsageLimitActionCommonDeps {
   notify: Notify;
   redrive: (ticketId: number) => void;
   refresh: (ticketId: number) => void;
+  /**
+   * Serialize the re-run with the stage driver (one run per ticket) and give
+   * it the same Stop signal every driver-run gate gets. Absent → run directly
+   * (unit tests and hosts without a driver).
+   */
+  runExclusive?: ExclusiveRunner;
   manifest?: () => Manifest | undefined;
   artifactDir?: string;
   cwd?: string;
@@ -150,29 +165,35 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
   if (!pickedModel) return;
 
   const manifest = deps.manifest?.();
+  const run = (signal: AbortSignal | undefined) =>
+    rerunParkedStage({
+      store: deps.store,
+      parkRow: park,
+      provider: pickedCore.id,
+      model: pickedModel.model,
+      resolution: 'pick',
+      // Built only if the claim wins (inside `rerunParkedStage`), so a racing
+      // window never constructs an adapter it will not use.
+      buildAdapter: deps.adapterFor,
+      resolveAssignment: deps.assignmentFor
+        ? (stageKey, provider, model) =>
+            deps.assignmentFor!(deps.ticketId, stageKey, provider, model)
+        : undefined,
+      manifest,
+      cwd: deps.cwd ?? process.cwd(),
+      artifactDir: deps.artifactDir ?? '',
+      git: deps.git,
+      loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
+      runVerifier: deps.runVerifier,
+      signal,
+      debug: deps.debug,
+    });
 
-  const result = await rerunParkedStage({
-    store: deps.store,
-    parkRow: park,
-    provider: pickedCore.id,
-    model: pickedModel.model,
-    resolution: 'pick',
-    // Built only if the claim wins (inside `rerunParkedStage`), so a racing
-    // window never constructs an adapter it will not use.
-    buildAdapter: deps.adapterFor,
-    resolveAssignment: deps.assignmentFor
-      ? (stageKey, provider, model) =>
-          deps.assignmentFor!(deps.ticketId, stageKey, provider, model)
-      : undefined,
-    manifest,
-    cwd: deps.cwd ?? process.cwd(),
-    artifactDir: deps.artifactDir ?? '',
-    git: deps.git,
-    loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
-    runVerifier: deps.runVerifier,
-    debug: deps.debug,
-  });
-
+  const result = deps.runExclusive ? await deps.runExclusive(run) : await run(undefined);
+  if (result === undefined) {
+    deps.notify.warn('A stage run is already in flight for this ticket.');
+    return;
+  }
   if (result.kind === 'stopped') {
     deps.notify.warn('This usage limit was already handled.');
     return;
@@ -194,28 +215,34 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
   }
 
   const manifest = deps.manifest?.();
+  const run = (signal: AbortSignal | undefined) =>
+    rerunParkedStage({
+      store: deps.store,
+      parkRow: park,
+      provider: park.provider as AgentProvider,
+      model: park.model,
+      resolution: 'retry',
+      // Built only if the claim wins (inside `rerunParkedStage`).
+      buildAdapter: deps.adapterFor,
+      resolveAssignment: deps.assignmentFor
+        ? (stageKey, provider, model) =>
+            deps.assignmentFor!(deps.ticketId, stageKey, provider, model)
+        : undefined,
+      manifest,
+      cwd: deps.cwd ?? process.cwd(),
+      artifactDir: deps.artifactDir ?? '',
+      git: deps.git,
+      loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
+      runVerifier: deps.runVerifier,
+      signal,
+      debug: deps.debug,
+    });
 
-  const result = await rerunParkedStage({
-    store: deps.store,
-    parkRow: park,
-    provider: park.provider as AgentProvider,
-    model: park.model,
-    resolution: 'retry',
-    // Built only if the claim wins (inside `rerunParkedStage`).
-    buildAdapter: deps.adapterFor,
-    resolveAssignment: deps.assignmentFor
-      ? (stageKey, provider, model) =>
-          deps.assignmentFor!(deps.ticketId, stageKey, provider, model)
-      : undefined,
-    manifest,
-    cwd: deps.cwd ?? process.cwd(),
-    artifactDir: deps.artifactDir ?? '',
-    git: deps.git,
-    loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
-    runVerifier: deps.runVerifier,
-    debug: deps.debug,
-  });
-
+  const result = deps.runExclusive ? await deps.runExclusive(run) : await run(undefined);
+  if (result === undefined) {
+    deps.notify.warn('A stage run is already in flight for this ticket.');
+    return;
+  }
   if (result.kind === 'stopped') {
     deps.notify.warn('This usage limit was already handled.');
     return;
@@ -234,12 +261,18 @@ export async function handleUsageLimitDismiss(deps: UsageLimitDismissDeps): Prom
     return;
   }
 
-  const result = dismissUsageLimitPark(deps.store, park, {
-    manifest: deps.manifest?.(),
-    artifactDir: deps.artifactDir,
-    debug: deps.debug,
-  });
+  const run = async () =>
+    dismissUsageLimitPark(deps.store, park, {
+      manifest: deps.manifest?.(),
+      artifactDir: deps.artifactDir,
+      debug: deps.debug,
+    });
 
+  const result = deps.runExclusive ? await deps.runExclusive(run) : await run();
+  if (result === undefined) {
+    deps.notify.warn('A stage run is already in flight for this ticket.');
+    return;
+  }
   if (result.kind === 'stopped') {
     deps.notify.warn('This usage limit was already handled.');
     return;
@@ -257,6 +290,7 @@ export interface UsageLimitParkActionsDeps {
   manifest: () => Manifest | undefined;
   redrive: (ticketId: number) => void;
   refresh: (ticketId: number) => void;
+  runExclusive?: ExclusiveRunner;
   pickCore: (items: QuickPickCoreChoice[]) => Promise<QuickPickCoreChoice | undefined>;
   pickModel: (items: QuickPickModelChoice[]) => Promise<QuickPickModelChoice | undefined>;
   adapterFor: (provider: AgentProvider, model: string | null) => AgentAdapter;
@@ -292,6 +326,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         manifest: deps.manifest,
         redrive: deps.redrive,
         refresh: deps.refresh,
+        runExclusive: deps.runExclusive,
         pickCore: deps.pickCore,
         pickModel: deps.pickModel,
         adapterFor: deps.adapterFor,
@@ -312,6 +347,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         manifest: deps.manifest,
         redrive: deps.redrive,
         refresh: deps.refresh,
+        runExclusive: deps.runExclusive,
         adapterFor: deps.adapterFor,
         artifactDir: deps.artifactDir(),
         cwd: deps.cwd?.(),
@@ -330,6 +366,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         manifest: deps.manifest,
         redrive: deps.redrive,
         refresh: deps.refresh,
+        runExclusive: deps.runExclusive,
         artifactDir: deps.artifactDir(),
         debug: deps.debug,
       }),

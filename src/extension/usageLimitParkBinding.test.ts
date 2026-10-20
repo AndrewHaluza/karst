@@ -23,7 +23,11 @@ vi.mock('../integrations/git.js', async (importOriginal) => ({
   defaultGitRunner: mockedDefaultGitRunner,
 }));
 
-import { createUsageLimitParkBinding, makeUsageLimitAgentModelPicker } from './usageLimitParkBinding.js';
+import {
+  createUsageLimitParkBinding,
+  driverLockedRun,
+  makeUsageLimitAgentModelPicker,
+} from './usageLimitParkBinding.js';
 import { openStore } from '../store/db.js';
 import { insertOpenPark, listOpenParks, listParks } from '../store/usageLimitParks.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
@@ -101,6 +105,38 @@ describe('makeUsageLimitAgentModelPicker', () => {
     const pick = makeUsageLimitAgentModelPicker(() => fakeCatalog);
     expect(await pick('claude', null)).toBeUndefined();
     expect(showQuickPick).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('driverLockedRun', () => {
+  it('runs under the lock with the run signal and releases it afterwards', async () => {
+    const stop = new AbortController();
+    const driver = {
+      begin: vi.fn().mockReturnValue(true),
+      end: vi.fn(),
+      signalFor: vi.fn().mockReturnValue(stop.signal),
+    };
+    const run = vi.fn(async (signal?: AbortSignal) => signal);
+
+    const result = await driverLockedRun(driver)(7, run);
+
+    expect(result).toBe(stop.signal);
+    expect(driver.begin).toHaveBeenCalledWith(7);
+    expect(run).toHaveBeenCalledWith(stop.signal);
+    expect(driver.end).toHaveBeenCalledWith(7);
+  });
+
+  it('does not run when the ticket already has a driver in flight', async () => {
+    const driver = {
+      begin: vi.fn().mockReturnValue(false),
+      end: vi.fn(),
+      signalFor: vi.fn(),
+    };
+    const run = vi.fn();
+
+    expect(await driverLockedRun(driver)(7, run)).toBeUndefined();
+    expect(run).not.toHaveBeenCalled();
+    expect(driver.end).not.toHaveBeenCalled();
   });
 });
 
@@ -198,6 +234,28 @@ describe('createUsageLimitParkBinding', () => {
     expect(adapterFor).not.toHaveBeenCalled();
     expect(fakeAdapter.runHeadless).not.toHaveBeenCalled();
     expect(listParks(store, ticket.id)[0]?.resolution).toBe('dismiss');
+  });
+
+  it('runs the action under the driver single-flight wrapper with its Stop signal', async () => {
+    const { store, ticket } = setup();
+    showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
+    showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    const stop = new AbortController();
+    type DriverRun = NonNullable<Parameters<typeof createUsageLimitParkBinding>[0]['withDriverRun']>;
+    const withDriverRunSpy = vi.fn(
+      async (_id: number, run: (signal?: AbortSignal) => Promise<unknown>) => run(stop.signal),
+    );
+
+    const actions = binding(store, ticket.id, {
+      withDriverRun: withDriverRunSpy as unknown as DriverRun,
+      git: failingGit,
+    }).forTicket(ticket.id);
+    await actions.usageLimitPick(ticket.id, 'review');
+
+    expect(withDriverRunSpy).toHaveBeenCalledWith(ticket.id, expect.any(Function));
+    expect(fakeAdapter.runHeadless).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: stop.signal }),
+    );
   });
 
   it('defaults the git runner to the production seam', async () => {

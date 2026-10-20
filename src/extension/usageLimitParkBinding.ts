@@ -17,10 +17,37 @@ import {
   formatCoreChoices,
   formatModelChoices,
   type UsageLimitParkActions,
+  type ExclusiveRunner,
 } from './ops/usageLimitParkOps.js';
 import { makeReviewArtifactsBinding } from './reviewArtifactsBinding.js';
 
 export type { UsageLimitParkActions };
+
+/** The lock seam a park action runs under — the stage driver's controller. */
+export interface ParkRunLock {
+  begin(ticketId: number): boolean;
+  end(ticketId: number): void;
+  signalFor(ticketId: number): AbortSignal | undefined;
+}
+
+/**
+ * Wrap a park action in the stage driver's per-ticket single-flight lock and
+ * hand it the run's Stop signal. Returns undefined when a run is already in
+ * flight, so the action touches nothing — exactly like a lost park claim.
+ */
+export function driverLockedRun(driver: ParkRunLock) {
+  return async <T>(
+    ticketId: number,
+    run: (signal: AbortSignal | undefined) => Promise<T>,
+  ): Promise<T | undefined> => {
+    if (!driver.begin(ticketId)) return undefined;
+    try {
+      return await run(driver.signalFor(ticketId));
+    } finally {
+      driver.end(ticketId);
+    }
+  };
+}
 
 /**
  * D159: the two-step core → model QuickPick the usage-limit park actions use,
@@ -49,6 +76,14 @@ export interface UsageLimitParkBindingDeps {
   manifest: () => Manifest | undefined;
   redrive: (ticketId: number) => void;
   refresh: (ticketId: number) => void;
+  /**
+   * Run a park action under the stage driver's per-ticket single-flight lock,
+   * passing the run's Stop signal. Absent → run directly (tests).
+   */
+  withDriverRun?: <T>(
+    ticketId: number,
+    run: (signal: AbortSignal | undefined) => Promise<T>,
+  ) => Promise<T | undefined>;
   adapterFor: (provider: AgentProvider, model: string | null) => AgentAdapter;
   /** Resolve the role's assignment (profile prompt/effort/agent name) for the run. */
   assignmentFor?: (
@@ -84,6 +119,10 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
       manifest: deps.manifest,
       fallbackProjectId: () => undefined,
     });
+  const runExclusive = (ticketId: number): ExclusiveRunner =>
+    deps.withDriverRun
+      ? (run) => deps.withDriverRun!(ticketId, run)
+      : (run) => run(undefined);
   return {
     forTicket: (ticketId: number) =>
       makeUsageLimitParkActions({
@@ -94,6 +133,7 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
         manifest: deps.manifest,
         redrive: deps.redrive,
         refresh: deps.refresh,
+        runExclusive: runExclusive(ticketId),
         pickCore: async (items) => {
           const picked = await vscode.window.showQuickPick(items, { title: 'Pick agent core' });
           return picked;
