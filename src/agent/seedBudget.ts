@@ -35,6 +35,35 @@ export const SEED_BUDGETS = {
 } as const;
 
 /**
+ * Graph agent node kickoff: declared input artifacts are inlined only while
+ * they fit. Linux caps one exec argument at 131072 bytes (MAX_ARG_STRLEN), so
+ * the whole inputs section stays well under it.
+ */
+export const GRAPH_INPUT_BUDGETS = {
+  perArtifact: 16_384,
+  total: 49_152,
+} as const;
+
+/**
+ * Which inputs (declaration order, sizes in bytes) are inlined. Greedy: an
+ * input over the per-artifact cap, or one that no longer fits the remaining
+ * total, is pointered, and so is every input after the total is exhausted.
+ */
+export function planInputInlining(sizes: readonly number[]): boolean[] {
+  let used = 0;
+  let exhausted = false;
+  return sizes.map((size) => {
+    if (exhausted || size > GRAPH_INPUT_BUDGETS.perArtifact) return false;
+    if (used + size > GRAPH_INPUT_BUDGETS.total) {
+      exhausted = true;
+      return false;
+    }
+    used += size;
+    return true;
+  });
+}
+
+/**
  * The stated truncation pointer (§ "Truncation is always stated, never
  * silent"). A silently shortened seed is worse than a long one — the agent
  * must know to pull the rest via `karst context <key>`.

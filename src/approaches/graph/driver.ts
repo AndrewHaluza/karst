@@ -816,12 +816,24 @@ async function executeReadyNode(
         return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
       },
       readInputs: (paths) =>
-        paths
-          .map((p) => {
-            const bytes = deps.readBytes(graphRunId, p);
-            return bytes === undefined ? undefined : new TextDecoder().decode(bytes);
-          })
-          .filter((s): s is string => s !== undefined),
+        paths.flatMap((p) => {
+          const bytes = deps.readBytes(graphRunId, p);
+          if (bytes === undefined) return [];
+          const row = deps.db
+            .prepare(
+              `SELECT media_type FROM approach_artifact_instances
+               WHERE graph_run_id = ? AND snapshot_path = ? ORDER BY id DESC LIMIT 1`,
+            )
+            .get(graphRunId, p) as { media_type: string } | undefined;
+          return [
+            {
+              path: p,
+              mediaType: row?.media_type ?? 'text/plain',
+              bytes: bytes.byteLength,
+              body: new TextDecoder().decode(bytes),
+            },
+          ];
+        }),
       ticketContext: [
         nodeContext,
         visitMailboxSection(deps, graphRunId, row, parsed.document),
