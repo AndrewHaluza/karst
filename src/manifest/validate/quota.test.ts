@@ -17,6 +17,25 @@ describe('validateQuota', () => {
   it('reads an explicit threshold', () => {
     expect(validateQuota({ warnThresholdPct: 95 })).toEqual({ warnThresholdPct: 95 });
   });
+  it('defaults the global statusline install to OFF (absent)', () => {
+    expect(validateQuota({ warnThresholdPct: 80 })).not.toHaveProperty('claudeGlobalStatusline');
+    expect(validateQuota(undefined)).not.toHaveProperty('claudeGlobalStatusline');
+  });
+  it('reads the opt-in global Claude statusline flag', () => {
+    expect(validateQuota({ claudeGlobalStatusline: true })).toEqual({
+      warnThresholdPct: 80,
+      claudeGlobalStatusline: true,
+    });
+    expect(validateQuota({ warnThresholdPct: 95, claudeGlobalStatusline: false })).toEqual({
+      warnThresholdPct: 95,
+      claudeGlobalStatusline: false,
+    });
+  });
+  it('rejects a non-boolean global statusline flag', () => {
+    expect(() => validateQuota({ claudeGlobalStatusline: 'yes' })).toThrow(
+      /quota\.claudeGlobalStatusline must be true or false/,
+    );
+  });
   it('accepts the range bounds', () => {
     expect(validateQuota({ warnThresholdPct: 1 })).toEqual({ warnThresholdPct: 1 });
     expect(validateQuota({ warnThresholdPct: 100 })).toEqual({ warnThresholdPct: 100 });

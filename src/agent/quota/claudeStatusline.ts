@@ -20,6 +20,19 @@ import { writeFileIfChanged } from '../hookBridgeFiles.js';
 /** The wrapper's basename, also the recursion guard (see `readChainedStatuslineCommand`). */
 export const CLAUDE_STATUSLINE_WRAPPER_BASENAME = 'statusline.cjs';
 
+/**
+ * The one-time backup the opt-in GLOBAL install keeps beside the operator's
+ * `settings.json` (D184). `readChainedStatuslineCommand` reads it when the live
+ * entry is already karst's, so a per-session wrapper can still chain the
+ * operator's own command after the global install replaced it.
+ */
+export const CLAUDE_SETTINGS_BACKUP_BASENAME = 'settings.json.karst-backup';
+
+/** True when a `statusLine.command` already names karst's wrapper (recursion guard). */
+export function isKarstStatuslineCommand(command: string): boolean {
+  return command.includes(CLAUDE_STATUSLINE_WRAPPER_BASENAME);
+}
+
 /** The bounded stdin cap: a statusline payload is small; anything larger is declined. */
 export const MAX_STATUSLINE_INPUT_BYTES = 256 * 1024;
 
@@ -164,7 +177,8 @@ export function buildStatuslineEntry(opts: StatuslineEntryOpts): StatusLineEntry
 /**
  * The operator's statusline command from `<configDir>/settings.json`, or
  * `undefined`. Absent/unparseable/blank → none. A command that already names
- * the karst wrapper is SKIPPED so the wrapper never chains itself (recursion).
+ * the karst wrapper is not chained (recursion); its operator command is
+ * recovered from the global install's one-time backup instead.
  */
 export function readChainedStatuslineCommand(configDir: string): string | undefined {
   let raw: string;
@@ -184,8 +198,34 @@ export function readChainedStatuslineCommand(configDir: string): string | undefi
   if (typeof statusLine !== 'object' || statusLine === null) return undefined;
   const command = (statusLine as { command?: unknown }).command;
   if (typeof command !== 'string' || command.length === 0) return undefined;
-  if (command.includes(CLAUDE_STATUSLINE_WRAPPER_BASENAME)) return undefined;
+  if (isKarstStatuslineCommand(command)) return readBackupStatuslineCommand(configDir);
   return command;
+}
+
+/**
+ * The operator's command preserved by the opt-in GLOBAL install (D184), or
+ * `undefined`. Reading it when the live entry is karst's keeps a per-session
+ * wrapper chained to the operator's own statusline after the global install.
+ */
+function readBackupStatuslineCommand(configDir: string): string | undefined {
+  let raw: string;
+  try {
+    raw = readFileSync(join(configDir, CLAUDE_SETTINGS_BACKUP_BASENAME), 'utf8');
+  } catch {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const statusLine = (parsed as { statusLine?: unknown }).statusLine;
+  if (typeof statusLine !== 'object' || statusLine === null) return undefined;
+  const command = (statusLine as { command?: unknown }).command;
+  if (typeof command !== 'string' || command.length === 0) return undefined;
+  return isKarstStatuslineCommand(command) ? undefined : command;
 }
 
 /**

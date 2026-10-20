@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   CLAUDE_STATUSLINE_WRAPPER,
+  CLAUDE_SETTINGS_BACKUP_BASENAME,
   buildStatuslineEntry,
   readChainedStatuslineCommand,
   writeStatuslineWrapper,
@@ -98,6 +99,21 @@ describe('readChainedStatuslineCommand', () => {
       }),
     );
     expect(readChainedStatuslineCommand(dir)).toBeUndefined();
+  });
+
+  it("recovers the operator's command from the global install's one-time backup", () => {
+    const dir = makeDir();
+    writeFileSync(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        statusLine: { type: 'command', command: 'node "/x/claude/statusline.cjs" "/c/quota.json"' },
+      }),
+    );
+    writeFileSync(
+      join(dir, CLAUDE_SETTINGS_BACKUP_BASENAME),
+      JSON.stringify({ statusLine: { type: 'command', command: 'bash ~/.claude/statusline-command.sh' } }),
+    );
+    expect(readChainedStatuslineCommand(dir)).toBe('bash ~/.claude/statusline-command.sh');
   });
 });
 

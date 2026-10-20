@@ -1503,7 +1503,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // re-applied the moment the file changed — including the external watcher.
   const reloadManifest = (): void => {
     manifests.reload();
-    applyManifestDebug(currentManifest());
+    applyManifestDebug(currentManifest()); quotaOps.syncClaudeGlobalStatusline();
   };
 
   // This window's project (§ projects / multi-window). Every window shares one
@@ -2744,12 +2744,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       hide: () => quotaStatus.hide(),
     },
     notify: (message) => void vscode.window.showWarningMessage(message),
-  });
+  }, { manifest: currentManifest, storageRoot: context.globalStorageUri.fsPath, warn: (m) => logger.warn(m), info: (m) => logger.info(m), error: logError });
   onQuotaChange = (snapshots) => {
     tokenUsagePanel.refresh();
     quotaOps.applyStatus(snapshots);
   };
-  quotaService.start();
+  quotaService.start(); quotaOps.syncClaudeGlobalStatusline();
   context.subscriptions.push({ dispose: () => quotaService.dispose() });
 
 
