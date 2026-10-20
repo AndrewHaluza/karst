@@ -142,10 +142,12 @@ describe('makeBridgeBuild', () => {
     makeBridgeBuild(deps({ warn, notifyFailure }))(ticketId, paths);
     captured[0]!.onMarkerFailure!({ stage: 'impl', reason: 'no repository has changes', diverged: false });
     captured[0]!.onMarkerFailure!({ stage: 'impl', reason: 'not a fast-forward', diverged: true });
+    captured[0]!.onMarkerFailure!({ stage: 'fix', reason: 'x (gave up after 8 retries)', diverged: false, gaveUp: true });
     expect(warn).toHaveBeenCalledWith('Karst: K-1 impl done marker failed: no repository has changes');
     expect(notifyFailure.mock.calls).toEqual([
-      [ticketId, 'Karst: K-1 impl done marker failed: no repository has changes', false],
-      [ticketId, 'Karst: K-1 impl done marker failed: not a fast-forward', true],
+      [ticketId, 'Karst: K-1 impl done marker failed: no repository has changes', false, false],
+      [ticketId, 'Karst: K-1 impl done marker failed: not a fast-forward', true, false],
+      [ticketId, 'Karst: K-1 fix done marker failed: x (gave up after 8 retries)', false, true],
     ]);
   });
 

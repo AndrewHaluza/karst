@@ -5,7 +5,7 @@ import { isMarkerStage, type MarkerStage } from '../markerStage.js';
 import type { BridgePaths } from './bridgeDir.js';
 import { createBridgePoller, type BridgePoller } from './bridgePoller.js';
 import { verifyBridgeLine, type BridgeExpectation } from './bridgeVerifier.js';
-import { createMarkerFlow, type MarkerFailure, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
+import { createMarkerFlow, type MarkerFailure, type QueuedMarker, type MarkerOutcome, type PendingMarkerStore } from './markerFlow.js';
 import { writeMarkerReply } from './markerReply.js';
 
 export type MarkerRunner = (stage: MarkerStage) => Promise<MarkerOutcome>;
@@ -29,6 +29,10 @@ export interface BridgeAttachmentDeps {
 export type BridgeAttachment = Pick<BridgePoller, 'start' | 'stop' | 'pollOnce'> & {
   /** Re-run a marker that failed transiently (boot sweep, successful sync). */
   retryPending?(): Promise<void>;
+  /** The queued marker's reason/attempt/next retry; undefined when none waits. */
+  markerStatus?(): QueuedMarker | undefined;
+  /** "Retry now": run the queued marker, or requeue a gave-up one with a fresh counter. */
+  retryNow?(): Promise<void>;
 };
 
 /** The retry record lives in the host-only state dir (never the sandbox-writable events dir); a garbled file reads as none. */
@@ -135,5 +139,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
       await poller.stop();
     },
     retryPending: () => flow.retryPending(),
+    markerStatus: () => flow.status(),
+    retryNow: () => flow.retryNow(),
   };
 }

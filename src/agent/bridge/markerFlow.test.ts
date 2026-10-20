@@ -133,4 +133,39 @@ describe('createMarkerFlow', () => {
     const t = setup([{ code: 0, stderr: '' }], { reply: async () => { throw new Error('disk'); } });
     await expect(t.flow.handle('impl', 'a1')).resolves.toBeUndefined();
   });
+
+  it('status reports reason, attempt and next-retry time while a marker is queued, and clears on success', async () => {
+    const t = setup([{ code: 1, stderr: 'sync failed', transient: true }], { now: () => 1_000 });
+    expect(t.flow.status()).toBeUndefined();
+    await t.flow.handle('impl', 'a1');
+    expect(t.flow.status()).toEqual({ stage: 'impl', reason: 'sync failed', attempt: 1, maxRetries: 8, nextAt: 1_010 });
+    await fire(t.timers[0]!, t.flow);
+    expect(t.flow.status()).toBeUndefined();
+  });
+  it('the gave-up report is flagged gaveUp and retryNow requeues the marker with a fresh counter', async () => {
+    const fails = Array.from({ length: 3 }, () => ({ code: 1, stderr: 'x', transient: true }));
+    const t = setup([...fails, { code: 0, stderr: '' }], { maxRetries: 1 });
+    await t.flow.handle('impl', 'a1');
+    await fire(t.timers[0]!, t.flow);
+    await fire(t.timers[1]!, t.flow);
+    expect(t.reports.at(-1)).toMatchObject({ stage: 'impl', gaveUp: true });
+    expect(t.saved).toBeUndefined();
+    expect(t.flow.status()).toBeUndefined();
+    await t.flow.retryNow();
+    expect(t.run).toHaveBeenCalledTimes(4);
+    expect(t.saved).toBeUndefined();
+  });
+  it('retryNow runs a queued marker immediately and cancels its timer', async () => {
+    const t = setup([{ code: 1, stderr: 'x', transient: true }]);
+    await t.flow.handle('impl', 'a1');
+    await t.flow.retryNow();
+    expect(t.timers[0]!.cancelled).toBe(true);
+    expect(t.run).toHaveBeenCalledTimes(2);
+    expect(t.saved).toBeUndefined();
+  });
+  it('retryNow with nothing queued or given up does nothing', async () => {
+    const t = setup([]);
+    await t.flow.retryNow();
+    expect(t.run).not.toHaveBeenCalled();
+  });
 });

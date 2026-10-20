@@ -13,6 +13,19 @@ export interface MarkerFailure {
   readonly stage: MarkerStage;
   readonly reason: string;
   readonly diverged: boolean;
+  /** Retries are spent and the pending marker dropped; the user's "Retry now" requeues it with a fresh counter. */
+  readonly gaveUp?: boolean;
+}
+
+/** A transient failure waiting on its backoff timer. */
+export interface QueuedMarker {
+  readonly stage: MarkerStage;
+  readonly reason: string;
+  /** Retries scheduled so far (1 after the first failure). */
+  readonly attempt: number;
+  readonly maxRetries: number;
+  /** Epoch ms of the next scheduled retry. */
+  readonly nextAt: number;
 }
 
 export interface PendingMarkerStore {
@@ -35,6 +48,8 @@ export interface MarkerFlowDeps {
   readonly backoffMs?: readonly number[];
   /** Retries after the first failure before the marker is dropped (default `MARKER_MAX_RETRIES`). */
   readonly maxRetries?: number;
+  /** Clock seam for `status().nextAt`. */
+  readonly now?: () => number;
 }
 
 export interface MarkerFlow {
@@ -42,6 +57,10 @@ export interface MarkerFlow {
   handle(stage: MarkerStage, seq: string | undefined): Promise<void>;
   /** Re-run a persisted transient marker (boot sweep, backoff timer, successful sync). */
   retryPending(): Promise<void>;
+  /** The queued marker's reason, attempt and next retry time; `undefined` when nothing is waiting. */
+  status(): QueuedMarker | undefined;
+  /** Run the queued marker now, or requeue a gave-up one with a fresh retry counter. */
+  retryNow(): Promise<void>;
   /** Resolves when queued work is done. */
   idle(): Promise<void>;
   stop(): void;
@@ -65,6 +84,9 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
   let attempt = 0;
   const maxRetries = deps.maxRetries ?? MARKER_MAX_RETRIES;
   let stopped = false;
+  const now = deps.now ?? Date.now;
+  let queued: QueuedMarker | undefined;
+  let gaveUpStage: MarkerStage | undefined;
 
   const reply = async (seq: string | undefined, stage: MarkerStage, ok: boolean, retrying: boolean, reason: string): Promise<void> => {
     if (seq === undefined) return;
@@ -79,6 +101,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     if (stopped) return;
     const ms = backoff[Math.min(attempt, backoff.length - 1)]!;
     attempt += 1;
+    if (queued) queued = { ...queued, attempt, nextAt: now() + ms };
     cancelTimer = schedule(() => { void retryPending(); }, ms);
   };
   const run = async (stage: MarkerStage, seq: string | undefined, retry: boolean): Promise<void> => {
@@ -96,6 +119,8 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     if (outcome.code === 0) {
       cancelTimer?.();
       attempt = 0;
+      queued = undefined;
+      gaveUpStage = undefined;
       await deps.pending.clear();
       await reply(seq, stage, true, false, '');
       return;
@@ -105,17 +130,21 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     const transient = outcome.transient === true && !diverged;
     if (transient && retry && attempt > maxRetries) {
       // Out of retries: say so once, stop persisting.
-      deps.report({ stage, reason: `${reason} (gave up after ${maxRetries} retries)`, diverged });
+      deps.report({ stage, reason: `${reason} (gave up after ${maxRetries} retries)`, diverged, gaveUp: true });
       attempt = 0;
+      queued = undefined;
+      gaveUpStage = stage;
       await deps.pending.clear();
       return;
     }
     // A retry that fails again was already shown; only the first failure notifies.
     if (!retry) deps.report({ stage, reason, diverged });
     if (transient) {
+      queued = { stage, reason, attempt, maxRetries, nextAt: 0 };
       await deps.pending.save(stage);
       arm();
     } else {
+      queued = undefined;
       if (retry) deps.report({ stage, reason, diverged });
       await deps.pending.clear();
     }
@@ -131,7 +160,17 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
     if (stage === undefined) return;
     await enqueue(stage, undefined, true);
   }
+  async function retryNow(): Promise<void> {
+    const stage = (await deps.pending.load()) ?? gaveUpStage;
+    if (stage === undefined) return;
+    cancelTimer?.();
+    attempt = 0;
+    gaveUpStage = undefined;
+    await enqueue(stage, undefined, false);
+  }
   return {
+    status: () => queued,
+    retryNow,
     handle: (stage, seq) => enqueue(stage, seq, false),
     retryPending,
     idle: () => chain,
