@@ -71,6 +71,14 @@ the 6200 B cap): the helper containers use the same `--cap-drop ALL
 --security-opt no-new-privileges` as the agent container (chown keeps only
 `CHOWN`); bind paths containing `,` or a newline are refused; a failed prepare
 stops the proxy, so no egress stays up.
+
+**Linux and Windows detail** (also moved from `@arch:AC-33`): Linux runs
+`--user <uid>:<gid>` from `process.getuid()`/`getgid()` (never shell
+expansion), with a `HOME` tmpfs owned by that uid and new volumes chowned to it
+once, as root inside a throwaway container (blocker 5). Windows is desk-checked
+only (ST2B exp 10) and needs Docker Desktop + WSL2; clone mode avoids the `C:\`
+→ `/mnt/c` worktree rewrite, but the bundle temp dir is still a bind mount, and
+bind-mount speed and path translation are untested.
 END_DOC_BLOCK: [@issue:GATE-02]
 
 ## [@issue:GATE-03] How to run these gates today
