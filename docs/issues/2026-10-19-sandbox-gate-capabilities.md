@@ -65,6 +65,12 @@ so the capabilities a repository's gates need are a repository change:
 
 The image tag carries the Playwright release and a revision, so a host
 rebuilds it instead of reusing the one it has.
+
+**Docker hardening detail** (moved from `@arch:AC-33` to keep that block under
+the 6200 B cap): the helper containers use the same `--cap-drop ALL
+--security-opt no-new-privileges` as the agent container (chown keeps only
+`CHOWN`); bind paths containing `,` or a newline are refused; a failed prepare
+stops the proxy, so no egress stays up.
 END_DOC_BLOCK: [@issue:GATE-02]
 
 ## [@issue:GATE-03] How to run these gates today
