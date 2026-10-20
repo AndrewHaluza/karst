@@ -1,4 +1,5 @@
 import type { PortMapping } from '../sessionRunner.js';
+import { setupHostError, SETUP_HOST_PORT } from '../sandboxSetupHosts.js';
 import { checkPort, PUBLISH_HOST, publishSpec, SANDBOX_HOST_ALIAS } from '../sandboxPorts.js';
 
 export { isPortTakenError } from '../sandboxPorts.js';
@@ -33,4 +34,22 @@ export function sbxPolicyArgs(verb: 'allow' | 'rm', name: string, ports: readonl
   if (ports.length === 0) throw new Error('karst: sbx policy: no ports');
   const resources = ports.map((p) => `${SANDBOX_HOST_ALIAS}:${checkPort(p)}`).join(',');
   return ['policy', verb, 'network', '--sandbox', name, resources];
+}
+
+/** The `<host>:443` resource of one setup host; a separate form from the port-only baseline rule. */
+export function setupHostResource(host: string): string {
+  const bad = setupHostError(host);
+  if (bad) throw new Error(`karst: sbx policy: ${bad}`);
+  return `${host}:${SETUP_HOST_PORT}`;
+}
+
+/** A per-sandbox network rule for exactly the given setup hosts. */
+export function sbxHostPolicyArgs(verb: 'allow' | 'rm', name: string, hosts: readonly string[]): string[] {
+  if (hosts.length === 0) throw new Error('karst: sbx policy: no hosts');
+  return ['policy', verb, 'network', '--sandbox', name, hosts.map(setupHostResource).join(',')];
+}
+
+/** Every `<host>:<port>` resource a `sbx policy ls` listing shows (lower-cased); the shape of the rest is not relied on. */
+export function parseSbxAllowed(stdout: string): Set<string> {
+  return new Set((stdout.toLowerCase().match(/[a-z0-9*][a-z0-9.*-]*:\d+/g) ?? []));
 }

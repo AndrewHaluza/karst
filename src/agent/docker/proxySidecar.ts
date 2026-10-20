@@ -28,7 +28,9 @@ export interface SidecarSpec {
 
 const HOSTALLOW_LABEL = 'karst.hostallow';
 /** Running state + the baseline ports the proxy was started with, in one inspect. */
-const INSPECT_FORMAT = `{{.State.Running}} {{index .Config.Labels "${HOSTALLOW_LABEL}"}}`;
+const ALLOW_LABEL = 'karst.allow';
+const INSPECT_FORMAT = `{{.State.Running}} {{index .Config.Labels "${HOSTALLOW_LABEL}"}} {{index .Config.Labels "${ALLOW_LABEL}"}}`;
+const noValue = (v: string): string => (v === '<no value>' ? '' : v);
 
 function hostAllowValue(ports: readonly number[] | undefined): string {
   return (ports ?? []).map((p) => `${SANDBOX_HOST_ALIAS}:${checkPort(p)}`).join(',');
@@ -43,6 +45,8 @@ export function sidecarRunArgs(spec: SidecarSpec): string[] {
     '--network', spec.network, '--network-alias', PROXY_ALIAS,
     '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
     '--env', `ALLOW=${(spec.allow ?? DOCKER_ALLOWLIST).join(',')}`,
+    // Only a non-baseline allow (a setup window) is labelled: a proxy without the label IS the baseline.
+    ...(spec.allow ? ['--label', `${ALLOW_LABEL}=${spec.allow.join(',')}`] : []),
     ...hostAllowArgs(spec.hostPorts),
     '--mount', bindMount(spec.scriptPath, SCRIPT_IN_CONTAINER, true),
     OPENCODE_IMAGE, 'node', SCRIPT_IN_CONTAINER,
@@ -66,8 +70,8 @@ function hostAllowArgs(ports: readonly number[] | undefined): string[] {
  */
 export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec): Promise<SidecarResult> {
   const state = await proc.run(DOCKER_BIN, ['container', 'inspect', '--format', INSPECT_FORMAT, spec.proxy]);
-  const [running = '', label = ''] = state.stdout.trim().split(/\s+/);
-  const sameAllow = (label === '<no value>' ? '' : label) === hostAllowValue(spec.hostPorts);
+  const [running = '', label = '', allowLabel = ''] = state.stdout.trim().split(/\s+/);
+  const sameAllow = noValue(label) === hostAllowValue(spec.hostPorts) && noValue(allowLabel) === (spec.allow?.join(',') ?? '');
   if (state.code === 0 && running === 'true' && sameAllow) return { ok: true };
   if (state.code === 0) await proc.run(DOCKER_BIN, ['rm', '--force', spec.proxy]);
   const run = await proc.run(DOCKER_BIN, sidecarRunArgs(spec));

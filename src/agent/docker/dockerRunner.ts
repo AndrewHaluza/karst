@@ -21,7 +21,7 @@ import {
   type LinuxUser,
   rewritePaths,
 } from './dockerRunArgs.js';
-import { startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+import { DOCKER_ALLOWLIST, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
 
 export interface DockerRunnerOptions {
   readonly proc: DockerProcess;
@@ -36,6 +36,8 @@ export interface DockerRunnerOptions {
   readonly gateProcess?: GateProcessRunner;
   /** Agent-visible evidence dir (the bridge mount), exported to gates as `KARST_EVIDENCE_DIR`. */
   readonly evidenceDir?: string;
+  /** What a setup window needs to recreate the proxy: its bundled script and the baseline host ports. */
+  readonly proxy?: { readonly script: string; readonly hostPorts?: readonly number[] };
 }
 
 /**
@@ -108,6 +110,16 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
         gateOpts?.signal?.removeEventListener('abort', onAbort);
         await remove();
       }
+    },
+    // ALLOW is a create-time env: opening and closing recreate the proxy (the caller only does so with an idle agent).
+    windowNeedsIdle: true,
+    setupWindow: async (hosts) => {
+      if (!opts.proxy) return { ok: false, reason: 'docker: no proxy script to recreate the allowlist proxy with' };
+      const spec = { proxy: opts.names.proxy, network: opts.names.network, scriptPath: opts.proxy.script, ...(opts.proxy.hostPorts ? { hostPorts: opts.proxy.hostPorts } : {}) };
+      const opened = await startProxySidecar(opts.proc, { ...spec, allow: [...DOCKER_ALLOWLIST, ...hosts.map((h) => h.replace(/^\*\./, ''))] });
+      // A failed open may leave a half-built proxy: put the baseline back before reporting.
+      if (!opened.ok) { await startProxySidecar(opts.proc, spec); return opened; }
+      return { ok: true, close: async () => { await startProxySidecar(opts.proc, spec); } };
     },
     canHostServices: async () => {
       if (await containerRunning(opts.proc, opts.names.container)) return true;

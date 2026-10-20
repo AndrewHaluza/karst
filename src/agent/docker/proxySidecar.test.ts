@@ -19,7 +19,7 @@ describe('proxySidecar', () => {
       'run', '--detach', '--name', 'k-proxy',
       '--network', 'k-net', '--network-alias', 'karst-proxy',
       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-      '--env', 'ALLOW=a.io,b.io',
+      '--env', 'ALLOW=a.io,b.io', '--label', 'karst.allow=a.io,b.io',
       '--mount', 'type=bind,source=/ext dir/allowlist-proxy.mjs,target=/opt/karst/allowlist-proxy.mjs,readonly',
       OPENCODE_IMAGE, 'node', '/opt/karst/allowlist-proxy.mjs',
     ]);

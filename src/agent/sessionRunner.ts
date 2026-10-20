@@ -77,6 +77,10 @@ export type StepOutcome = { readonly ok: true } | { readonly ok: false; readonly
 
 export type { GateProcessRunner };
 
+export type SetupWindow =
+  | { readonly ok: true; readonly close: () => Promise<void> }
+  | { readonly ok: false; readonly reason: string };
+
 export interface SessionRunner {
   readonly kind: 'host' | 'sbx' | 'docker';
   /**
@@ -124,6 +128,13 @@ export interface SessionRunner {
   listPorts?(): Promise<readonly PortMapping[] | null>;
   /** Sandbox runners only: let the sandbox reach exactly these host ports (baseline services). */
   allowHostPorts?(ports: readonly number[]): Promise<StepOutcome>;
+  /**
+   * Sandbox runners only: open the network for exactly these hosts (port 443) for the setup step; `close`
+   * undoes exactly what open added, so baseline allows stay. docker recreates its proxy (`windowNeedsIdle`).
+   */
+  setupWindow?(hosts: readonly string[]): Promise<SetupWindow>;
+  /** docker: a window recreates the proxy and cuts live connections, so only an idle agent may open one. */
+  readonly windowNeedsIdle?: boolean;
   /**
    * Where a gate runs. The host runner's is `runProcess` itself (zero behaviour
    * change); a sandbox runner execs into the sandbox, against the live edits.

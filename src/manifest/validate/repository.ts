@@ -25,6 +25,7 @@ import {
   validateArtifactTemplate,
   type ArtifactConventionName,
 } from '../../workflow/artifactConventions.js';
+import { setupHostError } from '../../agent/sandboxSetupHosts.js';
 import {
   assertUnique,
   isObject,
@@ -32,12 +33,21 @@ import {
   requireString,
 } from './primitives.js';
 
-/** A repository's optional `sandbox:` block; the one key is `setup`, a non-empty command. */
-function validateRepoSandbox(raw: unknown, repo: string): { setup: string } | undefined {
+/** A repository's optional `sandbox:` block: `setup`, a non-empty command, and its `setupHosts` network window. */
+function validateRepoSandbox(raw: unknown, repo: string): { setup: string; setupHosts?: string[] } | undefined {
   if (raw === undefined) return undefined;
   const where = `repository "${repo}" sandbox`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
-  return { setup: requireString(raw.setup, `${where}.setup`) };
+  const setup = requireString(raw.setup, `${where}.setup`);
+  if (raw.setupHosts === undefined) return { setup };
+  if (!Array.isArray(raw.setupHosts) || raw.setupHosts.length === 0) throw new ManifestError(`${where}.setupHosts must be a non-empty list of hosts`);
+  const setupHosts = raw.setupHosts.map((h, i) => {
+    const host = requireString(h, `${where}.setupHosts[${i}]`);
+    const bad = setupHostError(host);
+    if (bad) throw new ManifestError(`${where}.setupHosts[${i}] ${bad}`);
+    return host;
+  });
+  return { setup, setupHosts };
 }
 
 /** The three templates a repository may override, in the global block's order. */

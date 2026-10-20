@@ -116,7 +116,7 @@ export function writeManifest(path: string, manifest: Manifest): void {
       ship: repo.ship,
       // Written when set, dropped when cleared (undefined → omitted by the dumper).
       sandbox: repo.sandbox
-        ? { ...(isRecord(rawRepo.sandbox) ? rawRepo.sandbox : {}), setup: repo.sandbox.setup }
+        ? { ...(isRecord(rawRepo.sandbox) ? rawRepo.sandbox : {}), setup: repo.sandbox.setup, setupHosts: repo.sandbox.setupHosts }
         : undefined,
       // Per-repo convention overrides. Overlay each modeled key onto the raw
       // block (like the global `conventions`) so an unmodeled nested key

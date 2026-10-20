@@ -1,3 +1,4 @@
+import { join } from 'node:path';
 import type { Manifest } from '../../manifest/types.js';
 import { backendForCore, selectedSandboxBackends, type AgentBackends } from '../../agent/backendChoices.js';
 import type { Store } from '../../store/db.js';
@@ -6,7 +7,7 @@ import { isDockerCore } from '../../agent/docker/dockerImage.js';
 import { dockerNames } from '../../agent/docker/dockerNames.js';
 import { NODE_DOCKER_PROCESS, type DockerProcess } from '../../agent/docker/dockerProcess.js';
 import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
-import { linuxUser } from '../../agent/docker/resolveDocker.js';
+import { DOCKER_ASSETS_DIR, linuxUser } from '../../agent/docker/resolveDocker.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
@@ -53,6 +54,9 @@ export interface TicketSandboxDeps {
   readonly inventory?: (ticketId: number) => Promise<readonly ProjectSandbox[]>;
   /** Last core the listing resolved for a ticket (sync callers read it back via `coreOf`). */
   readonly remember?: (ticketId: number, core: string | null) => void;
+  /** Baseline host ports the docker proxy keeps allowing while a setup window recreates it. */
+  readonly hostPortsOf?: (ticketId: number) => readonly number[];
+  readonly proxyScript?: string;
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
   readonly platform?: NodeJS.Platform;
@@ -85,6 +89,7 @@ export function ticketSandboxRunner(deps: TicketSandboxDeps, ticketId: number, c
       proc: deps.dockerProc ?? NODE_DOCKER_PROCESS, core, names,
       user: linuxUser(deps.platform ?? process.platform, process.getuid?.(), process.getgid?.()),
       ...(bridge ? { evidenceDir: bridge.runDir } : {}),
+      ...(deps.proxyScript ? { proxy: { script: deps.proxyScript, hostPorts: deps.hostPortsOf?.(ticketId) ?? [] } } : {}),
     });
     return { runner, sandboxName: names.container };
   }
@@ -234,6 +239,8 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     inventory: input.inventory ?? (async (ticketId) => (await listProjectSandboxes({
       projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
     })).sandboxes),
+    proxyScript: input.proxyScript ?? join(DOCKER_ASSETS_DIR, 'allowlist-proxy.mjs'),
+    hostPortsOf: (ticketId) => { const m = input.manifest(); return m ? baselineHostPorts(m, ticketBaselineKeys(input.store, ticketId)) : []; },
     remember: (ticketId, core) => { if (core === null) cores.delete(ticketId); else cores.set(ticketId, core); },
     bridgeOf: (ticketId) => {
       const root = input.bridgeRoot();
@@ -285,13 +292,15 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     },
     gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
     /** arch:AC-36: run the repos' `sandbox.setup` inside the sandbox; refused = a reason, notified once. Host ticket / no notify seam = ok. */
-    provision: async (ticketId: number, opts: { readonly signal?: AbortSignal } = {}) => {
+    provision: async (ticketId: number, opts: { readonly signal?: AbortSignal; readonly background?: boolean } = {}) => {
       // `ticketGateProcess` falls back to the HOST runner without a sandbox: never run a setup there.
       if (!input.notify || !(await resolveTicketSandbox(deps, ticketId)).listed) return { ok: true as const };
       return provisionTicketSandbox({
         manifest: input.manifest, worktrees: (id) => listWorktreesByTicket(input.store, id), gateProcess: (id) => ticketGateProcess(deps, id),
         bridgeOf: (id) => deps.bridgeOf?.(id), ticketLabel: (id) => { try { return getTicket(input.store, id).key ?? String(id); } catch { return String(id); } },
         notify: input.notify, ...(input.debug ? { debug: input.debug } : {}),
+        windowOf: (id) => ticketSandboxRunner(deps, id)?.runner,
+        turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },
       }, ticketId, opts);
     },
     /** `karst.sandbox.setup`: forget the recorded setup, then run it again now (an unchanged lockfile would otherwise skip it). */
@@ -311,7 +320,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
           if ((await resolveTicketSandbox(deps, ticketId)).listed) break;
           await wait(5_000);
         }
-        await bindings.provision(ticketId);
+        await bindings.provision(ticketId, { background: true });
       })().catch(input.onError);
     },
     hostGateFor: (ticketId: number) => {

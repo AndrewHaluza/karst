@@ -1,7 +1,9 @@
 import { readdir, rm } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
-import { ensureSandboxSetup, type SetupResult } from '../../agent/sandboxSetup.js';
+import { ensureSandboxSetup, type SetupResult, type SetupWindowPort } from '../../agent/sandboxSetup.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
+import { setupHostsOf } from '../../agent/sandboxSetupHosts.js';
+import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import type { Notify } from './notify.js';
@@ -13,6 +15,10 @@ export interface TicketSetupDeps {
   /** The ticket's sandbox gate runner, or undefined for a host ticket. */
   readonly gateProcess: (ticketId: number) => GateProcessRunner | undefined;
   readonly bridgeOf: (ticketId: number) => BridgePaths | undefined;
+  /** The ticket's sandbox runner: where the setup network window opens and closes. */
+  readonly windowOf?: (ticketId: number) => Pick<SessionRunner, 'setupWindow' | 'windowNeedsIdle'> | undefined;
+  /** Is an agent turn live? docker's window recreates the proxy, so it waits for idle. */
+  readonly turnActive?: (ticketId: number) => boolean;
   readonly ticketLabel: (ticketId: number) => string;
   readonly notify: Notify;
   readonly debug?: (message: string) => void;
@@ -30,9 +36,16 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
   const runGate = deps.gateProcess(ticketId);
   const paths = deps.bridgeOf(ticketId);
   if (!manifest || !runGate) return { ok: true };
+  const runner = deps.windowOf?.(ticketId);
+  // A docker window recreates the proxy: not at create (an agent session is coming up), the first pre-gate check runs it.
+  if (opts.background && runner?.windowNeedsIdle) return { ok: true };
+  const open = runner?.setupWindow?.bind(runner);
+  const window: SetupWindowPort | undefined = open
+    ? { open, needsIdle: runner?.windowNeedsIdle === true, turnActive: () => deps.turnActive?.(ticketId) === true }
+    : undefined;
   const todo = deps.worktrees(ticketId).flatMap((wt) => {
     const [name, def] = Object.entries(manifest.repositories).find(([key, r]) => key === wt.repo || r.repoPath === wt.repo) ?? [];
-    return name && def?.sandbox ? [{ name, setup: def.sandbox.setup, cwd: wt.path }] : [];
+    return name && def?.sandbox ? [{ name, setup: def.sandbox.setup, hosts: setupHostsOf(def.sandbox.setupHosts), cwd: wt.path }] : [];
   });
   for (const [i, job] of todo.entries()) {
     // The first repo owns `<id>.setup.json`; further ones get their own file beside it.
@@ -40,10 +53,10 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     if (!stateFile) return { ok: true }; // no bridge dir: nowhere outside the mount to record, so no step
     const result = await ensureSandboxSetup(
       {
-        runGate, stateFile, ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
+        runGate, stateFile, ...(window ? { window } : {}), ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
         ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
       },
-      { key: `${ticketId}:${job.name}`, setup: job.setup, cwd: job.cwd, ...(opts.signal ? { signal: opts.signal } : {}) },
+      { key: `${ticketId}:${job.name}`, setup: job.setup, hosts: job.hosts, cwd: job.cwd, ...(opts.signal ? { signal: opts.signal } : {}) },
     );
     if (!result.ok) {
       deps.debug?.(`[sandbox] ticket ${ticketId} ${job.name}: ${result.reason}`);

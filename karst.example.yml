@@ -310,6 +310,9 @@ repositories:
     # automatically when the lockfile changes.
     # sandbox:
     #   setup: npm ci
+    #   # Hosts reachable ONLY while setup runs (port 443; default: registry.npmjs.org, github.com,
+    #   # objects.githubusercontent.com). Closed again afterwards.
+    #   setupHosts: [registry.npmjs.org, github.com, objects.githubusercontent.com]
 
   # MONOREPO with several runnable processes. Use `services:` as a NAMED MAP
   # instead of `service:`. Each entry is a full service (start/health/ports/

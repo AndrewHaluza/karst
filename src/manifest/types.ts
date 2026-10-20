@@ -212,8 +212,10 @@ export interface RepositoryDef {
    * Sandbox provisioning for this repository (arch:AC-36). `setup` is the command
    * (e.g. `npm ci`) run INSIDE a sandboxed ticket's clone before its gates, so
    * the gates find node_modules. Absent = no step, gates run as before.
+   * `setupHosts` (host or `*.suffix` names, port 443) are the only extra hosts the
+   * sandbox may reach WHILE the setup runs; absent = `DEFAULT_SETUP_HOSTS`.
    */
-  sandbox?: { setup: string };
+  sandbox?: { setup: string; setupHosts?: string[] };
   /**
    * Ship behaviour for this repository. Absent means "ship the whole worktree"
    * — the default. The one knob today is `exclude`, the pathspecs ship's sweep

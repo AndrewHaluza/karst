@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { GateProcessRunner } from '../workflow/gates/run.js';
+import type { SetupWindow } from './sessionRunner.js';
 
 /** How long a setup (or a wait on one) may take before the gate list is refused. */
 export const SETUP_BOUND_MS = 15 * 60_000;
@@ -12,14 +13,23 @@ const PID_FILE = '/tmp/karst-setup.pid';
 
 export interface SetupState {
   readonly fingerprint: string;
-  readonly status: 'running' | 'ok' | 'failed';
+  readonly status: 'running' | 'ok' | 'failed' | 'deferred';
   readonly exitCode: number | null;
   readonly at: number;
 }
 
 export type SetupResult = { readonly ok: true } | { readonly ok: false; readonly reason: string };
 
+/** The network window around the setup step (arch:AC-36): open for the declared hosts, close when it ends. */
+export interface SetupWindowPort {
+  readonly open: (hosts: readonly string[]) => Promise<SetupWindow>;
+  /** docker: the window recreates the proxy, so it only opens while no agent turn is active. */
+  readonly needsIdle: boolean;
+  readonly turnActive: () => boolean;
+}
+
 export interface SetupDeps {
+  readonly window?: SetupWindowPort;
   /** The sandbox's gate runner: every command here runs INSIDE the sandbox, never on the host. */
   readonly runGate: GateProcessRunner;
   /** `<root>/state/<id>.setup.json`: outside the sandbox mount (arch:AC-34). */
@@ -37,6 +47,8 @@ export interface SetupRequest {
   readonly setup: string;
   /** The repo root in the clone (the gate cwd). */
   readonly cwd: string;
+  /** Hosts opened for the setup step (default `DEFAULT_SETUP_HOSTS` at the caller). */
+  readonly hosts?: readonly string[];
   readonly signal?: AbortSignal;
 }
 
@@ -77,7 +89,7 @@ async function readState(file: string): Promise<SetupState | undefined> {
     const raw: unknown = JSON.parse(await readFile(file, 'utf8'));
     const s = raw as Partial<SetupState>;
     if (typeof s.fingerprint !== 'string' || typeof s.at !== 'number') return undefined;
-    if (s.status !== 'running' && s.status !== 'ok' && s.status !== 'failed') return undefined;
+    if (s.status !== 'running' && s.status !== 'ok' && s.status !== 'failed' && s.status !== 'deferred') return undefined;
     return { fingerprint: s.fingerprint, status: s.status, exitCode: s.exitCode ?? null, at: s.at };
   } catch {
     return undefined;
@@ -100,10 +112,52 @@ async function fingerprintOf(deps: SetupDeps, req: SetupRequest): Promise<string
   return { ok: false, reason: `sandbox dependencies not provisioned: could not fingerprint the lockfiles in the sandbox (${out.output.trim().slice(0, 200) || out.kind})` };
 }
 
+const BLOCKED_HOST = /(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|getaddrinfo \w+)\s+([a-z0-9][a-z0-9.-]*\.[a-z]{2,})/i;
+
+/** The host a failed download names (DNS or refused connection = the proxy/policy blocked it), if any. */
+const blockedHost = (body: string): string | undefined => BLOCKED_HOST.exec(body)?.[1];
+
+/**
+ * docker only: with an agent turn live the window cannot open (it recreates the proxy). Record `deferred` and
+ * wait, bounded; undefined = go ahead, a result = refuse.
+ */
+async function waitForIdle(deps: SetupDeps, req: SetupRequest, fingerprint: string): Promise<SetupResult | undefined> {
+  const win = deps.window;
+  if (!win?.needsIdle || !win.turnActive()) return undefined;
+  const now = deps.now ?? Date.now;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const deadline = now() + (deps.boundMs ?? SETUP_BOUND_MS);
+  await writeState(deps.stateFile, { fingerprint, status: 'deferred', exitCode: null, at: now() });
+  while (win.turnActive()) {
+    if (req.signal?.aborted || now() >= deadline) {
+      return { ok: false, reason: req.signal?.aborted ? 'sandbox dependencies not provisioned: setup was stopped' : 'sandbox setup deferred: agent turn active' };
+    }
+    await sleep(POLL_MS);
+  }
+  return undefined;
+}
+
 /** Run the setup command once, record the outcome. The caller holds the lock. */
 async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string): Promise<SetupResult> {
   const now = deps.now ?? Date.now;
+  const refused = await waitForIdle(deps, req, fingerprint);
+  if (refused) return refused;
   await writeState(deps.stateFile, { fingerprint, status: 'running', exitCode: null, at: now() });
+  // The window closes in `finally`: after a failed, timed-out or aborted setup too.
+  const opened = deps.window ? await deps.window.open(req.hosts ?? []) : undefined;
+  if (opened && !opened.ok) {
+    await writeState(deps.stateFile, { fingerprint, status: 'failed', exitCode: null, at: now() });
+    return { ok: false, reason: `sandbox dependencies not provisioned: could not open the setup network window: ${opened.reason}` };
+  }
+  try {
+    return await runSetupCommand(deps, req, fingerprint);
+  } finally {
+    await opened?.close().catch((err: unknown) => deps.debug?.(`[sandbox] closing the setup network window failed: ${err instanceof Error ? err.message : String(err)}`));
+  }
+}
+
+async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: string): Promise<SetupResult> {
+  const now = deps.now ?? Date.now;
   const script = `echo $$ > ${PID_FILE}; exec sh -c "$0"`;
   const out = await deps.runGate('sh', ['-c', script, req.setup], req.cwd, { signal: req.signal, timeoutMs: deps.boundMs ?? SETUP_BOUND_MS });
   const exitCode = out.kind === 'completed' ? out.exitCode : null;
@@ -126,7 +180,8 @@ async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string)
   }
   await writeState(deps.stateFile, { fingerprint, status: 'failed', exitCode, at: now() });
   const last = body.split('\n').pop() ?? '';
-  return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (${why})${last ? `: ${last}` : ''}` };
+  const blocked = blockedHost(body);
+  return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (${why})${blocked ? `, blocked host ${blocked}` : ''}${last ? `: ${last}` : ''}` };
 }
 
 /** Run under the per-ticket lock; a second caller waits on it instead of starting another. */
