@@ -123,12 +123,15 @@ END_DOC_BLOCK: [@ui:MIRRORED-CONSTANTS]
 
 ## [@ui:REACT-VIEWS] React views (the Settings webview, since NDL-126)
 
-The Settings webview is the ONE view where an architecture decision authorizes
-React (`src/ui/settings/app/**`, NDL-126). `docs/ui/UI-RULES.md` carries the
-scoped **v3.1 "React views" annex** (§9.1–§9.5): it adds checks by construction
-(type-enforced rules, single-owner hooks/components, the new R-X1…R-X7 rules, and
-the COMPONENT verification mode), removes nothing from v3.0, and applies ONLY
-where the decision authorizes React — every other webview stays vanilla v3.0.
+React is the target for all webviews. The Settings webview is the reference
+implementation (`src/ui/settings/app/**`, NDL-126); new UI features are React
+only, and the remaining vanilla views migrate one view per change, preserving
+behavior. `docs/ui/UI-RULES.md` carries the **v3.1 "React views" annex**
+(§9.1–§9.5): it adds checks by construction (type-enforced rules, single-owner
+hooks/components, the new R-X1…R-X7 rules, and the COMPONENT verification mode),
+removes nothing from v3.0, and applies to every React view. Views not yet
+migrated stay vanilla v3.0: bug fixes only, and a feature there means migrating
+the view first, as a separate change.
 
 Three invariants the original investigators learned the hard way, now load-bearing:
 

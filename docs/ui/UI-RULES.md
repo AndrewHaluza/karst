@@ -1219,9 +1219,9 @@ END_DOC_BLOCK: [@ui:UI-R48]
 
 ## [@ui:APPX-V31] Appendix — UI-RULES v3.1 "React views" annex (NDL-126 §9)
 
-**Version:** 3.1 · **Scope:** the Settings webview only (`src/ui/settings/app/**`),
-where the NDL-126 architecture decision authorizes React. Vanilla views keep v3.0
-unchanged. This annex **adds checks by construction** (types and single-owner
+**Version:** 3.1 · **Scope:** every React webview. Settings (`src/ui/settings/app/**`,
+NDL-126) is the reference; each vanilla view joins the scope when it is migrated
+(one view per change). Views not yet migrated keep v3.0 unchanged. This annex **adds checks by construction** (types and single-owner
 components) on top of the existing v3.0 checks; it **removes nothing**. Where §5
 and this annex differ, the annex adds to §5 — except R34 per R-X1 (retired *per
 constant* only once R-X1's check covers it; the pinning tests stay until then).
