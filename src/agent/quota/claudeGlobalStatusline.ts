@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
   CLAUDE_SETTINGS_BACKUP_BASENAME,
@@ -175,9 +175,11 @@ export function installClaudeGlobalStatusline(
     current === statusLine.command &&
     (value.statusLine as { type?: unknown } | undefined)?.type === statusLine.type;
 
-  // One-time: only the FIRST install (when the current entry is not ours)
-  // captures the operator's pre-karst file. Never re-capture on a refresh.
-  if (!currentIsKarst && !existsSync(backupPath)) writeAtomically(backupPath, raw);
+  // Capture the operator's pre-karst file whenever the live entry is theirs:
+  // a refresh (karst's own command) must never overwrite the backup, but a
+  // fresh install after the operator swapped commands must, or a later
+  // uninstall would restore the stale command and clobber the new one.
+  if (!currentIsKarst) writeAtomically(backupPath, raw);
 
   if (unchanged) return { installed: true, changed: false };
   writeAtomically(settingsPathOf(opts.configDir), `${JSON.stringify({ ...value, statusLine }, null, 2)}\n`);
@@ -197,6 +199,9 @@ export function uninstallClaudeGlobalStatusline(configDir: string): GlobalStatus
 
   const current = statuslineCommandOf(value);
   if (current === undefined || !isKarstStatuslineCommand(current)) {
+    // The operator owns the entry now (or removed it): never touch the file,
+    // but drop our stale backup so a later opt-in captures their fresh command.
+    rmSync(backupPathOf(configDir), { force: true });
     return { installed: false, changed: false };
   }
 

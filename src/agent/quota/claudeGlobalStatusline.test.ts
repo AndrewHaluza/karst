@@ -93,6 +93,7 @@ describe('installClaudeGlobalStatusline', () => {
 
     expect(install(configDir, wrapperDir)).toEqual({ installed: true, changed: false });
     expect(statSync(path).mtimeMs).toBe(old.getTime());
+    expect(statuslineCommand(configDir)).toContain(`'bash user.sh'`);
     expect(readdirSync(configDir).sort()).toEqual(
       ['settings.json', CLAUDE_SETTINGS_BACKUP_BASENAME].sort(),
     );
@@ -112,6 +113,26 @@ describe('installClaudeGlobalStatusline', () => {
 
     install(configDir);
     expect(statuslineCommand(configDir).split(CLAUDE_STATUSLINE_WRAPPER_BASENAME)).toHaveLength(2);
+  });
+
+  it('re-captures a command the operator changed while karst was installed', () => {
+    const configDir = makeDir();
+    writeFileSync(
+      join(configDir, 'settings.json'),
+      JSON.stringify({ statusLine: { type: 'command', command: 'bash first.sh' } }),
+    );
+    install(configDir);
+
+    // The operator swaps in a new statusline while the toggle is still ON.
+    const changed = { model: 'opus', statusLine: { type: 'command', command: 'bash second.sh' } };
+    writeFileSync(join(configDir, 'settings.json'), JSON.stringify(changed));
+
+    install(configDir);
+    expect(readFileSync(join(configDir, CLAUDE_SETTINGS_BACKUP_BASENAME), 'utf8')).toBe(
+      JSON.stringify(changed),
+    );
+    uninstallClaudeGlobalStatusline(configDir);
+    expect(statuslineCommand(configDir)).toBe('bash second.sh');
   });
 
   it('writes the wrapper outside the Claude config dir and only settings.json + backup inside it', () => {
@@ -176,6 +197,7 @@ describe('uninstallClaudeGlobalStatusline', () => {
 
     expect(uninstallClaudeGlobalStatusline(configDir)).toEqual({ installed: false, changed: false });
     expect(statuslineCommand(configDir)).toBe('bash changed.sh');
+    expect(existsSync(join(configDir, CLAUDE_SETTINGS_BACKUP_BASENAME))).toBe(false);
   });
 
   it('removes a karst entry that has no backup to restore', () => {

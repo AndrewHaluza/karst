@@ -187,9 +187,22 @@ describe('makeClaudeGlobalStatuslineSync', () => {
   });
 
   it('leaves global settings alone when no manifest is usable', () => {
-    const { run, apply } = sync({ manifest: () => undefined });
+    const { run, apply, warn, info, error } = sync({ manifest: () => undefined });
     run();
     expect(apply).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(info).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('logs nothing when the settings already match (idempotent sync)', () => {
+    const { run, info, warn, error } = sync({
+      apply: vi.fn(() => ({ installed: true, changed: false })),
+    });
+    run();
+    expect(info).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
   });
 
   it('warns instead of logging a change when the settings file is refused', () => {
