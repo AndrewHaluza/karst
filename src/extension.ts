@@ -1267,7 +1267,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
-    projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir,
+    projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
     // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
@@ -3092,7 +3092,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog, agentBackends: currentManifest()?.agentBackends,
+      modelCatalog, agentBackends: currentManifest()?.agentBackends, sandboxRewritten: (id) => sandboxLife.isRewritten(id),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -8120,7 +8120,7 @@ function makeDashboardActions(
       void vscode.env.clipboard.writeText(key);
     },
     sandboxSync: () => sandboxLife.sync(ticketId), sandboxDiff: () => sandboxLife.diff(ticketId), // AC-32 Sandbox card
-    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId),
+    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId), sandboxCarry: () => sandboxLife.carry(ticketId),
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building

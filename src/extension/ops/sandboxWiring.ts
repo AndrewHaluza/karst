@@ -11,6 +11,7 @@ import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, syncSandbox
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
+import { carrySandboxOp } from './sandboxCarryOp.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
   cleanupOrphansOp, idleSandboxes, inventoryOf, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
@@ -44,6 +45,8 @@ export interface SandboxWiringInput {
   readonly dockerProc?: DockerProcess;
   /** The host-side bridge dir of a ticket (sbx hands the host's bundle through its `xfer/`, F8). */
   readonly bridgeDirOf?: (ticketId: number) => string | undefined;
+  /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
+  readonly reopen?: (ticketId: number) => Promise<void>;
 }
 
 /** arch:AC-32 lifecycle bindings for `extension.ts`: only with a sandbox backend, only this window's tickets. */
@@ -51,6 +54,10 @@ export interface SandboxWiringInput {
 export const IDLE_SWEEP_INTERVAL_MS = 10 * 60_000;
 
 export function makeSandboxWiring(w: SandboxWiringInput) {
+  /** Tickets whose last refused sync was a host rewrite (rebase/amend): the only ones offered "Carry sandbox commits". */
+  const rewrittenTickets = new Set<number>();
+  const onRewritten = (id: number, rewritten: boolean): void => { if (rewritten) rewrittenTickets.add(id); else rewrittenTickets.delete(id); };
+  const syncTrack = { onRewritten, ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}) };
   const target = (ticketId: number): SandboxSyncTarget => {
     const t = getTicket(w.store, ticketId);
     const worktrees = listWorktreesByTicket(w.store, ticketId);
@@ -143,7 +150,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     const { t, projectRoot } = await manual(ticketId);
     return ensureSandboxInSync({
       notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}),
-      ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}),
+      ...syncTrack,
     }, t, { refresh });
   };
   const wiring = {
@@ -152,12 +159,12 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     /** `karst.sandbox.sync` / `.dispose`: explicit user actions, independent of the configured backend. */
     sync: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
-      await syncSandboxOp({ notify: w.notify, projectRoot }, t);
+      await syncSandboxOp({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
     ensureSynced: async (ticketId: number) => {
       const { t, projectRoot } = await manual(ticketId);
-      return ensureSandboxSynced({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+      return ensureSandboxSynced({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },
     ensureInSync,
     /** F12: throws instead of returning a blocker (the ship saga's choke point). */
@@ -175,6 +182,14 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     diff: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
       await diffSandboxOp({ notify: w.notify, projectRoot, showDiff: w.showDiff, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+    },
+    /** Dashboard "Carry sandbox commits onto host branch": shown only while the last refused sync was a host rewrite. */
+    isRewritten: (ticketId: number): boolean => rewrittenTickets.has(ticketId),
+    carry: async (ticketId: number): Promise<void> => {
+      const { d, t } = await manualDeps(ticketId);
+      if (!w.reopen) { await w.notify.error('Karst: cannot carry the sandbox commits yet: reopening is not available.'); return; }
+      const done = await carrySandboxOp({ ...d, ...syncTrack, reopen: w.reopen }, t);
+      if (done) rewrittenTickets.delete(ticketId);
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
     stop: async (ticketId: number): Promise<void> => {

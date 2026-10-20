@@ -2,6 +2,7 @@ import { constants as fsConstants } from 'node:fs';
 import { chmod, mkdir, open, readdir, rm, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { HookChannel } from '../adapter.js';
+import { hostHeadFileFor } from '../hostHead.js';
 
 const EVENTS_FLAGS =
   fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_APPEND | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK;
@@ -94,6 +95,7 @@ export async function removeBridgeDir(paths: BridgePaths): Promise<void> {
   await rm(paths.stateFile, { force: true });
   await rm(paths.pendingFile, { force: true });
   await rm(paths.handledFile, { force: true });
+  await rm(hostHeadFileFor(paths.dir), { force: true });
 }
 
 export async function listBridgeTicketIds(root: string): Promise<number[]> {

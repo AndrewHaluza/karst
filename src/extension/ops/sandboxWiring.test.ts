@@ -426,3 +426,15 @@ describe('makeSandboxWiring blockers', () => {
     await expect(w.syncParentOf(child)).rejects.toThrow('parent ticket sandbox not in sync: no worktree branch to sync into');
   });
 });
+
+describe('makeSandboxWiring carry (T714)', () => {
+  it('a ticket is not offered the carry until a refused sync was classified as a rewrite', () => {
+    const { w } = wiring({ backendOn: () => true, projectId: () => 1 });
+    expect(w.isRewritten(id)).toBe(false);
+  });
+  it('carry without a reopen binding reports an error and touches nothing', async () => {
+    const { w, notify } = wiring({ backendOn: () => true, projectId: () => 1 });
+    await w.carry(id);
+    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('reopening is not available'));
+  });
+});

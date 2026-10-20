@@ -1,4 +1,5 @@
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
+import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -280,6 +281,56 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
     const proc = fakeSbxProcess({ 'git -C /wt/a merge-base': { code: 1 } });
     const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc }, target);
     expect(r).toMatchObject({ ok: false, diverged: true, reason: expect.stringContaining('not a fast-forward') });
+  });
+
+  describe('host head record and rewrite classification (arch:AC-33)', () => {
+    const OLD = 'a'.repeat(40); const CLONE = 'b'.repeat(40); const HOST = 'c'.repeat(40);
+    const bridge = () => join(mkdtempSync(join(tmpdir(), 'karst-hh-')), 'events', '7');
+    const answers = (refused: boolean) => ({
+      'git -C /wt/a rev-parse HEAD': { stdout: `${HOST}\n` },
+      'git -C /wt/a rev-parse --verify --quiet HEAD': { stdout: `${HOST}\n` },
+      'git -C /wt/a rev-parse --verify --quiet FETCH_HEAD': { stdout: `${CLONE}\n` },
+      'git -C /wt/a merge-base --is-ancestor HEAD FETCH_HEAD': { code: refused ? 1 : 0 },
+      [`git -C /wt/a merge-base --is-ancestor ${OLD} ${CLONE}`]: { code: 0 },
+      [`git -C /wt/a merge-base --is-ancestor ${OLD} ${HOST}`]: { code: 1 },
+    });
+
+    it('records the host head after a good sync, and not after a refused one', async () => {
+      const dir = bridge();
+      const ok = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(false)), evidenceDirOf: () => dir }, target);
+      expect(ok).toEqual({ ok: true });
+      expect(await readHostHead(hostHeadFileFor(dir), '/wt/a')).toBe(HOST);
+      const other = bridge();
+      await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => other }, target);
+      expect(await readHostHead(hostHeadFileFor(other), '/wt/a')).toBeUndefined();
+    });
+
+    it('classifies a refusal as rewritten when the recorded head is in the clone but not the host, and says so', async () => {
+      const dir = bridge();
+      await recordHostHead(hostHeadFileFor(dir), '/wt/a', OLD);
+      const flags: boolean[] = [];
+      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      expect(r).toMatchObject({ ok: false, diverged: true, rewritten: true });
+      expect(flags).toEqual([true]);
+    });
+
+    it('with no record and no reflog it stays plain divergence', async () => {
+      const flags: boolean[] = [];
+      const r = await ensureSandboxSynced({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => bridge(), onRewritten: (_id, v) => flags.push(v) }, target);
+      expect(r).toMatchObject({ ok: false, diverged: true });
+      expect(r).not.toHaveProperty('rewritten');
+      expect(flags).toEqual([false]);
+    });
+
+    it('the manual sync says how to carry a rewritten branch, and a later good sync clears the flag', async () => {
+      const dir = bridge();
+      await recordHostHead(hostHeadFileFor(dir), '/wt/a', OLD);
+      const rec = recorder(); const flags: boolean[] = [];
+      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess(answers(true)), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      expect(rec.errors[0]).toContain('Carry sandbox commits onto host branch');
+      await syncSandboxOp({ notify: rec.notify, projectRoot: '/p', proc: fakeSbxProcess(answers(false)), evidenceDirOf: () => dir, onRewritten: (_id, v) => flags.push(v) }, target);
+      expect(flags).toEqual([true, false]);
+    });
   });
 
   it('a sandbox without a worktree branch is a plain failure', async () => {

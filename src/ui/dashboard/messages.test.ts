@@ -26,6 +26,7 @@ function actions(): DashboardActions {
     sandboxDiff: vi.fn(),
     sandboxStop: vi.fn(),
     sandboxRemove: vi.fn(),
+    sandboxCarry: vi.fn(),
     showChanges: vi.fn(),
     openWorktreeTerminal: vi.fn(),
     openWorktreeFolder: vi.fn(),
@@ -182,6 +183,7 @@ describe('routeAction', () => {
     const a = actions();
     for (const [type, fn] of [
       ['sandbox-sync', 'sandboxSync'], ['sandbox-diff', 'sandboxDiff'], ['sandbox-stop', 'sandboxStop'], ['sandbox-remove', 'sandboxRemove'],
+      ['sandbox-carry', 'sandboxCarry'],
     ] as const) {
       // A crafted ticket id / name must be dropped: the host acts on the panel's own ticket only.
       expect(parseWebviewMessage({ type, ticketId: 99, name: 'x' })).toEqual({ type });

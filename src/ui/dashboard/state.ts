@@ -727,6 +727,7 @@ export function buildDashboardState(
       project: backendForCore(agentContext.agentBackends, sessionCore),
       ticketOverride: ticket.agentBackend,
       core: sessionCore,
+      rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
     }),
     servers: serverRows,
     // Drives whether "Start servers" is offered at all. A ticket scoping only

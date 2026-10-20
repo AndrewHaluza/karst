@@ -95,6 +95,8 @@ export interface SessionRunner {
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
   /** Sandbox runners only: host → sandbox (F8): fast-forward the clone to the host branch; dirty clone or divergence is refused, never overwritten. */
   refresh?(ticket: SandboxTicketRef): Promise<SyncResult>;
+  /** Sandbox runners only: fetch the clone's branch into the host worktree's FETCH_HEAD; merges nothing (carry classification). */
+  fetchClone?(ticket: SandboxTicketRef): Promise<StepOutcome>;
   /** Sandbox runners only: `git diff <host branch>...<sandbox branch>` after fetching; changes nothing on the host branch. */
   diff?(ticket: SandboxTicketRef): Promise<DiffResult>;
   /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */

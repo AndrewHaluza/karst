@@ -172,6 +172,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         return { ok: false, reason: `sbx refresh failed: ${err instanceof Error ? err.message : String(err)}` };
       }
     },
+    fetchClone: (ticket: SandboxTicketRef) => fetchSandbox(ticket.hostWorktreePath, ticket.branch),
     diff: async (ticket: SandboxTicketRef): Promise<DiffResult> => {
       const wt = ticket.hostWorktreePath;
       const fetched = await fetchSandbox(wt, ticket.branch);
