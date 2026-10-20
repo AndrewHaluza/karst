@@ -12,6 +12,7 @@ import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
 import { carrySandboxOp } from './sandboxCarryOp.js';
+import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
   cleanupOrphansOp, idleSandboxes, inventoryOf, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
@@ -190,6 +191,17 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       if (!w.reopen) { await w.notify.error('Karst: cannot carry the sandbox commits yet: reopening is not available.'); return; }
       const done = await carrySandboxOp({ ...d, ...syncTrack, reopen: w.reopen }, t);
       if (done) rewrittenTickets.delete(ticketId);
+    },
+    /** "Rebase on base": does the sandbox hold commits the host branch lacks? Unreadable counts as yes. */
+    hasUnsynced: async (ticketId: number): Promise<boolean> => {
+      const { d, t } = await manualDeps(ticketId);
+      return sandboxHasUnsynced({ ...d, reopen: async () => {} }, t);
+    },
+    /** "Rebase on base": recreate the clone from the rebased branch (no pre-remove sync), then reopen. Throws on failure. */
+    recreateNoSync: async (ticketId: number): Promise<void> => {
+      const { d, t } = await manualDeps(ticketId);
+      if (!w.reopen) throw new Error('reopening the sandbox is not available');
+      await recreateSandboxNoSync({ ...d, ...syncTrack, reopen: w.reopen }, t);
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
     stop: async (ticketId: number): Promise<void> => {

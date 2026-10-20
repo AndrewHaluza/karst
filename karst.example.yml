@@ -297,8 +297,13 @@ repositories:
     # repo's `.gitignore` (ignore rules never apply to tracked files), and a
     # path you have already COMMITTED still ships: exclude shapes only the sweep
     # commit. A spec that also matches committed changes logs a warning.
+    # Optional: `regenerate` lists shell commands that rebuild this repo's
+    # checked-in generated files. "Rebase on base" (ship stage) runs each in the
+    # worktree after rebasing and commits what they change; a repo without any
+    # refuses the action when a generated file would need merging.
     # ship:
     #   exclude: [dist/**, "*.lock.json"]
+    #   regenerate: ["npm run -s docs:covers", "npm run -s docs:graph"]
 
     # Dependencies for SANDBOXED tickets: run inside the sandbox clone before its
     # gates (a clone has no main checkout to resolve node_modules from). Re-run

@@ -6,6 +6,8 @@ import { openStageRun } from '../store/stageRuns.js';
 import { transition } from './machine.js';
 import { parkGateStage } from '../store/stageBlocks.js';
 import { sendBackState, sendBackToImplement } from './sendBack.js';
+import { listInbox } from '../store/ticketMessages.js';
+import { markImplementDone } from './stages/implement.js';
 
 function seedPr(
   store: Store,
@@ -209,6 +211,24 @@ describe('sendBackToImplement', () => {
       .run(id, stage, runAt, runAt, runAt);
     setStage(store, id, stage, { status: 'passed', startedAt: runAt, endedAt: runAt, artifactPath: `/tmp/${stage}.log` });
   }
+
+  it('with a CI reason: delivers it once, resets downstream, and impl done reaches uat again', () => {
+    walkTo(store, id, 'ship');
+    passedEvidenceStage('uat', '2026-08-09T10:00:00.000Z');
+    sendBackToImplement(store, id, { reason: 'CI failed: lint (see ci-failure-7.log)' });
+    expect(getTicket(store, id).stageCurrent).toBe('impl');
+    for (const key of ['uat', 'review', 'ship'] as const) expect(getStage(store, id, key)!.status).toBe('pending');
+    const inbox = listInbox(store, id, { unreadOnly: false });
+    expect(inbox.map((m) => [m.kind, m.body])).toEqual([['event', 'CI failed: lint (see ci-failure-7.log)']]);
+    expect(markImplementDone(store, id)).toBe('uat');
+  });
+
+  it('with a reason, a refused send-back posts nothing', () => {
+    walkTo(store, id, 'uat');
+    openActiveRun(store, id, 'uat');
+    expect(() => sendBackToImplement(store, id, { reason: 'x' })).toThrow(/in-flight/);
+    expect(listInbox(store, id, { unreadOnly: false })).toEqual([]);
+  });
 
   it('moves a settled uat ticket back to impl and resets downstream rows', () => {
     walkTo(store, id, 'uat');

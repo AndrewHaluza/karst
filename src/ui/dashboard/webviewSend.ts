@@ -101,6 +101,8 @@ export function createSender(api: WebviewApi) {
       send({ type: 'send-back-to-implement' }, requestId),
     addressPrFeedback: (requestId?: string) =>
       send({ type: 'address-pr-feedback' }, requestId),
+    sendCiFailure: (requestId?: string) => send({ type: 'send-ci-failure' }, requestId),
+    rebaseOnBase: (requestId?: string) => send({ type: 'rebase-on-base' }, requestId),
     openStageLog: (stageKey: Msg<'open-stage-log'>['stageKey'], requestId?: string) =>
       send({ type: 'open-stage-log', stageKey }, requestId),
     resolveConflicts: (repo: Msg<'resolve-conflicts'>['repo'], requestId?: string) =>

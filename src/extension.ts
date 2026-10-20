@@ -35,6 +35,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
+import { rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
@@ -2966,6 +2967,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fallbackProjectId: () => currentProject()?.id, manifest: currentManifest,
   });
   context.subscriptions.push(storedArtifacts);
+  const ciHost = (ticketId: number): CiHost => ({
+    gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
+    reprobe: async () => { await runPrSync(true); },
+    confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
+    info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
+  });
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
@@ -3054,6 +3061,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         () => dashboard.closeServerLogs(ticketId),
         (message) => logger.debug(message),
         storedArtifacts.forTicket(ticketId, () => dashboard.pushState(ticketId)),
+        ciHost(ticketId),
       ),
     () => worktreePathContext(currentManifest(), logger.warn, logger.info),
     () => currentManifest()?.ticketLabelTemplate,
@@ -8054,7 +8062,9 @@ function makeDashboardActions(
   // gated inside the logger so it is a no-op unless the manifest's debug flag is on.
   debug: (message: string) => void,
   storedArtifacts: StoredArtifactActions,
+  ciHost: CiHost,
 ): DashboardActions {
+  const ciActionsInput = (): CiActionsInput => ({ ...ciHost, store, ticketId, logError, debug, drive: () => driveAfterResume(ticketId), afterServerChange });
   const worktreeActions = makeWorktreeActions(
     {
       createTerminal: (options) => vscode.window.createTerminal(options),
@@ -8246,6 +8256,9 @@ function makeDashboardActions(
             'Address feedback',
           )) === 'Address feedback',
       }),
+    // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
+    sendCiFailure: () => void sendCiFailureAction(ciActionsInput()),
+    rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
     // re-runs it. Lighter than "Send back to Implement": only the current gate
     // stage is touched, and the ticket stays where it is in the graph.
