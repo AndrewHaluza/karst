@@ -155,12 +155,6 @@ export function headlessKillArgs(container: string, runId: string): string[] {
   return ['exec', container, 'sh', '-c', KILL_SCRIPT, 'karst-kill', checkRunId(runId)];
 }
 
-/** An adapter's host launcher (`opencode`, `/abs/opencode2`) → the core's launcher in the image. */
-export function containerCommand(core: DockerCore, command: string): string {
-  const base = command.split(/[\\/]/).at(-1) ?? command;
-  return base.startsWith('opencode') ? containerBinary(core) : command;
-}
-
 /**
  * A one-shot gate container for when the interactive one (`--rm`) is gone: the
  * same internal network, hardening, volumes and uid, so the gate still sees

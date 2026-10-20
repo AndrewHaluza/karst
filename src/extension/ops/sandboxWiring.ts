@@ -1,3 +1,4 @@
+import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
 import { parseDbTimeMs } from '../../doctor/applyFixes.js';
 import { STUCK_IDLE_MINUTES } from '../../doctor/stuckCheck.js';
@@ -52,7 +53,8 @@ export const IDLE_SWEEP_INTERVAL_MS = 10 * 60_000;
 export function makeSandboxWiring(w: SandboxWiringInput) {
   const target = (ticketId: number): SandboxSyncTarget => {
     const t = getTicket(w.store, ticketId);
-    return { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: listWorktreesByTicket(w.store, ticketId)[0] };
+    const worktrees = listWorktreesByTicket(w.store, ticketId);
+    return { ticketId, ticketLabel: t.key ?? String(ticketId), core: t.sessionProvider ?? null, worktree: readClonedWorktree(w.bridgeDirOf?.(ticketId), worktrees) ?? worktrees[0] };
   };
   const deps = (): SandboxLifecycleDeps | undefined => {
     const projectRoot = w.projectRoot();

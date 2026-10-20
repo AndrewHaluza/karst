@@ -1,11 +1,9 @@
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import { spawnHeadlessCli } from '../headlessSpawn.js';
 import { runProcess } from '../../workflow/gates/run.js';
 import type {
   GateProcessRunner,
   PlacedInteractiveLaunch,
-  RunHeadless,
   SandboxTicketRef,
   SessionRunner,
   SyncResult,
@@ -29,7 +27,6 @@ export interface SbxRunnerOptions {
   readonly name: string;
   /** `sbx ls` names from preflight: picks create vs reattach without a sync call. */
   readonly existing: readonly string[];
-  readonly spawnHeadless?: RunHeadless;
   /** The host gate boundary `runGate` wraps (default `runProcess`). */
   readonly gateProcess?: GateProcessRunner;
   /** Agent-visible evidence dir (the bridge, arch:AC-34), exported to gates as `KARST_EVIDENCE_DIR`. */
@@ -68,7 +65,6 @@ export function sandboxRemote(name: string): string {
  */
 export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const known = new Set(opts.existing);
-  const spawnHeadless = opts.spawnHeadless ?? spawnHeadlessCli;
   const remote = sandboxRemote(opts.name);
   const git = (wt: string, args: string[]) => opts.proc.run('git', [...HARDENED_GIT, '-C', wt, ...args], { env: HARDENED_ENV });
   const gateProcess = opts.gateProcess ?? runProcess;
@@ -119,10 +115,8 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     // sbx mounts extra workspaces at the same absolute path.
     bridgeRunDir: (paths) => paths.dir,
-    runHeadless: (command, args, cwd, headlessOpts) =>
-      spawnHeadless(SBX_BIN, ['exec', opts.name, '--', command, ...args], cwd, headlessOpts),
     // Gates run against the agent's live edits; killing the `sbx exec` client
-    // on abort ends the command (the same contract `runHeadless` relies on).
+    // on abort ends the command.
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
     hasSandbox: listed,

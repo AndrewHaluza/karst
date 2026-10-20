@@ -1,4 +1,6 @@
+import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sbxName } from '../../agent/sbx/sbxName.js';
@@ -314,6 +316,19 @@ describe('resolveLaunchBackend (instructions follow the runner, F1)', () => {
     await out.options.resolveRunner!();
     await out.options.resolveRunner!();
     expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it('records the cloned worktree in the bridge dir; a missing dir only logs (F13)', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'karst-launch-'));
+    try {
+      const runner = { kind: 'docker', enforcesSandbox: true, bridgeRunDir: (p: { runDir: string }) => p.runDir } as never;
+      const worktree = { path: '/wt/b', branch: 'k/b' };
+      await resolveLaunchBackend({ ...base, worktree, resolve: async () => ({ runner, line: 'docker' }), bridgeFor: async () => ({ dir, runDir: '/r' }) as never });
+      expect(readClonedWorktree(dir, [{ path: '/wt/a' }, { path: '/wt/b' }])).toEqual({ path: '/wt/b' });
+      const debug = vi.fn();
+      await resolveLaunchBackend({ ...base, worktree, debug, resolve: async () => ({ runner, line: 'docker' }), bridgeFor: async () => ({ dir: join(dir, 'missing'), runDir: '/r' }) as never });
+      expect(debug).toHaveBeenCalledWith(expect.stringContaining('cloned-worktree record failed'));
+    } finally { await rm(dir, { recursive: true, force: true }); }
   });
 
   it('syncs an EXISTING sandbox before the session starts; a blocker stops the launch (F8)', async () => {

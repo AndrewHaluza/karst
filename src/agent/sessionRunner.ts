@@ -87,7 +87,8 @@ export interface SessionRunner {
   /** The core runs here without permission prompts (arch:AC-31); diagnostics only. */
   readonly autonomous?: boolean;
   placeInteractive(spec: InteractiveLaunchSpec): PlacedInteractiveLaunch;
-  runHeadless: RunHeadless;
+  /** Ticket-bound headless calls are host-only (arch:AC-33): a sandbox runner has none, only the host runner does. */
+  runHeadless?: RunHeadless;
   /** Sandbox runners only: where the AGENT sees the bridge dir (host runner: undefined). */
   bridgeRunDir?(paths: BridgePaths): string;
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
@@ -128,11 +129,13 @@ export interface SessionRunner {
   runGate?: GateProcessRunner;
 }
 
+export type HostSessionRunner = SessionRunner & { readonly runHeadless: RunHeadless };
+
 export function createHostSessionRunner(
   spawnHeadless: RunHeadless = (command, args, cwd, opts) =>
     spawnHeadlessCli(command, args, cwd, opts),
   runGate: GateProcessRunner = runProcess,
-): SessionRunner {
+): HostSessionRunner {
   return {
     kind: 'host',
     enforcesSandbox: false,
@@ -147,4 +150,4 @@ export function createHostSessionRunner(
   };
 }
 
-export const HOST_SESSION_RUNNER: SessionRunner = createHostSessionRunner();
+export const HOST_SESSION_RUNNER: HostSessionRunner = createHostSessionRunner();

@@ -3,7 +3,6 @@ import { OPENCODE_IMAGE } from './dockerImage.js';
 import { dockerNames } from './dockerNames.js';
 import {
   bindMount,
-  containerCommand,
   containerXdgEnv,
   envArgs,
   headlessExecArgs,
@@ -115,12 +114,6 @@ describe('headless exec', () => {
   it('refuses an unsafe run id', () => {
     expect(() => headlessExecArgs('c', '../x', 'a', [])).toThrow(/unsafe run id/);
     expect(() => headlessKillArgs('c', '')).toThrow(/unsafe run id/);
-  });
-  it('maps host opencode launchers to the image launcher, leaves other commands', () => {
-    expect(containerCommand('opencode2', '/abs/bin/opencode2')).toBe('opencode2');
-    expect(containerCommand('opencode', 'opencode')).toBe('opencode1');
-    expect(containerCommand('opencode', 'C:\\bin\\opencode.exe')).toBe('opencode1');
-    expect(containerCommand('opencode', 'git')).toBe('git');
   });
 });
 

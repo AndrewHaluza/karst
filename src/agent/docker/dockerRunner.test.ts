@@ -34,39 +34,9 @@ describe('createDockerSessionRunner', () => {
     expect(proc.calls).toHaveLength(0);
   });
 
-  it('runs headless through docker exec with the image launcher and rewritten paths', async () => {
-    const spawnHeadless = vi.fn().mockResolvedValue(OK);
-    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode2', names, user: undefined, spawnHeadless, newRunId: () => 'r1' });
-    await expect(runner.runHeadless('/abs/opencode2', ['run', '--dir', WT], WT, { timeoutMs: 5 })).resolves.toBe(OK);
-    expect(spawnHeadless).toHaveBeenCalledWith('docker', [
-      'exec', '--interactive', '--workdir', '/work/repo', names.container,
-      'sh', '-c', 'echo $$ > "/tmp/karst-run-$1.pid"; shift; exec "$@"', 'karst-run', 'r1',
-      'opencode2', 'run', '--dir', '/work/repo',
-    ], WT, { timeoutMs: 5 });
-  });
-
-  it('kills the in-container process on abort and when the run ends (timeout kills only the client)', async () => {
-    const kill = `docker exec ${names.container} sh -c f="/tmp/karst-run-$1.pid"; [ -f "$f" ] && kill -KILL "$(cat "$f")" 2>/dev/null; rm -f "$f" karst-kill r2`;
-    const proc = fakeDockerProcess();
-    const ac = new AbortController();
-    const spawnHeadless = vi.fn().mockImplementation(() => { ac.abort(); return Promise.resolve(OK); });
-    const runner = createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined, spawnHeadless, newRunId: () => 'r2' });
-    await runner.runHeadless('opencode', [], WT, { signal: ac.signal });
-    expect(lines(proc)).toEqual([kill, kill]);
-
-    const late = fakeDockerProcess();
-    const ac2 = new AbortController();
-    const failing = createDockerSessionRunner({ proc: late, core: 'opencode', names, user: undefined, spawnHeadless: vi.fn().mockRejectedValue(new Error('timeout')), newRunId: () => 'r2' });
-    await expect(failing.runHeadless('opencode', [], WT, { signal: ac2.signal })).rejects.toThrow('timeout');
-    ac2.abort();
-    expect(lines(late)).toEqual([kill]);
-  });
-
-  it('generates a safe random run id by default', async () => {
-    const spawnHeadless = vi.fn().mockResolvedValue(OK);
-    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode', names, user: undefined, spawnHeadless });
-    await runner.runHeadless('opencode', [], WT);
-    expect((spawnHeadless.mock.calls[0]![1] as string[])[9]).toMatch(/^[0-9a-f]{16}$/);
+  it('has no headless entry point: ticket-bound headless runs are host-only (arch:AC-33)', () => {
+    const runner = createDockerSessionRunner({ proc: fakeDockerProcess(), core: 'opencode2', names, user: undefined });
+    expect(runner.runHeadless).toBeUndefined();
   });
 
   it('syncs through the bundle transport', async () => {

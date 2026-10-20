@@ -1,3 +1,4 @@
+import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
 import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
@@ -110,6 +111,7 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   }
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
+  if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
   return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}) };
 }
 
