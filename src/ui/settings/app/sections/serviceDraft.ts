@@ -339,8 +339,12 @@ export function addShipExclude(repo: RepositoryDef, spec: string): RepositoryDef
 export function removeShipExclude(repo: RepositoryDef, spec: string): RepositoryDef {
   const exclude = (repo.ship?.exclude ?? []).filter((s) => s !== spec);
   const copy = { ...repo } as Record<string, unknown>;
-  if (exclude.length === 0) delete copy.ship;
-  else copy.ship = { ...repo.ship, exclude };
+  if (exclude.length === 0) {
+    const rest: Record<string, unknown> = { ...repo.ship };
+    delete rest.exclude;
+    if (Object.keys(rest).length === 0) delete copy.ship;
+    else copy.ship = rest;
+  } else copy.ship = { ...repo.ship, exclude };
   return copy as unknown as RepositoryDef;
 }
 

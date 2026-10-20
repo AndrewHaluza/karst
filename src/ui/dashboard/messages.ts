@@ -85,6 +85,8 @@ export type WebviewMessage =
    * mutation's transaction, so the webview's claim is never trusted.
    */
   | { type: 'address-pr-feedback' }
+  | { type: 'send-ci-failure' }
+  | { type: 'rebase-on-base' }
   /**
    * Open a stage's recorded log (uat/review artifact) in an editor. Carries the
    * stage key ONLY, never a path: the host re-derives the artifact path from
@@ -435,6 +437,8 @@ export interface DashboardActions {
   sendBackToImplement: () => void | Promise<void>;
   /** Move this ticket into a PR-feedback recovery round at Fix (host-confirmed). */
   addressPrFeedback: () => void | Promise<void>;
+  sendCiFailure: () => void | Promise<void>;
+  rebaseOnBase: () => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
   /** Create a sub-task under this ticket (host prompts for the title). */
@@ -664,6 +668,10 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'send-back-to-implement' };
     case 'address-pr-feedback':
       return { type: 'address-pr-feedback' };
+    case 'send-ci-failure':
+      return { type: 'send-ci-failure' };
+    case 'rebase-on-base':
+      return { type: 'rebase-on-base' };
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
     case 'create-subtask':
@@ -1028,6 +1036,10 @@ export function routeAction(
       return actions.sendBackToImplement();
     case 'address-pr-feedback':
       return actions.addressPrFeedback();
+    case 'send-ci-failure':
+      return actions.sendCiFailure();
+    case 'rebase-on-base':
+      return actions.rebaseOnBase();
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
     case 'create-subtask':

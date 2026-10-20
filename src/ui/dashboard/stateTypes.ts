@@ -349,6 +349,13 @@ export interface DashboardState {
    */
   prFeedbackFix: PrFeedbackFixState;
   /**
+   * Ship-stage "Send CI failure to agent" / "Rebase on base" availability
+   * (`workflow/ciFailure.ts`, `workflow/rebaseState.ts`). Host-derived; the
+   * webview only shows the button, the host re-derives before acting.
+   */
+  ciFailure: { available: boolean };
+  rebase: { available: boolean };
+  /**
    * How many review items are open on this ticket's pull requests — live,
    * unresolved, not withdrawn. Carried on the snapshot (the same read the menu
    * gate uses) so the panel and the host cannot disagree about how "open" is

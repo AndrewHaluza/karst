@@ -123,6 +123,13 @@ export interface ShipDef {
    * starting with `:` is refused rather than silently misapplied.
    */
   exclude?: string[];
+  /**
+   * Shell commands that regenerate this repository's checked-in generated files
+   * (e.g. `npm run -s docs:covers`). "Rebase on base" runs each in the worktree
+   * after the rebase and commits what they change — the only way generated
+   * output is touched, so a conflict in a generated file is never hand-merged.
+   */
+  regenerate?: string[];
 }
 
 /**

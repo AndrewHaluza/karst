@@ -42,6 +42,8 @@ function actions(): DashboardActions {
     resumeTicket: vi.fn(),
     sendBackToImplement: vi.fn(),
     addressPrFeedback: vi.fn(),
+    sendCiFailure: vi.fn(),
+    rebaseOnBase: vi.fn(),
     rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
     createSubtask: vi.fn(),
@@ -293,6 +295,16 @@ describe('routeAction', () => {
     // host action (which derives availability + the current stage itself).
     routeAction({ type: 'send-back-to-implement', stage: 'ship' }, a);
     expect(a.sendBackToImplement).toHaveBeenCalledOnce();
+  });
+
+  it('parses and dispatches the ship CI actions, dropping forged companions', () => {
+    expect(parseWebviewMessage({ type: 'send-ci-failure', repo: 'x' })).toEqual({ type: 'send-ci-failure' });
+    expect(parseWebviewMessage({ type: 'rebase-on-base', branch: 'x' })).toEqual({ type: 'rebase-on-base' });
+    const a = actions();
+    routeAction({ type: 'send-ci-failure' }, a);
+    routeAction({ type: 'rebase-on-base' }, a);
+    expect(a.sendCiFailure).toHaveBeenCalledOnce();
+    expect(a.rebaseOnBase).toHaveBeenCalledOnce();
   });
 
   it('parses and dispatches create-follow-up-ticket', () => {

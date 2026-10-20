@@ -5,6 +5,7 @@ import { getStage, setStage } from '../store/stages.js';
 import { latestStageRun } from '../store/stageRuns.js';
 import { listCurrentPrsByTicket } from '../store/prs.js';
 import { nowIso } from '../model/time.js';
+import { postMessage } from '../store/ticketMessages.js';
 
 /**
  * The unified "Send back to Implement" recovery action (869ehkkzp).
@@ -117,6 +118,13 @@ export function sendBackToImplement(
   ticketId: number,
   opts?: {
     now?: () => string;
+    /**
+     * Why the host is sending the ticket back (e.g. a CI failure summary). Posted
+     * as a host event to the ticket's own inbox in the SAME transaction as the
+     * move, so a refused send-back leaves no orphan message and the resumed
+     * agent always finds the reason.
+     */
+    reason?: string;
     /** Verbose decision-point logging (§ debug logging), prefixed `[send-back]`. */
     debug?: (message: string) => void;
   },
@@ -161,6 +169,15 @@ export function sendBackToImplement(
       });
     }
     setStageCurrent(store, ticketId, 'impl');
+    if (opts?.reason !== undefined) {
+      postMessage(store, {
+        projectId: getTicket(store, ticketId).projectId,
+        fromTicketId: null,
+        toTicketId: ticketId,
+        kind: 'event',
+        body: opts.reason,
+      });
+    }
   });
   apply();
   return { from };

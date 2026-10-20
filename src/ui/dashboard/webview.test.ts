@@ -4505,6 +4505,50 @@ describe('address pull request feedback (executed in a VM)', () => {
   });
 });
 
+describe('ship CI actions (executed in a VM)', () => {
+  const shipWithCi = (over: Partial<DashboardState>): DashboardState => ({
+    ...renderStateFor('ship'),
+    stageCurrent: 'ship',
+    presentedStage: 'ship',
+    sendBack: { available: false, reason: 'stage' },
+    rerunGate: { available: false, reason: 'not-gate-stage' },
+    prFeedbackFix: { available: false, reason: 'stage' },
+    ...over,
+  });
+
+  it('hides both items when the host says neither is available', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: shipWithCi({}) });
+    expect(h.htmlOf('inside')).not.toContain('data-stage-menu');
+  });
+
+  it('offers each item alone, and posts once while pending', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: shipWithCi({ ciFailure: { available: true } }) });
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Send CI failure to agent');
+    expect(h.htmlOf('inside')).not.toContain('Rebase on base');
+    h.click('[data-act]', { act: 'send-ci-failure' });
+    h.click('[data-act]', { act: 'send-ci-failure' });
+    expect(h.posted).toEqual([{ type: 'send-ci-failure' }]);
+  });
+
+  it('rebase item posts once and the next push re-arms it', () => {
+    const h = bootPreviewHarness();
+    const state = shipWithCi({ rebase: { available: true } });
+    h.receive({ type: 'state', state });
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    expect(h.htmlOf('inside')).toContain('Rebase on base');
+    h.click('[data-act]', { act: 'rebase-on-base' });
+    h.click('[data-act]', { act: 'rebase-on-base' });
+    expect(h.posted).toEqual([{ type: 'rebase-on-base' }]);
+    h.receive({ type: 'state', state });
+    h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
+    h.click('[data-act]', { act: 'rebase-on-base' });
+    expect(h.posted).toHaveLength(2);
+  });
+});
+
 describe('round switcher — attempt tabs (T6, executed in a VM)', () => {
   // Three attempts: R1 (the failing attempt that opened round 1), attempt 2
   // (an intermediate re-run the plan's ordinal labelling names by position),
