@@ -2708,7 +2708,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
   const quotaService = new QuotaService({
-    readers: defaultQuotaReaders(),
+    readers: defaultQuotaReaders({ claudeOauthUsageApi: () => currentManifest()?.quota?.claudeOauthUsageApi === true }),
     debug: (message) => logger.debug(message),
     onDidChange: (snapshots) => onQuotaChange(snapshots),
   });

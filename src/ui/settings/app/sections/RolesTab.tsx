@@ -111,6 +111,9 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
   const setQuotaGlobal = (on: boolean): void => {
     edit(setQuota({ claudeGlobalStatusline: on }));
   };
+  const setQuotaUsageApi = (on: boolean): void => {
+    edit(setQuota({ claudeOauthUsageApi: on }));
+  };
   const quotaText =
     quota?.warnThresholdPct === undefined ? '' : String(quota.warnThresholdPct);
 
@@ -298,6 +301,16 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
             name: 'quotaClaudeGlobalStatusline',
             checked: quota?.claudeGlobalStatusline === true,
             onChange: setQuotaGlobal,
+          }}
+        />
+        <Field
+          label="Use the Claude usage API"
+          help="When the statusline cache is missing or stale, read the 5-hour and 7-day windows from Anthropic's usage API using the OAuth token Claude Code already stored. The token stays in memory for the request — never logged, stored or refreshed — and a failure keeps the last value or shows unknown."
+          control={{
+            kind: 'checkbox',
+            name: 'quotaClaudeOauthUsageApi',
+            checked: quota?.claudeOauthUsageApi === true,
+            onChange: setQuotaUsageApi,
           }}
         />
       </div>

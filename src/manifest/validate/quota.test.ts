@@ -36,6 +36,25 @@ describe('validateQuota', () => {
       /quota\.claudeGlobalStatusline must be true or false/,
     );
   });
+  it('defaults the usage API fallback to OFF (absent)', () => {
+    expect(validateQuota({ warnThresholdPct: 80 })).not.toHaveProperty('claudeOauthUsageApi');
+    expect(validateQuota(undefined)).not.toHaveProperty('claudeOauthUsageApi');
+  });
+  it('reads the opt-in usage API fallback flag', () => {
+    expect(validateQuota({ claudeOauthUsageApi: true })).toEqual({
+      warnThresholdPct: 80,
+      claudeOauthUsageApi: true,
+    });
+    expect(validateQuota({ warnThresholdPct: 95, claudeOauthUsageApi: false })).toEqual({
+      warnThresholdPct: 95,
+      claudeOauthUsageApi: false,
+    });
+  });
+  it('rejects a non-boolean usage API flag', () => {
+    expect(() => validateQuota({ claudeOauthUsageApi: 'yes' })).toThrow(
+      /quota\.claudeOauthUsageApi must be true or false/,
+    );
+  });
   it('accepts the range bounds', () => {
     expect(validateQuota({ warnThresholdPct: 1 })).toEqual({ warnThresholdPct: 1 });
     expect(validateQuota({ warnThresholdPct: 100 })).toEqual({ warnThresholdPct: 100 });
