@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { GateProcessRunner, ProcessOutcome } from '../workflow/gates/run.js';
-import { DEFAULT_SETUP_HOSTS, setupHostError, setupHostsOf } from './sandboxSetupHosts.js';
+import { DEFAULT_SETUP_HOSTS, setupHostError, setupHostsOf } from '../manifest/sandboxSetupHosts.js';
 import { ensureSandboxSetup, resetSetupLocks, type SetupDeps, type SetupWindowPort } from './sandboxSetup.js';
 import { createSbxSessionRunner } from './sbx/sbxRunner.js';
 import { fakeSbxProcess } from './sbx/fakeSbxProcess.js';

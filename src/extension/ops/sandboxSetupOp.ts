@@ -2,7 +2,7 @@ import { readdir, rm } from 'node:fs/promises';
 import { basename, dirname } from 'node:path';
 import { ensureSandboxSetup, type SetupResult, type SetupWindowPort } from '../../agent/sandboxSetup.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
-import { setupHostsOf } from '../../agent/sandboxSetupHosts.js';
+import { setupHostsOf } from '../../manifest/sandboxSetupHosts.js';
 import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { Manifest } from '../../manifest/types.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';

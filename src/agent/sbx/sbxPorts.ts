@@ -1,5 +1,5 @@
 import type { PortMapping } from '../sessionRunner.js';
-import { setupHostError, SETUP_HOST_PORT } from '../sandboxSetupHosts.js';
+import { setupHostError, SETUP_HOST_PORT } from '../../manifest/sandboxSetupHosts.js';
 import { checkPort, PUBLISH_HOST, publishSpec, SANDBOX_HOST_ALIAS } from '../sandboxPorts.js';
 
 export { isPortTakenError } from '../sandboxPorts.js';

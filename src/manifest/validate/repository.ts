@@ -25,7 +25,7 @@ import {
   validateArtifactTemplate,
   type ArtifactConventionName,
 } from '../../workflow/artifactConventions.js';
-import { setupHostError } from '../../agent/sandboxSetupHosts.js';
+import { setupHostError } from '../sandboxSetupHosts.js';
 import {
   assertUnique,
   isObject,
