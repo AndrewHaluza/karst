@@ -17,6 +17,8 @@ if (name === undefined) {
 const result = spawnSync('npm run test:layout:docker', {
   stdio: 'inherit',
   shell: true,
-  env: { ...process.env, [name]: '1' },
+  // Seed/prune rewrites a checked-in ledger: a missing Docker must fail, never
+  // take the read-only wrapper's loud skip and look like a completed write.
+  env: { ...process.env, KARST_DOCKER_REQUIRED: '1', [name]: '1' },
 });
 process.exit(result.status ?? 1);
