@@ -157,3 +157,15 @@ describe('resolveGates', () => {
     });
   });
 });
+
+describe('resolveGates sandbox mark (arch:AC-36)', () => {
+  it('carries `sandbox: host` onto the resolved gate and leaves others unmarked', () => {
+    const r = resolveGates({ kind: 'ok', scripts: {} }, [
+      { name: 'v', kind: 'command', command: 'docker', sandbox: 'host' },
+      { name: 's', kind: 'script', script: 'lint', sandbox: 'inside' },
+    ], []);
+    if (r.kind !== 'gates') throw new Error('expected gates');
+    expect(r.gates[0]!.sandbox).toBe('host');
+    expect('sandbox' in r.gates[1]!).toBe(false);
+  });
+});

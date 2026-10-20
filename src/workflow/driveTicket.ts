@@ -168,6 +168,8 @@ export interface DriveTicketDeps {
    * run inside the sandbox against the agent's live edits; absent → unchanged.
    */
   gateProcessFor?: (ticketId: number) => GateProcessRunner | undefined;
+  /** Runner for a `sandbox: host` gate of a sandboxed ticket: verified sync, then the host (arch:AC-36). */
+  hostGateFor?: (ticketId: number) => (() => GateProcessRunner) | undefined;
   /**
    * Sandboxed tickets (F12): bring the sandbox's commits to the host and the host's to the
    * clone BEFORE any gate runs. `ok:false` = a blocker (divergence, dirty clone): nothing runs.
@@ -398,7 +400,7 @@ export async function driveTicket(
               runVerifier: deps.runVerifier,
               spin: deps.spin ?? spinTicket,
               stopServers: deps.stopServers ?? stopTicketServers,
-              ...sandboxGateDeps(deps.gateProcessFor?.(id)),
+              ...sandboxGateDeps(deps.gateProcessFor?.(id), deps.hostGateFor?.(id)),
               ...deps.userUat,
             },
           );
@@ -485,7 +487,7 @@ export async function driveTicket(
               },
             },
             {
-              ...reviewGateDeps(deps.gateProcessFor?.(id)),
+              ...reviewGateDeps(deps.gateProcessFor?.(id), deps.hostGateFor?.(id)),
               openDiff: deps.openDiff,
               findingsAdapter: reviewProcess?.adapter,
               reviewProcess,
@@ -647,7 +649,7 @@ export async function driveTicket(
 }
 
 /** Review takes only the gate list from the sandbox deps (it has no verifier or gate-skip). */
-function reviewGateDeps(gate: GateProcessRunner | undefined): { runGates?: ReturnType<typeof sandboxGateDeps>['runGates'] } {
-  const { runGates } = sandboxGateDeps(gate);
+function reviewGateDeps(gate: GateProcessRunner | undefined, hostGate?: () => GateProcessRunner): { runGates?: ReturnType<typeof sandboxGateDeps>['runGates'] } {
+  const { runGates } = sandboxGateDeps(gate, hostGate);
   return runGates ? { runGates } : {};
 }

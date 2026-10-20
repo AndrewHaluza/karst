@@ -23,6 +23,8 @@ import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { SandboxServiceContext } from '../../runtime/startService.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
 import { isServing } from '../../runtime/health.js';
+import type { EnsureSyncResult } from './sandboxSyncOps.js';
+import { ticketHostGate } from './sandboxHostGate.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -213,6 +215,8 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
   readonly store: Store;
   readonly manifest: () => Manifest | undefined;
   readonly onError: (err: unknown) => void;
+  /** The two-way sync before a `sandbox: host` gate (`ensureInSync`); lazy because the sync wiring is built after these bindings. */
+  readonly ensureInSync?: (ticketId: number) => Promise<EnsureSyncResult>;
 }
 
 /** Everything extension.ts binds for sandboxed tickets (arch:AC-32), so the host file stays bindings-only. */
@@ -275,6 +279,11 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       },
     },
     gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
+    hostGateFor: (ticketId: number) => {
+      const sandboxGate = ticketGateProcess(deps, ticketId);
+      const sync = input.ensureInSync;
+      return sandboxGate && sync ? ticketHostGate({ sandbox: deps, sync }, ticketId, sandboxGate) : undefined;
+    },
     /** Stop-all: sandboxed services stop inside the sandbox and lose their 127.0.0.1 mappings too. */
     stopTicket: (store: Store, ticketId: number) => stopAllTicketServers(store, ticketId, ticketSandboxRunner(deps, ticketId)?.runner),
     hostPorts: (ticketId: number) => {

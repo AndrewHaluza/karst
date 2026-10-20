@@ -398,6 +398,29 @@ uat:
     }
   });
 
+  it('parses a gate\'s sandbox field and rejects an unknown value', () => {
+    const gate = (v: string) => `${VALID}
+uat:
+  gates:
+    - name: visual
+      kind: command
+      command: docker
+      sandbox: ${v}
+`;
+    const good = fixture(gate('host'));
+    try {
+      expect(loadManifest(good.path).uat?.gates?.[0]?.sandbox).toBe('host');
+    } finally {
+      good.cleanup();
+    }
+    const bad = fixture(gate('nowhere'));
+    try {
+      expect(() => loadManifest(bad.path)).toThrow(/sandbox must be one of: host, inside/);
+    } finally {
+      bad.cleanup();
+    }
+  });
+
   it('leaves uat.testerVerifier absent for a manifest without a uat block', () => {
     const { path, cleanup } = fixture(VALID);
     try {
