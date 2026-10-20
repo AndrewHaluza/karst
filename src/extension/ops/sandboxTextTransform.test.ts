@@ -59,7 +59,7 @@ describe('sandboxTextTransform', () => {
   it('prunes removed attachments and keeps an oversized one listed with a note', () => {
     const s = setup();
     writeFileSync(join(s.attDir, 'a.txt'), 'a');
-    writeFileSync(join(s.attDir, 'big.bin'), Buffer.alloc(60 * 1024 * 1024));
+    writeFileSync(join(s.attDir, 'big.bin'), Buffer.alloc(11 * 1024 * 1024));
     const mk = (atts: ReturnType<typeof att>[]) => sandboxTextTransform({ sandboxed: true, ticketId: 7, storageDir: s.storage, runDir: '/r/7', bridge: s.paths, attachments: atts, log: vi.fn() });
     const out = mk([att('a.txt'), att('big.bin')])(`${join(s.attDir, 'big.bin')}`);
     expect(out).toBe(`/r/7/attachments/big.bin ${TOO_LARGE_NOTE}`);
@@ -125,5 +125,16 @@ describe('scrubHostCli bare karst span', () => {
   it('catches `karst context T1` and leaves prose alone', () => {
     expect(scrubHostCli('run `karst context T1` now').text).toBe(`run ${NOT_IN_SANDBOX} now`);
     expect(scrubHostCli('the karst extension, `git status`').scrubbed).toBe(0);
+  });
+});
+
+describe('mirror prune never leaves the bridge dir', () => {
+  it('a logs/ symlink to a host dir is not pruned through', () => {
+    const s = setup();
+    const victim = mkdtempSync(join(tmpdir(), 'karst-victim-'));
+    for (let i = 0; i < 8; i++) writeFileSync(join(victim, `f${i}`), 'keep');
+    symlinkSync(victim, join(s.paths.dir, 'logs'));
+    pruneOldLogs(s.paths, 1);
+    expect(readdirSync(victim)).toHaveLength(8);
   });
 });

@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync, rmSync, writeSync, readSync } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, renameSync, rmSync, unlinkSync, writeSync, readSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import type { BridgePaths } from './bridgeDir.js';
@@ -9,7 +9,7 @@ import type { BridgePaths } from './bridgeDir.js';
  * writes (real dir, `O_NOFOLLOW|O_EXCL` temp + rename, links refused) and NEVER reads a
  * copy back. Synchronous like `inbox.ts`: the callers are synchronous seams.
  */
-export const MIRROR_MAX_BYTES = 50 * 1024 * 1024;
+export const MIRROR_MAX_BYTES = 10 * 1024 * 1024;
 export const MIRROR_KEEP_LOGS = 5;
 
 export type MirrorOutcome = 'copied' | 'too-large' | 'refused';
@@ -21,6 +21,10 @@ export function isMirrorName(name: string): boolean {
   return NAME.test(name);
 }
 
+function lstatOrUndefined(path: string): ReturnType<typeof lstatSync> | undefined {
+  try { return lstatSync(path); } catch { return undefined; }
+}
+
 function ensureRealDir(dir: string): void {
   let st: ReturnType<typeof lstatSync> | undefined;
   try { st = lstatSync(dir); } catch { st = undefined; }
@@ -29,6 +33,16 @@ function ensureRealDir(dir: string): void {
     st = undefined;
   }
   if (!st) mkdirSync(dir, { recursive: true, mode: 0o755 });
+}
+
+/** True while `<paths.dir>/<kind>` is still a real directory physically under the bridge dir (a planted link fails). */
+function stillInside(paths: BridgePaths, kind: MirrorKind): boolean {
+  try {
+    const dir = join(paths.dir, kind);
+    return !lstatSync(dir).isSymbolicLink() && realpathSync(dir) === join(realpathSync(paths.dir), kind);
+  } catch {
+    return false;
+  }
 }
 
 /** Copy one regular file `src` to `<dir>/<kind>/<name>`; never follows a link at either end. */
@@ -46,6 +60,10 @@ export function mirrorFile(paths: BridgePaths, kind: MirrorKind, name: string, s
     if (st.size > maxBytes) return 'too-large';
     const dir = join(paths.dir, kind);
     ensureRealDir(dir);
+    if (!stillInside(paths, kind)) return 'refused';
+    // Content-addressed / run-unique names: a same-size entry is already mirrored (spares a re-copy per launch).
+    const have = lstatOrUndefined(join(dir, name));
+    if (have?.isFile() && have.size === st.size) return 'copied';
     const temp = join(dir, `.${name}.${randomBytes(6).toString('hex')}.tmp`);
     const to = openSync(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
     try {
@@ -53,6 +71,10 @@ export function mirrorFile(paths: BridgePaths, kind: MirrorKind, name: string, s
       for (let n = readSync(from, buf, 0, buf.length, null); n > 0; n = readSync(from, buf, 0, buf.length, null)) writeSync(to, buf, 0, n);
     } finally {
       closeSync(to);
+    }
+    if (!stillInside(paths, kind)) {
+      rmSync(temp, { force: true });
+      return 'refused';
     }
     renameSync(temp, join(dir, name));
     return 'copied';
@@ -63,12 +85,22 @@ export function mirrorFile(paths: BridgePaths, kind: MirrorKind, name: string, s
   }
 }
 
+/** Unlink a file or link; a planted directory is removed only when empty. Never recurses, never follows. */
+function removeEntry(path: string): void {
+  try {
+    if (lstatSync(path).isDirectory()) rmSync(path, { recursive: false, force: true });
+    else unlinkSync(path);
+  } catch {
+    // gone or not removable: advisory copies, best effort
+  }
+}
+
 /** Remove every entry of `<dir>/<kind>` that is not in `keep` (dotfiles included). */
 export function pruneMirror(paths: BridgePaths, kind: MirrorKind, keep: ReadonlySet<string>): void {
   const dir = join(paths.dir, kind);
   try {
-    if (!lstatSync(dir).isDirectory()) return;
-    for (const entry of readdirSync(dir)) if (!keep.has(entry)) rmSync(join(dir, entry), { recursive: true, force: true });
+    if (!stillInside(paths, kind)) return;
+    for (const entry of readdirSync(dir)) if (!keep.has(entry)) removeEntry(join(dir, entry));
   } catch {
     // no dir yet: nothing to prune
   }
@@ -78,10 +110,11 @@ export function pruneMirror(paths: BridgePaths, kind: MirrorKind, keep: Readonly
 export function pruneOldLogs(paths: BridgePaths, limit: number = MIRROR_KEEP_LOGS): void {
   const dir = join(paths.dir, 'logs');
   try {
+    if (!stillInside(paths, 'logs')) return;
     const entries = readdirSync(dir)
       .map((name) => ({ name, mtime: lstatSync(join(dir, name)).mtimeMs }))
       .sort((a, b) => b.mtime - a.mtime || (a.name < b.name ? 1 : -1));
-    for (const e of entries.slice(limit)) rmSync(join(dir, e.name), { recursive: true, force: true });
+    for (const e of entries.slice(limit)) removeEntry(join(dir, e.name));
   } catch {
     // no dir yet: nothing to prune
   }
