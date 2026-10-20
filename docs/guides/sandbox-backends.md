@@ -47,7 +47,7 @@ Each failure names its fix.
   `sbx policy init` (a network policy must exist).
   - claude: log in inside the sandbox on its first `sbx run`.
   - codex: run `sbx secret set openai --oauth` once. Karst never runs this for you.
-- **docker**: start the Docker daemon. The image `karst/opencode-sandbox:<v1>-<v2>`
+- **docker**: start the Docker daemon. The image `karst/opencode-sandbox:<v1>-<v2>-pw<playwright>-<revision>`
   is built locally on first use (it can take minutes) and is never pulled.
   - opencode: a host `auth.json` is mounted read-only when present.
   - opencode2: karst streams `auth export --standalone` into the sandbox; the

@@ -60,11 +60,32 @@ jobs:
       - name: Docs keyed-block lint and index
         run: npm run -s docs:check
 
+      - name: Architecture import map check
+        run: npm run -s docs:graph -- --check
+
       - name: Mermaid diagram check
         run: npm run -s docs:mermaid
 
+      # The generated map is only useful if the rules it documents actually
+      # hold. .dependency-cruiser.cjs is the enforcement (docs @arch:MAP-03).
+      - name: Layer rules
+        run: npx depcruise src --config .dependency-cruiser.cjs
+
       - name: Build
         run: npm run build
+
+      # docs:schema applies src/store/migrations.ts to an in-memory SQLite
+      # database. It answers through better-sqlite3 when the addon is built
+      # for this Node and through node:sqlite otherwise, so the rebuild below
+      # only decides WHICH driver answers — the store's own. Build/typecheck do
+      # not load the addon; this job never launches the extension host, so
+      # there is no Electron ABI to restore afterwards (@arch:ABI-01).
+      # pretest:unit below repeats the rebuild as a no-op.
+      - name: Rebuild better-sqlite3 for the Node ABI
+        run: npm run rebuild:node
+
+      - name: Live schema ER check
+        run: npm run -s docs:schema -- --check
 
       # `pretest:unit` rebuilds better-sqlite3 for the Node ABI. This job runs
       # the unit suite only; the integration job below is self-sufficient.

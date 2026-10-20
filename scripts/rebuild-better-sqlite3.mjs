@@ -5,6 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSyn
 import { createRequire } from 'node:module';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildToolsRepair, missingBuildTools, EXIT_COMMAND_NOT_FOUND } from './nativeToolchain.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const mode = process.argv[2] ?? 'auto';
@@ -224,6 +225,15 @@ function ensureAddonFor(target, abi, version) {
   }
 
   console.log(`No prebuild for ABI ${abi}; building better-sqlite3 for ${target} ${version} (${arch})...`);
+  // A source build needs Python (node-gyp runs on it), make and a C++ compiler.
+  // A slim image has none of them, and the gyp error that follows reads like a
+  // broken build when it is really a missing capability — so say so, and exit
+  // with POSIX's "command not found" code (127) instead of the compiler's.
+  const missing = missingBuildTools();
+  if (missing.length > 0) {
+    console.error(buildToolsRepair(missing));
+    process.exit(EXIT_COMMAND_NOT_FOUND);
+  }
   if (target === 'electron') {
     run(npmCommand, ['exec', '--', 'electron-rebuild', '-f', '-w', 'better-sqlite3', '--version', version, '--arch', arch, '--module-dir', installRoot], {
       npm_config_build_from_source: 'true',

@@ -542,6 +542,24 @@ describe('gatesOutcomeBeforeFindings', () => {
     });
   });
 
+  it('parks on a capability gap: a gate that exited 127 never ran its command', () => {
+    const gap = entry('visual (web)', 127, { repo: '/web', command: 'npm', args: ['run', 'test:visual:docker'] });
+    const out = gatesOutcomeBeforeFindings([lintWeb, gap]);
+    expect(out?.kind).toBe('blocked');
+    expect(out?.kind === 'blocked' && out.blocker).toBe('capability-missing');
+    expect(out?.kind === 'blocked' && out.reason).toContain('visual (web)');
+  });
+
+  it('still fails an ordinary failure that sits beside a capability gap', () => {
+    const gap = entry('visual (web)', 127, { repo: '/web', command: 'npm', args: ['run', 'test:visual:docker'] });
+    const out = gatesOutcomeBeforeFindings([lintWebRed, gap]);
+    expect(out?.kind).toBe('verdict');
+    expect(out?.kind === 'verdict' && out.verdict).toEqual({
+      kind: 'failed',
+      reason: 'gates failed: lint (web), visual (web)',
+    });
+  });
+
   it('keeps the ordinary reason when a gate resolved but a DIFFERENT one was disabled', () => {
     expect(gatesOutcomeBeforeFindings([testWebSkipped], ['lint'])).toEqual({
       kind: 'blocked',

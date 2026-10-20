@@ -1,5 +1,6 @@
 import type { BlockerKind, Verdict } from '../../model/types.js';
 import type { GateRun } from '../../store/gateRuns.js';
+import { capabilityGap } from '../gates/capabilityGap.js';
 import type { GateResult } from '../gates/result.js';
 
 /**
@@ -158,6 +159,18 @@ export function aggregateUat(
 
   const failing = ran.filter((e) => e.result.exitCode !== 0);
   if (failing.length > 0) {
+    // A gate that exited 127 never RAN the thing it names: the command is not
+    // installed in this environment (a sandbox without docker, a machine
+    // without the toolchain a native addon needs). That is a missing
+    // capability, not a defect in the ticket's code — charging it as a failed
+    // gate would spend a fix round on the environment and report a red the
+    // ticket cannot clear. Park instead (no attempt consumed), naming the
+    // capability, exactly like a dependency tree that drifted from the
+    // lockfile.
+    const gap = capabilityGap(failing.map((e) => e.result));
+    if (gap) {
+      return { kind: 'blocked', blocker: 'capability-missing', reason: gap.reason };
+    }
     return {
       kind: 'verdict',
       verdict: { kind: 'failed', reason: `gates failed: ${failing.map((e) => e.result.name).join(', ')}` },

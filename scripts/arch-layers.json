@@ -1,0 +1,28 @@
+{
+  "entry": ["extension.ts", "extension", "setup", "commands", "init"],
+  "view": ["ui"],
+  "agentic": ["agent", "agents", "hooks", "context", "planning", "approaches"],
+  "exec": [
+    "runtime",
+    "cli",
+    "integrations",
+    "artifacts",
+    "attachments",
+    "project",
+    "recovery",
+    "resolver",
+    "doctor",
+    "diagnostics",
+    "uatHost"
+  ],
+  "core": [
+    "model",
+    "store",
+    "workflow",
+    "manifest",
+    "logging",
+    "template",
+    "buildInfo.ts",
+    "runtimeAssetsRoot.ts"
+  ]
+}

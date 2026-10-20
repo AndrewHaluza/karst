@@ -49,6 +49,60 @@ describe('aggregateUat', () => {
     expect(out).toEqual({ kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] });
   });
 
+  it('parks on a capability gap: a gate that exited 127 never ran its command', () => {
+    // The command is not installed in this environment (a sandbox without
+    // docker, a machine without the toolchain a native addon needs). That is
+    // NOT a red the ticket can clear — park, name the capability, and spend no
+    // fix attempt on it.
+    const out = aggregateUat(
+      [
+        { result: { name: 'unit (extention)', exitCode: 0, output: '' }, identity: npmTest },
+        {
+          result: {
+            name: 'visual (extention)',
+            exitCode: 127,
+            output: 'test:visual:docker needs docker: the sandbox has none',
+          },
+          identity: npmE2e,
+        },
+      ],
+      [npmTest],
+    );
+    expect(out.kind).toBe('blocked');
+    expect(out.kind === 'blocked' && out.blocker).toBe('capability-missing');
+    expect(out.kind === 'blocked' && out.reason).toContain('visual (extention)');
+    expect(out.kind === 'blocked' && out.reason).toContain('docker');
+  });
+
+  it('still fails a gate that exited non-zero for an ordinary reason', () => {
+    const out = aggregateUat(
+      [entry('test', 0, npmTest), entry('e2e', 2, npmE2e)],
+      [npmTest],
+    );
+    expect(out).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: e2e' },
+      warnings: [],
+    });
+  });
+
+  it('still fails an ordinary failure that sits beside a capability gap', () => {
+    // The gap does not swallow the failure the ticket can fix: the real one
+    // wins, and the gap's own output stays on its recorded row.
+    const out = aggregateUat(
+      [
+        { result: { name: 'visual (extention)', exitCode: 127, output: 'no docker' }, identity: npmE2e },
+        { result: { name: 'unit (extention)', exitCode: 1, output: 'assertion failed' }, identity: npmTest },
+      ],
+      [npmTest],
+    );
+    expect(out).toEqual({
+      kind: 'verdict',
+      verdict: { kind: 'failed', reason: 'gates failed: visual (extention), unit (extention)' },
+      warnings: [],
+    });
+  });
+
   it('fails when any gate that ran exits non-zero, naming the gates', () => {
     const out = aggregateUat(
       [entry('test', 0, npmTest), entry('e2e', 2, npmE2e)],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OPENCODE_IMAGE } from './dockerImage.js';
+import { OPENCODE_IMAGE, PLAYWRIGHT_VERSION } from './dockerImage.js';
 import { dockerPreflight } from './dockerPreflight.js';
 import { fakeDockerProcess } from './fakeDockerProcess.js';
 
@@ -33,7 +33,10 @@ describe('dockerPreflight', () => {
   it('builds a missing image from the shipped context', async () => {
     const proc = fakeDockerProcess({ 'docker image inspect': { code: 1 } });
     await expect(dockerPreflight(proc, CTX)).resolves.toEqual({ ok: true });
-    expect(lines(proc)[2]).toBe(`docker build --tag ${OPENCODE_IMAGE} --build-arg OC1=1.19.0 --build-arg OC2=2.0.27 ${CTX}`);
+    expect(lines(proc)[2]).toBe(
+      `docker build --tag ${OPENCODE_IMAGE} --build-arg OC1=1.19.0 --build-arg OC2=2.0.27 ` +
+        `--build-arg PW=${PLAYWRIGHT_VERSION} ${CTX}`,
+    );
   });
 
   it('reports a failed build', async () => {

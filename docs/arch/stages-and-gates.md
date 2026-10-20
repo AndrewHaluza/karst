@@ -21,6 +21,7 @@ The stage machine, the evidence it writes, and the host seam that drives it. Rel
 - Gate output is a LIVE stream and a post-run artifact
 - A gate may be switched off for ONE ticket
 - Auto-discovery is npm-shaped; gating is not
+- A gate that could not RUN its command parks, never fails
 - UAT Tester observations are advisory BY DEFAULT
 - Review findings decide review: R6 fails, R6b blocks on an unreadable answer
 - Nothing in the extension host may block its event loop
@@ -100,6 +101,12 @@ END_DOC_BLOCK: [@arch:GATE-SWITCH]
 
 A gate `command` carrying a path separator is resolved against the gate's `cwd` before the platform shim sees it (`runtime/commandCwd.ts`), so `.venv/bin/pytest` and `./gradlew` mean the worktree — a bare name stays a PATH lookup, because that is what `pytest` or `go` is asking for. On POSIX this only makes explicit what `execvp` already does after the child chdirs; on Windows it is load-bearing, since `resolveOnPath`'s existence check would otherwise run against the extension host's directory and fall through to an ENOENT.
 END_DOC_BLOCK: [@arch:DISCOVERY]
+
+## [@arch:GATE-CAPABILITY] A gate that could not RUN its command parks as capability-missing, never fails
+covers: src/workflow/gates/capabilityGap.ts, src/workflow/uat/aggregate.ts#aggregateUat, src/workflow/review/aggregate.ts#gatesOutcomeBeforeFindings, scripts/dockerGate.mjs, scripts/nativeToolchain.mjs
+
+Exit 127 is POSIX's "command not found": the binary a gate runs is not installed where the gate ran. A karst sandbox has no docker (it never mounts the docker socket) and no C++ toolchain, so a container-pinned visual gate and a native-addon rebuild both land there — the command was never RUN, so the gate has no verdict to give about the ticket's code. UAT and review therefore PARK (`capability-missing`, no fix attempt consumed) instead of recording a red the ticket cannot clear: the same line the dependency-drift check already draws ("a SETUP failure ... the caller parks"). The park replaces the verdict only when EVERY failed gate is a missing command — a gate that failed for an ordinary reason is the ticket's to fix, and a capability gap never swallows it. The park names the gates and quotes what each said about the missing command, and the repo's own scripts make that sentence actionable — `scripts/dockerGate.mjs` names docker and the repair, `scripts/rebuild-better-sqlite3.mjs` names the toolchain and the apt line — so the park reason is the fix, not a code to look up. The sandbox image carries the capabilities a repository's gates need (a C++ toolchain, and the pinned browser and fonts the visual baselines belong to), so a gate that CAN run in the sandbox runs in the sandbox; the marker `/opt/karst/visual-baseline-env` is what lets a local sweep stand in for the container, and only there — anywhere else a local sweep would answer a different question.
+END_DOC_BLOCK: [@arch:GATE-CAPABILITY]
 
 ## [@arch:UAT-OBS] UAT Tester observations are advisory BY DEFAULT, and one knob makes them a verdict
 

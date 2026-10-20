@@ -7,6 +7,24 @@
 export const OPENCODE_V1_VERSION = '1.19.0';
 export const OPENCODE_V2_VERSION = '2.0.27';
 
+/**
+ * The Playwright release whose Chromium the sandbox image ships.
+ *
+ * It must equal the repository's pinned `@playwright/test`: the visual
+ * baselines are recorded with that browser build and are valid for exactly
+ * that rendering environment, so the sandbox that runs a repository's gates
+ * needs the same one (docs/ui/README.md). `dockerImage.test.ts` pins it
+ * against package.json so the two cannot drift.
+ */
+export const PLAYWRIGHT_VERSION = '1.63.0';
+
+/**
+ * Bumped when the image's CONTENTS change — a toolchain, a rendering
+ * environment — so a host rebuilds instead of reusing the image it already
+ * has (the preflight only builds a tag it cannot find).
+ */
+export const OPENCODE_IMAGE_REVISION = 'r2';
+
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
 import { DOCKER_CORES, type DockerCore } from '../sandboxCores.js';
@@ -18,7 +36,7 @@ export function opencodeImageTag(v1: string, v2: string): string {
   if (!SEMVER.test(v1) || !SEMVER.test(v2)) {
     throw new Error(`opencode image: unpinned version ${JSON.stringify(`${v1}/${v2}`)}`);
   }
-  return `karst/opencode-sandbox:${v1}-${v2}`;
+  return `karst/opencode-sandbox:${v1}-${v2}-pw${PLAYWRIGHT_VERSION}-${OPENCODE_IMAGE_REVISION}`;
 }
 
 export const OPENCODE_IMAGE = opencodeImageTag(OPENCODE_V1_VERSION, OPENCODE_V2_VERSION);
@@ -29,6 +47,7 @@ export function imageBuildArgs(contextDir: string): string[] {
     'build', '--tag', OPENCODE_IMAGE,
     '--build-arg', `OC1=${OPENCODE_V1_VERSION}`,
     '--build-arg', `OC2=${OPENCODE_V2_VERSION}`,
+    '--build-arg', `PW=${PLAYWRIGHT_VERSION}`,
     contextDir,
   ];
 }
