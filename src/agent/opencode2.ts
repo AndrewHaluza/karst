@@ -24,6 +24,7 @@ import type { TokenUsage } from './tokenUsage.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { refuseUnsandboxedBypass } from './sandbox.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
+import { spillOversizedKickoff } from './kickoffSpill.js';
 import { OpencodeAdapter, launchProfile, opencodeLaunchPermission } from './opencode.js';
 import type { InteractivePolicy } from './gatePolicy.js';
 import {
@@ -445,7 +446,21 @@ export class Opencode2Adapter implements AgentAdapter {
       : opts.initialPrompt;
     // No `--model`: v2 preselects through the config blob (verified PASS,
     // including the `#<effort>` variant).
-    if (kickoff) args.push('--prompt', kickoff);
+    if (kickoff) {
+      // `--prompt` is one argv entry, so an oversized kickoff must spill to a
+      // file rather than reach execve (E2BIG). Small kickoffs are unchanged.
+      const spilled = spillOversizedKickoff({
+        cwd: opts.cwd,
+        prompt: kickoff,
+        ...(opts.runtimeDir !== undefined ? { runtimeDir: opts.runtimeDir } : {}),
+        ...(opts.hookChannel ? { hookChannel: opts.hookChannel } : {}),
+        ...(opts.hookChannel?.launchId !== undefined
+          ? { launchId: opts.hookChannel.launchId }
+          : {}),
+      });
+      if (spilled.ownedPaths.length > 0) ownedPaths = [...(ownedPaths ?? []), ...spilled.ownedPaths];
+      args.push('--prompt', spilled.prompt as string);
+    }
     const mcp = opts.mcpConfigPath
       ? opencodeMcpSection(readMcpServersConfig(opts.mcpConfigPath))
       : undefined;
