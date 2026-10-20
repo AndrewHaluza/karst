@@ -9,7 +9,7 @@ import type { BridgePaths } from './bridgeDir.js';
  * writes (real dir, `O_NOFOLLOW|O_EXCL` temp + rename, links refused) and NEVER reads a
  * copy back. Synchronous like `inbox.ts`: the callers are synchronous seams.
  */
-export const MIRROR_MAX_BYTES = 10 * 1024 * 1024;
+export const MIRROR_MAX_BYTES = 2 * 1024 * 1024; // sync copies on the extension host: keep each one to a few ms
 export const MIRROR_KEEP_LOGS = 5;
 
 export type MirrorOutcome = 'copied' | 'too-large' | 'refused';
@@ -106,15 +106,15 @@ export function pruneMirror(paths: BridgePaths, kind: MirrorKind, keep: Readonly
   }
 }
 
-/** Keep only the `limit` most recently modified files of `<dir>/logs`. */
-export function pruneOldLogs(paths: BridgePaths, limit: number = MIRROR_KEEP_LOGS): void {
+/** Keep the `limit` most recently modified files of `<dir>/logs`, plus every name in `protect`. */
+export function pruneOldLogs(paths: BridgePaths, limit: number = MIRROR_KEEP_LOGS, protect: ReadonlySet<string> = new Set()): void {
   const dir = join(paths.dir, 'logs');
   try {
     if (!stillInside(paths, 'logs')) return;
     const entries = readdirSync(dir)
       .map((name) => ({ name, mtime: lstatSync(join(dir, name)).mtimeMs }))
       .sort((a, b) => b.mtime - a.mtime || (a.name < b.name ? 1 : -1));
-    for (const e of entries.slice(limit)) removeEntry(join(dir, e.name));
+    for (const e of entries.slice(limit)) if (!protect.has(e.name)) removeEntry(join(dir, e.name));
   } catch {
     // no dir yet: nothing to prune
   }

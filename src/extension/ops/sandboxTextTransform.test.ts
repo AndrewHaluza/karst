@@ -59,7 +59,7 @@ describe('sandboxTextTransform', () => {
   it('prunes removed attachments and keeps an oversized one listed with a note', () => {
     const s = setup();
     writeFileSync(join(s.attDir, 'a.txt'), 'a');
-    writeFileSync(join(s.attDir, 'big.bin'), Buffer.alloc(11 * 1024 * 1024));
+    writeFileSync(join(s.attDir, 'big.bin'), Buffer.alloc(3 * 1024 * 1024));
     const mk = (atts: ReturnType<typeof att>[]) => sandboxTextTransform({ sandboxed: true, ticketId: 7, storageDir: s.storage, runDir: '/r/7', bridge: s.paths, attachments: atts, log: vi.fn() });
     const out = mk([att('a.txt'), att('big.bin')])(`${join(s.attDir, 'big.bin')}`);
     expect(out).toBe(`/r/7/attachments/big.bin ${TOO_LARGE_NOTE}`);
@@ -136,5 +136,15 @@ describe('mirror prune never leaves the bridge dir', () => {
     symlinkSync(victim, join(s.paths.dir, 'logs'));
     pruneOldLogs(s.paths, 1);
     expect(readdirSync(victim)).toHaveLength(8);
+  });
+});
+
+describe('log pruning inside one rewrite', () => {
+  it('a log referenced earlier in the same text survives later copies', () => {
+    const s = setup();
+    for (let i = 0; i < 8; i++) writeFileSync(join(s.logDir, `l${i}.log`), 'x');
+    const rw = sandboxTextTransform({ sandboxed: true, ticketId: 7, storageDir: s.storage, runDir: '/r/7', bridge: s.paths, attachments: [], log: vi.fn() });
+    rw(Array.from({ length: 8 }, (_v, i) => join(s.logDir, `l${i}.log`)).join(' '));
+    expect(readdirSync(join(s.paths.dir, 'logs'))).toHaveLength(8);
   });
 });

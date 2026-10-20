@@ -106,13 +106,15 @@ export function sandboxTextTransform(input: SandboxTextInput): (text: string) =>
       });
     out = out.replace(SPILL_POINTER, NOT_IN_SANDBOX);
     out = out.replace(attPath, (_m, name: string) => attRef(name));
+    const referenced = new Set<string>();
     out = out.replace(logPath, (_m, name: string) => {
       if (!reachable) { input.log('WARN no bridge dir: gate log path is not available in the sandbox'); return NOT_IN_SANDBOX; }
       const res = mirrorFile(bridge, 'logs', name, join(logDir, name));
       if (res === 'refused') { input.log(`WARN gate log ${name} not mirrored into the sandbox`); return NOT_IN_SANDBOX; }
-      pruneOldLogs(bridge, MIRROR_KEEP_LOGS);
+      referenced.add(name);
       return res === 'copied' ? `${runDir}/logs/${name}` : `${runDir}/logs/${name} ${TOO_LARGE_NOTE}`;
     });
+    if (reachable && referenced.size > 0) pruneOldLogs(bridge, MIRROR_KEEP_LOGS, referenced);
     return out;
   };
 }
