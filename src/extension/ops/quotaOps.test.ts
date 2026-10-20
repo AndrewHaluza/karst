@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { QuotaOps, makeClaudeGlobalStatuslineSync, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
+import { QuotaOps, makeClaudeGlobalStatuslineSync, type ClaudeGlobalStatuslineSyncDeps, type QuotaOpsDeps, type QuotaStatusSink } from './quotaOps.js';
 import type { QuotaSnapshot } from '../../agent/quota/types.js';
 import type { Manifest } from '../../manifest/types.js';
 
@@ -46,13 +46,28 @@ const openAtNow = (core: QuotaSnapshot['core'], used: number): QuotaSnapshot => 
   readAt: '2026-01-01T00:00:00.000Z',
 });
 
+function globalStatusline(
+  over: Partial<ClaudeGlobalStatuslineSyncDeps> = {},
+): ClaudeGlobalStatuslineSyncDeps {
+  return {
+    manifest: () => ({}) as Manifest,
+    storageRoot: '/storage',
+    warn: vi.fn(),
+    info: vi.fn(),
+    error: vi.fn(),
+    apply: vi.fn(() => ({ installed: false, changed: false })),
+    node: () => '/usr/bin/node',
+    ...over,
+  };
+}
+
 function make(over: {
   snapshots?: QuotaSnapshot[];
   get?: (core: string) => QuotaSnapshot | undefined;
   thresholdPct?: () => number | undefined;
   /** `null` omits the clock, exercising the real-`Date` default. */
   now?: (() => Date) | null;
-}) {
+}, globalOver: Partial<ClaudeGlobalStatuslineSyncDeps> = {}) {
   const status = sink();
   const notify = vi.fn();
   const deps: QuotaOpsDeps = {
@@ -67,8 +82,9 @@ function make(over: {
   };
   const now = over.now === undefined ? () => NOW : over.now;
   if (now) deps.now = now;
-  const ops = new QuotaOps(deps);
-  return { ops, status, notify };
+  const global = globalStatusline(globalOver);
+  const ops = new QuotaOps(deps, global);
+  return { ops, status, notify, global };
 }
 
 describe('QuotaOps.applyStatus', () => {
@@ -144,6 +160,17 @@ describe('QuotaOps.warnBeforeLaunch', () => {
     const { ops, notify } = make({ get: () => openAtNow('codex', 95) });
     ops.warnBeforeLaunch('codex');
     expect(notify).toHaveBeenCalledWith(expect.stringContaining('codex is at 95%'));
+  });
+});
+
+describe('QuotaOps.syncClaudeGlobalStatusline', () => {
+  it('runs the opt-in global install on demand', () => {
+    const { ops, global } = make(
+      {},
+      { manifest: () => ({ quota: { claudeGlobalStatusline: true } }) as Manifest },
+    );
+    ops.syncClaudeGlobalStatusline();
+    expect(global.apply).toHaveBeenCalledWith(expect.objectContaining({ enabled: true }));
   });
 });
 

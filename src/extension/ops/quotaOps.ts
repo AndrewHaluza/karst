@@ -41,7 +41,23 @@ export interface QuotaOpsDeps {
 }
 
 export class QuotaOps {
-  constructor(private readonly deps: QuotaOpsDeps) {}
+  private readonly syncGlobalStatuslineNow: () => void;
+
+  constructor(
+    private readonly deps: QuotaOpsDeps,
+    globalStatusline: ClaudeGlobalStatuslineSyncDeps,
+  ) {
+    this.syncGlobalStatuslineNow = makeClaudeGlobalStatuslineSync(globalStatusline);
+  }
+
+  /**
+   * Apply the opt-in GLOBAL Claude statusline install (D184): ON installs or
+   * refreshes, OFF restores the operator's entry. Idempotent, so the manifest
+   * reload and activation bindings can call it on every pass.
+   */
+  syncClaudeGlobalStatusline(): void {
+    this.syncGlobalStatuslineNow();
+  }
 
   private threshold(): number {
     return this.deps.thresholdPct() ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
