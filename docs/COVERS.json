@@ -1,5 +1,92 @@
 {
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
+  ],
+  "src/agent/settings.ts#writeHookSettings": [
+    "arch:GLOBAL"
+  ],
+  "src/agent/settingsSweep.ts": [
+    "arch:GLOBAL"
+  ],
+  "src/cli/assertMigrated.ts#assertExactSchema": [
+    "arch:ST-00"
+  ],
+  "src/cli/assertMigrated.ts#assertMigratedSchema": [
+    "arch:ST-00"
+  ],
+  "src/extension/ops/planningOutbox.ts": [
+    "arch:PLANNING"
+  ],
+  "src/model/artifacts.ts": [
+    "arch:SHELF"
+  ],
+  "src/model/bulletinRelevance.ts": [
+    "arch:BULLETIN"
+  ],
+  "src/project/bind.ts#bindProject": [
+    "arch:PROJECTS"
+  ],
+  "src/project/slug.ts#resolveProjectSlug": [
+    "arch:PROJECTS"
+  ],
+  "src/recovery/reconcile.ts#deriveStageCurrent": [
+    "arch:SQLITE"
+  ],
+  "src/recovery/reconcile.ts#reconcileOnStart": [
+    "arch:SQLITE"
+  ],
+  "src/runtime/worktree.ts#createWorktree": [
+    "arch:WORKTREES-ROW"
+  ],
+  "src/store/**": [
+    "arch:ST-00"
+  ],
+  "src/store/bulletinNotes.ts#recordTicketMerged": [
+    "arch:BULLETIN"
+  ],
+  "src/store/fixDeliveries.ts#upsertFixDelivery": [
+    "arch:V77"
+  ],
+  "src/store/graph/**": [
+    "arch:GRAPHRUN"
+  ],
+  "src/store/migrations.ts#migrate": [
+    "arch:SCHEMA-CHECK"
+  ],
+  "src/store/planningProposals.ts": [
+    "arch:PLANNING"
+  ],
+  "src/store/planningSessions.ts": [
+    "arch:PLANNING"
+  ],
+  "src/store/schema.sql": [
+    "arch:SCHEMA-CHECK"
+  ],
+  "src/store/schemaVersion.ts#SCHEMA_VERSION": [
+    "arch:SCHEMA-CHECK"
+  ],
+  "src/store/stageBlocks.ts#parkGateStage": [
+    "arch:V82"
+  ],
+  "src/store/stages.ts#setStage": [
+    "arch:V82"
+  ],
+  "src/store/ticketEnvOverrides.ts#setServiceEnvOverrides": [
+    "arch:ENVOVR"
+  ],
+  "src/store/ticketMessagesRepair.ts#repairTicketMessages": [
+    "arch:V64"
+  ],
+  "src/store/ticketRelations.ts": [
+    "arch:RELATIONS"
+  ],
+  "src/store/usageLimitParks.ts": [
+    "arch:V82"
+  ],
+  "src/store/worktrees.ts#takeForcePushLease": [
+    "arch:BASEBRANCH"
+  ],
+  "src/workflow/changeBaseRef.ts#changeBaseRef": [
+    "arch:BASEBRANCH"
   ]
 }

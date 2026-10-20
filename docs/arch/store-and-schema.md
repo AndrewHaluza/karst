@@ -10,39 +10,78 @@ This file uses an agent-optimized block format. DO NOT read this file entirely.
 
 The registry is shared by every IDE window, so every rule here is about scoping and about changing the schema without stranding a row. Related: `docs/arch/cli.md` (the CLI asserts the version but cannot migrate), `docs/arch/stages-and-gates.md` (the evidence tables), `docs/arch/model-store-workflow-layering.md` (why `model/artifacts.ts` below is allowed to call live `store` reads).
 
-## [@arch:CONTENTS] Contents
+## [@arch:ST-00] Overview
+covers: src/store/**, src/cli/assertMigrated.ts#assertExactSchema, src/cli/assertMigrated.ts#assertMigratedSchema
 
-- SQLite is source of truth
-- Projects scope the board across IDE windows
-- Global storage is shared by every window
-- Graph-run state writes have one boundary
-- The artifact shelf is a READ over existing evidence
-- The per-ticket base-branch columns
-- The per-ticket env overrides column
-- One worktrees row per (ticket, path)
-- v64: sub-task autostart and parent–child mailbox schema
-- Planning sessions (v65)
-- Ticket relations (v69)
-- Project bulletin (v72)
-- New schema column checklist
-END_DOC_BLOCK: [@arch:CONTENTS]
+### Purpose
+The store is the one SQLite registry every IDE window shares: it owns the schema, the numbered migrations, and the transaction boundary every persisted fact (tickets, stages, evidence, runs, worktrees, planning drafts) is written through. This file governs how that registry is opened and migrated, how rows are scoped to a project, and the write boundary of each table. SQLite is the source of truth; `reconcileOnStart`/`deriveStageCurrent` re-derive the in-flight state on boot.
+
+### Connections
+- in: @arch:SINGLE-WRITER, @arch:EVIDENCE-WHEN — stage/agent-state and gate-evidence rules decide what may be written.
+- in: @arch:BASE-PER, @arch:SPAWN-ENV — the base-ref and env-override semantics these columns carry.
+- in: @arch:GH-03 — PR facts and merge shas arrive through `updatePrDetail`.
+- out: @arch:CLI-05, @arch:CLI-08 — the CLI reads the same registry with `node:sqlite` and cannot migrate.
+- out: @arch:DIAG-02 — reporting reads the run/token tables and never reaches back.
+- out: @arch:MAILBOX — v77 keeps fix rows out of the shared message route.
+
+### Flow
+```mermaid
+flowchart TD
+  A[caller: op, workflow, driver] --> B[named store helper]
+  B -->|multi-row write| C[runImmediateTransaction: BEGIN IMMEDIATE]
+  B -->|boot or first use| D[openStore: WAL + foreign_keys ON]
+  D --> E[migrate]
+  E -->|user_version current| F[no-op fast path]
+  E -->|behind| G[migrateLocked in ONE transaction]
+  G --> H[schema.sql for a fresh DB / guarded ALTER and CREATE per version]
+  H --> I[user_version = SCHEMA_VERSION]
+  C --> J[(registry file)]
+  I --> J
+  F --> J
+```
+
+### Tradeoffs
+| Chosen | Rejected | Why |
+|---|---|---|
+| One global registry, every query project-scoped | A DB per window or per project | All windows share one file; `projects.slug` is identity, and an unscoped query is the recovery-only all-projects view. |
+| `schema.sql` carries the full current schema; upgrades are guarded `ALTER`s | Replaying migration history on every fresh DB | A fresh DB is created current in one exec, and the same guards make a re-open a no-op. |
+| One `BEGIN IMMEDIATE` around the whole migration | Per-step autocommit | A crash rolls back the migration instead of leaving some steps committed. |
+| `runImmediateTransaction` over the driver's callable | Driver-specific transaction options | better-sqlite3 silently ignores options the `node:sqlite` adapters need. |
+| UPSERT on `(ticket_id, path)` | Blind INSERT on re-spin | A checkout pruned from git while its row survived otherwise duplicated dashboard cards. |
+
+### Fallbacks
+| Trigger | Behaviour | Recovery |
+|---|---|---|
+| A second window opens mid-migration | Blocks on `busy_timeout`, re-reads the version, then no-ops | None needed |
+| Crash mid-migration | The single transaction rolls back | Next open re-runs the idempotent steps |
+| Early v64 `ticket_messages` lacks `woke_at`/AUTOINCREMENT | `repairTicketMessages` rebuilds the table, copying every id | Automatic inside `migrate` |
+| Legacy `project_id IS NULL` rows | Adopted once per install, only when one project exists | `bindProject` at activation |
+| An older build meets a newer registry | Graph verbs throw "requires exactly v<N>" | Update that window's extension |
+
+### Rules
+@arch:SQLITE · @arch:PROJECTS · @arch:GLOBAL · @arch:GRAPHRUN · @arch:SHELF · @arch:BASEBRANCH · @arch:ENVOVR · @arch:WORKTREES-ROW · @arch:V64 · @arch:PLANNING · @arch:RELATIONS · @arch:BULLETIN · @arch:V77 · @arch:V82 · @arch:SCHEMA-CHECK
+END_DOC_BLOCK: [@arch:ST-00]
 
 ## [@arch:SQLITE] SQLite is source of truth
+covers: src/recovery/reconcile.ts#reconcileOnStart, src/recovery/reconcile.ts#deriveStageCurrent
 
 SQLite is source of truth; `reconcileOnStart`/`deriveStageCurrent` re-derive on boot.
 END_DOC_BLOCK: [@arch:SQLITE]
 
 ## [@arch:PROJECTS] Projects scope the board across IDE windows
+covers: src/project/bind.ts#bindProject, src/project/slug.ts#resolveProjectSlug
 
 The DB lives in *global* storage — every window shares it — so every ticket query MUST be scoped or window A lists/drives window B's tickets. Identity is `projects.slug`, from manifest `id:` else a path-derived fallback (`project/slug.ts`); `bindProject` (`project/bind.ts`) registers it at activation. Pass `{ projectId }` to `listTickets`/`listArchivedTickets`/`getTicketByKey`/`createTicket`; unscoped is the deliberate all-projects view (recovery only). Ticket `key` is unique **per project**, not globally. Legacy `project_id IS NULL` rows are adopted once per install, guarded by a globalState flag AND "only one project exists".
 END_DOC_BLOCK: [@arch:PROJECTS]
 
 ## [@arch:GLOBAL] Global storage is shared by every window
+covers: src/agent/settings.ts#writeHookSettings, src/agent/settingsSweep.ts
 
 Global storage is shared by every window: anything written there needs a per-window key. `writeHookSettings` names its file by the window's ephemeral hook port for exactly this reason (`agent/settingsSweep.ts` reaps old ones). Same trap in `globalState`: the remembered hook port lives in **`workspaceState`** — each window binds its own port, and a global key let the second window's EADDRINUSE fallback overwrite the first's, so the first could never reclaim the port its live sessions still post to.
 END_DOC_BLOCK: [@arch:GLOBAL]
 
 ## [@arch:GRAPHRUN] Graph-run state reads and writes have one boundary
+covers: src/store/graph/**
 
 Every in-process write to `approach_graph_runs`, `approach_node_runs`, and
 `approach_planner_runs` goes through `src/store/graph/` (`graphRuns.ts`,
@@ -83,26 +122,31 @@ Two deliberate, documented exceptions remain:
 END_DOC_BLOCK: [@arch:GRAPHRUN]
 
 ## [@arch:SHELF] The artifact shelf is a READ over existing evidence, never a new write surface
+covers: src/model/artifacts.ts
 
 `model/artifacts.ts` derives semantic artifacts (uat-report, review, ship-summary) from `stages`, `gate_runs`, `review_findings`, `uat_findings`, `process_runs`, `ship_runs`, and `prs` — the same evidence rows the inside views already render. Origin `core` is resolved from the immutable identity snapshot `process_runs.provider` (captured at launch, never rewritten), falling back to `tickets.session_provider` then `tickets.agent_provider` — never invented. The detail payload rides the same snapshot (no async `artifact.get` round trip); the only failure mode is a missing resource file, reported by the host opener exactly like `openStageLog` (extension.ts:4599). Staleness is whether impl/fix re-ran after the artifact — a stale artifact still renders its content, it just warns it no longer validates current code. `DashboardState.artifacts` is the single host-side derivation (state.ts); the webview's index/detail are local renders. `artifact-open-resource` carries artifact id + resource index — never a path — and the host re-derives before opening.
 END_DOC_BLOCK: [@arch:SHELF]
 
 ## [@arch:BASEBRANCH] The per-ticket base-branch columns
+covers: src/workflow/changeBaseRef.ts#changeBaseRef, src/store/worktrees.ts#takeForcePushLease
 
 `tickets.base_refs` (schema v48) is a JSON map of manifest repository NAME → plain branch name, the PRE-spin override; after spin, `worktrees.base_ref` is the authority (`docs/arch/worktrees-and-servers.md`'s base-branch section). `worktrees.needs_force_push` (schema v49) is armed only when `changeBaseRef`'s rebase actually rewrote the branch, and is read and cleared by the same statement (`takeForcePushLease`) so one rewrite arms exactly one force push.
 END_DOC_BLOCK: [@arch:BASEBRANCH]
 
 ## [@arch:ENVOVR] The per-ticket env overrides column
+covers: src/store/ticketEnvOverrides.ts#setServiceEnvOverrides
 
 `tickets.env_overrides` (schema v55) is a JSON map of scope → `{KEY: value}`, where a scope is a manifest repository NAME or `*` (every service). It is merged into a hot service's spawn env between the repository's `.env` and karst's resolved vars — see `docs/arch/worktrees-and-servers.md`'s spawn-env section for the layering and why the resolved vars still win. NULL is the canonical "nothing overridden"; writes are per SCOPE (`setServiceEnvOverrides`), scoped like `setDisabledGates` so an editor that loaded before another service was touched cannot revert it.
 END_DOC_BLOCK: [@arch:ENVOVR]
 
 ## [@arch:WORKTREES-ROW] One worktrees row per (ticket, path)
+covers: src/runtime/worktree.ts#createWorktree
 
 `worktrees` carries a UNIQUE index on `(ticket_id, path)` (schema v61). The pair is the checkout's identity: `createWorktree` adopts the existing row when git still lists the checkout, but when the checkout was pruned from git while the row survived it took the create path and INSERTed a second row for the same path — once per re-spin, which rendered as duplicated dashboard worktree cards. Both inserts are now UPSERTs (the adopt path DO NOTHING; the freshly cut checkout refreshes `branch`/`base_ref`, keeping the original `created_at`), and the v61 migration collapses pre-existing duplicates, earliest row wins.
 END_DOC_BLOCK: [@arch:WORKTREES-ROW]
 
 ## [@arch:V64] v64: sub-task autostart and parent–child mailbox schema
+covers: src/store/ticketMessagesRepair.ts#repairTicketMessages
 
 **Sub-task autostart columns** (tickets table):
 - `autostart_pending` (INTEGER NOT NULL DEFAULT 0, indexed `idx_tickets_autostart`): tri-state (0 none, 1 queued, 2 starting); semantics in `docs/arch/stages-and-gates.md`, "Sub-task autostart".
@@ -126,6 +170,7 @@ Indexes: `idx_ticket_messages_inbox (to_ticket_id, read_at)` for inbox reads; `i
 END_DOC_BLOCK: [@arch:V64]
 
 ## [@arch:PLANNING] Planning sessions (v65)
+covers: src/store/planningSessions.ts, src/store/planningProposals.ts, src/extension/ops/planningOutbox.ts
 
 `planning_sessions` (`src/store/planningSessions.ts`) holds a read-only, stack-aware agent conversation that investigates before a ticket exists. It is project-scoped, is NOT a ticket, and has no stage: planning has no deterministic verdict, so it stays out of the stage graph. `status` is `active` | `filed` | `archived`. `planning_session_tickets(session_id, ticket_id)` records the drafts a session filed, and linking the first one moves `active` to `filed`; unarchiving returns to `filed` if any ticket is linked, else `active`. The title is normalized in ONE place, `createPlanningSession` (control chars and whitespace runs collapse to one space, capped at `PLANNING_TITLE_MAX` = 120), because it becomes a terminal tab name. There are no resume columns (agent session id, transcript path): resume is out of scope, and a reload re-adopts the still-running terminal instead (`planningOps.adopt`, matched by env, then the scratch cwd, then the `P<id>` tab name; the legacy `Karst plan #<id>:` form is still parsed so pre-upgrade terminals revive). The migration step is purely additive (`CREATE TABLE IF NOT EXISTS`) and backfills nothing.
 
@@ -139,6 +184,7 @@ END_DOC_BLOCK: [@arch:V64]
 END_DOC_BLOCK: [@arch:PLANNING]
 
 ## [@arch:RELATIONS] Ticket relations (v69–v71)
+covers: src/store/ticketRelations.ts
 
 `ticket_relations` (`src/store/ticketRelations.ts`, DDL `TICKET_RELATIONS_DDL` in `migrations.ts`) persists inter-ticket dependency links. Only the two ORDERING kinds are stored — `blocked-by` and `parent`; `blocks`/`child` are derived on read as the inverse of a row on the other ticket. A target is named by `target_ticket_id` (an imported ticket), `target_ref` (a provider ref not yet imported), or `target_proposal_id` (#64's draft dependsOn); the CHECK requires at least one, and uniqueness is a separate expression index over the COALESCE'd targets (SQLite forbids expressions in a table-level UNIQUE). `target_ticket_id` is `ON DELETE SET NULL` and `target_ref` is kept alongside it, so a deleted blocker degrades to a bare ref rather than vanishing; a target row with neither a ref nor a proposal has nothing to degrade to, so `deleteTicket` drops it before the SET NULL could violate the CHECK. `origin_ticket_id` (v70) is the ticket whose brief AUTHORED a row: a `blocks`/`child` relation is materialized as a row on the OTHER ticket, so provenance is what lets an ingest replace exactly the rows IT authored — its own rows on this ticket and the inverse rows it put on other tickets — without deleting rows another ticket's own brief authored (a single `ticket_id`/`target_ticket_id` scope could not tell those apart). `ingestBriefRelations` therefore deletes `source='provider' AND origin_ticket_id = ?`, so a link the provider drops is removed from the other ticket rather than lingering until that ticket is itself refetched; agent/user rows are never touched. A pre-v70 row backfills its origin to its own `ticket_id`.
 
@@ -146,6 +192,7 @@ The store module is PURE: it never touches a provider. `isBlocked(store, ticketI
 END_DOC_BLOCK: [@arch:RELATIONS]
 
 ## [@arch:BULLETIN] Project bulletin (v72)
+covers: src/store/bulletinNotes.ts#recordTicketMerged, src/model/bulletinRelevance.ts
 
 `bulletin_notes` (`src/store/bulletinNotes.ts`, DDL `BULLETIN_DDL`) is a pull-only, project-scoped board of notes a ticket may learn from. Two sources, distinguished by the trust of their prose: `source='host'` is a TRUSTED fact written by `recordTicketMerged` at the first merged-with-sha probe (ticket key, repo, merged diff paths); `source='agent'` is an UNTRUSTED learning the implementer posted with `karst notes post`. `merge_sha` is mandatory for a host row (`CHECK (source <> 'host' OR merge_sha IS NOT NULL)`) and NULL for every agent row; the unique index `(source, from_ticket_id, merge_sha)` makes the host write idempotent, and SQLite keeps NULLs distinct so two agent notes never collide. `repos`/`paths` are JSON string arrays, both nullable — NULL means "never stamped". An agent note's repos are stamped from the ticket's worktrees at post; its paths (and its repo union) are stamped by `recordTicketMerged` from the normalized merged diff (repo-relative, no `..`). `bulletin_reads (note_id, reader_ticket_id, read_at)` records what a ticket has seen; `karst notes` marks only the rows it printed. Relevance is the pure `model/bulletinRelevance.ts`: repos must intersect AND paths must overlap by prefix (a note with no stamped paths matches on repo alone). Ticket-context reader paths come from its own merged notes, falling back to parsed stored code pointers. The context index applies an additional source-aware rule: host merge titles require path overlap and other host merges collapse into one count; agent notes use ordinary relevance. Schema v79's `bulletin_context_shown` separately records a context index exposure, never a read: this lets a ticket context suppress repeats while preserving `karst notes` unread/read behavior. The `karst notes` delivery sweep (the host-written pointer) pushes only under the same context-index relevance plus a session-start cutoff: an agent note by `noteMatchesScope`, a host merge only when its paths overlap the reader's known paths (a reader with NULL paths gets no host push), nothing already in `bulletin_context_shown` or `bulletin_reads`, and nothing older than the recipient's CURRENT session — the latest SessionStart-confirmed `session_launch_intents` row, else its latest `implementation_runs.started_at`, else `tickets.created_at`, compared as sqlite UTC text. Planning sessions are pull-only (`@arch:CLI-12`): a planning terminal carries no `KARST_TICKET_ID` and `identifyTerminal` refuses it as a ticket, so the sweep never reaches one. The matching-rule rationale and the CLI surface are in `docs/arch/cli.md`; the merge probe that supplies the sha and the paths is in `docs/arch/github-and-merge.md`.
 
@@ -153,6 +200,7 @@ END_DOC_BLOCK: [@arch:RELATIONS]
 END_DOC_BLOCK: [@arch:BULLETIN]
 
 ## [@arch:V77] Fix-brief delivery snapshots (v77)
+covers: src/store/fixDeliveries.ts#upsertFixDelivery
 
 `fix_deliveries` (`src/store/fixDeliveries.ts`, DDL `FIX_DELIVERIES_DDL`) stores the brief a fix round points a LIVE interactive agent at, so the brief is read through `karst fix-brief --ack` instead of being typed into the TUI. It is NOT `ticket_messages`: that table's 4096-char body cap, parent/child addressing and parent-wake logic (`pendingWakeEvents`/`classifyStageEvent`) must never see a fix row, and no `ticket_messages` row is written for a fix. `store/fixDeliveries.ts` is the ONLY writer. The user-facing number is the row `id` ("fix brief #id"); there is no separate round ordinal.
 
@@ -162,6 +210,7 @@ Every transition is a conditional UPDATE claim (`… WHERE col IS NULL`): `armed
 END_DOC_BLOCK: [@arch:V77]
 
 ## [@arch:V82] Usage-limit parks (v82)
+covers: src/store/usageLimitParks.ts, src/store/stageBlocks.ts#parkGateStage, src/store/stages.ts#setStage
 
 `usage_limit_parks` (`src/store/usageLimitParks.ts`, DDL `USAGE_LIMIT_PARKS_DDL`) records every AI op that stopped because the provider ACCOUNT is out of quota/allowance (K11, D158) — the durable half of the `blocked_kind = 'usage-limit'` park. It is NOT a verdict: nothing about the code was learned, so no attempt is consumed and no recovery round opens. Columns: `ticket_id`, `stage` (NULL for an op with no stage), `kind` (`'stage-block'` for review/UAT, `'op'` for fix/PR-description/alignment/classify, `'interactive'` reserved for D160), `lane` (`review`/`uat`), `target` (the repo whose call hit the limit), `session_id`, `stage_run_id`, `provider`, `model`, `detail` (the bounded `UsageLimitError` sentence), `kept_outcome` (JSON of sibling targets' outcomes, for D159's merge), `parked_at`, `resolved_at`, `resolution`.
 
@@ -175,6 +224,7 @@ At most one OPEN row per `(ticket_id, COALESCE(stage,''), kind, COALESCE(lane,''
 END_DOC_BLOCK: [@arch:V82]
 
 ## [@arch:SCHEMA-CHECK] New schema column checklist
+covers: src/store/schema.sql, src/store/migrations.ts#migrate, src/store/schemaVersion.ts#SCHEMA_VERSION
 
 New schema column checklist: `schema.sql` (fresh DBs) + a guarded ALTER in `migrations.ts` + bump `SCHEMA_VERSION` + update db.integration.test.ts's version/table-count assertions. Migrations never backfill data they can't derive — defer that to the host (see project adoption). Guards read the CURRENT columns (`tableColumns`), so a fresh DB skips the step and a re-open is a no-op — that is what keeps v10's `service`→`repo` RENAME (the one non-additive step) idempotent.
 END_DOC_BLOCK: [@arch:SCHEMA-CHECK]
