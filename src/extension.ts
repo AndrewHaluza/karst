@@ -348,7 +348,7 @@ import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
-import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxScrubber } from './extension/ops/sandboxLaunchOps.js';
+import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -2077,7 +2077,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
     nudge: (id, line, hooks) => sessions.nudge(id, line, hooks),
     sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
-    bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id),
+    bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id), storageDir: context.globalStorageUri.fsPath,
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
@@ -6506,7 +6506,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // adapter delivers it through its DECLARED channel (native file, or a
       // pointer in the kickoff). A fallback launch inlined it, so nothing is
       // written and no `instructions` is threaded.
-      const scrub = sandboxScrubber(sandboxed, (m) => logger.debug(`[session] ticket ${t.key ?? ticketId}: ${m}`)); // no host command may survive (AC-34)
+      const scrub = sandboxSeedScrubber({ sandboxed, store: localStore, ticketId, storageDir: context.globalStorageUri.fsPath, backend: launchBackend, log: (m) => logger.debug(`[session] ticket ${t.key ?? ticketId}: ${m}`) }); // rewrite host paths, then scrub host commands (AC-34)
       const sessionInstructions = seed.instructions
         ? writeSessionInstructions(
             join(context.globalStorageUri.fsPath, 'session-instructions', String(ticketId)),

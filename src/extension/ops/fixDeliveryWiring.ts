@@ -11,12 +11,14 @@ import {
   upsertFixDelivery,
 } from '../../store/fixDeliveries.js';
 import { renderDoneMarkerInstruction } from '../../agent/workflowCommand.js';
-import { renderSandboxMarkerInstruction } from '../../agent/sandboxInstructions.js';
+import { renderSandboxMarkerInstruction, scrubHostCli } from '../../agent/sandboxInstructions.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { writeInboxFile } from '../../agent/bridge/inbox.js';
 import { composeStageCommand } from '../../cli/stage.js';
 import { composeFixBriefCommand } from '../../cli/fixBriefCommand.js';
 import { formatTicketRef } from '../../model/entityId.js';
+import { listAttachments } from '../../store/attachments.js';
+import { sandboxTextTransform } from './sandboxLaunchOps.js';
 import { fixBriefForTicket } from './fixBriefForTicket.js';
 import {
   deliverLiveFix,
@@ -79,6 +81,8 @@ export interface FixDeliveryWiringDeps {
   sessionChannel: (ticketId: number) => DeliveryChannel;
   /** Host paths of the ticket's bridge dir, for writing a sandboxed agent's inbox brief. */
   bridgePaths?: (ticketId: number) => BridgePaths | undefined;
+  /** `<globalStorage>`: a sandboxed brief's host attachment and gate-log paths are mirrored and rewritten from it. */
+  storageDir: string;
   literal: () => CliTokens;
   /** agy has not reported idle (its TUI swallows a line typed mid-turn). */
   agyBusy: (ticketId: number) => boolean;
@@ -111,7 +115,11 @@ function writeFixBrief(deps: FixDeliveryWiringDeps, ticketId: number, deliveryId
   const row = getFixDelivery(deps.store, deliveryId);
   if (!paths || row === null || row.ticketId !== ticketId) return false;
   try {
-    writeInboxFile(paths, inboxRef(fixPointer(deliveryId)), row.body);
+    const channel = sandboxOf(deps, ticketId);
+    const rewrite = sandboxTextTransform({
+      sandboxed: true, ticketId, storageDir: deps.storageDir, runDir: channel?.runDir, bridge: paths, attachments: listAttachments(deps.store, ticketId), log: deps.debug,
+    });
+    writeInboxFile(paths, inboxRef(fixPointer(deliveryId)), scrubHostCli(rewrite(row.body)).text);
     return true;
   } catch (err) {
     deps.debug(`[driver] fix delivery #${deliveryId}: inbox write refused (${err instanceof Error ? err.message : String(err)})`);
