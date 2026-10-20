@@ -15,7 +15,7 @@ function rig(opts: { setup?: string; exit?: number; sandboxed?: boolean } = {}) 
   const ran: string[][] = [];
   const runGate: GateProcessRunner = async (_c, args) => {
     ran.push([...args]);
-    const fp = args[1]?.startsWith('node -e');
+    const fp = args[1]?.includes('command -v node');
     return { kind: 'completed', exitCode: fp ? 0 : (opts.exit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' };
   };
   const repoKey = 'app';
@@ -84,7 +84,7 @@ describe('provisionTicketSandbox', () => {
     const r = rig({ setup: 'npm ci', exit: 1 });
     const m = buildManifest({ app: repo({ repoPath: '/a', sandbox: { setup: 'npm ci' } }), web: repo({ repoPath: '/w', sandbox: { setup: 'npm ci' } }) });
     const ok = (): Promise<{ kind: 'completed'; exitCode: number; output: string; stdout: string }> => Promise.resolve({ kind: 'completed', exitCode: 0, output: HASH, stdout: HASH });
-    const runGate: GateProcessRunner = (_c, args) => (args[1]?.startsWith('node -e') || r.ran.length > 0 ? ok() : (r.ran.push([]), Promise.resolve({ kind: 'completed', exitCode: 0, output: '', stdout: '' })));
+    const runGate: GateProcessRunner = (_c, args) => (args[1]?.includes('command -v node') || r.ran.length > 0 ? ok() : (r.ran.push([]), Promise.resolve({ kind: 'completed', exitCode: 0, output: '', stdout: '' })));
     const deps: TicketSetupDeps = { ...r.deps, manifest: () => m, gateProcess: () => runGate, worktrees: () => [{ repo: 'app', path: '/a' }, { repo: 'web', path: '/w' }] };
     expect(await provisionTicketSandbox(deps, 7)).toEqual({ ok: true });
     expect(existsSync(r.paths.setupStateFile)).toBe(true);
@@ -106,7 +106,7 @@ describe('provisionTicketSandbox', () => {
     const r = rig();
     const m = buildManifest({ app: repo({ sandbox: { setup: 'a' } }), web: repo({ sandbox: { setup: 'b' } }) });
     const runGate: GateProcessRunner = (_c, args, cwd) => {
-      const fp = args[1]?.startsWith('node -e');
+      const fp = args[1]?.includes('command -v node');
       return Promise.resolve({ kind: 'completed', exitCode: fp || cwd !== '/w' ? 0 : 1, output: fp ? HASH : 'boom', stdout: fp ? HASH : '' });
     };
     const deps: TicketSetupDeps = { ...r.deps, manifest: () => m, gateProcess: () => runGate, worktrees: () => [{ repo: 'app', path: '/a' }, { repo: 'web', path: '/w' }] };

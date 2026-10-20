@@ -479,7 +479,7 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     const { runProcess } = await import('../../workflow/gates/run.js');
     const ran: string[] = [];
     vi.mocked(runProcess).mockImplementation((_c, args) => {
-      const fp = args.join(' ').includes('node -e');
+      const fp = args.join(' ').includes('command -v node');
       ran.push(args.join(' '));
       return Promise.resolve({ kind: 'completed', exitCode: fp ? 0 : (opts.setupExit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' }) as never;
     });

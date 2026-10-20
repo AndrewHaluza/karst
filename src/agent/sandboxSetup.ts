@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { GateProcessRunner } from '../workflow/gates/run.js';
 
@@ -50,6 +50,16 @@ const FINGERPRINT_JS =
   "if(fs.existsSync(f)){h.update(f+'\\0');h.update(fs.readFileSync(f));h.update('\\0')}" +
   "h.update(process.argv[1]);process.stdout.write(h.digest('hex'))";
 
+/**
+ * `$0` = FINGERPRINT_JS, `$1` = the setup text. A non-Node repo's image may have no `node`: then the same
+ * bytes (lockfiles, setup text) go through `sha256sum` / `shasum`. Either way the result is a 64-hex digest.
+ */
+const FINGERPRINT_SH =
+  'if command -v node >/dev/null 2>&1; then exec node -e "$0" "$1"; fi; ' +
+  '{ for f in package-lock.json pnpm-lock.yaml yarn.lock; do ' +
+  '[ -f "$f" ] && { printf \'%s\\0\' "$f"; cat "$f"; printf \'\\0\'; }; done; printf \'%s\' "$1"; } ' +
+  '| { sha256sum 2>/dev/null || shasum -a 256; } | cut -d\' \' -f1';
+
 /** The in-memory per-ticket setup lock (owned by this extension host); it wins over the state file. */
 const locks = new Map<string, Promise<SetupResult>>();
 
@@ -84,7 +94,7 @@ async function writeState(file: string, state: SetupState): Promise<void> {
 const tail = (text: string): string => text.split('\n').filter((l) => l.trim() !== '').slice(-SETUP_LOG_LINES).join('\n');
 
 async function fingerprintOf(deps: SetupDeps, req: SetupRequest): Promise<string | SetupResult> {
-  const out = await deps.runGate('sh', ['-c', 'node -e "$0" "$1"', FINGERPRINT_JS, req.setup], req.cwd, { signal: req.signal });
+  const out = await deps.runGate('sh', ['-c', FINGERPRINT_SH, FINGERPRINT_JS, req.setup], req.cwd, { signal: req.signal });
   const hash = out.kind === 'completed' && out.exitCode === 0 ? (out.stdout ?? out.output).trim() : '';
   if (/^[0-9a-f]{64}$/.test(hash)) return hash;
   return { ok: false, reason: `sandbox dependencies not provisioned: could not fingerprint the lockfiles in the sandbox (${out.output.trim().slice(0, 200) || out.kind})` };
@@ -98,7 +108,9 @@ async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string)
   const out = await deps.runGate('sh', ['-c', script, req.setup], req.cwd, { signal: req.signal, timeoutMs: deps.boundMs ?? SETUP_BOUND_MS });
   const exitCode = out.kind === 'completed' ? out.exitCode : null;
   if (out.kind === 'aborted') {
-    await writeState(deps.stateFile, { fingerprint, status: 'failed', exitCode, at: now() }).catch(() => undefined);
+    // A stop is not a failure: drop the record so the next drive reruns, and kill what may still run in the sandbox.
+    await reapStale(deps, req).catch(() => undefined);
+    await rm(deps.stateFile, { force: true }).catch(() => undefined);
     return { ok: false, reason: 'sandbox dependencies not provisioned: setup was stopped' };
   }
   if (exitCode === 0) {
@@ -125,15 +137,11 @@ function startSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string): Pr
 }
 
 /**
- * Best-effort kill of a stale sandbox-side setup (it is past the bound, so it is hung): its children first,
- * then the pid-file process; with no pid file, any package manager in THIS sandbox. The caller reruns after,
- * so a leftover record never blocks later gate runs.
+ * Best-effort kill of a stale or stopped sandbox-side setup: its children first, then the pid-file process.
+ * The setup script writes the pid file before anything else, so no pid file means no setup of ours to kill.
  */
 async function reapStale(deps: SetupDeps, req: SetupRequest): Promise<void> {
-  const hasPid = await deps.runGate('sh', ['-c', `test -f ${PID_FILE}`], req.cwd, {});
-  const script = hasPid.kind === 'completed' && hasPid.exitCode === 0
-    ? `p=$(cat ${PID_FILE}); pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; rm -f ${PID_FILE}; true`
-    : 'pkill -f "npm|pnpm|yarn" 2>/dev/null; true';
+  const script = `p=$(cat ${PID_FILE} 2>/dev/null); [ -n "$p" ] && { pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; }; rm -f ${PID_FILE}; true`;
   await deps.runGate('sh', ['-c', script], req.cwd, {});
 }
 

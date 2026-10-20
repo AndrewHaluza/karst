@@ -20,7 +20,7 @@ function rig(handler: (args: readonly string[], n: number) => ProcessOutcome | P
   return { deps, calls, setups, dir };
 }
 const req = { key: '1', setup: 'npm ci', cwd: '/clone' };
-const fingerprinting = (args: readonly string[]) => args[1]?.startsWith('node -e');
+const fingerprinting = (args: readonly string[]) => args[1]?.includes('command -v node');
 
 describe('ensureSandboxSetup', () => {
   beforeEach(() => resetSetupLocks());
@@ -29,12 +29,37 @@ describe('ensureSandboxSetup', () => {
     const r = rig((a) => done(fingerprinting(a) ? HASH : ''));
     await ensureSandboxSetup(r.deps, req);
     const fp = r.calls[0]!;
-    expect(fp.slice(0, 3)).toEqual(['sh', '-c', 'node -e "$0" "$1"']);
+    expect(fp.slice(0, 2)).toEqual(['sh', '-c']);
+    expect(fp[2]).toContain('exec node -e "$0" "$1"');
     expect(fp[3]).toContain('existsSync');
     expect(fp[3]).not.toContain('sha256sum');
     expect(fp[3]!.indexOf('package-lock.json')).toBeLessThan(fp[3]!.indexOf('pnpm-lock.yaml'));
     expect(fp[3]!.indexOf('pnpm-lock.yaml')).toBeLessThan(fp[3]!.indexOf('yarn.lock'));
     expect(fp[4]).toBe('npm ci');
+  });
+
+  it('fingerprints without node (non-Node repo image) through sha256sum / shasum', async () => {
+    const r = rig((a) => done(fingerprinting(a) ? HASH : ''));
+    await ensureSandboxSetup(r.deps, req);
+    const script = r.calls[0]![2]!;
+    expect(script).toContain('command -v node');
+    expect(script).toMatch(/sha256sum.*\|\| shasum -a 256/);
+    expect(script).toContain('package-lock.json pnpm-lock.yaml yarn.lock');
+  });
+
+  it('a stopped setup kills the sandbox-side process and leaves no record, so the next drive reruns', async () => {
+    let first = true;
+    const r = rig((a) => {
+      if (fingerprinting(a)) return done(HASH);
+      if (a[1]?.includes('exec sh -c') && first) { first = false; return { kind: 'aborted', output: '' } as ProcessOutcome; }
+      return done();
+    });
+    const stopped = await ensureSandboxSetup(r.deps, req);
+    expect(stopped).toMatchObject({ ok: false });
+    expect(r.calls.some((c) => c[2]?.includes('pkill -P "$p"'))).toBe(true);
+    expect(existsSync(r.deps.stateFile)).toBe(false);
+    expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
+    expect(r.setups()).toHaveLength(2);
   });
 
   it('runs setup once, records ok, then skips on the same fingerprint', async () => {
@@ -119,15 +144,11 @@ describe('ensureSandboxSetup', () => {
       expect(r.setups()).toHaveLength(1);
     });
 
-    it('stale with no pid file: reaps package managers in the sandbox and reruns, never stuck on the old record', async () => {
-      const r = rig((a) => {
-        if (fingerprinting(a)) return done(HASH);
-        if (a[1]?.startsWith('test -f')) return done('', 1);
-        return done('', 0);
-      }, { now: () => 10 * SETUP_BOUND_MS, sleep: () => Promise.resolve() });
+    it('stale with no pid file: nothing of ours to kill, no pkill by name, reruns', async () => {
+      const r = rig((a) => done(fingerprinting(a) ? HASH : ''), { now: () => 10 * SETUP_BOUND_MS, sleep: () => Promise.resolve() });
       await seed(r, 0);
       expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
-      expect(r.calls.some((c) => c[2]?.includes('pkill -f'))).toBe(true);
+      expect(r.calls.some((c) => c[2]?.includes('pkill -f'))).toBe(false);
       expect(r.setups()).toHaveLength(1);
     });
 
