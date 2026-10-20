@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { hostHeadFileFor, recordHostHead } from '../hostHead.js';
 import { bridgePaths, ensureBridgeDir, listBridgeTicketIds, removeBridgeDir, sandboxHookChannel } from './bridgeDir.js';
 
 let root: string;
@@ -49,6 +50,14 @@ describe('bridgeDir', () => {
     await removeBridgeDir(p);
     await removeBridgeDir(p);
     await expect(stat(p.dir)).rejects.toThrow();
+  });
+  it('remove also deletes the host-head record, which lives outside the mount', async () => {
+    const p = bridgePaths(root, 8);
+    await ensureBridgeDir(p);
+    const file = hostHeadFileFor(p.dir);
+    await recordHostHead(file, '/wt', 'a'.repeat(40));
+    await removeBridgeDir(p);
+    await expect(stat(file)).rejects.toThrow();
   });
   it('lists numeric ticket dirs only', async () => {
     await ensureBridgeDir(bridgePaths(root, 3));

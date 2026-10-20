@@ -145,6 +145,15 @@ async function syncThroughBundle(ctx: CloneContext, input: CloneInput): Promise<
   });
 }
 
+/** Fetch the clone's branch into the host worktree's FETCH_HEAD and stop; nothing is merged. */
+export async function fetchFromClone(ctx: CloneContext, input: CloneInput): Promise<StepResult> {
+  try {
+    return await withTemp(ctx.temp, (dir) => fetchCloneBundle(ctx, input, dir));
+  } catch (err) {
+    return { ok: false, reason: `docker fetch failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
 /** What `syncFromClone` would bring in, as a diff against the host branch; nothing is merged. */
 export async function diffFromClone(ctx: CloneContext, input: CloneInput): Promise<DiffResult> {
   try {

@@ -70,6 +70,7 @@ export function createSender(api: WebviewApi) {
     sandboxDiff: (requestId?: string) => send({ type: 'sandbox-diff' }, requestId),
     sandboxStop: (requestId?: string) => send({ type: 'sandbox-stop' }, requestId),
     sandboxRemove: (requestId?: string) => send({ type: 'sandbox-remove' }, requestId),
+    sandboxCarry: (requestId?: string) => send({ type: 'sandbox-carry' }, requestId),
     showChanges: (requestId?: string) => send({ type: 'show-changes' }, requestId),
     openWorktreeTerminal: (path: Msg<'open-worktree-terminal'>['path'], requestId?: string) =>
       send({ type: 'open-worktree-terminal', path }, requestId),

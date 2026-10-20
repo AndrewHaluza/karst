@@ -9,7 +9,7 @@ let h: RenderHandle | null = null;
 afterEach(() => { h?.close(); h = null; });
 
 const SBX: DashboardSandboxView = {
-  backend: 'sbx', core: 'claude', workspace: 'clone', network: 'sbx network policy (allowlist)', actions: true,
+  backend: 'sbx', core: 'claude', workspace: 'clone', network: 'sbx network policy (allowlist)', actions: true, carry: false,
 };
 
 function open(sandbox: DashboardSandboxView | null): RenderHandle {
@@ -47,8 +47,17 @@ describe('dashboard sandbox card', () => {
     expect(v.posted).toContainEqual(expect.objectContaining({ type: act }));
   });
 
+  it('offers "Carry sandbox commits onto host branch" only for a rewritten host branch', () => {
+    expect(open(SBX).query('#sandboxOps [data-act="sandbox-carry"]')).toBeNull();
+    const v = open({ ...SBX, carry: true });
+    const btn = v.query<HTMLButtonElement>('#sandboxOps [data-act="sandbox-carry"]')!;
+    expect(btn.getAttribute('aria-label')).toBe('Carry sandbox commits onto host branch');
+    v.click('#sandboxOps [data-act="sandbox-carry"]');
+    expect(v.posted).toContainEqual(expect.objectContaining({ type: 'sandbox-carry' }));
+  });
+
   it('a host fallback explains why and offers no actions', () => {
-    const v = open({ backend: 'host', core: 'antigravity', workspace: 'worktree', network: 'none (host)', actions: false, note: 'antigravity: sbx backend unsupported' });
+    const v = open({ backend: 'host', core: 'antigravity', workspace: 'worktree', network: 'none (host)', actions: false, carry: false, note: 'antigravity: sbx backend unsupported' });
     expect(v.query('#sandboxBody')!.textContent).toContain('antigravity: sbx backend unsupported — runs prompted on the host.');
     expect(v.query('#sandboxOps')!.children).toHaveLength(0);
   });

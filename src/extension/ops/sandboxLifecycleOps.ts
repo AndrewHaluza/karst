@@ -59,7 +59,12 @@ async function confirmUnsynced(deps: SandboxLifecycleDeps, target: SandboxSyncTa
  * missing sandbox is a no-op; an unsynced one is removed only on the user's
  * explicit choice. `false` = the caller must not go on (blocked or failed).
  */
-export async function removeSandboxGuarded(deps: SandboxLifecycleDeps, target: SandboxSyncTarget): Promise<boolean> {
+export async function removeSandboxGuarded(
+  deps: SandboxLifecycleDeps,
+  target: SandboxSyncTarget,
+  /** `skipSync`: the commits already reached the host another way (carry), so the pre-remove sync would only fail as diverged. */
+  opts: { readonly skipSync?: boolean } = {},
+): Promise<boolean> {
   if (backendKindOf(target.core) === 'host') return true;
   if (!deps.owns(target.ticketId)) {
     deps.notify.warn(`Karst: ${target.ticketLabel} is owned by another window; its sandbox was left alone.`);
@@ -72,7 +77,7 @@ export async function removeSandboxGuarded(deps: SandboxLifecycleDeps, target: S
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId)!;
   const branch = target.worktree?.branch;
   const ref = { hostWorktreePath: target.worktree?.path ?? dirname(deps.projectRoot), branch: branch ?? '' };
-  const synced = branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
+  const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
   if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
     deps.notify.warn(`Karst: kept the sandbox of ${target.ticketLabel}.`);
     return false;

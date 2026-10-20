@@ -52,6 +52,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'sandbox-stop' });
     sender.sandboxRemove('r9');
     expect(posted.at(-1)).toEqual({ type: 'sandbox-remove', requestId: 'r9' });
+    sender.sandboxCarry('r10');
+    expect(posted.at(-1)).toEqual({ type: 'sandbox-carry', requestId: 'r10' });
     sender.showChanges();
     expect(posted.at(-1)).toEqual({ type: 'show-changes' });
 
@@ -175,7 +177,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(55);
+    expect(posted).toHaveLength(56);
   });
 
   it('rejects a wrong argument type at compile time', () => {

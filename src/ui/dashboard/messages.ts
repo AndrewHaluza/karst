@@ -28,6 +28,7 @@ export type WebviewMessage =
   | { type: 'sandbox-diff' }
   | { type: 'sandbox-stop' }
   | { type: 'sandbox-remove' }
+  | { type: 'sandbox-carry' }
   | { type: 'show-changes' }
   | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }
@@ -411,6 +412,7 @@ export interface DashboardActions {
   sandboxStop: () => void | Promise<void>;
   /** Guarded: syncs first and asks before dropping unsynced commits. */
   sandboxRemove: () => void | Promise<void>;
+  sandboxCarry: () => void | Promise<void>;
   showChanges: () => void | Promise<void>;
   openWorktreeTerminal: (path: string) => void | Promise<void>;
   openWorktreeFolder: (path: string) => void | Promise<void>;
@@ -623,6 +625,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'sandbox-diff':
     case 'sandbox-stop':
     case 'sandbox-remove':
+    case 'sandbox-carry':
       return { type: m.type };
     case 'show-changes':
       return { type: 'show-changes' };
@@ -993,6 +996,8 @@ export function routeAction(
       return actions.sandboxStop();
     case 'sandbox-remove':
       return actions.sandboxRemove();
+    case 'sandbox-carry':
+      return actions.sandboxCarry();
     case 'show-changes':
       return actions.showChanges();
     case 'open-worktree-terminal':

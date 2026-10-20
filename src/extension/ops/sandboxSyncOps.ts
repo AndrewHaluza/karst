@@ -14,7 +14,9 @@ import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
 import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
+import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import type { Notify } from './notify.js';
+import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
 
 export { createTicketSandboxBindings, withSandboxSpin } from './sandboxTicketOps.js';
 
@@ -140,6 +142,8 @@ export interface SandboxSyncDeps {
   readonly platform?: NodeJS.Platform;
   /** The bridge dir as the host sees it: sbx hands the host's bundle to the sandbox through its `xfer/` (F8). */
   readonly evidenceDirOf?: (ticketId: number) => string | undefined;
+  /** Every sync verdict: is the sandbox's refusal a host rewrite the commits can be carried over? (drives the dashboard action) */
+  readonly onRewritten?: (ticketId: number, rewritten: boolean) => void;
 }
 
 /** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
@@ -178,16 +182,21 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
   }
   const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
   if (!result.ok) {
-    await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: ${result.reason}`);
+    const rewritten = /not a fast-forward/i.test(result.reason) && (await isRewritten(deps, { path: target.worktree.path, branch: target.worktree.branch, ticketId: target.ticketId }));
+    deps.onRewritten?.(target.ticketId, rewritten);
+    await deps.notify.error(`Karst: sandbox sync for ${target.ticketLabel} failed: ${result.reason}${rewritten ? ' The host branch was rewritten: use "Carry sandbox commits onto host branch" on the dashboard.' : ''}`);
     return false;
   }
+  deps.onRewritten?.(target.ticketId, false);
+  await recordSyncedHead(deps, target);
   deps.notify.info(`Karst: ${target.ticketLabel} ${result.summary}.`);
   return true;
 }
 
 export type EnsureSyncResult =
   | { readonly ok: true }
-  | { readonly ok: false; readonly reason: string; readonly diverged: boolean };
+  /** `rewritten`: the divergence is a host rebase/amend the sandbox's commits can be carried over (arch:AC-33). */
+  | { readonly ok: false; readonly reason: string; readonly diverged: boolean; readonly rewritten?: boolean };
 
 const syncChains = new Map<number, Promise<unknown>>();
 
@@ -230,10 +239,39 @@ async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promi
   if (!target.worktree?.branch) return { ok: false, reason: 'no worktree branch to sync into', diverged: false };
   try {
     const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
-    return result.ok ? { ok: true } : { ok: false, reason: result.reason, diverged: /not a fast-forward/i.test(result.reason) };
+    if (result.ok) {
+      deps.onRewritten?.(target.ticketId, false);
+      await recordSyncedHead(deps, target);
+      return { ok: true };
+    }
+    const diverged = /not a fast-forward/i.test(result.reason);
+    // The failed sync left the clone's branch in FETCH_HEAD, which the classifier reads.
+    const rewritten = diverged && (await isRewritten(deps, { path: target.worktree.path, branch: target.worktree.branch, ticketId: target.ticketId }));
+    if (diverged) deps.onRewritten?.(target.ticketId, rewritten);
+    return { ok: false, reason: result.reason, diverged, ...(rewritten ? { rewritten } : {}) };
   } catch (err) {
     return { ok: false, reason: `sandbox sync failed: ${message(err)}`, diverged: false };
   }
+}
+
+const SHA = /^[0-9a-f]{40,64}$/;
+
+/** Remember the host branch head a good sync left, outside the mount (arch:AC-34). Advisory: the reflog is the fallback, so a failed write only costs that fallback. */
+export async function recordSyncedHead(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<void> {
+  const dir = deps.evidenceDirOf?.(target.ticketId);
+  if (!dir || !target.worktree) return;
+  const head = await nodeGit(deps.proc ?? NODE_SBX_PROCESS)(target.worktree.path, ['rev-parse', 'HEAD']);
+  const sha = head.stdout.trim();
+  if (head.code !== 0 || !SHA.test(sha)) return;
+  await recordHostHead(hostHeadFileFor(dir), target.worktree.path, sha).catch(() => undefined);
+}
+
+/** Is the refused sync a host rewrite? Needs the clone's branch in FETCH_HEAD of the host worktree. */
+export async function isRewritten(deps: SandboxSyncDeps, wt: { path: string; branch: string; ticketId: number }): Promise<boolean> {
+  const dir = deps.evidenceDirOf?.(wt.ticketId);
+  const recorded = dir ? await readHostHead(hostHeadFileFor(dir), wt.path) : undefined;
+  const out = await classifyDivergence(nodeGit(deps.proc ?? NODE_SBX_PROCESS), { worktree: wt.path, branch: wt.branch, recorded });
+  return out.kind === 'rewritten';
 }
 
 function serialised<T>(ticketId: number, run: () => Promise<T>): Promise<T> {

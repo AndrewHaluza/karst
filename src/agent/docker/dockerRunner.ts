@@ -5,7 +5,7 @@ import type { GateProcessRunner, PlacedInteractiveLaunch, SandboxTicketRef, Sess
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
-import { chownVolumes, ensureClone, ensureVolume, diffFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
+import { chownVolumes, ensureClone, ensureVolume, diffFromClone, fetchFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
 import { seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -121,6 +121,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     unpublishPort: (m) => unpublishRelay(opts.proc, opts.names, m),
     listPorts: () => listRelayPorts(opts.proc, opts.names),
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
+    fetchClone: (ticket: SandboxTicketRef) => fetchFromClone(ctx, ticket),
     diff: (ticket: SandboxTicketRef) => diffFromClone(ctx, ticket),
     refresh: (ticket: SandboxTicketRef) => refreshClone(ctx, ticket),
     // Volumes survive a stop; the next open restarts the container.

@@ -10,6 +10,8 @@ export interface DashboardSandboxView {
   readonly network: string;
   /** Sync / diff / stop / remove apply: a sandbox may exist for this ticket. */
   readonly actions: boolean;
+  /** The host branch was rewritten under the sandbox: "Carry sandbox commits onto host branch" applies. */
+  readonly carry: boolean;
   /** Why the ticket is on host although the project selects a sandbox backend. */
   readonly note?: string;
 }
@@ -18,6 +20,8 @@ export interface SandboxViewInput {
   readonly project: AgentBackend | undefined;
   readonly ticketOverride: 'host' | null | undefined;
   readonly core: string;
+  /** The last refused sync was a host rewrite (rebase/amend). */
+  readonly rewritten?: boolean;
 }
 
 const NETWORK: Readonly<Record<AgentBackend, string>> = {
@@ -35,11 +39,11 @@ export function buildSandboxView(input: SandboxViewInput): DashboardSandboxView 
   const { project, core } = input;
   if (project === undefined || project === 'host') return null;
   const onHost = (note: string, actions: boolean): DashboardSandboxView => ({
-    backend: 'host', core, workspace: 'worktree', network: NETWORK.host, actions, note,
+    backend: 'host', core, workspace: 'worktree', network: NETWORK.host, actions, carry: false, note,
   });
   // An opted-out ticket may still hold a sandbox from before, so its actions stay.
   if (input.ticketOverride === 'host') return onHost('ticket opted out of the sandbox backend', true);
   const cores: readonly string[] = project === 'sbx' ? SBX_CORES : DOCKER_CORES;
   if (!cores.includes(core)) return onHost(`${core}: ${project} backend unsupported`, false);
-  return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true };
+  return { backend: project, core, workspace: 'clone', network: NETWORK[project], actions: true, carry: input.rewritten === true };
 }

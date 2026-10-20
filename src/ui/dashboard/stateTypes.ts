@@ -49,6 +49,8 @@ export interface DashboardAgentContext {
   modelCatalog?: ModelCatalog;
   /** The manifest's `agentBackends`; the Sandbox card shows only for a ticket whose session core uses a sandbox. */
   agentBackends?: AgentBackends;
+  /** True while the ticket's last refused sandbox sync was a host rewrite (offers "Carry sandbox commits"). */
+  sandboxRewritten?: (ticketId: number) => boolean;
   /**
    * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
    * Plain data (no functions) suitable for serialization via postMessage.
