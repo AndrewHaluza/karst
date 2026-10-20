@@ -217,8 +217,9 @@ describe('driveTicket', () => {
   it('refuses every gate when sandbox dependencies are not provisioned (arch:AC-36)', async () => {
     writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
     const provisionSandbox = vi.fn(() => Promise.resolve({ ok: false as const, reason: 'sandbox dependencies not provisioned: exit 1' }));
-    const outcome = await driveTicket({ ...deps(), provisionSandbox }, id);
-    expect(provisionSandbox).toHaveBeenCalledWith(id);
+    const host = new AbortController();
+    const outcome = await driveTicket({ ...deps(), provisionSandbox, signal: host.signal }, id);
+    expect(provisionSandbox).toHaveBeenCalledWith(id, host.signal);
     expect(outcome).toEqual({ stage: 'uat', status: 'blocked', reason: 'sandbox-setup: sandbox dependencies not provisioned: exit 1' });
     expect(worktreeLookups).toBe(0);
   });

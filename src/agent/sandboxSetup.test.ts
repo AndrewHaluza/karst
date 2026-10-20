@@ -115,19 +115,20 @@ describe('ensureSandboxSetup', () => {
       const r = rig((a) => done(fingerprinting(a) ? HASH : ''), { now: () => 10 * SETUP_BOUND_MS, sleep: () => Promise.resolve() });
       await seed(r, 0);
       expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
-      expect(r.calls.some((c) => c[2]?.includes('kill $(cat'))).toBe(true);
+      expect(r.calls.some((c) => c[2]?.includes('pkill -P "$p"') && c[2]?.includes('kill "$p"'))).toBe(true);
       expect(r.setups()).toHaveLength(1);
     });
 
-    it('stale with no pid file and a live npm: keeps the process, refuses as timed out, no rerun', async () => {
+    it('stale with no pid file: reaps package managers in the sandbox and reruns, never stuck on the old record', async () => {
       const r = rig((a) => {
         if (fingerprinting(a)) return done(HASH);
         if (a[1]?.startsWith('test -f')) return done('', 1);
-        return done('', 0); // pgrep hit
+        return done('', 0);
       }, { now: () => 10 * SETUP_BOUND_MS, sleep: () => Promise.resolve() });
       await seed(r, 0);
-      expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: false, reason: 'sandbox setup timed out after 15 min' });
-      expect(r.setups()).toHaveLength(0);
+      expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
+      expect(r.calls.some((c) => c[2]?.includes('pkill -f'))).toBe(true);
+      expect(r.setups()).toHaveLength(1);
     });
 
     it('young running state: waits (polls) until another run lands ok', async () => {

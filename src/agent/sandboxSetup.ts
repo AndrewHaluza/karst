@@ -124,15 +124,17 @@ function startSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string): Pr
   return run;
 }
 
-/** Kill a stale sandbox-side setup. False = a setup-looking process may still run (no pid file, `pgrep` hit). */
-async function reapStale(deps: SetupDeps, req: SetupRequest): Promise<boolean> {
+/**
+ * Best-effort kill of a stale sandbox-side setup (it is past the bound, so it is hung): its children first,
+ * then the pid-file process; with no pid file, any package manager in THIS sandbox. The caller reruns after,
+ * so a leftover record never blocks later gate runs.
+ */
+async function reapStale(deps: SetupDeps, req: SetupRequest): Promise<void> {
   const hasPid = await deps.runGate('sh', ['-c', `test -f ${PID_FILE}`], req.cwd, {});
-  if (hasPid.kind === 'completed' && hasPid.exitCode === 0) {
-    await deps.runGate('sh', ['-c', `kill $(cat ${PID_FILE}) 2>/dev/null; rm -f ${PID_FILE}; true`], req.cwd, {});
-    return true;
-  }
-  const busy = await deps.runGate('sh', ['-c', 'pgrep -f "npm|pnpm|yarn" >/dev/null'], req.cwd, {});
-  return !(busy.kind === 'completed' && busy.exitCode === 0);
+  const script = hasPid.kind === 'completed' && hasPid.exitCode === 0
+    ? `p=$(cat ${PID_FILE}); pkill -P "$p" 2>/dev/null; kill "$p" 2>/dev/null; rm -f ${PID_FILE}; true`
+    : 'pkill -f "npm|pnpm|yarn" 2>/dev/null; true';
+  await deps.runGate('sh', ['-c', script], req.cwd, {});
 }
 
 const timedOut = (boundMs: number): SetupResult => ({ ok: false, reason: `sandbox setup timed out after ${Math.round(boundMs / 60_000)} min` });
@@ -182,7 +184,7 @@ export async function ensureSandboxSetup(deps: SetupDeps, req: SetupRequest): Pr
       if (cur?.status === 'failed') return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (exit ${cur.exitCode ?? 'n/a'})` };
       if (locks.has(req.key)) return waitOnLock(locks.get(req.key)!, deps);
     }
-    if (!(await reapStale(deps, req))) return timedOut(bound);
+    await reapStale(deps, req);
   }
   // Re-check with no await in between: another caller may have taken the lock while this one read state.
   const late = locks.get(req.key);

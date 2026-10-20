@@ -291,7 +291,7 @@ export async function driveTicket(
     return { stage, status: 'blocked', reason: `sandbox-sync: ${synced.reason}` };
   }
 
-  const provisioned = (await deps.provisionSandbox?.(ticketId)) ?? { ok: true as const };
+  const provisioned = (await deps.provisionSandbox?.(ticketId, deps.signal)) ?? { ok: true as const };
   if (!provisioned.ok) {
     const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
     deps.debug?.(`[driver] ticket ${ticketId} sandbox not provisioned: ${provisioned.reason}`);
