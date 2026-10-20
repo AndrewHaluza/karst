@@ -32,7 +32,7 @@
  */
 
 import { createHash, randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 import { canonicalPath } from '../../runtime/pathScope.js';
 import type { GraphDb } from '../../store/graph/transitions.js';
 import {
@@ -805,6 +805,9 @@ async function executeReadyNode(
     parkLaunchFailure(deps, graphRunId, row.id);
     return 'blocked';
   }
+  const inputSnapshots = inputSnapshotsOf(deps, graphRunId, row.revision_id, node.inputs);
+  const inputMediaTypes = new Map(inputSnapshots.map((i) => [i.path, i.mediaType]));
+  const artifactRoot = deps.artifactRootOf(graphRunId);
   const nodeContext = await nodeTicketContext(deps, graphRunId, row, repo, cwd);
   const runResult = await runAgentNode(
     {
@@ -819,16 +822,10 @@ async function executeReadyNode(
         paths.flatMap((p) => {
           const bytes = deps.readBytes(graphRunId, p);
           if (bytes === undefined) return [];
-          const row = deps.db
-            .prepare(
-              `SELECT media_type FROM approach_artifact_instances
-               WHERE graph_run_id = ? AND snapshot_path = ? ORDER BY id DESC LIMIT 1`,
-            )
-            .get(graphRunId, p) as { media_type: string } | undefined;
           return [
             {
-              path: p,
-              mediaType: row?.media_type ?? 'text/plain',
+              path: isAbsolute(p) ? relative(artifactRoot, p) : p,
+              mediaType: inputMediaTypes.get(p) ?? 'text/plain',
               bytes: bytes.byteLength,
               body: new TextDecoder().decode(bytes),
             },
@@ -871,7 +868,7 @@ async function executeReadyNode(
         row.revision_id,
         node.instructionsArtifact,
       ),
-      inputSnapshots: inputSnapshotsOf(deps, graphRunId, row.revision_id, node.inputs),
+      inputSnapshots: inputSnapshots.map((i) => i.path),
     },
   );
   if (runResult.kind === 'red-blocked') {
@@ -1041,20 +1038,20 @@ function inputSnapshotsOf(
   graphRunId: number,
   revisionId: number,
   inputIds: readonly string[],
-): string[] {
+): Array<{ path: string; mediaType: string }> {
   if (inputIds.length === 0) return [];
-  const paths: string[] = [];
+  const paths: Array<{ path: string; mediaType: string }> = [];
   for (const id of inputIds) {
     const row = deps.db
       .prepare(
-        `SELECT snapshot_path FROM approach_artifact_instances
+        `SELECT snapshot_path, media_type FROM approach_artifact_instances
          WHERE graph_run_id = ? AND revision_id = ? AND artifact_id = ?
            AND (producer_planner_run_id IS NOT NULL
                 OR (producer_node_run_id IS NOT NULL AND fork_lineage IS NOT NULL))
          ORDER BY id DESC LIMIT 1`,
       )
-      .get(graphRunId, revisionId, id) as { snapshot_path: string } | undefined;
-    if (row) paths.push(row.snapshot_path);
+      .get(graphRunId, revisionId, id) as { snapshot_path: string; media_type: string } | undefined;
+    if (row) paths.push({ path: row.snapshot_path, mediaType: row.media_type });
   }
   return paths;
 }
