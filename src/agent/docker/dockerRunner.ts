@@ -1,8 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { autonomousLaunch } from '../autonomousLaunch.js';
-import { spawnHeadlessCli } from '../headlessSpawn.js';
 import { runProcess } from '../../workflow/gates/run.js';
-import type { GateProcessRunner, PlacedInteractiveLaunch, RunHeadless, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import type { GateProcessRunner, PlacedInteractiveLaunch, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
@@ -13,7 +12,6 @@ import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
 import type { DockerProcess } from './dockerProcess.js';
 import {
-  containerCommand,
   gateRunArgs,
   serviceRunArgs,
   serviceContainerName,
@@ -32,7 +30,6 @@ export interface DockerRunnerOptions {
   readonly user: LinuxUser | undefined;
   /** opencode v1 only: the host `auth.json`, mounted read-only. */
   readonly authFile?: string;
-  readonly spawnHeadless?: RunHeadless;
   readonly temp?: TempDirs;
   readonly newRunId?: () => string;
   /** The host gate boundary `runGate` wraps (default `runProcess`). */
@@ -49,7 +46,6 @@ export interface DockerRunnerOptions {
  * the docker socket, argv arrays only, async spawns only.
  */
 export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRunner {
-  const spawnHeadless = opts.spawnHeadless ?? spawnHeadlessCli;
   const newRunId = opts.newRunId ?? (() => randomBytes(8).toString('hex'));
   const ctx: CloneContext = { proc: opts.proc, names: opts.names, user: opts.user, temp: opts.temp ?? OS_TEMP_DIRS };
   const gateProcess = opts.gateProcess ?? runProcess;
@@ -92,9 +88,6 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     // container; an abort also kills it there, by its recorded pid. A timeout
     // inside the spawn kills only the client too, so the kill (a no-op once the
     // process exited; it also drops the pid file) always runs when the run ends.
-    runHeadless: (command, args, cwd, headlessOpts) =>
-      execTracked(headlessOpts?.signal, (runId) =>
-        spawnHeadless(DOCKER_BIN, headlessExecArgs(opts.names.container, runId, containerCommand(opts.core, command), rewritePaths(args, cwd)), cwd, headlessOpts)),
     runGate: async (command, args, cwd, gateOpts) => {
       const execTarget = (await containerRunning(opts.proc, opts.names.container))
         ? opts.names.container

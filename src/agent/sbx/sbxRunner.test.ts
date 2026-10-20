@@ -59,13 +59,8 @@ describe('createSbxSessionRunner.placeInteractive', () => {
 });
 
 describe('createSbxSessionRunner.runHeadless', () => {
-  it('runs via sbx exec and passes exit code and abort signal through', async () => {
-    const result = { stdout: 'o', stderr: '', exitCode: 3 };
-    const spawnHeadless = vi.fn().mockResolvedValue(result);
-    const runner = createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'codex', name: NAME, existing: [], spawnHeadless });
-    const signal = new AbortController().signal;
-    await expect(runner.runHeadless('codex', ['exec', 'hi there'], '/wt/a', { signal })).resolves.toBe(result);
-    expect(spawnHeadless).toHaveBeenCalledWith('sbx', ['exec', NAME, '--', 'codex', 'exec', 'hi there'], '/wt/a', { signal });
+  it('is absent: ticket-bound headless runs are host-only (arch:AC-33)', () => {
+    expect(createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'codex', name: NAME, existing: [] }).runHeadless).toBeUndefined();
   });
 });
 
