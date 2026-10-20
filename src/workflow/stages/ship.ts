@@ -109,6 +109,8 @@ import { DEFAULT_PR_DESCRIPTION_TEMPLATE } from '../conventionPresets.js';
 
 export interface ShipOpts {
   ticketId: number;
+  /** Sync the parent's sandbox into its worktree before the sub-task fork point is read. */
+  syncParent?: (parentId: number) => Promise<{ ok: boolean; reason?: string }>;
   /** Current manifest, read when ship starts rather than captured at ticket creation. */
   manifest?: Manifest;
   /** Retained for API compatibility; the description model comes from the process assignment. */
@@ -632,9 +634,15 @@ export async function ensureSubtaskForkPointOnParentBranch(
   cwd: string,
   git: GitRunner,
   debug?: (message: string) => void,
+  syncParent?: (parentId: number) => Promise<{ ok: boolean; reason?: string }>,
 ): Promise<SubtaskForkPushOutcome> {
   const parentId = getTicket(store, ticketId).subtaskParentId;
   if (parentId === null) return { diverged: false };
+  const synced = await syncParent?.(parentId);
+  if (synced && !synced.ok) {
+    parkShipAwaitingSubtask(store, ticketId, `parent sandbox not in sync: ${synced.reason ?? 'unknown'}`, debug);
+    return { diverged: true };
+  }
 
   const parentWt = listWorktreesByTicket(store, parentId).find(
     (w) => w.repo === repo && w.branch !== null && w.branch !== '',
@@ -1229,6 +1237,7 @@ export async function shipTicket(
             wt.path,
             git,
             opts.debug,
+            opts.syncParent,
           );
           if (precondition.diverged) return { prs: [] };
         }

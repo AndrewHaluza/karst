@@ -377,3 +377,52 @@ describe('makeSandboxWiring finds the sandbox by listing, not sessionProvider (F
     expect(dockerProc.calls.some((c) => c.args.includes('run') || c.args.includes('bundle'))).toBe(true);
   });
 });
+
+describe('makeSandboxWiring.ensureInSync (F12 choke point)', () => {
+  it('is a no-op without a sandbox backend', async () => {
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc });
+    await expect(w.ensureInSync(id)).resolves.toEqual({ ok: true });
+    expect(proc.calls).toEqual([]);
+  });
+  it('with a backend, a ticket without a listed sandbox is left alone', async () => {
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc, backendOn: () => true });
+    await expect(w.ensureInSync(id)).resolves.toEqual({ ok: true });
+    expect(proc.calls.some((c) => c.args.includes('exec'))).toBe(false);
+  });
+});
+
+describe('makeSandboxWiring assertInSync / syncParentOf', () => {
+  it('assertInSync resolves when there is nothing to sync', async () => {
+    const { w } = wiring();
+    await expect(w.assertInSync(id)).resolves.toBeUndefined();
+  });
+  it('syncParentOf ignores a ticket without a parent', async () => {
+    const { w } = wiring();
+    await expect(w.syncParentOf(id)).resolves.toBeUndefined();
+  });
+  it('syncParentOf syncs the parent of a sub-task', async () => {
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc, backendOn: () => true });
+    const child = createTicket(store, { key: 'K-2', title: 'c', subtaskParentId: id }).id;
+    await expect(w.syncParentOf(child)).resolves.toBeUndefined();
+    expect(proc.calls.length).toBeGreaterThan(0);
+  });
+});
+
+describe('makeSandboxWiring blockers', () => {
+  const blocked = () => {
+    const ls = `NAME\n${sbxName({ projectRoot: '/p/karst.yml', ticketId: id, core: 'claude' })} running\n`;
+    return fakeSbxProcess({ 'sbx ls': { stdout: ls } });
+  };
+  it('assertInSync throws the blocker reason', async () => {
+    const { w } = wiring({ proc: blocked(), backendOn: () => true });
+    await expect(w.assertInSync(id)).rejects.toThrow('sandbox not in sync: no worktree branch to sync into');
+  });
+  it('syncParentOf throws when the parent sandbox is blocked', async () => {
+    const { w } = wiring({ proc: blocked(), backendOn: () => true });
+    const child = createTicket(store, { key: 'K-3', title: 'c', subtaskParentId: id }).id;
+    await expect(w.syncParentOf(child)).rejects.toThrow('parent ticket sandbox not in sync: no worktree branch to sync into');
+  });
+});

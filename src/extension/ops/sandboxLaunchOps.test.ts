@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
-import { guardLaunchResume, launchMarkerInstruction, sandboxScrubber } from './sandboxLaunchOps.js';
+import { guardLaunchResume, HOST_FALLBACK_HOST, HOST_FALLBACK_RETRY, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxScrubber } from './sandboxLaunchOps.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
 
 const backend = (over: Partial<LaunchBackend> = {}): LaunchBackend => ({ options: {}, sandboxed: false, ...over });
@@ -84,5 +84,63 @@ describe('guardLaunchResume', () => {
   });
   it('a listing failure propagates (never swallowed into a wrong resume)', async () => {
     await expect(guardLaunchResume(input({ hasSandbox: async () => { throw new Error('boom'); } }))).rejects.toThrow('boom');
+  });
+});
+
+describe('launchWithoutSilentHostFallback (F14)', () => {
+  const host = { sandboxed: false };
+  const box = { sandboxed: true };
+  const base = (over: Record<string, unknown>) => ({
+    ticketLabel: 'K-1', wantsSandbox: true, hasSandbox: async () => true,
+    choose: vi.fn(async () => undefined as string | undefined), confirmHost: vi.fn(async () => true), removeSandbox: vi.fn(async () => true),
+    launch: vi.fn(async () => host), ...over,
+  });
+  it('launches straight through when sandboxed or no sandbox exists', async () => {
+    const a = base({ launch: async () => box });
+    expect(await launchWithoutSilentHostFallback(a)).toMatchObject({ kind: 'launched', freshSession: false });
+    const b = base({ hasSandbox: async () => false });
+    expect(await launchWithoutSilentHostFallback(b)).toMatchObject({ kind: 'launched' });
+    expect(b.choose).not.toHaveBeenCalled();
+  });
+  it('cancel (or dismissing) does nothing', async () => {
+    const i = base({});
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+    expect(i.launch).toHaveBeenCalledTimes(1);
+  });
+  it('retry re-launches', async () => {
+    const launch = vi.fn().mockResolvedValueOnce(host).mockResolvedValueOnce(box);
+    const i = base({ launch, choose: vi.fn(async () => HOST_FALLBACK_RETRY) });
+    expect(await launchWithoutSilentHostFallback(i)).toMatchObject({ kind: 'launched', backend: box });
+  });
+  it('host option without explicit confirmation removes nothing', async () => {
+    const i = base({ choose: vi.fn(async () => HOST_FALLBACK_HOST), confirmHost: vi.fn(async () => false) });
+    expect(await launchWithoutSilentHostFallback(i)).toEqual({ kind: 'cancelled' });
+    expect(i.removeSandbox).not.toHaveBeenCalled();
+  });
+  it('confirmed host option removes the sandbox and launches fresh; a kept sandbox cancels', async () => {
+    const i = base({ choose: vi.fn(async () => HOST_FALLBACK_HOST) });
+    expect(await launchWithoutSilentHostFallback(i)).toMatchObject({ kind: 'launched', freshSession: true });
+    expect(i.confirmHost).toHaveBeenCalledWith(expect.stringContaining('WITHOUT the sandbox boundary'));
+    const kept = base({ choose: vi.fn(async () => HOST_FALLBACK_HOST), removeSandbox: vi.fn(async () => false) });
+    expect(await launchWithoutSilentHostFallback(kept)).toEqual({ kind: 'cancelled' });
+  });
+});
+
+describe('wantsSandboxBackend / hostFallbackPrompts', () => {
+  it('is true only for a non-host effective backend', () => {
+    expect(wantsSandboxBackend(undefined, 'claude', undefined)).toBe(false);
+    expect(wantsSandboxBackend({ opencode: 'docker' }, 'opencode', undefined)).toBe(true);
+    expect(wantsSandboxBackend({ opencode: 'docker' }, 'opencode', 'host')).toBe(false);
+  });
+  it('choose passes the options through; confirm needs the explicit button', async () => {
+    const show = vi.fn(async () => 'Run on host' as string | undefined);
+    const p = hostFallbackPrompts({ showWarningMessage: show });
+    await p.choose('m', ['a', 'b']);
+    expect(show).toHaveBeenCalledWith('m', 'a', 'b');
+    expect(await p.confirmHost('x')).toBe(true);
+    expect(show).toHaveBeenLastCalledWith('x', { modal: true }, 'Run on host');
+    show.mockResolvedValueOnce(undefined);
+    expect(await p.confirmHost('x')).toBe(false);
   });
 });

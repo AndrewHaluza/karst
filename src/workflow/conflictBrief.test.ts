@@ -74,3 +74,12 @@ describe('renderConflictBrief', () => {
     expect(brief).not.toContain('Pull request:');
   });
 });
+
+describe('renderConflictBrief sandboxed', () => {
+  it('tells the agent to commit and emit the fix marker, with no fetch or push', () => {
+    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'main', files: [], prUrl: null, sandboxed: true });
+    expect(out).toContain('`fix` marker');
+    expect(out).toContain('Do not run `git fetch` or `git push`');
+    expect(out).not.toContain('git fetch origin main');
+  });
+});

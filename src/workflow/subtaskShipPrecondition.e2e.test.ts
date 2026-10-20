@@ -163,6 +163,19 @@ describe('sub-task ship precondition (real git)', () => {
     expect(stageBlock(store, s.childId, 'ship')).toBeNull();
   });
 
+  it('syncs the parent sandbox first, and parks without pushing when that sync is refused', async () => {
+    const s = seed('SS-SYNC', { parentLocalCommit: true });
+    const before = remoteHead(s.parentBranch);
+    const seen: number[] = [];
+    const outcome = await ensureSubtaskForkPointOnParentBranch(
+      store, s.childId, s.repoPath, s.childWt, defaultGitRunner, undefined,
+      async (pid) => { seen.push(pid); return { ok: false, reason: 'diverged' }; },
+    );
+    expect(seen).toEqual([getTicket(store, s.childId).subtaskParentId]);
+    expect(outcome.diverged).toBe(true);
+    expect(remoteHead(s.parentBranch)).toBe(before);
+  });
+
   it('skips the fork-point push for a non-stacked sub-task (base is not the parent branch)', async () => {
     const s = seed('SS-NS', { parentLocalCommit: true });
     const before = remoteHead(s.parentBranch);

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
 import type { DiffResult, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -156,5 +157,27 @@ export async function diffFromClone(ctx: CloneContext, input: CloneInput): Promi
     });
   } catch (err) {
     return { ok: false, reason: `docker diff failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Host → sandbox (F8): bundle the host branch, then fetch and fast-forward the
+ * clone inside a `--network none` helper that sees the bundle read-only. No
+ * host git ever runs in the agent-written clone; dirty or diverged → refused.
+ */
+export async function refreshClone(ctx: CloneContext, input: CloneInput): Promise<SyncResult> {
+  try {
+    return await withTemp(ctx.temp, async (dir): Promise<SyncResult> => {
+      const bundled = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'bundle', 'create', join(dir, 'in.bundle'), input.branch]);
+      if (bundled.code !== 0) return { ok: false, reason: `git bundle create ${input.branch} failed: ${detail(bundled)}` };
+      const run = await ctx.proc.run(DOCKER_BIN, helper(
+        ctx,
+        [...volumeMounts(ctx.names), '--mount', bindMount(dir, BUNDLE_DIR, true)],
+        ['sh', '-c', `cd ${CONTAINER_REPO}\n${REFRESH_SCRIPT}`, 'karst-refresh', input.branch, `${BUNDLE_DIR}/in.bundle`],
+      ));
+      return refreshOutcome(run.code, run.stdout, run.stderr, input.branch);
+    });
+  } catch (err) {
+    return { ok: false, reason: `docker refresh failed: ${err instanceof Error ? err.message : String(err)}` };
   }
 }

@@ -182,3 +182,23 @@ export function gateRunArgs(
     OPENCODE_IMAGE, command, ...args,
   ];
 }
+
+/** Name of the detached service container; it outlives the interactive `--rm` one. */
+export function serviceContainerName(names: DockerNames): string {
+  return `${names.container}-svc`;
+}
+
+/**
+ * A detached, hardened container on the clone volume for UAT services when the
+ * interactive container is gone. Same network (aliased as the interactive
+ * container, which is what the port relays target), hardening, volumes and uid.
+ */
+export function serviceRunArgs(names: DockerNames, user: LinuxUser | undefined): string[] {
+  return [
+    'run', '-d', '--name', serviceContainerName(names), '--network', names.network,
+    '--network-alias', names.container, ...HARDENING,
+    ...volumeMounts(names), ...userArgs(user),
+    ...PROXY_ENV.flatMap((e) => ['--env', e]), '--workdir', CONTAINER_REPO,
+    OPENCODE_IMAGE, 'sleep', 'infinity',
+  ];
+}

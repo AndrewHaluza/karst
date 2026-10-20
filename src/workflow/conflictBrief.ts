@@ -24,6 +24,8 @@ export interface ConflictBriefInput {
   /** Conflicting paths as the probe reported them; may be empty. */
   files: readonly string[];
   prUrl: string | null;
+  /** The ticket runs in a sandbox: no origin access, the host syncs and pushes. */
+  sandboxed?: boolean;
 }
 
 /** Beyond this the list is prompt bloat — git names them all again at merge time. */
@@ -59,6 +61,20 @@ export function renderConflictBrief(input: ConflictBriefInput): string {
       'established first — check the repository entry in `karst.yml` and the PR\'s base on the',
       'forge, confirm it with the user, then merge that branch in and resolve the conflicts.',
       'Do not rebase and do not force-push: the branch is already published under an open PR.',
+    ].join('\n');
+  }
+
+  if (input.sandboxed) {
+    return [
+      ...header,
+      `This ticket runs in a sandbox with no access to origin. The host merges \`${input.baseRef}\` into the worktree and refreshes your clone; resolve in the working tree:`,
+      '1. Resolve every conflict, keeping BOTH sides\' intent — read the surrounding code first.',
+      '2. Run the repository\'s build and tests before committing.',
+      '3. Commit the merge in the working tree. Do not run `git fetch` or `git push`.',
+      '4. Emit the `fix` marker; the host syncs your commits out and pushes the branch.',
+      '',
+      'Do not rebase and do not force-push: the branch is already published under an open PR.',
+      'If the right resolution is genuinely ambiguous, stop and ask rather than guessing.',
     ].join('\n');
   }
 

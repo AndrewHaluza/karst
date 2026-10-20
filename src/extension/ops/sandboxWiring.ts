@@ -6,7 +6,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
-import { disposeSandboxOp, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
@@ -41,6 +41,8 @@ export interface SandboxWiringInput {
   readonly setInterval?: (fn: () => void, ms: number) => { dispose(): void };
   readonly proc?: SbxProcess;
   readonly dockerProc?: DockerProcess;
+  /** The host-side bridge dir of a ticket (sbx hands the host's bundle through its `xfer/`, F8). */
+  readonly bridgeDirOf?: (ticketId: number) => string | undefined;
 }
 
 /** arch:AC-32 lifecycle bindings for `extension.ts`: only with a sandbox backend, only this window's tickets. */
@@ -133,6 +135,15 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     }
     return w.pickTicket?.(picks, `Ticket whose sandbox to ${verb}`);
   };
+  /** Both directions (F8/F12): before gates, and before a session resumes in an existing sandbox. Dirty clone or divergence = refused. */
+  const ensureInSync = async (ticketId: number, refresh = true) => {
+    if (!w.backendOn()) return { ok: true as const };
+    const { t, projectRoot } = await manual(ticketId);
+    return ensureSandboxInSync({
+      notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}),
+      ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}),
+    }, t, { refresh });
+  };
   const wiring = {
     /** Palette entry for `karst.sandbox.sync` / `.dispose`: the given ticket, else a picker (F5). */
     commandTarget,
@@ -145,6 +156,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     ensureSynced: async (ticketId: number) => {
       const { t, projectRoot } = await manual(ticketId);
       return ensureSandboxSynced({ notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+    },
+    ensureInSync,
+    /** F12: throws instead of returning a blocker (the ship saga's choke point). */
+    assertInSync: async (ticketId: number, refresh = true): Promise<void> => {
+      const r = await ensureInSync(ticketId, refresh);
+      if (!r.ok) throw new Error(`sandbox not in sync: ${r.reason}`);
+    },
+    /** F17: the parent's sandbox commits reach the host before a sub-task forks from them; throws on a blocker. */
+    syncParentOf: async (ticketId: number): Promise<void> => {
+      const parentId = getTicket(w.store, ticketId).subtaskParentId;
+      const r = parentId === null ? { ok: true as const } : await ensureInSync(parentId, false);
+      if (!r.ok) throw new Error(`parent ticket sandbox not in sync: ${r.reason}`);
     },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {

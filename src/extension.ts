@@ -348,7 +348,7 @@ import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
-import { guardLaunchResume, launchMarkerInstruction, sandboxScrubber } from './extension/ops/sandboxLaunchOps.js';
+import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -866,7 +866,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // seeded with the brief (never drop the brief on an open terminal).
     resolveConflicts: (id, repo) => {
       if (!guardCapability('sessions', id)) return;
-      const brief = buildConflictBrief(localStore, id, repo);
+      const brief = buildConflictBrief(localStore, id, repo, sandboxB?.deps.bridgeOf?.(id) !== undefined);
       if (!brief) {
         void vscode.window.showInformationMessage(
           `No merge conflict is recorded for "${repo}" on ticket ${formatId('ticket', id)} — nothing to resolve.`,
@@ -1267,7 +1267,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
-    projectId: () => currentProject()?.id,
+    projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir,
     pickTicket: async (picks, placeHolder) => (await vscode.window.showQuickPick([...picks], { placeHolder }))?.ticketId,
     // After a reload the ticket→core cache is empty: refill it from the listing (AC-34).
     onInventory: (inv) => { for (const box of inv.sandboxes) if (box.invalidCore !== true) sandboxB?.remember(box.ticketId, box.core); }, openSyncDiff: (id) => sandboxLife.diff(id), showDiff: (title, text) => storedArtifacts.showReadOnly(title, text, 'diff') });
@@ -3641,7 +3641,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -5636,6 +5636,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // uncommitted in the worktree and pushes it to a branch under human review.
     // So the sweep delivers only while a ship-sourced recovery round is live —
     // the case where the new work is exactly what the round was opened to make.
+    await sandboxLife.assertInSync(ticketId, false); // F12: the agent's commits after its marker reach the host before ship
     const deliverToOpenPr = shipOpts.unattended
       ? activeRecoverySeries(localStore, ticketId, 'ship') !== null
       : hasCompletedShipRun(localStore, ticketId);
@@ -5647,7 +5648,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // Task 3: the configured pr-description process, resolved once. Its
         // adapter AND identity snapshot drive the description step; NULL
         // (enabled: false) skips the AI step for the deterministic fallback.
-        prDescriptionProcess: prDescriptionProcess(ticketId),
+        syncParent: (pid) => sandboxLife.ensureInSync(pid, false), prDescriptionProcess: prDescriptionProcess(ticketId),
         ...(shipOpts.repos ? { repos: shipOpts.repos } : {}),
         ...(deliverToOpenPr ? { deliverToOpenPr: true } : {}),
       },
@@ -6324,7 +6325,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const launchBackend = await resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [] }, (core) => sandboxB?.remember(ticketId, core)); // AC-32
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed;
@@ -6401,7 +6402,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       })
         ? (t.sessionId ?? undefined)
         : undefined;
-      if (resumeId && sandboxB) resumeId = await guardLaunchResume({ ticketId, ticketLabel: t.key ?? String(ticketId), resumeId, sandboxed, hasSandbox: () => sandboxB!.hasSandbox(ticketId), warn: (m) => vscodeNotify.warn(m) });
+      if (fallback.freshSession) resumeId = undefined; else if (resumeId && sandboxB) resumeId = await guardLaunchResume({ ticketId, ticketLabel: t.key ?? String(ticketId), resumeId, sandboxed, hasSandbox: () => sandboxB!.hasSandbox(ticketId), warn: (m) => vscodeNotify.warn(m) });
       // A core whose resume id can go stale validates it here (opencode2). A
       // missing id is dropped BEFORE the seed is composed, so the launch is a
       // fresh full seed rather than a dangling `--session`. Adapters with no
@@ -6666,7 +6667,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             // threads down into the health wait + child processes.
             const ctrl = new AbortController();
             token.onCancellationRequested(() => ctrl.abort());
-            return withSandboxSpin(() => sandboxB?.deps, spinTicket)(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
+            return withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id))(localStore, manifest, ticketId, hot, { signal: ctrl.signal, // AC-32
               debug: (message) => logger.debug(message),
             });
           },
@@ -8412,7 +8413,7 @@ function makeDashboardActions(
       if (!guardCapability('sessions', ticketId)) return;
       // The store decides whether there is a conflict — the repo arrived in a
       // webview message, and a stale panel can name one that has since gone.
-      const brief = buildConflictBrief(store, ticketId, repo);
+      const brief = buildConflictBrief(store, ticketId, repo, sandboxB?.deps.bridgeOf?.(ticketId) !== undefined);
       if (!brief) {
         void vscode.window.showInformationMessage(
           `No merge conflict is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to resolve.`,

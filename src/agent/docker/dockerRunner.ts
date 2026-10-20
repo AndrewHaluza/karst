@@ -6,7 +6,7 @@ import type { GateProcessRunner, PlacedInteractiveLaunch, RunHeadless, SandboxTi
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
-import { chownVolumes, ensureClone, ensureVolume, diffFromClone, OS_TEMP_DIRS, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
+import { chownVolumes, ensureClone, ensureVolume, diffFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
 import { seedOpencode2Credentials } from './dockerCredentials.js';
 import type { DockerCore } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -15,6 +15,8 @@ import type { DockerProcess } from './dockerProcess.js';
 import {
   containerCommand,
   gateRunArgs,
+  serviceRunArgs,
+  serviceContainerName,
   headlessExecArgs,
   headlessKillArgs,
   interactiveRunArgs,
@@ -94,9 +96,12 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       execTracked(headlessOpts?.signal, (runId) =>
         spawnHeadless(DOCKER_BIN, headlessExecArgs(opts.names.container, runId, containerCommand(opts.core, command), rewritePaths(args, cwd)), cwd, headlessOpts)),
     runGate: async (command, args, cwd, gateOpts) => {
-      if (await containerRunning(opts.proc, opts.names.container)) {
+      const execTarget = (await containerRunning(opts.proc, opts.names.container))
+        ? opts.names.container
+        : (await containerRunning(opts.proc, serviceContainerName(opts.names))) ? serviceContainerName(opts.names) : null;
+      if (execTarget) {
         return execTracked(gateOpts?.signal, (runId) =>
-          gateProcess(DOCKER_BIN, headlessExecArgs(opts.names.container, runId, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts));
+          gateProcess(DOCKER_BIN, headlessExecArgs(execTarget, runId, command, rewritePaths(args, cwd), gateEnv), cwd, gateOpts));
       }
       // The interactive container is `--rm`: once its terminal closed, a gate
       // runs in a one-shot container on the same clone, removed by name.
@@ -111,7 +116,12 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
         await remove();
       }
     },
-    canHostServices: () => containerRunning(opts.proc, opts.names.container),
+    canHostServices: async () => {
+      if (await containerRunning(opts.proc, opts.names.container)) return true;
+      if (await containerRunning(opts.proc, serviceContainerName(opts.names))) return true;
+      await opts.proc.run(DOCKER_BIN, ['rm', '--force', serviceContainerName(opts.names)]);
+      return (await opts.proc.run(DOCKER_BIN, serviceRunArgs(opts.names, opts.user))).code === 0;
+    },
     // The clone volume is the sandbox: it outlives the interactive container.
     hasSandbox: async () => (await opts.proc.run(DOCKER_BIN, ['volume', 'inspect', opts.names.repoVolume])).code === 0,
     publishPort: (m) => publishRelay(opts.proc, opts.names, m),
@@ -119,13 +129,17 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     listPorts: () => listRelayPorts(opts.proc, opts.names),
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
     diff: (ticket: SandboxTicketRef) => diffFromClone(ctx, ticket),
+    refresh: (ticket: SandboxTicketRef) => refreshClone(ctx, ticket),
     // Volumes survive a stop; the next open restarts the container.
     stop: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);
     },
+    stopServices: async (): Promise<void> => {
+      await opts.proc.run(DOCKER_BIN, ['rm', '--force', serviceContainerName(opts.names)]);
+    },
     dispose: async (): Promise<void> => {
       const n = opts.names;
-      await opts.proc.run(DOCKER_BIN, ['rm', '--force', n.container]);
+      await opts.proc.run(DOCKER_BIN, ['rm', '--force', n.container, serviceContainerName(n)]);
       await removeAllRelays(opts.proc, n);
       await stopProxySidecar(opts.proc, n.proxy);
       await opts.proc.run(DOCKER_BIN, ['network', 'rm', n.network]);

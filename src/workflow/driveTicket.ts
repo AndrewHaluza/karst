@@ -168,6 +168,12 @@ export interface DriveTicketDeps {
    * run inside the sandbox against the agent's live edits; absent → unchanged.
    */
   gateProcessFor?: (ticketId: number) => GateProcessRunner | undefined;
+  /**
+   * Sandboxed tickets (F12): bring the sandbox's commits to the host and the host's to the
+   * clone BEFORE any gate runs. `ok:false` = a blocker (divergence, dirty clone): nothing runs.
+   * Absent / a host ticket → `ok:true`.
+   */
+  syncSandbox?: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
   /** arch:AC-32 decisions 7-8, threaded into the UAT stage verbatim (see `UatDeps`). */
   userUat?: Pick<UatDeps, 'keepStackForUserUat' | 'prepareUserUat' | 'agentUatPhase'>;
   /**
@@ -268,6 +274,14 @@ export async function driveTicket(
     deps.log(`stage driver: ticket ${ticketId} is paused — skipping drive`);
     const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
     return { stage, status: 'paused' };
+  }
+
+  const synced = (await deps.syncSandbox?.(ticketId)) ?? { ok: true as const };
+  if (!synced.ok) {
+    const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
+    deps.debug?.(`[driver] ticket ${ticketId} sandbox not in sync: ${synced.reason}`);
+    deps.log(`stage driver: ticket ${ticketId} sandbox not in sync — ${synced.reason}`);
+    return { stage, status: 'blocked', reason: `sandbox-sync: ${synced.reason}` };
   }
 
   const uat = runners.runUat ?? runUat;

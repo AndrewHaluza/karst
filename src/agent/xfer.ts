@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdtemp, open, realpath, rename, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, realpath, rename, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,7 +11,7 @@ import { join } from 'node:path';
 export interface Xfer {
   readonly dir: string;
   /** Write `data` as `name` via temp + rename with `O_NOFOLLOW|O_EXCL`; returns the host-built path. */
-  write(name: string, data: Uint8Array): Promise<string>;
+  write(name: string, data: Uint8Array, mode?: number): Promise<string>;
   /** The path of `name` after confirming it is a regular file (not a link); throws otherwise. */
   verified(name: string): Promise<string>;
 }
@@ -33,11 +33,11 @@ export async function openXfer(dir: string): Promise<Xfer> {
   await assertRealDir(dir);
   return {
     dir,
-    write: async (name, data) => {
+    write: async (name, data, mode = 0o600) => {
       await assertRealDir(dir);
       const target = join(dir, safeName(name));
       const temp = join(dir, `.${safeName(name)}.${process.pid}.${Date.now()}.tmp`);
-      const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, mode);
       try {
         await handle.writeFile(data);
       } finally {
@@ -64,4 +64,19 @@ export async function withXfer<T>(body: (xfer: Xfer) => Promise<T>, root: string
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The `xfer/` subdir of an agent-visible run dir. The agent can replace it, so
+ * anything but a real directory (a link, a file) is removed and recreated;
+ * the host only ever writes into it, never reads back from it.
+ */
+export async function ensureXferDir(runDir: string): Promise<Xfer> {
+  const dir = join(runDir, 'xfer');
+  const st = await lstat(dir).catch(() => undefined);
+  if (st && (st.isSymbolicLink() || !st.isDirectory())) await rm(dir, { force: true });
+  await mkdir(dir, { recursive: false, mode: 0o755 }).catch((err: NodeJS.ErrnoException) => {
+    if (err.code !== 'EEXIST') throw err;
+  });
+  return openXfer(dir);
 }

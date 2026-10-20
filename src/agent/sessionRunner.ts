@@ -92,6 +92,8 @@ export interface SessionRunner {
   bridgeRunDir?(paths: BridgePaths): string;
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
+  /** Sandbox runners only: host → sandbox (F8): fast-forward the clone to the host branch; dirty clone or divergence is refused, never overwritten. */
+  refresh?(ticket: SandboxTicketRef): Promise<SyncResult>;
   /** Sandbox runners only: `git diff <host branch>...<sandbox branch>` after fetching; changes nothing on the host branch. */
   diff?(ticket: SandboxTicketRef): Promise<DiffResult>;
   /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */
@@ -105,10 +107,13 @@ export interface SessionRunner {
   hasSandbox?(): Promise<boolean>;
   /**
    * Sandbox runners only: can a long-lived service run there NOW? docker:
-   * only while the interactive container runs (a gate's one-shot container
+   * while the interactive container runs, else a detached hardened service
+   * container is started on the clone volume (a gate's one-shot container
    * exits with its command); sbx: whenever the sandbox exists (exec starts it).
    */
   canHostServices?(): Promise<boolean>;
+  /** docker: remove the detached service container once the ticket's services are stopped. */
+  stopServices?(): Promise<void>;
   /** Sandbox runners only: publish ONE declared port on `127.0.0.1` (arch:AC-32). */
   publishPort?(mapping: PortMapping): Promise<PublishResult>;
   unpublishPort?(mapping: PortMapping): Promise<void>;
