@@ -32,6 +32,7 @@ describe('fixDeliveryWiring', () => {
       currentLaunchId: () => 'L1',
       nudge,
       sessionChannel: () => state.channel,
+      storageDir: '/g',
       literal: () => state.literal,
       agyBusy: () => state.agy,
       debug: vi.fn(),

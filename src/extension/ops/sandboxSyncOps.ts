@@ -89,6 +89,8 @@ export interface LaunchBackend {
   readonly sandboxed: boolean;
   /** The bridge dir as the agent sees it (ends in the ticket id); absent when no bridge is attached. */
   readonly runDir?: string;
+  /** Host paths of the attached bridge dir (the mirror target for attachments and gate logs). */
+  readonly bridge?: BridgePaths;
 }
 
 /**
@@ -112,7 +114,7 @@ export async function resolveLaunchBackend(input: BackendSessionInput, remember?
   const paths = await options.bridgeFor?.(input.ticketId);
   const runDir = paths ? resolved.runner.bridgeRunDir?.(paths) : undefined;
   if (paths && input.worktree) await recordClonedWorktree(paths.dir, input.worktree.path).catch((err) => input.debug?.(`cloned-worktree record failed: ${String(err)}`));
-  return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}) };
+  return { options: handed, sandboxed: true, ...(runDir !== undefined ? { runDir } : {}), ...(paths ? { bridge: paths } : {}) };
 }
 
 /** `host (<reason>)` → `<reason>`. */

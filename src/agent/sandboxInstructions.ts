@@ -44,6 +44,8 @@ export const NOT_IN_SANDBOX = '(not available in the sandbox)';
 
 /** A backtick span carrying a host-only CLI command or env ref. */
 const HOST_CLI_SPAN = /`[^`]*(?:\$\{?KARST_(?:CLI|DB|MANIFEST)\b|\bnode\s+"?\$KARST_CLI|--db\s)[^`]*`/g;
+/** A bare `karst <subcommand> …` span (the host CLI by name). */
+const BARE_KARST_SPAN = /`karst\s+[a-z][a-z-]*\b[^`]*`/g;
 /** The MCP phrasing (the sandbox has no karst MCP server). */
 const MCP_TOOL_CLAUSE = /call the karst MCP tool `[a-z-]+`(?: with \{[^}]*\})?/g;
 
@@ -55,6 +57,6 @@ const MCP_TOOL_CLAUSE = /call the karst MCP tool `[a-z-]+`(?: with \{[^}]*\})?/g
 export function scrubHostCli(text: string): { readonly text: string; readonly scrubbed: number } {
   let scrubbed = 0;
   const swap = (): string => { scrubbed += 1; return NOT_IN_SANDBOX; };
-  const out = text.replace(HOST_CLI_SPAN, swap).replace(MCP_TOOL_CLAUSE, swap);
+  const out = text.replace(HOST_CLI_SPAN, swap).replace(BARE_KARST_SPAN, swap).replace(MCP_TOOL_CLAUSE, swap);
   return { text: out, scrubbed };
 }
