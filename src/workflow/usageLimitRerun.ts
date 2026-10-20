@@ -346,17 +346,21 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
     return { kind: 'stopped' };
   }
 
+  const stageKey = (parkRow.stage ?? (parkRow.lane === 'uat' ? 'uat' : 'review')) as GateStageKey;
+  if (parkRow.lane !== 'review' && parkRow.lane !== 'uat' && stageKey !== 'review' && stageKey !== 'uat') {
+    // BEFORE the claim: a park that names no lane this path can run must stay
+    // OPEN. Claiming it first would consume it and run nothing — the park would
+    // read as handled while its stage is still blocked on the usage limit.
+    opts.debug?.(`[usageLimit] park ${parkRow.id} names no re-runnable lane — left open`);
+    return { kind: 'stopped' };
+  }
+
   // 1. Claim the park row atomically before building anything or running. A
   // racing window loses here and returns `stopped` without constructing an
   // adapter, opening a stage run, or touching any state.
   const claim = claimUsageLimitPark(store, parkRow.id, opts.resolution ?? 'rerun', runAt);
   if (!claim.claimed) {
     opts.debug?.(`[usageLimit] park ${parkRow.id} already claimed or invalid`);
-    return { kind: 'stopped' };
-  }
-
-  const stageKey = (parkRow.stage ?? (parkRow.lane === 'uat' ? 'uat' : 'review')) as GateStageKey;
-  if (parkRow.lane !== 'review' && parkRow.lane !== 'uat' && stageKey !== 'review' && stageKey !== 'uat') {
     return { kind: 'stopped' };
   }
 

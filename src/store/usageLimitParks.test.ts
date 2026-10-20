@@ -45,6 +45,51 @@ describe('usage_limit_parks', () => {
     expect(open[0]!.resolvedAt).toBeNull();
   });
 
+  it('keeps the sibling observations when a SECOND park lands on the same key', () => {
+    // The first park kept what a sibling target reported before the quota
+    // stopped the run. A second park at the same key names only the target it
+    // touched — it must NOT erase the sibling's observations.
+    const siblingObservation = {
+      severity: 'high',
+      title: 'Sibling API endpoint returns 500',
+      repo: 'api',
+      file: 'src/server.ts',
+      line: 42,
+    };
+    insertOpenPark(store, {
+      ...payload('first'),
+      keptOutcome: JSON.stringify({
+        observations: [siblingObservation],
+        targets: [
+          { repo: 'api', status: 'completed', observations: 1 },
+          { repo: 'web', status: 'usage-limited', observations: 0 },
+        ],
+      }),
+    });
+    // The second park hit the quota on its FIRST target: it kept nothing.
+    insertOpenPark(store, {
+      ...payload('second'),
+      keptOutcome: JSON.stringify({
+        observations: [],
+        targets: [{ repo: 'web', status: 'usage-limited', observations: 0 }],
+      }),
+    });
+
+    const open = listOpenParks(store, ticketId);
+    expect(open).toHaveLength(1);
+    const kept = JSON.parse(open[0]!.keptOutcome!) as {
+      observations: { repo: string; title: string }[];
+      targets: { repo: string; status: string }[];
+    };
+    expect(kept.observations).toEqual([siblingObservation]);
+    // The sibling target's entry survives; the re-parked target keeps its fresh
+    // (usage-limited) status.
+    expect(kept.targets).toEqual([
+      { repo: 'api', status: 'completed', observations: 1 },
+      { repo: 'web', status: 'usage-limited', observations: 0 },
+    ]);
+  });
+
   it('distinguishes parks by target and lane', () => {
     insertOpenPark(store, payload());
     insertOpenPark(store, { ...payload(), target: 'other' });

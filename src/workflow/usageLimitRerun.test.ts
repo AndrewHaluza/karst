@@ -8,6 +8,7 @@ import {
   claimUsageLimitPark,
   insertOpenPark,
   listOpenParks,
+  listParks,
   type UsageLimitParkRow,
 } from '../store/usageLimitParks.js';
 import { parkGateStage } from '../store/stageBlocks.js';
@@ -328,6 +329,61 @@ describe('rerunParkedStage', () => {
     expect(adapter.runHeadless).not.toHaveBeenCalled();
     expect(listOpenParks(store, ticket.id)).toHaveLength(1);
     expect(listStageRuns(store, ticket.id)).toHaveLength(0);
+  });
+
+  it('leaves a park that names no re-runnable lane OPEN (it is never consumed without a run)', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-NO-LANE', title: 'Test no lane park' });
+    const parkId = insertOpenPark(store, {
+      ticketId: ticket.id,
+      kind: 'stage-block',
+      stage: 'scope',
+      lane: null,
+      target: null,
+      keptOutcome: null,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exhausted',
+    });
+    const park: UsageLimitParkRow = {
+      id: parkId,
+      ticketId: ticket.id,
+      stage: 'scope',
+      kind: 'stage-block',
+      lane: null,
+      target: null,
+      sessionId: null,
+      stageRunId: null,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exhausted',
+      keptOutcome: null,
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+    const adapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn(),
+    } as unknown as AgentAdapter;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter,
+      cwd: '/wt/web',
+      artifactDir,
+    });
+
+    expect(res).toEqual({ kind: 'stopped' });
+    // The park named no lane this path can run: it stays OPEN, so the stage it
+    // blocks is not left blocked by a park that reads as handled.
+    expect(listOpenParks(store, ticket.id)).toHaveLength(1);
+    expect(listParks(store, ticket.id)[0]?.resolvedAt).toBeNull();
+    expect(adapter.runHeadless).not.toHaveBeenCalled();
   });
 
   it('re-runs a parked review target with override adapter and advances stage when clean', async () => {
@@ -1244,6 +1300,94 @@ describe('rerunParkedStage', () => {
     const uatFindings = listUatFindings(store, ticket.id);
     expect(uatFindings).toHaveLength(1);
     expect(uatFindings[0]?.title).toBe('Sibling API endpoint returns 500');
+  });
+
+  it('a SECOND uat quota park keeps the sibling observations the first park kept', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-SECOND-PARK', title: 'Test second park' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    // The FIRST park: the sibling target 'api' already reported a blocking
+    // observation before 'web' hit the quota.
+    const siblingObservation = {
+      severity: 'high',
+      title: 'Sibling API endpoint returns 500',
+      repo: 'api',
+      file: 'src/server.ts',
+      line: 42,
+    };
+    const priorKeptOutcome = JSON.stringify({
+      observations: [siblingObservation],
+      targets: [{ repo: 'api', status: 'completed', observations: 1 }],
+    });
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: priorKeptOutcome,
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+
+    // The picked core is out of quota too: the re-run parks AGAIN.
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockRejectedValue(
+        new UsageLimitError('Claude usage limit reached — out of credits.', {
+          tool: 'Claude',
+          provider: 'anthropic',
+          model: 'claude-3-7-sonnet',
+        }),
+      ),
+    };
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest: {
+        uat: { testerObservations: { blockingSeverity: 'high' } },
+      } as unknown as Manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toMatchObject({ kind: 'blocked', blocker: 'usage-limit' });
+    // The SECOND park carries the sibling observation forward — a quota stop
+    // that lands again must not erase what a partner target already reported.
+    const parks = listParks(store, ticket.id);
+    expect(parks).toHaveLength(2);
+    const second = parks.find((p) => p.resolvedAt === null);
+    expect(second).toBeDefined();
+    const kept = JSON.parse(second!.keptOutcome!) as {
+      observations: { repo: string; title: string }[];
+      targets: { repo: string; status: string }[];
+    };
+    expect(kept.observations).toEqual([siblingObservation]);
+    expect(kept.targets.map((t) => t.repo).sort()).toEqual(['api', 'web']);
   });
 
   it('review re-run with unreadable output marks process run execution-failed, logs notes to artifact, and parks capability-missing', async () => {
