@@ -176,14 +176,25 @@ function fixtureQuota(overrides: Partial<QuotaView> = {}): QuotaView {
       fixtureQuotaRow({
         core: 'opencode',
         label: 'OpenCode',
-        state: 'unknown',
-        reason: 'no local quota source; OpenCode Go has no public usage API',
+        source: 'OpenCode Go usage API',
+        readAgo: 'just now',
+        windows: [
+          fixtureWindow({ label: '5-hour', usedPct: 3, width: '3', resetsIn: '1h 10m' }),
+          fixtureWindow({ label: 'Weekly', usedPct: 9, width: '9', resetsIn: '4d 23h' }),
+          fixtureWindow({
+            label: 'Monthly',
+            usedPct: 82,
+            width: '82',
+            level: 'near',
+            resetsIn: '16d 10h',
+          }),
+        ],
       }),
       fixtureQuotaRow({
         core: 'opencode2',
         label: 'OpenCode v2',
         state: 'unknown',
-        reason: 'no local quota source; OpenCode Go has no public usage API',
+        reason: 'no OpenCode Go key in /karst/opencode2/data/opencode/auth.json',
       }),
     ],
     ...overrides,

@@ -78,6 +78,24 @@ describe('usage render fixtures', () => {
     expect(allText.length).toBeGreaterThan(300);
   });
 
+  it('quota carries one known OpenCode Go row (three windows) and one unknown OpenCode v2 row', () => {
+    const quota = fixtures.find((f) => f.scenario === 'quota')!;
+    const opencode = quota.state.quota.rows.find((r) => r.core === 'opencode')!;
+    expect(opencode).toMatchObject({
+      state: 'ok',
+      source: 'OpenCode Go usage API',
+    });
+    expect(opencode.windows.map((w) => [w.label, w.usedPct])).toEqual([
+      ['5-hour', 3],
+      ['Weekly', 9],
+      ['Monthly', 82],
+    ]);
+    expect(quota.state.quota.rows.find((r) => r.core === 'opencode2')).toMatchObject({
+      state: 'unknown',
+      windows: [],
+    });
+  });
+
   it('calling the factory twice returns structurally equal but non-identical arrays', () => {
     const a = usageRenderFixtures();
     const b = usageRenderFixtures();

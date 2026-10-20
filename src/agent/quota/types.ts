@@ -48,9 +48,9 @@ export type QuotaSnapshot = QuotaKnown | QuotaUnknown;
 export interface QuotaReader {
   core: AgentProvider;
   /**
-   * Read the core's quota now. Local reads only — never a model request.
-   * Async: a reader runs on the extension host's event loop, so it must never
-   * use synchronous file I/O.
+   * Read the core's quota now. Local reads, or a provider usage API that spends
+   * no model request. Async: a reader runs on the extension host's event loop,
+   * so it must never use synchronous file I/O.
    */
   read(): Promise<QuotaSnapshot>;
 }
