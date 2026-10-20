@@ -532,6 +532,8 @@ export interface GateDef {
   command?: string; // kind: 'command' — the binary, spawned without a shell
   args?: string[]; // kind: 'command'
   repo?: string; // manifest repository name; absent = every target
+  /** Where a sandboxed ticket runs this gate; absent = `inside` (arch:AC-36). `host` runs it on the host after a verified sync. */
+  sandbox?: 'host' | 'inside';
 }
 
 /** UAT's gate shape: `GateDef` plus a repo-relative report path, inert in Phase 1. */

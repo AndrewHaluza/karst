@@ -17,4 +17,18 @@ describe('sandboxGateDeps (arch:AC-32)', () => {
     expect(out.results[0]!.exitCode).toBe(1);
     await deps.runGates!([], '/wt', { onDebug: () => undefined });
   });
+
+  it('runs a sandbox:host gate on the host runner in declared order, inside gates in the sandbox (arch:AC-36)', async () => {
+    const calls: string[] = [];
+    const done = (tag: string) => (cmd: string) => { calls.push(`${tag}:${cmd}`); return Promise.resolve<ProcessOutcome>({ kind: 'completed', exitCode: 0, output: tag }); };
+    const hostFactory = vi.fn(() => done('host'));
+    const deps = sandboxGateDeps(done('in'), hostFactory);
+    const g = (name: string, sandbox?: 'host') => ({ name, command: name, args: [], script: null, required: true, ...(sandbox ? { sandbox } : {}) });
+    const out = await deps.runGates!([g('a'), g('b', 'host'), g('c')], '/wt');
+    expect(calls).toEqual(['in:a', 'host:b', 'in:c']);
+    expect(out.results.map((r) => r.name)).toEqual(['a', 'b', 'c']);
+    expect(hostFactory).toHaveBeenCalledTimes(1);
+    await deps.runGates!([g('a')], '/wt');
+    expect(hostFactory).toHaveBeenCalledTimes(1);
+  });
 });
