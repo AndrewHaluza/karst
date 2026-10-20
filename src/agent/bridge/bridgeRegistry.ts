@@ -1,5 +1,6 @@
 import { bridgePaths, ensureBridgeDir, listBridgeTicketIds, removeBridgeDir, type BridgePaths } from './bridgeDir.js';
 import type { BridgeAttachment } from './bridgeSink.js';
+import type { QueuedMarker } from './markerFlow.js';
 
 export interface BridgeRegistryDeps {
   readonly root: string;
@@ -24,6 +25,10 @@ export interface BridgeRegistry {
   sweep(openTicketIds: ReadonlySet<number>, owned?: ReadonlySet<number>): Promise<BridgeSweepResult>;
   /** A sync just succeeded: re-run this ticket's transiently failed marker, if any (arch:AC-34). */
   retryPending(ticketId: number): Promise<void>;
+  /** The ticket's queued done marker (reason, attempt, next retry), for the Sandbox panel. */
+  markerStatus(ticketId: number): QueuedMarker | undefined;
+  /** User's "Retry now": run the queued marker, or requeue a gave-up one with a fresh counter. */
+  retryNow(ticketId: number): Promise<void>;
   /** Extension shutdown: stop every poller, keep every dir. */
   detachAll(): Promise<void>;
 }
@@ -98,5 +103,9 @@ export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
   const retryPending = async (ticketId: number): Promise<void> => {
     await live.get(ticketId)?.retryPending?.();
   };
-  return { attach, detach, dispose, sweep, detachAll, retryPending };
+  const markerStatus = (ticketId: number): QueuedMarker | undefined => live.get(ticketId)?.markerStatus?.();
+  const retryNow = async (ticketId: number): Promise<void> => {
+    await live.get(ticketId)?.retryNow?.();
+  };
+  return { attach, detach, dispose, sweep, detachAll, retryPending, markerStatus, retryNow };
 }

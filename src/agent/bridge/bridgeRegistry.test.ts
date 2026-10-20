@@ -31,6 +31,18 @@ describe('bridgeRegistry', () => {
     expect(await exists(p1.eventsFile)).toBe(true);
   });
 
+  it('markerStatus and retryNow reach the live attachment; an unattached ticket is a no-op', async () => {
+    const status = { stage: 'fix' as const, reason: 'r', attempt: 2, maxRetries: 8, nextAt: 5 };
+    const a = { ...fakeAttachment(), markerStatus: vi.fn(() => status), retryNow: vi.fn(async () => {}) };
+    const reg = createBridgeRegistry({ root, build: () => a });
+    expect(reg.markerStatus(7)).toBeUndefined();
+    await reg.retryNow(7);
+    await reg.attach(7);
+    expect(reg.markerStatus(7)).toEqual(status);
+    await reg.retryNow(7);
+    expect(a.retryNow).toHaveBeenCalledTimes(1);
+  });
+
   it('attach with no attachment (ticket gone) still returns the paths and attaches nothing', async () => {
     const build = vi.fn(() => undefined);
     const reg = createBridgeRegistry({ root, build });

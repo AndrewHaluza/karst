@@ -44,7 +44,7 @@ export interface BridgeBuildDeps {
   /** A marker failure is a WARN, never DEBUG-only (arch:AC-34). */
   readonly warn?: (message: string) => void;
   /** Shows the user a failed done marker; `diverged` = a Needs-you blocker with Open sync diff. */
-  readonly notifyFailure?: (ticketId: number, message: string, diverged: boolean) => void;
+  readonly notifyFailure?: (ticketId: number, message: string, diverged: boolean, gaveUp: boolean) => void;
   /** Fast-forwards a sandboxed ticket's host worktree before its stage CLI runs; a host ticket is a no-op (arch:AC-32). */
   readonly ensureSynced?: (ticketId: number) => Promise<EnsureSyncResult>;
   readonly spawn?: MarkerSpawn;
@@ -91,7 +91,7 @@ export function makeBridgeBuild(
 function markerFailed(deps: BridgeBuildDeps, ticketId: number, ticketKey: string, failure: MarkerFailure): void {
   const message = `Karst: ${ticketKey} ${failure.stage} done marker failed: ${failure.reason}`;
   deps.warn?.(message);
-  deps.notifyFailure?.(ticketId, message, failure.diverged);
+  deps.notifyFailure?.(ticketId, message, failure.diverged, failure.gaveUp === true);
 }
 
 function liveExpectation(deps: BridgeBuildDeps, ticketId: number, worktreePath: string): BridgeExpectation {
