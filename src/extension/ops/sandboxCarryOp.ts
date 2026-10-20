@@ -48,6 +48,12 @@ export async function carrySandboxOp(deps: SandboxCarryDeps, target: SandboxSync
     }
     return fail(carried.message);
   }
+  // The agent may have committed since the first fetch: removing now would drop those commits.
+  const again = await runner.fetchClone(ref);
+  const head = again.ok ? await run(ref.hostWorktreePath, ['rev-parse', '--verify', '--quiet', 'FETCH_HEAD^{commit}']) : undefined;
+  if (!head || head.code !== 0 || head.stdout.trim() !== verdict.cloneHead) {
+    return fail(`${carried.carried} commit(s) were carried, but the sandbox has newer commits (or could not be re-read), so it was kept and not recreated. Apply the newer commits by hand; do not carry again.`);
+  }
   const removed = await (deps.remove ?? removeSandboxGuarded)(deps, target, { skipSync: true });
   if (!removed) return false;
   await recordSyncedHead(deps, target);

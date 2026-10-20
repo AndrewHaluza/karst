@@ -130,6 +130,27 @@ describe('rewrite classification and carry (real git)', () => {
     expect(git(s.host, 'log', '--format=%s', '-1')).toBe('agent three');
   });
 
+  it('carry op: commits the agent made after the fetch keep the sandbox (no remove, no reopen)', async () => {
+    const s = scenario(root);
+    let n = 0;
+    const runner = { fetchClone: async () => {
+      if (n++ === 1) { writeFileSync(join(s.clone, 'late.txt'), 'late\n'); git(s.clone, 'add', '.'); git(s.clone, 'commit', '-qm', 'late'); }
+      git(s.host, 'fetch', '-q', s.clone, 'refs/heads/feat');
+      return { ok: true as const };
+    } } as unknown as SessionRunner;
+    const errors: string[] = [];
+    const remove = vi.fn(async () => true);
+    const reopen = vi.fn(async () => {});
+    const deps = {
+      notify: { info: vi.fn(), warn: vi.fn(), error: (m: string) => { errors.push(m); return Promise.resolve(); } },
+      projectRoot: root, choose: vi.fn(), owns: () => true, openSyncDiff: vi.fn(), reopen, remove, runner, scratch: root,
+    };
+    await expect(carrySandboxOp(deps, { ticketId: 7, ticketLabel: 'K-7', core: 'claude', worktree: { path: s.host, branch: 'feat' } })).resolves.toBe(false);
+    expect(errors).toEqual([expect.stringContaining('newer commits')]);
+    expect(remove).not.toHaveBeenCalled();
+    expect(reopen).not.toHaveBeenCalled();
+  });
+
   it('carry op: a conflict keeps the sandbox (no remove, no reopen) and names the paths', async () => {
     const s = scenario(root);
     writeFileSync(join(s.host, 'agent.txt'), 'host wrote the same file\n');
