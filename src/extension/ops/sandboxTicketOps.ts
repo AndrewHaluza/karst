@@ -23,6 +23,10 @@ import type { SessionRunner } from '../../agent/sessionRunner.js';
 import type { SandboxServiceContext } from '../../runtime/startService.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
 import { isServing } from '../../runtime/health.js';
+import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { getTicket } from '../../store/tickets.js';
+import { clearSetupState, provisionTicketSandbox } from './sandboxSetupOp.js';
+import type { Notify } from './notify.js';
 
 /**
  * Per-ticket sandbox lookups for services and gates (arch:AC-32). A ticket is
@@ -213,6 +217,7 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
   readonly store: Store;
   readonly manifest: () => Manifest | undefined;
   readonly onError: (err: unknown) => void;
+  readonly notify?: Notify;
 }
 
 /** Everything extension.ts binds for sandboxed tickets (arch:AC-32), so the host file stays bindings-only. */
@@ -232,7 +237,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     },
   };
   const uatGate = createUserUatGate();
-  return {
+  const bindings = {
     deps,
     /** The headless-run guard (`instrumentedAdapter.guardResume`): a host run never resumes a sandbox session id (AC-33). */
     guardResume: async (opts: { readonly resume?: string; readonly tracking?: { readonly ticketId?: number | null } }): Promise<void> => {
@@ -275,6 +280,36 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       },
     },
     gateProcessFor: (ticketId: number) => ticketGateProcess(deps, ticketId),
+    /** arch:AC-36: run the repos' `sandbox.setup` inside the sandbox; refused = a reason, notified once. Host ticket / no notify seam = ok. */
+    provision: async (ticketId: number, opts: { readonly signal?: AbortSignal } = {}) => {
+      // `ticketGateProcess` falls back to the HOST runner without a sandbox: never run a setup there.
+      if (!input.notify || !(await resolveTicketSandbox(deps, ticketId)).listed) return { ok: true as const };
+      return provisionTicketSandbox({
+        manifest: input.manifest, worktrees: (id) => listWorktreesByTicket(input.store, id), gateProcess: (id) => ticketGateProcess(deps, id),
+        bridgeOf: (id) => deps.bridgeOf?.(id), ticketLabel: (id) => { try { return getTicket(input.store, id).key ?? String(id); } catch { return String(id); } },
+        notify: input.notify, ...(input.debug ? { debug: input.debug } : {}),
+      }, ticketId, opts);
+    },
+    /** `karst.sandbox.setup`: forget the recorded setup, then run it again now (an unchanged lockfile would otherwise skip it). */
+    rerunSetup: async (ticketId: number): Promise<void> => {
+      const bridge = deps.bridgeOf?.(ticketId);
+      if (bridge) await clearSetupState(bridge);
+      const r = await bindings.provision(ticketId);
+      if (r.ok) void input.notify?.info('Karst: sandbox setup finished.');
+    },
+    /**
+     * Background start right after launch/reattach (arch:AC-36): never blocks the session. The sandbox may
+     * still be coming up, so wait (bounded) for it to be listed before running the setup.
+     */
+    provisionInBackground: (ticketId: number, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): void => {
+      void (async () => {
+        for (let i = 0; i < 12; i += 1) {
+          if ((await resolveTicketSandbox(deps, ticketId)).listed) break;
+          await wait(5_000);
+        }
+        await bindings.provision(ticketId);
+      })().catch(input.onError);
+    },
     /** Stop-all: sandboxed services stop inside the sandbox and lose their 127.0.0.1 mappings too. */
     stopTicket: (store: Store, ticketId: number) => stopAllTicketServers(store, ticketId, ticketSandboxRunner(deps, ticketId)?.runner),
     hostPorts: (ticketId: number) => {
@@ -285,4 +320,5 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       scheduleSandboxReattach(deps, input.store, input.manifest(), ticketId,
         (row) => isServing(`http://127.0.0.1:${row.port}/`), input.onError, delayMs),
   };
+  return bindings;
 }

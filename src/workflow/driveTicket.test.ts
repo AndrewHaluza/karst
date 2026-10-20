@@ -214,6 +214,23 @@ describe('driveTicket', () => {
     expect(outcome.reason).toMatch(/^nothing-to-run: /);
   });
 
+  it('refuses every gate when sandbox dependencies are not provisioned (arch:AC-36)', async () => {
+    writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    const provisionSandbox = vi.fn(() => Promise.resolve({ ok: false as const, reason: 'sandbox dependencies not provisioned: exit 1' }));
+    const outcome = await driveTicket({ ...deps(), provisionSandbox }, id);
+    expect(provisionSandbox).toHaveBeenCalledWith(id);
+    expect(outcome).toEqual({ stage: 'uat', status: 'blocked', reason: 'sandbox-setup: sandbox dependencies not provisioned: exit 1' });
+    expect(worktreeLookups).toBe(0);
+  });
+
+  it('provisions the sandbox first, then runs as before (arch:AC-36)', async () => {
+    writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
+    const provisionSandbox = vi.fn(() => Promise.resolve({ ok: true as const }));
+    const outcome = await driveTicket({ ...deps(), provisionSandbox }, id);
+    expect(provisionSandbox).toHaveBeenCalledOnce();
+    expect(outcome.reason).toMatch(/^nothing-to-run: /);
+  });
+
   it('skips driving when ticket is paused', async () => {
     pauseTicket(store, id);
     const outcome = await driveTicket(deps(), id);

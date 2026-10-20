@@ -1,3 +1,6 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { dockerNames } from '../../agent/docker/dockerNames.js';
@@ -6,6 +9,7 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { startSandboxService } from '../../agent/sandboxServices.js';
 import type { Manifest } from '../../manifest/types.js';
 import { openStore } from '../../store/db.js';
+import { createTicket } from '../../store/tickets.js';
 import {
   reattachTicketSandbox, resolveTicketSandbox, ticketGateProcess, ticketSandboxContext, ticketSandboxRunner, type TicketSandboxDeps,
 } from './sandboxTicketOps.js';
@@ -464,5 +468,81 @@ describe('resolveTicketSandbox / ticketSandboxContext edge cases', () => {
     expect(ticketGateProcess(deps({ backends: () => ({}), coreOf: () => null, inventory }), 7)).toBeUndefined();
     // Listing configured but no sandbox backend selected: legacy behaviour (core-only decision).
     expect(ticketGateProcess(deps({ backends: () => ({}), coreOf: () => 'claude', inventory }), 7)).toBeUndefined();
+  });
+});
+
+describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
+  const boxFor = (id: number) => ({ runner: 'sbx' as const, name: sbxName({ projectRoot: '/p', ticketId: id, core: 'claude' }), ticketId: id, core: 'claude', state: 'running' as const });
+  const HASH = 'd'.repeat(64);
+  async function make(opts: { listed?: (box: ReturnType<typeof boxFor>) => Promise<readonly ReturnType<typeof boxFor>[]>; withNotify?: boolean; setupExit?: number } = {}) {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const { runProcess } = await import('../../workflow/gates/run.js');
+    const ran: string[] = [];
+    vi.mocked(runProcess).mockImplementation((_c, args) => {
+      const fp = args.join(' ').includes('node -e');
+      ran.push(args.join(' '));
+      return Promise.resolve({ kind: 'completed', exitCode: fp ? 0 : (opts.setupExit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' }) as never;
+    });
+    const store = openStore(':memory:');
+    const t = createTicket(store, { key: 'FEAT-X', title: 't' });
+    const box = boxFor(t.id);
+    store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, deps_mode) VALUES (?, 'app', '/wt', 'none')").run(t.id);
+    const manifest = { agentBackends: { claude: 'sbx' }, repositories: { app: { repoPath: '/r', sandbox: { setup: 'npm ci' } } } } as unknown as Manifest;
+    const errors: string[] = [];
+    const notify = { info: () => undefined, warn: () => undefined, error: (m: string) => { errors.push(m); return Promise.resolve(); } };
+    const root = mkdtempSync(join(tmpdir(), 'prov-'));
+    const b = createTicketSandboxBindings({
+      ...deps({ proc: fakeSbxProcess(), inventory: () => (opts.listed ?? ((x) => Promise.resolve([x])))(box), projectRoot: () => '/p', coreOf: () => 'claude' }),
+      store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => root, ...(opts.withNotify === false ? {} : { notify }),
+    });
+    return { b, errors, ran, id: t.id };
+  }
+
+  it('without a notify seam, or when no sandbox is listed, nothing runs (never the host fallback)', async () => {
+    const a = await make({ withNotify: false });
+    expect(await a.b.provision(a.id)).toEqual({ ok: true });
+    const u = await make({ listed: async () => [] });
+    expect(await u.b.provision(u.id)).toEqual({ ok: true });
+    expect(a.ran).toHaveLength(0);
+    expect(u.ran).toHaveLength(0);
+  });
+
+  it('a listed sandbox runs the declared setup; failure is a refusal notified once with the ticket key', async () => {
+    const ok = await make();
+    expect(await ok.b.provision(ok.id)).toEqual({ ok: true });
+    expect(ok.ran.some((a) => a.includes('exec sh -c'))).toBe(true);
+    const bad = await make({ setupExit: 2 });
+    expect(await bad.b.provision(bad.id)).toMatchObject({ ok: false });
+    expect(bad.errors).toHaveLength(1);
+    expect(bad.errors[0]).toContain('Karst: FEAT-X sandbox setup failed: ');
+  });
+
+  it('rerunSetup forgets the recorded setup, runs it again and says so', async () => {
+    const m = await make({ withNotify: true });
+    await m.b.provision(m.id);
+    const runs = () => m.ran.filter((a) => a.includes('exec sh -c')).length;
+    expect(runs()).toBe(1);
+    await m.b.provision(m.id);
+    expect(runs()).toBe(1); // recorded ok + same fingerprint: skipped
+    await m.b.rerunSetup(m.id);
+    expect(runs()).toBe(2);
+  });
+
+  it('provisionInBackground returns at once, waits for the listing, then provisions', async () => {
+    let polls = 0;
+    const m = await make({ setupExit: 2, listed: async (box) => (++polls < 3 ? [] : [box]) });
+    const wait = vi.fn(() => Promise.resolve());
+    expect(m.b.provisionInBackground(m.id, wait)).toBeUndefined();
+    await vi.waitFor(() => expect(m.errors).toHaveLength(1));
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledWith(5_000);
+  });
+
+  it('provisionInBackground gives up waiting after 12 polls and provisions nothing', async () => {
+    const m = await make({ listed: async () => [] });
+    const wait = vi.fn(() => Promise.resolve());
+    m.b.provisionInBackground(m.id, wait);
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledTimes(12));
+    expect(m.ran).toHaveLength(0);
   });
 });

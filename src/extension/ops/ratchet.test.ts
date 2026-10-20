@@ -73,7 +73,8 @@ import { join } from 'node:path';
 // Both raises branched from 8580; the merge carries them together (measured 8639
 // lines + 3 slack: 8580 + 58 + 4 = 8642).
 // Merge of the sandbox branch (+27: 8580 -> 8607) with develop (8642): 8642 + 27 = 8669.
-const MAX_EXTENSION_LINES = 8669;
+// Sandbox dependency provisioning (D195, +1: 8669 -> 8670): the `karst.sandbox.setup` palette registration; logic is in `ops/sandboxSetupOp.ts` / `sandboxTicketOps.ts`.
+const MAX_EXTENSION_LINES = 8670;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {

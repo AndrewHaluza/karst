@@ -64,6 +64,7 @@ END_DOC_BLOCK: [@arch:AGENTSPAGE]
 ## [@arch:REPO] A REPOSITORY is the primary entity; a SERVICE is an optional relation on it
 
 `karst.yml` has `repositories:`; `start`/`health`/`ports`/`dependsOn` live under an optional `service:` block, so "port without a runnable process" is unrepresentable. `repoPath`/`hasMigrations`/`signals` stay repository-level — they describe the source tree and stay true whether or not anything runs. Gate on runnability ONLY via `manifest/runnable.ts` (`isRunnable` is a type guard, so `service` needs no `!`); scattering `?.` at call sites is how `svc.ports[0]!` used to throw. Non-runnable repos ARE scoped, DO get a worktree, and are absent from `ResolveResult.services`/`startOrder` — `ResolveResult.nonRunnable` names them so consumers state it rather than infer it from an absence.
+`repositories.<name>.sandbox.setup` (optional, non-empty string, e.g. `npm ci`) is the command a sandboxed ticket runs inside its clone before gates (`arch:AC-36`); validated at load (`validate/repository.ts`), overlaid by `writeManifest`, YAML-only (no Settings field).
 END_DOC_BLOCK: [@arch:REPO]
 
 ## [@arch:SERVICES] A repository may declare a named `services:` map

@@ -189,6 +189,10 @@
         "icon": "$(repo-pull)"
       },
       {
+        "command": "karst.sandbox.setup",
+        "title": "Karst: Re-run Sandbox Setup"
+      },
+      {
         "command": "karst.sandbox.dispose",
         "title": "Karst: Remove Sandbox",
         "icon": "$(trash)"

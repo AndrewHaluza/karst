@@ -32,6 +32,14 @@ import {
   requireString,
 } from './primitives.js';
 
+/** A repository's optional `sandbox:` block; the one key is `setup`, a non-empty command. */
+function validateRepoSandbox(raw: unknown, repo: string): { setup: string } | undefined {
+  if (raw === undefined) return undefined;
+  const where = `repository "${repo}" sandbox`;
+  if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
+  return { setup: requireString(raw.setup, `${where}.setup`) };
+}
+
 /** The three templates a repository may override, in the global block's order. */
 const REPO_CONVENTION_FIELDS: ArtifactConventionName[] = [
   'commitMessage',
@@ -435,6 +443,7 @@ export function validateRepository(raw: unknown, name: string): RepositoryDef {
     scope: optionalString(raw.scope, `${where}.scope`),
     ship: validateShip(raw.ship, name),
     conventions: validateRepoConventions(raw.conventions, name),
+    sandbox: validateRepoSandbox(raw.sandbox, name),
   };
 
   if (raw.service !== undefined && raw.services !== undefined) {

@@ -300,6 +300,12 @@ repositories:
     # ship:
     #   exclude: [dist/**, "*.lock.json"]
 
+    # Dependencies for SANDBOXED tickets: run inside the sandbox clone before its
+    # gates (a clone has no main checkout to resolve node_modules from). Re-run
+    # automatically when the lockfile changes.
+    # sandbox:
+    #   setup: npm ci
+
   # MONOREPO with several runnable processes. Use `services:` as a NAMED MAP
   # instead of `service:`. Each entry is a full service (start/health/ports/
   # dependsOn/portRange/docker) plus an optional `cwd`: a path relative to the

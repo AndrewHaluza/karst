@@ -22,6 +22,10 @@ export interface BridgePaths {
   readonly handledFile: string;
   /** Host-private retry record for a marker that failed transiently (outside the sandbox-writable dir). */
   readonly pendingFile: string;
+  /** Host-private sandbox dependency-setup record (arch:AC-36); outside the mount. */
+  readonly setupStateFile: string;
+  /** Failed-setup output the agent may read (advisory, never read back). */
+  readonly setupLogFile: string;
   readonly runDir: string;
 }
 
@@ -36,6 +40,8 @@ export function bridgePaths(root: string, ticketId: number): BridgePaths {
     inboxDir: join(dir, 'inbox'),
     pendingFile: join(root, 'state', `${ticketId}.marker.json`),
     handledFile: join(root, 'state', `${ticketId}.handled.json`),
+    setupStateFile: join(root, 'state', `${ticketId}.setup.json`),
+    setupLogFile: join(dir, 'logs', 'setup.log'),
     runDir: `${SANDBOX_BRIDGE_MOUNT_ROOT}/${ticketId}`,
   };
 }
@@ -95,6 +101,7 @@ export async function removeBridgeDir(paths: BridgePaths): Promise<void> {
   await rm(paths.stateFile, { force: true });
   await rm(paths.pendingFile, { force: true });
   await rm(paths.handledFile, { force: true });
+  await rm(paths.setupStateFile, { force: true });
   await rm(hostHeadFileFor(paths.dir), { force: true });
 }
 

@@ -174,6 +174,13 @@ export interface DriveTicketDeps {
    * Absent / a host ticket → `ok:true`.
    */
   syncSandbox?: (ticketId: number) => Promise<{ ok: true } | { ok: false; reason: string }>;
+  /**
+   * Sandboxed tickets (arch:AC-36): make sure the repo's `sandbox.setup` ran inside the sandbox
+   * for the current lockfiles BEFORE any gate. `ok:false` = refused (setup failed / timed out):
+   * no gate runs, so no verdict, no stage transition and no exit-127 capability park. The
+   * implementation notifies once; the driver only logs. Absent / a host ticket → `ok:true`.
+   */
+  provisionSandbox?: (ticketId: number, signal?: AbortSignal) => Promise<{ ok: true } | { ok: false; reason: string }>;
   /** arch:AC-32 decisions 7-8, threaded into the UAT stage verbatim (see `UatDeps`). */
   userUat?: Pick<UatDeps, 'keepStackForUserUat' | 'prepareUserUat' | 'agentUatPhase'>;
   /**
@@ -282,6 +289,14 @@ export async function driveTicket(
     deps.debug?.(`[driver] ticket ${ticketId} sandbox not in sync: ${synced.reason}`);
     deps.log(`stage driver: ticket ${ticketId} sandbox not in sync — ${synced.reason}`);
     return { stage, status: 'blocked', reason: `sandbox-sync: ${synced.reason}` };
+  }
+
+  const provisioned = (await deps.provisionSandbox?.(ticketId)) ?? { ok: true as const };
+  if (!provisioned.ok) {
+    const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
+    deps.debug?.(`[driver] ticket ${ticketId} sandbox not provisioned: ${provisioned.reason}`);
+    deps.log(`stage driver: ticket ${ticketId} ${provisioned.reason}`);
+    return { stage, status: 'blocked', reason: `sandbox-setup: ${provisioned.reason}` };
   }
 
   const uat = runners.runUat ?? runUat;

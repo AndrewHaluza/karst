@@ -1250,7 +1250,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
-  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined) }); // AC-32
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify }); // AC-32
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
@@ -3641,7 +3641,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             fallbackProjectId: () => currentProject()?.id,
           }),
           fixProcess,
-          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
+          runVerifier: runProcess, syncSandbox: (id) => sandboxLife.ensureInSync(id), provisionSandbox: (id, signal) => sandboxB?.provision(id, signal ? { signal } : {}) ?? Promise.resolve({ ok: true as const }), gateProcessFor: (id) => sandboxB?.gateProcessFor(id), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), userUat: sandboxB?.userUat, // AC-32
           // Prompt 17: the SAME composed `karst context` prefix the generated
           // `/karst:<id>` command's loader step runs, threaded into the UAT
           // Tester's tier-1 pointer line — one command, named once.
@@ -6328,7 +6328,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
-      const sandboxed = launchBackend.sandboxed;
+      const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
       const hasMcp = !sandboxed && launchHasMcp({
         adapter,
         hookChannel: true,
@@ -6825,6 +6825,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
     vscode.commands.registerCommand('karst.sandbox.sync', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'sync'); if (id !== undefined) await sandboxLife.sync(id); }),
     vscode.commands.registerCommand('karst.sandbox.dispose', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'remove'); if (id !== undefined) await sandboxLife.dispose(id); }),
+    vscode.commands.registerCommand('karst.sandbox.setup', async (arg: unknown) => { const id = await sandboxLife.commandTarget(ticketIdArg(arg), 'set up'); if (id !== undefined) await sandboxB?.rerunSetup(id); }),
     vscode.commands.registerCommand('karst.sandbox.cleanupOrphans', () => sandboxLife.cleanupOrphans()),
     vscode.commands.registerCommand('karst.unarchiveTicket', async (arg: unknown) => {
       const ticketId = ticketIdArg(arg);

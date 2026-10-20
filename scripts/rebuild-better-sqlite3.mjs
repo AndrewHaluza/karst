@@ -32,9 +32,11 @@ function locateBetterSqlite3() {
   try {
     manifestPath = require.resolve('better-sqlite3/package.json');
   } catch {
-    console.error(
-      'Cannot resolve better-sqlite3 from ' + scriptDir + '. Run `npm install` in the main checkout first.',
-    );
+    // Inside a sandbox there is no main checkout above the clone to install in.
+    const hint = process.env.KARST_BRIDGE_DIR
+      ? 'dependencies are not installed in this sandbox (declare sandbox.setup in the manifest)'
+      : 'Run `npm install` in the main checkout first.';
+    console.error('Cannot resolve better-sqlite3 from ' + scriptDir + '. ' + hint);
     process.exit(1);
   }
   const moduleDir = dirname(manifestPath);
