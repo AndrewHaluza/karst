@@ -94,6 +94,24 @@ describe('loadManifest', () => {
     }
   });
 
+  it('reads sandbox.setupHosts and refuses an empty list or a bad host', () => {
+    const withHosts = (v: string) => VALID.replace('    repoPath: ../backend', `    repoPath: ../backend\n    sandbox:\n      setup: npm ci\n      setupHosts: ${v}`);
+    const ok = fixture(withHosts('[registry.npmjs.org, "*.githubusercontent.com"]'));
+    try {
+      expect(loadManifest(ok.path).repositories.backend!.sandbox).toEqual({ setup: 'npm ci', setupHosts: ['registry.npmjs.org', '*.githubusercontent.com'] });
+    } finally {
+      ok.cleanup();
+    }
+    for (const bad of ['[]', 'x.io', '["a b"]', '["host.docker.internal"]', '[""]', '["https://x.io"]']) {
+      const f = fixture(withHosts(bad));
+      try {
+        expect(() => loadManifest(f.path)).toThrow(/sandbox\.setupHosts/);
+      } finally {
+        f.cleanup();
+      }
+    }
+  });
+
   it('reads repository sandbox.setup and refuses a blank or non-string one', () => {
     const withSetup = (v: string) => VALID.replace('    repoPath: ../backend', `    repoPath: ../backend\n    sandbox:\n      setup: ${v}`);
     const ok = fixture(withSetup('npm ci'));

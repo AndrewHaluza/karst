@@ -10,7 +10,7 @@ import { clearSetupState, provisionTicketSandbox, type TicketSetupDeps } from '.
 
 const HASH = 'c'.repeat(64);
 
-function rig(opts: { setup?: string; exit?: number; sandboxed?: boolean } = {}) {
+function rig(opts: { setup?: string; setupHosts?: string[]; exit?: number; sandboxed?: boolean; docker?: boolean; turn?: boolean } = {}) {
   const errors: string[] = [];
   const ran: string[][] = [];
   const runGate: GateProcessRunner = async (_c, args) => {
@@ -19,17 +19,51 @@ function rig(opts: { setup?: string; exit?: number; sandboxed?: boolean } = {}) 
     return { kind: 'completed', exitCode: fp ? 0 : (opts.exit ?? 0), output: fp ? HASH : 'boom', stdout: fp ? HASH : '' };
   };
   const repoKey = 'app';
-  const manifest = buildManifest({ [repoKey]: repo(opts.setup ? { sandbox: { setup: opts.setup } } : {}) });
+  const manifest = buildManifest({ [repoKey]: repo(opts.setup ? { sandbox: { setup: opts.setup, ...(opts.setupHosts ? { setupHosts: opts.setupHosts } : {}) } } : {}) });
   const paths = bridgePaths(mkdtempSync(join(tmpdir(), 'op-')), 7);
+  const windows: string[] = [];
   const deps: TicketSetupDeps = {
+    windowOf: () => ({
+      windowNeedsIdle: opts.docker === true,
+      setupWindow: async (hosts) => { windows.push(`open ${hosts.join(',')}`); return { ok: true, close: async () => { windows.push('close'); } }; },
+    }),
+    turnActive: () => opts.turn === true,
     manifest: () => manifest, worktrees: () => [{ repo: repoKey, path: '/wt' }], gateProcess: () => (opts.sandboxed === false ? undefined : runGate),
     bridgeOf: () => paths, ticketLabel: () => 'T7', notify: { info: () => undefined, warn: () => undefined, error: (m) => { errors.push(m); return Promise.resolve(); } },
   };
-  return { deps, errors, ran, paths, manifest };
+  return { deps, errors, ran, paths, manifest, windows };
 }
 
 describe('provisionTicketSandbox', () => {
   beforeEach(() => resetSetupLocks());
+
+  it('opens the declared setupHosts around the setup, the defaults when none are declared', async () => {
+    const custom = rig({ setup: 'npm ci', setupHosts: ['pypi.org'] });
+    await provisionTicketSandbox(custom.deps, 7);
+    expect(custom.windows).toEqual(['open pypi.org', 'close']);
+    resetSetupLocks();
+    const plain = rig({ setup: 'npm ci' });
+    await provisionTicketSandbox(plain.deps, 7);
+    expect(plain.windows).toEqual(['open registry.npmjs.org,github.com,objects.githubusercontent.com', 'close']);
+  });
+
+  it('docker: the create-time background start is skipped (the window needs an idle agent); sbx starts it', async () => {
+    const docker = rig({ setup: 'npm ci', docker: true });
+    expect(await provisionTicketSandbox(docker.deps, 7, { background: true })).toEqual({ ok: true });
+    expect(docker.ran).toHaveLength(0);
+    const sbx = rig({ setup: 'npm ci' });
+    await provisionTicketSandbox(sbx.deps, 7, { background: true });
+    expect(sbx.windows).toHaveLength(2);
+  });
+
+  it('docker with a live turn is not started: a bounded wait, then the deferred refusal', async () => {
+    const r = rig({ setup: 'npm ci', docker: true, turn: true });
+    let t = 0;
+    const out = await provisionTicketSandbox({ ...r.deps, now: () => t, sleep: async () => { t += 20 * 60_000; } }, 7);
+    expect(out).toEqual({ ok: false, reason: 'sandbox setup deferred: agent turn active' });
+    expect(r.windows).toEqual([]);
+    expect(r.errors).toHaveLength(1);
+  });
 
   it('no setup declared: nothing runs', async () => {
     const r = rig();

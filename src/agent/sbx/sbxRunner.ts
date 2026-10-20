@@ -16,7 +16,7 @@ import { ensureXferDir, withXfer } from '../xfer.js';
 import { REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
-import { isPortTakenError, parseSbxPorts, sbxPolicyArgs, sbxPublishArgs, sbxUnpublishArgs } from './sbxPorts.js';
+import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
 
 export { SBX_CORES, type SbxCore } from '../sandboxCores.js';
 import type { SbxCore } from '../sandboxCores.js';
@@ -141,6 +141,20 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       if (ports.length === 0) return { ok: true };
       const out = await sbx(sbxPolicyArgs('allow', opts.name, ports));
       return out.code === 0 ? { ok: true } : { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}` };
+    },
+    // `policy allow/rm` is per sandbox: no recreate, so a window may open mid-turn. Only the hosts NOT
+    // already allowed are recorded and removed on close, so an overlapping baseline allow survives.
+    setupWindow: async (hosts) => {
+      const listing = await sbx(['policy', 'ls', 'network', '--sandbox', opts.name]);
+      const already = listing.code === 0 ? parseSbxAllowed(listing.stdout) : new Set<string>();
+      const added = hosts.filter((h) => !already.has(setupHostResource(h)));
+      if (added.length === 0) return { ok: true, close: async () => undefined };
+      const out = await sbx(sbxHostPolicyArgs('allow', opts.name, added));
+      if (out.code !== 0) {
+        await sbx(sbxHostPolicyArgs('rm', opts.name, added)); // a partial allow must not stay open
+        return { ok: false, reason: `sbx policy allow failed: ${out.stderr.trim()}` };
+      }
+      return { ok: true, close: async () => { await sbx(sbxHostPolicyArgs('rm', opts.name, added)); } };
     },
     sync: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
       const wt = ticket.hostWorktreePath;

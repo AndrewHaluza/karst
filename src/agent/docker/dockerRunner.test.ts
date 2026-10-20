@@ -122,7 +122,7 @@ describe('prepareDockerSandbox', () => {
       `docker network inspect ${names.network}`,
       `docker volume inspect ${names.repoVolume}`,
       `docker volume inspect ${names.dataVolume}`,
-      `docker container inspect --format {{.State.Running}} {{index .Config.Labels "karst.hostallow"}} ${names.proxy}`,
+      `docker container inspect --format {{.State.Running}} {{index .Config.Labels "karst.hostallow"}} {{index .Config.Labels "karst.allow"}} ${names.proxy}`,
       expect.stringContaining('git -C /work/repo rev-parse --git-dir'),
     ]);
   });
