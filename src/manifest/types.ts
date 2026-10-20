@@ -209,6 +209,12 @@ export interface RepositoryDef {
    */
   services?: Record<string, ServiceDef>;
   /**
+   * Sandbox provisioning for this repository (arch:AC-36). `setup` is the command
+   * (e.g. `npm ci`) run INSIDE a sandboxed ticket's clone before its gates, so
+   * the gates find node_modules. Absent = no step, gates run as before.
+   */
+  sandbox?: { setup: string };
+  /**
    * Ship behaviour for this repository. Absent means "ship the whole worktree"
    * — the default. The one knob today is `exclude`, the pathspecs ship's sweep
    * commit leaves out.

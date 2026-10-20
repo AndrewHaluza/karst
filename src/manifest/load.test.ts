@@ -94,6 +94,26 @@ describe('loadManifest', () => {
     }
   });
 
+  it('reads repository sandbox.setup and refuses a blank or non-string one', () => {
+    const withSetup = (v: string) => VALID.replace('    repoPath: ../backend', `    repoPath: ../backend\n    sandbox:\n      setup: ${v}`);
+    const ok = fixture(withSetup('npm ci'));
+    try {
+      const m = loadManifest(ok.path);
+      expect(m.repositories.backend!.sandbox).toEqual({ setup: 'npm ci' });
+      expect(m.repositories.frontend!.sandbox).toBeUndefined();
+    } finally {
+      ok.cleanup();
+    }
+    for (const bad of ['""', '42']) {
+      const f = fixture(withSetup(bad));
+      try {
+        expect(() => loadManifest(f.path)).toThrow(/sandbox\.setup/);
+      } finally {
+        f.cleanup();
+      }
+    }
+  });
+
   it('reads a repository baselineBranch override while leaving others inherited', () => {
     const yaml = VALID.replace(
       '    repoPath: ../backend',
