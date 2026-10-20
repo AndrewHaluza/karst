@@ -37,7 +37,6 @@ import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
-import { listAttachments } from './store/attachments.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
 import { startFixWatchdog, sessionDelivery } from './extension/ops/fixWatchdog.js';
 import { createLivenessLoop } from './extension/ops/livenessLoop.js';
@@ -349,7 +348,7 @@ import { writeCurrentEndpoint } from './agent/hookFailureLog.js';
 import { listWorktreesByTicket, listWorktreesByProject, listServersByTicket } from './store/dashboard.js';
 import { sandboxLaunchFailureOptions } from './extension/ops/sandboxLaunchFailureOps.js';
 import { createTicketSandboxBindings, resolveLaunchBackend, withSandboxSpin } from './extension/ops/sandboxSyncOps.js';
-import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxScrubber, sandboxTextTransform } from './extension/ops/sandboxLaunchOps.js';
+import { guardLaunchResume, launchMarkerInstruction, launchWithoutSilentHostFallback, hostFallbackPrompts, wantsSandboxBackend, sandboxSeedScrubber } from './extension/ops/sandboxLaunchOps.js';
 import { makeSandboxWiring } from './extension/ops/sandboxWiring.js';
 import {
   LAUNCH_BUILD_SCRIPT,
@@ -2078,8 +2077,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentLaunchId: (id) => recoveryLifecycle.currentLaunchId(id),
     nudge: (id, line, hooks) => sessions.nudge(id, line, hooks),
     sessionChannel: (id) => sandboxB?.sandboxChannel(id) ?? sessions.sessionChannel(id),
-    bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id),
-    storageDir: context.globalStorageUri.fsPath,
+    bridgePaths: (id) => sandboxB?.deps.bridgeOf?.(id), storageDir: context.globalStorageUri.fsPath,
     literal: () => cliLiteral(context, dbPath),
     agyBusy: (id) => agyPointerBusy(agyWatchStates.get(id), isAgyRecipient(id, sessions, sessionProviderFor)),
     debug: (message) => logger.debug(message),
@@ -6508,10 +6506,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // adapter delivers it through its DECLARED channel (native file, or a
       // pointer in the kickoff). A fallback launch inlined it, so nothing is
       // written and no `instructions` is threaded.
-      const sandboxLog = (m: string) => logger.debug(`[session] ticket ${t.key ?? ticketId}: ${m}`);
-      const scrubOnly = sandboxScrubber(sandboxed, sandboxLog); // no host command may survive (AC-34)
-      const rewriteHostPaths = sandboxTextTransform({ sandboxed, ticketId, storageDir: context.globalStorageUri.fsPath, runDir: launchBackend.runDir, bridge: launchBackend.bridge, attachments: sandboxed ? listAttachments(localStore, ticketId) : [], log: sandboxLog });
-      const scrub = (text: string | undefined): string | undefined => (text === undefined ? text : scrubOnly(rewriteHostPaths(text))); // rewrite BEFORE scrub: rule 4 would eat the spill pointer
+      const scrub = sandboxSeedScrubber({ sandboxed, store: localStore, ticketId, storageDir: context.globalStorageUri.fsPath, backend: launchBackend, log: (m) => logger.debug(`[session] ticket ${t.key ?? ticketId}: ${m}`) }); // rewrite host paths, then scrub host commands (AC-34)
       const sessionInstructions = seed.instructions
         ? writeSessionInstructions(
             join(context.globalStorageUri.fsPath, 'session-instructions', String(ticketId)),

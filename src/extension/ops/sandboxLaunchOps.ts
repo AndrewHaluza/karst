@@ -3,6 +3,8 @@ import { NOT_IN_SANDBOX, renderSandboxMarkerInstruction, scrubHostCli } from '..
 import { assertNoSandboxResumeOnHost, SandboxResumeOnHostError } from '../../agent/sandboxResumeGuard.js';
 import { renderDoneMarkerInstruction, renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
 import { join } from 'node:path';
+import type { Store } from '../../store/db.js';
+import { listAttachments } from '../../store/attachments.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { isMirrorName, mirrorFile, MIRROR_KEEP_LOGS, pruneMirror, pruneOldLogs } from '../../agent/bridge/mirror.js';
 import type { LaunchBackend } from './sandboxSyncOps.js';
@@ -113,6 +115,25 @@ export function sandboxTextTransform(input: SandboxTextInput): (text: string) =>
     });
     return out;
   };
+}
+
+export interface SeedScrubInput {
+  readonly sandboxed: boolean;
+  readonly store: Store;
+  readonly ticketId: number;
+  readonly storageDir: string;
+  readonly backend: LaunchBackend;
+  readonly log: (message: string) => void;
+}
+
+/** Seed text pass: host paths rewritten to the mirrored copies FIRST, then host commands scrubbed (rule 4 would eat the spill pointer). */
+export function sandboxSeedScrubber(input: SeedScrubInput): (text: string | undefined) => string | undefined {
+  const rewrite = sandboxTextTransform({
+    sandboxed: input.sandboxed, ticketId: input.ticketId, storageDir: input.storageDir, runDir: input.backend.runDir, bridge: input.backend.bridge,
+    attachments: input.sandboxed ? listAttachments(input.store, input.ticketId) : [], log: input.log,
+  });
+  const scrub = sandboxScrubber(input.sandboxed, input.log);
+  return (text) => (text === undefined ? text : scrub(rewrite(text)));
 }
 
 export interface ResumeGuardLaunch {
