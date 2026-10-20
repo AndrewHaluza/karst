@@ -90,6 +90,31 @@ describe('usage_limit_parks', () => {
     ]);
   });
 
+  it('keeps the prior kept outcome when a re-park carries none (and vice versa)', () => {
+    const prior = JSON.stringify({
+      observations: [{ severity: 'high', title: 'kept', repo: 'api' }],
+      targets: [{ repo: 'api', status: 'completed', observations: 1 }],
+    });
+    insertOpenPark(store, { ...payload('first'), keptOutcome: prior });
+    // A re-park with no kept outcome keeps the evidence the row already had.
+    insertOpenPark(store, { ...payload('second'), keptOutcome: null });
+    expect(JSON.parse(listOpenParks(store, ticketId)[0]!.keptOutcome!).observations).toHaveLength(1);
+
+    // A malformed kept outcome never erases a readable one.
+    insertOpenPark(store, { ...payload('third'), keptOutcome: 'not json' });
+    expect(JSON.parse(listOpenParks(store, ticketId)[0]!.keptOutcome!).observations).toHaveLength(1);
+
+    // A malformed PRIOR is replaced by the readable fresh outcome.
+    const other = createTicket(store, { key: 'T-UL-OTHER', title: 'other' }).id;
+    insertOpenPark(store, { ...payload('fourth'), ticketId: other, keptOutcome: 'not json' });
+    const fresh = JSON.stringify({
+      observations: [{ severity: 'low', title: 'fresh', repo: 'web' }],
+      targets: [{ repo: 'web', status: 'usage-limited', observations: 1 }],
+    });
+    insertOpenPark(store, { ...payload('fifth'), ticketId: other, keptOutcome: fresh });
+    expect(JSON.parse(listOpenParks(store, other)[0]!.keptOutcome!).observations).toHaveLength(1);
+  });
+
   it('distinguishes parks by target and lane', () => {
     insertOpenPark(store, payload());
     insertOpenPark(store, { ...payload(), target: 'other' });
