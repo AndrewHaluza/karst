@@ -72,6 +72,26 @@ export interface FindingsLaneTarget {
 }
 
 /**
+ * The targets a quota stop never reached, in plan order. Recorded on the park
+ * row so a one-shot re-run can finish the lane's work instead of re-running
+ * only the exhausted target and silently omitting the rest from the verdict.
+ */
+function notRunTargets(
+  targets: readonly FindingsLaneTarget[],
+  answered: readonly { repo: string }[],
+  exhausted: string,
+): { repo: string; status: string; findings: number }[] {
+  const seen = new Set([...answered.map((t) => t.repo), exhausted]);
+  const rows: { repo: string; status: string; findings: number }[] = [];
+  for (const target of targets) {
+    if (seen.has(target.repo)) continue;
+    seen.add(target.repo);
+    rows.push({ repo: target.repo, status: 'not-run', findings: 0 });
+  }
+  return rows;
+}
+
+/**
  * The Review AI process (Task 8): its immutable assignment snapshot plus the
  * already instrumented adapter, and the process-run bookkeeping the lane needs
  * to open a run. Absent `process` (or an absent `store`) → the lane makes its
@@ -500,7 +520,15 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
             detail,
             keptOutcome: JSON.stringify({
               findings: findings.length,
-              targets: [...targetOutcomes, { repo: target.repo, status: 'usage-limited', findings: 0 }],
+              targets: [
+                ...targetOutcomes,
+                { repo: target.repo, status: 'usage-limited', findings: 0 },
+                // Every target AFTER the exhausted one was never asked. Name
+                // them instead of dropping them: a re-run that asked only the
+                // parked target would otherwise commit a review verdict with
+                // those repositories silently unreviewed.
+                ...notRunTargets(opts.targets, targetOutcomes, target.repo),
+              ],
             }),
           };
           if (processRun !== null) outcome.processRunId = processRun.id;

@@ -1191,6 +1191,112 @@ describe('rerunParkedStage', () => {
     expect(allFindings.map((f) => f.title)).toEqual(['Existing sibling issue', 'New web issue']);
   });
 
+  it('review re-run also asks the targets the original lane never reached', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-REV-NOTRUN', title: 'Test review not-run targets' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    const keptOutcome = JSON.stringify({
+      findings: 0,
+      targets: [
+        { repo: 'api', status: 'empty', findings: 0 },
+        { repo: 'web', status: 'usage-limited', findings: 0 },
+        { repo: 'worker', status: 'not-run', findings: 0 },
+      ],
+    });
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [{ gateName: 'test', exitCode: 0, command: 'npm', args: ['test'] }],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome,
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'review',
+      kind: 'stage-block',
+      lane: 'review',
+      target: 'web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome,
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    // `worker` never ran before the park: only a re-run that asks it can find
+    // this blocking finding. `api` already answered and must NOT be re-asked.
+    const prompts: string[] = [];
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn(async (call: { prompt: string }) => {
+        prompts.push(call.prompt);
+        return {
+          sessionId: '',
+          verdict: null,
+          raw: call.prompt.includes('repository: worker')
+            ? JSON.stringify([{ severity: 'high', title: 'Worker drops work', detail: 'queue drains' }])
+            : JSON.stringify([]),
+        };
+      }),
+    };
+
+    const manifest: Manifest = {
+      review: {
+        requireIndependentSignal: false,
+        findings: { blockingSeverity: 'high' },
+      },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(prompts).toHaveLength(2);
+    expect(prompts.some((p) => p.includes('repository: web'))).toBe(true);
+    expect(prompts.some((p) => p.includes('repository: worker'))).toBe(true);
+    expect(prompts.some((p) => p.includes('repository: api'))).toBe(false);
+    // The never-run target's blocking finding now reaches the verdict.
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    expect(getTicket(store, ticket.id).stageCurrent).toBe('fix');
+  });
+
   it('uat re-run merges sibling observations from keptOutcome', async () => {
     const ticket = createTicketFlow(store, { key: 'TEST-UAT-MERGE', title: 'Test uat merge' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
@@ -1516,6 +1622,104 @@ describe('rerunParkedStage', () => {
     const logContent = readFileSync(join(artifactDir, artifactFiles[0]!), 'utf-8');
     expect(logContent).toContain('review findings lane unreadable output: web');
     expect(logContent).toContain('unreadable output from web — no findings could be read');
+  });
+
+  it('uat re-run tells the Tester about running services and the ticket context pointer', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-UAT-CTX', title: 'Test uat context' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+
+    store.db
+      .prepare(
+        `INSERT INTO servers (ticket_id, repo, host, port, status, log_path, kind)
+         VALUES (?, 'web', '127.0.0.1', 4100, 'running', '/log', 'service')`,
+      )
+      .run(ticket.id);
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'uat',
+        target: '/wt/web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ observations: 0, targets: [] }),
+      },
+    });
+
+    const park: UsageLimitParkRow = {
+      id: 1,
+      ticketId: ticket.id,
+      stage: 'uat',
+      kind: 'stage-block',
+      lane: 'uat',
+      target: '/wt/web',
+      sessionId: null,
+      stageRunId: parkedRunId,
+      provider: 'anthropic',
+      model: 'claude-3-7-sonnet',
+      detail: 'Monthly quota exceeded',
+      keptOutcome: JSON.stringify({ observations: 0, targets: [] }),
+      parkedAt: '2026-10-13T10:00:00.000Z',
+      resolvedAt: null,
+      resolution: null,
+    };
+
+    const prompts: string[] = [];
+    const mockAdapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn(async (call: { prompt: string }) => {
+        prompts.push(call.prompt);
+        return { sessionId: '', verdict: null, raw: JSON.stringify([]) };
+      }),
+    };
+
+    const manifest = {
+      repositories: {
+        web: { repoPath: '/wt/web', hasMigrations: false, service: { start: 'npm run dev' } },
+      },
+      uat: { testerObservations: { blockingSeverity: 'none' } },
+    } as unknown as Manifest;
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter: mockAdapter,
+      manifest,
+      contextCommand: 'karst context',
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    expect(res).toEqual({ kind: 'advanced', next: 'review' });
+    expect(prompts).toHaveLength(1);
+    // The stage's Tester is told its service is live and where; the re-run
+    // must not tell it the opposite just because it built a bare target.
+    expect(prompts[0]).toContain('These services are already running for this ticket');
+    expect(prompts[0]).toContain('- web → http://127.0.0.1:4100');
+    expect(prompts[0]).not.toContain('Its change is NOT live in any running app');
+    // The same tier-1 `karst context` pointer the stage names.
+    expect(prompts[0]).toContain('Run exactly: karst context TEST-UAT-CTX --for tester --md');
   });
 
   it('uat re-run runs the deterministic tester verifier and fails the stage on a nonzero exit (K11)', async () => {

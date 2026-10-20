@@ -100,6 +100,8 @@ export interface UsageLimitParkBindingDeps {
   loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
   /** Test seam; defaults to the real host gate runner (`runProcess`). */
   runVerifier?: TesterGateRunner;
+  /** The composed `karst context` prefix the UAT Tester prompt may name. */
+  contextCommand?: string;
   debug?: (msg: string) => void;
 }
 
@@ -149,6 +151,7 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
         git,
         loadArtifacts,
         runVerifier,
+        contextCommand: deps.contextCommand,
         debug: deps.debug,
       }),
   };

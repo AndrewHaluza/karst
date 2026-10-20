@@ -130,6 +130,11 @@ export interface UsageLimitActionCommonDeps {
   /** The `uat.testerVerifier` host boundary (`runProcess`); absent → a configured verifier parks. */
   runVerifier?: TesterGateRunner;
   /**
+   * The composed `karst context` prefix the UAT stage hands its Tester. A
+   * re-run that omitted it would drop the prompt's tier-1 context pointer.
+   */
+  contextCommand?: string;
+  /**
    * The role's per-run assignment (profile instructions, effort, agent name),
    * resolved from the picked provider/model by the host. The override changes
    * which core runs, never the role's prompt or its recorded identity.
@@ -185,6 +190,7 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
       git: deps.git,
       loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
       runVerifier: deps.runVerifier,
+      contextCommand: deps.contextCommand,
       signal,
       debug: deps.debug,
     });
@@ -234,6 +240,7 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
       git: deps.git,
       loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
       runVerifier: deps.runVerifier,
+      contextCommand: deps.contextCommand,
       signal,
       debug: deps.debug,
     });
@@ -299,6 +306,7 @@ export interface UsageLimitParkActionsDeps {
   git?: GitRunner;
   loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
   runVerifier?: TesterGateRunner;
+  contextCommand?: string;
   assignmentFor?: (
     ticketId: number,
     stageKey: StageKey,
@@ -335,6 +343,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         git: deps.git,
         loadArtifacts: deps.loadArtifacts,
         runVerifier: deps.runVerifier,
+        contextCommand: deps.contextCommand,
         assignmentFor: deps.assignmentFor,
         debug: deps.debug,
       }),
@@ -354,6 +363,7 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         git: deps.git,
         loadArtifacts: deps.loadArtifacts,
         runVerifier: deps.runVerifier,
+        contextCommand: deps.contextCommand,
         assignmentFor: deps.assignmentFor,
         debug: deps.debug,
       }),

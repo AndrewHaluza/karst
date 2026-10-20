@@ -13,7 +13,7 @@ import { capForGate, type GateStageKey } from './fixAttempts.js';
 import { nowIso } from '../model/time.js';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { listWorktreesByTicket } from '../store/dashboard.js';
+import { listWorktreesByTicket, listServersByTicket } from '../store/dashboard.js';
 import {
   runFindingsLane,
   type FindingsLaneTarget,
@@ -35,8 +35,8 @@ import { collapseDiagnostic } from '../model/diagnosticText.js';
 import {
   runUatTester,
   countBlockingObservations,
-  type TesterTarget,
 } from './uat/tester.js';
+import { testerTargets } from './stages/uat.js';
 import { listUatFindings, type UatFindingInput } from '../store/uatFindings.js';
 import { getTicket } from '../store/tickets.js';
 import {
@@ -296,6 +296,12 @@ export interface RerunParkOptions {
    * verifier could not be asked, so the re-run parks `capability-missing`.
    */
   runVerifier?: TesterGateRunner;
+  /**
+   * The same composed `karst context` prefix the stage is handed. The Tester's
+   * tier-1 pointer line names one command; a re-run that dropped it would ask a
+   * weaker question than the run it replaces.
+   */
+  contextCommand?: string;
 }
 
 /**
@@ -321,6 +327,41 @@ type ClaimedRerunOptions = RerunParkOptions & {
   adapter: AgentAdapter;
   assignment: ProcessAssignmentSnapshot;
 };
+
+/**
+ * The review targets this re-run must ask: the parked one, plus every target
+ * the original lane never reached before the quota stop. Asking only the parked
+ * target would commit a verdict that silently never covered the rest.
+ */
+function reviewTargetsToAsk(
+  keptTargets: readonly ReviewKeptTarget[],
+  parked: string,
+): string[] {
+  const seen = new Set<string>();
+  const asked: string[] = [];
+  const add = (repo: string): void => {
+    if (seen.has(repo)) return;
+    seen.add(repo);
+    asked.push(repo);
+  };
+  add(parked);
+  for (const target of keptTargets) {
+    if (target.status === 'not-run') add(target.repo);
+  }
+  return asked;
+}
+
+/**
+ * Every manifest entry backed by this worktree path. The UAT stage derives the
+ * same list while planning; the re-run has a store row's repoPath, so it maps
+ * back to the names `unitsOf` needs to find the target's running services.
+ */
+function manifestNamesFor(manifest: Manifest | undefined, repoPath: string): string[] {
+  if (!manifest?.repositories) return [];
+  return Object.entries(manifest.repositories)
+    .filter(([, def]) => def.repoPath === repoPath)
+    .map(([name]) => name);
+}
 
 export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRunResult> {
   const store = opts.store;
@@ -417,19 +458,17 @@ async function rerunReviewParkedStage(
 
   const targetRepo = parkRow.target ?? cwd;
   const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
-  const wt = worktrees.find((w) => w.repo === targetRepo) ?? {
-    repo: targetRepo,
-    path: cwd,
-    baseRef: null,
-    branch: null,
-  };
-
-  const laneTarget: FindingsLaneTarget = {
-    repo: targetRepo,
-    worktreePath: wt.path ?? cwd,
-    baseRef: wt.baseRef ?? null,
-    branch: wt.branch ?? null,
-  };
+  const keptTargets = parseReviewKeptOutcome(parkRow.keptOutcome).targets;
+  const askedRepos = reviewTargetsToAsk(keptTargets, targetRepo);
+  const laneTargets: FindingsLaneTarget[] = askedRepos.map((repo) => {
+    const wt = worktrees.find((w) => w.repo === repo);
+    return {
+      repo,
+      worktreePath: wt?.path ?? cwd,
+      baseRef: wt?.baseRef ?? null,
+      branch: wt?.branch ?? null,
+    };
+  });
 
   const config = {
     ...DEFAULT_REVIEW_FINDINGS,
@@ -459,7 +498,7 @@ async function rerunReviewParkedStage(
   if (opts.loadArtifacts) {
     try {
       const loaded = await opts.loadArtifacts();
-      artifacts = loaded ? { ...loaded, targets: [targetRepo] } : undefined;
+      artifacts = loaded ? { ...loaded, targets: askedRepos } : undefined;
     } catch (err) {
       debug?.(`[gate] review ticket ${parkRow.ticketId}: artifacts unavailable (${String(err)})`);
     }
@@ -468,7 +507,7 @@ async function rerunReviewParkedStage(
   const laneOutcome = await runFindingsLane({
     config,
     adapter,
-    targets: [laneTarget],
+    targets: laneTargets,
     ticketId: parkRow.ticketId,
     signal,
     store,
@@ -500,24 +539,16 @@ async function rerunReviewParkedStage(
     return { kind: 'stopped' };
   }
 
-  // Parse sibling targets from keptOutcome if any
-  let keptTargets: { repo: string; status: string; findings: number }[] = [];
-  try {
-    if (parkRow.keptOutcome) {
-      const parsed = JSON.parse(parkRow.keptOutcome);
-      if (Array.isArray(parsed.targets)) {
-        keptTargets = parsed.targets;
-      }
-    }
-  } catch {
-    // Ignore malformed keptOutcome
-  }
-
-  // Sibling targets count + the current target
-  const siblingCount = keptTargets.filter((t) => t.repo !== targetRepo).length;
-  const totalTargetCount = siblingCount + 1;
+  // The complete target set, not just this run's: the siblings that already
+  // answered and the ones this re-run just finished. `askedRepos` is a subset,
+  // so the count must union both rather than add one to a sibling count.
+  const askedSet = new Set(askedRepos);
+  const totalTargetCount = new Set([
+    ...keptTargets.map((t) => t.repo),
+    ...askedRepos,
+  ]).size;
   const siblingUnreadable = keptTargets
-    .filter((t) => t.repo !== targetRepo && t.status === 'unreadable')
+    .filter((t) => !askedSet.has(t.repo) && t.status === 'unreadable')
     .map((t) => t.repo);
 
   // Current newly found findings (the siblings were read before the lane ran)
@@ -645,7 +676,7 @@ async function rerunReviewParkedStage(
   }
   const artifactPath = artifactDir ? join(artifactDir, `review-ticket-${parkRow.ticketId}-${newStageRunId}.log`) : '';
   const artifactLines = [
-    `! re-run parked review: target ${targetRepo} with ${assignment.provider}/${assignment.model ?? 'default'}`,
+    `! re-run parked review: target(s) ${askedRepos.join(', ')} with ${assignment.provider}/${assignment.model ?? 'default'}`,
   ];
   if (aggregateOutcome.kind === 'blocked') {
     artifactLines.push(`! ${aggregateOutcome.reason}`);
@@ -739,19 +770,18 @@ async function rerunUatParkedStage(
 
   const targetRepo = parkRow.target ?? cwd;
   const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
-  const wt = worktrees.find((w) => w.repo === targetRepo) ?? {
-    repo: targetRepo,
-    path: cwd,
-    baseRef: null,
-    branch: null,
-  };
+  const worktreePath = worktrees.find((w) => w.repo === targetRepo)?.path ?? cwd;
 
-  const target: TesterTarget = {
-    repo: targetRepo,
-    worktreePath: wt.path ?? cwd,
-    baseRef: wt.baseRef ?? null,
-    branch: wt.branch ?? null,
-  };
+  // Built through the SAME mapper the stage uses (`testerTargets`): the prompt
+  // must name this target's base branch, its ticket branch and any service karst
+  // already started for it. A bare `{repo, worktreePath}` target told the Tester
+  // its change was not live even when a service WAS running.
+  const target = testerTargets(
+    manifest,
+    [{ repo: targetRepo, path: worktreePath, names: manifestNamesFor(manifest, targetRepo) }],
+    worktrees,
+    listServersByTicket(store, parkRow.ticketId),
+  )[0]!;
 
   const blockingSeverity = manifest?.uat?.testerObservations?.blockingSeverity ?? 'none';
   // The Tester is asked about the SAME ticket the stage asks about: its
@@ -777,6 +807,7 @@ async function rerunUatParkedStage(
       criteria: ticket.description,
       intent: ticket.intent,
       ticketKey: ticket.key,
+      contextCommand: opts.contextCommand,
       debug,
       observationsBlockingSeverity: blockingSeverity,
       tokenBudget: manifest?.uat?.tester?.tokenBudget,

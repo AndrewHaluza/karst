@@ -186,6 +186,37 @@ describe('runFindingsLane', () => {
     expect(runHeadless).toHaveBeenCalledTimes(2);
   });
 
+  it('records every target the quota stop never reached as not-run, so a re-run can ask them too', async () => {
+    let call = 0;
+    const runHeadless = vi.fn(async (): Promise<HeadlessResult> => {
+      call++;
+      if (call === 2) {
+        throw new UsageLimitError('quota exceeded', { tool: 'Claude', provider: 'claude' });
+      }
+      return { sessionId: '', verdict: null, raw: JSON.stringify([]) };
+    });
+    const outcome = await runFindingsLane({
+      config: CONFIG,
+      adapter: { ...adapter('[]'), runHeadless },
+      targets: [
+        { repo: '/a', worktreePath: '/wt/a' },
+        { repo: '/b', worktreePath: '/wt/b' },
+        { repo: '/c', worktreePath: '/wt/c' },
+      ],
+      ticketId: 1,
+    });
+    expect(outcome.kind).toBe('usage-limited');
+    if (outcome.kind !== 'usage-limited') throw new Error('unreachable');
+    // `c` was never asked: dropping it would let a re-run of only `b` commit a
+    // review verdict that silently never covered `c`.
+    expect(JSON.parse(outcome.keptOutcome).targets).toEqual([
+      { repo: '/a', status: 'empty', findings: 0 },
+      { repo: '/b', status: 'usage-limited', findings: 0 },
+      { repo: '/c', status: 'not-run', findings: 0 },
+    ]);
+    expect(runHeadless).toHaveBeenCalledTimes(2);
+  });
+
   it('debug lines name the not-run and capability-missing decisions', async () => {
     const disabled: string[] = [];
     await runFindingsLane({

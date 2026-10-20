@@ -308,4 +308,43 @@ describe('createUsageLimitParkBinding', () => {
 
     expect(mockedRunProcess).toHaveBeenCalled();
   });
+
+  it('threads the stage context pointer into a UAT re-run prompt', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicketFlow(store, { key: 'TEST-CTX', title: 'UAT ticket' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    setStage(store, ticket.id, 'uat', {
+      blockedKind: 'usage-limit',
+      blockedReason: 'out of credits',
+      blockedAt: '2026-10-14T00:00:00Z',
+    });
+    insertOpenPark(store, {
+      ticketId: ticket.id,
+      stage: 'uat',
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'repo',
+      provider: 'claude',
+      model: 'claude-3-7-sonnet',
+      detail: 'out of credits',
+      keptOutcome: null,
+    });
+    showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
+    showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    const runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' });
+
+    const actions = binding(store, ticket.id, {
+      git: failingGit,
+      contextCommand: 'karst context',
+      adapterFor: vi.fn().mockReturnValue({ ...uatAdapter, runHeadless }),
+    }).forTicket(ticket.id);
+    await actions.usageLimitPick(ticket.id, 'uat');
+
+    expect(runHeadless).toHaveBeenCalledWith(
+      expect.objectContaining({
+        prompt: expect.stringContaining('Run exactly: karst context TEST-CTX --for tester --md'),
+      }),
+    );
+  });
 });

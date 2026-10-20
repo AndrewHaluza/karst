@@ -2989,7 +2989,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
     assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
     artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)),
-    cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m),
+    cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
