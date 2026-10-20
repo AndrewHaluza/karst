@@ -885,6 +885,35 @@ describe('repository ship exclude', () => {
     }
   });
 
+  it('parses declared regenerate commands beside exclude', () => {
+    const { path, cleanup } = fixture(
+      withBackend('    ship:\n      exclude: ["dist/**"]\n      regenerate: ["npm run -s docs:covers"]\n'),
+    );
+    try {
+      expect(loadManifest(path).repositories.backend!.ship).toEqual({
+        exclude: ['dist/**'],
+        regenerate: ['npm run -s docs:covers'],
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('keeps a regenerate-only ship block and refuses a non-array regenerate', () => {
+    const ok = fixture(withBackend('    ship:\n      regenerate: ["make gen"]\n'));
+    try {
+      expect(loadManifest(ok.path).repositories.backend!.ship).toEqual({ regenerate: ['make gen'] });
+    } finally {
+      ok.cleanup();
+    }
+    const bad = fixture(withBackend('    ship:\n      regenerate: nope\n'));
+    try {
+      expect(() => loadManifest(bad.path)).toThrow(/ship\.regenerate/i);
+    } finally {
+      bad.cleanup();
+    }
+  });
+
   it('drops an empty exclude list — the block is absent', () => {
     const { path, cleanup } = fixture(withBackend('    ship:\n      exclude: []\n'));
     try {

@@ -16,6 +16,8 @@ import { sendBackState, type SendBackState } from '../../workflow/sendBack.js';
 import { retryGateState, type RetryGateState } from '../../workflow/retryGate.js';
 import { prFeedbackFixState, type PrFeedbackFixState } from '../../workflow/prFeedbackFix.js';
 import { countOpenPrFeedback } from '../../store/prFeedback.js';
+import { ciFailureState } from '../../workflow/ciFailure.js';
+import { rebaseState } from '../../workflow/rebaseState.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
@@ -352,6 +354,9 @@ export function buildDashboardState(
   // ship header's ⋯ menu and the host's confirm path must agree about whether
   // "Address pull request feedback" exists at all.
   const prFeedbackFix = prFeedbackFixState(store, ticketId);
+  // Same single-read rule for the two ship CI actions (T715).
+  const ciFailure = ciFailureState(store, ticketId);
+  const rebase = rebaseState(store, ticketId);
   const openPrFeedback = countOpenPrFeedback(store, ticketId);
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
@@ -794,6 +799,8 @@ export function buildDashboardState(
     sendBack,
     rerunGate,
     prFeedbackFix,
+    ciFailure: ciFailure.available ? { available: true } : { available: false },
+    rebase: rebase.available ? { available: true } : { available: false },
     openPrFeedback,
   };
 }

@@ -498,3 +498,14 @@ export function listSyncablePrs(store: Store, scope: ProjectScope = {}): Syncabl
     prMergeBlock: r.pr_merge_block,
   }));
 }
+
+/**
+ * Forget the stored rollup and merge block of a ticket's open PRs. Run after a
+ * rebase push: the old rollup belongs to the old head, so it must not feed
+ * "Send CI failure to agent" before the re-probe writes the new one.
+ */
+export function clearOpenPrProbe(store: Store, ticketId: number, repo: string): void {
+  store.db
+    .prepare(`UPDATE prs SET checks = NULL, merge_block = NULL WHERE ticket_id = ? AND repo = ? AND status = 'open'`)
+    .run(ticketId, repo);
+}

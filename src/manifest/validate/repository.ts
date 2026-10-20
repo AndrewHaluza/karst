@@ -377,12 +377,27 @@ function validateShip(raw: unknown, repo: string): ShipDef | undefined {
   if (raw === undefined) return undefined;
   const where = `repository "${repo}" ship`;
   if (!isObject(raw)) throw new ManifestError(`${where} must be an object`);
-  if (raw.exclude === undefined) return undefined;
-  if (!Array.isArray(raw.exclude)) {
+  const exclude = raw.exclude === undefined ? [] : validateExclude(raw.exclude, where);
+  const regenerate = raw.regenerate === undefined ? [] : validateRegenerate(raw.regenerate, where);
+  if (exclude.length === 0 && regenerate.length === 0) return undefined;
+  return {
+    ...(exclude.length > 0 ? { exclude } : {}),
+    ...(regenerate.length > 0 ? { regenerate } : {}),
+  };
+}
+
+function validateRegenerate(raw: unknown, where: string): string[] {
+  if (!Array.isArray(raw)) {
+    throw new ManifestError(`${where}.regenerate must be an array of shell command strings`);
+  }
+  return raw.map((c, i) => requireString(c, `${where}.regenerate[${i}]`));
+}
+
+function validateExclude(raw: unknown, where: string): string[] {
+  if (!Array.isArray(raw)) {
     throw new ManifestError(`${where}.exclude must be an array of pathspec strings`);
   }
-  if (raw.exclude.length === 0) return undefined;
-  const exclude = raw.exclude.map((p, i) => {
+  return raw.map((p, i) => {
     const spec = requireString(p, `${where}.exclude[${i}]`);
     if (spec.startsWith(':')) {
       throw new ManifestError(
@@ -392,7 +407,6 @@ function validateShip(raw: unknown, repo: string): ShipDef | undefined {
     }
     return spec;
   });
-  return { exclude };
 }
 
 /**
