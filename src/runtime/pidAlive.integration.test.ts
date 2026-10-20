@@ -24,4 +24,28 @@ describe('pidAlive', () => {
       child.kill();
     }
   });
+
+  it('says an exited-but-unreaped process is dead (a zombie holds nothing)', async () => {
+    // `sh` exits and leaves its child orphaned; the child exits a moment later
+    // and, on a host whose init never reaps an orphan (a container without an
+    // init reaper), stays a ZOMBIE — a pid that still answers the zero-signal
+    // probe for a process that is GONE. It holds no port, no file and no
+    // compute, so it must not read as a live server.
+    const child = spawn('sh', ['-c', 'sleep 0.2 & echo $!; exit 0'], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    const pid = await new Promise<number>((resolve) => {
+      let out = '';
+      child.stdout!.on('data', (chunk) => {
+        out += String(chunk);
+      });
+      child.on('close', () => resolve(Number(out.trim())));
+    });
+    expect(pid).toBeGreaterThan(0);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (!pidAlive(pid)) break;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    expect(pidAlive(pid)).toBe(false);
+  });
 });
