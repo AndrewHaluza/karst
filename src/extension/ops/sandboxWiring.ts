@@ -7,7 +7,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
-import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
@@ -196,6 +196,19 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     hasUnsynced: async (ticketId: number): Promise<boolean> => {
       const { d, t } = await manualDeps(ticketId);
       return sandboxHasUnsynced({ ...d, reopen: async () => {} }, t);
+    },
+    /**
+     * "Deliver to PR" counts: fetch the sandbox clone's branch into the host worktree `cwd` and name the ref
+     * it landed on. Null for a host ticket, another repo's worktree, or a clone that cannot be read.
+     */
+    cloneRef: async (ticketId: number, cwd: string): Promise<string | null> => {
+      const { d, t } = await manualDeps(ticketId);
+      const branch = t.worktree?.branch;
+      if (t.worktree?.path !== cwd || !branch) return null;
+      const runner = sandboxRunnerFor(d, t.core, ticketId);
+      if (!runner?.diff) return null;
+      const result = await runner.diff({ hostWorktreePath: cwd, branch });
+      return result.ok ? result.ref : null;
     },
     /** "Rebase on base": recreate the clone from the rebased branch (no pre-remove sync), then reopen. Throws on failure. */
     recreateNoSync: async (ticketId: number): Promise<void> => {

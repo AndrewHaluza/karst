@@ -4547,6 +4547,20 @@ describe('ship CI actions (executed in a VM)', () => {
     h.click('[data-act]', { act: 'rebase-on-base' });
     expect(h.posted).toHaveLength(2);
   });
+
+  it('shows the undelivered count line only while commits are missing, and Deliver posts once', () => {
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: shipWithCi({}) });
+    expect(h.htmlOf('inside')).not.toContain('not on the PR');
+    const state = shipWithCi({ deliver: { available: true, notOnPr: 3, inSandbox: 2 } });
+    h.receive({ type: 'state', state });
+    expect(h.htmlOf('inside')).toContain('3 commits not on the PR (2 still in the sandbox)');
+    h.click('[data-act]', { act: 'deliver-to-pr' });
+    h.click('[data-act]', { act: 'deliver-to-pr' });
+    expect(h.posted).toEqual([{ type: 'deliver-to-pr' }]);
+    h.receive({ type: 'state', state: shipWithCi({ deliver: { available: true, notOnPr: 1, inSandbox: 0 } }) });
+    expect(h.htmlOf('inside')).toContain('1 commit not on the PR</span>');
+  });
 });
 
 describe('round switcher — attempt tabs (T6, executed in a VM)', () => {

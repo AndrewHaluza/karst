@@ -75,7 +75,8 @@ import { join } from 'node:path';
 // Merge of the sandbox branch (+27: 8580 -> 8607) with develop (8642): 8642 + 27 = 8669.
 // Sandbox dependency provisioning (D195, +1: 8669 -> 8670): the `karst.sandbox.setup` palette registration; logic is in `ops/sandboxSetupOp.ts` / `sandboxTicketOps.ts`.
 // T715 ship CI actions: +13 (ciHost seam, ciActionsInput, two handlers, imports): 8670 + 13 = 8683.
-const MAX_EXTENSION_LINES = 8683;
+// Deliver to PR: +6 (tracker, runPrSync sweep, ciHost deliver seam, runShipSaga option, action binding): 8683 + 6 = 8689.
+const MAX_EXTENSION_LINES = 8689;
 
 describe('extension.ts ratchet', () => {
   it('extension.ts does not exceed the recorded line count', () => {
