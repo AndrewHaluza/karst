@@ -70,12 +70,15 @@ function handledSeqs(file: string, log: (m: string) => void) {
   const seen = new Set(seqs);
   return {
     has: (seq: string): boolean => seen.has(seq),
-    add: (seq: string): void => {
+    add: async (seq: string): Promise<void> => {
       seen.add(seq);
       seqs = [...seqs, seq].slice(-MAX_HANDLED_SEQS);
-      void writeFile(`${file}.tmp`, JSON.stringify(seqs))
-        .then(() => rename(`${file}.tmp`, file))
-        .catch((err: unknown) => log(`handled-seq record failed: ${err instanceof Error ? err.message : String(err)}`));
+      try {
+        await writeFile(`${file}.tmp`, JSON.stringify(seqs));
+        await rename(`${file}.tmp`, file);
+      } catch (err: unknown) {
+        log(`handled-seq record failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
     },
   };
 }
@@ -107,7 +110,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
     stateFile: deps.paths.stateFile,
     intervalMs: deps.intervalMs,
     ...(deps.debug ? { debug: deps.debug } : {}),
-    onLine: (line) => {
+    onLine: async (line) => {
       const verdict = verifyBridgeLine(line, deps.expect);
       if (!verdict.ok) {
         log(`ticket ${id} dropped: ${verdict.reason}`);
@@ -122,7 +125,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
             log(`ticket ${id} marker ${stage} seq ${seq} already handled: skipped`);
             return;
           }
-          handled.add(seq);
+          await handled.add(seq);
         }
         void flow.handle(stage, seq).catch((err: unknown) => log(`ticket ${id} marker failed: ${err instanceof Error ? err.message : String(err)}`));
       }
