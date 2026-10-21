@@ -3548,7 +3548,7 @@
     const rg = state.rerunGate;
     const pff = state.prFeedbackFix;
     const ciAction = !!(state.ciFailure && state.ciFailure.available) && view.stageKey === 'ship';
-    const rebaseAction = !!(state.rebase && state.rebase.available) && view.stageKey === 'ship';
+    const rebaseAction = !!(state.rebase && state.rebase.available) && view.stageKey === (state.rebase.stage || 'ship');
     const actions = sb && sb.available && view.stageKey === sb.stage;
     const retryActions = rg && rg.available && view.stageKey === rg.stage;
     // The PR-feedback action is ship-only and host-gated; it rides the SAME

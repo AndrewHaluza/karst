@@ -2087,7 +2087,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch }));
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage') }));
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
     store: localStore,
@@ -2709,7 +2709,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
   const quotaService = new QuotaService({
-    readers: defaultQuotaReaders(),
+    readers: defaultQuotaReaders({ opencode2AuthPath: join(context.globalStorageUri.fsPath, 'opencode2', 'data', 'opencode', 'auth.json') }),
     debug: (message) => logger.debug(message),
     onDidChange: (snapshots) => onQuotaChange(snapshots),
   });

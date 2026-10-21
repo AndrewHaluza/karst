@@ -356,7 +356,8 @@ export interface DashboardState {
    * webview only shows the button, the host re-derives before acting.
    */
   ciFailure: { available: boolean };
-  rebase: { available: boolean };
+  /** `stage`: the stage whose header offers it (ship, or a pre-ship stage). */
+  rebase: { available: boolean; stage?: string };
   /**
    * Ship-stage "Deliver to PR": commits not on the open PR (host worktree plus
    * sandbox) and how many of them are still in the sandbox. Host-measured on the

@@ -6,6 +6,7 @@ import type { GhRunner } from '../../integrations/github.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { getTicket, listTickets } from '../../store/tickets.js';
 import { clearOpenPrProbe } from '../../store/prs.js';
+import { armForcePushLease } from '../../store/worktrees.js';
 import { rebaseState } from '../../workflow/rebaseState.js';
 import { sendCiFailureToAgent } from './ciFailureOps.js';
 import { rebaseOnBase } from './rebaseOnBaseOps.js';
@@ -73,7 +74,11 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
   try {
     const state = rebaseState(i.store, i.ticketId);
     if (!state.available) {
-      i.info('Rebase on base is not available: no open pull request is behind its base.');
+      i.info(
+        state.reason === 'not-behind'
+          ? 'Rebase on base is not available: no open pull request is behind its base.'
+          : `Rebase on base is not available (${state.reason}).`,
+      );
       return;
     }
     for (const pr of state.prs) {
@@ -87,7 +92,10 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
         runScript: runShellCommand,
         agentActive: () => getTicket(i.store, i.ticketId).agentState === 'running',
         sandboxUnsynced: () => i.sandbox.hasUnsynced(i.ticketId),
+        preShip: pr.preShip === true,
+        armLease: pr.number === null ? undefined : () => armForcePushLease(i.store, i.ticketId, pr.repo),
         prHeadSha: async () => {
+          if (pr.number === null) throw new Error('no pull request to read');
           const r = await i.gh(['pr', 'view', String(pr.number), '--json', 'headRefOid', '--jq', '.headRefOid'], pr.cwd);
           const sha = r.stdout.trim();
           if (r.exitCode !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) throw new Error(`gh could not read the head of PR #${pr.number}`);
@@ -96,6 +104,7 @@ export async function rebaseOnBaseAction(i: CiActionsInput, regenerate: (repo: s
         removeSandbox: () => i.sandbox.recreateNoSync(i.ticketId),
         reopenSandbox: async () => {},
         reprobe: async () => {
+          if (pr.preShip) return;
           clearOpenPrProbe(i.store, i.ticketId, pr.repo);
           await i.reprobe();
         },

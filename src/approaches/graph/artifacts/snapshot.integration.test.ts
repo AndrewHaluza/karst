@@ -192,6 +192,9 @@ describe('locations (Decision 15) and worktree cleanliness (E4)', () => {
     const worktree = join(dir, 'worktree');
     mkdirSync(worktree);
     execFileSync('git', ['init', '-q', worktree]);
+    // A temp repo has no inherited identity; the sandbox has no global one.
+    execFileSync('git', ['-C', worktree, 'config', 'user.name', 'karst-test']);
+    execFileSync('git', ['-C', worktree, 'config', 'user.email', 'test@karst.local']);
     writeFileSync(join(worktree, 'tracked.md'), '# tracked');
     execFileSync('git', ['-C', worktree, 'add', '.']);
     execFileSync('git', ['-C', worktree, 'commit', '-q', '-m', 'init']);

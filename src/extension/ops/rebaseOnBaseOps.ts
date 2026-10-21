@@ -29,6 +29,12 @@ export interface RebaseDeps {
   readonly sandboxUnsynced: () => Promise<boolean>;
   /** Live PR head sha: the expected remote value of the lease. */
   readonly prHeadSha: () => Promise<string>;
+  /**
+   * Pre-ship stage (impl/uat/review/fix): never pushes, makes no gh call and no
+   * re-probe. `armLease` is passed when a PR exists, so ship's next push is a lease push.
+   */
+  readonly preShip?: boolean;
+  readonly armLease?: () => void;
   readonly removeSandbox: () => Promise<void>;
   readonly reopenSandbox: () => Promise<void>;
   readonly reprobe: () => Promise<void>;
@@ -59,14 +65,20 @@ async function run(d: RebaseDeps): Promise<void> {
   if (d.agentActive()) return d.error(BUSY);
   if (await d.sandboxUnsynced()) return d.error(UNSYNCED);
   const ok = await d.confirm(
-    `Rebase ${d.branch} onto origin/${d.baseRef} in ${d.repo} and force-push (with lease)?`,
+    d.preShip
+      ? `Rebase ${d.branch} onto origin/${d.baseRef} in ${d.repo}? The gate is not re-run; resume the stage afterwards.`
+      : `Rebase ${d.branch} onto origin/${d.baseRef} in ${d.repo} and force-push (with lease)?`,
   );
   if (!ok) return;
 
   const orig = await d.git(d.cwd, ['rev-parse', 'HEAD']);
   const origHead = orig.stdout.trim();
   if (!(await rebased(d))) return;
+  if (d.preShip && (await upToDate(d, origHead))) {
+    return d.info(`Rebase on base: ${d.branch} is already on origin/${d.baseRef}; nothing to do.`);
+  }
   if (!(await regenerated(d, origHead))) return;
+  if (d.preShip) return finishPreShip(d, origHead);
 
   let sha: string;
   try {
@@ -93,6 +105,33 @@ async function run(d: RebaseDeps): Promise<void> {
   }
   await recreate(d);
   await d.reprobe();
+}
+
+/** True when the rebase moved nothing: the branch already contained the base tip. */
+async function upToDate(d: RebaseDeps, origHead: string): Promise<boolean> {
+  const head = await d.git(d.cwd, ['rev-parse', 'HEAD']);
+  return head.stdout.trim() === origHead;
+}
+
+/** Pre-ship: the host branch is rebased; recreate the sandbox, arm the lease if a PR exists. */
+async function finishPreShip(d: RebaseDeps, origHead: string): Promise<void> {
+  if (d.agentActive()) {
+    await d.git(d.cwd, ['reset', '--hard', origHead]);
+    return d.error(BUSY);
+  }
+  if (await d.sandboxUnsynced()) {
+    await d.git(d.cwd, ['reset', '--hard', origHead]);
+    return d.error(UNSYNCED);
+  }
+  try {
+    await d.removeSandbox();
+    await d.reopenSandbox();
+  } catch (err) {
+    d.logError('rebaseOnBase recreate failed', err);
+    return d.error(`Rebased ${d.branch}, but recreating the sandbox failed: ${message(err)}`);
+  }
+  d.armLease?.();
+  d.info(`Rebased ${d.branch} onto origin/${d.baseRef} and recreated the sandbox. Resume the stage to re-run its gate.`);
 }
 
 async function rebased(d: RebaseDeps): Promise<boolean> {

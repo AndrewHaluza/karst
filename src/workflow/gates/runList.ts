@@ -130,6 +130,14 @@ export async function runGateList(
       opts.onGateComplete?.(gate.name, null, null, null, index, results[results.length - 1]!.output);
       continue;
     }
+    if (outcome.kind === 'spawnFailed' && gate.sandbox === 'host' && opts.hostProcess) {
+      // A host gate the host boundary refused (arch:SANDBOX-HOST): it never ran, so
+      // it has no verdict. Null + `hostRefused`, for required and optional gates alike.
+      onDebug?.(`[gate] ${gate.name}: host gate refused — recorded as capability-missing: ${outcome.message}`);
+      results.push({ name: gate.name, exitCode: null, output: outcome.output, hostRefused: true });
+      opts.onGateComplete?.(gate.name, null, null, null, index, outcome.output);
+      continue;
+    }
     const endedAt = now();
     onDebug?.(
       `[gate] ${gate.name}: ${outcome.kind} (exit ${outcome.kind === 'completed' ? outcome.exitCode : 1}) — ${outcome.output.length} byte(s)`,

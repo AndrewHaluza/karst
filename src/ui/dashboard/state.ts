@@ -802,7 +802,7 @@ export function buildDashboardState(
     rerunGate,
     prFeedbackFix,
     ciFailure: ciFailure.available ? { available: true } : { available: false },
-    rebase: rebase.available ? { available: true } : { available: false },
+    rebase: rebase.available ? { available: true, stage: ticket.stageCurrent ?? undefined } : { available: false },
     deliver: undelivered
       ? { available: true, notOnPr: undelivered.hostAhead + undelivered.sandboxAhead, inSandbox: undelivered.sandboxAhead }
       : { available: false, notOnPr: 0, inSandbox: 0 },

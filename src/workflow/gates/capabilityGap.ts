@@ -47,3 +47,18 @@ export function capabilityGap(failed: readonly GateResult[]): CapabilityGap | nu
       `the command ${many ? 'they run' : 'it runs'} is not installed in this environment: ${detail}`,
   };
 }
+
+/**
+ * The park reason when any gate was a refused `sandbox: host` gate, else null.
+ * A refused host gate never ran, so unlike a ran-and-failed gate it outranks
+ * every other result: the verdict would be about a partial run.
+ */
+export function hostRefusalReason(results: readonly GateResult[]): string | null {
+  const refused = results.filter((r) => r.hostRefused === true);
+  if (refused.length === 0) return null;
+  const detail = refused
+    .map((r) => `"${r.name}": ${summarizeGateFailure(r.output) ?? r.output}`)
+    .join(' | ')
+    .slice(0, MAX_GATE_SUMMARY_CHARS);
+  return `host gates not run — ${detail}`;
+}
