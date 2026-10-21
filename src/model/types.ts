@@ -150,7 +150,13 @@ export type BlockerKind =
   // A gate stage read `running` with no stage run and no process run behind it,
   // and one re-drive did not start it (`sweepStrandedStages`). The question was
   // never asked; Resume re-drives the stage.
-  | 'stranded-stage';
+  | 'stranded-stage'
+  // The driver could not bring the sandbox in sync with the host branch
+  // (`sandbox-sync`: divergence, or uncommitted sandbox work with the host
+  // ahead) or could not provision it (`sandbox-setup`). The gates never ran.
+  // Environmental and resumable: Resume re-drives and retries the sync.
+  | 'sandbox-sync'
+  | 'sandbox-setup';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:

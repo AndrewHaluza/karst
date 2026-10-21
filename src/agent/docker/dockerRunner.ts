@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { runProcess } from '../../workflow/gates/run.js';
-import type { GateProcessRunner, PlacedInteractiveLaunch, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import type { GateProcessRunner, PlacedInteractiveLaunch, RefreshOptions, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
@@ -136,7 +136,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
     fetchClone: (ticket: SandboxTicketRef) => fetchFromClone(ctx, ticket),
     diff: (ticket: SandboxTicketRef) => diffFromClone(ctx, ticket),
-    refresh: (ticket: SandboxTicketRef) => refreshClone(ctx, ticket),
+    refresh: (ticket: SandboxTicketRef, opts?: RefreshOptions) => refreshClone(ctx, ticket, opts),
     // Volumes survive a stop; the next open restarts the container.
     stop: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);
