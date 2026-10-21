@@ -3572,8 +3572,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger.info(`stage driver: begin ticket ${ticketId}`);
     // A new run's first gate re-announces itself in the console, rather than
     // continuing under the previous run's last gate header.
-    gateConsole.reset(ticketId, 'uat');
-    gateConsole.reset(ticketId, 'review');
+    gateConsole.resetTicket(ticketId);
     try {
       await driveTicketRun(
         {
@@ -3675,6 +3674,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (e) {
       logError('stage driver failed', e);
     } finally {
+      gateConsole.flushTicket(ticketId);
       driver.end(ticketId);
       provider.refresh();
       dashboard.pushState(ticketId);
