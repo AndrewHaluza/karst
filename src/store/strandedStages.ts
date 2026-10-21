@@ -8,7 +8,7 @@ import type { StageKey } from '../model/types.js';
  * trigger to start it. When every trigger is dead (hook lockout, a session that
  * idles without exiting) the row stays `running` with no `stage_runs` row for
  * its attempt and no open `process_runs` row — and `stallTimeoutMinutes` has no
- * run to time out (@issue:STRAND-03/04/06).
+ * run to time out (docs/issues/2026-10-21-stranded-uat-after-fix-marker.md).
  */
 export interface StrandedStage {
   ticketId: number;
