@@ -173,7 +173,7 @@ git commit -m "docs: regenerate INDEX.md and COVERS.json for ST-00"
 - Consumes: Entire documentation set under `docs/arch/`.
 - Produces: Green CI checks for `docs:check` and `docs:mermaid`.
 
-- [ ] **Step 1: Run docs lint, index check, and covers check**
+- [x] **Step 1: Run docs lint, index check, and covers check**
 
 Run: `npm run -s docs:check`
 Expected:
@@ -183,7 +183,7 @@ Expected:
 ```
 Exit code 0.
 
-- [ ] **Step 2: Run mermaid parsing validation**
+- [x] **Step 2: Run mermaid parsing validation**
 
 Run: `npm run -s docs:mermaid`
 Expected:
@@ -193,7 +193,7 @@ Expected:
 ```
 Exit code 0.
 
-- [ ] **Step 3: Verify git status is clean**
+- [x] **Step 3: Verify git status is clean**
 
 Run: `git status`
 Expected: `nothing to commit, working tree clean`.
