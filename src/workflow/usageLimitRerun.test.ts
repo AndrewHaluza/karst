@@ -2951,6 +2951,81 @@ describe('rerunParkedStage', () => {
     expect(res).toMatchObject({ reason: expect.stringContaining('no gates resolved') });
   });
 
+  it('does not let the parked run non-gate evidence fake an independent review question (R7)', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-NON-GATE-R7', title: 't' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    // UAT asked the ONLY question the parked review ran.
+    recordGateRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'uat',
+      attempt: 0,
+      runAt: '2026-10-13T09:00:00.000Z',
+      gates: [{ gateName: 'lint (web)', exitCode: 0, repo: 'web', command: 'npm', args: ['run', 'lint'] }],
+    });
+
+    const parkedRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt: '2026-10-13T10:00:00.000Z',
+      startedAt: '2026-10-13T10:00:00.000Z',
+    });
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [
+        // The parked run's ONE real question — the same one UAT asked.
+        { gateName: 'lint (web)', exitCode: 0, repo: 'web', command: 'npm', args: ['run', 'lint'] },
+        // Non-gate evidence: no invocation identity, so it asked nothing and
+        // must not be the "independent signal" R7 is looking for.
+        { gateName: 'changes', exitCode: 0 },
+      ],
+      stageRunId: parkedRunId,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'web',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: JSON.stringify({ findings: 0, targets: [] }),
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+
+    const adapter: AgentAdapter = {
+      requiredBinary: 'fake',
+      capabilities: { lifecycleEvents: false, resume: false },
+      buildInteractiveCommand: () => { throw new Error('not used'); },
+      runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: JSON.stringify([]) }),
+    };
+
+    const res = await rerunParkedStage({
+      store,
+      parkRow: park,
+      provider: 'codex',
+      model: 'gpt-4o',
+      adapter,
+      manifest: {
+        review: { findings: { blockingSeverity: 'high' }, maxFixAttempts: 2 },
+      } as unknown as Manifest,
+      cwd: '/wt/web',
+      artifactDir,
+      now: () => '2026-10-13T10:10:00.000Z',
+    });
+
+    // R7 failed — a passed verdict would have advanced to ship instead.
+    expect(res).toEqual({ kind: 'advanced', next: 'fix' });
+    const rounds = listRecoveryRounds(store, ticket.id);
+    expect(rounds).toHaveLength(1);
+    expect(rounds[0]).toMatchObject({ sourceProcessId: 'gates', triggerKind: 'gate-failure' });
+  });
+
   it('parks instead of reviewing another tree when a review target has no worktree', async () => {
     const ticket = createTicketFlow(store, { key: 'TEST-NO-TREE', title: 't' });
     transition(store, ticket.id, 'scope', { kind: 'passed' });
