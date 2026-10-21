@@ -23,6 +23,7 @@ The store is the one SQLite registry every IDE window shares: it owns the schema
 - out: @arch:CLI-05, @arch:CLI-08 — the CLI reads the same registry with `node:sqlite` and cannot migrate.
 - out: @arch:DIAG-02 — reporting reads the run/token tables and never reaches back.
 - out: @arch:MAILBOX — v77 keeps fix rows out of the shared message route.
+- out: @arch:MAP-04 — live schema ER diagram and table relationships.
 
 ### Flow
 ```mermaid
