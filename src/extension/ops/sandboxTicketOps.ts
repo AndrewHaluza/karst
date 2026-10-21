@@ -227,6 +227,8 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
   readonly notify?: Notify;
   /** The two-way sync before a `sandbox: host` gate (`ensureInSync`); lazy because the sync wiring is built after these bindings. */
   readonly ensureInSync?: (ticketId: number) => Promise<EnsureSyncResult>;
+  /** The host itself stopped this ticket's sandbox after an accepted marker (arch:AC-37): host gates still run. */
+  readonly hostEnded?: (ticketId: number) => boolean;
 }
 
 /** Everything extension.ts binds for sandboxed tickets (arch:AC-32), so the host file stays bindings-only. */
@@ -326,7 +328,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     hostGateFor: (ticketId: number) => {
       const sandboxGate = ticketGateProcess(deps, ticketId);
       const sync = input.ensureInSync;
-      return sandboxGate && sync ? ticketHostGate({ sandbox: deps, sync }, ticketId, sandboxGate) : undefined;
+      return sandboxGate && sync ? ticketHostGate({ sandbox: deps, sync, ...(input.hostEnded ? { hostEnded: input.hostEnded } : {}) }, ticketId, sandboxGate) : undefined;
     },
     /** Stop-all: sandboxed services stop inside the sandbox and lose their 127.0.0.1 mappings too. */
     stopTicket: (store: Store, ticketId: number) => stopAllTicketServers(store, ticketId, ticketSandboxRunner(deps, ticketId)?.runner),

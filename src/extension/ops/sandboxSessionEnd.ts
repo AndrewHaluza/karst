@@ -21,6 +21,8 @@ export interface SessionEnder {
   accepted(ticketId: number): void;
   /** Every applied hook event of a ticket. */
   onHook(ticketId: number, payload: HookPayload): void;
+  /** The host stopped this ticket's sandbox itself and no session has started since (a stopped sandbox is then expected, not a user's choice). */
+  ended(ticketId: number): boolean;
 }
 
 /**
@@ -37,6 +39,7 @@ export function createSandboxSessionEnder(deps: SessionEnderDeps): SessionEnder 
   const acceptedLaunch = new Map<number, string>();
   /** ticket → the session that went idle in the current launch (cleared by any newer activity). */
   const idleSession = new Map<number, { sessionId: string; launchId: string }>();
+  const endedByHost = new Set<number>();
   const timers = new Map<number, () => void>();
 
   const cancel = (ticketId: number): void => {
@@ -61,6 +64,7 @@ export function createSandboxSessionEnder(deps: SessionEnderDeps): SessionEnder 
       idleSession.delete(ticketId);
       acceptedLaunch.delete(ticketId);
       deps.log(`stage driver: ticket ${ticketId} session ${sessionId} idle after its done marker was accepted — ending the sandbox session`);
+      endedByHost.add(ticketId);
       void deps.stop(ticketId).catch((err: unknown) => deps.log(`ticket ${ticketId} ending the sandbox session failed: ${err instanceof Error ? err.message : String(err)}`));
     }, settleMs));
   };
@@ -81,6 +85,8 @@ export function createSandboxSessionEnder(deps: SessionEnderDeps): SessionEnder 
       }
       idleSession.delete(ticketId);
       cancel(ticketId);
+      if (payload.hook_event_name === 'SessionStart') endedByHost.delete(ticketId);
     },
+    ended: (ticketId) => endedByHost.has(ticketId),
   };
 }

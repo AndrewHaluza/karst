@@ -8,14 +8,14 @@ const SHA = 'a'.repeat(40);
 const ok = (output: string): ProcessOutcome => ({ kind: 'completed', exitCode: 0, output });
 const box = (state: 'running' | 'stopped'): ProjectSandbox => ({ runner: 'docker', name: 'n', ticketId: 1, core: 'opencode', state });
 
-function setup(opts: { sandboxFail?: boolean; hasSandbox?: boolean; statusFail?: boolean; listed?: ProjectSandbox; sync?: EnsureSyncResult; hostHead?: string; sandboxHead?: string; status?: string } = {}) {
+function setup(opts: { hostEnded?: boolean; sandboxFail?: boolean; hasSandbox?: boolean; statusFail?: boolean; listed?: ProjectSandbox; sync?: EnsureSyncResult; hostHead?: string; sandboxHead?: string; status?: string } = {}) {
   const sync = vi.fn(() => Promise.resolve(opts.sync ?? { ok: true as const }));
   const git = vi.fn((_c: string, args: readonly string[], _d?: string, _o?: unknown) =>
     Promise.resolve(args[0] === 'status' ? (opts.statusFail ? ({ kind: 'completed', exitCode: 128, output: '' } as ProcessOutcome) : ok(opts.status ?? '')) : ok(opts.hostHead ?? SHA)));
   const sandboxGate = vi.fn((_c: string, _a: readonly string[], _d: string, _o?: unknown) => Promise.resolve(opts.sandboxFail ? ({ kind: 'completed', exitCode: 1, output: SHA } as ProcessOutcome) : ok(opts.sandboxHead ?? SHA)));
   const debug = vi.fn();
   const sandbox = { backends: () => ({ opencode: 'docker' as const }), dockerProc: { run: () => Promise.resolve({ code: opts.hasSandbox ? 0 : 1, stdout: '', stderr: '' }) } as never, debug, projectRoot: () => '/p', coreOf: () => 'opencode', inventory: () => Promise.resolve(opts.listed ? [opts.listed] : []) };
-  const factory = ticketHostGate({ sandbox, sync, git }, 1, sandboxGate);
+  const factory = ticketHostGate({ sandbox, sync, git, ...(opts.hostEnded ? { hostEnded: () => true } : {}) }, 1, sandboxGate);
   return { run: factory(), sync, git, sandboxGate, debug };
 }
 
@@ -35,6 +35,13 @@ describe('ticketHostGate (arch:AC-36)', () => {
     const out = await t.run('true', [], process.cwd(), {});
     expect(out).toMatchObject({ kind: 'spawnFailed', message: 'sandbox not running: start it or remove it' });
     expect(t.sync).not.toHaveBeenCalled();
+  });
+
+  it('a sandbox the host itself stopped still runs the gate, after sync and the dirty guard', async () => {
+    const t = setup({ listed: box('stopped'), hostEnded: true });
+    const out = await t.run('true', [], process.cwd(), {});
+    expect(out.kind).toBe('completed');
+    expect(t.sync).toHaveBeenCalledTimes(1);
   });
 
   it('runs on the host with no sync or guard when the sandbox is gone', async () => {

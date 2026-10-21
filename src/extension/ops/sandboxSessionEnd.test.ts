@@ -91,6 +91,17 @@ describe('sandbox session ender', () => {
     expect(t.stops).toEqual([7]);
   });
 
+  it('remembers a host-ended session until the next SessionStart', () => {
+    const t = setup();
+    t.ender.accepted(7);
+    t.idle();
+    expect(t.ender.ended(7)).toBe(false);
+    t.fire();
+    expect(t.ender.ended(7)).toBe(true);
+    t.ender.onHook(7, { hook_event_name: 'SessionStart', session_id: 's2', launchId: 'L1' });
+    expect(t.ender.ended(7)).toBe(false);
+  });
+
   it('logs a failed stop instead of throwing', async () => {
     const logs: string[] = [];
     let fn: (() => void) | undefined;
