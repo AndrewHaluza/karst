@@ -573,7 +573,7 @@ export function unreadNotesByTicket(store: Store, projectId: number): TicketNote
   const tickets = store.db
     .prepare(
       `SELECT DISTINCT t.id AS id FROM tickets t JOIN worktrees w ON w.ticket_id = t.id
-        WHERE t.project_id = ? ORDER BY t.id`,
+        WHERE t.project_id = ? AND t.archived_at IS NULL AND t.stage_current <> 'done' ORDER BY t.id`,
     )
     .all(projectId) as Array<{ id: number }>;
   const out: TicketNoteUnread[] = [];
