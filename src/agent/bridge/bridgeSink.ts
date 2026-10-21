@@ -21,6 +21,8 @@ export interface BridgeAttachmentDeps {
   readonly debug?: (message: string) => void;
   /** A marker failure the user must see (WARN log + notification); the sink logs it either way. */
   readonly onMarkerFailure?: (failure: MarkerFailure) => void;
+  /** The host's marker CLI passed for `stage`. */
+  readonly onMarkerAccepted?: (stage: MarkerStage) => void;
   /** Test seam for the retry timer. */
   readonly schedule?: (fn: () => void, ms: number) => () => void;
   readonly backoffMs?: readonly number[];
@@ -94,6 +96,7 @@ export function createBridgeAttachment(deps: BridgeAttachmentDeps): BridgeAttach
     reply: (seq, reply) => writeMarkerReply(deps.paths, seq, reply),
     pending: filePendingStore(deps.paths.pendingFile),
     currentStage: deps.expect.stage,
+    ...(deps.onMarkerAccepted ? { onAccepted: deps.onMarkerAccepted } : {}),
     report: (failure) => {
       log(`ticket ${id} marker ${failure.stage} failed: ${failure.reason}`);
       deps.onMarkerFailure?.(failure);

@@ -31,6 +31,15 @@ const fire = async (timer: { fn: () => void }, flow: { idle(): Promise<void> }):
 };
 
 describe('createMarkerFlow', () => {
+  it('reports an accepted marker, and only an accepted one', async () => {
+    const onAccepted = vi.fn();
+    const t = setup([{ code: 1, stderr: 'no' }, { code: 0, stderr: '' }], { onAccepted });
+    await t.flow.handle('impl', 'a1');
+    expect(onAccepted).not.toHaveBeenCalled();
+    await t.flow.handle('impl', 'a2');
+    expect(onAccepted).toHaveBeenCalledExactlyOnceWith('impl');
+  });
+
   it('replies ok and keeps nothing pending after a pass', async () => {
     const t = setup([{ code: 0, stderr: '' }]);
     await t.flow.handle('impl', 'a1');

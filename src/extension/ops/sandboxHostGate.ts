@@ -8,6 +8,8 @@ export interface HostGateDeps {
   readonly sandbox: TicketSandboxDeps;
   /** Two-way sync (`ensureInSync`); a no-op when no sandbox is attached. */
   readonly sync: (ticketId: number) => Promise<EnsureSyncResult>;
+  /** The host stopped the sandbox itself (arch:AC-37): a stopped sandbox is then expected, its state was synced first. */
+  readonly hostEnded?: (ticketId: number) => boolean;
   /** Host git, for the dirty guard. Absent → real `git` via `runProcess`. */
   readonly git?: GateProcessRunner;
 }
@@ -40,7 +42,7 @@ export function ticketHostGate(deps: HostGateDeps, ticketId: number, sandboxGate
 
 async function prepare(deps: HostGateDeps, ticketId: number, cwd: string, sandboxGate: GateProcessRunner | undefined): Promise<Prepared & { readonly sandboxed: boolean }> {
   let { found, listed } = await resolveTicketSandbox(deps.sandbox, ticketId);
-  if (listed?.state === 'stopped') {
+  if (listed?.state === 'stopped' && deps.hostEnded?.(ticketId) !== true) {
     // In-sandbox gates start a stopped sandbox via `exec`; do the same here with a no-op.
     const started = sandboxGate ? await sandboxGate('true', [], cwd, {}) : undefined;
     ({ found, listed } = await resolveTicketSandbox(deps.sandbox, ticketId));
