@@ -271,9 +271,13 @@ export interface DriveTicketRunners {
  * driver refused to start it was invisible and re-driven into the same refusal
  * forever. Only a gate stage can be parked; Resume clears the block and retries.
  */
+const SANDBOX_REASON_MAX = 600;
+
 function parkSandboxRefusal(store: Store, ticketId: number, stage: StageKey, kind: 'sandbox-sync' | 'sandbox-setup', reason: string): void {
   if (stage !== 'uat' && stage !== 'review') return;
-  parkGateStage(store, { ticketId, stageKey: stage, kind, reason, runAt: nowIso(), gates: [] });
+  // The refusal can embed a long sandbox diff; the blocker banner needs the first lines only.
+  const brief = reason.length > SANDBOX_REASON_MAX ? `${reason.slice(0, SANDBOX_REASON_MAX)}…` : reason;
+  parkGateStage(store, { ticketId, stageKey: stage, kind, reason: brief, runAt: nowIso(), gates: [] });
 }
 
 /**

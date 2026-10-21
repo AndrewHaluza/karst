@@ -8136,7 +8136,7 @@ function makeDashboardActions(
       void vscode.env.clipboard.writeText(key);
     },
     sandboxSync: () => sandboxLife.sync(ticketId), sandboxDiff: () => sandboxLife.diff(ticketId), // AC-32 Sandbox card
-    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId), sandboxCarry: () => sandboxLife.carry(ticketId),
+    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId), sandboxCarry: () => sandboxLife.carry(ticketId), sandboxStashUpdate: () => sandboxLife.stashUpdate(ticketId),
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building
