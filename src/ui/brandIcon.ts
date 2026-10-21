@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -19,18 +20,21 @@ export interface BrandIconPaths {
 
 /**
  * Materialize the karst mark into `<storageDir>/icons/` once and return both
- * theme paths (for `iconPath`). Idempotent — an existing file is returned
- * as-is, exactly like `glyphIconPath`.
+ * theme paths (for `iconPath`). Content-addressed: the path embeds the first
+ * 8 hex characters of the SHA-256 hash of the raw SVG bytes. Idempotent — the
+ * same source bytes yield the same path and skip rewriting.
  */
 export function brandIconPaths(opts: {
   storageDir: string;
   assetSvgPath: string;
 }): BrandIconPaths {
   const dir = join(opts.storageDir, 'icons');
-  const file = join(dir, 'karst-brand.svg');
+  const content = readFileSync(opts.assetSvgPath, 'utf8');
+  const hash = createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 8);
+  const file = join(dir, `karst-brand-${hash}.svg`);
   if (!existsSync(file)) {
     mkdirSync(dir, { recursive: true });
-    writeFileSync(file, readFileSync(opts.assetSvgPath, 'utf8'), 'utf8');
+    writeFileSync(file, content, 'utf8');
   }
   return { light: file, dark: file };
 }
