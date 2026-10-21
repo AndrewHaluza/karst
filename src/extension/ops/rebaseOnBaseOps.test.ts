@@ -280,3 +280,73 @@ describe('rebaseOnBase', () => {
     expect(r.deps.afterServerChange).toHaveBeenCalledOnce();
   });
 });
+
+describe('rebaseOnBase pre-ship', () => {
+  function movingHead(): Partial<RebaseDeps> & { calls: string[] } {
+    const calls: string[] = [];
+    let heads = 0;
+    return {
+      calls,
+      git: async (_cwd, args) => {
+        calls.push(`git ${args.join(' ')}`);
+        if (args[0] === 'rev-parse') return { code: 0, stdout: `h${heads++}\n`, stderr: '' };
+        return { code: 0, stdout: '', stderr: '' };
+      },
+    };
+  }
+
+  it('rebases, recreates the sandbox, never pushes or calls gh', async () => {
+    const m = movingHead();
+    const prHeadSha = vi.fn(async () => 'x');
+    const reprobe = vi.fn(async () => {});
+    const remove = vi.fn(async () => {});
+    const r = rig({ git: m.git!, preShip: true, prHeadSha, reprobe, removeSandbox: remove });
+    await rebaseOnBase(r.deps);
+    expect(m.calls.some((c) => c.startsWith('git push'))).toBe(false);
+    expect(prHeadSha).not.toHaveBeenCalled();
+    expect(reprobe).not.toHaveBeenCalled();
+    expect(remove).toHaveBeenCalled();
+    expect(r.errors).toEqual([]);
+  });
+
+  it('arms the lease when a PR exists', async () => {
+    const m = movingHead();
+    const armLease = vi.fn();
+    await rebaseOnBase(rig({ git: m.git!, preShip: true, armLease }).deps);
+    expect(armLease).toHaveBeenCalledOnce();
+  });
+
+  it('no-ops when the branch is already on base', async () => {
+    const remove = vi.fn(async () => {});
+    const armLease = vi.fn();
+    const r = rig({ preShip: true, armLease, removeSandbox: remove });
+    await rebaseOnBase(r.deps);
+    expect(remove).not.toHaveBeenCalled();
+    expect(armLease).not.toHaveBeenCalled();
+  });
+
+  it('aborts on conflict', async () => {
+    const r = rig({ preShip: true, failGit: (a) => a[0] === 'rebase' && a[1] !== '--abort' });
+    await rebaseOnBase(r.deps);
+    expect(r.calls).toContain('git rebase --abort');
+    expect(r.errors[0]).toMatch(/conflict/);
+  });
+
+  it('refuses with unsynced sandbox commits', async () => {
+    const r = rig({ preShip: true, sandboxUnsynced: async () => true });
+    await rebaseOnBase(r.deps);
+    expect(r.errors[0]).toMatch(/sync or carry/);
+  });
+
+  it('arms nothing and reports when recreating the sandbox fails', async () => {
+    const m = movingHead();
+    const armLease = vi.fn();
+    const r = rig({
+      git: m.git!, preShip: true, armLease,
+      removeSandbox: async () => { throw new Error('docker down'); },
+    });
+    await rebaseOnBase(r.deps);
+    expect(r.errors[0]).toMatch(/recreating the sandbox failed: docker down/);
+    expect(armLease).not.toHaveBeenCalled();
+  });
+});

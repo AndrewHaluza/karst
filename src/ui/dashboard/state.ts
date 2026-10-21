@@ -800,7 +800,7 @@ export function buildDashboardState(
     rerunGate,
     prFeedbackFix,
     ciFailure: ciFailure.available ? { available: true } : { available: false },
-    rebase: rebase.available ? { available: true } : { available: false },
+    rebase: rebase.available ? { available: true, stage: ticket.stageCurrent ?? undefined } : { available: false },
     openPrFeedback,
   };
 }
