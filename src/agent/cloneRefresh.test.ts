@@ -14,6 +14,22 @@ describe('refreshOutcome', () => {
   });
 });
 
+describe('stash script', () => {
+  it('refuses (fetch, ancestor) before it stashes', () => {
+    const at = (needle: string) => STASH_REFRESH_SCRIPT.indexOf(needle);
+    expect(at('git fetch')).toBeLessThan(at('git stash push'));
+    expect(at('--is-ancestor')).toBeLessThan(at('git stash push'));
+    expect(at('git stash push')).toBeLessThan(at('git merge -q'));
+  });
+  it('a failure after the stash still says where the work went', () => {
+    expect(refreshOutcome(1, 'karst-stashed\n', 'ff failed', 'b')).toEqual({
+      ok: false,
+      reason: "sandbox refresh failed: ff failed\nThe sandbox's uncommitted work was already stashed: see `git stash list` inside the sandbox.",
+    });
+    expect(refreshOutcome(1, '', 'ff failed', 'b')).toEqual({ ok: false, reason: 'sandbox refresh failed: ff failed' });
+  });
+});
+
 describe('stashMessage', () => {
   it('names the ticket and the time', () => {
     expect(stashMessage('T9', new Date('2026-10-21T10:00:00.000Z'))).toBe('karst: T9 before host update 2026-10-21T10:00:00.000Z');

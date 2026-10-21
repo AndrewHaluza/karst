@@ -7,6 +7,9 @@ export const REFRESH_DIVERGED = 4;
 /** First stdout line of a dirty refusal: how many host commits the clone lacks. */
 export const HOST_AHEAD_MARKER = 'karst-host-ahead';
 
+/** Printed to stdout once the clone's work is stashed, so a later failure can still say where it went. */
+export const STASHED_MARKER = 'karst-stashed';
+
 const REFRESH_HEAD = "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'";
 const REFRESH_TAIL = [
   'git fetch -q "$2" "refs/heads/$1" || exit 1',
@@ -33,8 +36,10 @@ export const REFRESH_SCRIPT = [
  */
 export const STASH_REFRESH_SCRIPT = [
   REFRESH_HEAD,
-  `if [ -n "$(git status --porcelain)" ]; then git stash push -u -m "$3" >/dev/null || exit 5; fi`,
-  ...REFRESH_TAIL,
+  // Everything that can refuse runs BEFORE the stash, so a refusal leaves the clone untouched.
+  ...REFRESH_TAIL.slice(0, 2),
+  `if [ -n "$(git status --porcelain)" ]; then git stash push -u -m "$3" >/dev/null || exit 5; echo ${STASHED_MARKER}; fi`,
+  REFRESH_TAIL[2],
 ].join('\n');
 
 /** Exit code of {@link STASH_REFRESH_SCRIPT} when the stash itself failed. */
@@ -47,6 +52,12 @@ export function stashMessage(ticketLabel: string, now: Date = new Date()): strin
 
 /** Map the script's outcome to the runner result; `stdout` carries the dirty diff. */
 export function refreshOutcome(code: number, stdout: string, stderr: string, branch: string): SyncResult {
+  const out = refreshOutcomeBase(code, stdout, stderr, branch);
+  if (out.ok || !stdout.includes(STASHED_MARKER)) return out;
+  return { ok: false, reason: `${out.reason}\nThe sandbox's uncommitted work was already stashed: see \`git stash list\` inside the sandbox.` };
+}
+
+function refreshOutcomeBase(code: number, stdout: string, stderr: string, branch: string): SyncResult {
   if (code === 0) return { ok: true, summary: `refreshed the sandbox clone of ${branch} from the host` };
   if (code === REFRESH_DIRTY) {
     const [first = '', ...rest] = stdout.split('\n');
