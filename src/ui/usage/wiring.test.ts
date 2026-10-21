@@ -37,7 +37,8 @@ describe('token-usage host wiring', () => {
   it('wires the per-core quota service, status bar and launch warning', () => {
     // One service, real readers, disposed with the window.
     expect(EXTENSION).toContain('new QuotaService(');
-    expect(EXTENSION).toContain('readers: defaultQuotaReaders()');
+    expect(EXTENSION).toContain('readers: defaultQuotaReaders({');
+    expect(EXTENSION).toMatch(/opencode2AuthPath: join\([\s\S]{0,200}'opencode2',\s*'data',\s*'opencode',\s*'auth\.json'/);
     expect(EXTENSION).toMatch(/quotaService\.start\(\)/);
     expect(EXTENSION).toMatch(/dispose: \(\) => quotaService\.dispose\(\)/);
     // The status badge opens the Quota tab.
