@@ -79,8 +79,8 @@ describe('removeSandboxGuarded', () => {
   it('a sandbox still listed after a clean rm is a failed removal; the bridge dir stays', async () => {
     const { d, notify } = deps({ proc: undefined });
     // rm exits 0 but the listing never changes: swap in a non-stateful process.
-    const flat = fakeSbxProcess(listing([box(7), box(8)]));
-    const stuck = { ...d, proc: flat, dockerProc: Object.assign(fakeSbxProcess(listing([box(7), box(8)])), { pipe: vi.fn() }) };
+    const flat = fakeSbxProcess(listing([box(7), box(8)]), { keepListing: true });
+    const stuck = { ...d, proc: flat, dockerProc: Object.assign(fakeSbxProcess(listing([box(7), box(8)]), { keepListing: true }), { pipe: vi.fn() }) };
     await expect(removeSandboxGuarded(stuck, target)).resolves.toBe(false);
     expect(stuck.bridges.dispose).not.toHaveBeenCalled();
     expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('still listed'));
