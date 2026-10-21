@@ -56,6 +56,7 @@ import { refuseUnsandboxedBypass } from './sandbox.js';
 import { claudeAttendedDeny, claudeGateDeny } from './gatePolicy.js';
 import { claudeProcessKillDeny } from './processKillGuard.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
+import { spillOversizedKickoff } from './kickoffSpill.js';
 import { claudeConsoleLine } from './consoleFormat.js';
 import { ensureClaudeWorkspaceTrusted } from './workspaceTrust.js';
 
@@ -332,16 +333,29 @@ export class ClaudeAdapter implements AgentAdapter {
         args.push('--system-prompt-snapshot', 'off');
       }
     }
-    if (opts.initialPrompt && opts.initialPrompt.length > 0) {
+    // An oversized kickoff cannot ride one argv entry (`E2BIG`): spill it to a
+    // file and pass the short pointer instead. A kickoff under the threshold is
+    // returned unchanged, so the common prompt and its cache stay identical.
+    const kickoff = spillOversizedKickoff({
+      cwd: opts.cwd,
+      prompt: opts.initialPrompt,
+      ...(opts.runtimeDir !== undefined ? { runtimeDir: opts.runtimeDir } : {}),
+      ...(opts.hookChannel ? { hookChannel: opts.hookChannel } : {}),
+      ...(opts.hookChannel?.launchId !== undefined
+        ? { launchId: opts.hookChannel.launchId }
+        : {}),
+    });
+    if (kickoff.prompt && kickoff.prompt.length > 0) {
       // `--` ends option parsing so the prompt is always a positional, even when
       // it starts with dashes (e.g. a doc's `---` YAML frontmatter) — otherwise
       // commander reads `---…` as an unknown option and `claude` exits 1.
-      args.push('--', opts.initialPrompt);
+      args.push('--', kickoff.prompt);
     }
     return {
       command: CLAUDE_BIN,
       args,
       env: {},
+      ...(kickoff.ownedPaths.length > 0 ? { ownedPaths: kickoff.ownedPaths } : {}),
       ...(opts.instructions ? { instructionsChannel: 'native-file' as const } : {}),
     };
   }

@@ -9,6 +9,9 @@ import { isAbsolute, relative, resolve, sep } from 'node:path';
  * `karstExcludes.test.ts` pins that direction.
  */
 export const OWNED_PREFIXES = [
+  // An oversized kickoff spilled for THIS launch (T722). `/.karst/` as a whole
+  // is excluded from git but not cleanup-owned: only the kickoff subtree is.
+  `${sep}.karst${sep}kickoff${sep}`,
   `${sep}.agents${sep}skills${sep}karst-`,
   `${sep}.codex${sep}karst${sep}`,
   `${sep}.karst-plugin${sep}`,
