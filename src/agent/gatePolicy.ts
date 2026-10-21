@@ -64,15 +64,20 @@ export function gateProtectedPaths(
   ];
 }
 
+/** `Edit` alone: it covers every file-write tool, and the CLI warns that a `Write(<path>)` rule never matches. */
+function claudeProtectedPathDeny(env?: NodeJS.ProcessEnv, home?: string): string[] {
+  return gateProtectedPaths(env, home).map((p) => `Edit(/${p})`);
+}
+
 /** claude permission-rule deny list for the gate profile (`--disallowedTools` shape). */
 export function claudeGateDeny(env?: NodeJS.ProcessEnv, home?: string): string[] {
-  const paths = gateProtectedPaths(env, home).flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]);
+  const paths = claudeProtectedPathDeny(env, home);
   return [...gateDeniedCommands().map((c) => `Bash(${c})`), ...paths];
 }
 
 /** claude deny rules for the `attended` profile: pattern kills + home-config writes. */
 export function claudeAttendedDeny(env?: NodeJS.ProcessEnv, home?: string): string[] {
-  const paths = gateProtectedPaths(env, home).flatMap((p) => [`Edit(/${p})`, `Write(/${p})`]);
+  const paths = claudeProtectedPathDeny(env, home);
   return [...PROCESS_WIDE_KILL_COMMANDS.map((c) => `Bash(${c})`), ...paths];
 }
 
