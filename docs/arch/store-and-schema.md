@@ -23,6 +23,7 @@ The store is the one SQLite registry every IDE window shares: it owns the schema
 - out: @arch:CLI-05, @arch:CLI-08 — the CLI reads the same registry with `node:sqlite` and cannot migrate.
 - out: @arch:DIAG-02 — reporting reads the run/token tables and never reaches back.
 - out: @arch:MAILBOX — v77 keeps fix rows out of the shared message route.
+- out: @arch:MAP-04 — live schema ER diagram and table relationships.
 
 ### Flow
 ```mermaid
@@ -66,6 +67,7 @@ END_DOC_BLOCK: [@arch:ST-00]
 covers: src/recovery/reconcile.ts#reconcileOnStart, src/recovery/reconcile.ts#deriveStageCurrent
 
 SQLite is source of truth; `reconcileOnStart`/`deriveStageCurrent` re-derive on boot.
+`openStore` retries the WAL switch on SQLITE_BUSY (bounded, ~5 s) because the busy handler does not cover a journal-mode change.
 END_DOC_BLOCK: [@arch:SQLITE]
 
 ## [@arch:PROJECTS] Projects scope the board across IDE windows

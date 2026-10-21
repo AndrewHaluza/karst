@@ -932,6 +932,44 @@ describe('openStore', () => {
     expect(names).toContain('approach_graph_runs');
   }, 20000);
 
+  it('many windows switching a non-WAL DB to WAL together never fail the open', async () => {
+    // SQLite can return SQLITE_BUSY at once (no busy_timeout wait) when a
+    // rollback-journal file is switched to WAL while another connection holds
+    // it. 8 concurrent children make that race reproduce reliably.
+    const dir = mkdtempSync(join(tmpdir(), 'karst-db-wal-race-'));
+    cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'registry.db');
+    const legacy = new Database(path);
+    legacy.exec(v34SchemaText());
+    legacy.pragma('user_version = 34');
+    legacy.close();
+
+    const workerPath = join(dirname(fileURLToPath(import.meta.url)), 'migrationRaceWorker.ts');
+    const run = (): Promise<{ code: number | null; stderr: string }> =>
+      new Promise((resolve, reject) => {
+        const child = spawn(process.execPath, ['--import', 'tsx', workerPath, path], {
+          stdio: ['ignore', 'ignore', 'pipe'],
+        });
+        let stderr = '';
+        child.stderr.on('data', (chunk) => {
+          stderr += chunk.toString();
+        });
+        child.on('error', reject);
+        child.on('exit', (code) => resolve({ code, stderr }));
+      });
+
+    const results = await Promise.all(Array.from({ length: 8 }, run));
+
+    for (const r of results) {
+      expect(r.stderr).toBe('');
+      expect(r.code).toBe(0);
+    }
+    const check = new Database(path);
+    cleanups.push(() => check.close());
+    expect(check.pragma('journal_mode', { simple: true })).toBe('wal');
+    expect(check.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
+  }, 60000);
+
   it('a partial prior state (one graph table already present) re-runs cleanly', () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-db34-'));
     cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
