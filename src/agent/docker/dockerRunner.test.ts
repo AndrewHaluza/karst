@@ -82,6 +82,19 @@ describe('createDockerSessionRunner', () => {
   });
 });
 
+describe('docker dispose outcomes', () => {
+  it('a failed network rm is failed; a missing container is absent', async () => {
+    const proc = fakeDockerProcess({
+      'docker rm --force karst': { code: 1, stderr: 'Error: No such container' },
+      'docker network rm': { code: 1, stderr: 'network has active endpoints' },
+    });
+    const result = await createDockerSessionRunner({ proc, core: 'opencode', names, user: undefined }).dispose!(ticket);
+    expect(result.ok).toBe(false);
+    expect(result.steps.find((s) => s.step === 'container')?.status).toBe('absent');
+    expect(result.steps.find((s) => s.step === 'network')).toEqual({ step: 'network', status: 'failed', stderr: 'network has active endpoints' });
+  });
+});
+
 describe('permissions under the docker runner (arch:AC-31)', () => {
   const spec = { hostWorktreePath: '/wt', args: ['/wt'], env: { OPENCODE_CONFIG_CONTENT: '{"model":"m"}' }, ticketId: 1 } as never;
 

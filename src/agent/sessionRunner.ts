@@ -1,4 +1,5 @@
 import { runProcess, type GateProcessRunner } from '../workflow/gates/run.js';
+import type { DisposeResult } from './disposeResult.js';
 import type { BridgePaths } from './bridge/bridgeDir.js';
 import {
   spawnHeadlessCli,
@@ -106,7 +107,7 @@ export interface SessionRunner {
   /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */
   stop?(): Promise<void>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */
-  dispose?(ticket: SandboxTicketRef): Promise<void>;
+  dispose?(ticket: SandboxTicketRef): Promise<DisposeResult>;
   /**
    * Sandbox runners only: does this ticket's sandbox exist? A session that
    * failed closed to the host has none, so its gates and services stay on the host.
