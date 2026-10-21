@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collapseEdges,
+  depcruiseBinFromMain,
   loadLayers,
   nodeId,
   renderMap01,
@@ -69,6 +70,16 @@ describe('validateLayers', () => {
   it('assigns every real top-level src entry exactly once', () => {
     const { dirs, files } = srcEntries();
     expect(validateLayers(loadLayers(), { dirs, files })).toEqual([]);
+  });
+});
+
+describe('depcruiseBinFromMain', () => {
+  it('turns the resolved package main into its bin, so an ancestor install works', () => {
+    // A worktree has no node_modules of its own; Node resolves the package from
+    // the main checkout above it, and the bin must come from THAT install.
+    expect(depcruiseBinFromMain('/main/node_modules/dependency-cruiser/src/main/index.mjs')).toBe(
+      '/main/node_modules/dependency-cruiser/bin/dependency-cruiser.mjs',
+    );
   });
 });
 
