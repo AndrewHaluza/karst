@@ -2712,5 +2712,16 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 86) {
+    // v86: `tickets.session_launch_id` — the launch generation (launchIdFor) that
+    // bound `session_id`. The bridge lets a NEWER launch re-bind a session id
+    // minted by an older one. NULL = unknown (every pre-v86 row), treated as
+    // older. The guard reads the CURRENT columns, so fresh DBs and re-opens no-op.
+    const cols86 = ticketColumns(db);
+    if (cols86.size > 0 && !cols86.has('session_launch_id')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN session_launch_id TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

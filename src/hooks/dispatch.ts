@@ -484,6 +484,7 @@ export function dispatchHook(
       ticketId,
       payload.session_id,
       lifecycleProvider,
+      payload.launchId ?? null,
     );
   }
 

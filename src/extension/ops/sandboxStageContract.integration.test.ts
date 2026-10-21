@@ -98,7 +98,7 @@ function rig(stage: MarkerStage): Rig {
     attach: (runMarker = realMarker) => {
       const attachment = createBridgeAttachment({
         paths,
-        expect: { ticketId, worktreePath: wt, launchId: undefined, stage: () => getTicket(store, ticketId).stageCurrent as StageKey | null, sessionId: () => undefined },
+        expect: { ticketId, worktreePath: wt, launchId: undefined, stage: () => getTicket(store, ticketId).stageCurrent as StageKey | null, sessionId: () => undefined, sessionLaunchId: () => undefined },
         dispatch: () => undefined,
         runMarker,
         intervalMs: 20,
