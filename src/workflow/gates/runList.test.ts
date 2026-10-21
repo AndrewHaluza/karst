@@ -284,3 +284,23 @@ describe('runGateList: injected gate process (arch:AC-32 sandbox gates)', () => 
     expect(out.results[0]).toMatchObject({ name: 'test', exitCode: 4, output: 'in sandbox' });
   });
 });
+
+describe('runGateList: refused host gate (arch:SANDBOX-HOST)', () => {
+  it('records a required host gate spawnFailed as exit null + hostRefused, not a failure', async () => {
+    const out = await runGateList(
+      [{ name: 'visual', command: 'docker', args: [], script: null, required: true, sandbox: 'host' }],
+      '/wt',
+      { hostProcess: () => Promise.resolve({ kind: 'spawnFailed', message: 'host gates not run: dirty', output: 'host gates not run: dirty' }) },
+    );
+    expect(out.results[0]).toMatchObject({ name: 'visual', exitCode: null, hostRefused: true, output: 'host gates not run: dirty' });
+  });
+
+  it('keeps an inside gate spawnFailed as exit 1', async () => {
+    const out = await runGateList(
+      [{ name: 'unit', command: 'npm', args: [], script: null, required: true }],
+      '/wt',
+      { runProcess: () => Promise.resolve({ kind: 'spawnFailed', message: 'x', output: 'x' }) },
+    );
+    expect(out.results[0]).toMatchObject({ exitCode: 1 });
+  });
+});

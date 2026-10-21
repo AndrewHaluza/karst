@@ -1254,6 +1254,12 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
 });
 
 describe('buildTesterPrompt', () => {
+  it('points probe scratch at the karst-owned dir, which the exclude rules cover', async () => {
+    const { KARST_EXCLUDE_RULES } = await import('../../runtime/karstExcludes.js');
+    expect(buildTesterPrompt(TARGETS[0]!)).toContain(`${TARGETS[0]!.worktreePath}/.karst/uat-scratch/`);
+    expect(KARST_EXCLUDE_RULES).toContain('/.karst/');
+  });
+
   it('names the target repository, its base branch and the running services with their live URLs', () => {
     const prompt = buildTesterPrompt(TARGETS[0]!);
     expect(prompt).toContain('/web');

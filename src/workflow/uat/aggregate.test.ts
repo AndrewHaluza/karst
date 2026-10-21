@@ -242,3 +242,18 @@ describe('reviewIdentitiesFrom', () => {
     expect(reviewIdentitiesFrom([row('review', 'lint (web)', 0, AT)])).toEqual([]);
   });
 });
+
+describe('aggregateUat — refused host gate', () => {
+  it('parks capability-missing with the refusal, even when other gates passed', () => {
+    const out = aggregateUat(
+      [
+        entry('unit', 0, npmTest),
+        { result: { name: 'visual', exitCode: null, output: 'sandbox could not be started: boom', hostRefused: true }, identity: npmE2e },
+      ],
+      [],
+    );
+    expect(out).toMatchObject({ kind: 'blocked', blocker: 'capability-missing' });
+    expect(out.kind === 'blocked' && out.reason).toContain('host gates not run');
+    expect(out.kind === 'blocked' && out.reason).toContain('boom');
+  });
+});
