@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, utimesSync, writeFileSync } from 'node:fs';
-import { createServer, type AddressInfo, type Server } from 'node:net';
+import { createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { claimPortBand, freePortWindow, releasePortBand, removeTempDir } from './fixtures.js';
@@ -38,10 +38,27 @@ describe('freePortWindow', () => {
     writeFileSync(join(dir, `${base}-${span}`, 'pid'), String(process.ppid));
   }
 
+  /**
+   * Hold a wildcard listener on an explicit LOW port (below every ephemeral range
+   * and beside no band another fixture suite claims). `listen(0)` would hand back
+   * an ephemeral port, and the window requested next to it then races the outbound
+   * sockets of every sibling suite running on the same machine: in the gate run
+   * this test failed with "no free window of 2 ports in [59831, 59837]".
+   */
+  async function holdLowPort(): Promise<number> {
+    for (let port = 26_000; port < 26_300; port++) {
+      held = createServer();
+      const listening = await new Promise<boolean>((resolve) => {
+        held!.once('error', () => resolve(false));
+        held!.listen(port, '0.0.0.0', () => resolve(true));
+      });
+      if (listening) return port;
+    }
+    throw new Error('no free low port to hold');
+  }
+
   it('never hands out a port an IPv4-wildcard listener already holds', async () => {
-    held = createServer();
-    await new Promise<void>((resolve) => held!.listen(0, '0.0.0.0', resolve));
-    const port = (held.address() as AddressInfo).port;
+    const port = await holdLowPort();
 
     const base = await freePortWindow(1, port, port + 8, 1, lockDir());
 
@@ -62,9 +79,7 @@ describe('freePortWindow', () => {
 
   it('releases a claimed window it found occupied, so a later run can use it', async () => {
     const dir = lockDir();
-    held = createServer();
-    await new Promise<void>((resolve) => held!.listen(0, '0.0.0.0', resolve));
-    const port = (held.address() as AddressInfo).port;
+    const port = await holdLowPort();
 
     const base = await freePortWindow(2, port, port + 6, 2, dir);
 
