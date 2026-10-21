@@ -45,19 +45,58 @@ import {
   TESTER_OBSERVATIONS_FAILURE_PREFIX,
   type TesterGateRunner,
 } from './uat/testerVerifier.js';
+import { laneTargetsToAsk, type KeptTarget } from './usageLimitKept.js';
 
 /** A sibling target's status carried on a UAT park row's `keptOutcome`. */
-interface UatKeptTarget {
-  repo: string;
-  status?: string;
+interface UatKeptTarget extends KeptTarget {
   observations?: number;
 }
 
 /** A sibling target's status carried on a Review park row's `keptOutcome`. */
-interface ReviewKeptTarget {
-  repo: string;
-  status?: string;
+interface ReviewKeptTarget extends KeptTarget {
   findings?: number;
+}
+
+/**
+ * The sibling targets AND the observations a UAT park row kept: the evidence
+ * the stopped Tester had already produced. Both must survive a re-park — the
+ * observations to count (they are already durable from the run that made
+ * them), the target statuses to carry forward on the next park row.
+ */
+function parseUatKeptOutcome(raw: string | null): {
+  observations: UatFindingInput[];
+  targets: UatKeptTarget[];
+} {
+  const observations: UatFindingInput[] = [];
+  const targets: UatKeptTarget[] = [];
+  try {
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.observations)) {
+        for (const obs of parsed.observations) {
+          if (obs && typeof obs === 'object' && typeof obs.severity === 'string' && typeof obs.title === 'string') {
+            observations.push({
+              severity: obs.severity,
+              title: obs.title,
+              repo: obs.repo ?? null,
+              file: obs.file ?? null,
+              line: obs.line ?? null,
+            });
+          }
+        }
+      }
+      if (Array.isArray(parsed.targets)) {
+        for (const t of parsed.targets) {
+          if (t && typeof t === 'object' && typeof t.repo === 'string') {
+            targets.push(t as UatKeptTarget);
+          }
+        }
+      }
+    }
+  } catch {
+    // A malformed kept outcome keeps nothing — never a crash.
+  }
+  return { observations, targets };
 }
 
 function parseReviewKeptOutcome(raw: string | null): {
@@ -329,29 +368,6 @@ type ClaimedRerunOptions = RerunParkOptions & {
 };
 
 /**
- * The review targets this re-run must ask: the parked one, plus every target
- * the original lane never reached before the quota stop. Asking only the parked
- * target would commit a verdict that silently never covered the rest.
- */
-function reviewTargetsToAsk(
-  keptTargets: readonly ReviewKeptTarget[],
-  parked: string,
-): string[] {
-  const seen = new Set<string>();
-  const asked: string[] = [];
-  const add = (repo: string): void => {
-    if (seen.has(repo)) return;
-    seen.add(repo);
-    asked.push(repo);
-  };
-  add(parked);
-  for (const target of keptTargets) {
-    if (target.status === 'not-run') add(target.repo);
-  }
-  return asked;
-}
-
-/**
  * Every manifest entry backed by this worktree path. The UAT stage derives the
  * same list while planning; the re-run has a store row's repoPath, so it maps
  * back to the names `unitsOf` needs to find the target's running services.
@@ -459,7 +475,7 @@ async function rerunReviewParkedStage(
   const targetRepo = parkRow.target ?? cwd;
   const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
   const keptTargets = parseReviewKeptOutcome(parkRow.keptOutcome).targets;
-  const askedRepos = reviewTargetsToAsk(keptTargets, targetRepo);
+  const askedRepos = laneTargetsToAsk(keptTargets, targetRepo);
   const laneTargets: FindingsLaneTarget[] = askedRepos.map((repo) => {
     const wt = worktrees.find((w) => w.repo === repo);
     return {
@@ -770,18 +786,34 @@ async function rerunUatParkedStage(
 
   const targetRepo = parkRow.target ?? cwd;
   const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
-  const worktreePath = worktrees.find((w) => w.repo === targetRepo)?.path ?? cwd;
+
+  // The sibling targets AND the observations the earlier park kept. Both must
+  // survive a re-park: the observations to count (they are already durable from
+  // the run that made them), the target statuses to carry forward on the next
+  // park row — and the `not-run` ones to ASK, so a re-run finishes the lane's
+  // work instead of committing a verdict that silently omits them.
+  const { observations: siblingObservations, targets: siblingTargets } = parseUatKeptOutcome(
+    parkRow.keptOutcome,
+  );
+
+  // The targets this re-run must ask: the parked one plus every target the
+  // original Tester never reached (recorded `not-run` on the park row).
+  const askedRepos = laneTargetsToAsk(siblingTargets, targetRepo);
 
   // Built through the SAME mapper the stage uses (`testerTargets`): the prompt
   // must name this target's base branch, its ticket branch and any service karst
   // already started for it. A bare `{repo, worktreePath}` target told the Tester
   // its change was not live even when a service WAS running.
-  const target = testerTargets(
+  const targets = testerTargets(
     manifest,
-    [{ repo: targetRepo, path: worktreePath, names: manifestNamesFor(manifest, targetRepo) }],
+    askedRepos.map((repo) => ({
+      repo,
+      path: worktrees.find((w) => w.repo === repo)?.path ?? cwd,
+      names: manifestNamesFor(manifest, repo),
+    })),
     worktrees,
     listServersByTicket(store, parkRow.ticketId),
-  )[0]!;
+  );
 
   const blockingSeverity = manifest?.uat?.testerObservations?.blockingSeverity ?? 'none';
   // The Tester is asked about the SAME ticket the stage asks about: its
@@ -793,7 +825,7 @@ async function rerunUatParkedStage(
     store,
     {
       ticketId: parkRow.ticketId,
-      targets: [target],
+      targets,
       // The role-resolved snapshot (profile instructions, effort, agent name),
       // with the one-shot pick on top — never a provider/model stub.
       assignment,
@@ -839,42 +871,8 @@ async function rerunUatParkedStage(
     mkdirSync(artifactDir, { recursive: true });
     writeFileSync(
       artifactPath,
-      `! re-run parked uat: target ${targetRepo} with ${assignment.provider}/${assignment.model ?? 'default'}\n`,
+      `! re-run parked uat: target(s) ${askedRepos.join(', ')} with ${assignment.provider}/${assignment.model ?? 'default'}\n`,
     );
-  }
-
-  // Parse the sibling observations AND target statuses the earlier park kept.
-  // Both must survive a re-park: the observations to count (they are already
-  // durable from the run that made them), the target statuses to carry forward
-  // on the next park row.
-  const siblingObservations: UatFindingInput[] = [];
-  const siblingTargets: UatKeptTarget[] = [];
-  try {
-    if (parkRow.keptOutcome) {
-      const parsed = JSON.parse(parkRow.keptOutcome);
-      if (Array.isArray(parsed.observations)) {
-        for (const obs of parsed.observations) {
-          if (obs && typeof obs === 'object' && typeof obs.severity === 'string' && typeof obs.title === 'string') {
-            siblingObservations.push({
-              severity: obs.severity,
-              title: obs.title,
-              repo: obs.repo ?? null,
-              file: obs.file ?? null,
-              line: obs.line ?? null,
-            });
-          }
-        }
-      }
-      if (Array.isArray(parsed.targets)) {
-        for (const t of parsed.targets) {
-          if (t && typeof t === 'object' && typeof t.repo === 'string') {
-            siblingTargets.push(t as UatKeptTarget);
-          }
-        }
-      }
-    }
-  } catch {
-    // Ignore malformed keptOutcome
   }
 
   // Calculate the blocking count across newly observed findings and the sibling
@@ -966,7 +964,9 @@ async function rerunUatParkedStage(
     const verification = await runTesterVerifier(
       {
         gate: verifierGate,
-        cwd: target.worktreePath ?? cwd,
+        // The stage runs the ticket-level verifier in its FIRST target's
+        // worktree; the re-run's first asked target is the parked one.
+        cwd: targets[0]?.worktreePath ?? cwd,
         signal,
         onDebug: debug,
       },

@@ -57,6 +57,7 @@ import { isTimedOutFailure } from '../../agent/failureClass.js';
 import { classifyFailure } from '../../agent/failureClass.js';
 import { UsageLimitError } from '../../agent/cliFailure.js';
 import { UAT_TESTER_TOKEN_BUDGET } from '../../manifest/qualityDefaults.js';
+import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 
 /**
  * Ceiling on the injected done-when criteria block (Prompt 17). The source is
@@ -843,7 +844,19 @@ export async function runUatTester(
       detail,
       keptOutcome: JSON.stringify({
         observations: collected,
-        targets: [...targetOutcomes, { repo: target, status: 'usage-limited', observations: 0 }],
+        targets: [
+          ...targetOutcomes,
+          { repo: target, status: 'usage-limited', observations: 0 },
+          // Every target AFTER the exhausted one was never asked. Name them
+          // instead of dropping them: a re-run that asked only the parked
+          // target would commit a UAT verdict whose Tester evidence silently
+          // omits those repositories.
+          ...notRunRepos(opts.targets, targetOutcomes, target).map((repo) => ({
+            repo,
+            status: NOT_RUN,
+            observations: 0,
+          })),
+        ],
       }),
     };
   };

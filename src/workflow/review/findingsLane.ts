@@ -43,6 +43,7 @@ import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, GATE_ISOLATION_RULE, reviewBlo
 import { REVIEW_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
 import { dropDisprovenCheckoutClaims, isWrongCheckoutClaim, verifyCheckout } from './checkoutClaim.js';
+import { NOT_RUN, notRunRepos } from '../usageLimitKept.js';
 import {
   gatesOutcomeBeforeFindings,
   DEFAULT_REVIEW_FINDINGS,
@@ -69,26 +70,6 @@ export interface FindingsLaneTarget {
    * a worktree on the base branch no longer reads as "no changes" (fu1).
    */
   branch?: string | null;
-}
-
-/**
- * The targets a quota stop never reached, in plan order. Recorded on the park
- * row so a one-shot re-run can finish the lane's work instead of re-running
- * only the exhausted target and silently omitting the rest from the verdict.
- */
-function notRunTargets(
-  targets: readonly FindingsLaneTarget[],
-  answered: readonly { repo: string }[],
-  exhausted: string,
-): { repo: string; status: string; findings: number }[] {
-  const seen = new Set([...answered.map((t) => t.repo), exhausted]);
-  const rows: { repo: string; status: string; findings: number }[] = [];
-  for (const target of targets) {
-    if (seen.has(target.repo)) continue;
-    seen.add(target.repo);
-    rows.push({ repo: target.repo, status: 'not-run', findings: 0 });
-  }
-  return rows;
 }
 
 /**
@@ -527,7 +508,11 @@ export async function runFindingsLane(opts: RunFindingsLaneOpts): Promise<Findin
                 // them instead of dropping them: a re-run that asked only the
                 // parked target would otherwise commit a review verdict with
                 // those repositories silently unreviewed.
-                ...notRunTargets(opts.targets, targetOutcomes, target.repo),
+                ...notRunRepos(opts.targets, targetOutcomes, target.repo).map((repo) => ({
+                  repo,
+                  status: NOT_RUN,
+                  findings: 0,
+                })),
               ],
             }),
           };
