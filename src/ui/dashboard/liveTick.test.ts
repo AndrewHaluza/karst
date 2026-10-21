@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
+import {
+  changedPaths,
+  hasLiveWork,
+  liveClocks,
+  LIVE_TICK_MS,
+  structureKey,
+  liveSections,
+  shouldLogLiveTick,
+  LIVE_HEARTBEAT_MS,
+} from './liveTick.js';
 import type { DashboardState } from './state.js';
 import type { InsideStageKey, InsideStageView } from '../../model/inside/types.js';
 
@@ -135,5 +144,62 @@ describe('changedPaths', () => {
     const prev = { a: { b: { c: { d: { e: 1 } } } } };
     const next = { a: { b: { c: { d: { e: 2 } } } }, f: true };
     expect(changedPaths(prev, next)).toEqual(['a.b.c', 'f']);
+  });
+});
+
+describe('liveSections', () => {
+  it('extracts stages with running live lines or running processes', () => {
+    const state = stateWith({
+      uat: view({
+        stageKey: 'uat',
+        live: { status: 'run', label: 'testing' },
+        processes: [{ id: 'tester', kind: 'tester', label: 'Tester', status: 'run' }],
+      }),
+      impl: view({
+        stageKey: 'impl',
+        processes: [{ id: 'session', kind: 'session', label: 'Session', status: 'pass' }],
+      }),
+    });
+    expect(liveSections(state)).toEqual(['uat:[tester]']);
+  });
+
+  it('is empty when nothing is running', () => {
+    expect(liveSections(stateWith({}))).toEqual([]);
+  });
+});
+
+describe('shouldLogLiveTick', () => {
+  it('always logs on the first tick (prev undefined)', () => {
+    const res = shouldLogLiveTick(undefined, 1000, 'clocks', ['uat:[tester]']);
+    expect(res.shouldLog).toBe(true);
+    expect(res.next).toEqual({ lastAt: 1000, lastReason: 'clocks', lastSections: 'uat:[tester]' });
+  });
+
+  it('suppresses logs when reason and sections are identical within the heartbeat window', () => {
+    const first = shouldLogLiveTick(undefined, 1000, 'clocks', ['uat:[tester]']).next;
+    const second = shouldLogLiveTick(first, 2000, 'clocks', ['uat:[tester]']);
+    expect(second.shouldLog).toBe(false);
+    expect(second.next).toBe(first);
+  });
+
+  it('logs when reason changes (e.g. clocks to state)', () => {
+    const first = shouldLogLiveTick(undefined, 1000, 'clocks', ['uat:[tester]']).next;
+    const second = shouldLogLiveTick(first, 2000, 'state; changed: insideViews', ['uat:[tester]']);
+    expect(second.shouldLog).toBe(true);
+    expect(second.next.lastReason).toBe('state; changed: insideViews');
+  });
+
+  it('logs when active sections change', () => {
+    const first = shouldLogLiveTick(undefined, 1000, 'clocks', ['uat:[tester]']).next;
+    const second = shouldLogLiveTick(first, 2000, 'clocks', ['uat:[tester]', 'review:[eval]']);
+    expect(second.shouldLog).toBe(true);
+    expect(second.next.lastSections).toBe('uat:[tester];review:[eval]');
+  });
+
+  it('logs heartbeat once heartbeat window elapses', () => {
+    const first = shouldLogLiveTick(undefined, 1000, 'clocks', ['uat:[tester]']).next;
+    const second = shouldLogLiveTick(first, 1000 + LIVE_HEARTBEAT_MS, 'clocks', ['uat:[tester]']);
+    expect(second.shouldLog).toBe(true);
+    expect(second.next.lastAt).toBe(1000 + LIVE_HEARTBEAT_MS);
   });
 });

@@ -8,26 +8,35 @@
 // table. Both regions are replaced in place, so the surrounding prose is hand
 // written.
 import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
 const LAYERS_PATH = join(ROOT, 'scripts/arch-layers.json');
-const DEPCRUISE_BIN = 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs';
+const CONFIG = join(ROOT, '.dependency-cruiser.cjs');
 
-/** First ancestor of `from` that has dependency-cruiser installed: a worktree under the main checkout has no node_modules of its own. */
-export function findDepcruise(from = ROOT) {
-  for (let dir = from; ; dir = dirname(dir)) {
-    const bin = join(dir, DEPCRUISE_BIN);
-    if (existsSync(bin)) return bin;
-    if (dirname(dir) === dir) return join(from, DEPCRUISE_BIN);
-  }
+/**
+ * Where dependency-cruiser's CLI actually lives, from the resolved package
+ * main (`.../dependency-cruiser/src/main/index.mjs`).
+ */
+export function depcruiseBinFromMain(mainPath) {
+  return join(dirname(mainPath), '..', '..', 'bin', 'dependency-cruiser.mjs');
 }
 
-const DEPCRUISE = findDepcruise();
-const CONFIG = join(ROOT, '.dependency-cruiser.cjs');
+/**
+ * Resolve the CLI the way Node resolves the package — from here upward. A
+ * worktree has no `node_modules` of its own and resolves from the main
+ * checkout above it, so a hardcoded `<ROOT>/node_modules/...` path fails
+ * exactly where karst runs its gates (arch:ABI-03).
+ */
+export function locateDepcruise() {
+  // `import.meta.resolve` uses the ESM "import" condition (the package defines
+  // no "require" entry) and walks up from this module like any import.
+  return depcruiseBinFromMain(fileURLToPath(import.meta.resolve('dependency-cruiser')));
+}
+
 export const SYSTEM_MAP = join(ROOT, 'docs/arch/system-map.md');
 
 const TEST_FILE = /\.(?:integration\.test|e2e\.test|test)\.tsx?$/;
@@ -174,7 +183,7 @@ export function replaceRegion(text, id, body) {
 
 /** Run dependency-cruiser and return its JSON report. */
 export function runDepcruise({ cwd = ROOT } = {}) {
-  const out = execFileSync(process.execPath, [DEPCRUISE, 'src', '--config', CONFIG, '--output-type', 'json'], {
+  const out = execFileSync(process.execPath, [locateDepcruise(), 'src', '--config', CONFIG, '--output-type', 'json'], {
     cwd,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,

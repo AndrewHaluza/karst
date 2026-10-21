@@ -163,6 +163,14 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
     mail: new Map(),
     notes: new Map(),
   };
+  const lastDeferred: Record<MailboxKind, Map<number, number>> = {
+    mail: new Map(),
+    notes: new Map(),
+  };
+  const lastRateLimited: Record<MailboxKind, Map<number, number>> = {
+    mail: new Map(),
+    notes: new Map(),
+  };
   const lastWakeAt = new Map<number, number>();
   const opening = new Set<number>();
   const retryLogged = new Map<number, string>();
@@ -175,6 +183,8 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
   function prune(kind: MailboxKind, present: ReadonlySet<number>): void {
     for (const id of [...watermark[kind].keys()]) if (!present.has(id)) watermark[kind].delete(id);
     for (const id of [...lastPointerAt[kind].keys()]) if (!present.has(id)) lastPointerAt[kind].delete(id);
+    for (const id of [...lastDeferred[kind].keys()]) if (!present.has(id)) lastDeferred[kind].delete(id);
+    for (const id of [...lastRateLimited[kind].keys()]) if (!present.has(id)) lastRateLimited[kind].delete(id);
   }
 
   function deliverRows(kind: MailboxKind, rows: readonly PointerRow[], out: number[]): void {
@@ -190,20 +200,30 @@ export function makeMessageDeliverySweep(deps: MessageDeliveryDeps): MessageDeli
       // The reply only ever carries mail, so notes never consult it.
       if (kind === 'mail' && deps.alreadyPushed?.(r.toTicketId, r.maxId)) {
         watermark[kind].set(r.toTicketId, r.maxId);
+        lastDeferred[kind].delete(r.toTicketId);
+        lastRateLimited[kind].delete(r.toTicketId);
         deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: already pushed by the reply — skipping`);
         continue;
       }
       const last = lastPointerAt[kind].get(r.toTicketId);
       if (last !== undefined && deps.now() - last < POINTER_INTERVAL_MS) {
-        deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}rate-limited — coalescing`);
+        if (lastRateLimited[kind].get(r.toTicketId) !== r.unread) {
+          lastRateLimited[kind].set(r.toTicketId, r.unread);
+          deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}rate-limited — coalescing`);
+        }
         continue;
       }
+      lastRateLimited[kind].delete(r.toTicketId);
       const pointer = kind === 'notes' ? notesPointer(r.unread) : mailPointer(r.unread);
       const outcome = deps.delivery.deliver(r.toTicketId, pointer);
       if (outcome === 'deferred') {
-        deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}deferred (${r.unread} unread)`);
+        if (lastDeferred[kind].get(r.toTicketId) !== r.unread) {
+          lastDeferred[kind].set(r.toTicketId, r.unread);
+          deps.debug(`[driver] delivery ${formatId('ticket', r.toTicketId)}: ${tag}deferred (${r.unread} unread)`);
+        }
         continue;
       }
+      lastDeferred[kind].delete(r.toTicketId);
       if (outcome === 'armed') {
         // A push route is armed but NOTHING is delivered yet — the turn-end
         // reply will push it. The watermark stays put, so if that hook never

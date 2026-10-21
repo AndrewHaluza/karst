@@ -50,6 +50,7 @@ import { describePermissionDenial, headlessFailureError } from './cliFailure.js'
 import { spawnHeadlessCli, headlessPreview, type HeadlessSpawnOptions } from './headlessSpawn.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
+import { spillOversizedKickoff } from './kickoffSpill.js';
 
 const AGY_BIN = 'agy';
 
@@ -279,13 +280,25 @@ export class AntigravityAdapter implements AgentAdapter {
     const kickoff = opts.instructions
       ? withInstructionsPointer(opts.initialPrompt, renderInstructionsPointer())
       : opts.initialPrompt;
-    if (kickoff && kickoff.length > 0) {
-      args.push('-i', kickoff);
+    // `-i` takes the kickoff as one argv entry; spill an oversized one to a
+    // file exactly as the other cores do (E2BIG backstop).
+    const spilled = spillOversizedKickoff({
+      cwd: opts.cwd,
+      prompt: kickoff,
+      ...(opts.runtimeDir !== undefined ? { runtimeDir: opts.runtimeDir } : {}),
+      ...(opts.hookChannel ? { hookChannel: opts.hookChannel } : {}),
+      ...(opts.hookChannel?.launchId !== undefined
+        ? { launchId: opts.hookChannel.launchId }
+        : {}),
+    });
+    if (spilled.prompt && spilled.prompt.length > 0) {
+      args.push('-i', spilled.prompt);
     }
     return {
       command: AGY_BIN,
       args,
       env: {},
+      ...(spilled.ownedPaths.length > 0 ? { ownedPaths: spilled.ownedPaths } : {}),
       ...(opts.instructions ? { instructionsChannel: 'pointer' as const } : {}),
     };
   }

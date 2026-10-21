@@ -8,7 +8,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
-import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
@@ -192,6 +192,12 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const parentId = getTicket(w.store, ticketId).subtaskParentId;
       const r = parentId === null ? { ok: true as const } : await ensureInSync(parentId, false);
       if (!r.ok) throw new Error(`parent ticket sandbox not in sync: ${r.reason}`);
+    },
+    /** Dashboard "Stash sandbox changes and update": the user-clicked recovery for a sandbox with uncommitted work behind the host. */
+    stashUpdate: async (ticketId: number): Promise<void> => {
+      const { t, projectRoot } = await manual(ticketId);
+      const r = await stashSandboxAndUpdate({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+      if (!r.ok) await w.notify.error(`Karst: ${t.ticketLabel} sandbox not updated: ${r.reason}`);
     },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {

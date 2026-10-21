@@ -164,6 +164,13 @@ export interface HeadlessResult {
 export interface InteractiveCommandOpts {
   cwd: string;
   hookChannel?: HookChannel;
+  /**
+   * A karst-owned directory this launch may write adapter scratch into. An
+   * oversized kickoff spills here when given; absent → the adapter derives the
+   * launch runtime dir (`<cwd>/.karst/kickoff` on the host, the bridge dir in a
+   * sandbox). See `kickoffSpill.ts`.
+   */
+  runtimeDir?: string;
   resume?: string; // session_id to --resume an interrupted interactive session (§5.3)
   initialPrompt?: string; // seed prompt for the session (e.g. an approach entrypoint)
   model?: string; // resolved launch model id (§ model selection); omitted → agent CLI default

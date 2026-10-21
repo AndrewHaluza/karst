@@ -22,6 +22,8 @@ export const BLOCKS_NOTIFY_PARENT: Readonly<Record<BlockerKind, boolean>> = {
   'baseline-review': true,
   'usage-limit': true,
   'stranded-stage': true,
+  'sandbox-sync': true,
+  'sandbox-setup': true,
   'awaiting-merge': false,
   'awaiting-impl-marker': false,
   'awaiting-subtask': false,

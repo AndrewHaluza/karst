@@ -1,10 +1,7 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   collapseEdges,
-  findDepcruise,
+  depcruiseBinFromMain,
   loadLayers,
   nodeId,
   renderMap01,
@@ -76,6 +73,16 @@ describe('validateLayers', () => {
   });
 });
 
+describe('depcruiseBinFromMain', () => {
+  it('turns the resolved package main into its bin, so an ancestor install works', () => {
+    // A worktree has no node_modules of its own; Node resolves the package from
+    // the main checkout above it, and the bin must come from THAT install.
+    expect(depcruiseBinFromMain('/main/node_modules/dependency-cruiser/src/main/index.mjs')).toBe(
+      '/main/node_modules/dependency-cruiser/bin/dependency-cruiser.mjs',
+    );
+  });
+});
+
 describe('collapseEdges', () => {
   it('splits value from type-only and drops intra-entry and test edges', () => {
     const edges = collapseEdges(fixture, layers);
@@ -140,20 +147,5 @@ describe('replaceRegion', () => {
   it('throws when the region is missing or duplicated', () => {
     expect(() => replaceRegion(text, 'MAP-02', 'x')).toThrow(/needs exactly one start and end marker/);
     expect(() => replaceRegion(`${text}\n${text}`, 'MAP-01', 'x')).toThrow(/needs exactly one/);
-  });
-});
-
-describe('findDepcruise', () => {
-  it('finds dependency-cruiser installed in an ancestor of the worktree', () => {
-    const root = mkdtempSync(join(tmpdir(), 'depcruise-'));
-    const bin = join(root, 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs');
-    mkdirSync(dirname(bin), { recursive: true });
-    writeFileSync(bin, '');
-    expect(findDepcruise(join(root, '.karst/worktrees/w'))).toBe(bin);
-  });
-
-  it('falls back to the local path when nothing is installed above', () => {
-    const root = mkdtempSync(join(tmpdir(), 'depcruise-'));
-    expect(findDepcruise(root)).toBe(join(root, 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs'));
   });
 });

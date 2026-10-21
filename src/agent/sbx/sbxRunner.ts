@@ -7,6 +7,7 @@ import type {
   SandboxTicketRef,
   SessionRunner,
   SyncResult,
+  RefreshOptions,
   DiffResult,
 } from '../sessionRunner.js';
 import { autonomousLaunch } from '../autonomousLaunch.js';
@@ -14,7 +15,8 @@ import { disposeResult, disposeStep, type DisposeResult, type DisposeStep } from
 import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
-import { REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
+import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
+import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
 import { isPortTakenError, parseSbxPorts, parseSbxAllowed, sbxHostPolicyArgs, sbxPolicyArgs, sbxPublishArgs, setupHostResource, sbxUnpublishArgs } from './sbxPorts.js';
@@ -162,7 +164,9 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       const fetched = await fetchSandbox(wt, ticket.branch);
       if (!fetched.ok) return fetched;
       const ref = 'FETCH_HEAD';
-      if ((await git(wt, ['merge-base', '--is-ancestor', 'HEAD', ref])).code !== 0) {
+      const relation = await classifyCloneRelation(async (older, newer) => (await git(wt, ['merge-base', '--is-ancestor', older, newer])).code === 0);
+      if (relation === 'behind') return { ok: true, summary: BEHIND_SUMMARY };
+      if (relation === 'diverged') {
         return { ok: false, reason: `refused: the sandbox's ${ticket.branch} is not a fast-forward of the host branch (never forced)` };
       }
       const merged = await git(wt, ['merge', '--ff-only', ref]);
@@ -171,7 +175,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     },
     // Host → sandbox (F8): the host writes its bundle into the bridge's xfer/ and the
     // sandbox fetches it itself (`sbx exec`); no host git ever runs in the agent clone.
-    refresh: async (ticket: SandboxTicketRef): Promise<SyncResult> => {
+    refresh: async (ticket: SandboxTicketRef, refreshOpts?: RefreshOptions): Promise<SyncResult> => {
       if (!opts.evidenceDir) return { ok: false, reason: 'no bridge dir to hand the host bundle through' };
       try {
         const xfer = await ensureXferDir(opts.evidenceDir);
@@ -180,7 +184,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         const made = await git(ticket.hostWorktreePath, ['bundle', 'create', '-q', file, ticket.branch]);
         if (made.code !== 0) return { ok: false, reason: `git bundle create ${ticket.branch} failed: ${made.stderr.trim()}` };
         await xfer.verified('in.bundle');
-        const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', REFRESH_SCRIPT, 'karst-refresh', ticket.branch, file], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+        const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', refreshOpts?.stashMessage ? STASH_REFRESH_SCRIPT : REFRESH_SCRIPT, 'karst-refresh', ticket.branch, file, ...(refreshOpts?.stashMessage ? [refreshOpts.stashMessage] : [])], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
         await rm(file, { force: true });
         return refreshOutcome(out.code, out.stdout, out.stderr, ticket.branch);
       } catch (err) {
