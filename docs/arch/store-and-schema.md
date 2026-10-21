@@ -67,6 +67,7 @@ END_DOC_BLOCK: [@arch:ST-00]
 covers: src/recovery/reconcile.ts#reconcileOnStart, src/recovery/reconcile.ts#deriveStageCurrent
 
 SQLite is source of truth; `reconcileOnStart`/`deriveStageCurrent` re-derive on boot.
+`openStore` retries the WAL switch on SQLITE_BUSY (bounded, ~5 s) because the busy handler does not cover a journal-mode change.
 END_DOC_BLOCK: [@arch:SQLITE]
 
 ## [@arch:PROJECTS] Projects scope the board across IDE windows
