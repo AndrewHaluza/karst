@@ -1235,6 +1235,40 @@ describe('DashboardManager', () => {
       expect(states(panels[0]!).length).toBe(initial + 3);
     });
 
+    it('dedupes repeating push live debug lines and emits a heartbeat after 1 minute', () => {
+      const t = createTicket(store, { key: 'A', title: 'a' });
+      setStage(store, t.id, 'uat', { status: 'running', startedAt: new Date().toISOString() });
+      openProcessRun(store, {
+        ticketId: t.id,
+        stageKey: 'uat',
+        processId: 'tester',
+        attempt: 1,
+        startedAt: new Date().toISOString(),
+      });
+      const { host } = fakeHost();
+      const debug = vi.fn();
+      const mgr = new DashboardManager(
+        store, host, () => ({}) as never,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+        { debug, isDebugEnabled: () => true },
+      );
+
+      mgr.openDashboard(t.id);
+      const liveLines = () => debug.mock.calls
+        .map((c) => c[0] as string)
+        .filter((m) => m.includes('push live'));
+
+      // Advance 3 seconds (3 ticks); should log exactly once
+      vi.advanceTimersByTime(LIVE_TICK_MS * 3);
+      expect(liveLines()).toHaveLength(1);
+
+      // Advance past the 1-minute heartbeat window from the first tick
+      vi.advanceTimersByTime(60_000);
+      expect(liveLines()).toHaveLength(2);
+    });
+
     it('stops ticking once nothing is running', () => {
       const t = createTicket(store, { key: 'A', title: 'a' });
       const run = openProcessRun(store, {

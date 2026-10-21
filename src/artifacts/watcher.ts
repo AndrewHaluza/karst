@@ -53,6 +53,7 @@ interface Entry {
   handles: Map<string, FsWatchHandle>;
   pending: Set<string>;
   timer: unknown;
+  failedPrefixes: Set<string>;
 }
 
 /**
@@ -108,6 +109,7 @@ export function createWorktreeWatcher(deps: WatcherDeps): WorktreeWatcher {
     if (entry.timer !== undefined) clearTimer(entry.timer);
     for (const handle of entry.handles.values()) handle.close();
     entry.handles.clear();
+    entry.failedPrefixes.clear();
   };
 
   /** Watch each wanted prefix dir (recursive), re-deriving the set every sync. */
@@ -129,9 +131,16 @@ export function createWorktreeWatcher(deps: WatcherDeps): WorktreeWatcher {
       if (entry.handles.has(prefix)) continue;
       const dir = join(entry.target.worktreePath, prefix);
       try {
-        entry.handles.set(prefix, deps.watch(dir, (p) => onChange(entry, `${prefix}/${p}`)));
+        const handle = deps.watch(dir, (p) => onChange(entry, `${prefix}/${p}`));
+        entry.handles.set(prefix, handle);
+        if (entry.failedPrefixes.delete(prefix)) {
+          deps.debug(`[artifacts] watching ${dir}`);
+        }
       } catch (err) {
-        deps.debug(`[artifacts] cannot watch ${dir}: ${String(err)}`);
+        if (!entry.failedPrefixes.has(prefix)) {
+          entry.failedPrefixes.add(prefix);
+          deps.debug(`[artifacts] cannot watch ${dir}: ${String(err)}`);
+        }
       }
     }
   };
@@ -139,7 +148,13 @@ export function createWorktreeWatcher(deps: WatcherDeps): WorktreeWatcher {
   return {
     add(target) {
       const existing = entries.get(target.worktreePath);
-      const entry = existing ?? { target, handles: new Map(), pending: new Set(), timer: undefined };
+      const entry = existing ?? {
+        target,
+        handles: new Map(),
+        pending: new Set(),
+        timer: undefined,
+        failedPrefixes: new Set(),
+      };
       if (existing === undefined) {
         deps.debug(`[artifacts] watching ${target.worktreePath}`);
         entries.set(target.worktreePath, entry);

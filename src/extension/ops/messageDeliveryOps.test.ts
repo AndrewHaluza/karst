@@ -77,6 +77,78 @@ beforeEach(() => {
 });
 
 describe('message delivery sweep — pointers', () => {
+  it('dedupes repeated deferred delivery logs for unchanged (ticket, kind, unread) tuple', () => {
+    const d = deps({ delivery: { deliver: vi.fn(() => 'deferred' as const) } });
+    const sweep = makeMessageDeliverySweep(d);
+    send(parentId);
+    sweep.sweep();
+    const deferredLines = () => (d.debug as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => m.includes('deferred (1 unread)'));
+
+    expect(deferredLines()).toHaveLength(1);
+
+    // Second sweep with identical unread count does not log again
+    sweep.sweep();
+    expect(deferredLines()).toHaveLength(1);
+
+    // When unread count changes, it logs again
+    send(parentId);
+    sweep.sweep();
+    const deferredLines2 = (d.debug as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => m.includes('deferred (2 unread)'));
+    expect(deferredLines2).toHaveLength(1);
+  });
+
+  it('dedupes repeated rate-limited delivery logs for unchanged unread count', () => {
+    const d = deps();
+    const sweep = makeMessageDeliverySweep(d);
+    send(parentId);
+    sweep.sweep(); // delivered, lastPointerAt set
+
+    // New message arrives before POINTER_INTERVAL_MS passes
+    send(parentId);
+    clock += 100;
+    sweep.sweep();
+    const rateLimitedLines = () => (d.debug as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => m.includes('rate-limited — coalescing'));
+
+    expect(rateLimitedLines()).toHaveLength(1);
+
+    // Another sweep while still rate-limited with same count does not log again
+    clock += 100;
+    sweep.sweep();
+    expect(rateLimitedLines()).toHaveLength(1);
+
+    // When count increases while still rate-limited, it logs again
+    send(parentId);
+    clock += 100;
+    sweep.sweep();
+    expect(rateLimitedLines()).toHaveLength(2);
+  });
+
+  it('prune forgets deferred and rate-limited dedupe entries when ticket is no longer present', () => {
+    let deliverOutcome: 'deferred' | 'delivered' = 'deferred';
+    const d = deps({ delivery: { deliver: vi.fn(() => deliverOutcome) } });
+    const sweep = makeMessageDeliverySweep(d);
+    const msgId = send(parentId);
+    sweep.sweep(); // logs deferred (1 unread)
+
+    // Mark message read so parentId is no longer in unreadByRecipient
+    markRead(store, [msgId]);
+    sweep.sweep(); // prune drops parentId from lastDeferred
+
+    // New message arrives; deferred should log again
+    send(parentId);
+    sweep.sweep();
+    const deferredLines = (d.debug as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => c[0] as string)
+      .filter((m) => m.includes('deferred (1 unread)'));
+    expect(deferredLines).toHaveLength(2);
+  });
+
   it('delivers once per new batch and never again for the same rows', () => {
     const d = deps();
     const sweep = makeMessageDeliverySweep(d);
