@@ -153,10 +153,11 @@ async function waitUntilServing(url: string, timeoutMs = 5_000): Promise<void> {
 }
 
 /**
- * True if pid is alive (signal 0 probes without killing). A zombie has already
- * exited — only the reap is outstanding — and signals cannot reach it, so it
- * counts as dead. This matters in karst's sandbox, where PID 1 never reaps;
- * off Linux the `/proc` probe is absent and the signal check alone decides.
+ * True if pid is alive (signal 0 probes without killing). On Linux a zombie has
+ * already exited — only the reap is outstanding — and signals cannot reach it,
+ * so it counts as dead; that matters where PID 1 never reaps (karst's sandbox).
+ * The `/proc` probe does not exist off Linux, so there the signal check alone
+ * decides: an unreachable procfs must not turn a live process into a dead one.
  */
 function alive(pid: number): boolean {
   try {
@@ -164,12 +165,15 @@ function alive(pid: number): boolean {
   } catch {
     return false;
   }
+  if (process.platform !== 'linux') return true;
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     const close = stat.lastIndexOf(')');
     const state = stat.slice(close + 2, close + 3);
     return state !== 'Z' && state !== 'X';
   } catch {
+    // No procfs entry for a pid that takes a signal: it exited between the two
+    // probes (or hidepid hides it) — dead either way.
     return false;
   }
 }

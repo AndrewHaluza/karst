@@ -97,6 +97,7 @@ function processAlive(pid: number): boolean {
   } catch {
     return false;
   }
+  if (process.platform !== 'linux') return true;
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
     const close = stat.lastIndexOf(')');

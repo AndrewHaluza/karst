@@ -709,11 +709,7 @@
   .template-form-row + .template-form-row{border-top:var(--k-border-w) solid var(--vscode-panel-border)}
   .template-meta{display:flex;align-items:flex-start;justify-content:space-between;gap:var(--k-space-4);margin-top:var(--k-space-3)}
   .template-preview{margin:var(--k-space-0);font-size:var(--k-text-xs);color:var(--k-text-dim);white-space:pre-wrap;min-width:0}
-  /* The preview is a flex item that can be squeezed a few px below its text's
-     min-content width. `pre-wrap` on the parent alone left the last token
-     painted outside; `break-spaces` keeps the template's spaces and newlines
-     while allowing the value to wrap inside the item (layout containment). */
-  .template-preview .lp-val{white-space:break-spaces;font-family:var(--k-font-mono);color:var(--k-text)}
+  .template-preview .lp-val{font-family:var(--k-font-mono);color:var(--k-text)}
   .template-help-link{
     flex:0 0 auto;background:none;border:none;color:var(--k-link);cursor:pointer;font:inherit;
     font-size:var(--k-text-xs);padding:var(--k-space-1) var(--k-space-0);text-decoration:none;
