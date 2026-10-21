@@ -24,6 +24,7 @@ import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type Ar
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
+import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -35,7 +36,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
-import { rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { deliverToPrAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
@@ -2967,7 +2968,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fallbackProjectId: () => currentProject()?.id, manifest: currentManifest,
   });
   context.subscriptions.push(storedArtifacts);
+  const undelivered = createUndeliveredTracker();
   const ciHost = (ticketId: number): CiHost => ({
+    deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },
     confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
@@ -3100,7 +3103,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog, agentBackends: currentManifest()?.agentBackends, sandboxRewritten: (id) => sandboxLife.isRewritten(id),
+      modelCatalog, agentBackends: currentManifest()?.agentBackends, sandboxRewritten: (id) => sandboxLife.isRewritten(id), undelivered: (id) => undelivered.get(id),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -5635,7 +5638,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runShipSaga = async (
     ticketId: number,
     warn = false,
-    shipOpts: { repos?: readonly string[]; unattended?: boolean } = {},
+    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean } = {},
   ): Promise<void> => {
     // WHO asked decides whether new work is delivered into a PR that is already
     // open. A human re-shipping a ticket whose PR is live wants the new commits
@@ -5645,9 +5648,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // So the sweep delivers only while a ship-sourced recovery round is live —
     // the case where the new work is exactly what the round was opened to make.
     await sandboxLife.assertInSync(ticketId, false); // F12: the agent's commits after its marker reach the host before ship
-    const deliverToOpenPr = shipOpts.unattended
+    const deliverToOpenPr = shipOpts.deliver === true || (shipOpts.unattended
       ? activeRecoverySeries(localStore, ticketId, 'ship') !== null
-      : hasCompletedShipRun(localStore, ticketId);
+      : hasCompletedShipRun(localStore, ticketId));
     await runShipTicket(
       localStore,
       {
@@ -5783,6 +5786,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // rides this tick like settleShipGates: once at activation, then every
       // PR_SYNC_INTERVAL_MS, with no second interval to dispose. Pure store
       // bookkeeping (no git, no gh), and a failure only delays the next tick.
+      // "Deliver to PR": what the open PRs still lack, measured on the refresh, never per render.
+      if (await refreshUndeliveredForShipTickets({ store: localStore, projectId: project.id, git: defaultGitRunner, sandbox: sandboxLife, logError }, undelivered)) dashboard.pushAll();
       let archived: number[] = [];
       try {
         archived = autoArchiveDoneTickets(localStore, {
@@ -8258,6 +8263,7 @@ function makeDashboardActions(
       }),
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
     sendCiFailure: () => void sendCiFailureAction(ciActionsInput()),
+    deliverToPr: () => void deliverToPrAction(ciActionsInput()),
     rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
     // re-runs it. Lighter than "Send back to Implement": only the current gate

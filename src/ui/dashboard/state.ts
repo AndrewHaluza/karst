@@ -18,6 +18,7 @@ import { prFeedbackFixState, type PrFeedbackFixState } from '../../workflow/prFe
 import { countOpenPrFeedback } from '../../store/prFeedback.js';
 import { ciFailureState } from '../../workflow/ciFailure.js';
 import { rebaseState } from '../../workflow/rebaseState.js';
+import { deliverTargets } from '../../workflow/deliverState.js';
 import { graphInsideProcess, type GraphInsideInput } from '../../model/inside/graph.js';
 import { nowIso } from '../../model/time.js';
 import type { StageKey } from '../../model/types.js';
@@ -357,6 +358,7 @@ export function buildDashboardState(
   // Same single-read rule for the two ship CI actions (T715).
   const ciFailure = ciFailureState(store, ticketId);
   const rebase = rebaseState(store, ticketId);
+  const undelivered = deliverTargets(store, ticketId).available ? agentContext.undelivered?.(ticketId) : undefined;
   const openPrFeedback = countOpenPrFeedback(store, ticketId);
   // ONE read of the marks, for the same reason — the Inside strip and the impl
   // segment's pips are two views of one set of facts.
@@ -801,6 +803,9 @@ export function buildDashboardState(
     prFeedbackFix,
     ciFailure: ciFailure.available ? { available: true } : { available: false },
     rebase: rebase.available ? { available: true, stage: ticket.stageCurrent ?? undefined } : { available: false },
+    deliver: undelivered
+      ? { available: true, notOnPr: undelivered.hostAhead + undelivered.sandboxAhead, inSandbox: undelivered.sandboxAhead }
+      : { available: false, notOnPr: 0, inSandbox: 0 },
     openPrFeedback,
   };
 }

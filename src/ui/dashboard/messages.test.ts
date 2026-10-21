@@ -44,6 +44,7 @@ function actions(): DashboardActions {
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
     rebaseOnBase: vi.fn(),
+    deliverToPr: vi.fn(),
     rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
     createSubtask: vi.fn(),
@@ -305,6 +306,13 @@ describe('routeAction', () => {
     routeAction({ type: 'rebase-on-base' }, a);
     expect(a.sendCiFailure).toHaveBeenCalledOnce();
     expect(a.rebaseOnBase).toHaveBeenCalledOnce();
+  });
+
+  it('parses and dispatches deliver-to-pr, dropping forged companions', () => {
+    expect(parseWebviewMessage({ type: 'deliver-to-pr', branch: 'x' })).toEqual({ type: 'deliver-to-pr' });
+    const a = actions();
+    routeAction({ type: 'deliver-to-pr' }, a);
+    expect(a.deliverToPr).toHaveBeenCalledOnce();
   });
 
   it('parses and dispatches create-follow-up-ticket', () => {

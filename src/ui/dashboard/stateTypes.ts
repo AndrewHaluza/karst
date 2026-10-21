@@ -51,6 +51,8 @@ export interface DashboardAgentContext {
   agentBackends?: AgentBackends;
   /** True while the ticket's last refused sandbox sync was a host rewrite (offers "Carry sandbox commits"). */
   sandboxRewritten?: (ticketId: number) => boolean;
+  /** What the open PRs still lack, measured on the PR refresh ("Deliver to PR"); undefined = nothing. */
+  undelivered?: (ticketId: number) => { hostAhead: number; sandboxAhead: number } | undefined;
   /**
    * Per-capability resolved agent identity computed from manifest and ticket preset/provider.
    * Plain data (no functions) suitable for serialization via postMessage.
@@ -356,6 +358,12 @@ export interface DashboardState {
   ciFailure: { available: boolean };
   /** `stage`: the stage whose header offers it (ship, or a pre-ship stage). */
   rebase: { available: boolean; stage?: string };
+  /**
+   * Ship-stage "Deliver to PR": commits not on the open PR (host worktree plus
+   * sandbox) and how many of them are still in the sandbox. Host-measured on the
+   * PR refresh; `available` is false when both are 0.
+   */
+  deliver: { available: boolean; notOnPr: number; inSandbox: number };
   /**
    * How many review items are open on this ticket's pull requests — live,
    * unresolved, not withdrawn. Carried on the snapshot (the same read the menu
