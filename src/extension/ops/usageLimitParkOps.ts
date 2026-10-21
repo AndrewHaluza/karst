@@ -8,6 +8,7 @@ import type { Notify } from './notify.js';
 import type { GitRunner } from '../../integrations/git.js';
 import type { ReviewArtifacts } from '../../workflow/review/conformance.js';
 import type { TesterGateRunner } from '../../workflow/uat/testerVerifier.js';
+import type { UatSpin, UatStopServers } from '../../workflow/stages/uat.js';
 import {
   agentSwitchCoreChoices,
   agentSwitchModelChoices,
@@ -145,6 +146,13 @@ export interface UsageLimitActionCommonDeps {
     provider: AgentProvider,
     model: string | null,
   ) => ProcessAssignmentSnapshot | undefined;
+  /**
+   * The service spin/stop seams (D155): a UAT re-run starts the ticket's
+   * runnable services before the Tester and stops its own stack afterwards,
+   * exactly like the stage. Both absent → no spin and no stop.
+   */
+  spin?: UatSpin;
+  stopServers?: UatStopServers;
 }
 
 export interface UsageLimitPickDeps extends UsageLimitActionCommonDeps {
@@ -191,6 +199,8 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
       loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
       runVerifier: deps.runVerifier,
       contextCommand: deps.contextCommand,
+      spin: deps.spin,
+      stopServers: deps.stopServers,
       signal,
       debug: deps.debug,
     });
@@ -201,11 +211,29 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
     return;
   }
   if (result.kind === 'stopped') {
-    deps.notify.warn('This usage limit was already handled.');
+    notifyStopped(deps, result);
     return;
   }
 
   deps.redrive(deps.ticketId);
+  deps.refresh(deps.ticketId);
+}
+
+/**
+ * A lost claim (another window got there first) touched nothing and is a
+ * no-op. A Stop is NOT that: the run may have opened, closed or interrupted
+ * rows, so the panel is refreshed — it is just never redriven, because the
+ * user stopped it on purpose.
+ */
+function notifyStopped(
+  deps: UsageLimitActionCommonDeps,
+  result: { alreadyHandled?: true },
+): void {
+  if (result.alreadyHandled) {
+    deps.notify.warn('This usage limit was already handled.');
+    return;
+  }
+  deps.notify.info('The re-run was stopped.');
   deps.refresh(deps.ticketId);
 }
 
@@ -241,6 +269,8 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
       loadArtifacts: deps.loadArtifacts ? () => deps.loadArtifacts!(deps.ticketId) : undefined,
       runVerifier: deps.runVerifier,
       contextCommand: deps.contextCommand,
+      spin: deps.spin,
+      stopServers: deps.stopServers,
       signal,
       debug: deps.debug,
     });
@@ -251,7 +281,7 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
     return;
   }
   if (result.kind === 'stopped') {
-    deps.notify.warn('This usage limit was already handled.');
+    notifyStopped(deps, result);
     return;
   }
 
@@ -313,6 +343,9 @@ export interface UsageLimitParkActionsDeps {
     provider: AgentProvider,
     model: string | null,
   ) => ProcessAssignmentSnapshot | undefined;
+  /** The service spin/stop seams (D155) for a UAT re-run. */
+  spin?: UatSpin;
+  stopServers?: UatStopServers;
   debug?: (msg: string) => void;
 }
 
@@ -345,6 +378,8 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         runVerifier: deps.runVerifier,
         contextCommand: deps.contextCommand,
         assignmentFor: deps.assignmentFor,
+        spin: deps.spin,
+        stopServers: deps.stopServers,
         debug: deps.debug,
       }),
     usageLimitRetry: (ticketId: number, stageKey: StageKey) =>
@@ -365,6 +400,8 @@ export function makeUsageLimitParkActions(deps: UsageLimitParkActionsDeps): Usag
         runVerifier: deps.runVerifier,
         contextCommand: deps.contextCommand,
         assignmentFor: deps.assignmentFor,
+        spin: deps.spin,
+        stopServers: deps.stopServers,
         debug: deps.debug,
       }),
     usageLimitDismiss: (ticketId: number, stageKey: StageKey) =>

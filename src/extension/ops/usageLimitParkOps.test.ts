@@ -11,10 +11,38 @@ import {
 } from './usageLimitParkOps.js';
 import { openStore } from '../../store/db.js';
 import { insertOpenPark, listOpenParks, listParks, claimUsageLimitPark } from '../../store/usageLimitParks.js';
-import { createTicketFlow } from '../../workflow/stages/create.js';
+import { createTicketFlow as createTicketFlowBase } from '../../workflow/stages/create.js';
 import { setStage, getStage } from '../../store/stages.js';
+import { transition } from '../../workflow/machine.js';
+import { updateTicketFields } from '../../store/tickets.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
+import type { Store } from '../../store/db.js';
+import type { Manifest } from '../../manifest/types.js';
+
+/** Register the parked target's worktree row (the re-run never guesses a tree). */
+function setWorktreePath(store: Store, ticketId: number, path: string): void {
+  store.db
+    .prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ? AND repo = ?')
+    .run(path, ticketId, 'repo');
+}
+
+/**
+ * The ops tests park on repository `repo`. Production always has a worktree
+ * row for a parked target (the stage could not have run without one), and the
+ * re-run resolves through it — so the fixture registers it too, at the default
+ * `cwd` (`process.cwd()`); a test that overrides `cwd` repoints it.
+ */
+function createTicketFlow(
+  store: Store,
+  input: Parameters<typeof createTicketFlowBase>[1],
+): ReturnType<typeof createTicketFlowBase> {
+  const ticket = createTicketFlowBase(store, input);
+  store.db
+    .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+    .run(ticket.id, 'repo', process.cwd(), 'karst/repo', 'develop');
+  return ticket;
+}
 
 describe('usageLimitParkOps', () => {
   const fakeCatalog: ModelCatalog = {
@@ -126,6 +154,7 @@ describe('usageLimitParkOps', () => {
     it('claims park, executes rerunParkedStage, and redrives when user picks new model', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setWorktreePath(store, ticket.id, '/tmp');
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -326,12 +355,99 @@ describe('usageLimitParkOps', () => {
       expect(redrive).not.toHaveBeenCalled();
       expect(listOpenParks(store, ticket.id)).toHaveLength(1);
     });
+
+    it('refreshes a user-stopped re-run instead of reporting it as already handled', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const warn = vi.fn();
+      const info = vi.fn();
+      const redrive = vi.fn();
+      const refresh = vi.fn();
+      await handleUsageLimitPick({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        catalog: fakeCatalog,
+        notify: { info, warn, error: vi.fn() },
+        pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
+        pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
+        redrive,
+        refresh,
+        adapterFor: vi.fn(),
+        runExclusive: (async () => ({ kind: 'stopped' })) as unknown as ExclusiveRunner,
+      });
+
+      expect(info).toHaveBeenCalledWith('The re-run was stopped.');
+      expect(warn).not.toHaveBeenCalledWith('This usage limit was already handled.');
+      // The stopped run opened/closed rows: the panel must see them.
+      expect(refresh).toHaveBeenCalledWith(ticket.id);
+      // A Stop is deliberate — never redrive it.
+      expect(redrive).not.toHaveBeenCalled();
+    });
+
+    it('does not refresh when the park was already handled by another window', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const warn = vi.fn();
+      const refresh = vi.fn();
+      await handleUsageLimitPick({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        catalog: fakeCatalog,
+        notify: { info: vi.fn(), warn, error: vi.fn() },
+        pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
+        pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
+        redrive: vi.fn(),
+        refresh,
+        adapterFor: vi.fn(),
+        runExclusive: (async () => ({ kind: 'stopped', alreadyHandled: true })) as unknown as ExclusiveRunner,
+      });
+
+      expect(warn).toHaveBeenCalledWith('This usage limit was already handled.');
+      expect(refresh).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleUsageLimitRetry', () => {
     it('claims park with resolution retry, re-runs with original provider/model, and redrives', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setWorktreePath(store, ticket.id, '/tmp');
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -966,6 +1082,66 @@ describe('usageLimitParkOps', () => {
       const choices3 = formatModelChoices('claude', fakeCatalogNoDesc, 'claude-custom');
       const target3 = choices3.find((c) => c.model === 'claude-custom');
       expect(target3?.description).toBe('claude-custom (usage limit)');
+    });
+
+    it('threads the service spin/stop seams into a UAT re-run', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-UAT-SPIN', title: 'Test ticket' });
+      setWorktreePath(store, ticket.id, '/tmp');
+      updateTicketFields(store, ticket.id, { selectedRepos: ['repo'] });
+      transition(store, ticket.id, 'scope', { kind: 'passed' });
+      transition(store, ticket.id, 'impl', { kind: 'passed' }); // -> uat
+      setStage(store, ticket.id, 'uat', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'uat',
+        kind: 'stage-block',
+        lane: 'uat',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+      const manifest = {
+        repositories: {
+          repo: { repoPath: '/tmp', hasMigrations: false, service: { start: 'npm run dev' } },
+        },
+        uat: { testerObservations: { blockingSeverity: 'none' } },
+      } as unknown as Manifest;
+      const spin = vi.fn(async () => ({ servers: [], reclaimedPids: [] }));
+      const stopServers = vi.fn(async () => undefined);
+      const redrive = vi.fn();
+      const mockAdapter = {
+        runHeadless: vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: '[]' }),
+      } as unknown as AgentAdapter;
+
+      const actions = makeUsageLimitParkActions({
+        store,
+        ticketId: ticket.id,
+        notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        catalog: () => fakeCatalog,
+        manifest: () => manifest,
+        redrive,
+        refresh: vi.fn(),
+        pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
+        pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
+        adapterFor: vi.fn().mockReturnValue(mockAdapter),
+        artifactDir: () => '',
+        cwd: () => '/tmp',
+        spin,
+        stopServers,
+      });
+
+      await actions.usageLimitPick(ticket.id, 'uat');
+
+      expect(spin).toHaveBeenCalledWith(store, manifest, ticket.id, ['repo'], expect.anything());
+      expect(stopServers).toHaveBeenCalledWith(store, ticket.id);
+      expect(redrive).toHaveBeenCalledWith(ticket.id);
     });
 
     it('delegates makeUsageLimitParkActions to handlers', async () => {

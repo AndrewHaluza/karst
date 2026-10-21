@@ -13,7 +13,14 @@ import { capForGate, type GateStageKey } from './fixAttempts.js';
 import { nowIso } from '../model/time.js';
 import { join } from 'node:path';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { listWorktreesByTicket, listServersByTicket } from '../store/dashboard.js';
+import {
+  listWorktreesByTicket,
+  listServersByTicket,
+  type WorktreeView,
+} from '../store/dashboard.js';
+import { runnableSubset, unitsOfRepos } from '../manifest/runnable.js';
+import { SpinCancelledError } from '../runtime/spin.js';
+import type { UatSpin, UatStopServers } from './stages/uat.js';
 import {
   runFindingsLane,
   type FindingsLaneTarget,
@@ -29,7 +36,7 @@ import {
   type AggregateEntry,
   type FindingsLaneOutcome,
 } from './review/aggregate.js';
-import { listGateRuns } from '../store/gateRuns.js';
+import { listGateRuns, type GateRun } from '../store/gateRuns.js';
 import { finishProcessRun, listProcessRuns, setProcessRunResultKind } from '../store/processRuns.js';
 import { collapseDiagnostic } from '../model/diagnosticText.js';
 import {
@@ -341,6 +348,19 @@ export interface RerunParkOptions {
    * weaker question than the run it replaces.
    */
   contextCommand?: string;
+  /**
+   * Start the ticket's runnable services before the Tester, exactly like the
+   * UAT stage (D155). Without it a browser re-run is told its change is not
+   * live even though the stage would have started the app. Absent, or no
+   * runnable repository in scope, or no matching `stopServers` → no spin, no
+   * stop. A spin failure parks `boot-failed`; a cancel is a Stop.
+   */
+  spin?: UatSpin;
+  /**
+   * Stop the stack THIS re-run started, on every exit path. A stack the user
+   * already started is theirs and is left alone (mirrors `UatDeps.stopServers`).
+   */
+  stopServers?: UatStopServers;
 }
 
 /**
@@ -361,11 +381,126 @@ function assignmentFor(
   };
 }
 
+/**
+ * The result of a one-shot re-run. `alreadyHandled` distinguishes the pre-run
+ * no-ops (the park was claimed by another window, or names no lane this path
+ * can run) from a run the USER stopped: a Stop carries opened, closed and
+ * interrupted rows that the dashboard must refresh, and calling it "already
+ * handled" both lies and leaves the panel stale.
+ */
+export type RerunParkResult = StageRunResult & { alreadyHandled?: true };
+
 /** The options a re-run uses once the claim won and its adapter exists. */
 type ClaimedRerunOptions = RerunParkOptions & {
   adapter: AgentAdapter;
   assignment: ProcessAssignmentSnapshot;
 };
+
+/** A target's tree, as the parked run recorded it (or the primary `cwd`). */
+interface TargetTree {
+  path: string;
+  baseRef: string | null;
+  branch: string | null;
+}
+
+/**
+ * Resolve one asked repository to the tree it must be reviewed/tested in.
+ *
+ * A target with NO registered worktree row must never fall back to `cwd`: that
+ * reviews or tests the primary checkout under another repository's name. The
+ * only legitimate `cwd` substitution is the no-manifest path, where the stage
+ * itself asked exactly `cwd` (so the repo it recorded IS that path). Anything
+ * else is unresolvable and the caller parks instead of asking the wrong tree.
+ */
+function targetTree(
+  worktrees: readonly WorktreeView[],
+  repo: string,
+  cwd: string,
+): TargetTree | null {
+  const wt = worktrees.find((w) => w.repo === repo);
+  if (wt) return { path: wt.path, baseRef: wt.baseRef, branch: wt.branch };
+  return repo === cwd ? { path: cwd, baseRef: null, branch: null } : null;
+}
+
+/** The repos this run cannot ask, because the ticket has no worktree row for them. */
+function unresolvedTargets(
+  worktrees: readonly WorktreeView[],
+  repos: readonly string[],
+  cwd: string,
+): string[] {
+  return repos.filter((repo) => targetTree(worktrees, repo, cwd) === null);
+}
+
+/**
+ * Park the stage because one of the targets has no registered worktree.
+ *
+ * Committed as a BLOCK through the shared outcome writer, never run against a
+ * guessed tree: the one-shot was spent and the stage is left with an actionable,
+ * resumable reason (`nothing-to-run`) instead of a review/UAT of the wrong
+ * checkout wearing the target's name.
+ */
+function commitUnresolvedTargets(args: {
+  store: Store;
+  ticketId: number;
+  stageKey: GateStageKey;
+  runAt: string;
+  artifactDir: string;
+  stageRunId: number;
+  lane: 'review' | 'uat';
+  reason: string;
+  now: () => string;
+  debug?: (m: string) => void;
+}): StageRunResult {
+  const artifactPath = args.artifactDir
+    ? join(args.artifactDir, `${args.lane}-ticket-${args.ticketId}-${args.stageRunId}.log`)
+    : '';
+  if (artifactPath) {
+    mkdirSync(args.artifactDir, { recursive: true });
+    writeFileSync(artifactPath, `! ${args.reason}\n`);
+  }
+  return commitGateOutcome(args.store, {
+    ticketId: args.ticketId,
+    stageKey: args.stageKey,
+    runAt: args.runAt,
+    artifactPath,
+    gates: [],
+    outcome: { kind: 'blocked', blocker: 'nothing-to-run', reason: args.reason },
+    stageRunId: args.stageRunId,
+    now: args.now,
+    debug: args.debug,
+  });
+}
+
+/**
+ * The parked run's rows as aggregate entries — actual gate invocations only.
+ *
+ * A stage run also records NON-gate evidence under the same `stage_run_id`: the
+ * `changes` row (Changes panel opened) carries `exitCode: 0` but no invocation
+ * identity, and a skipped row names a gate the user disabled. Feeding either to
+ * `aggregateReview` would count a question nobody asked as a gate that RAN (R3)
+ * and as an identity UAT never asked (R7), letting the re-run pass a review that
+ * asked nothing. A real invocation is exactly a non-skipped row that recorded
+ * its `{repo, command}` (v21 identity).
+ */
+function reviewEntriesFrom(runs: readonly GateRun[]): AggregateEntry[] {
+  return runs
+    .filter((r) => !r.skipped && r.repo !== null && r.command !== null)
+    .map((r) => ({
+      result: {
+        name: r.gateName,
+        exitCode: r.exitCode,
+        output: r.summary ?? '',
+        startedAt: r.startedAt ?? undefined,
+        endedAt: r.endedAt ?? undefined,
+      },
+      identity: {
+        name: r.gateName,
+        repo: r.repo ?? '',
+        command: r.command ?? r.gateName,
+        args: r.args ?? [],
+      },
+    }));
+}
 
 /**
  * Every manifest entry backed by this worktree path. The UAT stage derives the
@@ -379,7 +514,7 @@ function manifestNamesFor(manifest: Manifest | undefined, repoPath: string): str
     .map(([name]) => name);
 }
 
-export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRunResult> {
+export async function rerunParkedStage(opts: RerunParkOptions): Promise<RerunParkResult> {
   const store = opts.store;
   const parkRow = opts.parkRow;
   const now = opts.now ?? nowIso;
@@ -397,7 +532,7 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
   // park is left OPEN for the op path (the claim below would resolve it).
   if (parkRow.kind !== 'stage-block') {
     opts.debug?.(`[usageLimit] park ${parkRow.id} is an op park — the op path owns it`);
-    return { kind: 'stopped' };
+    return { kind: 'stopped', alreadyHandled: true };
   }
 
   const stageKey = (parkRow.stage ?? (parkRow.lane === 'uat' ? 'uat' : 'review')) as GateStageKey;
@@ -406,7 +541,7 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
     // OPEN. Claiming it first would consume it and run nothing — the park would
     // read as handled while its stage is still blocked on the usage limit.
     opts.debug?.(`[usageLimit] park ${parkRow.id} names no re-runnable lane — left open`);
-    return { kind: 'stopped' };
+    return { kind: 'stopped', alreadyHandled: true };
   }
 
   // 1. Claim the park row atomically before building anything or running. A
@@ -415,7 +550,7 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<StageRun
   const claim = claimUsageLimitPark(store, parkRow.id, opts.resolution ?? 'rerun', runAt);
   if (!claim.claimed) {
     opts.debug?.(`[usageLimit] park ${parkRow.id} already claimed or invalid`);
-    return { kind: 'stopped' };
+    return { kind: 'stopped', alreadyHandled: true };
   }
 
   // 2. Build the adapter ONLY after the claim. The host hands a factory so the
@@ -476,13 +611,36 @@ async function rerunReviewParkedStage(
   const worktrees = listWorktreesByTicket(store, parkRow.ticketId);
   const keptTargets = parseReviewKeptOutcome(parkRow.keptOutcome).targets;
   const askedRepos = laneTargetsToAsk(keptTargets, targetRepo);
+
+  // Never substitute `cwd` for a target the ticket has no worktree row for:
+  // that reviews another repository's checkout under this target's name.
+  const unresolved = unresolvedTargets(worktrees, askedRepos, cwd);
+  if (unresolved.length > 0) {
+    const reason =
+      `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
+      'so there is no tree to review — re-scope the ticket';
+    debug?.(`[gate] review ticket ${parkRow.ticketId}: ${reason}`);
+    return commitUnresolvedTargets({
+      store,
+      ticketId: parkRow.ticketId,
+      stageKey,
+      runAt,
+      artifactDir,
+      stageRunId: newStageRunId,
+      lane: 'review',
+      reason,
+      now,
+      debug,
+    });
+  }
+
   const laneTargets: FindingsLaneTarget[] = askedRepos.map((repo) => {
-    const wt = worktrees.find((w) => w.repo === repo);
+    const tree = targetTree(worktrees, repo, cwd)!;
     return {
       repo,
-      worktreePath: wt?.path ?? cwd,
-      baseRef: wt?.baseRef ?? null,
-      branch: wt?.branch ?? null,
+      worktreePath: tree.path,
+      baseRef: tree.baseRef,
+      branch: tree.branch,
     };
   });
 
@@ -606,24 +764,14 @@ async function rerunReviewParkedStage(
           }
         : laneOutcome;
 
+  // The deterministic gates this review stands in for ran in the PARKED run.
+  // Only its actual gate invocations are inputs to the aggregate: the run's
+  // non-gate evidence (the `changes` row, skipped rows) asked nothing and must
+  // not let R3/R7 read the re-run as having asked a question.
   const previousGateRuns = listGateRuns(store, parkRow.ticketId).filter(
     (r) => r.stageKey === 'review' && r.stageRunId === parkRow.stageRunId,
   );
-  const entries: AggregateEntry[] = previousGateRuns.map((r) => ({
-    result: {
-      name: r.gateName,
-      exitCode: r.exitCode,
-      output: r.summary ?? '',
-      startedAt: r.startedAt ?? undefined,
-      endedAt: r.endedAt ?? undefined,
-    },
-    identity: {
-      name: r.gateName,
-      repo: r.repo ?? '',
-      command: r.command ?? r.gateName,
-      args: r.args ?? [],
-    },
-  }));
+  const entries: AggregateEntry[] = reviewEntriesFrom(previousGateRuns);
 
   const uatIdentities = uatIdentitiesFrom(listGateRuns(store, parkRow.ticketId));
   const blockingSeverity = config.blockingSeverity;
@@ -800,279 +948,400 @@ async function rerunUatParkedStage(
   // original Tester never reached (recorded `not-run` on the park row).
   const askedRepos = laneTargetsToAsk(siblingTargets, targetRepo);
 
-  // Built through the SAME mapper the stage uses (`testerTargets`): the prompt
-  // must name this target's base branch, its ticket branch and any service karst
-  // already started for it. A bare `{repo, worktreePath}` target told the Tester
-  // its change was not live even when a service WAS running.
-  const targets = testerTargets(
-    manifest,
-    askedRepos.map((repo) => ({
-      repo,
-      path: worktrees.find((w) => w.repo === repo)?.path ?? cwd,
-      names: manifestNamesFor(manifest, repo),
-    })),
-    worktrees,
-    listServersByTicket(store, parkRow.ticketId),
-  );
+  // Never test another repository's checkout under this target's name: a target
+  // with no worktree row parks instead of falling back to `cwd`.
+  const unresolved = unresolvedTargets(worktrees, askedRepos, cwd);
+  if (unresolved.length > 0) {
+    const reason =
+      `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
+      'so there is no tree to test — re-scope the ticket';
+    debug?.(`[gate] uat ticket ${parkRow.ticketId}: ${reason}`);
+    return commitUnresolvedTargets({
+      store,
+      ticketId: parkRow.ticketId,
+      stageKey,
+      runAt,
+      artifactDir,
+      stageRunId: newStageRunId,
+      lane: 'uat',
+      reason,
+      now,
+      debug,
+    });
+  }
 
-  const blockingSeverity = manifest?.uat?.testerObservations?.blockingSeverity ?? 'none';
   // The Tester is asked about the SAME ticket the stage asks about: its
   // done-when criteria (`description`), its canonical intent and key. Without
   // them the re-run would judge a different, weaker question than the run it
   // replaces — and a passing re-run could advance on a generic "does it work".
   const ticket = getTicket(store, parkRow.ticketId);
-  const testerResult = await runUatTester(
-    store,
-    {
-      ticketId: parkRow.ticketId,
-      targets,
-      // The role-resolved snapshot (profile instructions, effort, agent name),
-      // with the one-shot pick on top — never a provider/model stub.
-      assignment,
-      adapter,
-      stageRunId: newStageRunId,
-      attempt,
-      signal,
-      // Snapshot the worktree exactly like the stage's Tester: committed AND
-      // uncommitted work as one tree, never a committed-only branch range.
-      git,
-      criteria: ticket.description,
-      intent: ticket.intent,
-      ticketKey: ticket.key,
-      contextCommand: opts.contextCommand,
-      debug,
-      observationsBlockingSeverity: blockingSeverity,
-      tokenBudget: manifest?.uat?.tester?.tokenBudget,
-    },
-    { now },
-  );
 
-  if (testerResult.kind === 'interrupted') {
-    // Close the run this re-run opened (see the review stopped path).
-    closeStageRun(store, newStageRunId, 'stopped', now());
-    return { kind: 'stopped' };
-  }
-
-  // Find the opened tester process run id
-  let testerRunId: number | null = null;
-  for (const run of listProcessRuns(store, parkRow.ticketId).reverse()) {
-    if (run.processId === 'tester' && run.stageRunId === newStageRunId) {
-      testerRunId = run.id;
-      break;
+  // ---- Plan the ticket's services exactly like the UAT stage (D155) ----
+  // A browser re-run must exercise a LIVE app, so the services the stage would
+  // have started are started here too. A stack the user already runs is theirs:
+  // karst neither spins nor stops it. Anything less than the whole stack is the
+  // re-run's (spinTicket stops every ticket server first), so it is stopped
+  // again on every exit path — including a partial spin failure.
+  const spinFn = opts.spin;
+  const stopFn = opts.stopServers;
+  const spinManifest = manifest;
+  let ownsStack = false;
+  let spinHot: string[] = [];
+  if (spinFn && stopFn && spinManifest !== undefined) {
+    const hot = runnableSubset(spinManifest, ticket.selectedRepos);
+    if (hot.length > 0) {
+      const running = new Set(
+        listServersByTicket(store, parkRow.ticketId)
+          .filter((s) => s.status === 'running')
+          .map((s) => s.service),
+      );
+      const needed = unitsOfRepos(spinManifest, hot).map((u) => u.key);
+      if (needed.length > 0 && needed.every((key) => running.has(key))) {
+        debug?.(
+          `[gate] uat ticket ${parkRow.ticketId}: ${needed.length} service(s) already running — ` +
+            `reusing the user's stack, no spin and no stop`,
+        );
+      } else {
+        ownsStack = true;
+        spinHot = hot;
+      }
     }
   }
 
-  // The host may pass an empty artifactDir (no artifact directory configured);
-  // `mkdirSync('')` throws ENOENT, so guard it exactly like the review path.
-  const artifactPath = artifactDir
-    ? join(artifactDir, `uat-ticket-${parkRow.ticketId}-${newStageRunId}.log`)
-    : '';
-  if (artifactPath) {
-    mkdirSync(artifactDir, { recursive: true });
-    writeFileSync(
-      artifactPath,
-      `! re-run parked uat: target(s) ${askedRepos.join(', ')} with ${assignment.provider}/${assignment.model ?? 'default'}\n`,
+  /** The Tester half, run AFTER the services are up and closed by `finally`. */
+  const runTesterAndCommit = async (): Promise<StageRunResult> => {
+    // Built AFTER the spin so the prompt names the services THIS run started —
+    // through the SAME mapper the stage uses (`testerTargets`): base branch,
+    // ticket branch and each target's running services.
+    const targets = testerTargets(
+      manifest,
+      askedRepos.map((repo) => ({
+        repo,
+        path: targetTree(worktrees, repo, cwd)!.path,
+        names: manifestNamesFor(manifest, repo),
+      })),
+      worktrees,
+      listServersByTicket(store, parkRow.ticketId),
     );
-  }
 
-  // Calculate the blocking count across newly observed findings and the sibling
-  // observations the earlier park kept. The siblings are NOT re-inserted into
-  // `uat_findings`: they were recorded by the run that made them and still read
-  // back from the store, so writing them again under this run's process would
-  // duplicate every row across runs. They are only counted here — the verdict
-  // must not discard a blocking observation a partner target already reported.
-  let combinedBlocking = 0;
-  let combinedSummary: string | undefined;
-  {
-    const newlyObservedFindings =
-      testerResult.kind === 'observed' || testerResult.kind === 'partial'
-        ? listUatFindings(store, parkRow.ticketId)
-            .filter((f) => testerRunId !== null && f.processRunId === testerRunId)
-            .map((f) => ({
-              severity: f.severity,
-              repo: f.repo,
-              file: f.filePath,
-              line: f.line,
-              title: f.title,
-            }))
-        : [];
-    const counted = countBlockingObservations(
-      [...newlyObservedFindings, ...siblingObservations],
-      blockingSeverity,
-    );
-    combinedBlocking = counted.blocking;
-    combinedSummary = counted.blockingSummary;
-  }
-
-  if (testerResult.kind === 'unreadable-output') {
-    const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
-    return commitGateOutcome(store, {
-      ticketId: parkRow.ticketId,
-      stageKey,
-      runAt,
-      artifactPath,
-      gates: [],
-      outcome: {
-        kind: 'blocked',
-        blocker: 'capability-missing',
-        reason,
-      },
-      stageRunId: newStageRunId,
-      now,
-      debug,
-    });
-  }
-
-  if (testerResult.kind === 'usage-limited') {
-    return commitGateOutcome(store, {
-      ticketId: parkRow.ticketId,
-      stageKey,
-      runAt,
-      artifactPath,
-      gates: [],
-      outcome: {
-        kind: 'blocked',
-        blocker: 'usage-limit',
-        reason: testerResult.detail,
-        park: {
-          provider: testerResult.provider,
-          model: testerResult.model,
-          lane: 'uat',
-          target: testerResult.target,
-          detail: testerResult.detail,
-          keptOutcome: mergeUatKeptOutcome(
-            testerResult.keptOutcome,
-            siblingObservations,
-            siblingTargets,
-          ),
-        },
-      },
-      stageRunId: newStageRunId,
-      now,
-      debug,
-    });
-  }
-
-  // The optional deterministic verifier: the stage runs it AFTER the Tester and
-  // BEFORE deciding, so a re-run that skipped it would commit a PASSED UAT with
-  // the exit-code boundary never executed — the "a verdict comes from an exit
-  // code, never an agent's self-report" invariant bypassed. Absent with no
-  // verifier configured → nothing runs, and the observations are governed by the
-  // threshold below alone.
-  const verifierGate = manifest?.uat?.testerVerifier;
-  if (verifierGate !== undefined) {
-    const verification = await runTesterVerifier(
+    const blockingSeverity = manifest?.uat?.testerObservations?.blockingSeverity ?? 'none';
+    const testerResult = await runUatTester(
+      store,
       {
-        gate: verifierGate,
-        // The stage runs the ticket-level verifier in its FIRST target's
-        // worktree; the re-run's first asked target is the parked one.
-        cwd: targets[0]?.worktreePath ?? cwd,
+        ticketId: parkRow.ticketId,
+        targets,
+        // The role-resolved snapshot (profile instructions, effort, agent name),
+        // with the one-shot pick on top — never a provider/model stub.
+        assignment,
+        adapter,
+        stageRunId: newStageRunId,
+        attempt,
         signal,
-        onDebug: debug,
+        // Snapshot the worktree exactly like the stage's Tester: committed AND
+        // uncommitted work as one tree, never a committed-only branch range.
+        git,
+        criteria: ticket.description,
+        intent: ticket.intent,
+        ticketKey: ticket.key,
+        contextCommand: opts.contextCommand,
+        debug,
+        observationsBlockingSeverity: blockingSeverity,
+        tokenBudget: manifest?.uat?.tester?.tokenBudget,
       },
-      { run: opts.runVerifier },
+      { now },
     );
-    switch (verification.kind) {
-      case 'passed':
-      case 'absent':
-        break;
-      case 'failed': {
-        // A completed nonzero exit is a DETERMINISTIC validation failure: the
-        // Tester's observation is disproven and the failed verdict opens a
-        // recovery round naming the Tester process.
-        if (testerRunId !== null) {
-          setProcessRunResultKind(store, testerRunId, 'verification-failed');
-        }
-        const reason = `${TESTER_VERIFIER_FAILURE_PREFIX}exit code ${verification.exitCode}`;
-        const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
-        return commitGateOutcome(store, {
-          ticketId: parkRow.ticketId,
-          stageKey,
-          runAt,
-          artifactPath,
-          gates: [],
-          outcome: { kind: 'verdict', verdict: { kind: 'failed', reason } },
-          stageRunId: newStageRunId,
-          recoveryTrigger: {
-            sourceProcessId: 'tester',
-            sourceStageRunId: newStageRunId,
-            sourceProcessRunId: testerRunId,
-            triggerKind: 'tester-verifier-failure',
-            triggerDetail: reason,
-            maxRounds,
-          },
-          now,
-          debug,
-        });
-      }
-      case 'execution-failed': {
-        // A command that could not run is environmental: park, never a verdict
-        // — no attempt is consumed and no recovery round opens.
-        const reason =
-          `uat tester verifier "${verifierGate.name}" could not run: ${verification.message}`;
-        return commitGateOutcome(store, {
-          ticketId: parkRow.ticketId,
-          stageKey,
-          runAt,
-          artifactPath,
-          gates: [],
-          outcome: { kind: 'blocked', blocker: 'capability-missing', reason },
-          stageRunId: newStageRunId,
-          now,
-          debug,
-        });
-      }
-      case 'interrupted':
-        closeStageRun(store, newStageRunId, 'stopped', now());
-        return { kind: 'stopped' };
-    }
-  }
 
-  // The opt-in observation threshold, AFTER the verifier so the deterministic
-  // boundary keeps precedence — exactly the stage's order. `combinedBlocking`
-  // counts BOTH the observations the tester just recorded and the sibling
-  // observations the earlier park kept, whether or not this call executed. A
-  // failed re-run must never discard a blocking observation a partner target
-  // already reported and call the stage clean.
-  if (combinedBlocking > 0) {
-    const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${combinedSummary ?? `${combinedBlocking} blocking`}`;
-    const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
+    if (testerResult.kind === 'interrupted') {
+      // Close the run this re-run opened (see the review stopped path).
+      closeStageRun(store, newStageRunId, 'stopped', now());
+      return { kind: 'stopped' };
+    }
+
+    // Find the opened tester process run id
+    let testerRunId: number | null = null;
+    for (const run of listProcessRuns(store, parkRow.ticketId).reverse()) {
+      if (run.processId === 'tester' && run.stageRunId === newStageRunId) {
+        testerRunId = run.id;
+        break;
+      }
+    }
+
+    // The host may pass an empty artifactDir (no artifact directory configured);
+    // `mkdirSync('')` throws ENOENT, so guard it exactly like the review path.
+    const artifactPath = artifactDir
+      ? join(artifactDir, `uat-ticket-${parkRow.ticketId}-${newStageRunId}.log`)
+      : '';
+    if (artifactPath) {
+      mkdirSync(artifactDir, { recursive: true });
+      writeFileSync(
+        artifactPath,
+        `! re-run parked uat: target(s) ${askedRepos.join(', ')} with ${assignment.provider}/${assignment.model ?? 'default'}\n`,
+      );
+    }
+
+    // Calculate the blocking count across newly observed findings and the sibling
+    // observations the earlier park kept. The siblings are NOT re-inserted into
+    // `uat_findings`: they were recorded by the run that made them and still read
+    // back from the store, so writing them again under this run's process would
+    // duplicate every row across runs. They are only counted here — the verdict
+    // must not discard a blocking observation a partner target already reported.
+    let combinedBlocking = 0;
+    let combinedSummary: string | undefined;
+    {
+      const newlyObservedFindings =
+        testerResult.kind === 'observed' || testerResult.kind === 'partial'
+          ? listUatFindings(store, parkRow.ticketId)
+              .filter((f) => testerRunId !== null && f.processRunId === testerRunId)
+              .map((f) => ({
+                severity: f.severity,
+                repo: f.repo,
+                file: f.filePath,
+                line: f.line,
+                title: f.title,
+              }))
+          : [];
+      const counted = countBlockingObservations(
+        [...newlyObservedFindings, ...siblingObservations],
+        blockingSeverity,
+      );
+      combinedBlocking = counted.blocking;
+      combinedSummary = counted.blockingSummary;
+    }
+
+    if (testerResult.kind === 'unreadable-output') {
+      const reason = 'uat tester: every target answered unreadable output — nothing could be read out of it';
+      return commitGateOutcome(store, {
+        ticketId: parkRow.ticketId,
+        stageKey,
+        runAt,
+        artifactPath,
+        gates: [],
+        outcome: {
+          kind: 'blocked',
+          blocker: 'capability-missing',
+          reason,
+        },
+        stageRunId: newStageRunId,
+        now,
+        debug,
+      });
+    }
+
+    if (testerResult.kind === 'usage-limited') {
+      return commitGateOutcome(store, {
+        ticketId: parkRow.ticketId,
+        stageKey,
+        runAt,
+        artifactPath,
+        gates: [],
+        outcome: {
+          kind: 'blocked',
+          blocker: 'usage-limit',
+          reason: testerResult.detail,
+          park: {
+            provider: testerResult.provider,
+            model: testerResult.model,
+            lane: 'uat',
+            target: testerResult.target,
+            detail: testerResult.detail,
+            keptOutcome: mergeUatKeptOutcome(
+              testerResult.keptOutcome,
+              siblingObservations,
+              siblingTargets,
+            ),
+          },
+        },
+        stageRunId: newStageRunId,
+        now,
+        debug,
+      });
+    }
+
+    // The optional deterministic verifier: the stage runs it AFTER the Tester and
+    // BEFORE deciding, so a re-run that skipped it would commit a PASSED UAT with
+    // the exit-code boundary never executed — the "a verdict comes from an exit
+    // code, never an agent's self-report" invariant bypassed. Absent with no
+    // verifier configured → nothing runs, and the observations are governed by the
+    // threshold below alone.
+    const verifierGate = manifest?.uat?.testerVerifier;
+    if (verifierGate !== undefined) {
+      const verification = await runTesterVerifier(
+        {
+          gate: verifierGate,
+          // The stage runs the ticket-level verifier in its FIRST target's
+          // worktree; the re-run's first asked target is the parked one.
+          cwd: targets[0]?.worktreePath ?? cwd,
+          signal,
+          onDebug: debug,
+        },
+        { run: opts.runVerifier },
+      );
+      switch (verification.kind) {
+        case 'passed':
+        case 'absent':
+          break;
+        case 'failed': {
+          // A completed nonzero exit is a DETERMINISTIC validation failure: the
+          // Tester's observation is disproven and the failed verdict opens a
+          // recovery round naming the Tester process.
+          if (testerRunId !== null) {
+            setProcessRunResultKind(store, testerRunId, 'verification-failed');
+          }
+          const reason = `${TESTER_VERIFIER_FAILURE_PREFIX}exit code ${verification.exitCode}`;
+          const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
+          return commitGateOutcome(store, {
+            ticketId: parkRow.ticketId,
+            stageKey,
+            runAt,
+            artifactPath,
+            gates: [],
+            outcome: { kind: 'verdict', verdict: { kind: 'failed', reason } },
+            stageRunId: newStageRunId,
+            recoveryTrigger: {
+              sourceProcessId: 'tester',
+              sourceStageRunId: newStageRunId,
+              sourceProcessRunId: testerRunId,
+              triggerKind: 'tester-verifier-failure',
+              triggerDetail: reason,
+              maxRounds,
+            },
+            now,
+            debug,
+          });
+        }
+        case 'execution-failed': {
+          // A command that could not run is environmental: park, never a verdict
+          // — no attempt is consumed and no recovery round opens.
+          const reason =
+            `uat tester verifier "${verifierGate.name}" could not run: ${verification.message}`;
+          return commitGateOutcome(store, {
+            ticketId: parkRow.ticketId,
+            stageKey,
+            runAt,
+            artifactPath,
+            gates: [],
+            outcome: { kind: 'blocked', blocker: 'capability-missing', reason },
+            stageRunId: newStageRunId,
+            now,
+            debug,
+          });
+        }
+        case 'interrupted':
+          closeStageRun(store, newStageRunId, 'stopped', now());
+          return { kind: 'stopped' };
+      }
+    }
+
+    // The opt-in observation threshold, AFTER the verifier so the deterministic
+    // boundary keeps precedence — exactly the stage's order. `combinedBlocking`
+    // counts BOTH the observations the tester just recorded and the sibling
+    // observations the earlier park kept, whether or not this call executed. A
+    // failed re-run must never discard a blocking observation a partner target
+    // already reported and call the stage clean.
+    if (combinedBlocking > 0) {
+      const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${combinedSummary ?? `${combinedBlocking} blocking`}`;
+      const maxRounds = capForGate('uat', manifest?.uat?.maxFixAttempts, manifest?.review?.maxFixAttempts);
+      return commitGateOutcome(store, {
+        ticketId: parkRow.ticketId,
+        stageKey,
+        runAt,
+        artifactPath,
+        gates: [],
+        outcome: { kind: 'verdict', verdict: { kind: 'failed', reason } },
+        stageRunId: newStageRunId,
+        recoveryTrigger: {
+          sourceProcessId: 'tester',
+          sourceStageRunId: newStageRunId,
+          sourceProcessRunId: testerRunId,
+          triggerKind: 'blocking-tester-observations',
+          triggerDetail: reason,
+          maxRounds,
+        },
+        now,
+        debug,
+      });
+    }
+
+    // Gates passed, the Tester had no blocking observations, and the verifier
+    // (when configured) passed.
     return commitGateOutcome(store, {
       ticketId: parkRow.ticketId,
       stageKey,
       runAt,
       artifactPath,
       gates: [],
-      outcome: { kind: 'verdict', verdict: { kind: 'failed', reason } },
-      stageRunId: newStageRunId,
-      recoveryTrigger: {
-        sourceProcessId: 'tester',
-        sourceStageRunId: newStageRunId,
-        sourceProcessRunId: testerRunId,
-        triggerKind: 'blocking-tester-observations',
-        triggerDetail: reason,
-        maxRounds,
+      outcome: {
+        kind: 'verdict',
+        verdict: { kind: 'passed' },
       },
+      stageRunId: newStageRunId,
       now,
       debug,
     });
-  }
+  };
 
-  // Gates passed, the Tester had no blocking observations, and the verifier
-  // (when configured) passed.
-  return commitGateOutcome(store, {
-    ticketId: parkRow.ticketId,
-    stageKey,
-    runAt,
-    artifactPath,
-    gates: [],
-    outcome: {
-      kind: 'verdict',
-      verdict: { kind: 'passed' },
-    },
-    stageRunId: newStageRunId,
-    now,
-    debug,
-  });
+  try {
+    // The spin is INSIDE the try so the `finally` covers a partial failure too:
+    // `spinTicket` leaves the services it already started running when a later
+    // one fails, and a `boot-failed` park must still stop whatever came up.
+    if (ownsStack && spinFn && spinManifest !== undefined) {
+      debug?.(
+        `[gate] uat ticket ${parkRow.ticketId}: spinning ${spinHot.length} runnable repo(s) before the Tester`,
+      );
+      try {
+        await spinFn(store, spinManifest, parkRow.ticketId, spinHot, {
+          signal,
+          debug,
+        });
+      } catch (error) {
+        // A Stop is a cancel, never an environment fault.
+        if (error instanceof SpinCancelledError) {
+          debug?.(`[gate] uat ticket ${parkRow.ticketId}: spin cancelled — stopped`);
+          closeStageRun(store, newStageRunId, 'stopped', now());
+          return { kind: 'stopped' };
+        }
+        // An environment fault is a BLOCK, never a failed verdict: the code was
+        // not judged, so no fix round may be spent on it.
+        const reason =
+          `could not start the ticket's services: ` +
+          (error instanceof Error ? error.message : String(error));
+        debug?.(`[gate] uat ticket ${parkRow.ticketId}: spin failed — parked boot-failed`);
+        const bootPath = artifactDir
+          ? join(artifactDir, `uat-ticket-${parkRow.ticketId}-${newStageRunId}.log`)
+          : '';
+        if (bootPath) {
+          mkdirSync(artifactDir, { recursive: true });
+          writeFileSync(bootPath, `! ${reason}\n`);
+        }
+        return commitGateOutcome(store, {
+          ticketId: parkRow.ticketId,
+          stageKey,
+          runAt,
+          artifactPath: bootPath,
+          gates: [],
+          outcome: { kind: 'blocked', blocker: 'boot-failed', reason },
+          stageRunId: newStageRunId,
+          now,
+          debug,
+        });
+      }
+    }
+    return await runTesterAndCommit();
+  } finally {
+    // Stop the services THIS re-run started on every exit path. A stack the
+    // user owns is untouched. Best-effort: a stop that cannot run must never
+    // replace the stage's own outcome.
+    if (ownsStack && stopFn) {
+      try {
+        await stopFn(store, parkRow.ticketId);
+        debug?.(`[gate] uat ticket ${parkRow.ticketId}: stopped the ticket's services after the re-run`);
+      } catch (error) {
+        debug?.(
+          `[gate] uat ticket ${parkRow.ticketId}: stopping the ticket's services failed: ` +
+            (error instanceof Error ? error.message : String(error)),
+        );
+      }
+    }
+  }
 }
 

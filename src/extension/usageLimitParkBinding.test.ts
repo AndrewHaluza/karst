@@ -4,10 +4,18 @@ import type { ModelCatalog } from '../agent/modelCatalog.js';
 import type { Manifest } from '../manifest/types.js';
 import type { GitRunner } from '../integrations/git.js';
 
-const { showQuickPick, mockedRunProcess, mockedDefaultGitRunner } = vi.hoisted(() => ({
+const {
+  showQuickPick,
+  mockedRunProcess,
+  mockedDefaultGitRunner,
+  mockedSpinTicket,
+  mockedStopTicketServers,
+} = vi.hoisted(() => ({
   showQuickPick: vi.fn(),
   mockedRunProcess: vi.fn(),
   mockedDefaultGitRunner: vi.fn(),
+  mockedSpinTicket: vi.fn(),
+  mockedStopTicketServers: vi.fn(),
 }));
 
 // The binding is the vscode half; the mock gives it a QuickPick surface.
@@ -21,6 +29,16 @@ vi.mock('../workflow/gates/run.js', async (importOriginal) => ({
 vi.mock('../integrations/git.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   defaultGitRunner: mockedDefaultGitRunner,
+}));
+// The service seams a UAT re-run defaults to (D155) are mocked the same way:
+// the default branches must start/stop the ticket's stack without a real boot.
+vi.mock('../runtime/spin.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  spinTicket: mockedSpinTicket,
+}));
+vi.mock('../runtime/supervisor.js', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  stopTicketServers: mockedStopTicketServers,
 }));
 
 import {
@@ -61,6 +79,10 @@ beforeEach(() => {
   mockedRunProcess.mockReset();
   mockedDefaultGitRunner.mockReset();
   mockedDefaultGitRunner.mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'no git' });
+  mockedSpinTicket.mockReset();
+  mockedSpinTicket.mockResolvedValue({ servers: [], reclaimedPids: [] });
+  mockedStopTicketServers.mockReset();
+  mockedStopTicketServers.mockResolvedValue(undefined);
   fakeAdapter.runHeadless = vi.fn().mockResolvedValue({ exitCode: 0, stdout: '[]', stderr: '' });
   uatAdapter.runHeadless = vi.fn().mockResolvedValue({ sessionId: '', verdict: null, raw: JSON.stringify([]) });
 });
@@ -141,9 +163,17 @@ describe('driverLockedRun', () => {
 });
 
 describe('createUsageLimitParkBinding', () => {
+  /** The parked target's worktree row: the re-run resolves trees through it. */
+  function registerWorktree(store: ReturnType<typeof openStore>, ticketId: number): void {
+    store.db
+      .prepare('INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, ?, ?, ?, ?)')
+      .run(ticketId, 'repo', '/tmp', 'karst/repo', 'develop');
+  }
+
   function setup() {
     const store = openStore(':memory:');
     const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+    registerWorktree(store, ticket.id);
     // The intent reaches the re-run's prompt ONLY through the artifacts loader
     // — with the default one, the conformance block appears.
     updateTicketFields(store, ticket.id, { intent: 'THE INTENT' });
@@ -273,6 +303,7 @@ describe('createUsageLimitParkBinding', () => {
   it('defaults the verifier runner to the production seam', async () => {
     const store = openStore(':memory:');
     const ticket = createTicketFlow(store, { key: 'TEST-2', title: 'UAT ticket' });
+    registerWorktree(store, ticket.id);
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' });
     setStage(store, ticket.id, 'uat', {
@@ -309,9 +340,59 @@ describe('createUsageLimitParkBinding', () => {
     expect(mockedRunProcess).toHaveBeenCalled();
   });
 
+  it('defaults the service spin/stop seams for a UAT re-run', async () => {
+    const store = openStore(':memory:');
+    const ticket = createTicketFlow(store, { key: 'TEST-SPIN', title: 'UAT ticket' });
+    registerWorktree(store, ticket.id);
+    updateTicketFields(store, ticket.id, { selectedRepos: ['repo'] });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    setStage(store, ticket.id, 'uat', {
+      blockedKind: 'usage-limit',
+      blockedReason: 'out of credits',
+      blockedAt: '2026-10-14T00:00:00Z',
+    });
+    insertOpenPark(store, {
+      ticketId: ticket.id,
+      stage: 'uat',
+      kind: 'stage-block',
+      lane: 'uat',
+      target: 'repo',
+      provider: 'claude',
+      model: 'claude-3-7-sonnet',
+      detail: 'out of credits',
+      keptOutcome: null,
+    });
+    showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
+    showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
+    const manifest = {
+      repositories: {
+        repo: { repoPath: '/tmp', hasMigrations: false, service: { start: 'npm run dev' } },
+      },
+      uat: { testerObservations: { blockingSeverity: 'none' } },
+    } as unknown as Manifest;
+
+    const actions = binding(store, ticket.id, {
+      manifest: () => manifest,
+      git: failingGit,
+      adapterFor: vi.fn().mockReturnValue(uatAdapter),
+    }).forTicket(ticket.id);
+    await actions.usageLimitPick(ticket.id, 'uat');
+
+    expect(mockedSpinTicket).toHaveBeenCalledWith(
+      store,
+      manifest,
+      ticket.id,
+      ['repo'],
+      expect.anything(),
+    );
+    expect(mockedStopTicketServers).toHaveBeenCalledWith(store, ticket.id);
+  });
+
   it('threads the stage context pointer into a UAT re-run prompt', async () => {
     const store = openStore(':memory:');
     const ticket = createTicketFlow(store, { key: 'TEST-CTX', title: 'UAT ticket' });
+    registerWorktree(store, ticket.id);
     transition(store, ticket.id, 'scope', { kind: 'passed' });
     transition(store, ticket.id, 'impl', { kind: 'passed' });
     setStage(store, ticket.id, 'uat', {

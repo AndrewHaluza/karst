@@ -11,6 +11,9 @@ import { defaultGitRunner } from '../integrations/git.js';
 import { runProcess } from '../workflow/gates/run.js';
 import type { ReviewArtifacts } from '../workflow/review/conformance.js';
 import type { TesterGateRunner } from '../workflow/uat/testerVerifier.js';
+import type { UatSpin, UatStopServers } from '../workflow/stages/uat.js';
+import { spinTicket } from '../runtime/spin.js';
+import { stopTicketServers } from '../runtime/supervisor.js';
 import type { Notify } from './ops/notify.js';
 import {
   makeUsageLimitParkActions,
@@ -102,6 +105,12 @@ export interface UsageLimitParkBindingDeps {
   runVerifier?: TesterGateRunner;
   /** The composed `karst context` prefix the UAT Tester prompt may name. */
   contextCommand?: string;
+  /**
+   * The service spin/stop seams (D155). Default to the real implementations so
+   * a UAT re-run exercises a live app exactly like the stage; a test overrides.
+   */
+  spin?: UatSpin;
+  stopServers?: UatStopServers;
   debug?: (msg: string) => void;
 }
 
@@ -113,6 +122,8 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
   // unchanged; a test overrides them.
   const git = deps.git ?? defaultGitRunner;
   const runVerifier = deps.runVerifier ?? runProcess;
+  const spin = deps.spin ?? spinTicket;
+  const stopServers = deps.stopServers ?? stopTicketServers;
   const loadArtifacts =
     deps.loadArtifacts ??
     makeReviewArtifactsBinding({
@@ -152,6 +163,8 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
         loadArtifacts,
         runVerifier,
         contextCommand: deps.contextCommand,
+        spin,
+        stopServers,
         debug: deps.debug,
       }),
   };
