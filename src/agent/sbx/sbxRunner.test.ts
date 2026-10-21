@@ -136,6 +136,22 @@ describe('createSbxSessionRunner.dispose', () => {
   });
 });
 
+describe('createSbxSessionRunner.dispose outcomes', () => {
+  it('a failed rm is failed with its stderr and keeps the remote and the known name', async () => {
+    const proc = fakeSbxProcess({ 'sbx rm': { code: 1, stderr: 'daemon busy' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await expect(runner.dispose!(ticket)).resolves.toEqual({ ok: false, steps: [{ step: 'sbx rm', status: 'failed', stderr: 'daemon busy' }] });
+    expect(proc.calls.some((c) => c.args.includes('remote'))).toBe(false);
+    expect(runner.placeInteractive(spec()).shellArgs).not.toContain('--clone');
+  });
+
+  it("rm 'no such sandbox' is absent, which is success", async () => {
+    const proc = fakeSbxProcess({ 'sbx rm': { code: 1, stderr: 'no such sandbox' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await expect(runner.dispose!(ticket)).resolves.toMatchObject({ ok: true, steps: [{ step: 'sbx rm', status: 'absent' }] });
+  });
+});
+
 describe('createSbxSessionRunner.stop', () => {
   it('stops only its own sandbox and keeps it known for reattach', async () => {
     const proc = fakeSbxProcess();

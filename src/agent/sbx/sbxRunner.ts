@@ -10,6 +10,7 @@ import type {
   DiffResult,
 } from '../sessionRunner.js';
 import { autonomousLaunch } from '../autonomousLaunch.js';
+import { disposeResult, disposeStep, type DisposeResult, type DisposeStep } from '../disposeResult.js';
 import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
@@ -200,13 +201,24 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     stop: async (): Promise<void> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
     },
-    dispose: async (ticket: SandboxTicketRef): Promise<void> => {
+    dispose: async (ticket: SandboxTicketRef): Promise<DisposeResult> => {
       await opts.proc.run(SBX_BIN, ['stop', opts.name]);
-      await opts.proc.run(SBX_BIN, ['rm', '--force', opts.name]);
+      const rm = disposeStep('sbx rm', await opts.proc.run(SBX_BIN, ['rm', '--force', opts.name]));
+      // A failed rm keeps the clone, the remote and the known name: the sandbox may still hold unsynced commits and a retry needs them.
+      if (rm.status === 'failed') return disposeResult([rm]);
       // A missing remote is fine: `sbx rm` usually removes it already.
       await git(ticket.hostWorktreePath, ['remote', 'remove', remote]);
-      if (opts.cloneDir) await removeSbxClone(opts.cloneDir);
+      const steps: DisposeStep[] = [rm];
+      if (opts.cloneDir) {
+        try {
+          await removeSbxClone(opts.cloneDir);
+          steps.push({ step: 'clone dir', status: 'removed' });
+        } catch (err) {
+          steps.push({ step: 'clone dir', status: 'failed', stderr: err instanceof Error ? err.message : String(err) });
+        }
+      }
       known.delete(opts.name);
+      return disposeResult(steps);
     },
   };
   return runner;

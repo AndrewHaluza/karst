@@ -1,4 +1,5 @@
 import { SANDBOX_NETWORK_ALLOWLIST } from '../sandbox.js';
+import { disposeStep, type DisposeStep } from '../disposeResult.js';
 import { PROXY_PORT } from './allowlistProxy.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import { checkPort, SANDBOX_HOST_ALIAS } from '../sandboxPorts.js';
@@ -84,6 +85,6 @@ export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec):
   return { ok: true };
 }
 
-export async function stopProxySidecar(proc: DockerProcess, proxy: string): Promise<void> {
-  await proc.run(DOCKER_BIN, ['rm', '--force', proxy]);
+export async function stopProxySidecar(proc: DockerProcess, proxy: string): Promise<DisposeStep> {
+  return disposeStep('proxy', await proc.run(DOCKER_BIN, ['rm', '--force', proxy]));
 }

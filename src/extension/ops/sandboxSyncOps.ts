@@ -1,4 +1,5 @@
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
+import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
 import { resolveBackend, type ResolvedBackend } from '../../agent/backendResolver.js';
 import { ticketBackendSetting } from '../../agent/effectiveBackend.js';
@@ -308,7 +309,11 @@ export async function disposeSandboxOp(deps: SandboxDisposeDeps, target: Sandbox
     return false;
   }
   try {
-    await runner.dispose({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+    const removal = await runner.dispose({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+    if (!removal.ok) {
+      await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}); its evidence dir was kept.`);
+      return false;
+    }
   } catch (err) {
     await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
     return false;
