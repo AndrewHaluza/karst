@@ -13,7 +13,7 @@ import {
 
 describe('dockerImage', () => {
   it('derives the tag from both pinned versions, the Playwright release and the revision', () => {
-    expect(opencodeImageTag('1.19.0', '2.0.27')).toBe('karst/opencode-sandbox:1.19.0-2.0.27-pw1.63.0-r2');
+    expect(opencodeImageTag('1.19.0', '2.0.27')).toBe('karst/opencode-sandbox:1.19.0-2.0.27-pw1.63.0-r3');
     expect(OPENCODE_IMAGE).toBe(opencodeImageTag(OPENCODE_V1_VERSION, OPENCODE_V2_VERSION));
   });
 
@@ -42,6 +42,39 @@ describe('dockerImage', () => {
     expect(dockerfile).toContain(`ARG OC1=${OPENCODE_V1_VERSION}`);
     expect(dockerfile).toContain(`ARG OC2=${OPENCODE_V2_VERSION}`);
     expect(dockerfile).toContain('FROM mcr.microsoft.com/playwright:v${PW}-noble AS baseline');
+  });
+
+  it('carries what a repository’s gates need: lsof, a git identity, a reaping init', () => {
+    const dockerfile = readFileSync(
+      fileURLToPath(new URL('../../../sandbox/opencode/Dockerfile', import.meta.url)),
+      'utf8',
+    );
+    // The port-conflict/server-identity path cannot name a listener without it.
+    expect(dockerfile).toMatch(/apt-get install[^\n]*\blsof\b/);
+    // A scratch repo a gate commits into has no identity of its own.
+    expect(dockerfile).toContain('git config --system user.name');
+    expect(dockerfile).toContain('git config --system user.email');
+  });
+
+  it('copies the baseline fonts AFTER the browser install, and wipes first', () => {
+    // `playwright install --with-deps` apt-installs THIS distro's font packages
+    // (bookworm's Liberation 1.07 vs noble's 2.1.5) over whatever was copied
+    // before it, so a font copy that precedes it makes the sweep diff the
+    // distro instead of the page. The copy must also REPLACE the trees (COPY
+    // merges, and a distro-only face would survive beside the baseline's).
+    const dockerfile = readFileSync(
+      fileURLToPath(new URL('../../../sandbox/opencode/Dockerfile', import.meta.url)),
+      'utf8',
+    );
+    const install = dockerfile.indexOf('playwright install --with-deps');
+    const wipe = dockerfile.indexOf('rm -rf /usr/share/fonts');
+    const fonts = dockerfile.indexOf('COPY --from=baseline /usr/share/fonts');
+    const rules = dockerfile.indexOf('COPY --from=baseline /etc/fonts');
+    expect(install).toBeGreaterThan(-1);
+    expect(wipe).toBeGreaterThan(install);
+    expect(fonts).toBeGreaterThan(wipe);
+    expect(rules).toBeGreaterThan(wipe);
+    expect(dockerfile.indexOf('fc-cache -f')).toBeGreaterThan(rules);
   });
 
   it('refuses a version that is not a plain semver (it becomes an image tag)', () => {
