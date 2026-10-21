@@ -18,6 +18,8 @@ import {
   supersedePendingLaunchIntents,
 } from '../../store/sessionLaunchIntents.js';
 import { getTicket, pauseTicket, setAgentState, archiveTicket } from '../../store/tickets.js';
+import { setStage } from '../../store/stages.js';
+import { stageBlock } from '../../store/stageBlocks.js';
 import { upsertProject } from '../../store/projects.js';
 import { listProcessRuns } from '../../store/processRuns.js';
 import { attentionItems } from '../../ui/attention.js';
@@ -985,5 +987,38 @@ describe('fixWatchdog', () => {
         .run(ticketId, T0);
       expect(delivery.isGraphTicket(ticketId)).toBe(true);
     });
+  });
+});
+
+describe('fixWatchdog stranded stage', () => {
+  it('re-drives a stranded gate stage once, then parks it blocked', () => {
+    const store = openStore(':memory:');
+    const projectId = upsertProject(store, { slug: 'stranded-proj' }).id;
+    const id = createTicketFlow(store, { key: 'T-9', title: 't', projectId }).id;
+    store.db.prepare("UPDATE tickets SET stage_current = 'uat' WHERE id = ?").run(id);
+    setStage(store, id, 'uat', { status: 'running', startedAt: T0 });
+    const redrive = vi.fn();
+    const logs: string[] = [];
+    const deps: FixWatchdogDeps = {
+      store,
+      timeoutMinutes: () => 60,
+      projectId: () => projectId,
+      now: () => T2,
+      log: (m) => logs.push(m),
+      isLive: () => false,
+      nudge: () => false,
+      isGraphTicket: () => false,
+      redrive,
+      redriven: new Set<string>(),
+    };
+    runFixWatchdog(deps);
+    expect(redrive).toHaveBeenCalledExactlyOnceWith(id);
+    expect(stageBlock(store, id, 'uat')).toBeNull();
+    runFixWatchdog(deps);
+    expect(redrive).toHaveBeenCalledTimes(1);
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('stranded-stage');
+    // parked: no longer selected, nothing more happens
+    expect(runFixWatchdog(deps)).toBe(0);
+    store.close();
   });
 });

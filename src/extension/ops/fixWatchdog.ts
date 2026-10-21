@@ -16,6 +16,8 @@ import {
   getSessionLaunchIntent,
   markTicketLaunchIntentsRedelivered,
 } from '../../store/sessionLaunchIntents.js';
+import { selectStrandedStages } from '../../store/strandedStages.js';
+import { parkGateStage } from '../../store/stageBlocks.js';
 import { getTicket, setAgentState } from '../../store/tickets.js';
 import { markerStageFor } from '../../agent/markerStage.js';
 import { renderDoneMarkerInstruction, renderGateOnlyInstruction } from '../../agent/workflowCommand.js';
@@ -63,6 +65,16 @@ export interface FixWatchdogDeps {
    * re-type below stays the fallback.
    */
   pointAtFix?: (ticketId: number, launchId: string) => 'sent' | 'unsendable' | 'no-row';
+  /**
+   * Re-drive a ticket through the stage driver (`maybeDrive(id, 'stranded-stage')`).
+   * Absent = the stranded-stage sweep does not run.
+   */
+  redrive?: (ticketId: number) => void;
+  /**
+   * `ticket:stage:attempt` keys already re-driven once. A key still stranded on
+   * a later tick is parked. In-memory by design: a restart earns one more re-drive.
+   */
+  redriven?: Set<string>;
 }
 
 /**
@@ -165,7 +177,48 @@ export function runFixWatchdog(deps: FixWatchdogDeps): number {
     ...sweepAbandonedFixLaunches(deps.store, stalled),
   ];
   for (const s of settled) deps.log(describeStrandedFixRound(s));
-  return settled.length;
+  return settled.length + recoverStrandedStages(deps, opts);
+}
+
+/**
+ * Recover gate stages reading `running` with nothing behind them: re-drive once
+ * (a recovery, not a reset), and when the same stage+attempt is still stranded
+ * on a later tick, park it blocked so the surface stops reading `running`.
+ */
+function recoverStrandedStages(deps: FixWatchdogDeps, opts: DeliveryCheckOpts): number {
+  const { redrive, redriven } = deps;
+  if (redrive === undefined || redriven === undefined) return 0;
+  let handled = 0;
+  for (const s of selectStrandedStages(deps.store, { at: opts.at, projectId: opts.projectId })) {
+    const key = `${s.ticketId}:${s.stageKey}:${s.attempt}`;
+    try {
+      if (!redriven.has(key)) {
+        deps.log(`karst: ticket ${s.ticketId}: ${s.stageKey} read running with no run behind it — re-driving`);
+        redrive(s.ticketId);
+        // Only after the call returned: a seam that threw (the host's driver is
+        // wired after the first tick) must not spend the one re-drive.
+        redriven.add(key);
+      } else {
+        parkGateStage(deps.store, {
+          ticketId: s.ticketId,
+          stageKey: s.stageKey,
+          kind: 'stranded-stage',
+          reason: `${s.stageKey} read running with no run behind it, and a re-drive did not start it. Resume to retry.`,
+          runAt: opts.at,
+          gates: [],
+        });
+        deps.log(`karst: ticket ${s.ticketId}: ${s.stageKey} still stranded after a re-drive — parked blocked`);
+      }
+      handled++;
+    } catch (err) {
+      deps.log(
+        `karst: ticket ${s.ticketId}: stranded-stage recovery failed (${
+          err instanceof Error ? err.message : String(err)
+        })`,
+      );
+    }
+  }
+  return handled;
 }
 
 /**
@@ -347,7 +400,7 @@ export function startFixWatchdog(
   projectId: () => number | null,
   log: (message: string) => void,
   onError: ((message: string, err: unknown) => void) | undefined,
-  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix'>,
+  delivery: Pick<FixWatchdogDeps, 'isLive' | 'nudge' | 'isGraphTicket' | 'pointAtFix' | 'redrive'>,
 ): { dispose(): void } {
   const deps: FixWatchdogDeps = {
     store,
@@ -359,6 +412,7 @@ export function startFixWatchdog(
     nudge: delivery.nudge,
     isGraphTicket: delivery.isGraphTicket,
     ...(delivery.pointAtFix !== undefined ? { pointAtFix: delivery.pointAtFix } : {}),
+    ...(delivery.redrive !== undefined ? { redrive: delivery.redrive, redriven: new Set<string>() } : {}),
   };
   const tick = (): void => {
     try {

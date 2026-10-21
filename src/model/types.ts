@@ -146,7 +146,11 @@ export type BlockerKind =
   // refused (the user must pick another agent/model, or retry once the limit
   // resets). Written by `parkGateStage` (review/UAT) and by the op-park helper
   // (every other AI op); the reason carries the provider/model that exhausted.
-  | 'usage-limit';
+  | 'usage-limit'
+  // A gate stage read `running` with no stage run and no process run behind it,
+  // and one re-drive did not start it (`sweepStrandedStages`). The question was
+  // never asked; Resume re-drives the stage.
+  | 'stranded-stage';
 
 /**
  * What one stage run did. A runner no longer implies a transition by returning:

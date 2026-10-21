@@ -21,6 +21,7 @@ export const BLOCKS_NOTIFY_PARENT: Readonly<Record<BlockerKind, boolean>> = {
   'subtask-integration-conflict': true,
   'baseline-review': true,
   'usage-limit': true,
+  'stranded-stage': true,
   'awaiting-merge': false,
   'awaiting-impl-marker': false,
   'awaiting-subtask': false,
