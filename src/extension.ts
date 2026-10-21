@@ -28,7 +28,6 @@ import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
 import { makeBridgeBuild } from './extension/ops/bridgeWiring.js';
-import { createSandboxSessionEnder } from './extension/ops/sandboxSessionEnd.js';
 import { createBridgeRegistry, type BridgeRegistry } from './agent/bridge/bridgeRegistry.js';
 import { autostartCapsFrom, makeSubtaskAutostart } from './extension/ops/subtaskAutostartOps.js';
 import { isAgyRecipient } from './extension/ops/messageDeliveryOps.js';
@@ -1266,7 +1265,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
   sandboxLife = makeSandboxWiring({ // arch:AC-32
-    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
+    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
@@ -3822,12 +3821,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // The notify/barrier/provider closures are shared verbatim with the agy
   // conversation watch below: a watch event is a hook event, and the two
   // channels must never disagree about ownership, refresh or the generation.
-  const sessionEnder = createSandboxSessionEnder({
-    launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id),
-    boundSessionId: (id) => getTicket(localStore, id).sessionId ?? undefined,
-    stop: (id) => sandboxLife.stop(id),
-    log: (m) => logger.info(m),
-  });
   const notifyHook = (ticketId: number, payload: HookPayload): void => {
     // UsageUpdate changes only the token ledger. Refresh the two surfaces that
     // read it, then stop: usage is not lifecycle activity and must never kick
@@ -3837,8 +3830,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushStoreState(ticketId);
       return;
     }
-    sessionEnder.onHook(ticketId, payload);
-    artifactCapture.onHookEvent(ticketId, payload);
+    sandboxLife.sessionEnder.onHook(ticketId, payload); artifactCapture.onHookEvent(ticketId, payload);
     if (payload.hook_event_name === 'SessionStart') {
       recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
     }
@@ -3903,7 +3895,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
-    warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-34 marker: sync first, failures at WARN
+    warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-34 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });

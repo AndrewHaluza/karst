@@ -1,3 +1,4 @@
+import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
 import { parseDbTimeMs } from '../../doctor/applyFixes.js';
@@ -46,6 +47,8 @@ export interface SandboxWiringInput {
   readonly dockerProc?: DockerProcess;
   /** The host-side bridge dir of a ticket (sbx hands the host's bundle through its `xfer/`, F8). */
   readonly bridgeDirOf?: (ticketId: number) => string | undefined;
+  /** The ticket's current launch generation (ends an accepted sandbox session, arch:AC-37). */
+  readonly launchIdFor?: (ticketId: number) => string | undefined;
   /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
   readonly reopen?: (ticketId: number) => Promise<void>;
 }
@@ -154,7 +157,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       ...syncTrack,
     }, t, { refresh });
   };
+  const stopTicket = async (ticketId: number): Promise<void> => {
+    const { d, t } = await manualDeps(ticketId);
+    if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
+  };
   const wiring = {
+    /** An accepted done marker + `session.idle` ends the sandbox session (arch:AC-37). */
+    sessionEnder: createSandboxSessionEnder({
+      launchIdFor: w.launchIdFor ?? (() => undefined),
+      boundSessionId: (id) => getTicket(w.store, id).sessionId ?? undefined,
+      stop: (id) => stopTicket(id),
+      log: w.info,
+    }),
     /** Palette entry for `karst.sandbox.sync` / `.dispose`: the given ticket, else a picker (F5). */
     commandTarget,
     /** `karst.sandbox.sync` / `.dispose`: explicit user actions, independent of the configured backend. */
@@ -204,10 +218,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       await recreateSandboxNoSync({ ...d, ...syncTrack, reopen: w.reopen }, t);
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
-    stop: async (ticketId: number): Promise<void> => {
-      const { d, t } = await manualDeps(ticketId);
-      if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
-    },
+    stop: stopTicket,
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
       const { d, t } = await manualDeps(ticketId);
