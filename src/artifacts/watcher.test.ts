@@ -160,6 +160,58 @@ describe('worktree watcher', () => {
     w.add(target);
     expect(w.watched()).toEqual([]);
   });
+
+  it('logs watch failure once over multiple syncs, and logs watching when it later arms', () => {
+    const debug = vi.fn();
+    const existing = new Set<string>();
+    const w = createWorktreeWatcher({
+      watch: (dir, cb) => {
+        if (!existing.has(dir)) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+        void cb;
+        return { close: () => {} };
+      },
+      capture: async () => 0,
+      outputs: () => [{ approachId: 'a', glob: 'docs/**', kind: 'plan' }],
+      debug,
+    });
+
+    // 1. Initial add - dir missing, throws ENOENT and logs once
+    w.add(target);
+    const failureLogs = () => debug.mock.calls.flat().filter((m) => m.includes('cannot watch /wt/docs'));
+    expect(failureLogs()).toHaveLength(1);
+
+    // 2. Subsequent syncs while still missing do not log failure again
+    w.sync([target]);
+    w.sync([target]);
+    expect(failureLogs()).toHaveLength(1);
+
+    // 3. Dir appears, next sync arms watch and logs watching line
+    existing.add('/wt/docs');
+    w.sync([target]);
+    const watchingLogs = debug.mock.calls.flat().filter((m) => m === '[artifacts] watching /wt/docs');
+    expect(watchingLogs).toHaveLength(1);
+    expect(w.watched()).toEqual(['/wt/docs']);
+  });
+
+  it('remove clears the failedPrefixes set so a re-added missing prefix logs failure again', () => {
+    const debug = vi.fn();
+    const w = createWorktreeWatcher({
+      watch: (dir) => {
+        throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
+      },
+      capture: async () => 0,
+      outputs: () => [{ approachId: 'a', glob: 'docs/**', kind: 'plan' }],
+      debug,
+    });
+
+    w.add(target);
+    const failureLogs = () => debug.mock.calls.flat().filter((m) => m.includes('cannot watch /wt/docs'));
+    expect(failureLogs()).toHaveLength(1);
+
+    w.remove(target.worktreePath);
+    w.add(target);
+    expect(failureLogs()).toHaveLength(2);
+  });
 });
 
 describe('nodeFsWatch', () => {
