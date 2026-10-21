@@ -15,6 +15,8 @@ export interface BridgeExpectation {
   readonly stage: () => StageKey | null;
   /** The agent session id once the host captured one; undefined before the first SessionStart. */
   readonly sessionId: () => string | undefined;
+  /** The launch generation that bound `sessionId`; undefined when unknown (legacy row). */
+  readonly sessionLaunchId: () => string | undefined;
 }
 
 export type BridgeAccepted =
@@ -34,12 +36,25 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 /** The only payload fields the host takes from a line; cwd and launchId are rebuilt from host facts. */
 const STRING_FIELDS = ['hook_event_name', 'session_id', 'message', 'notification_type', 'tool_name', 'file_path'] as const;
 
+/**
+ * A sandboxed core mints a new session id per launch. A SessionStart from a
+ * different session is accepted only when the bound id belongs to an OLDER
+ * launch than the host's current one (it re-binds via the normal path); a bound
+ * id of the current launch keeps rejecting. launchId stays a host fact (AC-34).
+ */
+function mayRebind(raw: Record<string, unknown>, expect: BridgeExpectation): boolean {
+  if (raw.hook_event_name !== 'SessionStart' || expect.launchId === undefined) return false;
+  return expect.sessionLaunchId() !== expect.launchId;
+}
+
 function hookPayload(raw: Record<string, unknown>, expect: BridgeExpectation): HookPayload | string {
   if (typeof raw.hook_event_name !== 'string' || typeof raw.session_id !== 'string') {
     return 'payload needs string hook_event_name and session_id';
   }
   const bound = expect.sessionId();
-  if (bound !== undefined && raw.session_id !== bound) return `session ${raw.session_id} != ${bound}`;
+  if (bound !== undefined && raw.session_id !== bound && !mayRebind(raw, expect)) {
+    return `session ${raw.session_id} != ${bound}`;
+  }
   const payload: Record<string, unknown> = { cwd: expect.worktreePath };
   for (const key of STRING_FIELDS) {
     const value = raw[key];

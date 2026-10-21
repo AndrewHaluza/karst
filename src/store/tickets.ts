@@ -516,10 +516,19 @@ export function setSessionId(
   ticketId: number,
   sessionId: string | null,
   sessionProvider: AgentProvider | null,
+  sessionLaunchId: string | null = null,
 ): void {
   store.db
-    .prepare('UPDATE tickets SET session_id = ?, session_provider = ? WHERE id = ?')
-    .run(sessionId, sessionProvider, ticketId);
+    .prepare('UPDATE tickets SET session_id = ?, session_provider = ?, session_launch_id = ? WHERE id = ?')
+    .run(sessionId, sessionProvider, sessionLaunchId, ticketId);
+}
+
+/** The launch generation that bound the ticket's `session_id`; undefined when unknown (legacy row or none bound). */
+export function getSessionLaunchId(store: Store, ticketId: number): string | undefined {
+  const row = store.db.prepare('SELECT session_launch_id FROM tickets WHERE id = ?').get(ticketId) as
+    | { session_launch_id: string | null }
+    | undefined;
+  return row?.session_launch_id ?? undefined;
 }
 
 /**

@@ -13,7 +13,7 @@ import {
 import type { StageKey } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
-import { findTicketById } from '../../store/tickets.js';
+import { findTicketById, getSessionLaunchId } from '../../store/tickets.js';
 import type { MarkerFailure } from '../../agent/bridge/markerFlow.js';
 import { ackFixDeliveryRef } from './fixDeliveryOps.js';
 import { createMarkerRunner, type MarkerSpawn } from './markerRunner.js';
@@ -104,6 +104,7 @@ function liveExpectation(deps: BridgeBuildDeps, ticketId: number, worktreePath: 
     },
     stage: () => (current()?.stageCurrent ?? null) as StageKey | null,
     sessionId: () => current()?.sessionId ?? undefined,
+    sessionLaunchId: () => getSessionLaunchId(deps.store, ticketId),
   };
 }
 

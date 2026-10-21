@@ -64,6 +64,9 @@ describe('makeBridgeBuild', () => {
     expect(d.expect.sessionId()).toBeUndefined();
     setSessionId(store, ticketId, 'sess-9', 'claude');
     expect(d.expect.sessionId()).toBe('sess-9');
+    expect(d.expect.sessionLaunchId()).toBeUndefined();
+    setSessionId(store, ticketId, 'sess-10', 'claude', 'L2');
+    expect(d.expect.sessionLaunchId()).toBe('L2');
     expect(d.expect.stage()).toBe('scope');
     store.db.prepare("UPDATE tickets SET stage_current = 'impl' WHERE id = ?").run(ticketId);
     expect(d.expect.stage()).toBe('impl');
