@@ -206,6 +206,13 @@ describe('driveTicket', () => {
     expect(logs.some((l) => l.includes('sandbox not in sync — diverged'))).toBe(true);
   });
 
+  it('parks the gate stage blocked on a sync refusal so the dashboard shows it and the sweep skips it (D216)', async () => {
+    await driveTicket({ ...deps(), syncSandbox: () => Promise.resolve({ ok: false, reason: 'diverged' }) }, id);
+    expect(stageBlock(store, id, 'uat')).toMatchObject({ kind: 'sandbox-sync', reason: 'diverged' });
+    const t = getTicket(store, id);
+    expect(ticketsToSweep([{ id: t.id, stageCurrent: t.stageCurrent, stages: t.stages }])).toEqual([]);
+  });
+
   it('syncs the sandbox first, then runs as before (F12)', async () => {
     writeFileSync(join(workDir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
     const syncSandbox = vi.fn(() => Promise.resolve({ ok: true as const }));
@@ -221,6 +228,7 @@ describe('driveTicket', () => {
     const outcome = await driveTicket({ ...deps(), provisionSandbox, signal: host.signal }, id);
     expect(provisionSandbox).toHaveBeenCalledWith(id, host.signal);
     expect(outcome).toEqual({ stage: 'uat', status: 'blocked', reason: 'sandbox-setup: sandbox dependencies not provisioned: exit 1' });
+    expect(stageBlock(store, id, 'uat')?.kind).toBe('sandbox-setup');
     expect(worktreeLookups).toBe(0);
   });
 

@@ -91,6 +91,17 @@ describe('createSbxSessionRunner.sync', () => {
     expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
   });
 
+  it('a clone BEHIND the host is a no-op ok: nothing merged, the refresh catches it up', async () => {
+    const proc = fakeSbxProcess({
+      [EXEC]: { stdout: BUNDLE_B64 },
+      [`${G} merge-base --is-ancestor HEAD FETCH_HEAD`]: { code: 1 },
+      [`${G} merge-base --is-ancestor FETCH_HEAD HEAD`]: { code: 0 },
+    });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: 'host ahead, nothing to bring' });
+    expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
+  });
+
   it('reports a failed bundle, an empty bundle, a failed fetch and a failed merge', async () => {
     const make = (answers: Record<string, { code?: number; stdout?: string; stderr?: string }>) =>
       createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] }).sync!(ticket);

@@ -10,6 +10,7 @@ import type { HeadlessOutputChunk } from '../agent/headlessSpawn.js';
 import type { GateOutputChunk } from './gates/run.js';
 import type { InsideProgressEvent } from '../model/inside/progress.js';
 import { getTicket } from '../store/tickets.js';
+import { parkGateStage } from '../store/stageBlocks.js';
 import {
   exhaustRecoveryRound,
   latestInterruptedRound,
@@ -266,6 +267,20 @@ export interface DriveTicketRunners {
 }
 
 /**
+ * Persist a sync/provision refusal: a gate stage that read `running` while the
+ * driver refused to start it was invisible and re-driven into the same refusal
+ * forever. Only a gate stage can be parked; Resume clears the block and retries.
+ */
+const SANDBOX_REASON_MAX = 600;
+
+function parkSandboxRefusal(store: Store, ticketId: number, stage: StageKey, kind: 'sandbox-sync' | 'sandbox-setup', reason: string): void {
+  if (stage !== 'uat' && stage !== 'review') return;
+  // The refusal can embed a long sandbox diff; the blocker banner needs the first lines only.
+  const brief = reason.length > SANDBOX_REASON_MAX ? `${reason.slice(0, SANDBOX_REASON_MAX)}…` : reason;
+  parkGateStage(store, { ticketId, stageKey: stage, kind, reason: brief, runAt: nowIso(), gates: [] });
+}
+
+/**
  * Run the gates for one ticket and act on where it stopped.
  *
  * Lives here rather than in `extension.ts` because it is the only untested part
@@ -290,6 +305,7 @@ export async function driveTicket(
     const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
     deps.debug?.(`[driver] ticket ${ticketId} sandbox not in sync: ${synced.reason}`);
     deps.log(`stage driver: ticket ${ticketId} sandbox not in sync — ${synced.reason}`);
+    parkSandboxRefusal(deps.store, ticketId, stage, 'sandbox-sync', synced.reason);
     return { stage, status: 'blocked', reason: `sandbox-sync: ${synced.reason}` };
   }
 
@@ -298,6 +314,7 @@ export async function driveTicket(
     const stage: StageKey = (STAGE_KEYS.find((k) => k === ticket.stageCurrent) ?? 'scope') as StageKey;
     deps.debug?.(`[driver] ticket ${ticketId} sandbox not provisioned: ${provisioned.reason}`);
     deps.log(`stage driver: ticket ${ticketId} ${provisioned.reason}`);
+    parkSandboxRefusal(deps.store, ticketId, stage, 'sandbox-setup', provisioned.reason);
     return { stage, status: 'blocked', reason: `sandbox-setup: ${provisioned.reason}` };
   }
 

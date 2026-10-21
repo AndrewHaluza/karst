@@ -1,8 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
-import type { DiffResult, SyncResult } from '../sessionRunner.js';
+import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
+import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
+import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
 import { detail, DOCKER_BIN } from './dockerPreflight.js';
@@ -136,7 +137,9 @@ async function syncThroughBundle(ctx: CloneContext, input: CloneInput): Promise<
   return withTemp(ctx.temp, async (dir) => {
     const fetched = await fetchCloneBundle(ctx, input, dir);
     if (!fetched.ok) return fetched;
-    if ((await git(['merge-base', '--is-ancestor', 'HEAD', 'FETCH_HEAD'])).code !== 0) {
+    const relation = await classifyCloneRelation(async (older, newer) => (await git(['merge-base', '--is-ancestor', older, newer])).code === 0);
+    if (relation === 'behind') return { ok: true, summary: BEHIND_SUMMARY };
+    if (relation === 'diverged') {
       return { ok: false, reason: `refused: the sandbox's ${input.branch} is not a fast-forward of the host branch (never forced)` };
     }
     const merged = await git(['merge', '--ff-only', 'FETCH_HEAD']);
@@ -174,7 +177,7 @@ export async function diffFromClone(ctx: CloneContext, input: CloneInput): Promi
  * clone inside a `--network none` helper that sees the bundle read-only. No
  * host git ever runs in the agent-written clone; dirty or diverged → refused.
  */
-export async function refreshClone(ctx: CloneContext, input: CloneInput): Promise<SyncResult> {
+export async function refreshClone(ctx: CloneContext, input: CloneInput, refreshOpts?: RefreshOptions): Promise<SyncResult> {
   try {
     return await withTemp(ctx.temp, async (dir): Promise<SyncResult> => {
       const bundled = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'bundle', 'create', join(dir, 'in.bundle'), input.branch]);
@@ -182,7 +185,7 @@ export async function refreshClone(ctx: CloneContext, input: CloneInput): Promis
       const run = await ctx.proc.run(DOCKER_BIN, helper(
         ctx,
         [...volumeMounts(ctx.names), '--mount', bindMount(dir, BUNDLE_DIR, true)],
-        ['sh', '-c', `cd ${CONTAINER_REPO}\n${REFRESH_SCRIPT}`, 'karst-refresh', input.branch, `${BUNDLE_DIR}/in.bundle`],
+        ['sh', '-c', `cd ${CONTAINER_REPO}\n${refreshOpts?.stashMessage ? STASH_REFRESH_SCRIPT : REFRESH_SCRIPT}`, 'karst-refresh', input.branch, `${BUNDLE_DIR}/in.bundle`, ...(refreshOpts?.stashMessage ? [refreshOpts.stashMessage] : [])],
       ));
       return refreshOutcome(run.code, run.stdout, run.stderr, input.branch);
     });

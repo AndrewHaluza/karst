@@ -16,6 +16,7 @@ import { linuxUser } from '../../agent/docker/resolveDocker.js';
 import { HOST_SESSION_RUNNER, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
+import { stashMessage } from '../../agent/cloneRefresh.js';
 import type { Notify } from './notify.js';
 import { classifyDivergence, nodeGit } from './sandboxRewrite.js';
 
@@ -231,6 +232,36 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${message(err)}`, diverged: false };
     }
+  });
+}
+
+export type StashUpdateResult =
+  | { readonly ok: true; readonly stash: string }
+  | { readonly ok: false; readonly reason: string };
+
+/**
+ * The user-clicked recovery for "sandbox has uncommitted work and the host is
+ * ahead": sync sandbox → host, then host → sandbox with the clone's dirty tree
+ * parked by `git stash push -u` first (named for the ticket and the time, shown
+ * and logged so the work is recoverable). Never resets or discards.
+ */
+export function stashSandboxAndUpdate(deps: SandboxSyncDeps, target: SandboxSyncTarget, now: Date = new Date()): Promise<StashUpdateResult> {
+  return serialised(target.ticketId, async (): Promise<StashUpdateResult> => {
+    const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+    if (!runner?.refresh || !target.worktree?.branch || !(await runner.hasSandbox?.().catch(() => false))) {
+      return { ok: false, reason: `${target.ticketLabel} has no sandbox to update` };
+    }
+    const synced = await syncStep(deps, target);
+    if (!synced.ok) return { ok: false, reason: synced.reason };
+    const stash = stashMessage(target.ticketLabel, now);
+    try {
+      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, { stashMessage: stash });
+      if (!refreshed.ok) return { ok: false, reason: refreshed.reason };
+    } catch (err) {
+      return { ok: false, reason: `sandbox refresh failed: ${message(err)}` };
+    }
+    deps.notify.info(`Karst: ${target.ticketLabel} sandbox updated from the host; any uncommitted sandbox work is in the stash "${stash}" (git stash list, inside the sandbox).`);
+    return { ok: true, stash };
   });
 }
 

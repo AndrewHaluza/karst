@@ -163,6 +163,8 @@ describe('sub-task events from the stage writer', () => {
       'baseline-review': true,
       'usage-limit': true,
       'stranded-stage': true,
+      'sandbox-sync': true,
+      'sandbox-setup': true,
       'awaiting-merge': false,
       'awaiting-impl-marker': false,
       'awaiting-subtask': false,

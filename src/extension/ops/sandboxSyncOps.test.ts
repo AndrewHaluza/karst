@@ -9,7 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { HOST_SESSION_RUNNER } from '../../agent/sessionRunner.js';
-import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, syncSandboxOp } from './sandboxSyncOps.js';
+import { resolveLaunchBackend, backendSessionOptions, disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, stashSandboxAndUpdate, syncSandboxOp } from './sandboxSyncOps.js';
 
 function recorder() {
   const infos: string[] = [];
@@ -291,6 +291,7 @@ describe('ensureSandboxSynced (arch:AC-32 choke point)', () => {
       'git -C /wt/a rev-parse --verify --quiet HEAD': { stdout: `${HOST}\n` },
       'git -C /wt/a rev-parse --verify --quiet FETCH_HEAD': { stdout: `${CLONE}\n` },
       'git -C /wt/a merge-base --is-ancestor HEAD FETCH_HEAD': { code: refused ? 1 : 0 },
+      'git -C /wt/a merge-base --is-ancestor FETCH_HEAD HEAD': { code: refused ? 1 : 0 }, // refused = diverged: neither is an ancestor
       [`git -C /wt/a merge-base --is-ancestor ${OLD} ${CLONE}`]: { code: 0 },
       [`git -C /wt/a merge-base --is-ancestor ${OLD} ${HOST}`]: { code: 1 },
     });
@@ -483,6 +484,33 @@ describe('ensureSandboxInSync (F8/F12: both directions)', () => {
     it('a diverged refresh is a diverged blocker; a dirty one is not marked diverged', async () => {
       expect(await ensureSandboxInSync(dep(bundled({}, { code: 4 })), target)).toMatchObject({ ok: false, diverged: true });
       expect(await ensureSandboxInSync(dep(bundled({}, { code: 3, stdout: ' M a' })), target)).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('uncommitted work') });
+    });
+    const BEHIND = { 'git -C /wt/a merge-base --is-ancestor HEAD FETCH_HEAD': { code: 1 }, 'git -C /wt/a merge-base --is-ancestor FETCH_HEAD HEAD': { code: 0 } };
+    it('a clone BEHIND the host is not a divergence: no merge, one refresh, ok (D216)', async () => {
+      const proc = bundled(BEHIND, { code: 0 });
+      await expect(ensureSandboxInSync(dep(proc), target)).resolves.toEqual({ ok: true });
+      expect(proc.calls.filter((c) => c.args.includes('karst-refresh'))).toHaveLength(1);
+      expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
+    });
+    it('behind + uncommitted work: refused with the named reason, nothing stashed, not diverged', async () => {
+      const proc = bundled(BEHIND, { code: 3, stdout: 'karst-host-ahead 2\n M a\n' });
+      const r = await ensureSandboxInSync(dep(proc), target);
+      expect(r).toMatchObject({ ok: false, diverged: false, reason: expect.stringContaining('sandbox has uncommitted work and the host is ahead by 2 commit(s)') });
+      expect(proc.calls.some((c) => c.args.some((a) => a.includes('stash push')))).toBe(false);
+    });
+    it('Stash and update: stashes in the sandbox, refreshes, returns the stash name', async () => {
+      const proc = bundled(BEHIND, { code: 0 });
+      const out = await stashSandboxAndUpdate(dep(proc), target, new Date('2026-10-21T10:00:00.000Z'));
+      expect(out).toEqual({ ok: true, stash: 'karst: K-7 before host update 2026-10-21T10:00:00.000Z' });
+      const call = proc.calls.find((c) => c.args.includes('karst-refresh'))!;
+      expect(call.args.join(' ')).toContain('git stash push -u -m "$3"');
+      expect(call.args.at(-1)).toBe('karst: K-7 before host update 2026-10-21T10:00:00.000Z');
+    });
+    it('Stash and update: a failed stash is reported, a host ticket has nothing to update', async () => {
+      const failed = await stashSandboxAndUpdate(dep(bundled(BEHIND, { code: 5 })), target);
+      expect(failed).toMatchObject({ ok: false, reason: expect.stringContaining('stash failed') });
+      const none = await stashSandboxAndUpdate({ notify: recorder().notify, projectRoot: '/p', proc: fakeSbxProcess() }, target);
+      expect(none).toMatchObject({ ok: false, reason: expect.stringContaining('no sandbox') });
     });
     it('refresh:false stops after the sync', async () => {
       const proc = bundled();
