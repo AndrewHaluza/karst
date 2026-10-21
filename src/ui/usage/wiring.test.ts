@@ -37,7 +37,12 @@ describe('token-usage host wiring', () => {
   it('wires the per-core quota service, status bar and launch warning', () => {
     // One service, real readers, disposed with the window.
     expect(EXTENSION).toContain('new QuotaService(');
-    expect(EXTENSION).toContain('readers: defaultQuotaReaders()');
+    // The D185 opt-in consent closure is live on every poll, so a Settings
+    // toggle reaches the reader without a reload — never a captured boolean.
+    expect(EXTENSION).toContain('readers: defaultQuotaReaders({');
+    expect(EXTENSION).toMatch(
+      /claudeOauthUsageApi: \(\) => currentManifest\(\)\?\.quota\?\.claudeOauthUsageApi === true/,
+    );
     expect(EXTENSION).toMatch(/quotaService\.start\(\)/);
     expect(EXTENSION).toMatch(/dispose: \(\) => quotaService\.dispose\(\)/);
     // The status badge opens the Quota tab.
