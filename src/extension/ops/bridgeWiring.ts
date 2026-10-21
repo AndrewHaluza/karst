@@ -47,6 +47,8 @@ export interface BridgeBuildDeps {
   readonly notifyFailure?: (ticketId: number, message: string, diverged: boolean, gaveUp: boolean) => void;
   /** Fast-forwards a sandboxed ticket's host worktree before its stage CLI runs; a host ticket is a no-op (arch:AC-32). */
   readonly ensureSynced?: (ticketId: number) => Promise<EnsureSyncResult>;
+  /** A done marker passed for `ticketId` (a sandboxed session may now be ended, arch:AC-37). */
+  readonly onMarkerAccepted?: (ticketId: number) => void;
   readonly spawn?: MarkerSpawn;
   readonly attach?: typeof createBridgeAttachment;
 }
@@ -82,6 +84,7 @@ export function makeBridgeBuild(
         const claimed = ackFixDeliveryRef(deps.store, ticketId, ref, new Date().toISOString());
         log(`ticket ${ticketId} ack ${ref}: ${claimed ? 'delivery marked read' : 'ignored (not a pending delivery of this ticket)'}`);
       },
+      ...(deps.onMarkerAccepted ? { onMarkerAccepted: () => deps.onMarkerAccepted!(ticketId) } : {}),
       onMarkerFailure: (failure) => markerFailed(deps, ticketId, ticketKey, failure),
       ...(deps.debug ? { debug: deps.debug } : {}),
     });

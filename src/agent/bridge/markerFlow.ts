@@ -41,6 +41,8 @@ export interface MarkerFlowDeps {
   readonly pending: PendingMarkerStore;
   /** The ticket's current stage, read live. */
   readonly currentStage: () => string | null;
+  /** The marker CLI passed: the stage advanced (arch:AC-34). */
+  readonly onAccepted?: (stage: MarkerStage) => void;
   /** Warn-level log + user notification; `diverged` becomes a Needs-you blocker. */
   readonly report: (failure: MarkerFailure) => void;
   /** Returns a cancel function. */
@@ -123,6 +125,7 @@ export function createMarkerFlow(deps: MarkerFlowDeps): MarkerFlow {
       gaveUpStage = undefined;
       await deps.pending.clear();
       await reply(seq, stage, true, false, '');
+      deps.onAccepted?.(stage);
       return;
     }
     const reason = outcome.stderr.trim() || `exited ${outcome.code}`;
