@@ -1,6 +1,6 @@
 import type { BlockerKind, Verdict } from '../../model/types.js';
 import type { GateRun } from '../../store/gateRuns.js';
-import { capabilityGap } from '../gates/capabilityGap.js';
+import { capabilityGap, hostRefusalReason } from '../gates/capabilityGap.js';
 import type { GateResult } from '../gates/result.js';
 
 /**
@@ -136,6 +136,8 @@ export function aggregateUat(
    */
   disabledNames: readonly string[] = [],
 ): AggregateOutcome {
+  const refusal = hostRefusalReason(entries.map((e) => e.result));
+  if (refusal !== null) return { kind: 'blocked', blocker: 'capability-missing', reason: refusal };
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
   if (ran.length === 0) {

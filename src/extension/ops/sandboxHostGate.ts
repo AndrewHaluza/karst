@@ -18,8 +18,8 @@ type Prepared = { readonly ok: true } | { readonly ok: false; readonly reason: s
  * Runs a `sandbox: host` gate for a sandboxed ticket (arch:AC-36 exception).
  * The first gate of a list verifies the host tree once (presence → sync →
  * dirty guard); every host gate of that list then runs in the host worktree.
- * Every refusal is `spawnFailed` (no verdict), never an exit code, so it can
- * not be read as a 127 capability gap. No sandbox attached = a host ticket:
+ * A stopped sandbox is started first. Every refusal is `spawnFailed` (no
+ * verdict), never an exit code; runGateList records it as capability-missing. No sandbox attached = a host ticket:
  * the gate just runs on the host, no sync.
  */
 export function ticketHostGate(deps: HostGateDeps, ticketId: number, sandboxGate: GateProcessRunner | undefined): () => GateProcessRunner {
@@ -39,8 +39,17 @@ export function ticketHostGate(deps: HostGateDeps, ticketId: number, sandboxGate
 }
 
 async function prepare(deps: HostGateDeps, ticketId: number, cwd: string, sandboxGate: GateProcessRunner | undefined): Promise<Prepared & { readonly sandboxed: boolean }> {
-  const { found, listed } = await resolveTicketSandbox(deps.sandbox, ticketId);
-  if (listed?.state === 'stopped') return refused('sandbox not running: start it or remove it');
+  let { found, listed } = await resolveTicketSandbox(deps.sandbox, ticketId);
+  if (listed?.state === 'stopped') {
+    // In-sandbox gates start a stopped sandbox via `exec`; do the same here with a no-op.
+    const started = sandboxGate ? await sandboxGate('true', [], cwd, {}) : undefined;
+    ({ found, listed } = await resolveTicketSandbox(deps.sandbox, ticketId));
+    if (listed?.state !== 'running') {
+      const why = started === undefined ? 'no runner can execute there' : started.output.trim() || started.kind;
+      return refused(`sandbox could not be started: ${why}`);
+    }
+    deps.sandbox.debug?.(`[gate] ticket ${ticketId}: sandbox stopped, started for host gates`);
+  }
   const attached = listed !== undefined || (found !== undefined && (await found.runner.hasSandbox?.().catch(() => false)) === true);
   if (!attached) return { ok: true, sandboxed: false };
   const synced = await deps.sync(ticketId);
