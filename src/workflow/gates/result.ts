@@ -13,6 +13,12 @@ export interface GateResult {
   exitCode: number | null;
   output: string;
   /**
+   * Set when a `sandbox: host` gate was refused before it could run (sandbox could
+   * not start, sync failed, dirty or mismatched host tree). exitCode stays null:
+   * no verdict, and the stage parks capability-missing (arch:GATE-CAPABILITY).
+   */
+  hostRefused?: boolean;
+  /**
    * When the gate's process started and ended. Both absent for a gate that never
    * ran — it has no duration, and stamping one would read as a zero-length run
    * rather than as "karst had no question to ask".

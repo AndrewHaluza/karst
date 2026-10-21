@@ -4,7 +4,7 @@ import type { FindingInput } from '../../store/reviewFindings.js';
 import type { UsageLimitParkPayload } from '../../store/usageLimitParks.js';
 import type { Severity } from '../../manifest/types.js';
 import { usageLimitReason } from '../../agent/cliFailure.js';
-import { capabilityGap } from '../gates/capabilityGap.js';
+import { capabilityGap, hostRefusalReason } from '../gates/capabilityGap.js';
 import type { AggregateEntry } from '../uat/aggregate.js';
 
 export type { AggregateEntry };
@@ -315,6 +315,8 @@ export function gatesOutcomeBeforeFindings(
    */
   disabledNames: readonly string[] = [],
 ): AggregateOutcome | null {
+  const refusal = hostRefusalReason(entries.map((e) => e.result));
+  if (refusal !== null) return { kind: 'blocked', blocker: 'capability-missing', reason: refusal };
   const ran = entries.filter((e) => e.result.exitCode !== null);
 
   if (ran.length === 0) {

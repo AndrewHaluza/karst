@@ -354,7 +354,8 @@ export interface DashboardState {
    * webview only shows the button, the host re-derives before acting.
    */
   ciFailure: { available: boolean };
-  rebase: { available: boolean };
+  /** `stage`: the stage whose header offers it (ship, or a pre-ship stage). */
+  rebase: { available: boolean; stage?: string };
   /**
    * How many review items are open on this ticket's pull requests — live,
    * unresolved, not withdrawn. Carried on the snapshot (the same read the menu
