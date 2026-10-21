@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   collapseEdges,
+  findDepcruise,
   loadLayers,
   nodeId,
   renderMap01,
@@ -136,5 +140,20 @@ describe('replaceRegion', () => {
   it('throws when the region is missing or duplicated', () => {
     expect(() => replaceRegion(text, 'MAP-02', 'x')).toThrow(/needs exactly one start and end marker/);
     expect(() => replaceRegion(`${text}\n${text}`, 'MAP-01', 'x')).toThrow(/needs exactly one/);
+  });
+});
+
+describe('findDepcruise', () => {
+  it('finds dependency-cruiser installed in an ancestor of the worktree', () => {
+    const root = mkdtempSync(join(tmpdir(), 'depcruise-'));
+    const bin = join(root, 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs');
+    mkdirSync(dirname(bin), { recursive: true });
+    writeFileSync(bin, '');
+    expect(findDepcruise(join(root, '.karst/worktrees/w'))).toBe(bin);
+  });
+
+  it('falls back to the local path when nothing is installed above', () => {
+    const root = mkdtempSync(join(tmpdir(), 'depcruise-'));
+    expect(findDepcruise(root)).toBe(join(root, 'node_modules/dependency-cruiser/bin/dependency-cruiser.mjs'));
   });
 });
