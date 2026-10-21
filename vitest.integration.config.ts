@@ -22,6 +22,13 @@ export default defineConfig({
     // Per-file jsdom render tests rely on `forks` (each file is its own
     // process); the unit config documents why `vmThreads` cannot replace it.
     pool: 'forks',
+    // Each fork loads a full jsdom document for the render files; one such file
+    // peaks around 1.3 GB. The default (available CPUs - 1) can keep five forks
+    // resident on this 6-CPU sandbox and exhaust its ~5 GB: the UAT run
+    // OOM-killed a fork mid-file, which surfaced only as `Worker exited
+    // unexpectedly` after every reported test had passed. Cap the pool so the
+    // gate keeps headroom; the wall-clock cost is a few tens of seconds.
+    maxWorkers: 3,
     // Hide console output of passing tests; a failing test still prints its own.
     silent: 'passed-only',
     testTimeout: 30_000,
