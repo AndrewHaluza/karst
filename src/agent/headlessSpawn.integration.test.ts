@@ -421,19 +421,32 @@ describe('spawnHeadlessCli (real processes)', () => {
    * kill's goal is eventual death, which is what this waits for. Same pattern
    * as gates/run.test.ts's expectProcessDead.
    */
+  function processAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+    } catch {
+      return false;
+    }
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const close = stat.lastIndexOf(')');
+      const state = stat.slice(close + 2, close + 3);
+      return state !== 'Z' && state !== 'X';
+    } catch {
+      return false;
+    }
+  }
+
   async function expectProcessDead(pid: number): Promise<void> {
     // 5s of polling, not 0.5s: under the unit gate's parallel load a
     // SIGKILLed grandchild stays a findable zombie well past 500ms, and the
-    // group kill's contract is eventual death.
+    // group kill's contract is eventual death. A zombie counts as dead: only
+    // the reap is outstanding, and karst's sandbox PID 1 never reaps.
     for (let attempt = 0; attempt < 250; attempt++) {
-      try {
-        process.kill(pid, 0);
-      } catch {
-        return;
-      }
+      if (!processAlive(pid)) return;
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
-    expect(() => process.kill(pid, 0)).toThrow();
+    expect(processAlive(pid)).toBe(false);
   }
 
   it('kills the whole process group on abort, including a grandchild', async () => {

@@ -27,19 +27,37 @@ function readPid(path: string): number | null {
   return Number.isInteger(pid) ? pid : null;
 }
 
+/**
+ * A zombie has already exited; only its parent's reap is outstanding. Signals
+ * cannot reach it, so counting it as alive would fail the descendant-kill
+ * assertion forever when PID 1 does not reap (karst's sandbox). Off Linux the
+ * `/proc` probe is absent and the signal check alone decides.
+ */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    const state = stat.slice(close + 2, close + 3);
+    return state !== 'Z' && state !== 'X';
+  } catch {
+    return false;
+  }
+}
+
 async function expectProcessDead(pid: number): Promise<void> {
   // 5s of polling, not 0.5s: under the unit gate's parallel load a SIGKILLed
   // grandchild stays a findable zombie well past 500ms, and the group kill's
   // contract is eventual death.
   for (let attempt = 0; attempt < 250; attempt++) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
+    if (!processAlive(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(processAlive(pid)).toBe(false);
 }
 
 describe('runCommand', () => {

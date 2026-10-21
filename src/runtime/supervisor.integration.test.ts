@@ -152,11 +152,23 @@ async function waitUntilServing(url: string, timeoutMs = 5_000): Promise<void> {
   }
 }
 
-/** True if pid is alive (signal 0 probes without killing). */
+/**
+ * True if pid is alive (signal 0 probes without killing). A zombie has already
+ * exited — only the reap is outstanding — and signals cannot reach it, so it
+ * counts as dead. This matters in karst's sandbox, where PID 1 never reaps;
+ * off Linux the `/proc` probe is absent and the signal check alone decides.
+ */
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
+  } catch {
+    return false;
+  }
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    const state = stat.slice(close + 2, close + 3);
+    return state !== 'Z' && state !== 'X';
   } catch {
     return false;
   }
