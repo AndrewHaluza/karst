@@ -52,6 +52,18 @@ describe('sendCiFailureToAgent', () => {
     expect(d.drive).toHaveBeenCalledOnce();
     expect(d.afterServerChange).toHaveBeenCalledOnce();
   });
+  it('forgets the stored rollup so a stale failing never re-offers the action', async () => {
+    seed([{ name: 'build', url: null }]);
+    await sendCiFailureToAgent(deps().d);
+    const row = store.db.prepare('SELECT checks FROM prs WHERE ticket_id = ?').get(id) as { checks: string | null };
+    expect(row.checks).toBeNull();
+  });
+  it('declined confirm keeps the stored rollup', async () => {
+    seed([{ name: 'build', url: null }]);
+    await sendCiFailureToAgent(deps({ confirm: vi.fn(async () => false) }).d);
+    const row = store.db.prepare('SELECT checks FROM prs WHERE ticket_id = ?').get(id) as { checks: string | null };
+    expect(row.checks).not.toBeNull();
+  });
   it('external check only: still sends back with names only', async () => {
     seed([{ name: 'ext', url: null }]);
     const { d, written } = deps();

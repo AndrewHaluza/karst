@@ -1,6 +1,7 @@
 import type { Store } from '../../store/db.js';
 import type { GhRunner } from '../../integrations/github.js';
 import { fetchCheckLog, type CheckLog } from '../../integrations/ciLog.js';
+import { clearOpenPrProbe } from '../../store/prs.js';
 import { ciFailureState, type CiFailurePr } from '../../workflow/ciFailure.js';
 import { sendBackToImplement } from '../../workflow/sendBack.js';
 import { MAX_MESSAGE_BODY } from '../../store/ticketMessages.js';
@@ -114,6 +115,9 @@ export async function sendCiFailureToAgent(deps: CiFailureOpsDeps): Promise<void
       debug: deps.debug,
       reason: reasonText(reports, paths),
     });
+    // The rollup belongs to the head the agent is about to replace: forget it so a
+    // stale 'failing' never re-offers this action once the ticket is back at ship.
+    for (const pr of state.prs) clearOpenPrProbe(deps.store, deps.ticketId, pr.repo);
     deps.drive();
     deps.info(`CI failure sent to the agent; ticket moved back to Implement from ${result.from}.`);
   } catch (err) {

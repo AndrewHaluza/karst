@@ -467,6 +467,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -1701,6 +1703,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -2935,6 +2939,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -4169,6 +4175,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -5403,6 +5411,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -6637,6 +6647,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -7871,6 +7883,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -9105,6 +9119,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
@@ -10339,6 +10355,8 @@ function agentIdentityHtml(provider, model, compact) {
         return \`<button type="button" class="k-btn k-btn--primary" data-act="open-session" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'create-follow-up':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="create-follow-up" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
+      case 'send-ci-failure':
+        return \`<button type="button" class="k-btn k-btn--primary" data-act="send-ci-failure" data-id="\${row.ticketId}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
       case 'resolve-conflicts':
         return \`<button type="button" class="k-btn k-btn--primary" data-act="resolve-conflicts" data-id="\${row.ticketId}" data-repo="\${esc(next.repo)}" title="\${esc(next.label)}">\${esc(next.label)}</button>\`;
     }
