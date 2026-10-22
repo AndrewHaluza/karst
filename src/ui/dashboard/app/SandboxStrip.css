@@ -20,6 +20,17 @@
   min-width: 0;
 }
 
+.sandbox-strip .k-icon {
+  width: var(--k-space-7);
+  height: var(--k-space-7);
+  flex: none;
+}
+
+.sandbox-strip-actions .k-btn .k-icon {
+  width: var(--k-space-6);
+  height: var(--k-space-6);
+}
+
 .sandbox-strip-title {
   display: inline-flex;
   align-items: center;
