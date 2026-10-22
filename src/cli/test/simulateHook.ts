@@ -1,7 +1,13 @@
 import type { Store } from '../../store/db.js';
 import type { Ticket } from '../../store/tickets.js';
 import { dispatchHook, type HookPayload } from '../../hooks/dispatch.js';
-import { recordTestHook, ensureTestWorktree, testWorktreePath } from './testMode.js';
+import {
+  recordTestHook,
+  ensureTestWorktree,
+  removeTestWorktree,
+  realWorktreePaths,
+  testWorktreePath,
+} from './testMode.js';
 import { parseFlags, requireFlag, type TestFlags } from './flags.js';
 
 /**
@@ -58,32 +64,40 @@ export function runSimulateHook(
   ticket: Ticket,
   parsed: ParsedSimulateHook,
 ): string {
-  const cwd =
-    parsed.cwd !== ''
-      ? parsed.cwd
-      : testWorktreePath(ticket.id, ticket.key ?? String(ticket.id));
-  ensureTestWorktree(store, ticket.id, cwd);
+  const key = ticket.key ?? String(ticket.id);
+  if (parsed.cwd === '') {
+    const real = realWorktreePaths(store, ticket.id, key);
+    if (real.length > 0) {
+      throw new Error(
+        `ticket ${key} has a real worktree (${real.join(', ')}); simulate-hook without --cwd would plant a synthetic one. Pass --cwd ${real[0]} to dispatch into it.`,
+      );
+    }
+  }
+  const cwd = parsed.cwd !== '' ? parsed.cwd : testWorktreePath(ticket.id, key);
+  const inserted = ensureTestWorktree(store, ticket.id, cwd);
+  try {
+    const payload: HookPayload = {
+      hook_event_name: parsed.event,
+      cwd,
+      ...(parsed.sessionId !== null ? { session_id: parsed.sessionId } : {}),
+      ...(parsed.message !== null ? { message: parsed.message } : {}),
+      ...(parsed.notificationType !== null ? { notification_type: parsed.notificationType } : {}),
+    };
+    dispatchHook(store, payload);
 
-  const payload: HookPayload = {
-    hook_event_name: parsed.event,
-    cwd,
-    ...(parsed.sessionId !== null ? { session_id: parsed.sessionId } : {}),
-    ...(parsed.message !== null ? { message: parsed.message } : {}),
-    ...(parsed.notificationType !== null ? { notification_type: parsed.notificationType } : {}),
-  };
-  dispatchHook(store, payload);
-
-  const after = store.db
-    .prepare('SELECT agent_state FROM tickets WHERE id = ?')
-    .get(ticket.id) as { agent_state: string | null } | undefined;
-  const agentState = after?.agent_state ?? null;
-  recordTestHook(store, {
-    ticketId: ticket.id,
-    event: parsed.event,
-    sessionId: parsed.sessionId,
-    payload,
-    agentStateAfter: agentState,
-  });
-
-  return JSON.stringify({ agentState, hooksRecorded: 1 });
+    const after = store.db
+      .prepare('SELECT agent_state FROM tickets WHERE id = ?')
+      .get(ticket.id) as { agent_state: string | null } | undefined;
+    const agentState = after?.agent_state ?? null;
+    recordTestHook(store, {
+      ticketId: ticket.id,
+      event: parsed.event,
+      sessionId: parsed.sessionId,
+      payload,
+      agentStateAfter: agentState,
+    });
+    return JSON.stringify({ agentState, hooksRecorded: 1 });
+  } finally {
+    if (inserted) removeTestWorktree(store, ticket.id, cwd);
+  }
 }

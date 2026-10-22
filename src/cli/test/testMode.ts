@@ -229,18 +229,36 @@ export function testWorktreePath(ticketId: number, key: string): string {
  * would have produced.
  *
  * The worktrees table has no uniqueness, so this is a check-then-insert (never a
- * blind second row). A path that already maps to a DIFFERENT ticket is left
+ * blind second row). Returns true only when THIS call inserted the row. A path that already maps to a DIFFERENT ticket is left
  * alone — the caller's dispatch would then be ignored, which is honest.
  */
-export function ensureTestWorktree(store: Store, ticketId: number, path: string): void {
+export function ensureTestWorktree(store: Store, ticketId: number, path: string): boolean {
   const existing = store.db
     .prepare('SELECT ticket_id FROM worktrees WHERE path = ?')
     .get(path) as { ticket_id: number } | undefined;
-  if (existing !== undefined) return;
+  if (existing !== undefined) return false;
   store.db
     .prepare(
       `INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref)
        VALUES (?, 'app', ?, ?, 'test')`,
     )
     .run(ticketId, path, `karst/test/${ticketId}`);
+  return true;
+}
+
+/** Drop a worktree row `ensureTestWorktree` inserted, so it never outlives its dispatch. */
+export function removeTestWorktree(store: Store, ticketId: number, path: string): void {
+  store.db.prepare('DELETE FROM worktrees WHERE ticket_id = ? AND path = ?').run(ticketId, path);
+}
+
+/** Paths of the ticket's worktree rows that are not driver-synthetic (i.e. real). */
+export function realWorktreePaths(store: Store, ticketId: number, key: string): string[] {
+  const synthetic = testWorktreePath(ticketId, key);
+  return (
+    store.db.prepare('SELECT path FROM worktrees WHERE ticket_id = ? ORDER BY rowid').all(ticketId) as {
+      path: string;
+    }[]
+  )
+    .map((r) => r.path)
+    .filter((p) => p !== synthetic);
 }

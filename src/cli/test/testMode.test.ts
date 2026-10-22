@@ -21,7 +21,7 @@ import { parseGetLogsArgs, runGetLogs, parseSince } from './getLogs.js';
 import { runGetHooks } from './getHooks.js';
 import { parseAssertArgs, runAssert, AssertionMismatchError } from './assert.js';
 import { runReset } from './reset.js';
-import { listTestHooks, listTestLogs, recordTestLog } from './testMode.js';
+import { listTestHooks, listTestLogs, recordTestLog, testWorktreePath } from './testMode.js';
 import { SCHEMA_VERSION } from '../../store/migrations.js';
 
 /**
@@ -361,6 +361,60 @@ describe('simulate-hook', () => {
   it('rejects an unknown event', () => {
     const t = getTicketByKey(store, createTicketJson('H-1').key)!;
     expect(() => runSimulateHook(store, t, parseSimulateHookArgs(['--event', 'Bogus']))).toThrow(/unknown hook event/);
+  });
+
+  describe('worktree rows', () => {
+    const rows = (id: number) =>
+      store.db.prepare('SELECT path FROM worktrees WHERE ticket_id = ?').all(id) as { path: string }[];
+    const addReal = (id: number, path: string) =>
+      store.db
+        .prepare(`INSERT INTO worktrees (ticket_id, repo, path, branch, base_ref) VALUES (?, 'app', ?, 'b', 'develop')`)
+        .run(id, path);
+
+    it('refuses without --cwd when the ticket has a real worktree', () => {
+      const t = getTicketByKey(store, createTicketJson('H-1').key)!;
+      addReal(t.id, '/real/wt');
+      expect(() => runSimulateHook(store, t, parseSimulateHookArgs(['--event', 'PostToolUse']))).toThrow(
+        /\/real\/wt.*--cwd/s,
+      );
+      expect(rows(t.id)).toEqual([{ path: '/real/wt' }]);
+      expect(listTestHooks(store, t.id)).toHaveLength(0);
+    });
+
+    it('dispatches into a real worktree via --cwd and leaves rows unchanged', () => {
+      const t = getTicketByKey(store, createTicketJson('H-1').key)!;
+      addReal(t.id, '/real/wt');
+      const out = runSimulateHook(
+        store,
+        t,
+        parseSimulateHookArgs(['--event', 'PostToolUse', '--cwd', '/real/wt']),
+      );
+      expect(JSON.parse(out)).toMatchObject({ agentState: 'running' });
+      expect(rows(t.id)).toEqual([{ path: '/real/wt' }]);
+    });
+
+    it('removes the synthetic row it inserted after dispatch', () => {
+      const t = getTicketByKey(store, createTicketJson('H-1').key)!;
+      expect(rows(t.id)).toEqual([]);
+      runSimulateHook(store, t, parseSimulateHookArgs(['--event', 'SessionStart']));
+      expect(rows(t.id)).toEqual([]);
+      expect(listTestHooks(store, t.id)).toHaveLength(1);
+    });
+
+    it('keeps a pre-existing synthetic row', () => {
+      const t = getTicketByKey(store, createTicketJson('H-1').key)!;
+      const path = testWorktreePath(t.id, t.key ?? String(t.id));
+      addReal(t.id, path);
+      runSimulateHook(store, t, parseSimulateHookArgs(['--event', 'SessionStart']));
+      expect(rows(t.id)).toEqual([{ path }]);
+    });
+
+    it('removes the synthetic row even when dispatch throws', () => {
+      const t = getTicketByKey(store, createTicketJson('H-1').key)!;
+      store.db.exec('DROP TABLE test_hooks');
+      expect(() => runSimulateHook(store, t, parseSimulateHookArgs(['--event', 'SessionStart']))).toThrow();
+      expect(rows(t.id)).toEqual([]);
+    });
   });
 });
 
