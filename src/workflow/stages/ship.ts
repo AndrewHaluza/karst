@@ -42,6 +42,7 @@ import {
   type ShipProgress,
   type ShipStep,
 } from './shipStore.js';
+import { probeMergedNothingNew } from '../mergedNothingNew.js';
 import { backfillDescription, bodyHash, generateDescription, noteReusedPr } from './shipDescription.js';
 import {
   describeGitFailure,
@@ -1201,6 +1202,26 @@ export async function shipTicket(
               endedAt: nowIso(),
             });
             throw err;
+          }
+        }
+
+        // The repo's CURRENT PR already merged and this branch adds nothing to it
+        // (HEAD at its head, or no content difference): pushing and opening a PR
+        // would duplicate landed code. Real new work after a merge differs from
+        // the merged head, so it falls through to a fresh PR as before.
+        if (!prior) {
+          const landed = await probeMergedNothingNew({ store, git, gh }, opts.ticketId, wt.repo, wt.path);
+          if (landed) {
+            onProgress({
+              repo: wt.repo,
+              step: 'pr',
+              status: 'note',
+              detail: `already merged in #${landed.number} — nothing new`,
+            });
+            opts.debug?.(
+              `[gate] ship ticket ${opts.ticketId}: ${wt.repo} already merged in #${landed.number} — nothing new`,
+            );
+            continue;
           }
         }
 
