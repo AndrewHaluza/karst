@@ -394,7 +394,7 @@ describe('writeManifest', () => {
         subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 9 },
         // Non-default on purpose: the loader defaults an absent quota block, so
         // the populated manifest pins an explicit threshold to prove the overlay.
-        quota: { warnThresholdPct: 95, claudeGlobalStatusline: true },
+        quota: { warnThresholdPct: 95, claudeGlobalStatusline: true, claudeOauthUsageApi: true },
         id: 'karst-extension',
       };
       writeManifest(path, full);

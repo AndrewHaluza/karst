@@ -204,6 +204,13 @@ describe('reattach after a reload (events file truncated or rewritten)', () => {
     expect(logs.some((m) => m.includes('rewritten'))).toBe(true);
   });
 
+  it('persists a handled seq before pollOnce resolves, so an immediate reload cannot replay it', async () => {
+    await stateDir();
+    await write(markerLine({ seq: 'aaaa' }));
+    await make(okRunner()).pollOnce();
+    expect(JSON.parse(await readFile(paths.handledFile, 'utf8'))).toEqual(['aaaa']);
+  });
+
   it('the handled record survives a restart and is host-side only', async () => {
     await stateDir();
     await write(markerLine({ seq: 'aaaa' }));

@@ -5,10 +5,13 @@ import {
   bindMount,
   containerXdgEnv,
   envArgs,
+  gateRunArgs,
+  HARDENING,
   headlessExecArgs,
   headlessKillArgs,
   interactiveRunArgs,
   rewritePaths,
+  serviceRunArgs,
   userArgs,
   volumeMounts,
 } from './dockerRunArgs.js';
@@ -20,7 +23,7 @@ const base = { names, core: 'opencode' as const, user: undefined, authFile: unde
 describe('interactiveRunArgs', () => {
   it('builds the exact argv: internal network, volumes, hardening, clone cwd', () => {
     expect(interactiveRunArgs(base)).toEqual([
-      'run', '--interactive', '--tty', '--rm', '--name', names.container,
+      'run', '--interactive', '--tty', '--rm', '--init', '--name', names.container,
       '--network', names.network, '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
       '--mount', `type=volume,source=${names.repoVolume},target=/work`,
       '--mount', `type=volume,source=${names.dataVolume},target=/home/node/.local/share/opencode`,
@@ -114,6 +117,23 @@ describe('headless exec', () => {
   it('refuses an unsafe run id', () => {
     expect(() => headlessExecArgs('c', '../x', 'a', [])).toThrow(/unsafe run id/);
     expect(() => headlessKillArgs('c', '')).toThrow(/unsafe run id/);
+  });
+});
+
+describe('reaping init (zombies)', () => {
+  it('every container that hosts repo processes runs docker --init', () => {
+    // Without tini as PID 1 a killed tree's last descendant becomes a ZOMBIE
+    // under PID 1 and `kill(pid, 0)` answers "alive" forever, so killTree's
+    // "is it gone?" contract — and the repo's own process-tree suites — read a
+    // corpse as a survivor.
+    expect(interactiveRunArgs(base)).toContain('--init');
+    expect(gateRunArgs(names, undefined, 'karst-g', 'npm', ['test'], {})).toContain('--init');
+    expect(serviceRunArgs(names, undefined)).toContain('--init');
+  });
+
+  it('stays out of HARDENING, so the throwaway git/chown one-shots stay lean', () => {
+    // dockerClone's one-shots only run git; they never host a process tree.
+    expect(HARDENING).not.toContain('--init');
   });
 });
 

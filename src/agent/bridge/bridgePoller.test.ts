@@ -7,7 +7,7 @@ import { createBridgePoller, MAX_LINES_PER_POLL } from './bridgePoller.js';
 
 let dir: string; let file: string; let stateFile: string;
 let lines: string[]; let logs: string[];
-const make = () => createBridgePoller({ file, stateFile, intervalMs: 5, onLine: (l) => lines.push(l), debug: (m) => logs.push(m) });
+const make = () => createBridgePoller({ file, stateFile, intervalMs: 5, onLine: (l) => { lines.push(l); }, debug: (m) => logs.push(m) });
 beforeEach(async () => {
   dir = await mkdtemp(join(tmpdir(), 'poll-'));
   file = join(dir, 'events.ndjson'); stateFile = join(dir, 'state.json');
@@ -135,6 +135,28 @@ describe('bridgePoller', () => {
     const p = createBridgePoller({ file, stateFile, intervalMs: 5, onLine: (l) => { seen.push(l); if (l === 'a') throw new Error('boom'); }, debug: (m) => logs.push(m) });
     await p.pollOnce();
     expect(seen).toEqual(['a', 'b']);
+  });
+  it('awaits an async onLine before persisting the offset', async () => {
+    await writeFile(file, 'a\n');
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const p = createBridgePoller({ file, stateFile, intervalMs: 5, onLine: async (l) => { lines.push(l); await gate; }, debug: (m) => logs.push(m) });
+    let polled = false;
+    const poll = p.pollOnce().then(() => { polled = true; });
+    await new Promise((r) => setImmediate(r));
+    expect(polled).toBe(false);
+    await expect(readFile(stateFile, 'utf8')).rejects.toThrow();
+    release();
+    await poll;
+    expect(polled).toBe(true);
+    expect(JSON.parse(await readFile(stateFile, 'utf8'))).toMatchObject({ offset: 2 });
+  });
+  it('swallows an async onLine rejection so one bad line cannot stop the tail', async () => {
+    await writeFile(file, 'a\nb\n');
+    const p = createBridgePoller({ file, stateFile, intervalMs: 5, onLine: async (l) => { lines.push(l); if (l === 'a') throw new Error('boom'); }, debug: (m) => logs.push(m) });
+    await p.pollOnce();
+    expect(lines).toEqual(['a', 'b']);
+    expect(logs.some((m) => m.includes('onLine threw: boom'))).toBe(true);
   });
   it('handles at most MAX_LINES_PER_POLL lines per poll and persists the first unconsumed byte', async () => {
     expect(MAX_LINES_PER_POLL).toBe(500);

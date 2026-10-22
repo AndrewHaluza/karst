@@ -32,6 +32,12 @@
   "src/agent/cliEnv.ts#quoteArg": [
     "arch:CLI-10"
   ],
+  "src/agent/materializedCleanup.ts#OWNED_PREFIXES": [
+    "arch:ROOT-GEN"
+  ],
+  "src/agent/materializedCleanup.ts#cleanupOwnedPaths": [
+    "arch:ROOT-GEN"
+  ],
   "src/agent/settings.ts#writeHookSettings": [
     "arch:GLOBAL"
   ],
@@ -166,6 +172,9 @@
   "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
     "arch:CLI-17"
   ],
+  "src/extension/ops/worktreeSpecs.ts": [
+    "arch:WT-00"
+  ],
   "src/model/artifacts.ts": [
     "arch:SHELF"
   ],
@@ -194,8 +203,100 @@
   "src/recovery/reconcile.ts#reconcileOnStart": [
     "arch:SQLITE"
   ],
+  "src/resolver/allocator.ts#makePortAllocator": [
+    "arch:PORTS",
+    "arch:SERVICES-WT"
+  ],
+  "src/runtime/branchName.ts#renderBranchName": [
+    "arch:RENDERERS"
+  ],
+  "src/runtime/branchName.ts#suffixBranchForCollision": [
+    "arch:BRANCH-NAME"
+  ],
+  "src/runtime/dockerCommand.ts#renderDockerRun": [
+    "arch:CONTAINER"
+  ],
+  "src/runtime/dockerContainer.ts#removeContainer": [
+    "arch:CONTAINER"
+  ],
+  "src/runtime/env.ts#buildSpawnEnv": [
+    "arch:SPAWN-ENV"
+  ],
+  "src/runtime/env.ts#shadowedOverrideKeys": [
+    "arch:SPAWN-ENV"
+  ],
+  "src/runtime/health.ts#HealthForeignInstanceError": [
+    "arch:PORTS"
+  ],
+  "src/runtime/health.ts#waitForHealth": [
+    "arch:PORTS"
+  ],
+  "src/runtime/karstExcludes.ts#KARST_EXCLUDE_RULES": [
+    "arch:ROOT-GEN"
+  ],
+  "src/runtime/orphanPorts.ts#describeOrphanReap": [
+    "arch:ORPHANS"
+  ],
+  "src/runtime/orphanPorts.ts#reapOrphanedPorts": [
+    "arch:ORPHANS"
+  ],
+  "src/runtime/pathScope.ts#isPathUnder": [
+    "arch:WT-REMOVE"
+  ],
+  "src/runtime/portProbe.ts": [
+    "arch:WT-00"
+  ],
+  "src/runtime/portProbe.ts#portsToAvoid": [
+    "arch:PORTS"
+  ],
+  "src/runtime/pullBase.ts#pullBaseRef": [
+    "arch:BASE-PULL"
+  ],
+  "src/runtime/rebaseWorktree.ts#rebaseWorktreeOntoBase": [
+    "arch:BASE-PER"
+  ],
+  "src/runtime/serverIdentity.ts#attributeServer": [
+    "arch:WT-REMOVE"
+  ],
+  "src/runtime/serverLog.ts#serverLogPath": [
+    "arch:ROOT-GEN"
+  ],
+  "src/runtime/serviceLaunch.ts#serviceLaunch": [
+    "arch:CONTAINER"
+  ],
+  "src/runtime/slug.ts#worktreeSlug": [
+    "arch:ENTRIES"
+  ],
+  "src/runtime/startService.ts": [
+    "arch:WT-00"
+  ],
+  "src/runtime/startService.ts#startResolvedService": [
+    "arch:SERVICES-WT"
+  ],
+  "src/runtime/supervisor.ts": [
+    "arch:WT-00"
+  ],
+  "src/runtime/ticketBranch.ts#distinctRepoPaths": [
+    "arch:ENTRIES"
+  ],
+  "src/runtime/ticketBranch.ts#resolveWorktreeBranch": [
+    "arch:BRANCH-NAME"
+  ],
+  "src/runtime/worktree*.ts": [
+    "arch:WT-00"
+  ],
   "src/runtime/worktree.ts#createWorktree": [
+    "arch:BRANCH-NAME",
     "arch:WORKTREES-ROW"
+  ],
+  "src/runtime/worktree.ts#removeWorktree": [
+    "arch:WT-REMOVE"
+  ],
+  "src/runtime/worktreeServers.ts#reapStaleServers": [
+    "arch:WT-REMOVE"
+  ],
+  "src/runtime/worktreeServers.ts#stopServersUnder": [
+    "arch:WT-REMOVE"
   ],
   "src/store/**": [
     "arch:ST-00"
@@ -239,8 +340,12 @@
   "src/store/stages.ts#setStage": [
     "arch:V82"
   ],
+  "src/store/ticketEnvOverrides.ts#envOverridesForService": [
+    "arch:SPAWN-ENV"
+  ],
   "src/store/ticketEnvOverrides.ts#setServiceEnvOverrides": [
-    "arch:ENVOVR"
+    "arch:ENVOVR",
+    "arch:SPAWN-ENV"
   ],
   "src/store/ticketMessagesRepair.ts#repairTicketMessages": [
     "arch:V64"
@@ -251,17 +356,43 @@
   "src/store/usageLimitParks.ts": [
     "arch:V82"
   ],
+  "src/store/worktree*.ts": [
+    "arch:WT-00"
+  ],
   "src/store/worktrees.ts#takeForcePushLease": [
     "arch:BASEBRANCH"
   ],
+  "src/template/token.ts#parseTemplateTokens": [
+    "arch:PLACEHOLDER"
+  ],
+  "src/template/transforms.ts#TRANSFORMS": [
+    "arch:PLACEHOLDER"
+  ],
+  "src/template/transforms.ts#applyTransforms": [
+    "arch:PLACEHOLDER"
+  ],
+  "src/workflow/artifactConventions.ts#validateArtifactTemplate": [
+    "arch:RENDERERS"
+  ],
+  "src/workflow/baseRef.ts#resolveTicketBaseRef": [
+    "arch:BASE-PER"
+  ],
   "src/workflow/changeBaseRef.ts#changeBaseRef": [
+    "arch:BASE-PER",
     "arch:BASEBRANCH"
+  ],
+  "src/workflow/conventionContext.ts#resolveRepoConventions": [
+    "arch:RENDERERS"
   ],
   "src/workflow/gates/capabilityGap.ts": [
     "arch:GATE-CAPABILITY"
   ],
   "src/workflow/review/aggregate.ts#gatesOutcomeBeforeFindings": [
     "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/stages/scope.ts#confirmScope": [
+    "arch:BASE-PULL",
+    "arch:ENTRIES"
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"
