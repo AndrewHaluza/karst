@@ -1253,6 +1253,44 @@ describe('runUatTester — budget, wrap-up and partial results (T663)', () => {
   });
 });
 
+describe('buildTesterPrompt — dangling command, merge-base and reachability rules (T757)', () => {
+  for (const [label, instructions] of [['default', undefined], ['custom instructions', 'Be nosy.']] as const) {
+    it(`pins the three rules with ${label}`, () => {
+      const prompt = buildTesterPrompt(TARGETS[0]!, instructions);
+      expect(prompt).toContain('Do not end your answer while a command you started is still running');
+      expect(prompt).toContain('`origin/develop...HEAD` (three dots)');
+      expect(prompt).toContain('record ONE info observation naming why, and stop');
+    });
+  }
+});
+
+describe('runUatTester — tester ended on a background command (T757)', () => {
+  const run = async (text: string) => {
+    const store = openStore(':memory:');
+    const ticketId = createTicketFlow(store, { key: 'T-1', title: 't' }).id;
+    transition(store, ticketId, 'scope', { kind: 'passed' });
+    transition(store, ticketId, 'impl', { kind: 'passed' });
+    const { adapter } = fakeAdapter(async (o) => {
+      o.onOutput?.({ stream: 'stdout', text });
+      return { sessionId: '', verdict: null, raw: '[]' };
+    });
+    const result = await runUatTester(store, { ticketId, targets: TARGETS, assignment: ASSIGNMENT, adapter, git: neverGit });
+    store.close();
+    return result;
+  };
+
+  it('records partial, not clean, when the answer ends on a live background shell', async () => {
+    const r = await run('Command moved to the background (shell ID: sh_7f3a)\nWaiting for it.\n[]');
+    expect(r.kind).toBe('partial');
+    expect((r as { detail: string }).detail).toBe('tester ended while a background command was still running');
+  });
+
+  it('stays observed when the shell was read afterwards', async () => {
+    const r = await run('Command moved to the background (shell ID: sh_7f3a)\nread sh_7f3a\n[]');
+    expect(r.kind).toBe('observed');
+  });
+});
+
 describe('buildTesterPrompt', () => {
   it('points probe scratch at the karst-owned dir, which the exclude rules cover', async () => {
     const { KARST_EXCLUDE_RULES } = await import('../../runtime/karstExcludes.js');
