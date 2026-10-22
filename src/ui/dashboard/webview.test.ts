@@ -2833,9 +2833,15 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     // target that is not inside those elements. The node carries the minimal
     // element surface the delegated action handler touches (pending state,
     // disabled, preventDefault).
-    click: (sel: string, dataset: Record<string, string>, pathSelectors: string[] = []) => {
+    click: (sel: string, attrs: Record<string, string>, pathSelectors: string[] = []) => {
+      // Real DOM semantics: `data-foo-bar` surfaces as dataset.fooBar, never
+      // as a dashed key; the raw attribute is read through getAttribute.
+      const dataset = Object.fromEntries(
+        Object.entries(attrs).map(([k, v]) => [k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()), v]),
+      );
       const node = {
         dataset,
+        getAttribute: (n: string) => (n.startsWith('data-') ? (attrs[n.slice(5)] ?? null) : null),
         closest: (s: string) => (s === sel ? node : null),
         setAttribute: () => {},
         removeAttribute: () => {},

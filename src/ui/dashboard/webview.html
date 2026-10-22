@@ -5863,9 +5863,7 @@
     // selects) — this is the only place it is handled.
     const menuBtn = e.target.closest('[data-stage-menu]');
     if (menuBtn) {
-      // Read the dashed dataset key exactly as the attribute is written — the
-      // harness (and any caller) must not need a camelCase guess.
-      const stage = menuBtn.dataset['stage-menu'];
+      const stage = menuBtn.getAttribute('data-stage-menu');
       stageMenuStage = stageMenuStage === null ? stage : null;
       render(lastState);
       return;
