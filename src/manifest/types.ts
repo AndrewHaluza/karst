@@ -594,6 +594,15 @@ export interface QuotaConfig {
    * chained; turning it off restores the backed-up entry.
    */
   claudeGlobalStatusline?: boolean;
+  /**
+   * Opt-in (default false) FALLBACK source for the Claude quota row: when the
+   * statusline cache is missing or stale, read the two subscription windows
+   * from `GET https://api.anthropic.com/api/oauth/usage` using the OAuth access
+   * token Claude Code already stored. The token is held in memory for the
+   * request only — never logged, stored or refreshed — and every failure
+   * degrades to the cached value or `unknown`.
+   */
+  claudeOauthUsageApi?: boolean;
 }
 
 export interface UatConfig {

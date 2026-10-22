@@ -8,7 +8,7 @@
 // table. Both regions are replaced in place, so the surrounding prose is hand
 // written.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,6 +16,28 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
 const LAYERS_PATH = join(ROOT, 'scripts/arch-layers.json');
 const CONFIG = join(ROOT, '.dependency-cruiser.cjs');
+
+/**
+ * dependency-cruiser's CLI entry, found the way Node finds a package: this
+ * checkout's `node_modules`, then every ancestor's. A linked worktree has no
+ * `node_modules` of its own and inherits the main checkout's (see
+ * `createWorktree` in src/runtime/worktree.ts), so joining
+ * `<ROOT>/node_modules/...` made the docs-graph gate die with MODULE_NOT_FOUND
+ * on every worktree the extension itself creates. Its package `exports` map
+ * hides both the bin and package.json, so `require.resolve` cannot be used
+ * either — the ancestor walk is done by hand.
+ */
+export function resolveDepcruiseBin(root = ROOT, exists = existsSync) {
+  for (let dir = root; ; dir = dirname(dir)) {
+    const candidate = join(dir, 'node_modules', 'dependency-cruiser', 'bin', 'dependency-cruiser.mjs');
+    if (exists(candidate)) return candidate;
+    if (dirname(dir) === dir) {
+      throw new Error(
+        `dependency-cruiser is not installed in ${root} or any ancestor — run npm install`,
+      );
+    }
+  }
+}
 
 /**
  * Where dependency-cruiser's CLI actually lives, from the resolved package
@@ -182,8 +204,8 @@ export function replaceRegion(text, id, body) {
 }
 
 /** Run dependency-cruiser and return its JSON report. */
-export function runDepcruise({ cwd = ROOT } = {}) {
-  const out = execFileSync(process.execPath, [locateDepcruise(), 'src', '--config', CONFIG, '--output-type', 'json'], {
+export function runDepcruise({ cwd = ROOT, depcruise = resolveDepcruiseBin() } = {}) {
+  const out = execFileSync(process.execPath, [depcruise, 'src', '--config', CONFIG, '--output-type', 'json'], {
     cwd,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,

@@ -102,3 +102,24 @@ runs the tag the extension names). Until then a sandboxed ticket's gates exit
 127 and the stage parks with @arch:GATE-CAPABILITY — a park, not a red the
 ticket can clear.
 END_DOC_BLOCK: [@issue:GATE-03]
+
+## [@issue:GATE-04] The image claimed the baseline environment and did not carry it (2026-10-21)
+
+The UAT run of ticket 721 (2026-10-21, attempt 1) was red on three gates and
+none of it was the ticket's code. The image revision `r2` had four defects,
+all in `sandbox/opencode/Dockerfile` or the container's run args:
+
+| symptom | cause | repair (`r3`) |
+| --- | --- | --- |
+| every full-page screenshot differs by ~0.01 of its pixels, on pages the change never touched; `layout-ledger` reports text a few px wider | the font trees were `COPY`d from the pinned Playwright image BEFORE `playwright install --with-deps`, whose apt step installs THIS distro's faces over them: bookworm's `fonts-liberation 1.07` and `fontconfig-config 2.14` instead of noble's `2.1.5`/`2.15` (`dpkg -S` names the Debian packages as the owners). Different advance widths, so text wraps differently | the wipe + copy now runs AFTER the browser install, and wipes `/usr/share/fonts`, `/usr/share/fontconfig` and `/etc/fonts` first so a distro-only face cannot survive beside the baseline's |
+| `listenerPids` returns `[]`, so port reclaim refuses and the port/supervisor suites read "no listener" | no `lsof` in the image (`apt-get install` listed `procps` but not `lsof`), and lsof is how `runtime/portConflict.ts` names the process holding a port | `lsof` is installed |
+| `expected [Function] to throw` — a tree killed by its process group is still "alive" | no init: PID 1 is the agent or the gate, neither reaps, so the last descendant reparents to PID 1 and stays a ZOMBIE; `process.kill(pid, 0)` answers for it forever | `--init` (tini) on the containers that host repo processes — `REAPER` in `dockerRunArgs.ts`, deliberately not part of `HARDENING` |
+| `git commit` in a scratch repo: "Please tell me who you are" | the ticket clone gets the host identity from `git clone --config user.name=…`, but a repo a gate creates in `/tmp` has none | `git config --system user.name/user.email` in the image |
+
+Reading the gate log matters more than the gate's colour: the failing test
+names (`portConflict`, `supervisor`, `gates/run`, `snapshot`) had nothing to
+do with the ticket's quota reader, and every quota test passed. `r3` takes a
+rebuild — the tag carries the revision, so a host builds it instead of reusing
+`r2`.
+
+END_DOC_BLOCK: [@issue:GATE-04]
