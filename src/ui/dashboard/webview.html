@@ -11,6 +11,9 @@
   /*KARST_AGENT_CSS*/
   /*KARST_AGENT_PICKER_CSS*/
   /*KARST_SERVER_LOGS_VIEW_CSS*/
+  /*KARST_DASHBOARD_APP_CSS*/
+
+  #root{display:contents}
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -2119,6 +2122,8 @@
   <div class="fault blocked hidden" id="blocked"></div>
 </div>
 
+<div id="root"></div>
+
 <div class="grid">
   <!-- The sub-tasks this ticket delegated (design NDL-70 §8). Rendered only
        while it has sub-tasks OR can still gain one (host-derived
@@ -2208,6 +2213,9 @@
   // globals; every control posts through a typed `karstSend.<name>(...)`
   // sender, so a renamed message field is a tsc error instead of a silent drop.
   /*KARST_WEBVIEW_SEND_DASHBOARD*/
+
+  // Dashboard React app bundle (phase 1 foundation).
+  /*KARST_DASHBOARD_APP*/
 
   // Single source for the copy-confirmation toast text — two call sites show
   // it (a floating toast and an inline button label), and both must say the
