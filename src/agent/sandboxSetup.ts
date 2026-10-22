@@ -7,6 +7,8 @@ import type { SetupWindow } from './sessionRunner.js';
 export const SETUP_BOUND_MS = 15 * 60_000;
 /** Lines of failed setup output kept in `logs/setup.log` and the refusal reason. */
 export const SETUP_LOG_LINES = 40;
+/** Wait before the single automatic retry of a killed (exit 137) setup. */
+export const KILL_RETRY_DELAY_MS = 60_000;
 const POLL_MS = 5_000;
 /** Written by the setup script INSIDE the sandbox so a stale run can be killed. */
 const PID_FILE = '/tmp/karst-setup.pid';
@@ -39,6 +41,9 @@ export interface SetupDeps {
   readonly now?: () => number;
   readonly sleep?: (ms: number) => Promise<void>;
   readonly boundMs?: number;
+  readonly killRetryDelayMs?: number;
+  /** docker only, best-effort: "Docker VM 4.8 GB, 2 other containers running" for a kill's reason; never throws. */
+  readonly killContext?: () => Promise<string | undefined>;
   readonly debug?: (message: string) => void;
 }
 
@@ -156,7 +161,33 @@ async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string)
   }
 }
 
-async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: string): Promise<SetupResult> {
+/** SIGKILL (exit 137, the OOM killer) or a signal kill: likely transient memory pressure. */
+const isKill = (exitCode: number | null): boolean => exitCode === 137;
+
+/** The last line worth quoting: an error line, else a non-warning line; warn-only output is not quoted. */
+export function quoteLine(body: string): string {
+  const lines = body.split('\n').filter((l) => l.trim() !== '');
+  const isWarn = (l: string): boolean => /\bwarn(ing)?\b/i.test(l.slice(0, 30));
+  const err = [...lines].reverse().find((l) => /npm error|ERR!|\bError:/i.test(l));
+  return err ?? [...lines].reverse().find((l) => !isWarn(l)) ?? '';
+}
+
+async function classify(deps: SetupDeps, why: string, exitCode: number | null): Promise<string> {
+  if (isKill(exitCode)) {
+    const ctx = await deps.killContext?.().catch(() => undefined);
+    return `killed (exit 137) — likely out of memory${ctx ? ` (${ctx})` : ''}`;
+  }
+  return exitCode === 143 ? 'terminated (exit 143)' : why;
+}
+
+const abortableDelay = (deps: SetupDeps, signal: AbortSignal | undefined, ms: number): Promise<void> => {
+  const sleep = deps.sleep ?? ((n: number) => new Promise<void>((r) => setTimeout(r, n)));
+  if (!signal) return sleep(ms);
+  if (signal.aborted) return Promise.resolve();
+  return Promise.race([sleep(ms), new Promise<void>((r) => signal.addEventListener('abort', () => r(), { once: true }))]);
+};
+
+async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: string, retried = false): Promise<SetupResult> {
   const now = deps.now ?? Date.now;
   const script = `echo $$ > ${PID_FILE}; exec sh -c "$0"`;
   const out = await deps.runGate('sh', ['-c', script, req.setup], req.cwd, { signal: req.signal, timeoutMs: deps.boundMs ?? SETUP_BOUND_MS });
@@ -171,15 +202,25 @@ async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: 
     await writeState(deps.stateFile, { fingerprint, status: 'ok', exitCode, at: now() });
     return { ok: true };
   }
-  const why = out.kind === 'completed' ? `exit ${exitCode}` : out.kind === 'timedOut' ? 'timed out' : out.message;
+  if (isKill(exitCode) && !retried) {
+    deps.debug?.('[sandbox] setup killed (exit 137): retrying once');
+    await abortableDelay(deps, req.signal, deps.killRetryDelayMs ?? KILL_RETRY_DELAY_MS);
+    if (req.signal?.aborted) {
+      await rm(deps.stateFile, { force: true }).catch(() => undefined);
+      return { ok: false, reason: 'sandbox dependencies not provisioned: setup was stopped' };
+    }
+    return runSetupCommand(deps, req, fingerprint, true);
+  }
+  const raw = out.kind === 'completed' ? `exit ${exitCode}` : out.kind === 'timedOut' ? 'timed out' : out.message;
+  const why = await classify(deps, raw, exitCode);
   const body = tail(out.output);
   deps.debug?.(`[sandbox] setup failed (${why}):\n${body}`);
   if (deps.logFile) {
     await mkdir(dirname(deps.logFile), { recursive: true });
-    await writeFile(deps.logFile, `${req.setup}\n${why}\n${body}\n`, 'utf8').catch(() => undefined);
+    await writeFile(deps.logFile, `${why}\n${req.setup}\n${body}\n`, 'utf8').catch(() => undefined);
   }
   await writeState(deps.stateFile, { fingerprint, status: 'failed', exitCode, at: now() });
-  const last = body.split('\n').pop() ?? '';
+  const last = quoteLine(body);
   const blocked = blockedHost(body);
   return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (${why})${blocked ? `, blocked host ${blocked}` : ''}${last ? `: ${last}` : ''}` };
 }
@@ -235,7 +276,7 @@ export async function ensureSandboxSetup(deps: SetupDeps, req: SetupRequest): Pr
   const state = await readState(deps.stateFile);
   if (state?.fingerprint === fp && state.status === 'ok') return { ok: true };
   if (state?.fingerprint === fp && state.status === 'failed') {
-    return { ok: false, reason: `sandbox dependencies not provisioned: the last setup \`${req.setup}\` failed (exit ${state.exitCode ?? 'n/a'}); run "Karst: Re-run sandbox setup"` };
+    return { ok: false, reason: `sandbox dependencies not provisioned: the last setup \`${req.setup}\` failed (${state.exitCode === 137 ? 'killed (exit 137) — likely out of memory' : `exit ${state.exitCode ?? 'n/a'}`}); run "Karst: Re-run sandbox setup"` };
   }
   if (state?.fingerprint === fp && state.status === 'running') {
     // No lock here: state left by a previous host or a crash. Young = another run may be live.
@@ -244,7 +285,7 @@ export async function ensureSandboxSetup(deps: SetupDeps, req: SetupRequest): Pr
       await sleep(POLL_MS);
       const cur = await readState(deps.stateFile);
       if (cur?.status === 'ok' && cur.fingerprint === fp) return { ok: true };
-      if (cur?.status === 'failed') return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (exit ${cur.exitCode ?? 'n/a'})` };
+      if (cur?.status === 'failed') return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (${cur.exitCode === 137 ? 'killed (exit 137) — likely out of memory' : `exit ${cur.exitCode ?? 'n/a'}`})` };
       if (locks.has(req.key)) return waitOnLock(locks.get(req.key)!, deps);
     }
     await reapStale(deps, req);

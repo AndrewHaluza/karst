@@ -47,3 +47,31 @@ export async function probeDockerDisk(proc: SbxProcess = NODE_DOCKER_PROCESS): P
     return undefined;
   }
 }
+
+/** The Docker VM's total memory in bytes (`docker info` MemTotal); undefined when it cannot be read. */
+export async function probeDockerMemory(proc: SbxProcess = NODE_DOCKER_PROCESS): Promise<number | undefined> {
+  try {
+    const r = await proc.run('docker', ['info', '--format', '{{.MemTotal}}']);
+    const n = Number(r.stdout.trim());
+    return r.code === 0 && Number.isFinite(n) && n > 0 ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** "Docker VM 4.8 GB, 2 other karst/playwright containers running" for a killed setup's reason; undefined when nothing is readable. */
+export async function dockerKillContext(proc: SbxProcess = NODE_DOCKER_PROCESS): Promise<string | undefined> {
+  const mem = await probeDockerMemory(proc);
+  let others: number | undefined;
+  try {
+    const r = await proc.run('docker', ['ps', '--format', '{{.Names}} {{.Image}}']);
+    if (r.code === 0) others = r.stdout.split('\n').filter((l) => /karst-|playwright/i.test(l)).length;
+  } catch {
+    others = undefined;
+  }
+  const parts = [
+    mem === undefined ? undefined : `Docker VM ${(mem / 2 ** 30).toFixed(1)} GB`,
+    others === undefined ? undefined : `${others} karst/playwright container${others === 1 ? '' : 's'} running`,
+  ].filter((x): x is string => x !== undefined);
+  return parts.length ? parts.join(', ') : undefined;
+}

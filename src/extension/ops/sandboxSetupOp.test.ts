@@ -187,4 +187,72 @@ describe('clearSetupState', () => {
   it('tolerates a missing state dir', async () => {
     await expect(clearSetupState(bridgePaths(join(tmpdir(), 'no-such-root-x'), 7))).resolves.toBeUndefined();
   });
+
+  describe('failure buttons', () => {
+    const withButtons = (exit: number, pick: string | undefined) => {
+      const r = rig({ setup: 'npm ci', exit });
+      const calls: string[] = [];
+      const offered: string[][] = [];
+      const deps: TicketSetupDeps = {
+        ...r.deps, sleep: async () => undefined,
+        notify: { ...r.deps.notify, errorActions: async (_m, a) => { offered.push([...a]); return pick; } },
+        actions: { rerun: async (id) => { calls.push(`rerun ${id}`); }, openLog: (p) => { calls.push(`log ${p}`); }, memoryHelp: () => { calls.push('help'); } },
+      };
+      return { r, deps, calls, offered };
+    };
+    const settle = () => new Promise((res) => setTimeout(res, 5));
+
+    it('a kill offers Re-run setup, Show setup log and Docker memory help', async () => {
+      const x = withButtons(137, undefined);
+      await provisionTicketSandbox(x.deps, 7);
+      expect(x.offered).toEqual([['Re-run setup', 'Show setup log', 'Docker memory help']]);
+    });
+
+    it('another failure offers no memory help', async () => {
+      const x = withButtons(1, undefined);
+      await provisionTicketSandbox(x.deps, 7);
+      expect(x.offered).toEqual([['Re-run setup', 'Show setup log']]);
+    });
+
+    it('dismissing the notification runs no action', async () => {
+      const x = withButtons(137, undefined);
+      await provisionTicketSandbox(x.deps, 7); await settle();
+      expect(x.calls).toEqual([]);
+    });
+
+    it('the kill context of the ticket lands in the failure reason', async () => {
+      const x = withButtons(137, undefined);
+      const r = await provisionTicketSandbox({ ...x.deps, killContextOf: () => async () => 'Docker VM 4.8 GB' }, 7);
+      expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('likely out of memory (Docker VM 4.8 GB)') });
+    });
+
+    it('a throwing action without a debug sink does not escape', async () => {
+      const x = withButtons(1, 'Re-run setup');
+      await provisionTicketSandbox({ ...x.deps, actions: { rerun: async () => { throw new Error('nope'); }, openLog: () => undefined, memoryHelp: () => undefined } }, 7);
+      await settle();
+      expect(x.calls).toEqual([]);
+    });
+
+    it('a throwing action is logged, never unhandled', async () => {
+      const debug: string[] = [];
+      const x = withButtons(1, 'Re-run setup');
+      await provisionTicketSandbox({ ...x.deps, debug: (m) => { debug.push(m); }, actions: { rerun: async () => { throw new Error('nope'); }, openLog: () => undefined, memoryHelp: () => undefined } }, 7);
+      await settle();
+      expect(debug).toContain('[sandbox] setup failure action failed: nope');
+    });
+
+    it('Re-run setup re-runs and re-drives; Show setup log opens the log; help explains', async () => {
+      const a = withButtons(1, 'Re-run setup');
+      await provisionTicketSandbox(a.deps, 7); await settle();
+      expect(a.calls).toEqual(['rerun 7']);
+      resetSetupLocks();
+      const b = withButtons(1, 'Show setup log');
+      await provisionTicketSandbox(b.deps, 7); await settle();
+      expect(b.calls).toEqual([`log ${b.r.paths.setupLogFile}`]);
+      resetSetupLocks();
+      const c = withButtons(137, 'Docker memory help');
+      await provisionTicketSandbox(c.deps, 7); await settle();
+      expect(c.calls).toEqual(['help']);
+    });
+  });
 });

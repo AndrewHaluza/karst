@@ -474,7 +474,7 @@ describe('resolveTicketSandbox / ticketSandboxContext edge cases', () => {
 describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
   const boxFor = (id: number) => ({ runner: 'sbx' as const, name: sbxName({ projectRoot: '/p', ticketId: id, core: 'claude' }), ticketId: id, core: 'claude', state: 'running' as const });
   const HASH = 'd'.repeat(64);
-  async function make(opts: { listed?: (box: ReturnType<typeof boxFor>) => Promise<readonly ReturnType<typeof boxFor>[]>; withNotify?: boolean; setupExit?: number } = {}) {
+  async function make(opts: { listed?: (box: ReturnType<typeof boxFor>) => Promise<readonly ReturnType<typeof boxFor>[]>; withNotify?: boolean; setupExit?: number; extra?: Record<string, unknown>; pick?: string } = {}) {
     const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
     const { runProcess } = await import('../../workflow/gates/run.js');
     const ran: string[] = [];
@@ -489,13 +489,18 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     store.db.prepare("INSERT INTO worktrees (ticket_id, repo, path, deps_mode) VALUES (?, 'app', '/wt', 'none')").run(t.id);
     const manifest = { agentBackends: { claude: 'sbx' }, repositories: { app: { repoPath: '/r', sandbox: { setup: 'npm ci' } } } } as unknown as Manifest;
     const errors: string[] = [];
-    const notify = { info: () => undefined, warn: () => undefined, error: (m: string) => { errors.push(m); return Promise.resolve(); } };
+    const infos: string[] = [];
+    const offered: string[][] = [];
+    const notify = {
+      info: (m: string) => { infos.push(m); }, warn: () => undefined, error: (m: string) => { errors.push(m); return Promise.resolve(); },
+      ...(opts.pick === undefined ? {} : { errorActions: (m: string, a: readonly string[]) => { errors.push(m); offered.push([...a]); return Promise.resolve(offered.length === 1 ? opts.pick : undefined); } }),
+    };
     const root = mkdtempSync(join(tmpdir(), 'prov-'));
     const b = createTicketSandboxBindings({
       ...deps({ proc: fakeSbxProcess(), inventory: () => (opts.listed ?? ((x) => Promise.resolve([x])))(box), projectRoot: () => '/p', coreOf: () => 'claude' }),
-      store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => root, ...(opts.withNotify === false ? {} : { notify }),
+      store, manifest: () => manifest, onError: vi.fn(), bridgeRoot: () => root, ...(opts.withNotify === false ? {} : { notify }), ...opts.extra,
     });
-    return { b, errors, ran, id: t.id };
+    return { b, errors, infos, offered, ran, id: t.id, root };
   }
 
   it('without a notify seam, or when no sandbox is listed, nothing runs (never the host fallback)', async () => {
@@ -526,6 +531,64 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     expect(runs()).toBe(1); // recorded ok + same fingerprint: skipped
     await m.b.rerunSetup(m.id);
     expect(runs()).toBe(2);
+  });
+
+  it('failure buttons: Re-run setup re-runs and re-drives; Show setup log opens the log; Docker memory help explains', async () => {
+    const redrive = vi.fn();
+    const openFile = vi.fn();
+    const debug = vi.fn();
+    const bareDebug = vi.fn();
+    const bare = await make({ setupExit: 2, pick: 'Re-run setup', extra: { debug: bareDebug } });
+    await bare.b.provision(bare.id);
+    await vi.waitFor(() => expect(bare.offered.length).toBeGreaterThan(1)); // no redrive/openFile bound: re-run still completes
+    const bareLog = await make({ setupExit: 2, pick: 'Show setup log', extra: { debug: bareDebug } });
+    await bareLog.b.provision(bareLog.id);
+    await new Promise((res) => setTimeout(res, 20));
+    expect(bareDebug.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('action failed'))).toEqual([]);
+    const a = await make({ setupExit: 2, pick: 'Re-run setup', extra: { redriveAfterSetup: redrive, openFile, debug } });
+    await a.b.provision(a.id);
+    await vi.waitFor(() => expect(redrive).toHaveBeenCalledWith(a.id));
+    expect(a.offered[0]).toEqual(['Re-run setup', 'Show setup log']);
+    const b = await make({ setupExit: 2, pick: 'Show setup log', extra: { redriveAfterSetup: redrive, openFile } });
+    await b.b.provision(b.id);
+    await vi.waitFor(() => expect(openFile).toHaveBeenCalledTimes(1));
+    expect(openFile.mock.calls[0]![0]).toMatch(/setup\.log$/);
+    expect(redrive).toHaveBeenCalledTimes(1);
+    const c = await make({ setupExit: 2, pick: 'Docker memory help', extra: { debug } });
+    await c.b.provision(c.id);
+    await vi.waitFor(() => expect(c.infos).toHaveLength(1));
+    expect(c.infos[0]).toContain('Memory');
+    expect(debug).toHaveBeenCalled();
+  });
+
+  /** Advance the fake clock until `p` settles (the 60 s kill-retry delay is armed after some awaits). */
+  const tick = async <T>(p: Promise<T>): Promise<T> => {
+    let done = false;
+    void p.finally(() => { done = true; });
+    for (let i = 0; i < 200 && !done; i++) await vi.advanceTimersByTimeAsync(1000);
+    return p;
+  };
+
+  it('a kill in a docker sandbox carries the Docker VM context into the reason; sbx and unknown cores do not', async () => {
+    const dockerProc = fakeDockerProcess({ 'docker info': { stdout: String(4 * 2 ** 30) }, 'docker ps': { stdout: 'karst-a img\n' } });
+    const dockerBox = (id: number) => ({ runner: 'docker' as const, name: dockerNames({ projectRoot: '/p', ticketId: id, core: 'opencode2' }).container, ticketId: id, core: 'opencode2', state: 'running' as const });
+    const k = await make({ setupExit: 137, extra: { backends: () => ({ opencode2: 'docker' }), coreOf: () => 'opencode2', dockerProc, platform: 'linux', inventory: async () => [dockerBox(1)] } });
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const pending = k.b.provision(k.id);
+    const r = await tick(pending);
+    vi.useRealTimers();
+    expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('likely out of memory (Docker VM 4.0 GB, 1 karst/playwright container running)') });
+    const sbx = await make({ setupExit: 137, extra: { dockerProc } });
+    const noCore = await make({ setupExit: 137, extra: { dockerProc, coreOf: () => null } });
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const sp = sbx.b.provision(sbx.id);
+    const sr = await tick(sp);
+    vi.useRealTimers();
+    expect(sr).toMatchObject({ ok: false, reason: expect.not.stringContaining('Docker VM') });
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    const nr = await tick(noCore.b.provision(noCore.id));
+    vi.useRealTimers();
+    expect(nr).toMatchObject({ ok: false, reason: expect.not.stringContaining('Docker VM') });
   });
 
   it('provisionInBackground returns at once, waits for the listing, then provisions', async () => {

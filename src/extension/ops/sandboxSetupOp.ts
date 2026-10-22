@@ -8,7 +8,21 @@ import type { Manifest } from '../../manifest/types.js';
 import type { GateProcessRunner } from '../../workflow/gates/run.js';
 import type { Notify } from './notify.js';
 
+/** What the buttons on a sandbox-setup failure do (arch:AC-40); the host binds them. */
+export interface SetupFailureActions {
+  /** Forget the recorded setup, run it again, clear the block and re-drive the stage. */
+  readonly rerun: (ticketId: number) => Promise<void>;
+  readonly openLog: (path: string) => void;
+  readonly memoryHelp: () => void;
+}
+
+export const RERUN_SETUP = 'Re-run setup';
+export const SHOW_SETUP_LOG = 'Show setup log';
+export const DOCKER_MEMORY_HELP = 'Docker memory help';
+export const DOCKER_MEMORY_HELP_TEXT = 'Setup was likely killed for lack of memory. Raise Docker Desktop → Settings → Resources → Memory (8 GB or more), or wait for other UAT / Playwright runs to finish, then Re-run setup.';
+
 export interface TicketSetupDeps {
+  readonly actions?: SetupFailureActions;
   readonly manifest: () => Manifest | undefined;
   /** The ticket's worktrees: `repo` is the manifest key or its repoPath. */
   readonly worktrees: (ticketId: number) => readonly { readonly repo: string; readonly path: string }[];
@@ -19,6 +33,8 @@ export interface TicketSetupDeps {
   readonly windowOf?: (ticketId: number) => Pick<SessionRunner, 'setupWindow' | 'windowNeedsIdle'> | undefined;
   /** Is an agent turn live? docker's window recreates the proxy, so it waits for idle. */
   readonly turnActive?: (ticketId: number) => boolean;
+  /** docker only: memory/container context for a killed (137) setup's reason. */
+  readonly killContextOf?: (ticketId: number) => (() => Promise<string | undefined>) | undefined;
   readonly ticketLabel: (ticketId: number) => string;
   readonly notify: Notify;
   readonly debug?: (message: string) => void;
@@ -54,13 +70,13 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     const result = await ensureSandboxSetup(
       {
         runGate, stateFile, ...(window ? { window } : {}), ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
-        ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
+        ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.killContextOf?.(ticketId) ? { killContext: deps.killContextOf(ticketId)! } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
       },
       { key: `${ticketId}:${job.name}`, setup: job.setup, hosts: job.hosts, cwd: job.cwd, ...(opts.signal ? { signal: opts.signal } : {}) },
     );
     if (!result.ok) {
       deps.debug?.(`[sandbox] ticket ${ticketId} ${job.name}: ${result.reason}`);
-      void deps.notify.error(`Karst: ${deps.ticketLabel(ticketId)} sandbox setup failed: ${result.reason}`);
+      notifyFailure(deps, ticketId, result.reason, paths!.setupLogFile); // stateFile above implies a bridge
       return result;
     }
   }
@@ -73,4 +89,21 @@ export async function clearSetupState(paths: BridgePaths): Promise<void> {
   const own = basename(paths.setupStateFile).replace(/\.setup\.json$/, '');
   const names = await readdir(dir).catch(() => [] as string[]);
   await Promise.all(names.filter((n) => n.endsWith('.setup.json') && (n === `${own}.setup.json` || n.startsWith(`${own}.`))).map((n) => rm(`${dir}/${n}`, { force: true })));
+}
+
+/** One notification; with an action-capable Notify and bound actions it carries the buttons. */
+function notifyFailure(deps: TicketSetupDeps, ticketId: number, reason: string, logFile: string): void {
+  const message = `Karst: ${deps.ticketLabel(ticketId)} sandbox setup failed: ${reason}`;
+  const { actions } = deps;
+  if (!deps.notify.errorActions || !actions) {
+    void deps.notify.error(message);
+    return;
+  }
+  const killed = reason.includes('likely out of memory');
+  const labels = [RERUN_SETUP, SHOW_SETUP_LOG, ...(killed ? [DOCKER_MEMORY_HELP] : [])];
+  void deps.notify.errorActions(message, labels).then(async (choice) => {
+    if (choice === RERUN_SETUP) await actions.rerun(ticketId);
+    else if (choice === SHOW_SETUP_LOG) actions.openLog(logFile);
+    else if (choice === DOCKER_MEMORY_HELP) actions.memoryHelp();
+  }).catch((err: unknown) => deps.debug?.(`[sandbox] setup failure action failed: ${err instanceof Error ? err.message : String(err)}`));
 }
