@@ -570,7 +570,8 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     void p.finally(() => { done = true; });
     // Yield a real macrotask each round (setImmediate is not faked) so a slow CI worker can finish
     // the real async work that schedules the retry timer before the next advance.
-    for (let i = 0; i < 200 && !done; i++) {
+    // Bound by wall-clock, not round count: a slow worker burns 200 fast rounds before the real work arms the timer.
+    for (const deadline = Date.now() + 20_000; Date.now() < deadline && !done; ) {
       await new Promise<void>((r) => setImmediate(r));
       await vi.advanceTimersByTimeAsync(1000);
     }
