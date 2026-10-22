@@ -16,6 +16,7 @@ import {
   defaultGitRunner,
   type PersistedCommitIdentity,
 } from '../integrations/git.js';
+import type { GhRunner } from '../integrations/github.js';
 import { loadShipPreview } from './shipPreview.js';
 
 const identity: PersistedCommitIdentity = {
@@ -254,5 +255,42 @@ describe('preview agrees with the commit ship actually prepares', () => {
     // base.txt is DELETED and dist/moved.txt never entered the tree.
     expect(tree.stdout.trim().split('\n').sort()).toEqual(['dist-out.js']);
     await cleanupQuarantine(defaultGitRunner, dir, key);
+  });
+
+  describe('merged PR with nothing new', () => {
+    const seedMerged = () =>
+      store.db
+        .prepare('INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 7, ?, ?)')
+        .run(ticketId, dir, 'https://github.com/o/r/pull/7', 'merged');
+    const ghAt = (oid: string): GhRunner => async () => ({ stdout: `${oid}\n`, stderr: '', exitCode: 0 });
+    const previewWith = (gh: GhRunner) =>
+      loadShipPreview({
+        store,
+        manifest: manifestFor(),
+        git: defaultGitRunner,
+        gh,
+        ticketId,
+        key: 'T1',
+        title: 'Add ship preview',
+        ticket: { type: null, model: null },
+      });
+
+    it('reads already-merged when HEAD is the merged head', async () => {
+      seedMerged();
+      const head = (await headCommit(defaultGitRunner, dir))!;
+      const row = (await previewWith(ghAt(head))).repos[0]!;
+      expect(row.status).toBe('already-merged');
+      expect(row.prNumber).toBe(7);
+    });
+
+    it('does not read already-merged once the branch moved past the merged head', async () => {
+      seedMerged();
+      const merged = (await headCommit(defaultGitRunner, dir))!;
+      writeFileSync(join(dir, 'later.txt'), 'later');
+      await runGit(['add', '-A'], dir);
+      await runGit(['commit', '-m', 'later'], dir);
+      const row = (await previewWith(ghAt(merged))).repos[0]!;
+      expect(row.status).not.toBe('already-merged');
+    });
   });
 });

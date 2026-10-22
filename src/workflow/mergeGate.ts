@@ -7,6 +7,7 @@ import { stageBlock, clearStageBlock } from '../store/stageBlocks.js';
 import { getStage, setStage } from '../store/stages.js';
 import { nowIso } from '../model/time.js';
 import { transition } from './machine.js';
+export { settleMergedNothingNew } from './mergedNothingNew.js';
 
 /**
  * The gate between "the PRs are open" and "the work has landed" (§11) — an
