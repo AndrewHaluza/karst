@@ -40,8 +40,8 @@ describe('dashboard sandbox strip (V1)', () => {
     expect(text).toContain('Sandbox');
     expect(text).toContain('sbx');
     expect(text).toContain('Claude Code');
-    expect(text).toContain('workspace: clone');
-    expect(text).toContain('network: sbx network policy (allowlist)');
+    expect(text).toContain('Isolated Git Clone');
+    expect(text).toContain('Allowlist Proxy');
   });
 
   it.each([

@@ -38,9 +38,18 @@ describe('SandboxStrip', () => {
     // Canonical core name (UI-R10c: never bare 'claude', must be canonical 'Claude Code')
     expect(screen.getByTestId('sandbox-core-identity').textContent).toContain('Claude Code');
 
-    // Workspace & network facts
-    expect(strip.textContent).toContain('workspace: clone');
-    expect(strip.textContent).toContain('network: sbx network policy (allowlist)');
+    // Semantic badges (Variant 2)
+    const wsBadge = screen.getByTestId('sandbox-workspace-badge');
+    expect(wsBadge.textContent).toContain('Isolated Git Clone');
+    expect(wsBadge.textContent).toContain('Filesystem Containment');
+    expect(wsBadge.textContent).toContain('Isolation Boundary');
+    expect(wsBadge.textContent).toContain('Host Synchronization');
+
+    const netBadge = screen.getByTestId('sandbox-network-badge');
+    expect(netBadge.textContent).toContain('Allowlist Proxy');
+    expect(netBadge.textContent).toContain('Network Allowlist Perimeter');
+    expect(netBadge.textContent).toContain('api.anthropic.com');
+    expect(netBadge.textContent).toContain('registry.npmjs.org');
   });
 
   it('renders labelled action buttons when actions are enabled', () => {

@@ -76,23 +76,163 @@ export function SandboxStrip({ sandbox, send }: SandboxStripProps) {
           ·
         </span>
 
-        <span
-          className="sandbox-fact"
-          title={`workspace: ${sandbox.workspace}`}
-        >
-          workspace: {sandbox.workspace}
-        </span>
+        {sandbox.workspace === 'clone' ? (
+          <span
+            className="sandbox-badge"
+            tabIndex={0}
+            role="button"
+            aria-haspopup="true"
+            aria-label="Filesystem Containment: Isolated Git Clone"
+            title="workspace: clone"
+            data-testid="sandbox-workspace-badge"
+          >
+            <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M7 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+              <path d="M7 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+              <path d="M16 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+              <path d="M9 8l0 8" />
+              <path d="M9 12l5 0" />
+            </svg>
+            <span>Isolated Git Clone</span>
+            <svg
+              className="k-icon k-icon-chevron"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M6 9l6 6l6 -6" />
+            </svg>
+
+            <div className="sandbox-popover" role="tooltip">
+              <div className="sandbox-popover-header">
+                <svg
+                  className="k-icon k-icon-success"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M7 18a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+                  <path d="M7 6a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+                  <path d="M16 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" />
+                  <path d="M9 8l0 8" />
+                  <path d="M9 12l5 0" />
+                </svg>
+                <span>Filesystem Containment</span>
+              </div>
+
+              <div className="sandbox-popover-title">Isolation Boundary</div>
+              <div className="sandbox-popover-body">
+                Runs in a private, standalone Git clone inside the container. Never mounts your host worktree or shared <code>.git</code>.
+              </div>
+
+              <div className="sandbox-popover-title">Host Synchronization</div>
+              <div className="sandbox-popover-body">
+                Agent edits and commits remain contained in the container until you click <strong>Sync</strong> or the stage successfully finishes.
+              </div>
+
+              <div className="sandbox-popover-footer">
+                <svg
+                  className="k-icon k-icon-success"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M5 12l5 5l10 -10" />
+                </svg>
+                <span>Host workspace and git hooks are fully protected.</span>
+              </div>
+            </div>
+          </span>
+        ) : (
+          <span
+            className="sandbox-fact"
+            title={`workspace: ${sandbox.workspace}`}
+          >
+            workspace: {sandbox.workspace}
+          </span>
+        )}
 
         <span className="sandbox-sep" aria-hidden="true">
           ·
         </span>
 
-        <span
-          className="sandbox-fact"
-          title={`network: ${sandbox.network}`}
-        >
-          network: {sandbox.network}
-        </span>
+        {sandbox.network.includes('allowlist') ? (
+          <span
+            className="sandbox-badge"
+            tabIndex={0}
+            role="button"
+            aria-haspopup="true"
+            aria-label="Network Allowlist Perimeter: Allowlist Proxy"
+            title={`network: ${sandbox.network}`}
+            data-testid="sandbox-network-badge"
+          >
+            <svg className="k-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" />
+              <path d="M9 12l2 2l4 -4" />
+            </svg>
+            <span>Allowlist Proxy</span>
+            <svg
+              className="k-icon k-icon-chevron"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+              focusable="false"
+            >
+              <path d="M6 9l6 6l6 -6" />
+            </svg>
+
+            <div className="sandbox-popover" role="tooltip">
+              <div className="sandbox-popover-header">
+                <svg
+                  className="k-icon k-icon-success"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3" />
+                  <path d="M9 12l2 2l4 -4" />
+                </svg>
+                <span>Network Allowlist Perimeter</span>
+              </div>
+
+              <div className="sandbox-popover-title">AI Model Endpoints</div>
+              <ul className="sandbox-popover-domain-list">
+                <li className="sandbox-popover-domain-tag">api.anthropic.com</li>
+                <li className="sandbox-popover-domain-tag">api.openai.com</li>
+                <li className="sandbox-popover-domain-tag">opencode.ai</li>
+                <li className="sandbox-popover-domain-tag">openrouter.ai</li>
+              </ul>
+
+              <div className="sandbox-popover-title">Package Registries</div>
+              <ul className="sandbox-popover-domain-list">
+                <li className="sandbox-popover-domain-tag">registry.npmjs.org</li>
+                <li className="sandbox-popover-domain-tag">pypi.org</li>
+                <li className="sandbox-popover-domain-tag">crates.io</li>
+                <li className="sandbox-popover-domain-tag">proxy.golang.org</li>
+                <li className="sandbox-popover-domain-tag">rubygems.org</li>
+              </ul>
+
+              <div className="sandbox-popover-footer">
+                <svg
+                  className="k-icon k-icon-warning"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M12 9v2m0 4v.01" />
+                  <path d="M5 19h14a2 2 0 0 0 1.84 -2.75l-7.1 -12.25a2 2 0 0 0 -3.5 0l-7.1 12.25a2 2 0 0 0 1.75 2.75" />
+                </svg>
+                <span>All other outbound and LAN traffic is blocked.</span>
+              </div>
+            </div>
+          </span>
+        ) : (
+          <span
+            className="sandbox-fact"
+            title={`network: ${sandbox.network}`}
+          >
+            network: {sandbox.network}
+          </span>
+        )}
 
         {sandbox.note && (
           <>
