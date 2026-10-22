@@ -7,6 +7,7 @@ const expectOf = (over: Partial<BridgeExpectation> = {}): BridgeExpectation => (
   launchId: 'L1',
   stage: () => 'impl',
   sessionId: () => undefined,
+  sessionLaunchId: () => undefined,
   ...over,
 });
 const hook = (o: Record<string, unknown> = {}) =>
@@ -45,6 +46,27 @@ describe('verifyBridgeLine', () => {
   it('rejects a hook from another agent session once one is bound', () => {
     expect(verifyBridgeLine(hook({ session_id: 's2' }), expectOf({ sessionId: () => 's1' }))).toEqual({ ok: false, reason: 'session s2 != s1' });
     expect(verifyBridgeLine(hook({ session_id: 's1' }), expectOf({ sessionId: () => 's1' })).ok).toBe(true);
+  });
+  describe('relaunch re-bind (bound session from an older launch)', () => {
+    const start = (o: Record<string, unknown> = {}) => hook({ hook_event_name: 'SessionStart', session_id: 's2', ...o });
+    const older = { sessionId: () => 's1', sessionLaunchId: () => 'L0' };
+    it('accepts a new-launch SessionStart with a different id', () => {
+      expect(verifyBridgeLine(start(), expectOf(older)).ok).toBe(true);
+      expect(verifyBridgeLine(start(), expectOf({ sessionId: () => 's1' })).ok).toBe(true); // unknown launch = older
+    });
+    it('accepts later lines of the new id once re-bound', () => {
+      expect(verifyBridgeLine(hook({ session_id: 's2' }), expectOf({ sessionId: () => 's2', sessionLaunchId: () => 'L1' })).ok).toBe(true);
+    });
+    it('still rejects a different id while the bound id is of the current launch', () => {
+      const cur = { sessionId: () => 's1', sessionLaunchId: () => 'L1' };
+      expect(verifyBridgeLine(start(), expectOf(cur))).toEqual({ ok: false, reason: 'session s2 != s1' });
+    });
+    it('rejects non-SessionStart lines of a new id until the SessionStart re-binds', () => {
+      expect(verifyBridgeLine(hook({ session_id: 's2' }), expectOf(older)).ok).toBe(false);
+    });
+    it('never re-binds without a host launch id', () => {
+      expect(verifyBridgeLine(start(), expectOf({ ...older, launchId: undefined })).ok).toBe(false);
+    });
   });
   it('rejects malformed JSON, wrong version, unknown kind, non-object, bad ticket type', () => {
     for (const line of ['{not json', '[]', '"x"', JSON.stringify({ v: 2, kind: 'hook', ticket: 7 }), JSON.stringify({ v: 1, kind: 'verdict', ticket: 7 }), JSON.stringify({ v: 1, kind: 'hook', ticket: '7', payload: {} })]) {

@@ -1067,6 +1067,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     prFeedbackFix: { available: false, reason: 'stage' },
     ciFailure: { available: false },
     rebase: { available: false },
+    deliver: { available: false, notOnPr: 0, inSandbox: 0 },
     openPrFeedback: 0,
   };
 }

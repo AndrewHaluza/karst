@@ -7,7 +7,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { cleanupOwnedPaths } from './materializedCleanup.js';
 
 describe('cleanupOwnedPaths', () => {
@@ -41,6 +41,15 @@ describe('cleanupOwnedPaths', () => {
   ])('rejects an unsafe cleanup target: %s', (target) => {
     root = mkdtempSync(join(tmpdir(), 'karst-cleanup-'));
     expect(() => cleanupOwnedPaths(root, [target])).toThrow(/owned path|unsafe/i);
+  });
+
+  it('removes an adapter-owned spilled kickoff beneath .karst/kickoff', () => {
+    root = mkdtempSync(join(tmpdir(), 'karst-kickoff-clean-'));
+    const owned = join(root, '.karst', 'kickoff', 'karst-kickoff-gen-1-abcd1234.md');
+    mkdirSync(dirname(owned), { recursive: true });
+    writeFileSync(owned, 'brief');
+    cleanupOwnedPaths(root, [owned]);
+    expect(existsSync(owned)).toBe(false);
   });
 
   it('removes adapter-owned .opencode paths beneath the worktree', () => {

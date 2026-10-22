@@ -1,4 +1,5 @@
 import { runProcess, type GateProcessRunner } from '../workflow/gates/run.js';
+import type { DisposeResult } from './disposeResult.js';
 import type { BridgePaths } from './bridge/bridgeDir.js';
 import {
   spawnHeadlessCli,
@@ -53,6 +54,11 @@ export interface SandboxTicketRef {
   readonly branch: string;
 }
 
+/** `stashMessage`: park the clone's uncommitted work with `git stash push -u -m <it>` before refreshing (never discarded). */
+export interface RefreshOptions {
+  readonly stashMessage?: string;
+}
+
 export type SyncResult =
   | { readonly ok: true; readonly summary: string }
   | { readonly ok: false; readonly reason: string };
@@ -98,7 +104,7 @@ export interface SessionRunner {
   /** Sandbox runners only: bring the sandbox's commits into the host worktree (fast-forward or refuse). */
   sync?(ticket: SandboxTicketRef): Promise<SyncResult>;
   /** Sandbox runners only: host → sandbox (F8): fast-forward the clone to the host branch; dirty clone or divergence is refused, never overwritten. */
-  refresh?(ticket: SandboxTicketRef): Promise<SyncResult>;
+  refresh?(ticket: SandboxTicketRef, opts?: RefreshOptions): Promise<SyncResult>;
   /** Sandbox runners only: fetch the clone's branch into the host worktree's FETCH_HEAD; merges nothing (carry classification). */
   fetchClone?(ticket: SandboxTicketRef): Promise<StepOutcome>;
   /** Sandbox runners only: `git diff <host branch>...<sandbox branch>` after fetching; changes nothing on the host branch. */
@@ -106,7 +112,7 @@ export interface SessionRunner {
   /** Sandbox runners only: stop the sandbox, keeping it for the next open (arch:AC-32 lifecycle). */
   stop?(): Promise<void>;
   /** Sandbox runners only: remove the sandbox and everything it left on the host. */
-  dispose?(ticket: SandboxTicketRef): Promise<void>;
+  dispose?(ticket: SandboxTicketRef): Promise<DisposeResult>;
   /**
    * Sandbox runners only: does this ticket's sandbox exist? A session that
    * failed closed to the host has none, so its gates and services stay on the host.

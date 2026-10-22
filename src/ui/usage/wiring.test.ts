@@ -43,6 +43,7 @@ describe('token-usage host wiring', () => {
     expect(EXTENSION).toMatch(
       /claudeOauthUsageApi: \(\) => currentManifest\(\)\?\.quota\?\.claudeOauthUsageApi === true/,
     );
+    expect(EXTENSION).toMatch(/opencode2AuthPath: join\([\s\S]{0,200}'opencode2',\s*'data',\s*'opencode',\s*'auth\.json'/);
     expect(EXTENSION).toMatch(/quotaService\.start\(\)/);
     expect(EXTENSION).toMatch(/dispose: \(\) => quotaService\.dispose\(\)/);
     // The status badge opens the Quota tab.

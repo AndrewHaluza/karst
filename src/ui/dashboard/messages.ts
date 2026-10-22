@@ -29,6 +29,7 @@ export type WebviewMessage =
   | { type: 'sandbox-stop' }
   | { type: 'sandbox-remove' }
   | { type: 'sandbox-carry' }
+  | { type: 'sandbox-stash-update' }
   | { type: 'show-changes' }
   | { type: 'open-worktree-terminal'; path: string }
   | { type: 'open-worktree-folder'; path: string }
@@ -87,6 +88,7 @@ export type WebviewMessage =
   | { type: 'address-pr-feedback' }
   | { type: 'send-ci-failure' }
   | { type: 'rebase-on-base' }
+  | { type: 'deliver-to-pr' }
   /**
    * Open a stage's recorded log (uat/review artifact) in an editor. Carries the
    * stage key ONLY, never a path: the host re-derives the artifact path from
@@ -415,6 +417,8 @@ export interface DashboardActions {
   /** Guarded: syncs first and asks before dropping unsynced commits. */
   sandboxRemove: () => void | Promise<void>;
   sandboxCarry: () => void | Promise<void>;
+  /** Stash the sandbox's uncommitted work, then update it from the host. */
+  sandboxStashUpdate: () => void | Promise<void>;
   showChanges: () => void | Promise<void>;
   openWorktreeTerminal: (path: string) => void | Promise<void>;
   openWorktreeFolder: (path: string) => void | Promise<void>;
@@ -439,6 +443,8 @@ export interface DashboardActions {
   addressPrFeedback: () => void | Promise<void>;
   sendCiFailure: () => void | Promise<void>;
   rebaseOnBase: () => void | Promise<void>;
+  /** Sync the sandbox, then ship's push onto the open PR ("Deliver to PR"). */
+  deliverToPr: () => void | Promise<void>;
   /** Create a linked follow-up ticket from this (done) ticket. */
   createFollowUpTicket: () => void | Promise<void>;
   /** Create a sub-task under this ticket (host prompts for the title). */
@@ -630,6 +636,7 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
     case 'sandbox-stop':
     case 'sandbox-remove':
     case 'sandbox-carry':
+    case 'sandbox-stash-update':
       return { type: m.type };
     case 'show-changes':
       return { type: 'show-changes' };
@@ -672,6 +679,8 @@ export function parseWebviewMessage(raw: unknown): WebviewMessage | null {
       return { type: 'send-ci-failure' };
     case 'rebase-on-base':
       return { type: 'rebase-on-base' };
+    case 'deliver-to-pr':
+      return { type: 'deliver-to-pr' };
     case 'create-follow-up-ticket':
       return { type: 'create-follow-up-ticket' };
     case 'create-subtask':
@@ -1006,6 +1015,8 @@ export function routeAction(
       return actions.sandboxRemove();
     case 'sandbox-carry':
       return actions.sandboxCarry();
+    case 'sandbox-stash-update':
+      return actions.sandboxStashUpdate();
     case 'show-changes':
       return actions.showChanges();
     case 'open-worktree-terminal':
@@ -1040,6 +1051,8 @@ export function routeAction(
       return actions.sendCiFailure();
     case 'rebase-on-base':
       return actions.rebaseOnBase();
+    case 'deliver-to-pr':
+      return actions.deliverToPr();
     case 'create-follow-up-ticket':
       return actions.createFollowUpTicket();
     case 'create-subtask':

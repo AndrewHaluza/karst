@@ -91,6 +91,17 @@ describe('createSbxSessionRunner.sync', () => {
     expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
   });
 
+  it('a clone BEHIND the host is a no-op ok: nothing merged, the refresh catches it up', async () => {
+    const proc = fakeSbxProcess({
+      [EXEC]: { stdout: BUNDLE_B64 },
+      [`${G} merge-base --is-ancestor HEAD FETCH_HEAD`]: { code: 1 },
+      [`${G} merge-base --is-ancestor FETCH_HEAD HEAD`]: { code: 0 },
+    });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [] });
+    await expect(runner.sync!(ticket)).resolves.toEqual({ ok: true, summary: 'host ahead, nothing to bring' });
+    expect(proc.calls.some((c) => c.args.includes('merge'))).toBe(false);
+  });
+
   it('reports a failed bundle, an empty bundle, a failed fetch and a failed merge', async () => {
     const make = (answers: Record<string, { code?: number; stdout?: string; stderr?: string }>) =>
       createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] }).sync!(ticket);
@@ -133,6 +144,22 @@ describe('createSbxSessionRunner.dispose', () => {
     expect(proc.calls.some((c) => c.args.includes('bystander'))).toBe(false);
     // Disposed: the next launch creates again.
     expect(runner.placeInteractive(spec()).shellArgs).toContain('--clone');
+  });
+});
+
+describe('createSbxSessionRunner.dispose outcomes', () => {
+  it('a failed rm is failed with its stderr and keeps the remote and the known name', async () => {
+    const proc = fakeSbxProcess({ 'sbx rm': { code: 1, stderr: 'daemon busy' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await expect(runner.dispose!(ticket)).resolves.toEqual({ ok: false, steps: [{ step: 'sbx rm', status: 'failed', stderr: 'daemon busy' }] });
+    expect(proc.calls.some((c) => c.args.includes('remote'))).toBe(false);
+    expect(runner.placeInteractive(spec()).shellArgs).not.toContain('--clone');
+  });
+
+  it("rm 'no such sandbox' is absent, which is success", async () => {
+    const proc = fakeSbxProcess({ 'sbx rm': { code: 1, stderr: 'no such sandbox' } });
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [NAME] });
+    await expect(runner.dispose!(ticket)).resolves.toMatchObject({ ok: true, steps: [{ step: 'sbx rm', status: 'absent' }] });
   });
 });
 

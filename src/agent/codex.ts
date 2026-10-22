@@ -56,6 +56,7 @@ import { codexMcpConfigArgs, readMcpServersConfig } from './mcpConfig.js';
 import { SUPPORTED, unsupported, type AdapterSurfaces } from './surfaces.js';
 import { attachUsage, extractTokenUsage } from './tokenUsage.js';
 import { renderInstructionsPointer } from './instructions.js';
+import { spillOversizedKickoff } from './kickoffSpill.js';
 import { codexSandboxArgs } from './codexSandbox.js';
 import { ensureCodexWorkspaceTrusted } from './workspaceTrust.js';
 
@@ -477,16 +478,29 @@ export class CodexAdapter implements AgentAdapter {
       // A solo launch leaves the rules in the kickoff alongside the persona.
       args.push('-c', `developer_instructions=${JSON.stringify(renderInstructionsPointer())}`);
     }
+    // An oversized kickoff cannot ride one argv entry (`E2BIG`): spill it to a
+    // file and pass the short pointer instead. Small kickoffs are returned
+    // unchanged, keeping the positional identical to today.
+    const kickoff = spillOversizedKickoff({
+      cwd: opts.cwd,
+      prompt: opts.initialPrompt,
+      ...(opts.runtimeDir !== undefined ? { runtimeDir: opts.runtimeDir } : {}),
+      ...(opts.hookChannel ? { hookChannel: opts.hookChannel } : {}),
+      ...(opts.hookChannel?.launchId !== undefined
+        ? { launchId: opts.hookChannel.launchId }
+        : {}),
+    });
     if (opts.resume) {
       args.push(opts.resume);
-      if (opts.initialPrompt) args.push(opts.initialPrompt);
-    } else if (opts.initialPrompt) {
-      args.push('--', opts.initialPrompt);
+      if (kickoff.prompt) args.push(kickoff.prompt);
+    } else if (kickoff.prompt) {
+      args.push('--', kickoff.prompt);
     }
     return {
       command: CODEX_BIN,
       args,
       env: {},
+      ...(kickoff.ownedPaths.length > 0 ? { ownedPaths: kickoff.ownedPaths } : {}),
       ...(opts.instructions
         ? { instructionsChannel: opts.soloAgent === true ? ('fallback' as const) : ('pointer' as const) }
         : {}),

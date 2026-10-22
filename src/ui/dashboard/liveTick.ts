@@ -108,3 +108,50 @@ export function liveClocks(state: DashboardState): LiveClocks {
   }
   return out;
 }
+
+export const LIVE_HEARTBEAT_MS = 60_000;
+
+/**
+ * Stage and running-process keys that describe what work is actively moving.
+ * Live logs dedupe on this set changing.
+ */
+export function liveSections(state: DashboardState): string[] {
+  const sections: string[] = [];
+  for (const [key, view] of Object.entries(state.insideViews ?? {})) {
+    const active = view.processes?.filter((p) => p.status === 'run').map((p) => p.id) ?? [];
+    if (view.live?.status === 'run' || active.length > 0) {
+      sections.push(`${key}${active.length > 0 ? `:[${active.sort().join(',')}]` : ''}`);
+    }
+  }
+  return sections.sort();
+}
+
+export interface LiveLogState {
+  lastAt: number;
+  lastReason: string;
+  lastSections: string;
+}
+
+/**
+ * Dedupe decision for `[dashboard]` live tick log lines:
+ * log on first tick, when reason/sections change, or once per minute as heartbeat.
+ */
+export function shouldLogLiveTick(
+  prev: LiveLogState | undefined,
+  now: number,
+  reason: string,
+  sections: readonly string[],
+  heartbeatMs = LIVE_HEARTBEAT_MS,
+): { shouldLog: boolean; next: LiveLogState } {
+  const sectionsKey = sections.join(';');
+  if (!prev) {
+    return { shouldLog: true, next: { lastAt: now, lastReason: reason, lastSections: sectionsKey } };
+  }
+  if (reason !== prev.lastReason || sectionsKey !== prev.lastSections) {
+    return { shouldLog: true, next: { lastAt: now, lastReason: reason, lastSections: sectionsKey } };
+  }
+  if (now - prev.lastAt >= heartbeatMs) {
+    return { shouldLog: true, next: { lastAt: now, lastReason: reason, lastSections: sectionsKey } };
+  }
+  return { shouldLog: false, next: prev };
+}

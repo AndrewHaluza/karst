@@ -652,6 +652,9 @@ export interface TesterPromptExtra {
   contextCommand?: string;
 }
 
+/** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
+export const TESTER_SCRATCH_DIR = '.karst/uat-scratch';
+
 export function buildTesterPrompt(
   target: TesterTarget,
   instructions?: string,
@@ -699,6 +702,7 @@ export function buildTesterPrompt(
     // contract: the deny is a hard stop, but the agent must also know the RIGHT
     // way to stop its own child (`kill $!`) so it does not reach for `pkill`.
     GATE_ISOLATION_RULE,
+    `Put any probe scripts or scratch files under \`${target.worktreePath}/${TESTER_SCRATCH_DIR}/\` (karst-owned, git-excluded); files anywhere else in the checkout dirty it and block host gates.`,
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
     // the ticket's done-when criteria are authoritative for every Tester run.

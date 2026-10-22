@@ -4,6 +4,8 @@ import { SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
 import { isDockerCore } from '../../agent/docker/dockerImage.js';
 import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
+import { disposeFailures, disposeResult, disposeStep, type DisposeResult } from '../../agent/disposeResult.js';
+import type { SessionRunner, SandboxTicketRef } from '../../agent/sessionRunner.js';
 import { ensureSandboxSynced, sandboxRunnerFor, type SandboxSyncDeps, type SandboxSyncTarget } from './sandboxSyncOps.js';
 
 /** A modal choice; `undefined` = dismissed (treated as the safe default). */
@@ -37,6 +39,27 @@ export function inventoryOf(deps: SandboxSyncDeps): Promise<SandboxInventory> {
   return listProjectSandboxes({
     projectRoot: deps.projectRoot, sbx: deps.proc ?? NODE_SBX_PROCESS, docker: deps.dockerProc ?? NODE_DOCKER_PROCESS,
   });
+}
+
+/**
+ * The one removal path: dispose, then re-list the inventory. A sandbox still
+ * listed after a clean dispose is a failed removal (a daemon that swallowed the
+ * rm). Callers keep the bridge dir and clone record on `ok: false`.
+ */
+export async function removeVerified(
+  deps: SandboxLifecycleDeps,
+  dispose: () => Promise<DisposeResult>,
+  stillListed: (s: ProjectSandbox) => boolean,
+): Promise<DisposeResult> {
+  const result = await dispose();
+  if (!result.ok) return result;
+  const inv = await inventoryOf(deps);
+  if (!inv.sandboxes.some(stillListed)) return result;
+  return disposeResult([...result.steps, { step: 'inventory', status: 'failed', stderr: 'still listed after removal' }]);
+}
+
+function removeRunner(deps: SandboxLifecycleDeps, runner: SessionRunner, ref: SandboxTicketRef, stillListed: (s: ProjectSandbox) => boolean): Promise<DisposeResult> {
+  return removeVerified(deps, () => runner.dispose!(ref), stillListed);
 }
 
 function message(err: unknown): string {
@@ -83,7 +106,12 @@ export async function removeSandboxGuarded(
     return false;
   }
   try {
-    await runner.dispose!(ref);
+    const removal = await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
+    if (!removal.ok) {
+      // Keep the bridge dir and clone record: the Remove affordance retries against them.
+      await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}); it and its evidence dir were kept. Remove it again to retry.`);
+      return false;
+    }
     await deps.bridges?.dispose(target.ticketId);
   } catch (err) {
     await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
@@ -200,10 +228,13 @@ export function idleSandboxes(
 
 /** A sandbox named for a core no runner hosts has no runner to dispose it: remove the named object directly. */
 async function removeInvalidCoreSandbox(deps: SandboxLifecycleDeps, o: ProjectSandbox): Promise<void> {
-  const out = o.runner === 'docker'
-    ? await (deps.dockerProc ?? NODE_DOCKER_PROCESS).run('docker', ['rm', '--force', o.name])
-    : await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]);
-  if (out.code !== 0) throw new Error(out.stderr.trim() || `rm exited ${out.code}`);
+  const removal = await removeVerified(deps, async () => {
+    const out = o.runner === 'docker'
+      ? await (deps.dockerProc ?? NODE_DOCKER_PROCESS).run('docker', ['rm', '--force', o.name])
+      : await (deps.proc ?? NODE_SBX_PROCESS).run('sbx', ['rm', '--force', o.name]);
+    return disposeResult([disposeStep(`${o.runner} rm`, out)]);
+  }, (s) => s.name === o.name);
+  if (!removal.ok) throw new Error(disposeFailures(removal));
 }
 
 /** `karst.sandbox.cleanupOrphans`: remove this project's orphan sandboxes, only on confirmation. */
@@ -223,7 +254,10 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
   for (const o of orphans) {
     try {
       if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
-      else await sandboxRunnerFor(deps, o.core, o.ticketId)!.dispose!({ hostWorktreePath: dirname(deps.projectRoot), branch: '' });
+      else {
+        const removal = await removeRunner(deps, sandboxRunnerFor(deps, o.core, o.ticketId)!, { hostWorktreePath: dirname(deps.projectRoot), branch: '' }, (s) => s.name === o.name);
+        if (!removal.ok) throw new Error(disposeFailures(removal));
+      }
       removed += 1;
     } catch (err) {
       deps.notify.warn(`Karst: removing orphan sandbox ${o.name} failed: ${message(err)}`);

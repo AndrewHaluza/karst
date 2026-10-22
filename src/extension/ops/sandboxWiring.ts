@@ -1,3 +1,4 @@
+import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
 import { parseDbTimeMs } from '../../doctor/applyFixes.js';
@@ -7,7 +8,7 @@ import { listWorktreesByTicket } from '../../store/dashboard.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
-import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
+import { disposeSandboxOp, ensureSandboxInSync, ensureSandboxSynced, sandboxRunnerFor, stashSandboxAndUpdate, syncSandboxOp, type SandboxSyncTarget } from './sandboxSyncOps.js';
 import type { SandboxInventory } from '../../agent/sandboxInventory.js';
 import { pickTicketSandbox } from '../../agent/sandboxLookup.js';
 import { diffSandboxOp } from './sandboxDiffOp.js';
@@ -46,6 +47,8 @@ export interface SandboxWiringInput {
   readonly dockerProc?: DockerProcess;
   /** The host-side bridge dir of a ticket (sbx hands the host's bundle through its `xfer/`, F8). */
   readonly bridgeDirOf?: (ticketId: number) => string | undefined;
+  /** The ticket's current launch generation (ends an accepted sandbox session, arch:AC-37). */
+  readonly launchIdFor?: (ticketId: number) => string | undefined;
   /** Reopen a ticket's sandbox session (after "Carry sandbox commits" recreated the clone). */
   readonly reopen?: (ticketId: number) => Promise<void>;
 }
@@ -154,7 +157,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       ...syncTrack,
     }, t, { refresh });
   };
+  const stopTicket = async (ticketId: number): Promise<void> => {
+    const { d, t } = await manualDeps(ticketId);
+    if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
+  };
   const wiring = {
+    /** An accepted done marker + `session.idle` ends the sandbox session (arch:AC-37). */
+    sessionEnder: createSandboxSessionEnder({
+      launchIdFor: w.launchIdFor ?? (() => undefined),
+      boundSessionId: (id) => getTicket(w.store, id).sessionId ?? undefined,
+      stop: (id) => stopTicket(id),
+      log: w.info,
+    }),
     /** Palette entry for `karst.sandbox.sync` / `.dispose`: the given ticket, else a picker (F5). */
     commandTarget,
     /** `karst.sandbox.sync` / `.dispose`: explicit user actions, independent of the configured backend. */
@@ -179,6 +193,12 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const r = parentId === null ? { ok: true as const } : await ensureInSync(parentId, false);
       if (!r.ok) throw new Error(`parent ticket sandbox not in sync: ${r.reason}`);
     },
+    /** Dashboard "Stash sandbox changes and update": the user-clicked recovery for a sandbox with uncommitted work behind the host. */
+    stashUpdate: async (ticketId: number): Promise<void> => {
+      const { t, projectRoot } = await manual(ticketId);
+      const r = await stashSandboxAndUpdate({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
+      if (!r.ok) await w.notify.error(`Karst: ${t.ticketLabel} sandbox not updated: ${r.reason}`);
+    },
     /** Dashboard "Open sync diff": what a sync would bring in, nothing merged. */
     diff: async (ticketId: number): Promise<void> => {
       const { t, projectRoot } = await manual(ticketId);
@@ -197,6 +217,19 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       const { d, t } = await manualDeps(ticketId);
       return sandboxHasUnsynced({ ...d, reopen: async () => {} }, t);
     },
+    /**
+     * "Deliver to PR" counts: fetch the sandbox clone's branch into the host worktree `cwd` and name the ref
+     * it landed on. Null for a host ticket, another repo's worktree, or a clone that cannot be read.
+     */
+    cloneRef: async (ticketId: number, cwd: string): Promise<string | null> => {
+      const { d, t } = await manualDeps(ticketId);
+      const branch = t.worktree?.branch;
+      if (t.worktree?.path !== cwd || !branch) return null;
+      const runner = sandboxRunnerFor(d, t.core, ticketId);
+      if (!runner?.diff) return null;
+      const result = await runner.diff({ hostWorktreePath: cwd, branch });
+      return result.ok ? result.ref : null;
+    },
     /** "Rebase on base": recreate the clone from the rebased branch (no pre-remove sync), then reopen. Throws on failure. */
     recreateNoSync: async (ticketId: number): Promise<void> => {
       const { d, t } = await manualDeps(ticketId);
@@ -204,10 +237,7 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       await recreateSandboxNoSync({ ...d, ...syncTrack, reopen: w.reopen }, t);
     },
     /** Dashboard Stop: stop (keep) this ticket's sandbox. */
-    stop: async (ticketId: number): Promise<void> => {
-      const { d, t } = await manualDeps(ticketId);
-      if (await stopSandboxOp(d, t)) w.notify.info(`Karst: ${t.ticketLabel} sandbox stopped.`);
-    },
+    stop: stopTicket,
     /** Dashboard Remove: sync, then remove; unsynced commits need an explicit "Remove anyway". */
     remove: async (ticketId: number): Promise<void> => {
       const { d, t } = await manualDeps(ticketId);

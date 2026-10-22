@@ -25,8 +25,19 @@ function listing(boxes: readonly ProjectSandbox[]): Answers {
 function deps(over: Partial<SandboxLifecycleDeps> & { inv?: readonly ProjectSandbox[]; answers?: Answers } = {}) {
   const { inv, answers, ...rest } = over;
   const all = { ...listing(inv ?? [box(7), box(8)]), ...answers };
-  const proc = fakeSbxProcess(all);
-  const dockerProc = Object.assign(fakeSbxProcess(all), { pipe: vi.fn() });
+  // A successful `rm` drops the name from later listings, so the post-removal re-list sees a real removal.
+  const gone = new Set<string>();
+  const stateful = (inner: ReturnType<typeof fakeSbxProcess>): ReturnType<typeof fakeSbxProcess> => ({
+    calls: inner.calls,
+    run: async (command, args, opts) => {
+      const out = await inner.run(command, args, opts);
+      if ((out.code === 0 || /no such/i.test(out.stderr)) && args[0] === 'rm') for (const n of args.filter((x) => !x.startsWith('-'))) if (n !== 'rm') gone.add(n);
+      const listed = (command === 'sbx' && args[0] === 'ls') || (command === 'docker' && args[0] === 'ps');
+      return listed ? { ...out, stdout: out.stdout.split('\n').filter((l) => ![...gone].some((n) => l.includes(n))).join('\n') } : out;
+    },
+  });
+  const proc = stateful(fakeSbxProcess(all));
+  const dockerProc = Object.assign(stateful(fakeSbxProcess(all)), { pipe: vi.fn() });
   const notify = { info: vi.fn(), warn: vi.fn(), error: vi.fn(async () => {}) };
   const d = {
     notify, projectRoot: ROOT, proc, dockerProc,
@@ -52,6 +63,29 @@ describe('backendKindOf', () => {
 });
 
 describe('removeSandboxGuarded', () => {
+  it('a failing sbx rm keeps the bridge dir and reports the failing step', async () => {
+    const { d, notify } = deps({ answers: { 'sbx rm': { code: 1, stderr: 'daemon busy\n' } } });
+    await expect(removeSandboxGuarded(d, target)).resolves.toBe(false);
+    expect(d.bridges.dispose).not.toHaveBeenCalled();
+    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('sbx rm: daemon busy'));
+  });
+
+  it("'no such sandbox' on rm counts as already gone", async () => {
+    const { d } = deps({ answers: { 'sbx rm': { code: 1, stderr: 'Error: no such sandbox\n' } } });
+    await expect(removeSandboxGuarded(d, target)).resolves.toBe(true);
+    expect(d.bridges.dispose).toHaveBeenCalledWith(7);
+  });
+
+  it('a sandbox still listed after a clean rm is a failed removal; the bridge dir stays', async () => {
+    const { d, notify } = deps({ proc: undefined });
+    // rm exits 0 but the listing never changes: swap in a non-stateful process.
+    const flat = fakeSbxProcess(listing([box(7), box(8)]), { keepListing: true });
+    const stuck = { ...d, proc: flat, dockerProc: Object.assign(fakeSbxProcess(listing([box(7), box(8)]), { keepListing: true }), { pipe: vi.fn() }) };
+    await expect(removeSandboxGuarded(stuck, target)).resolves.toBe(false);
+    expect(stuck.bridges.dispose).not.toHaveBeenCalled();
+    expect(notify.error).toHaveBeenCalledWith(expect.stringContaining('still listed'));
+  });
+
   it('sync ok → disposes exactly this sandbox, bystander untouched', async () => {
     const { d, lines } = deps();
     await expect(removeSandboxGuarded(d, target)).resolves.toBe(true);
@@ -231,10 +265,10 @@ describe('invalid-core sandboxes are orphans even for a live ticket (F6)', () =>
     const dockerBad = bad('docker', 'null');
     const failing = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 1, stderr: 'in use\n' } } });
     await expect(cleanupOrphansOp(failing.d, new Set())).resolves.toBe(0);
-    expect(failing.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: in use`);
+    expect(failing.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: docker rm: in use`);
     const silent = deps({ inv: [dockerBad], choose: vi.fn(async () => REMOVE_ORPHANS), answers: { 'docker rm': { code: 3 } } });
     await cleanupOrphansOp(silent.d, new Set());
-    expect(silent.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: rm exited 3`);
+    expect(silent.notify.warn).toHaveBeenCalledWith(`Karst: removing orphan sandbox ${dockerBad.name} failed: docker rm: exited 3`);
   });
 
   it('a proper-core sandbox of a live ticket is not an orphan', async () => {

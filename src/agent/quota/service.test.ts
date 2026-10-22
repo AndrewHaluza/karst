@@ -90,12 +90,40 @@ describe('defaultQuotaReaders', () => {
     ]);
   });
 
-  it('marks the unsupported cores unknown with a reason', async () => {
+  it('marks the remaining unsupported core unknown with a reason', async () => {
     const readers = defaultQuotaReaders({ homeDir: '/nope', now: () => new Date(0) });
-    for (const core of ['antigravity', 'opencode', 'opencode2'] as const) {
-      const snap = await readers.find((r) => r.core === core)!.read();
-      expect(snap).toMatchObject({ core, state: 'unknown' });
-      expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+    const snap = await readers.find((r) => r.core === 'antigravity')!.read();
+    expect(snap).toMatchObject({ core: 'antigravity', state: 'unknown' });
+    expect(snap.state === 'unknown' && snap.reason.length).toBeGreaterThan(0);
+  });
+
+  it('reads both OpenCode cores through their injected auth paths and fetch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-quota-opencode-'));
+    try {
+      const authPath = join(dir, 'auth.json');
+      writeFileSync(authPath, JSON.stringify({ 'opencode-go': { key: 'go-key' } }));
+      const fetchImpl = vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({ usage: { rolling: { percent: 3, resetsAt: '2026-10-21T01:15:02.000Z' } } }),
+            { status: 200 },
+          ),
+      ) as unknown as typeof fetch;
+      const readers = defaultQuotaReaders({
+        homeDir: '/nope',
+        env: {},
+        now: () => new Date(0),
+        opencodeAuthPath: authPath,
+        opencode2AuthPath: authPath,
+        fetchImpl,
+      });
+      for (const core of ['opencode', 'opencode2'] as const) {
+        const snap = await readers.find((r) => r.core === core)!.read();
+        expect(snap).toMatchObject({ core, state: 'ok', source: 'OpenCode Go usage API' });
+      }
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
     }
   });
 

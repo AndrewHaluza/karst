@@ -91,6 +91,8 @@ describe('dashboard webviewSend', () => {
     expect(posted.at(-1)).toEqual({ type: 'send-ci-failure' });
     sender.rebaseOnBase();
     expect(posted.at(-1)).toEqual({ type: 'rebase-on-base' });
+    sender.deliverToPr();
+    expect(posted.at(-1)).toEqual({ type: 'deliver-to-pr' });
 
     sender.openStageLog('uat');
     expect(posted.at(-1)).toEqual({ type: 'open-stage-log', stageKey: 'uat' });
@@ -181,7 +183,7 @@ describe('dashboard webviewSend', () => {
       requestId: 'r7',
     });
 
-    expect(posted).toHaveLength(58);
+    expect(posted).toHaveLength(59);
   });
 
   it('rejects a wrong argument type at compile time', () => {

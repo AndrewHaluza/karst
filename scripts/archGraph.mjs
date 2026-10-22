@@ -39,6 +39,26 @@ export function resolveDepcruiseBin(root = ROOT, exists = existsSync) {
   }
 }
 
+/**
+ * Where dependency-cruiser's CLI actually lives, from the resolved package
+ * main (`.../dependency-cruiser/src/main/index.mjs`).
+ */
+export function depcruiseBinFromMain(mainPath) {
+  return join(dirname(mainPath), '..', '..', 'bin', 'dependency-cruiser.mjs');
+}
+
+/**
+ * Resolve the CLI the way Node resolves the package — from here upward. A
+ * worktree has no `node_modules` of its own and resolves from the main
+ * checkout above it, so a hardcoded `<ROOT>/node_modules/...` path fails
+ * exactly where karst runs its gates (arch:ABI-03).
+ */
+export function locateDepcruise() {
+  // `import.meta.resolve` uses the ESM "import" condition (the package defines
+  // no "require" entry) and walks up from this module like any import.
+  return depcruiseBinFromMain(fileURLToPath(import.meta.resolve('dependency-cruiser')));
+}
+
 export const SYSTEM_MAP = join(ROOT, 'docs/arch/system-map.md');
 
 const TEST_FILE = /\.(?:integration\.test|e2e\.test|test)\.tsx?$/;

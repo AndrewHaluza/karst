@@ -23,16 +23,35 @@ import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
 const originalPath = process.env.PATH;
 const tempDirs: string[] = [];
 
+/**
+ * A zombie has already exited; only its parent's reap is outstanding. Signals
+ * cannot reach it, so counting it as alive would fail the descendant-kill
+ * assertion forever when PID 1 does not reap (karst's sandbox). Off Linux the
+ * `/proc` probe is absent and the signal check alone decides.
+ */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform !== 'linux') return true;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    const state = stat.slice(close + 2, close + 3);
+    return state !== 'Z' && state !== 'X';
+  } catch {
+    return false;
+  }
+}
+
 async function expectProcessDead(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
+    if (!processAlive(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(processAlive(pid)).toBe(false);
 }
 
 function installFakeGh(body: string): string {

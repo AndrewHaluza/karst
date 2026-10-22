@@ -59,6 +59,7 @@ import { opencodeProcessKillDeny } from './processKillGuard.js';
 import { currentEndpointPath } from './hookFailureLog.js';
 import { isFileChannel, pluginFileTransport, sandboxPluginLocation, writeBridgeScripts } from './hookBridgeFiles.js';
 import { renderInstructionsPointer, withInstructionsPointer } from './instructions.js';
+import { spillOversizedKickoff } from './kickoffSpill.js';
 
 const OPENCODE_BIN = 'opencode';
 const MAX_DIAGNOSTIC_CHARS = 8_000;
@@ -1097,6 +1098,8 @@ export class OpencodeAdapter implements AgentAdapter {
       // through the SDK, then posts SessionStart for the resumed id. Gated on
       // the hook channel: without the plugin there is no delivery channel, so
       // the legacy `--prompt` is kept (harmless but dropped by opencode).
+      // Declared reason on the oversized-kickoff seam: this path ALREADY writes
+      // a file, so it needs no spill and can never hit E2BIG.
       env[KARST_RESUME_SESSION_ENV] = opts.resume as string;
       if (kickoff) {
         const sandboxed = opts.hookChannel.runDir !== undefined;
@@ -1108,7 +1111,20 @@ export class OpencodeAdapter implements AgentAdapter {
         if (!sandboxed) ownedPaths = [...(ownedPaths ?? []), written.path];
       }
     } else if (kickoff) {
-      args.push('--prompt', kickoff);
+      // A fresh launch rides `--prompt`, which is one argv entry and therefore
+      // subject to Linux's MAX_ARG_STRLEN. Spill an oversized kickoff to a file
+      // and hand opencode the short pointer instead.
+      const spilled = spillOversizedKickoff({
+        cwd: opts.cwd,
+        prompt: kickoff,
+        ...(opts.runtimeDir !== undefined ? { runtimeDir: opts.runtimeDir } : {}),
+        ...(opts.hookChannel ? { hookChannel: opts.hookChannel } : {}),
+        ...(opts.hookChannel?.launchId !== undefined
+          ? { launchId: opts.hookChannel.launchId }
+          : {}),
+      });
+      if (spilled.ownedPaths.length > 0) ownedPaths = [...(ownedPaths ?? []), ...spilled.ownedPaths];
+      args.push('--prompt', spilled.prompt as string);
     }
     env.OPENCODE_PERMISSION = JSON.stringify(
       opencodeLaunchPermission({ ...opts, ...launchProfile(opts.policy, opts.cwd) }),

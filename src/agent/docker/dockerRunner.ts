@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { runProcess } from '../../workflow/gates/run.js';
-import type { GateProcessRunner, PlacedInteractiveLaunch, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import type { GateProcessRunner, PlacedInteractiveLaunch, RefreshOptions, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
+import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { chownVolumes, ensureClone, ensureVolume, diffFromClone, fetchFromClone, OS_TEMP_DIRS, refreshClone, syncFromClone, type CloneContext, type StepResult, type TempDirs } from './dockerClone.js';
@@ -135,7 +136,7 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     sync: (ticket: SandboxTicketRef) => syncFromClone(ctx, ticket),
     fetchClone: (ticket: SandboxTicketRef) => fetchFromClone(ctx, ticket),
     diff: (ticket: SandboxTicketRef) => diffFromClone(ctx, ticket),
-    refresh: (ticket: SandboxTicketRef) => refreshClone(ctx, ticket),
+    refresh: (ticket: SandboxTicketRef, opts?: RefreshOptions) => refreshClone(ctx, ticket, opts),
     // Volumes survive a stop; the next open restarts the container.
     stop: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['stop', opts.names.container]);
@@ -143,13 +144,17 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     stopServices: async (): Promise<void> => {
       await opts.proc.run(DOCKER_BIN, ['rm', '--force', serviceContainerName(opts.names)]);
     },
-    dispose: async (): Promise<void> => {
+    dispose: async (): Promise<DisposeResult> => {
       const n = opts.names;
-      await opts.proc.run(DOCKER_BIN, ['rm', '--force', n.container, serviceContainerName(n)]);
-      await removeAllRelays(opts.proc, n);
-      await stopProxySidecar(opts.proc, n.proxy);
-      await opts.proc.run(DOCKER_BIN, ['network', 'rm', n.network]);
-      await opts.proc.run(DOCKER_BIN, ['volume', 'rm', '--force', n.repoVolume, n.dataVolume]);
+      const steps = [
+        disposeStep('container', await opts.proc.run(DOCKER_BIN, ['rm', '--force', n.container, serviceContainerName(n)])),
+        await removeAllRelays(opts.proc, n),
+        await stopProxySidecar(opts.proc, n.proxy),
+        // Order matters: the network only goes once its containers are gone.
+        disposeStep('network', await opts.proc.run(DOCKER_BIN, ['network', 'rm', n.network])),
+        disposeStep('volumes', await opts.proc.run(DOCKER_BIN, ['volume', 'rm', '--force', n.repoVolume, n.dataVolume])),
+      ];
+      return disposeResult(steps);
     },
   };
 }

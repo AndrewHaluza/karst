@@ -43,6 +43,7 @@ function attach(): BridgeAttachment {
       launchId: undefined,
       stage: () => getTicket(store, ticketId).stageCurrent as StageKey | null,
       sessionId: () => undefined,
+      sessionLaunchId: () => undefined,
     },
     dispatch: (p) => dispatchHook(store, p, notify),
     runMarker,

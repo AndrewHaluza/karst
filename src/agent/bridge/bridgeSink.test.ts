@@ -17,6 +17,7 @@ const expectation: BridgeExpectation = {
   launchId: 'L1',
   stage: () => 'impl',
   sessionId: () => undefined,
+  sessionLaunchId: () => undefined,
 };
 const hookLine = (ticket = 7) =>
   JSON.stringify({ v: 1, kind: 'hook', ticket, payload: { hook_event_name: 'Notification', session_id: 's1', cwd: '/x' } });

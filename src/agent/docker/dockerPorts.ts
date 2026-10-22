@@ -1,4 +1,5 @@
 import { isPortTakenError, publishSpec } from '../sandboxPorts.js';
+import { disposeStep, type DisposeStep } from '../disposeResult.js';
 import type { PortMapping, PublishResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
 import type { DockerNames } from './dockerNames.js';
@@ -74,8 +75,11 @@ export async function listRelayPorts(proc: DockerProcess, names: DockerNames): P
   return ps.code === 0 ? parseRelayPorts(ps.stdout) : null;
 }
 
-export async function removeAllRelays(proc: DockerProcess, names: DockerNames): Promise<void> {
+export async function removeAllRelays(proc: DockerProcess, names: DockerNames): Promise<DisposeStep> {
   const ps = await proc.run(DOCKER_BIN, ['ps', '--all', '--quiet', '--filter', `label=${RELAY_LABEL}=${names.container}`]);
+  // A failed listing is a failed step: relays that were never found were never removed.
+  if (ps.code !== 0) return { step: 'relays', status: 'failed', stderr: ps.stderr.trim() || `ps exited ${ps.code}` };
   const ids = ps.stdout.split('\n').map((l) => l.trim()).filter((l) => l !== '');
-  if (ids.length > 0) await proc.run(DOCKER_BIN, ['rm', '--force', ...ids]);
+  if (ids.length === 0) return { step: 'relays', status: 'absent' };
+  return disposeStep('relays', await proc.run(DOCKER_BIN, ['rm', '--force', ...ids]));
 }

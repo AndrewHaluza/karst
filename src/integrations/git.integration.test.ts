@@ -84,16 +84,36 @@ function reapGrandchild(pidFile: string): void {
   }
 }
 
+/**
+ * A zombie has already exited; only its parent's reap is outstanding. Signals
+ * cannot reach it, so counting it as alive would fail the descendant-kill
+ * assertion forever when PID 1 does not reap — as in karst's sandbox, where
+ * PID 1 is the agent itself. On a host with a reaping init the kill check alone
+ * is enough, and the `/proc` probe is absent off Linux.
+ */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  if (process.platform !== 'linux') return true;
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+    const close = stat.lastIndexOf(')');
+    const state = stat.slice(close + 2, close + 3);
+    return state !== 'Z' && state !== 'X';
+  } catch {
+    return false;
+  }
+}
+
 async function expectProcessDead(pid: number): Promise<void> {
   for (let attempt = 0; attempt < 50; attempt++) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
+    if (!processAlive(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
-  expect(() => process.kill(pid, 0)).toThrow();
+  expect(processAlive(pid)).toBe(false);
 }
 
 /** Runner whose reply is keyed by the git subcommand; succeeds silently otherwise. */

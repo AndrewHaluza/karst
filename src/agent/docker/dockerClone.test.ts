@@ -134,6 +134,15 @@ describe('syncFromClone', () => {
     expect(lines(proc).some((l) => l.includes('merge --ff-only'))).toBe(false);
   });
 
+  it('a clone BEHIND the host is a no-op ok and never merges', async () => {
+    const proc = fakeDockerProcess({
+      'git -C /w t merge-base --is-ancestor HEAD FETCH_HEAD': { code: 1 },
+      'git -C /w t merge-base --is-ancestor FETCH_HEAD HEAD': { code: 0 },
+    });
+    await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: true, summary: 'host ahead, nothing to bring' });
+    expect(lines(proc).some((l) => l.includes('merge --ff-only'))).toBe(false);
+  });
+
   it('reports a missing clone', async () => {
     const proc = fakeDockerProcess({ 'docker run': { code: 128, stderr: 'not a git repository' } });
     await expect(syncFromClone(ctx(proc), input)).resolves.toEqual({ ok: false, reason: 'no sandbox clone to sync from: not a git repository' });

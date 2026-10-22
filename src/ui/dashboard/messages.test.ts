@@ -27,6 +27,7 @@ function actions(): DashboardActions {
     sandboxStop: vi.fn(),
     sandboxRemove: vi.fn(),
     sandboxCarry: vi.fn(),
+    sandboxStashUpdate: vi.fn(),
     showChanges: vi.fn(),
     openWorktreeTerminal: vi.fn(),
     openWorktreeFolder: vi.fn(),
@@ -44,6 +45,7 @@ function actions(): DashboardActions {
     addressPrFeedback: vi.fn(),
     sendCiFailure: vi.fn(),
     rebaseOnBase: vi.fn(),
+    deliverToPr: vi.fn(),
     rerunGate: vi.fn(),
     createFollowUpTicket: vi.fn(),
     createSubtask: vi.fn(),
@@ -186,6 +188,7 @@ describe('routeAction', () => {
     for (const [type, fn] of [
       ['sandbox-sync', 'sandboxSync'], ['sandbox-diff', 'sandboxDiff'], ['sandbox-stop', 'sandboxStop'], ['sandbox-remove', 'sandboxRemove'],
       ['sandbox-carry', 'sandboxCarry'],
+      ['sandbox-stash-update', 'sandboxStashUpdate'],
     ] as const) {
       // A crafted ticket id / name must be dropped: the host acts on the panel's own ticket only.
       expect(parseWebviewMessage({ type, ticketId: 99, name: 'x' })).toEqual({ type });
@@ -305,6 +308,13 @@ describe('routeAction', () => {
     routeAction({ type: 'rebase-on-base' }, a);
     expect(a.sendCiFailure).toHaveBeenCalledOnce();
     expect(a.rebaseOnBase).toHaveBeenCalledOnce();
+  });
+
+  it('parses and dispatches deliver-to-pr, dropping forged companions', () => {
+    expect(parseWebviewMessage({ type: 'deliver-to-pr', branch: 'x' })).toEqual({ type: 'deliver-to-pr' });
+    const a = actions();
+    routeAction({ type: 'deliver-to-pr' }, a);
+    expect(a.deliverToPr).toHaveBeenCalledOnce();
   });
 
   it('parses and dispatches create-follow-up-ticket', () => {

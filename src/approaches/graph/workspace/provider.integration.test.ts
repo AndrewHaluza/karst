@@ -225,14 +225,14 @@ describe('createNodeWorkspace', () => {
       // and index are untouched (a shared-ref linked worktree would move both).
       writeFileSync(join(cwdA, 'a.ts'), 'writer-A\n');
       git(cwdA, ['add', '-A']);
-      git(cwdA, ['commit', '-qm', 'A']);
+      git(cwdA, ['-c', 'user.name=karst-test', '-c', 'user.email=test@karst.local', 'commit', '-qm', 'A']);
       expect(git(cwdA, ['rev-parse', 'HEAD'])).not.toBe(h.baseSha);
       expect(git(cwdB, ['rev-parse', 'HEAD'])).toBe(h.baseSha);
       expect(git(cwdB, ['status', '--porcelain'])).toBe('');
 
       writeFileSync(join(cwdB, 'a.ts'), 'writer-B\n');
       git(cwdB, ['add', '-A']);
-      git(cwdB, ['commit', '-qm', 'B']);
+      git(cwdB, ['-c', 'user.name=karst-test', '-c', 'user.email=test@karst.local', 'commit', '-qm', 'B']);
       const headB = git(cwdB, ['rev-parse', 'HEAD']);
       expect(headB).not.toBe(h.baseSha);
       expect(git(cwdA, ['rev-parse', 'HEAD'])).not.toBe(headB);

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { claudeGateDeny, gitCommonDirRoots, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
+import { claudeAttendedDeny, claudeGateDeny,gitCommonDirRoots, gateDeniedCommands, gateProtectedPaths, opencodeGatePermission } from './gatePolicy.js';
 import { PROCESS_WIDE_KILL_COMMANDS } from './processKillGuard.js';
 
 describe('gatePolicy', () => {
@@ -19,11 +19,13 @@ describe('gatePolicy', () => {
     expect(gateProtectedPaths({}, '/h')).toHaveLength(3);
   });
 
-  it('claude deny uses absolute // path rules for Edit and Write', () => {
-    const deny = claudeGateDeny({}, '/h');
-    expect(deny).toContain('Bash(pkill *)');
-    expect(deny).toContain('Edit(//h/.claude.json)');
-    expect(deny).toContain('Write(//h/.codex/**)');
+  it('claude deny uses absolute // path rules for Edit only (Edit covers Write; a Write path rule never matches)', () => {
+    for (const deny of [claudeGateDeny({}, '/h'), claudeAttendedDeny({}, '/h')]) {
+      expect(deny).toContain('Edit(//h/.claude.json)');
+      expect(deny).toContain('Edit(//h/.codex/**)');
+      expect(deny.some((r) => r.startsWith('Write('))).toBe(false);
+    }
+    expect(claudeGateDeny({}, '/h')).toContain('Bash(pkill *)');
   });
 
   it('opencode edit is deny-by-default, worktree+tmp allowed, home config denied last', () => {

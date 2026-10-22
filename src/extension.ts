@@ -24,6 +24,7 @@ import { archiveTicketOp, unarchiveTicketOp, archiveInactiveWorktreesOp, type Ar
 import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskOp, type LifecycleOpsDeps } from './extension/ops/lifecycleOps.js';
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
+import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -35,7 +36,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
-import { rebaseOnBaseAction, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { deliverToPrAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
@@ -1251,7 +1252,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     applyManifestDebug(manifest);
     return manifest;
   };
-  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, ensureInSync: (id) => sandboxLife.ensureInSync(id) }); // AC-32
+  sandboxB = createTicketSandboxBindings({ store: localStore, manifest: currentManifest, backends: () => currentManifest()?.agentBackends, projectRoot: (id) => cliEntryAndManifest(context).manifestPath ?? listWorktreesByTicket(localStore, id)[0]?.path ?? '', debug: (m) => logger.debug(m), onError: (e) => logError('karst: sandbox re-verify failed', e), coreOf: (id) => { try { return getTicket(localStore, id).sessionProvider ?? null; } catch { return null; } }, bridgeRoot: () => (bridges ? bridgeRoot : undefined), notify: vscodeNotify, ensureInSync: (id) => sandboxLife.ensureInSync(id), hostEnded: (id) => sandboxLife.sessionEnder.ended(id) }); // AC-32
   let alignmentTrigger: ReturnType<typeof makeAlignmentTrigger> | undefined;
   const artifactCapture = wireArtifactCapture({
     store: localStore,
@@ -1265,7 +1266,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
   sandboxLife = makeSandboxWiring({ // arch:AC-32
-    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
+    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
@@ -2086,7 +2087,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const fixDeliveryTimer = setInterval(() => fixDelivery.sweep.sweep(), FIX_DELIVERY_INTERVAL_MS);
   context.subscriptions.push({ dispose: () => clearInterval(fixDeliveryTimer) });
   // Project-scoped, so this manifest's window never reaches another project's fix; its immediate first tick covers activation. After `fixDelivery`: the guard points at the stored brief.
-  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch }));
+  context.subscriptions.push(startFixWatchdog(localStore, currentManifest, () => currentProject()?.id ?? null, logger.info, logError, { ...sessionDelivery(localStore, sessions), pointAtFix: fixDelivery.pointAtLaunch, redrive: (id) => maybeDrive(id, 'stranded-stage') }));
   // Mailbox delivery (Wave 3): per-core push to live recipients, plus wakes.
   const mailbox = makeMailDeliveryWiring({
     store: localStore,
@@ -2708,7 +2709,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
   const quotaService = new QuotaService({
-    readers: defaultQuotaReaders({ claudeOauthUsageApi: () => currentManifest()?.quota?.claudeOauthUsageApi === true }),
+    readers: defaultQuotaReaders({
+      claudeOauthUsageApi: () => currentManifest()?.quota?.claudeOauthUsageApi === true,
+      opencode2AuthPath: join(context.globalStorageUri.fsPath, 'opencode2', 'data', 'opencode', 'auth.json'),
+    }),
     debug: (message) => logger.debug(message),
     onDidChange: (snapshots) => onQuotaChange(snapshots),
   });
@@ -2967,7 +2971,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     fallbackProjectId: () => currentProject()?.id, manifest: currentManifest,
   });
   context.subscriptions.push(storedArtifacts);
+  const undelivered = createUndeliveredTracker();
   const ciHost = (ticketId: number): CiHost => ({
+    deliver: { tracker: undelivered, runShip: () => runShipSaga(ticketId, true, { deliver: true }), blocked: deliverBlockedPrompt((m, ...b) => vscode.window.showWarningMessage(m, ...b), () => sandboxLife.diff(ticketId)) },
     gh: defaultGhRunnerAsync, git: defaultGitRunner, artifactDir: artifactDirFor(ticketId), sandbox: sandboxLife,
     reprobe: async () => { await runPrSync(true); },
     confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
@@ -3100,7 +3106,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     () => ({
       defaultModel: currentManifest()?.defaultModel ?? null,
       defaultEffort: currentManifest()?.defaultEffort ?? null,
-      modelCatalog, agentBackends: currentManifest()?.agentBackends, sandboxRewritten: (id) => sandboxLife.isRewritten(id),
+      modelCatalog, agentBackends: currentManifest()?.agentBackends, sandboxRewritten: (id) => sandboxLife.isRewritten(id), undelivered: (id) => undelivered.get(id),
     }),
     (worktrees, signal) => loadWorktreeStats(worktrees, defaultGitRunner, logError, signal),
     // The rail's retry meter must draw the budget the driver will actually
@@ -3569,8 +3575,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger.info(`stage driver: begin ticket ${ticketId}`);
     // A new run's first gate re-announces itself in the console, rather than
     // continuing under the previous run's last gate header.
-    gateConsole.reset(ticketId, 'uat');
-    gateConsole.reset(ticketId, 'review');
+    gateConsole.resetTicket(ticketId);
     try {
       await driveTicketRun(
         {
@@ -3672,6 +3677,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } catch (e) {
       logError('stage driver failed', e);
     } finally {
+      gateConsole.flushTicket(ticketId);
       driver.end(ticketId);
       provider.refresh();
       dashboard.pushState(ticketId);
@@ -3830,7 +3836,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboard.pushStoreState(ticketId);
       return;
     }
-    artifactCapture.onHookEvent(ticketId, payload);
+    sandboxLife.sessionEnder.onHook(ticketId, payload); artifactCapture.onHookEvent(ticketId, payload);
     if (payload.hook_event_name === 'SessionStart') {
       recoveryLifecycle.sessionStarted(ticketId, payload.launchId);
     }
@@ -3895,7 +3901,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
   bridges = createBridgeRegistry({ root: (bridgeRoot = join(settingsDir, 'bridge')), debug: (m) => logger.debug(m), build: makeBridgeBuild({
     store: localStore, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), nodePath: process.execPath, debug: (m) => logger.debug(m),
-    warn: (m) => logger.warn(m), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-34 marker: sync first, failures at WARN
+    warn: (m) => logger.warn(m), onMarkerAccepted: (id) => sandboxLife.sessionEnder.accepted(id), ensureSynced: (id) => sandboxLife.ensureSynced(id), // arch:AC-34 marker: sync first, failures at WARN
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
@@ -5635,7 +5641,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const runShipSaga = async (
     ticketId: number,
     warn = false,
-    shipOpts: { repos?: readonly string[]; unattended?: boolean } = {},
+    shipOpts: { repos?: readonly string[]; unattended?: boolean; deliver?: boolean } = {},
   ): Promise<void> => {
     // WHO asked decides whether new work is delivered into a PR that is already
     // open. A human re-shipping a ticket whose PR is live wants the new commits
@@ -5645,9 +5651,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // So the sweep delivers only while a ship-sourced recovery round is live —
     // the case where the new work is exactly what the round was opened to make.
     await sandboxLife.assertInSync(ticketId, false); // F12: the agent's commits after its marker reach the host before ship
-    const deliverToOpenPr = shipOpts.unattended
+    const deliverToOpenPr = shipOpts.deliver === true || (shipOpts.unattended
       ? activeRecoverySeries(localStore, ticketId, 'ship') !== null
-      : hasCompletedShipRun(localStore, ticketId);
+      : hasCompletedShipRun(localStore, ticketId));
     await runShipTicket(
       localStore,
       {
@@ -5783,6 +5789,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // rides this tick like settleShipGates: once at activation, then every
       // PR_SYNC_INTERVAL_MS, with no second interval to dispose. Pure store
       // bookkeeping (no git, no gh), and a failure only delays the next tick.
+      // "Deliver to PR": what the open PRs still lack, measured on the refresh, never per render.
+      if (await refreshUndeliveredForShipTickets({ store: localStore, projectId: project.id, git: defaultGitRunner, sandbox: sandboxLife, logError }, undelivered)) dashboard.pushAll();
       let archived: number[] = [];
       try {
         archived = autoArchiveDoneTickets(localStore, {
@@ -8131,7 +8139,7 @@ function makeDashboardActions(
       void vscode.env.clipboard.writeText(key);
     },
     sandboxSync: () => sandboxLife.sync(ticketId), sandboxDiff: () => sandboxLife.diff(ticketId), // AC-32 Sandbox card
-    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId), sandboxCarry: () => sandboxLife.carry(ticketId),
+    sandboxStop: () => sandboxLife.stop(ticketId), sandboxRemove: () => sandboxLife.remove(ticketId), sandboxCarry: () => sandboxLife.carry(ticketId), sandboxStashUpdate: () => sandboxLife.stashUpdate(ticketId),
     ...worktreeActions,
     // Launch must not be aimable: the webview names a path, and the host
     // verifies it against the ticket's registered worktrees before building
@@ -8258,6 +8266,7 @@ function makeDashboardActions(
       }),
     // Ship-stage CI actions (vscode-free logic in ops/ciFailureOps + rebaseOnBaseOps).
     sendCiFailure: () => void sendCiFailureAction(ciActionsInput()),
+    deliverToPr: () => void deliverToPrAction(ciActionsInput()),
     rebaseOnBase: () => void rebaseOnBaseAction(ciActionsInput(), (r) => manifest()?.repositories[r]?.ship?.regenerate ?? []),
     // Retry a gate stage (uat/review) by resetting it to pending so the driver
     // re-runs it. Lighter than "Send back to Implement": only the current gate

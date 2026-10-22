@@ -368,8 +368,10 @@ describe('extension activation', () => {
   it('gates deliverToOpenPr on who asked for the ship', () => {
     const source = readFileSync(join(process.cwd(), 'src', 'extension.ts'), 'utf8');
     expect(source).toMatch(
-      /const deliverToOpenPr = shipOpts\.unattended\s*\n\s*\? activeRecoverySeries\(localStore, ticketId, 'ship'\) !== null\s*\n\s*: hasCompletedShipRun\(localStore, ticketId\);/,
+      /const deliverToOpenPr = shipOpts\.deliver === true \|\| \(shipOpts\.unattended\s*\n\s*\? activeRecoverySeries\(localStore, ticketId, 'ship'\) !== null\s*\n\s*: hasCompletedShipRun\(localStore, ticketId\)\);/,
     );
+    // "Deliver to PR" (user-asked, dashboard button) is the only caller that forces the delivery branch.
+    expect(source.match(/deliver: true/g) ?? []).toHaveLength(1);
     expect(source).toMatch(/\.\.\.\(deliverToOpenPr \? \{ deliverToOpenPr: true \} : \{\}\)/);
   });
 

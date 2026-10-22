@@ -19,7 +19,16 @@ import type { GateOptionsLoader } from './gateOptions.js';
 import { withBaselines, type BaselineRowsLoader } from './baselineRows.js';
 import type { ShipPreviewLoader } from '../../workflow/shipPreview.js';
 import type { GraphInsideInput } from '../../model/inside/graph.js';
-import { changedPaths, hasLiveWork, liveClocks, LIVE_TICK_MS, structureKey } from './liveTick.js';
+import {
+  changedPaths,
+  hasLiveWork,
+  liveClocks,
+  LIVE_TICK_MS,
+  structureKey,
+  liveSections,
+  shouldLogLiveTick,
+  type LiveLogState,
+} from './liveTick.js';
 
 /** Why a snapshot was pushed — debug tracing names it. */
 type PushKind = 'action' | 'passive' | 'store' | 'live' | 'follow-up';
@@ -86,6 +95,8 @@ export class DashboardManager {
   private readonly sentStructure = new Map<number, string>();
   /** Debug only: the last full snapshot each panel was sent, for `changedPaths`. */
   private readonly sentState = new Map<number, DashboardState>();
+  /** Debug only: dedupe state for 1-second live tick logs per panel. */
+  private readonly liveLogState = new Map<number, LiveLogState>();
   /** The tab icon path last set on each panel, so an unchanged glyph costs no IPC. */
   private readonly iconSet = new Map<number, string>();
   /** Panel-only selection memory (round switcher + findings repo scope). */
@@ -346,6 +357,7 @@ export class DashboardManager {
       this.liveTicks.delete(ticketId);
       this.sentStructure.delete(ticketId);
       this.sentState.delete(ticketId);
+      this.liveLogState.delete(ticketId);
       this.iconSet.delete(ticketId);
       this.panels.delete(ticketId);
       // The async loaders abort and drop their per-ticket state; the round
@@ -758,6 +770,14 @@ export class DashboardManager {
     const prev = this.sentState.get(ticketId);
     if (!clocksOnly) this.sentState.set(ticketId, state);
     const changed = clocksOnly ? '' : `; changed: ${prev ? changedPaths(prev, state).slice(0, 8).join(', ') || 'none' : 'first'}`;
+    if (kind === 'live') {
+      const reason = clocksOnly ? 'clocks' : `state${changed}`;
+      const sections = liveSections(state);
+      const logState = this.liveLogState.get(ticketId);
+      const { shouldLog, next } = shouldLogLiveTick(logState, Date.now(), reason, sections);
+      if (!shouldLog) return;
+      this.liveLogState.set(ticketId, next);
+    }
     const caller = new Error().stack?.split('\n')[4]?.trim() ?? '?';
     this.debug.debug(`[dashboard] ticket ${ticketId} push ${kind} → ${clocksOnly ? 'clocks' : 'state'}${changed} from ${caller}`);
   }

@@ -251,6 +251,21 @@ describe('buildDashboardState', () => {
     expect(buildDashboardState(store, blocking.id).canDetachSubtask).toBe(false);
   });
 
+  it('offers Deliver to PR only at ship with an open PR and measured missing commits', () => {
+    const t = createTicket(store, { key: 'DLV-1', title: 'deliver' });
+    for (const from of ['scope', 'impl', 'uat', 'review'] as const) transition(store, t.id, from, { kind: 'passed' });
+    setStage(store, t.id, 'ship', { status: 'passed', startedAt: '2026-08-09T10:00:00.000Z' });
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?, ?, ?, ?)').run(t.id, 'r', '/w/r', 'b');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, url, status, head_ref, base_ref) VALUES (?, ?, 5, ?, ?, ?, ?)')
+      .run(t.id, 'r', 'https://github.com/o/r/pull/5', 'open', 'feat/x', 'develop');
+    const build = (counts?: { hostAhead: number; sandboxAhead: number }) =>
+      buildDashboardState(store, t.id, undefined, undefined, undefined, undefined, undefined, { undelivered: () => counts }).deliver;
+    expect(build()).toEqual({ available: false, notOnPr: 0, inSandbox: 0 });
+    expect(build({ hostAhead: 1, sandboxAhead: 2 })).toEqual({ available: true, notOnPr: 3, inSandbox: 2 });
+    store.db.prepare("UPDATE prs SET status = 'closed' WHERE ticket_id = ?").run(t.id);
+    expect(build({ hostAhead: 1, sandboxAhead: 2 }).available).toBe(false);
+  });
+
   it('reads 0/0 progress and no sub-tasks for a ticket with none (NDL-76)', () => {
     const parent = createTicket(store, { key: 'PROJ-1', title: 'root work' });
     const state = buildDashboardState(store, parent.id);

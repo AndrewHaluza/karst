@@ -683,6 +683,7 @@
     text-overflow:ellipsis;white-space:nowrap;line-height:18px;column-gap:0}
   #inside .sep{display:inline-flex;align-items:center;justify-content:center;flex:none;width:var(--k-space-4);
     margin-inline:var(--k-border-w);padding:0;color:var(--p-muted2);line-height:18px}
+  #inside .inside-deliver{display:flex;align-items:center;justify-content:space-between;gap:var(--p-s3);padding:var(--p-s1) var(--p-s3);font-size:var(--p-xs);color:var(--p-muted2)}
   #inside .inside-meta{color:var(--p-muted2);font-family:var(--p-mono);font-size:var(--p-xs);
     line-height:18px;white-space:nowrap}
   /* The current stage header's ⋯ menu — the ONE recovery surface. Only the
@@ -2337,6 +2338,7 @@
   // Ship CI actions (T715): in-flight request ids, settled by the next state push.
   let ciFailureRequestId = null;
   let rebaseRequestId = null;
+  let deliverRequestId = null;
   // Transient inside-progress overlays (the inside redesign): the live header
   // for one running operation (`active`) and the process row that replaces the
   // snapshot's row when it completes (`completed`). Keyed by stage. The FULL
@@ -3546,7 +3548,7 @@
     const rg = state.rerunGate;
     const pff = state.prFeedbackFix;
     const ciAction = !!(state.ciFailure && state.ciFailure.available) && view.stageKey === 'ship';
-    const rebaseAction = !!(state.rebase && state.rebase.available) && view.stageKey === 'ship';
+    const rebaseAction = !!(state.rebase && state.rebase.available) && view.stageKey === (state.rebase.stage || 'ship');
     const actions = sb && sb.available && view.stageKey === sb.stage;
     const retryActions = rg && rg.available && view.stageKey === rg.stage;
     // The PR-feedback action is ship-only and host-gated; it rides the SAME
@@ -3590,12 +3592,20 @@
           : '')
         + `</span>`
       : '';
+    // "Deliver to PR": the count line + action, ship only, hidden while nothing is undelivered.
+    const dv = state.deliver;
+    const deliverRow = dv && dv.available && view.stageKey === 'ship'
+      ? `<div class="inside-deliver" role="status"><span>${dv.notOnPr} commit${dv.notOnPr === 1 ? '' : 's'} not on the PR`
+        + `${dv.inSandbox > 0 ? ` (${dv.inSandbox} still in the sandbox)` : ''}</span>`
+        + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="deliver-to-pr"`
+        + ` title="Sync the sandbox, then push the branch onto the open pull request">Deliver to PR</button></div>`
+      : '';
     el('inside').innerHTML = `<section class="inside${viewing ? ' viewing' : ''}" aria-labelledby="inside-title">${vbar}`
       + `<div class="inside-head${actions || prFeedbackActions || ciAction || rebaseAction ? ' has-actions' : ''}"${view.title ? ` title="${esc(view.title)}"` : ''}>`
       + `<span class="inside-title" id="inside-title">Inside ${esc(view.stageKey)}</span>`
       + `<span class="inside-live ${esc(lstatus)}">${alive}</span>`
       + `<span class="inside-meta">${esc(view.clock)}</span>`
-      + `${stageMenu}</div>${attemptTabsHtml(view)}${body}</section>`;
+      + `${stageMenu}</div>${deliverRow}${attemptTabsHtml(view)}${body}</section>`;
   }
 
   // A LIVE repaint is the same snapshot re-read — nothing structural changed,
@@ -4023,6 +4033,7 @@
       ? iact('sandbox-sync', null, 'Sync sandbox commits into the worktree', 'refresh')
         + iact('sandbox-diff', null, 'Show what a sync would bring in', 'git-compare')
         + iact('sandbox-stop', null, 'Stop the sandbox (kept for the next open)', 'player-stop')
+        + iact('sandbox-stash-update', null, 'Stash sandbox changes and update from the host', 'archive')
         + iact('sandbox-remove', null, 'Remove the sandbox', 'trash')
         + (sb.carry ? iact('sandbox-carry', null, 'Carry sandbox commits onto host branch', 'corner-down-right') : '')
       : '';
@@ -5965,6 +5976,7 @@
     'sandbox-stop': (btn, requestId) => karstSend.sandboxStop(requestId),
     'sandbox-remove': (btn, requestId) => karstSend.sandboxRemove(requestId),
     'sandbox-carry': (btn, requestId) => karstSend.sandboxCarry(requestId),
+    'sandbox-stash-update': (btn, requestId) => karstSend.sandboxStashUpdate(requestId),
     'show-changes': (btn, requestId) => karstSend.showChanges(requestId),
     'open-worktree-terminal': (btn, requestId) => karstSend.openWorktreeTerminal(btn.dataset.path, requestId),
     'open-worktree-folder': (btn, requestId) => karstSend.openWorktreeFolder(btn.dataset.path, requestId),
@@ -6115,6 +6127,16 @@
       karstBeginPending(btn, prFeedbackRequestId);
       if (lastState) render(lastState);
       karstSend.addressPrFeedback();
+      return;
+    }
+    // Deliver to PR: the host syncs and pushes, reports through notifications, then pushes state.
+    if (act === 'deliver-to-pr') {
+      if (deliverRequestId) return;
+      const id = karstRequestId();
+      deliverRequestId = id;
+      karstBeginPending(btn, id);
+      if (lastState) render(lastState);
+      karstSend.deliverToPr();
       return;
     }
     // Ship CI actions: host-confirmed modal, then a state push (T715).
@@ -6457,6 +6479,10 @@
       const moved = state.stageCurrent === 'impl';
       karstSettle(ciFailureRequestId, moved ? true : null, moved ? 'Sent the CI failure to the agent.' : 'The ticket was not moved.');
       ciFailureRequestId = null;
+    }
+    if (deliverRequestId) {
+      karstSettle(deliverRequestId, null, 'Deliver to PR finished; see the notification for the result.');
+      deliverRequestId = null;
     }
     if (rebaseRequestId) {
       karstSettle(rebaseRequestId, null, 'Rebase finished; see the notification for the result.');

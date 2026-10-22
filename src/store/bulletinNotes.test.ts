@@ -419,4 +419,26 @@ describe('unreadNotesByTicket (push relevance + session-start cutoff)', () => {
     setCreated(note.id, AFTER);
     expect(row(reader)?.unread).toBe(1);
   });
+
+  it('omits tickets that are archived or in done stage even when they have worktrees', () => {
+    const poster = other();
+    const note = postAgentNote(store, { projectId, fromTicketId: poster, title: 'agent note', body: 'b' });
+    setCreated(note.id, AFTER);
+    confirm(reader, BEFORE);
+
+    // Verify reader normally receives the note
+    expect(row(reader)?.unread).toBe(1);
+
+    // When ticket is archived, it must not be included
+    store.db.prepare("UPDATE tickets SET archived_at = datetime('now') WHERE id = ?").run(reader);
+    expect(row(reader)).toBeUndefined();
+
+    // When unarchived, it is included again
+    store.db.prepare('UPDATE tickets SET archived_at = NULL WHERE id = ?').run(reader);
+    expect(row(reader)?.unread).toBe(1);
+
+    // When stage_current is 'done', it must not be included
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(reader);
+    expect(row(reader)).toBeUndefined();
+  });
 });
