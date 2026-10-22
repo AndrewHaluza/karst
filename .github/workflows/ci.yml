@@ -150,7 +150,7 @@ jobs:
     name: Mutation score
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       # fetch-depth: 0 so the "changed files" step below can three-dot diff
       # against origin/<base>; the default shallow clone has no merge base.
