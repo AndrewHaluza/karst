@@ -19,6 +19,7 @@ const REQUIRED_ARTIFACTS = [
   // the settings sender folded into `app.webview.js` at phase 4 (NDL-126 §8.4),
   // so the settings sender is verified through the app bundle below.
   'dist/ui/dashboard/webviewSend.webview.js',
+  'dist/ui/dashboard/app.webview.js',
   'dist/ui/settings/app.webview.js',
 ];
 

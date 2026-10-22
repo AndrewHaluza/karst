@@ -67,6 +67,12 @@ function containerBlock(w: string): string {
  * or a selection round trip that fails in a real webview. Those need F5.
  */
 describe('dashboard webview.html', () => {
+  it('carries the React foundation: #root anchor and injector markers', () => {
+    expect(HTML).toContain('<div id="root"></div>');
+    expect(HTML).toContain('/*KARST_DASHBOARD_APP*/');
+    expect(HTML).toContain('/*KARST_DASHBOARD_APP_CSS*/');
+  });
+
   it('renders the header ship action from state.ship, never a Now sentence', () => {
     expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?state\.ship/);
     expect(HTML).not.toContain('id="now"');
@@ -1707,7 +1713,7 @@ describe('dashboard webview.html', () => {
   it('does not persist the live overlay across reloads', () => {
     // A restored overlay would claim a process is running that nobody is —
     // persist() saves only the snapshot, the selection and the filter.
-    expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls \}\)/);
+    expect(HTML).toMatch(/setState\(\{ state: lastState, sel: selectedStage, shipWait: shipWaitSeen, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls \}\)/);
     expect(HTML).not.toMatch(/liveOps: /);
   });
 
@@ -3111,7 +3117,7 @@ describe('inside render round trip (executed in a VM)', () => {
     tick.insideViews.impl!.clock = 'started 09:12:33 · 4m 13s elapsed · attempt 1';
     tick.insideViews.impl!.processes[0]!.duration = '4m 13s';
     // The stage-selection policy is injected: this test is about the in-place
-    // clock advance, and the pin's own behaviour is pinned by the render tests.
+    // clock advance, and selection's own behaviour is pinned by the render tests.
     run((id) => (id === 'inside' ? block : null), () => 'impl', {}, tick);
     expect(meta.textContent).toBe('started 09:12:33 · 4m 13s elapsed · attempt 1');
     expect(dur.textContent).toBe('4m 13s');

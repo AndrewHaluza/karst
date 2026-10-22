@@ -743,7 +743,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return;
   }
   const localStore = store;
-  registerProbeCommand(context, probeRecorder, localStore);
+  registerProbeCommand(context, probeRecorder, () => store!, { deactivate, activate: () => activate(context) });
 
   // One "Karst" output channel is the sink for every caught error.
   // Managers/endpoint get `logError`; the extension itself uses `logger`.

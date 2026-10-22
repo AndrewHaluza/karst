@@ -11,6 +11,9 @@
   /*KARST_AGENT_CSS*/
   /*KARST_AGENT_PICKER_CSS*/
   /*KARST_SERVER_LOGS_VIEW_CSS*/
+  /*KARST_DASHBOARD_APP_CSS*/
+
+  #root{display:contents}
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -264,9 +267,6 @@
   /* The select control fills the wrapper, so the WHOLE segment is the hit area
      while still being one real <button> for Tab and Enter (UI-R09). */
   .track .seg .pick{position:absolute;inset:0;background:transparent;border:0;padding:0;cursor:pointer}
-  /* Pinned to Ship (D142): every other rail control is disabled, so it must not
-     offer a pointer cursor it will not honour. */
-  .track .seg .pick:disabled{cursor:default}
   /* The rectangular baseline, and the fallback if the ring below cannot be
      computed. It is honest about what it is: two bars, because an `outline` is
      a rectangle and the chevron clip cuts its left and right strokes away. */
@@ -1278,6 +1278,7 @@
   /* ≤699 stacks label-above-value (UI-R43): a two-column grid at a narrow page
      width would crush the value column to nothing. */
   @media (max-width: 699px){
+    .grid{grid-template-columns:1fr}
     #inside .sp-row{grid-template-columns:minmax(0,1fr);gap:var(--k-border-w)}
     #inside .sp-label{text-transform:none}
   }
@@ -2123,6 +2124,8 @@
   <div class="fault blocked hidden" id="blocked"></div>
 </div>
 
+<div id="root"></div>
+
 <div class="grid">
   <!-- The sub-tasks this ticket delegated (design NDL-70 §8). Rendered only
        while it has sub-tasks OR can still gain one (host-derived
@@ -2135,8 +2138,6 @@
     <div class="pbody" id="subtasks"></div>
   </div>
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
-  <!-- Sandbox backend (arch:AC-32): where this ticket's session runs. Hidden for a host project. -->
-  <div class="panel hidden" id="sandboxPanel" data-region="sandbox"><div class="phead">Sandbox<span class="pops" id="sandboxOps"></span></div><div class="pbody" id="sandboxBody"></div></div>
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
@@ -2213,6 +2214,9 @@
   // sender, so a renamed message field is a tsc error instead of a silent drop.
   /*KARST_WEBVIEW_SEND_DASHBOARD*/
 
+  // Dashboard React app bundle (phase 1 foundation).
+  /*KARST_DASHBOARD_APP*/
+
   // Single source for the copy-confirmation toast text — two call sites show
   // it (a floating toast and an inline button label), and both must say the
   // same thing.
@@ -2252,6 +2256,11 @@
   // selection through the host would snap the panel back mid-run.
   let lastState = null;
   let selectedStage = null;
+  // The ship wait (`<ticketId>:<kind>`) a render has ALREADY auto-selected Ship
+  // for. Persisted with the selection so reopening the panel while a Confirm is
+  // still pending does not yank a user who navigated away; a different ticket
+  // or a retry after a confirm is a new key and selects Ship once more.
+  let shipWaitSeen = null;
   // What the user typed into the servers filter. Local for the same reason: a
   // state push lands on every server change, so a filter living in (or absent
   // from) DashboardState would be wiped out mid-typing.
@@ -2454,7 +2463,7 @@
   // second lane to bolt to specific columns; there is no second lane now, so the
   // only measurement left is `place()` below, and it POSITIONS NOTHING — it picks
   // one of three degradation classes.
-  function renderTrack(rail, approach, sel, shipPinned) {
+  function renderTrack(rail, approach, sel) {
     const segs = rail.main.map((s) => {
       const cell = s.cell;
       const k = cell.stageKey;
@@ -2521,15 +2530,8 @@
         + (s.retry ? ` — fix ${s.retry.spent}/${s.retry.cap}${s.retry.live ? ' running' : ''}` : '')
         + (s.retry && s.retry.returnsTo ? `, revalidates from ${s.retry.returnsTo}` : '');
 
-      // While the ship slot waits, the Ship view is pinned (D142) and every other
-      // rail control is DISABLED: a click that `select()` would silently ignore
-      // now reads as inert, so the user is not left guessing why nothing moved.
-      const inert = shipPinned && k !== 'ship';
-      if (inert) aria += ' — pinned to ship while Confirm is pending';
-
       return `<div class="seg stg-${esc(k)} ${cls}">`
         + `<button type="button" class="pick" data-stage="${esc(k)}" aria-pressed="${sel === k}"`
-        + (inert ? ' disabled aria-disabled="true"' : '')
         + ` aria-label="${esc(aria)}" title="${esc(aria)}"></button>`
         + `<span class="g">${glyph}</span><span class="nm">${name}</span>${extra}</div>`;
     }).join('');
@@ -3371,16 +3373,31 @@
   }
 
   /**
-   * The stage the Inside block shows. While the ship slot waits for
-   * Confirm/Retry the Ship view (and its preview, D142) is PINNED, so a stale
-   * rail selection from an earlier stage can never hide it. ONE definition for
-   * the full render and the live repaint — the live repaint used to recompute
-   * this from the unpinned `selectedStage` and overwrite the Ship clock with
-   * the previously selected stage's.
+   * The stage the Inside block shows. The rail is NEVER locked: the user can
+   * open any stage while the ship slot waits, so this is only their selection
+   * (or the default it falls back to). ONE definition for the full render and
+   * the live repaint — the live repaint used to recompute this differently and
+   * overwrite the shown stage's clock with another's.
    */
   function insideSelection(state) {
-    if (shipSlotWaits(state.ship)) return 'ship';
     return selectedStage || state.presentedStage || state.stageCurrent || 'scope';
+  }
+
+  /**
+   * Ship's one-time auto-select (D234, replacing D142's hard pin). Entering a
+   * new wait — a render that finds the slot in confirm/retry on a ticket/kind
+   * that has not selected Ship yet — moves the view to Ship so the preview is
+   * on screen beside the always-clickable Confirm ship. It never re-selects:
+   * once a wait is recorded in `shipWaitSeen`, further renders (a repaint, a
+   * push, and a reload that restores `shipWaitSeen` from view state) leave the
+   * user wherever they navigated. Leaving the wait clears the record, so the
+   * next confirm on this ticket is a new transition again.
+   */
+  function autoSelectShip(state) {
+    const key = shipSlotWaits(state.ship) ? `${state.ticketId}:${state.ship.kind}` : null;
+    if (key === shipWaitSeen) return;
+    shipWaitSeen = key;
+    if (key) selectedStage = 'ship';
   }
 
   function shipPreviewStatusBadge(r) {
@@ -4029,22 +4046,11 @@
       + `</div></div>`;
   }
 
-  // Sandbox card: the configured placement (backend, workspace mode, network) and the
-  // actions on this ticket's sandbox. Remove is guarded host-side (syncs first, asks
-  // before dropping unsynced commits). Absent for a host project.
+  // Sandbox strip (V1, React): rendered into #root by the dashboard React app.
   function renderSandbox(sb) {
-    el('sandboxPanel').classList.toggle('hidden', !sb);
-    if (!sb) return;
-    el('sandboxBody').innerHTML = `<div class="sub"><strong>${esc(sb.backend)}</strong> · ${esc(sb.core)} · workspace: ${esc(sb.workspace)} · network: ${esc(sb.network)}</div>`
-      + (sb.note ? `<div class="sub">${esc(sb.note)} — runs prompted on the host.</div>` : '');
-    el('sandboxOps').innerHTML = sb.actions
-      ? iact('sandbox-sync', null, 'Sync sandbox commits into the worktree', 'refresh')
-        + iact('sandbox-diff', null, 'Show what a sync would bring in', 'git-compare')
-        + iact('sandbox-stop', null, 'Stop the sandbox (kept for the next open)', 'player-stop')
-        + iact('sandbox-stash-update', null, 'Stash sandbox changes and update from the host', 'archive')
-        + iact('sandbox-remove', null, 'Remove the sandbox', 'trash')
-        + (sb.carry ? iact('sandbox-carry', null, 'Carry sandbox commits onto host branch', 'corner-down-right') : '')
-      : '';
+    const p = el('sandboxPanel');
+    if (!p) return;
+    p.classList.toggle('hidden', !sb);
   }
 
   function renderWorktrees(wts) {
@@ -5664,16 +5670,17 @@
     // Selection defaults to the current stage; with none (nothing has run) it
     // falls back to scope — the one the user is about to start.
     //
-    // `insideSelection` pins the Ship view while the ship slot waits (D142):
-    // the header's Confirm ship is always clickable, so the commit/PR-title
-    // preview must always be on screen. The pin lifts when the slot stops.
+    // A NEW ship wait auto-selects Ship once (`autoSelectShip`): the preview is
+    // what the Confirm ship click will commit, but the rail stays live so the
+    // user can go read UAT or Review before deciding.
+    autoSelectShip(state);
     const sel = insideSelection(state);
     el('title').textContent = state.title || '(untitled)';
     renderParentRef(state);
     renderTicketIdentity(state);
     renderAgentHeader(state);
     renderCapabilityLabels(state);
-    renderTrack(state.rail, state.approach, sel, shipSlotWaits(state.ship));
+    renderTrack(state.rail, state.approach, sel);
     renderInside(state, sel);
     renderBlocked(state);
     renderSubtasks(state);
@@ -5750,13 +5757,12 @@
     if (box) box.checked = bindEnabled;
   }
 
-  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
+  const persist = () => vscode.setState({ state: lastState, sel: selectedStage, shipWait: shipWaitSeen, srvFilter: srvFilter, artView: artView, artScrolls: artScrolls });
 
   function select(stage) {
-    // While the ship slot waits, the Ship view is pinned (see render): a rail
-    // click elsewhere is ignored so the preview stays on screen next to the
-    // always-available Confirm ship.
-    if (shipSlotWaits(lastState && lastState.ship) && stage !== 'ship') return;
+    // Every rail click is honoured, including while the ship slot waits: the
+    // Confirm ship button lives in the header, so reading another stage never
+    // hides the action (D234).
     selectedStage = stage;
     // Selecting a stage closes the current header's ⋯ menu — the menu belongs
     // to the stage header being shown, and the header is about to change.
@@ -6852,6 +6858,7 @@
   const restored = prev && prev.state ? prev : prev ? { state: prev, sel: null } : null;
   if (restored && restored.state) {
     selectedStage = restored.sel || null;
+    shipWaitSeen = restored.shipWait || null;
     srvFilter = restored.srvFilter || '';
     // The artifact surface + scrolls are view state like selection; an old
     // build's persisted state simply has none.

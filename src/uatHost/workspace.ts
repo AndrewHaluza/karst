@@ -14,7 +14,7 @@ const git = (args: string[], cwd?: string): void => {
   execFileSync('git', args, { cwd, env: GIT_ENV, stdio: 'pipe' });
 };
 
-export function buildWorkspace(root: string, provider = 'claude'): Workspace {
+export function buildWorkspace(root: string, provider?: string): Workspace {
   const remoteDir = join(root, 'remote.git');
   const workspaceDir = join(root, 'workspace');
   const repoDir = join(workspaceDir, 'repo');

@@ -45,6 +45,7 @@ import { listTokenUsage } from '../../store/tokenUsage.js';
 import { parseFindingsResult, type FindingsParseShape, type WarnFn } from '../review/findings.js';
 import { isWrongCheckoutClaim } from '../review/checkoutClaim.js';
 import { buildScopeBlock } from '../agentScope.js';
+import { endedOnBackgroundCommand, BACKGROUND_ENDED_DETAIL } from './backgroundCommand.js';
 import { OUTPUT_RULES_HEADING, OUTPUT_RULES_BASE, OUTPUT_RULES_UAT, GATE_ISOLATION_RULE } from '../../agent/promptText.js';
 import { TESTER_OUTPUT_SCHEMA } from '../../agent/outputContract.js';
 import { createReviewSnapshot, deleteReviewSnapshot } from '../reviewSnapshot.js';
@@ -609,7 +610,12 @@ async function recoverStoppedTarget(
  * (T663). A token-budget stop names the spend that tripped it; a deadline names
  * what was — or was not — recovered.
  */
-export function testerPartialDetail(budgetPeak: number, partialObservations: number): string {
+export function testerPartialDetail(
+  budgetPeak: number,
+  partialObservations: number,
+  endedOnBackground = false,
+): string {
+  if (endedOnBackground) return BACKGROUND_ENDED_DETAIL;
   if (budgetPeak > 0) {
     return `tester exceeded budget (${formatTokens(budgetPeak)} tok) — partial results recorded`;
   }
@@ -654,6 +660,17 @@ export interface TesterPromptExtra {
 
 /** Karst-owned scratch dir for UAT probe files; under `/.karst/`, which KARST_EXCLUDE_RULES covers. */
 export const TESTER_SCRATCH_DIR = '.karst/uat-scratch';
+
+/** Never displaced by `instructions`: an answer ended on a live command is an empty run (T722). */
+export const TESTER_NO_DANGLING_RULE =
+  'Do not end your answer while a command you started is still running; wait for it in the foreground, or kill it and report that it did not finish.';
+export const TESTER_UNREACHABLE_RULE =
+  'If the changed code is not reachable by the harness (for example it runs behind the faked agent core), record ONE info observation naming why, and stop.';
+/** Three-dot form: a two-dot diff reads newer base work as deletions. */
+export function testerMergeBaseRule(baseRef: string | null | undefined): string {
+  const base = baseRef ? `origin/${baseRef}` : 'origin/<base>';
+  return `If you compare against base at all, use the merge-base range \`${base}...HEAD\` (three dots), never the two-dot \`${base}\` form, which reads newer base work as deletions.`;
+}
 
 export function buildTesterPrompt(
   target: TesterTarget,
@@ -702,6 +719,9 @@ export function buildTesterPrompt(
     // contract: the deny is a hard stop, but the agent must also know the RIGHT
     // way to stop its own child (`kill $!`) so it does not reach for `pkill`.
     GATE_ISOLATION_RULE,
+    TESTER_NO_DANGLING_RULE,
+    testerMergeBaseRule(target.baseRef),
+    TESTER_UNREACHABLE_RULE,
     `Put any probe scripts or scratch files under \`${target.worktreePath}/${TESTER_SCRATCH_DIR}/\` (karst-owned, git-excluded); files anywhere else in the checkout dirty it and block host gates.`,
     // Placed between the strategy and the scope block, and NEVER displaced by
     // `instructions` (which only ever replaces the strategy lines above) —
@@ -790,6 +810,7 @@ export async function runUatTester(
   let partial = false;
   let budgetPeak = 0;
   let partialObservations = 0;
+  let endedOnBackground = false;
   const hardTimeoutMs = opts.timeoutMs ?? GATE_LANE_HEADLESS_TIMEOUT_MS;
   const tokenBudget = opts.tokenBudget ?? UAT_TESTER_TOKEN_BUDGET;
   const softTimeoutMs =
@@ -1033,6 +1054,15 @@ export async function runUatTester(
         }
       }
       if (opts.signal?.aborted) break;
+      // The core exited clean but left its own probe running in a background
+      // shell: whatever it answered (usually `[]`) is not a finished run.
+      if (!stopped && endedOnBackgroundCommand(captured.join(''))) {
+        partial = true;
+        endedOnBackground = true;
+        debug?.(
+          `[gate] uat tester ticket ${opts.ticketId}: target ${target.repo} ended while a background command was still running — recording partial`,
+        );
+      }
       shapes.push(parseResult.shape);
       if (parseResult.shape === 'unreadable') {
         unreadableAnswers.push({ repo: target.repo, raw: result.raw });
@@ -1143,7 +1173,7 @@ export async function runUatTester(
       // A run the budget stopped is recorded as `partial`, never `observed`: it
       // must not read as a clean pass even when the wrap-up recovered nothing.
       // The observations stay advisory (the verdict knob applies unchanged).
-      const detail = testerPartialDetail(budgetPeak, partialObservations);
+      const detail = testerPartialDetail(budgetPeak, partialObservations, endedOnBackground);
       close('failed', 'partial', detail);
       debug?.(
         `[gate] uat tester ticket ${opts.ticketId}: recorded ${findingIds.length} finding(s) — partial (${detail})`,

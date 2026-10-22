@@ -16,6 +16,7 @@ import { dirname, join, relative, sep } from 'node:path';
 const HERE = dirname(fileURLToPath(import.meta.url)); // …/src/ui/settings/app
 const SRC = join(HERE, '..', '..', '..'); // …/src
 const ROOT = join(SRC, '..');
+const DASHBOARD_APP = join(SRC, 'ui', 'dashboard', 'app');
 
 function walk(dir: string): string[] {
   const out: string[] = [];
@@ -31,7 +32,8 @@ function walk(dir: string): string[] {
 const stripBlockComments = (text: string): string => text.replace(/\/\*.*?\*\//gs, '');
 const rel = (file: string): string => relative(ROOT, file);
 const isTest = (file: string): boolean => /\.test\.(ts|tsx)$/.test(file);
-const isUnderApp = (file: string): boolean => file.startsWith(HERE + sep);
+const isUnderReactApp = (file: string): boolean =>
+  file.startsWith(HERE + sep) || file.startsWith(DASHBOARD_APP + sep);
 
 const APP_SOURCE = walk(HERE).filter((file) => !isTest(file));
 const APP_OUTSIDE_PRIMITIVES = APP_SOURCE.filter((file) => !file.includes(`${sep}primitives${sep}`));
@@ -91,7 +93,7 @@ describe('R01 — React is a dev dependency scoped to the settings app', () => {
     expect(pkg.devDependencies?.['react-dom']).toBeDefined();
   });
 
-  it('allows react/react-dom/testing-library imports only under src/ui/settings/app', () => {
+  it('allows react/react-dom/testing-library imports only under React app directories', () => {
     // Four spellings reach React, and the guard has to catch all of them:
     // `import ... from 'react'`, side-effect `import 'react'` (no `from`),
     // `export ... from 'react'`, and CommonJS `require('react')`. Matching only
@@ -125,7 +127,7 @@ describe('R01 — React is a dev dependency scoped to the settings app', () => {
     for (const file of walk(SRC)) {
       const text = readFileSync(file, 'utf8');
       if (REACT_IMPORT.some((pattern) => pattern.test(text))) {
-        expect(isUnderApp(file), `${rel(file)} imports React outside the settings app`).toBe(true);
+        expect(isUnderReactApp(file), `${rel(file)} imports React outside a React app directory`).toBe(true);
       }
     }
   });

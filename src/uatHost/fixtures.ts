@@ -1,5 +1,6 @@
 import type { StageKey } from '../model/types.js';
 import type { StagePatch } from '../store/stages.js';
+import type { RecoveryTriggerKind } from '../store/recoveryRoundsRead.js';
 
 export const FIXTURE_NAMES = ['empty', 'ticket-mid-stage', 'blocked', 'launch-draft'] as const;
 export type FixtureName = (typeof FIXTURE_NAMES)[number];
@@ -8,17 +9,48 @@ export function isFixtureName(s: string): s is FixtureName {
   return (FIXTURE_NAMES as readonly string[]).includes(s);
 }
 
+export interface StageSeed { stageKey: StageKey; patch: StagePatch }
+export interface StageRunSeed { stageKey: StageKey; attempt: number; status: 'running' | 'finished'; outcome?: 'advanced' | 'blocked' | 'stopped' }
+export interface ProcessRunSeed {
+  stageKey: StageKey;
+  processId: string;
+  attempt: number;
+  status: 'running' | 'passed' | 'failed' | 'interrupted';
+  /** Index into this ticket's `stageRuns`; links the process run to that stage run. */
+  stageRun?: number;
+}
+export interface GateRunSeed { stageKey: StageKey; attempt: number; gateName: string; exitCode: number | null; stageRun?: number }
+export interface RecoveryRoundSeed {
+  sourceStage: 'uat' | 'review' | 'ship';
+  sourceProcessId: 'gates' | 'tester' | 'review' | 'pr-review';
+  triggerKind: RecoveryTriggerKind;
+  triggerDetail: string;
+  maxRounds: number;
+}
+/** The small allow-list of tables a fixture file may fill to model stranded/recovery states. */
+export interface RowSeeds {
+  stageRuns: StageRunSeed[];
+  processRuns: ProcessRunSeed[];
+  gateRuns: GateRunSeed[];
+  recoveryRounds: RecoveryRoundSeed[];
+}
 export interface TicketSeed {
   key: string;
   title: string;
   stageCurrent: StageKey;
   /** Manifest repo names; a draft with none cannot open a session. */
   selectedRepos?: string[];
-  stage?: { stageKey: StageKey; patch: StagePatch };
+  stages: StageSeed[];
+  archived?: boolean;
+  /** Give the ticket a worktree row (the checkout itself is not created). */
+  worktree?: boolean;
+  rows?: Partial<RowSeeds>;
 }
 export interface FixtureSpec {
-  name: FixtureName;
+  name: string;
   tickets: TicketSeed[];
+  /** Manifest `agentProvider`; defaults to claude. */
+  provider?: string;
 }
 
 const STARTED = '2026-01-01T00:00:00.000Z';
@@ -30,20 +62,20 @@ const SPECS: Record<FixtureName, TicketSeed[]> = {
       key: 'FIX-MID',
       title: 'Fixture: ticket mid-stage',
       stageCurrent: 'impl',
-      stage: { stageKey: 'impl', patch: { status: 'running', startedAt: STARTED } },
+      stages: [{ stageKey: 'impl', patch: { status: 'running', startedAt: STARTED } }],
     },
   ],
   // A never-started draft with its repo selected: karst.openSession scopes it
   // (worktree + impl) and then launches, which `KARST_FAKE_CORE=launch` records.
   'launch-draft': [
-    { key: 'FIX-LAUNCH', title: 'Fixture: launch-ready draft', stageCurrent: 'scope', selectedRepos: ['app'] },
+    { key: 'FIX-LAUNCH', title: 'Fixture: launch-ready draft', stageCurrent: 'scope', selectedRepos: ['app'], stages: [] },
   ],
   blocked: [
     {
       key: 'FIX-BLOCKED',
       title: 'Fixture: blocked ticket',
       stageCurrent: 'uat',
-      stage: {
+      stages: [{
         stageKey: 'uat',
         patch: {
           status: 'running',
@@ -51,7 +83,7 @@ const SPECS: Record<FixtureName, TicketSeed[]> = {
           blockedKind: 'boot-failed',
           blockedReason: 'fixture: services failed to start',
         },
-      },
+      }],
     },
   ],
 };

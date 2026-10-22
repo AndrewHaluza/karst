@@ -78,14 +78,14 @@ export interface RenderHandle {
   close(): void;
 }
 
-export function renderWebview(name: WebviewName, opts?: { nonce?: string }): RenderHandle {
+export function renderWebview(name: WebviewName, opts?: { nonce?: string; persistedState?: unknown }): RenderHandle {
   const raw = readFileSync(join(WEBVIEW_ROOT, name, 'webview.html'), 'utf8');
   const hydrated = hydrateWebview(name, raw);
   const html = injectCsp(hydrated, opts?.nonce ?? newNonce());
 
   const posted: unknown[] = [];
   const errors: string[] = [];
-  let state: unknown = undefined;
+  let state: unknown = opts?.persistedState;
   /** Set by `beforeParse`: reads the realm's pending-timer queue (see below). */
   let pendingWorkProbe: ((horizonMs: number) => number) | null = null;
   /**
@@ -290,6 +290,36 @@ export async function pumpRenderRealm(handle: RenderHandle): Promise<void> {
   await new Promise((resolve) => handle.window.setTimeout(resolve, 0));
 }
 
+export const WORK_HORIZON_MS = 500;
+export const QUIESCE_BUDGET_MS = 5_000;
+
+/**
+ * Drain the render realm's scheduled timer queue until it quiesces.
+ *
+ * React commits asynchronously through the realm's timer queue (jsdom has no
+ * MessageChannel or setImmediate). Pumping until two consecutive empty horizon
+ * checks guarantees React's commit and effects have completed.
+ */
+export async function drainReactWork(handle: RenderHandle): Promise<void> {
+  const start = Date.now();
+  let emptyPumps = 0;
+  for (;;) {
+    await pumpRenderRealm(handle);
+    if (handle.pendingWorkTimers(WORK_HORIZON_MS) === 0) {
+      emptyPumps += 1;
+      if (emptyPumps >= 2) return;
+    } else {
+      emptyPumps = 0;
+    }
+    if (Date.now() - start > QUIESCE_BUDGET_MS) {
+      throw new Error(
+        `drainReactWork: the app realm did not quiesce within ${QUIESCE_BUDGET_MS}ms — ` +
+          `${handle.pendingWorkTimers(WORK_HORIZON_MS)} timer(s) still due within ${WORK_HORIZON_MS}ms`,
+      );
+    }
+  }
+}
+
 /**
  * Async render for views that set data-karst-ready after React commits.
  * For settings: waits for the flag by draining the render realm's scheduled
@@ -307,9 +337,9 @@ export async function pumpRenderRealm(handle: RenderHandle): Promise<void> {
 export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
   const handle = renderWebview(name, opts);
 
-  // Only settings uses React; only it should set data-karst-ready.
+  // React webviews: settings and dashboard wait for data-karst-ready when #root is present.
   // For other views, sync render is complete.
-  if (name !== 'settings') return handle;
+  if (name !== 'settings' && name !== 'dashboard') return handle;
 
   // Check if React app is injected (marked by #root element).
   // If not, vanilla view is active — return sync render immediately.

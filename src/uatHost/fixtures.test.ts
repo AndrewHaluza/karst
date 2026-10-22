@@ -8,12 +8,12 @@ describe('fixtures', () => {
   it('ticket-mid-stage has one running impl ticket', () => {
     const [t] = fixtureSpec('ticket-mid-stage').tickets;
     expect(t?.stageCurrent).toBe('impl');
-    expect(t?.stage?.patch.status).toBe('running');
+    expect(t?.stages[0]?.patch.status).toBe('running');
   });
   it('blocked has a boot-failed uat block', () => {
     const [t] = fixtureSpec('blocked').tickets;
     expect(t?.stageCurrent).toBe('uat');
-    expect(t?.stage?.patch.blockedKind).toBe('boot-failed');
+    expect(t?.stages[0]?.patch.blockedKind).toBe('boot-failed');
   });
   it('isFixtureName guards', () => {
     expect(FIXTURE_NAMES.every(isFixtureName)).toBe(true);
@@ -26,5 +26,8 @@ describe('fixtures', () => {
     const text = manifestText('/w/repo');
     expect(text).toContain('repoPath: /w/repo');
     expect(text).toContain('agentProvider: claude');
+  });
+  it('manifestText takes a provider', () => {
+    expect(manifestText('/w/repo', 'opencode')).toContain('agentProvider: opencode');
   });
 });

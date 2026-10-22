@@ -23,7 +23,7 @@
  * phase-3 helper: the reducer's own suite covers those derivations.
  */
 import {
-  pumpRenderRealm,
+  drainReactWork,
   renderWebviewReady,
   waitForSettingsReady,
   type RenderHandle,
@@ -162,53 +162,3 @@ function inRoot(handle: RenderHandle, selector: string): Element {
   return node;
 }
 
-/**
- * Wait until the app realm has no scheduled work left — deterministically.
- *
- * The app runs inside the harness's JSDOM realm, so the test realm's `act`
- * cannot flush it: React's commits land asynchronously through the realm's own
- * `setTimeout` queue (jsdom has no MessageChannel or setImmediate for the
- * scheduler to prefer). A wall-clock wait — 10 ms fixed, or a mutation-quiet
- * window — is a bet on how long that queue takes, and under a loaded suite the
- * bet loses (NDL-143 review round 1: the quiet-window variant still lost
- * ~2 assertions per 7 full-suite runs).
- *
- * So don't bet: `renderWebview` instruments the realm's one-shot timers in
- * `beforeParse`, and this drain PUMPS the realm (`pumpRenderRealm` — a real
- * timer turn, or `vi.runAllTimersAsync` when the test's sinon clock covers the
- * realm) and asks whether ANY timer is due within `WORK_HORIZON_MS`. React's
- * flush hops are due immediately, so while work is queued the answer is yes
- * and the drain keeps pumping; the exit condition — empty horizon after two
- * consecutive pumps — is quiescence, not an estimate. Work landing later than
- * the horizon would have to be a deliberately delayed timer, and the app's only
- * long timers (the 30 s mutation watchdog, the 2 s saved-ack) sit far outside
- * it; starvation delays FIRING, never the due time, so a loaded machine cannot
- * push a queued hop out of the horizon.
- *
- * The budget is a tripwire, not a wait: a realm that never quiesces is a bug
- * and must fail loudly instead of resolving early into the same race.
- */
-const WORK_HORIZON_MS = 500;
-const QUIESCE_BUDGET_MS = 5_000;
-
-async function drainReactWork(handle: RenderHandle): Promise<void> {
-  const start = Date.now();
-  let emptyPumps = 0;
-  for (;;) {
-    await pumpRenderRealm(handle);
-    if (handle.pendingWorkTimers(WORK_HORIZON_MS) === 0) {
-      emptyPumps += 1;
-      // Effects of the commit that just ran may queue more work synchronously;
-      // a second consecutive empty pump means the queue actually stayed empty.
-      if (emptyPumps >= 2) return;
-    } else {
-      emptyPumps = 0;
-    }
-    if (Date.now() - start > QUIESCE_BUDGET_MS) {
-      throw new Error(
-        `renderSettingsApp.settle: the app realm did not quiesce within ${QUIESCE_BUDGET_MS}ms — ` +
-          `${handle.pendingWorkTimers(WORK_HORIZON_MS)} timer(s) still due within ${WORK_HORIZON_MS}ms`,
-      );
-    }
-  }
-}
