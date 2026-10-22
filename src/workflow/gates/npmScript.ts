@@ -5,6 +5,11 @@ const RETARGETING_FLAGS: ReadonlySet<string> = new Set([
   '-w', '--workspace', '--workspaces', '-ws', '--prefix', '-C', '--cwd', '--filter', '-F', '-r', '--recursive',
 ]);
 
+/** Flags that consume the next argument as their value (`--flag value`); the value is not the script name. */
+const VALUE_FLAGS: ReadonlySet<string> = new Set([
+  '--loglevel', '--log-level', '--registry', '--userconfig', '--globalconfig', '--cache', '--script-shell', '--node-options',
+]);
+
 const RUNNERS: ReadonlySet<string> = new Set(['npm', 'pnpm', 'yarn']);
 
 /**
@@ -15,10 +20,15 @@ const RUNNERS: ReadonlySet<string> = new Set(['npm', 'pnpm', 'yarn']);
 export function deriveNpmScript(command: string, args: readonly string[]): string | null {
   if (!RUNNERS.has(command) || args[0] !== 'run') return null;
   const rest = args.slice(1);
-  for (const arg of rest) {
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i]!;
     if (arg === '--') return null;
     if (arg === '--if-present') return null;
     if (RETARGETING_FLAGS.has(arg.split('=')[0]!)) return null;
+    if (VALUE_FLAGS.has(arg)) {
+      i++;
+      continue;
+    }
     if (!arg.startsWith('-')) return arg;
   }
   return null;

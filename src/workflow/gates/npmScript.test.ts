@@ -12,6 +12,11 @@ describe('deriveNpmScript', () => {
   it('ignores --if-present', () => {
     expect(deriveNpmScript('npm', ['run', '--if-present', 'x'])).toBeNull();
   });
+  it('skips the value of a value-taking flag instead of reading it as the script', () => {
+    expect(deriveNpmScript('npm', ['run', '--loglevel', 'warn', 'x'])).toBe('x');
+    expect(deriveNpmScript('npm', ['run', '--loglevel=warn', 'x'])).toBe('x');
+    expect(deriveNpmScript('npm', ['run', '--registry', 'https://r.example', 'x'])).toBe('x');
+  });
   it('derives nothing when a flag retargets another package', () => {
     expect(deriveNpmScript('npm', ['run', '-w', 'web', 'build'])).toBeNull();
     expect(deriveNpmScript('npm', ['run', '--workspace=web', 'build'])).toBeNull();
