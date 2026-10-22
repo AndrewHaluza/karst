@@ -78,14 +78,14 @@ export interface RenderHandle {
   close(): void;
 }
 
-export function renderWebview(name: WebviewName, opts?: { nonce?: string }): RenderHandle {
+export function renderWebview(name: WebviewName, opts?: { nonce?: string; persistedState?: unknown }): RenderHandle {
   const raw = readFileSync(join(WEBVIEW_ROOT, name, 'webview.html'), 'utf8');
   const hydrated = hydrateWebview(name, raw);
   const html = injectCsp(hydrated, opts?.nonce ?? newNonce());
 
   const posted: unknown[] = [];
   const errors: string[] = [];
-  let state: unknown = undefined;
+  let state: unknown = opts?.persistedState;
   /** Set by `beforeParse`: reads the realm's pending-timer queue (see below). */
   let pendingWorkProbe: ((horizonMs: number) => number) | null = null;
   /**

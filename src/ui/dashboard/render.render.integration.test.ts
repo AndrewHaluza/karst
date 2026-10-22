@@ -19,6 +19,7 @@ import {
   shipPreviewStateFor,
   type InsideRenderFixture,
 } from './renderFixtures.js';
+import type { DashboardState } from './state.js';
 
 const envelope = (f: InsideRenderFixture) => {
   const base = renderStateFor(f.stage);
@@ -286,6 +287,26 @@ describe('dashboard render — ship preview (D142)', () => {
     return h;
   };
 
+  // A pending Confirm with UAT and Review populated too, so a rail click has a
+  // real view to land on rather than an empty block.
+  const confirmPendingWithViews = (): DashboardState => {
+    const base = populatedStateFor('ship');
+    return {
+      ...base,
+      insideViews: {
+        ...base.insideViews,
+        uat: renderStateFor('uat').insideViews.uat!,
+        review: renderStateFor('review').insideViews.review!,
+      },
+      ship: { kind: 'confirm' },
+      shipPreview: shipPreviewFixture('ready')!,
+    };
+  };
+  const SHIP_CLOCK = '09:40:02 · 1m 40s · attempt 1';
+  const UAT_CLOCK = '10:03:55 · 41.2s · attempt 3';
+  const REVIEW_CLOCK = '09:20:11 · 3m 02s · attempt 2';
+  const insideClock = (h: ReturnType<typeof renderWebview>) => h.query('#inside .inside-meta')?.textContent;
+
   it('is absent unless the ship slot waits for Confirm/Retry', () => {
     const h = renderWebview('dashboard');
     h.receive({ type: 'state', state: renderStateFor('ship') }); // slot: none
@@ -377,35 +398,92 @@ describe('dashboard render — ship preview (D142)', () => {
     h.close();
   });
 
-  it('keeps the Ship preview on screen while Confirm ship is clickable (D142)', () => {
-    const base = populatedStateFor('ship');
-    const state = { ...base, ship: { kind: 'confirm' as const }, shipPreview: shipPreviewFixture('ready')! };
+  it('auto-selects Ship once on entering a wait, then leaves the user choice alone (D234)', () => {
+    const base = confirmPendingWithViews();
     const h = renderWebview('dashboard');
-    h.receive({ type: 'state', state });
+    // Before the wait the user is on Review.
+    h.receive({ type: 'state', state: { ...base, ship: { kind: 'none' as const }, shipPreview: undefined } });
+    h.click('[data-stage="review"]');
+    expect(insideClock(h)).toBe(REVIEW_CLOCK);
+    // Entering the wait selects Ship so the preview is beside Confirm ship.
+    h.receive({ type: 'state', state: base });
+    expect(insideClock(h)).toBe(SHIP_CLOCK);
     expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
+    // The user navigates away; a later push for the SAME wait keeps them there.
+    h.click('[data-stage="uat"]');
+    h.receive({ type: 'state', state: base });
+    expect(insideClock(h)).toBe(UAT_CLOCK);
+    expect(h.query('[data-region="ship-preview"]')).toBeNull();
+    // A retry after the confirm is a NEW wait: Ship is selected once more.
+    h.receive({ type: 'state', state: { ...base, ship: { kind: 'retry' } } });
+    expect(insideClock(h)).toBe(SHIP_CLOCK);
+    // ...and a wait on a DIFFERENT ticket is new too.
+    h.click('[data-stage="review"]');
+    h.receive({ type: 'state', state: { ...base, ticketId: base.ticketId + 1, ship: { kind: 'retry' } } });
+    expect(insideClock(h)).toBe(SHIP_CLOCK);
+    h.close();
+  });
+
+  it('keeps the rail live while the Ship slot waits — a click opens the stage (D234)', () => {
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state: confirmPendingWithViews() });
+    expect(insideClock(h)).toBe(SHIP_CLOCK);
+    const impl = h.query<HTMLButtonElement>('[data-stage="impl"]')!;
+    expect(impl.disabled).toBe(false);
+    expect(impl.getAttribute('aria-disabled')).toBeNull();
+    expect(impl.getAttribute('title')).not.toContain('pinned to ship');
+    // UAT and Review are one click away, and each renders its own view.
+    h.click('[data-stage="uat"]');
+    expect(insideClock(h)).toBe(UAT_CLOCK);
+    h.click('[data-stage="review"]');
+    expect(insideClock(h)).toBe(REVIEW_CLOCK);
+    // Confirm ship lives in the header and never leaves the screen.
     expect(h.query<HTMLElement>('#confirmShip')!.hidden).toBe(false);
-    // The tester's bypass: selecting another stage used to hide the preview
-    // while the header Confirm ship stayed clickable. The Ship view is pinned
-    // while the slot waits, so the rail click is ignored.
-    h.click('[data-stage="impl"]');
-    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
-    h.receive({ type: 'state', state });
+    // Preview stays in the Ship view, one click away.
+    h.click('[data-stage="ship"]');
     expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
     h.close();
   });
 
-  it('keeps the Ship clock on a live repaint while the slot waits (D142)', () => {
-    const base = populatedStateFor('ship');
+  it('a live repaint follows the user selection, not the pending wait (D234)', () => {
     const h = renderWebview('dashboard');
-    // A stale rail selection from before the ticket reached ship.
-    h.receive({ type: 'state', state: { ...base, ship: { kind: 'none' as const } } });
-    h.click('[data-stage="review"]');
-    const state = { ...base, ship: { kind: 'confirm' as const }, shipPreview: shipPreviewFixture('ready')! };
+    const state = confirmPendingWithViews();
     h.receive({ type: 'state', state });
-    expect(h.query('[data-region="ship-preview"]')).not.toBeNull();
-    h.receive({ type: 'state', state, live: true });
-    // The live repaint must keep the PINNED stage's clock, not review's.
-    expect(h.query('#inside .inside-meta')!.textContent).toBe('09:40:02 · 1m 40s · attempt 1');
+    h.click('[data-stage="uat"]');
+    // A live repaint is the same snapshot re-read: it must advance the SELECTED
+    // view's clock, never re-derive Ship from the waiting slot.
+    const live: DashboardState = {
+      ...state,
+      insideViews: { ...state.insideViews, uat: { ...state.insideViews.uat!, clock: 'advanced uat clock' } },
+    };
+    h.receive({ type: 'state', state: live, live: true });
+    expect(insideClock(h)).toBe('advanced uat clock');
+    h.close();
+  });
+
+  it('restores a recorded wait without re-selecting Ship over the user choice (D234)', () => {
+    const state = confirmPendingWithViews();
+    const h = renderWebview('dashboard', {
+      persistedState: {
+        state,
+        sel: 'uat',
+        shipWait: `${state.ticketId}:confirm`,
+        srvFilter: '',
+        artView: null,
+        artScrolls: { ticket: 0, index: 0, detail: {} },
+      },
+    });
+    expect(insideClock(h)).toBe(UAT_CLOCK);
+    expect(h.query('[data-region="ship-preview"]')).toBeNull();
+    h.close();
+  });
+
+  it('persists the auto-selected wait so a reopen does not yank the selection (D234)', () => {
+    const state = confirmPendingWithViews();
+    const h = renderWebview('dashboard');
+    h.receive({ type: 'state', state });
+    h.click('[data-stage="uat"]');
+    expect(h.state).toMatchObject({ sel: 'uat', shipWait: `${state.ticketId}:confirm` });
     h.close();
   });
 
@@ -415,22 +493,6 @@ describe('dashboard render — ship preview (D142)', () => {
     expect(section.textContent).toContain('PR #42 open — this commit is pushed onto it');
     expect(section.textContent).not.toContain('skipped');
     expect(section.textContent).toContain('src/app.ts');
-    h.close();
-  });
-
-  it('disables every other rail control while the Ship view is pinned (D142)', () => {
-    const base = populatedStateFor('ship');
-    const h = renderWebview('dashboard');
-    h.receive({
-      type: 'state',
-      state: { ...base, ship: { kind: 'confirm' as const }, shipPreview: shipPreviewFixture('ready')! },
-    });
-    const impl = h.query<HTMLButtonElement>('[data-stage="impl"]')!;
-    expect(impl.disabled).toBe(true);
-    expect(impl.getAttribute('aria-disabled')).toBe('true');
-    expect(impl.getAttribute('title')).toContain('pinned to ship');
-    // The pinned Ship control itself stays live.
-    expect(h.query<HTMLButtonElement>('[data-stage="ship"]')!.disabled).toBe(false);
     h.close();
   });
 
