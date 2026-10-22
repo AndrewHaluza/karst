@@ -267,4 +267,15 @@ describe('aggregateUat — stale branch', () => {
     );
     expect(out).toMatchObject({ kind: 'blocked', blocker: 'capability-missing', reason });
   });
+
+  it('does not swallow an ordinary failure in the same run', () => {
+    const out = aggregateUat(
+      [
+        { result: { name: 'docs-graph', exitCode: 1, output: 'r', staleBranch: 'r' }, identity: npmE2e },
+        entry('unit', 1, npmTest),
+      ],
+      [],
+    );
+    expect(out).toMatchObject({ kind: 'verdict', verdict: { kind: 'failed' } });
+  });
 });

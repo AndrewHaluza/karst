@@ -1,5 +1,10 @@
 import type { GitRunner } from '../../integrations/git.js';
 
+/** Flags that retarget another package or directory: the script then lives somewhere karst does not look. */
+const RETARGETING_FLAGS: ReadonlySet<string> = new Set([
+  '-w', '--workspace', '--workspaces', '-ws', '--prefix', '-C', '--cwd', '--filter', '-F', '-r', '--recursive',
+]);
+
 const RUNNERS: ReadonlySet<string> = new Set(['npm', 'pnpm', 'yarn']);
 
 /**
@@ -13,6 +18,7 @@ export function deriveNpmScript(command: string, args: readonly string[]): strin
   for (const arg of rest) {
     if (arg === '--') return null;
     if (arg === '--if-present') return null;
+    if (RETARGETING_FLAGS.has(arg.split('=')[0]!)) return null;
     if (!arg.startsWith('-')) return arg;
   }
   return null;

@@ -67,5 +67,10 @@ export function hostRefusalReason(results: readonly GateResult[]): string | null
 export function staleBranchReason(results: readonly GateResult[]): string | null {
   const stale = results.filter((r) => r.staleBranch !== undefined);
   if (stale.length === 0) return null;
+  // A gate that failed for an ordinary reason is the ticket's to fix and must not be swallowed by the park.
+  const ordinaryFailure = results.some(
+    (r) => r.staleBranch === undefined && r.exitCode !== null && r.exitCode !== 0,
+  );
+  if (ordinaryFailure) return null;
   return stale.map((r) => r.staleBranch).join(' | ');
 }

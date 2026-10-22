@@ -12,6 +12,11 @@ describe('deriveNpmScript', () => {
   it('ignores --if-present', () => {
     expect(deriveNpmScript('npm', ['run', '--if-present', 'x'])).toBeNull();
   });
+  it('derives nothing when a flag retargets another package', () => {
+    expect(deriveNpmScript('npm', ['run', '-w', 'web', 'build'])).toBeNull();
+    expect(deriveNpmScript('npm', ['run', '--workspace=web', 'build'])).toBeNull();
+    expect(deriveNpmScript('npm', ['run', '--prefix', 'web', 'build'])).toBeNull();
+  });
   it('ignores non-run commands and other binaries', () => {
     expect(deriveNpmScript('npm', ['test'])).toBeNull();
     expect(deriveNpmScript('go', ['run', 'x'])).toBeNull();
