@@ -12,6 +12,7 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
+import { dockerKillContext } from '../../agent/backendProbe.js';
 import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
 import type { SandboxChannel } from '../../workflow/messageDelivery.js';
 import { assertNoSandboxResumeOnHost } from '../../agent/sandboxResumeGuard.js';
@@ -302,6 +303,7 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
         bridgeOf: (id) => deps.bridgeOf?.(id), ticketLabel: (id) => { try { return getTicket(input.store, id).key ?? String(id); } catch { return String(id); } },
         notify: input.notify, ...(input.debug ? { debug: input.debug } : {}),
         windowOf: (id) => ticketSandboxRunner(deps, id)?.runner,
+        killContextOf: (id) => { const core = deps.coreOf(id); return core !== null && backendForCore(deps.backends(), core) === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined; },
         turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },
       }, ticketId, opts);
     },

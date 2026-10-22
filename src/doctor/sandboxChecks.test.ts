@@ -55,4 +55,14 @@ describe('parseDockerSize', () => {
   it('rejects garbage', () => {
     expect(parseDockerSize('lots')).toBeUndefined();
   });
+  it('warns report-only when the Docker VM has under 8 GB, ok at 8 GB', () => {
+    const low = checkSandboxBackends({ ...base, selected: ['docker'], dockerMemBytes: 4.8 * 2 ** 30 }).find((c) => c.id === 'tools.docker-memory');
+    expect(low).toMatchObject({ status: 'warn', fix: { tier: 'report' } });
+    const ok = checkSandboxBackends({ ...base, selected: ['docker'], dockerMemBytes: 8 * 2 ** 30 }).find((c) => c.id === 'tools.docker-memory');
+    expect(ok?.status).toBe('ok');
+  });
+  it('no memory check without docker selected or an unknown size', () => {
+    expect(checkSandboxBackends({ ...base, dockerMemBytes: 1 * 2 ** 30 }).some((c) => c.id === 'tools.docker-memory')).toBe(false);
+    expect(checkSandboxBackends({ ...base, selected: ['docker'] }).some((c) => c.id === 'tools.docker-memory')).toBe(false);
+  });
 });

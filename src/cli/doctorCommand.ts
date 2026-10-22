@@ -22,7 +22,7 @@ import { checkStuckTickets, STUCK_IDLE_MINUTES } from '../doctor/stuckCheck.js';
 import { checkWiring } from '../doctor/wiringChecks.js';
 import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
 import { checkSandboxBackends } from '../doctor/sandboxChecks.js';
-import { probeBackends, probeDockerDisk, type BackendProbes } from '../agent/backendProbe.js';
+import { probeBackends, probeDockerDisk, probeDockerMemory, type BackendProbes } from '../agent/backendProbe.js';
 import { doneMergedTicketIds } from '../store/doneMerged.js';
 import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
 import { listProjectSandboxes, type SandboxInventory } from '../agent/sandboxInventory.js';
@@ -164,9 +164,10 @@ async function sandboxOrphanChecks(store: Store, manifestPath: string | undefine
 export interface SandboxProbe {
   readonly backends: (want: BackendWant) => Promise<BackendProbes>;
   readonly dockerDisk: () => Promise<number | undefined>;
+  readonly dockerMemory?: () => Promise<number | undefined>;
 }
 
-const SANDBOX_PROBE_NODE: SandboxProbe = { backends: probeBackends, dockerDisk: probeDockerDisk };
+const SANDBOX_PROBE_NODE: SandboxProbe = { backends: probeBackends, dockerDisk: probeDockerDisk, dockerMemory: probeDockerMemory };
 
 /** Selected backend status and sandbox disk use (arch:AC-32); only with a sandbox backend, and only the checks of `area`. */
 async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | undefined, manifest: Manifest | undefined, io: CollectorInput): Promise<DoctorCheck[]> {
@@ -174,7 +175,8 @@ async function sandboxBackendChecks(area: DoctorArea, manifestPath: string | und
   if (manifestPath === undefined || selected.length === 0) return [];
   const [probes, inv] = await Promise.all([io.probe.backends(wantedBackends(manifest?.agentBackends)), io.listSandboxes(manifestPath)]);
   const docker = inv.sandboxes.filter((s) => s.runner === 'docker').length > 0 ? await io.probe.dockerDisk() : undefined;
-  return checkSandboxBackends({ selected, ...probes, sandboxCount: inv.sandboxes.length, diskBytes: docker })
+  const dockerMemBytes = selected.includes('docker') ? await io.probe.dockerMemory?.() : undefined;
+  return checkSandboxBackends({ selected, ...probes, sandboxCount: inv.sandboxes.length, diskBytes: docker, dockerMemBytes })
     .filter((c) => c.area === area);
 }
 

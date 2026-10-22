@@ -19,6 +19,8 @@ export interface TicketSetupDeps {
   readonly windowOf?: (ticketId: number) => Pick<SessionRunner, 'setupWindow' | 'windowNeedsIdle'> | undefined;
   /** Is an agent turn live? docker's window recreates the proxy, so it waits for idle. */
   readonly turnActive?: (ticketId: number) => boolean;
+  /** docker only: memory/container context for a killed (137) setup's reason. */
+  readonly killContextOf?: (ticketId: number) => (() => Promise<string | undefined>) | undefined;
   readonly ticketLabel: (ticketId: number) => string;
   readonly notify: Notify;
   readonly debug?: (message: string) => void;
@@ -54,7 +56,7 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     const result = await ensureSandboxSetup(
       {
         runGate, stateFile, ...(window ? { window } : {}), ...(i === 0 && paths ? { logFile: paths.setupLogFile } : {}),
-        ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
+        ...(deps.now ? { now: deps.now } : {}), ...(deps.sleep ? { sleep: deps.sleep } : {}), ...(deps.killContextOf?.(ticketId) ? { killContext: deps.killContextOf(ticketId)! } : {}), ...(deps.debug ? { debug: deps.debug } : {}),
       },
       { key: `${ticketId}:${job.name}`, setup: job.setup, hosts: job.hosts, cwd: job.cwd, ...(opts.signal ? { signal: opts.signal } : {}) },
     );
