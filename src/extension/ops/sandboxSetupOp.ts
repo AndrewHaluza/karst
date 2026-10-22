@@ -76,7 +76,7 @@ export async function provisionTicketSandbox(deps: TicketSetupDeps, ticketId: nu
     );
     if (!result.ok) {
       deps.debug?.(`[sandbox] ticket ${ticketId} ${job.name}: ${result.reason}`);
-      notifyFailure(deps, ticketId, result.reason, paths?.setupLogFile);
+      notifyFailure(deps, ticketId, result.reason, paths!.setupLogFile); // stateFile above implies a bridge
       return result;
     }
   }
@@ -92,7 +92,7 @@ export async function clearSetupState(paths: BridgePaths): Promise<void> {
 }
 
 /** One notification; with an action-capable Notify and bound actions it carries the buttons. */
-function notifyFailure(deps: TicketSetupDeps, ticketId: number, reason: string, logFile: string | undefined): void {
+function notifyFailure(deps: TicketSetupDeps, ticketId: number, reason: string, logFile: string): void {
   const message = `Karst: ${deps.ticketLabel(ticketId)} sandbox setup failed: ${reason}`;
   const { actions } = deps;
   if (!deps.notify.errorActions || !actions) {
@@ -100,10 +100,10 @@ function notifyFailure(deps: TicketSetupDeps, ticketId: number, reason: string, 
     return;
   }
   const killed = reason.includes('likely out of memory');
-  const labels = [RERUN_SETUP, ...(logFile ? [SHOW_SETUP_LOG] : []), ...(killed ? [DOCKER_MEMORY_HELP] : [])];
+  const labels = [RERUN_SETUP, SHOW_SETUP_LOG, ...(killed ? [DOCKER_MEMORY_HELP] : [])];
   void deps.notify.errorActions(message, labels).then(async (choice) => {
     if (choice === RERUN_SETUP) await actions.rerun(ticketId);
-    else if (choice === SHOW_SETUP_LOG && logFile) actions.openLog(logFile);
+    else if (choice === SHOW_SETUP_LOG) actions.openLog(logFile);
     else if (choice === DOCKER_MEMORY_HELP) actions.memoryHelp();
   }).catch((err: unknown) => deps.debug?.(`[sandbox] setup failure action failed: ${err instanceof Error ? err.message : String(err)}`));
 }

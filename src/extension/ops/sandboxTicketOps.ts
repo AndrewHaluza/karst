@@ -300,19 +300,20 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     /** arch:AC-36: run the repos' `sandbox.setup` inside the sandbox; refused = a reason, notified once. Host ticket / no notify seam = ok. */
     provision: async (ticketId: number, opts: { readonly signal?: AbortSignal; readonly background?: boolean } = {}) => {
       // `ticketGateProcess` falls back to the HOST runner without a sandbox: never run a setup there.
-      if (!input.notify || !(await resolveTicketSandbox(deps, ticketId)).listed) return { ok: true as const };
+      const { notify } = input;
+      if (!notify || !(await resolveTicketSandbox(deps, ticketId)).listed) return { ok: true as const };
       return provisionTicketSandbox({
         manifest: input.manifest, worktrees: (id) => listWorktreesByTicket(input.store, id), gateProcess: (id) => ticketGateProcess(deps, id),
         bridgeOf: (id) => deps.bridgeOf?.(id), ticketLabel: (id) => { try { return getTicket(input.store, id).key ?? String(id); } catch { return String(id); } },
-        notify: input.notify,
+        notify,
         actions: {
           rerun: async (id) => { await bindings.rerunSetup(id); input.redriveAfterSetup?.(id); },
           openLog: (path) => input.openFile?.(path),
-          memoryHelp: () => input.notify?.info(DOCKER_MEMORY_HELP_TEXT),
+          memoryHelp: () => notify.info(DOCKER_MEMORY_HELP_TEXT),
         },
         ...(input.debug ? { debug: input.debug } : {}),
         windowOf: (id) => ticketSandboxRunner(deps, id)?.runner,
-        killContextOf: (id) => { const core = deps.coreOf(id); return core !== null && backendForCore(deps.backends(), core) === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined; },
+        killContextOf: (id) => { return backendForCore(deps.backends(), deps.coreOf(id) ?? '') === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined; },
         turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },
       }, ticketId, opts);
     },

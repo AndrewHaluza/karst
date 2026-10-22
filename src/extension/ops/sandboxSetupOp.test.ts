@@ -214,6 +214,33 @@ describe('clearSetupState', () => {
       expect(x.offered).toEqual([['Re-run setup', 'Show setup log']]);
     });
 
+    it('dismissing the notification runs no action', async () => {
+      const x = withButtons(137, undefined);
+      await provisionTicketSandbox(x.deps, 7); await settle();
+      expect(x.calls).toEqual([]);
+    });
+
+    it('the kill context of the ticket lands in the failure reason', async () => {
+      const x = withButtons(137, undefined);
+      const r = await provisionTicketSandbox({ ...x.deps, killContextOf: () => async () => 'Docker VM 4.8 GB' }, 7);
+      expect(r).toMatchObject({ ok: false, reason: expect.stringContaining('likely out of memory (Docker VM 4.8 GB)') });
+    });
+
+    it('a throwing action without a debug sink does not escape', async () => {
+      const x = withButtons(1, 'Re-run setup');
+      await provisionTicketSandbox({ ...x.deps, actions: { rerun: async () => { throw new Error('nope'); }, openLog: () => undefined, memoryHelp: () => undefined } }, 7);
+      await settle();
+      expect(x.calls).toEqual([]);
+    });
+
+    it('a throwing action is logged, never unhandled', async () => {
+      const debug: string[] = [];
+      const x = withButtons(1, 'Re-run setup');
+      await provisionTicketSandbox({ ...x.deps, debug: (m) => { debug.push(m); }, actions: { rerun: async () => { throw new Error('nope'); }, openLog: () => undefined, memoryHelp: () => undefined } }, 7);
+      await settle();
+      expect(debug).toContain('[sandbox] setup failure action failed: nope');
+    });
+
     it('Re-run setup re-runs and re-drives; Show setup log opens the log; help explains', async () => {
       const a = withButtons(1, 'Re-run setup');
       await provisionTicketSandbox(a.deps, 7); await settle();
