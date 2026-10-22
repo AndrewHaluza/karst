@@ -20,6 +20,18 @@
   "scripts/nativeToolchain.mjs": [
     "arch:GATE-CAPABILITY"
   ],
+  "src/agent/cliEnv.ts#cliTokensFor": [
+    "arch:CLI-10"
+  ],
+  "src/agent/cliEnv.ts#envRef": [
+    "arch:CLI-10"
+  ],
+  "src/agent/cliEnv.ts#karstCliEnv": [
+    "arch:CLI-10"
+  ],
+  "src/agent/cliEnv.ts#quoteArg": [
+    "arch:CLI-10"
+  ],
   "src/agent/materializedCleanup.ts#OWNED_PREFIXES": [
     "arch:ROOT-GEN"
   ],
@@ -32,14 +44,133 @@
   "src/agent/settingsSweep.ts": [
     "arch:GLOBAL"
   ],
+  "src/approaches/phaseName.ts#isSafePhaseName": [
+    "arch:CLI-02"
+  ],
+  "src/cli/**": [
+    "arch:CLI-00"
+  ],
   "src/cli/assertMigrated.ts#assertExactSchema": [
+    "arch:CLI-08",
     "arch:ST-00"
   ],
   "src/cli/assertMigrated.ts#assertMigratedSchema": [
+    "arch:CLI-08",
     "arch:ST-00"
+  ],
+  "src/cli/commandInput.ts#resolveStructuredInput": [
+    "arch:CLI-03"
+  ],
+  "src/cli/context.ts#runContextCommand": [
+    "arch:CLI-15"
+  ],
+  "src/cli/doctorCommand.ts#parseDoctorArgs": [
+    "arch:CLI-16"
+  ],
+  "src/cli/doctorCommand.ts#runDoctorCommand": [
+    "arch:CLI-16"
+  ],
+  "src/cli/draftCommand.ts#runDraftCommand": [
+    "arch:CLI-13"
+  ],
+  "src/cli/fixBriefCommand.ts#runFixBriefCommand": [
+    "arch:CLI-11"
+  ],
+  "src/cli/guide.ts#AGENT_GUIDE": [
+    "arch:CLI-05"
+  ],
+  "src/cli/manifestCommand.ts#runManifestCommand": [
+    "arch:CLI-14"
+  ],
+  "src/cli/mcp/installCommand.ts#runMcpInstall": [
+    "arch:CLI-04"
+  ],
+  "src/cli/mcp/server.ts#preservingProcessEnv": [
+    "arch:CLI-04"
+  ],
+  "src/cli/mcp/server.ts#runMcpServe": [
+    "arch:CLI-04"
+  ],
+  "src/cli/mcp/tools.ts#mcpTools": [
+    "arch:CLI-04"
+  ],
+  "src/cli/messageCommand.ts#parseMessageArgs": [
+    "arch:CLI-11"
+  ],
+  "src/cli/messageCommand.ts#runMessageCommand": [
+    "arch:CLI-11"
+  ],
+  "src/cli/notesCommand.ts#parseNotesArgs": [
+    "arch:CLI-12"
+  ],
+  "src/cli/notesCommand.ts#runNotesCommand": [
+    "arch:CLI-12"
+  ],
+  "src/cli/phase.ts#parsePhaseArgs": [
+    "arch:CLI-02"
+  ],
+  "src/cli/readonlyStore.ts#openReadonlyStore": [
+    "arch:CLI-05"
+  ],
+  "src/cli/registry.ts#COMMAND_SPECS": [
+    "arch:CLI-03"
+  ],
+  "src/cli/resolveTicket.ts#resolveTicketByKey": [
+    "arch:CLI-06"
+  ],
+  "src/cli/resolveTicket.ts#ticketIdFromText": [
+    "arch:CLI-06"
+  ],
+  "src/cli/schemaCommand.ts#runSchemaCommand": [
+    "arch:CLI-03"
+  ],
+  "src/cli/setupCommand.ts#runSetupCommand": [
+    "arch:CLI-14"
+  ],
+  "src/cli/setupVerify.ts#runSetupVerifyCommand": [
+    "arch:CLI-14"
+  ],
+  "src/cli/stage.ts#parseStageArgs": [
+    "arch:CLI-02"
+  ],
+  "src/cli/stats.ts#parseStatsArgs": [
+    "arch:CLI-07"
+  ],
+  "src/cli/stats.ts#runStatsCommand": [
+    "arch:CLI-07"
+  ],
+  "src/cli/subtaskCommand.ts#parseSubtaskCreateArgs": [
+    "arch:CLI-09"
+  ],
+  "src/cli/subtaskCommand.ts#runSubtaskCommand": [
+    "arch:CLI-09"
+  ],
+  "src/cli/suppressWarning.ts#installSqliteWarningFilter": [
+    "arch:CLI-05"
+  ],
+  "src/cli/writableStore.ts#openWritableStore": [
+    "arch:CLI-05"
+  ],
+  "src/doctor/applyFixes.ts#applyFixes": [
+    "arch:CLI-16"
+  ],
+  "src/extension/ops/planningConstraintChecks.ts#archWarnings": [
+    "arch:DRAFT-CONSTRAINTS"
+  ],
+  "src/extension/ops/planningConstraintChecks.ts#commitWarnings": [
+    "arch:DRAFT-CONSTRAINTS"
+  ],
+  "src/extension/ops/planningHistory.ts#gatherPlanningHistory": [
+    "arch:PLANNING-HISTORY"
   ],
   "src/extension/ops/planningOutbox.ts": [
     "arch:PLANNING"
+  ],
+  "src/extension/ops/planningOutbox.ts#createPlanningOutbox": [
+    "arch:CLI-17"
+  ],
+  "src/extension/ops/planningProposalOps.ts#createPlanningProposalOps": [
+    "arch:CLI-17"
   ],
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
@@ -49,6 +180,16 @@
   ],
   "src/model/bulletinRelevance.ts": [
     "arch:BULLETIN"
+  ],
+  "src/model/ticketMessaging.ts#checkMessaging": [
+    "arch:CLI-11"
+  ],
+  "src/planning/preamble.ts#planningInstructions": [
+    "arch:PLANNING-HISTORY"
+  ],
+  "src/planning/proposal.ts#validateProposal": [
+    "arch:CLI-13",
+    "arch:DRAFT-CONSTRAINTS"
   ],
   "src/project/bind.ts#bindProject": [
     "arch:PROJECTS"
@@ -160,6 +301,12 @@
   "src/store/**": [
     "arch:ST-00"
   ],
+  "src/store/blockerOutcome.ts#blockerLandedEvents": [
+    "arch:CLI-15"
+  ],
+  "src/store/blockerOutcome.ts#blockerOutcome": [
+    "arch:CLI-15"
+  ],
   "src/store/bulletinNotes.ts#recordTicketMerged": [
     "arch:BULLETIN"
   ],
@@ -168,6 +315,9 @@
   ],
   "src/store/graph/**": [
     "arch:GRAPHRUN"
+  ],
+  "src/store/metrics/index.ts#UNAVAILABLE_METRICS": [
+    "arch:CLI-07"
   ],
   "src/store/migrations.ts#migrate": [
     "arch:SCHEMA-CHECK"
@@ -243,6 +393,9 @@
   "src/workflow/stages/scope.ts#confirmScope": [
     "arch:BASE-PULL",
     "arch:ENTRIES"
+  ],
+  "src/workflow/stages/subtask.ts#createSubtask": [
+    "arch:CLI-09"
   ],
   "src/workflow/uat/aggregate.ts#aggregateUat": [
     "arch:GATE-CAPABILITY"
