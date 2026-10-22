@@ -88,4 +88,14 @@ describe('resetRealm — same-realm reboot', () => {
       h.close();
     }
   });
+
+  it('dashboard waits for data-karst-ready and mounts into #root', async () => {
+    const h = await renderWebviewReady('dashboard');
+    try {
+      expect(h.document.documentElement.hasAttribute('data-karst-ready')).toBe(true);
+      expect(h.document.querySelector('#root [data-karst-dashboard-app]')).not.toBeNull();
+    } finally {
+      h.close();
+    }
+  });
 });

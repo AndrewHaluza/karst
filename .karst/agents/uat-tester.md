@@ -26,6 +26,8 @@ host, not in Docker, and needs a built `dist/` (a missing one fails with
 `Cannot find module '.../dist/uat-host/prepare.js'`); a plain-`uat:host`
 failure is yours to avoid, not a harness outage.
 
+- Run `uat:host:docker` in the foreground and wait for it; a run takes
+  minutes. Never end your answer while it is still running.
 - Pick the closest predefined fixture: `empty` (no tickets),
   `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED,
   uat blocked `boot-failed`).
@@ -39,12 +41,13 @@ failure is yours to avoid, not a harness outage.
   (`arch:UATHOST-02`). To run a boot sweep against that state, add a
   `{"type":"restart"}` step. "Harness unavailable" is still not a verdict:
   report what you could not reach, never a pass.
-- `--out` MUST be a relative path inside the checkout (e.g.
-  `.uat-out/<criterion>`). The container bind-mounts only the repo root,
+- `--out` MUST be a relative path inside the checkout, under the
+  karst-owned scratch dir (e.g. `.karst/uat-scratch/out/<criterion>`;
+  files elsewhere dirty the checkout and block host gates). The container bind-mounts only the repo root,
   so evidence written to a temp dir outside it is silently lost and
   leaves nothing to cite. After each run, confirm `<out>/summary.json`
   exists on the host before relying on it.
-- Write the steps script yourself, inside the checkout too. Steps are
+- Write the steps script yourself, under `.karst/uat-scratch/` too. Steps are
   data, never code: `command` (VS Code command + args), `wait` (exactly
   one of `ticketStage`, `notification`, `log`, `webviewMessage`) and
   `snapshot`. Model it on `scripts/uat-host/samples/smoke.json`. Start
