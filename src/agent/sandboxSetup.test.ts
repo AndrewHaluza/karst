@@ -169,4 +169,70 @@ describe('ensureSandboxSetup', () => {
       expect(existsSync(r.deps.stateFile)).toBe(true);
     });
   });
+
+  describe('failure classes and the single kill retry', () => {
+    const setupRig = (exits: number[], output: string, over: Partial<SetupDeps> = {}) => {
+      let n = 0;
+      return rig((a) => (fingerprinting(a) ? done(HASH) : a[1]?.includes('exec sh -c') ? done(output, exits[Math.min(n++, exits.length - 1)]!) : done()), { sleep: async () => undefined, ...over });
+    };
+
+    it('exit 137 reads as a likely OOM kill with the context, and setup.log leads with it', async () => {
+      const r = setupRig([137, 137], 'npm warn deprecated prebuild-install@7.1.3', { killContext: async () => 'Docker VM 4.8 GB, 2 other containers running' });
+      const res = await ensureSandboxSetup(r.deps, req);
+      expect(res).toMatchObject({ ok: false });
+      const reason = (res as { reason: string }).reason;
+      expect(reason).toContain('killed (exit 137) — likely out of memory (Docker VM 4.8 GB, 2 other containers running)');
+      expect(reason).not.toContain('deprecated');
+      expect(readFileSync(r.deps.logFile!, 'utf8').split('\n')[0]).toContain('likely out of memory');
+    });
+
+    it('a failing killContext never fails the reason', async () => {
+      const r = setupRig([137, 137], '', { killContext: async () => { throw new Error('no docker'); } });
+      expect(await ensureSandboxSetup(r.deps, req)).toMatchObject({ ok: false, reason: expect.stringContaining('likely out of memory') });
+    });
+
+    it('prefers the last npm error line over a later warning', async () => {
+      const r = setupRig([1], 'npm error code E404\nnpm error 404 not found\nnpm warn deprecated x');
+      expect((await ensureSandboxSetup(r.deps, req) as { reason: string }).reason).toMatch(/: npm error 404 not found$/);
+    });
+
+    it('exit 143 reads as terminated', async () => {
+      const r = setupRig([143], '');
+      expect((await ensureSandboxSetup(r.deps, req) as { reason: string }).reason).toContain('terminated');
+    });
+
+    it('a first kill retries once after the delay and succeeds without recording failed', async () => {
+      const sleep = vi.fn(async () => undefined);
+      const r = setupRig([137, 0], '', { sleep });
+      expect(await ensureSandboxSetup(r.deps, req)).toEqual({ ok: true });
+      expect(r.setups()).toHaveLength(2);
+      expect(sleep).toHaveBeenCalledWith(60_000);
+      expect(JSON.parse(readFileSync(r.deps.stateFile, 'utf8')).status).toBe('ok');
+    });
+
+    it('two kills record failed', async () => {
+      const r = setupRig([137, 137], '');
+      await ensureSandboxSetup(r.deps, req);
+      expect(r.setups()).toHaveLength(2);
+      expect(JSON.parse(readFileSync(r.deps.stateFile, 'utf8')).status).toBe('failed');
+    });
+
+    it('a non-137 failure does not retry', async () => {
+      const r = setupRig([1], 'boom');
+      await ensureSandboxSetup(r.deps, req);
+      expect(r.setups()).toHaveLength(1);
+    });
+
+    it('Stop during the retry delay aborts with "setup was stopped"', async () => {
+      const ac = new AbortController();
+      const r = setupRig([137, 0], '', { sleep: () => new Promise<void>(() => undefined) });
+      const p = ensureSandboxSetup(r.deps, { ...req, signal: ac.signal });
+      await vi.waitFor(() => expect(r.setups()).toHaveLength(1));
+      await new Promise((res) => setTimeout(res, 10));
+      ac.abort();
+      expect(await p).toMatchObject({ ok: false, reason: expect.stringContaining('setup was stopped') });
+      expect(r.setups()).toHaveLength(1);
+      expect(existsSync(r.deps.stateFile)).toBe(false);
+    });
+  });
 });

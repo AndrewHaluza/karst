@@ -42,3 +42,35 @@ export class BoundedOutput {
     }${diagnostic}`;
   }
 }
+
+/** Retains the last `maxBytes` bytes, cut at a line start so no UTF-8 code point is split. */
+export class TailOutput {
+  private chunks: Buffer[] = [];
+  private totalBytes = 0;
+  private didTruncate = false;
+
+  constructor(private readonly maxBytes: number) {}
+
+  get truncated(): boolean {
+    return this.didTruncate;
+  }
+
+  append(chunk: Buffer): void {
+    this.chunks.push(chunk);
+    this.totalBytes += chunk.byteLength;
+    while (this.chunks.length > 1 && this.totalBytes - this.chunks[0]!.byteLength >= this.maxBytes) {
+      this.totalBytes -= this.chunks.shift()!.byteLength;
+      this.didTruncate = true;
+    }
+    if (this.totalBytes > this.maxBytes) this.didTruncate = true;
+  }
+
+  render(): string {
+    const all = Buffer.concat(this.chunks, this.totalBytes);
+    if (all.byteLength <= this.maxBytes) return all.toString();
+    const kept = all.subarray(all.byteLength - this.maxBytes);
+    // Drop the partial first line; that also drops any split code point.
+    const nl = kept.indexOf(0x0a);
+    return (nl === -1 ? Buffer.alloc(0) : kept.subarray(nl + 1)).toString();
+  }
+}

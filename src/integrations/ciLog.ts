@@ -9,6 +9,8 @@ import type { GhRunner } from './github.js';
 
 export const MAX_EXCERPT_LINES = 200;
 export const MAX_EXCERPT_BYTES = 16 * 1024;
+// Cap of the raw `--log-failed` fetch; the tail is kept because the failure is at the end.
+export const MAX_LOG_FETCH_BYTES = 1024 * 1024;
 
 const ACTIONS_URL = /\/actions\/runs\/(\d+)(?:\/jobs?\/(\d+))?/;
 // eslint-disable-next-line no-control-regex
@@ -89,7 +91,13 @@ export async function fetchCheckLog(gh: GhRunner, cwd: string, check: FailingChe
     return { kind: 'pending', name: check.name, steps: failedSteps(parsed.jobs) };
   }
   const args = ['run', 'view', ref.runId, '--log-failed', ...(ref.jobId ? ['--job', ref.jobId] : [])];
-  const log = await gh(args, cwd);
+  const log = await gh(args, cwd, { truncation: 'keep-tail', maxOutputBytes: MAX_LOG_FETCH_BYTES });
   if (log.exitCode !== 0) throw ghError(`fetch the CI log of run ${ref.runId}`, log);
-  return { kind: 'log', name: check.name, text: buildExcerpt(log.stdout) };
+  return {
+    kind: 'log',
+    name: check.name,
+    text: log.truncated
+      ? `[log truncated: kept last ${MAX_LOG_FETCH_BYTES / 1024} KiB of a larger log]\n${buildExcerpt(log.stdout)}`
+      : buildExcerpt(log.stdout),
+  };
 }
