@@ -18,13 +18,24 @@ type Debug = (message: string) => void;
 
 const STATUS_KIND: Readonly<Record<string, ChangeKind>> = { A: 'added', M: 'modified', D: 'deleted' };
 
+async function mergeBaseOf(git: GitRunner, cwd: string, ref: string): Promise<string | undefined> {
+  const r = await git(['merge-base', 'HEAD', ref], cwd);
+  const sha = r.stdout.trim();
+  return r.exitCode === 0 && sha !== '' ? sha : undefined;
+}
+
+/**
+ * Merge-base against the newer of `<base>` / `origin/<base>`: a stale local base
+ * (or a branch that merged a newer origin base) must not list already-landed
+ * files as added. Both merge-bases lie on HEAD's history, so one is normally an
+ * ancestor of the other; the descendant wins.
+ */
 async function mergeBase(git: GitRunner, cwd: string, baseRef: string): Promise<string | undefined> {
-  for (const ref of [baseRef, `origin/${baseRef}`]) {
-    const r = await git(['merge-base', 'HEAD', ref], cwd);
-    const sha = r.stdout.trim();
-    if (r.exitCode === 0 && sha !== '') return sha;
-  }
-  return undefined;
+  const local = await mergeBaseOf(git, cwd, baseRef);
+  const remote = await mergeBaseOf(git, cwd, `origin/${baseRef}`);
+  if (local === undefined || remote === undefined || local === remote) return local ?? remote;
+  const localOlder = await git(['merge-base', '--is-ancestor', local, remote], cwd);
+  return localOlder.exitCode === 0 ? remote : local;
 }
 
 /** `-z` name-status output: `<status>\0<path>\0…`. */
