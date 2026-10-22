@@ -7979,8 +7979,7 @@ function makeInsideActionHost(
 const vscodeNotify: Notify = {
   info: (m) => void vscode.window.showInformationMessage(m),
   warn: (m) => void vscode.window.showWarningMessage(m),
-  error: async (m) => { await vscode.window.showErrorMessage(m); },
-  errorActions: async (m, actions) => vscode.window.showErrorMessage(m, ...actions),
+  error: async (m) => { await vscode.window.showErrorMessage(m); }, errorActions: async (m, actions) => vscode.window.showErrorMessage(m, ...actions),
 };
 
 function makeDashboardActions(
