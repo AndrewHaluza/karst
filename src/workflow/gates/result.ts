@@ -19,6 +19,12 @@ export interface GateResult {
    */
   hostRefused?: boolean;
   /**
+   * Set when the gate's npm script is missing on the ticket branch but the base
+   * defines it: the branch is stale. The stage parks with this reason (no fix
+   * round) — a rebase, not a code change, is the repair.
+   */
+  staleBranch?: string;
+  /**
    * When the gate's process started and ended. Both absent for a gate that never
    * ran — it has no duration, and stamping one would read as a zero-length run
    * rather than as "karst had no question to ask".

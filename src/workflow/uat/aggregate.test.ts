@@ -257,3 +257,14 @@ describe('aggregateUat — refused host gate', () => {
     expect(out.kind === 'blocked' && out.reason).toContain('boom');
   });
 });
+
+describe('aggregateUat — stale branch', () => {
+  it('parks capability-missing with the rebase reason instead of failing', () => {
+    const reason = 'gate "docs-graph" runs npm script "docs:graph", which develop defines but this branch does not — rebase onto develop ("Rebase on base")';
+    const out = aggregateUat(
+      [{ result: { name: 'docs-graph', exitCode: 1, output: reason, staleBranch: reason }, identity: npmE2e }],
+      [],
+    );
+    expect(out).toMatchObject({ kind: 'blocked', blocker: 'capability-missing', reason });
+  });
+});

@@ -62,3 +62,10 @@ export function hostRefusalReason(results: readonly GateResult[]): string | null
     .slice(0, MAX_GATE_SUMMARY_CHARS);
   return `host gates not run — ${detail}`;
 }
+
+/** The park reason when a gate's script exists on the base but not the ticket branch, else null. */
+export function staleBranchReason(results: readonly GateResult[]): string | null {
+  const stale = results.filter((r) => r.staleBranch !== undefined);
+  if (stale.length === 0) return null;
+  return stale.map((r) => r.staleBranch).join(' | ');
+}

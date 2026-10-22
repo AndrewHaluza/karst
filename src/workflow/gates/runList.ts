@@ -67,6 +67,13 @@ export interface RunGatesOptions {
    * sanitized at the console boundary, never here.
    */
   onGateOutput?: (gateName: string, chunk: GateOutputChunk) => void;
+  /**
+   * Whether the base branch's package.json defines `script` (rebase target of a
+   * stale ticket branch). Absent → the branch is never treated as stale.
+   */
+  baseDefinesScript?: (script: string) => Promise<boolean>;
+  /** The base ref named in the stale-branch reason. */
+  baseRef?: string;
   /** Where each gate runs; absent → the host `runProcess`. A sandboxed ticket passes its runner's `runGate` (arch:AC-32). */
   runProcess?: GateProcessRunner;
   /** Runs a gate declared `sandbox: host`; absent → such a gate uses `runProcess` like any other. Declared order is kept (arch:AC-36). */
@@ -96,13 +103,23 @@ export async function runGateList(
       // the repository. Caught here rather than by spawning `npm run`, whose
       // "Missing script" exit 1 would read as a verdict about the ticket's code.
       const endedAt = now();
+      if (gate.derivedScript === true && (await opts.baseDefinesScript?.(gate.script)) === true) {
+        const base = opts.baseRef ?? 'the base branch';
+        const reason =
+          `gate "${gate.name}" runs npm script "${gate.script}", which ${base} defines but this branch does not — ` +
+          `rebase onto ${base} ("Rebase on base")`;
+        onDebug?.(`[gate] ${gate.name}: ${reason}`);
+        results.push({ name: gate.name, exitCode: 1, output: reason, staleBranch: reason, startedAt, endedAt });
+        opts.onGateComplete?.(gate.name, 1, startedAt, endedAt, index, reason);
+        continue;
+      }
       onDebug?.(
         `[gate] ${gate.name}: configured script "${gate.script}" is missing from package.json (required gate)`,
       );
       results.push({
         name: gate.name,
         exitCode: 1,
-        output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define`,
+        output: `configured gate "${gate.name}" needs a "${gate.script}" script, which package.json does not define (nor does the base branch)`,
         startedAt,
         endedAt,
       });
@@ -139,17 +156,22 @@ export async function runGateList(
       continue;
     }
     const endedAt = now();
+    const exitCode = outcome.kind === 'completed' ? outcome.exitCode : 1;
+    const output =
+      exitCode !== 0 && outcome.output.trim() === ''
+        ? `exited ${exitCode} with no output (command: ${[gate.command, ...gate.args].join(' ')})`
+        : outcome.output;
     onDebug?.(
       `[gate] ${gate.name}: ${outcome.kind} (exit ${outcome.kind === 'completed' ? outcome.exitCode : 1}) — ${outcome.output.length} byte(s)`,
     );
     results.push({
       name: gate.name,
-      exitCode: outcome.kind === 'completed' ? outcome.exitCode : 1,
-      output: outcome.output,
+      exitCode,
+      output,
       startedAt,
       endedAt,
     });
-    opts.onGateComplete?.(gate.name, outcome.kind === 'completed' ? outcome.exitCode : 1, startedAt, endedAt, index, results[results.length - 1]!.output);
+    opts.onGateComplete?.(gate.name, exitCode, startedAt, endedAt, index, output);
   }
   return { kind: 'ran', results };
 }
