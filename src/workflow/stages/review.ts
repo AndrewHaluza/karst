@@ -471,7 +471,8 @@ export async function runReview(
     const run = await runGates(resolution.gates, target.path, {
       signal: opts.signal,
       now,
-      scriptsAvailable: (script) => scripts[script] !== undefined,
+      scriptsAvailable: (script, derived) =>
+        scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
       baseDefinesScript: (script) => baseDefinesScript(git, target.path, stageBaseRef, script),
       onGateStart: opts.onGateStart,

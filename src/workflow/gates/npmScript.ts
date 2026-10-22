@@ -10,10 +10,10 @@ const VALUE_FLAGS: ReadonlySet<string> = new Set([
   '--loglevel', '--log-level', '--registry', '--userconfig', '--globalconfig', '--cache', '--script-shell', '--node-options',
 ]);
 
-const RUNNERS: ReadonlySet<string> = new Set(['npm', 'pnpm', 'yarn']);
+const RUNNERS: ReadonlySet<string> = new Set(['npm', 'pnpm']);
 
 /**
- * The package.json script a command gate runs, when it is `npm|pnpm|yarn run
+ * The package.json script a command gate runs, when it is `npm|pnpm run
  * [flags] <name>`; null for anything else, and for `--if-present` (that flag
  * says a missing script is fine, so there is nothing to check).
  */

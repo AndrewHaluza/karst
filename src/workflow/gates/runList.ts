@@ -25,8 +25,12 @@ import { runProcess, type GateOutputChunk, type GateProcessRunner } from './run.
 export interface RunGatesOptions {
   signal?: AbortSignal;
   now?: () => string;
-  /** Whether the repository defines a given package.json script. */
-  scriptsAvailable?: (script: string) => boolean;
+  /**
+   * Whether the repository defines a given package.json script. `derived` is true
+   * when the script was read off a command gate rather than declared, so a caller
+   * that could not read package.json can let the gate run and speak for itself.
+   */
+  scriptsAvailable?: (script: string, derived: boolean) => boolean;
   /**
    * Called after each gate finishes, with the gate's name AND its recorded
    * outcome (`null` = the repo could not answer — the "nothing to run" note,
@@ -97,7 +101,7 @@ export async function runGateList(
         `${gate.command}${gate.args.length > 0 ? ` ${gate.args.join(' ')}` : ''}`,
     );
 
-    if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script) === false) {
+    if (gate.script !== null && gate.required && opts.scriptsAvailable?.(gate.script, gate.derivedScript === true) === false) {
       // The config named a question this repo cannot answer. A failure, not null —
       // and agent-fixable, because both the config and the missing script are in
       // the repository. Caught here rather than by spawning `npm run`, whose

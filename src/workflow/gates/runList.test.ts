@@ -330,6 +330,16 @@ describe('runGateList: refused host gate (arch:SANDBOX-HOST)', () => {
     expect(out.results[0]!.output).toContain('"docs:graph"');
   });
 
+  it('passes the derived flag to scriptsAvailable so a caller can skip an unverifiable derived check', async () => {
+    const out = await runGateList(
+      [{ name: 'g', command: 'node', args: ['-e', 'process.exit(0)'], script: 'x', derivedScript: true, required: true }],
+      process.cwd(),
+      { now, scriptsAvailable: (_script, derived) => derived },
+    );
+    if (out.kind !== 'ran') throw new Error('expected ran');
+    expect(out.results[0]).toMatchObject({ exitCode: 0 });
+  });
+
   it('never consults the base for a kind: script gate', async () => {
     const out = await runGateList(
       [{ name: 'lint', command: 'npm', args: ['run', 'lint'], script: 'lint', required: true }],

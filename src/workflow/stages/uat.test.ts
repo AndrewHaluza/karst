@@ -836,7 +836,7 @@ describe('runUat', () => {
   });
 
   it('tells the gate runner which scripts the repository actually defines', async () => {
-    let available: ((script: string) => boolean) | undefined;
+    let available: ((script: string, derived: boolean) => boolean) | undefined;
     await runUat(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
@@ -851,8 +851,8 @@ describe('runUat', () => {
         },
       }),
     );
-    expect(available?.('test')).toBe(true);
-    expect(available?.('lint')).toBe(false);
+    expect(available?.('test', false)).toBe(true);
+    expect(available?.('lint', false)).toBe(false);
   });
 
   it('keeps the gate rows of a run whose transition throws', async () => {
