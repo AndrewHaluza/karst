@@ -146,6 +146,8 @@ export interface SandboxSyncDeps {
   readonly evidenceDirOf?: (ticketId: number) => string | undefined;
   /** Every sync verdict: is the sandbox's refusal a host rewrite the commits can be carried over? (drives the dashboard action) */
   readonly onRewritten?: (ticketId: number, rewritten: boolean) => void;
+  /** The base branch of a recorded merge conflict on this ticket, or null: while one is open every refresh ships `origin/<base>` in the bundle. */
+  readonly conflictBaseRef?: (ticketId: number) => string | null;
 }
 
 /** The sandbox runner that holds a core's clone: sbx (claude, codex) or docker (opencode, opencode2). */
@@ -227,7 +229,7 @@ export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTa
     if (!synced.ok || opts.refresh === false) return synced;
     if (!runner.refresh || !target.worktree?.branch) return synced;
     try {
-      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
+      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, baseOpts(deps, target.ticketId));
       return refreshed.ok ? { ok: true } : { ok: false, reason: refreshed.reason, diverged: /diverged/i.test(refreshed.reason) };
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${message(err)}`, diverged: false };
@@ -255,7 +257,7 @@ export function stashSandboxAndUpdate(deps: SandboxSyncDeps, target: SandboxSync
     if (!synced.ok) return { ok: false, reason: synced.reason };
     const stash = stashMessage(target.ticketLabel, now);
     try {
-      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, { stashMessage: stash });
+      const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, { stashMessage: stash, ...baseOpts(deps, target.ticketId) });
       if (!refreshed.ok) return { ok: false, reason: refreshed.reason };
     } catch (err) {
       return { ok: false, reason: `sandbox refresh failed: ${message(err)}` };
@@ -263,6 +265,11 @@ export function stashSandboxAndUpdate(deps: SandboxSyncDeps, target: SandboxSync
     deps.notify.info(`Karst: ${target.ticketLabel} sandbox updated from the host; any uncommitted sandbox work is in the stash "${stash}" (git stash list, inside the sandbox).`);
     return { ok: true, stash };
   });
+}
+
+function baseOpts(deps: SandboxSyncDeps, ticketId: number): { baseRef?: string } {
+  const baseRef = deps.conflictBaseRef?.(ticketId);
+  return baseRef ? { baseRef } : {};
 }
 
 async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<EnsureSyncResult> {
