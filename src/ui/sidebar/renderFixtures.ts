@@ -76,6 +76,7 @@ function fixtureRow(index: number, overrides?: Partial<TicketRow>): TicketRow {
     collapsible: true as const,
     stageCurrent: 'impl',
     conflicted: false,
+    ciFailing: false,
     servers: [],
     worktrees: [],
     prs: [],

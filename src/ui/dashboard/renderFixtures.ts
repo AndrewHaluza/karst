@@ -1065,7 +1065,7 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
     sendBack: { available: false, reason: 'stage' },
     rerunGate: { available: false, reason: 'not-gate-stage' },
     prFeedbackFix: { available: false, reason: 'stage' },
-    ciFailure: { available: false },
+    ciFailure: { available: false, repos: [] },
     rebase: { available: false },
     deliver: { available: false, notOnPr: 0, inSandbox: 0 },
     openPrFeedback: 0,

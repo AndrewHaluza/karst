@@ -32,7 +32,8 @@ import type { AgentProvider } from '../../manifest/types.js';
 export type PeekNext =
   | { kind: 'open-session'; label: string }
   | { kind: 'create-follow-up'; label: string }
-  | { kind: 'resolve-conflicts'; label: string; repo: string };
+  | { kind: 'resolve-conflicts'; label: string; repo: string }
+  | { kind: 'send-ci-failure'; label: string };
 
 /** The agent identity for a context that names who is working (or would). */
 export interface PeekAgent {
@@ -93,6 +94,8 @@ export interface PeekInput {
   model: string | null;
   /** Open PRs (repo + number + status) backing the ship landing rows. */
   prs: readonly { repo: string; number: number | null; status: string | null }[];
+  /** Repos whose stored CI rollup is failing AND the send action is available (`ciFailureState`). */
+  ciFailingRepos?: readonly string[];
 }
 
 const GATE_KEYS: ReadonlySet<string> = new Set(['uat', 'review']);
@@ -242,6 +245,15 @@ function shipPeek(input: PeekInput, status: Stage['status']): TicketPeek {
     };
   }
   if (gate?.kind === 'awaiting') {
+    const failing = input.ciFailingRepos ?? [];
+    if (failing.length > 0) {
+      return {
+        title: `CI failing on ${failing.join(', ')}`,
+        detail: plural(gate.repos.length, 'pull request awaiting merge', 'pull requests awaiting merge'),
+        next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' },
+        repos: shipRepos(input, gate),
+      };
+    }
     return {
       title: plural(gate.repos.length, 'pull request awaiting merge', 'pull requests awaiting merge'),
       detail: gate.repos.length > 0 ? gate.repos.join(', ') : null,

@@ -61,6 +61,7 @@ function stubActions(over: Partial<SidebarActions> = {}): SidebarActions {
     delete: vi.fn(),
     createFollowUp: vi.fn(),
     resolveConflicts: vi.fn(),
+    sendCiFailure: vi.fn(),
     ...over,
   };
 }

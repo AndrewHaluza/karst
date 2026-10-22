@@ -355,7 +355,7 @@ export interface DashboardState {
    * (`workflow/ciFailure.ts`, `workflow/rebaseState.ts`). Host-derived; the
    * webview only shows the button, the host re-derives before acting.
    */
-  ciFailure: { available: boolean };
+  ciFailure: { available: boolean; /** Repos whose stored rollup is failing (empty when unavailable). */ repos: string[] };
   /** `stage`: the stage whose header offers it (ship, or a pre-ship stage). */
   rebase: { available: boolean; stage?: string };
   /**

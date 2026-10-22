@@ -28,6 +28,7 @@ import {
 import { repoDisplayPath, type PathContext } from '../worktreePath.js';
 import { buildPeek, type TicketPeek } from './peek.js';
 import { listGateRuns } from '../../store/gateRuns.js';
+import { ciFailureState } from '../../workflow/ciFailure.js';
 import { mergeGateState } from '../../workflow/mergeGate.js';
 import { resolveProvider } from '../../agent/registry.js';
 import { resolvePresetDefaults } from '../../agent/agentPresets.js';
@@ -69,6 +70,8 @@ export interface TicketRow extends TicketNode {
    * same `mergeGateState` that feeds the peek; never true off the ship stage.
    */
   conflicted: boolean;
+  /** True when the send-CI-failure action is available (stored rollup failing); never true off ship. */
+  ciFailing: boolean;
   /** Running servers backing the expanded meta line. */
   servers: ServerView[];
   /** Worktrees backing the expanded meta line. */
@@ -308,10 +311,13 @@ export function buildSidebarState(
         (p): SidebarPr => ({ repo: p.repo, number: p.number, url: p.url, status: p.status }),
       );
       const mergeGate = t.stageCurrent === 'ship' ? mergeGateState(store, t.id) : null;
+      const ci = t.stageCurrent === 'ship' ? ciFailureState(store, t.id) : null;
+      const ciFailingRepos = ci?.available ? ci.prs.map((p) => p.repo) : [];
       return {
         ...node,
         stageCurrent: t.stageCurrent,
         conflicted: mergeGate?.kind === 'conflicted',
+        ciFailing: ciFailingRepos.length > 0,
         isActive: node.ticketId === (opts.activeTicketId ?? null),
         servers,
         worktrees,
@@ -339,6 +345,7 @@ export function buildSidebarState(
           ),
           model: t.model,
           prs,
+          ciFailingRepos,
         }),
       };
     });
@@ -367,7 +374,7 @@ export function buildSidebarState(
     // is actionable, not a wait on reviewers. Each section is re-nested so a
     // sub-task split from its parent becomes a root instead of a dangling child.
     const rows = enrich(filterTickets(currentTickets, query));
-    const isAwaiting = (r: TicketRow): boolean => isAwaitingReview(r, r.prs, r.conflicted);
+    const isAwaiting = (r: TicketRow): boolean => isAwaitingReview(r, r.prs, r.conflicted || r.ciFailing);
     const awaitingReview = nestSubtasks(rows.filter(isAwaiting));
     const current = nestSubtasks(rows.filter((r) => !isAwaiting(r)));
     return {
