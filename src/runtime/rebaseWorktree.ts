@@ -23,6 +23,12 @@ export interface RebaseWorktreeOpts {
   fromBase: string;
   toBase: string;
   debug?: (line: string) => void;
+  /**
+   * `fromBase === toBase` means "catch up with the latest tip of that base"
+   * instead of the no-op `already-based` shortcut. `already-based` is then
+   * reported only when the rebase moved nothing.
+   */
+  latest?: boolean;
 }
 
 const words = (r: GitResult): string =>
@@ -77,7 +83,8 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
   const { git, cwd, debug } = opts;
   const fromBase = opts.fromBase.trim();
   const toBase = opts.toBase.trim();
-  if (fromBase === toBase) {
+  const sameBase = fromBase === toBase;
+  if (sameBase && !opts.latest) {
     return { outcome: 'already-based', reason: '' };
   }
   debug?.(`[runtime] rebase ${cwd}: ${fromBase} -> ${toBase}`);
@@ -102,7 +109,7 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
       reason: `no branch "${toBase}" locally or on ${REMOTE}`,
     };
   }
-  const fromRef = await resolveBaseRef(git, cwd, fromBase);
+  const fromRef = sameBase ? toRef : await resolveBaseRef(git, cwd, fromBase);
   if (!fromRef) {
     debug?.(`[runtime] rebase ${cwd}: refused — no such branch ${fromBase}`);
     return {
@@ -120,6 +127,7 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
     ? mergeBase.stdout.trim()
     : fromRef;
 
+  const headBefore = sameBase ? (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim() : '';
   const rebased = await git(['rebase', '--onto', toRef, upstream], cwd);
   if (rebased.exitCode !== 0) {
     const reason = words(rebased);
@@ -144,6 +152,10 @@ export async function rebaseWorktreeOntoBase(opts: RebaseWorktreeOpts): Promise<
     return { outcome: 'conflict', reason };
   }
 
+  if (sameBase) {
+    const headAfter = (await git(['rev-parse', 'HEAD'], cwd)).stdout.trim();
+    if (headAfter === headBefore) return { outcome: 'already-based', reason: '' };
+  }
   debug?.(`[runtime] rebase ${cwd}: rebased onto ${toRef}`);
   return { outcome: 'rebased', reason: '' };
 }

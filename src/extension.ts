@@ -8679,9 +8679,8 @@ function makeDashboardActions(
         repoPath: repo,
         toBase: baseRef,
         rebase,
-        git: defaultGitRunner,
-        gh: defaultGhRunnerAsync,
-        debug,
+        git: defaultGitRunner, gh: defaultGhRunnerAsync, debug,
+        afterRewrite: () => sandboxLife.recreateNoSync(ticketId), sandboxUnsynced: () => sandboxLife.hasUnsynced(ticketId),
       });
       if (!result.ok) return { ok: false, message: result.reason };
       return { ok: true, message: describeChangeBaseRef(result) };

@@ -227,6 +227,8 @@ export async function detachSubtask(opts: DetachSubtaskOpts): Promise<DetachSubt
       ticketId,
       repoPath,
       toBase,
+      // Already on the target base: leave git untouched, which keeps a re-run idempotent.
+      rebase: resolveTicketBaseRef(store, ticketId, repoPath, manifest) === toBase ? false : undefined,
       git,
       gh: opts.gh,
       debug,

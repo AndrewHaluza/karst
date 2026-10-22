@@ -4021,7 +4021,7 @@
       + `cut from the right commit.</div>`
       + `<div class="wbaseformacts">`
       + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="toggle-base-form" data-repo="${esc(repo)}">Cancel</button>`
-      + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}">Change base</button>`
+      + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}" data-base-current="${esc(current)}">${rebaseOn && draft.trim() === current ? 'Rebase onto ' + esc(current) : 'Change base'}</button>`
       + `</div></div>`;
   }
 
@@ -6405,6 +6405,12 @@
     const input = e.target.closest('[data-base-input]');
     if (!input) return;
     baseFormDraft[input.dataset.baseInput] = input.value;
+    const primary = document.querySelector('[data-act="change-base-ref"][data-repo="' + CSS.escape(input.dataset.baseInput) + '"]');
+    if (primary) {
+      const cur = primary.dataset.baseCurrent || '';
+      const same = baseFormRebase[input.dataset.baseInput] !== false && input.value.trim() === cur;
+      primary.textContent = same ? 'Rebase onto ' + cur : 'Change base';
+    }
   });
 
   // The inside ledger's disclosure state. A process row IS a native
