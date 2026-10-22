@@ -1,7 +1,10 @@
+import { MAX_GATE_SUMMARY_CHARS } from '../../model/gateSummary.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { resolveTicketSandbox, type TicketSandboxDeps } from './sandboxTicketOps.js';
 
+/** Dirty entries named in a refusal; the rest are counted. */
+const MAX_DIRTY_PATHS = 5;
 const SHA = /^[0-9a-f]{40,64}$/;
 
 export interface HostGateDeps {
@@ -73,7 +76,11 @@ async function dirtyGuard(deps: HostGateDeps, cwd: string, sandboxGate: GateProc
   if (hostHead !== sandboxHead) return `host gates not run: host HEAD ${hostHead.slice(0, 8)} differs from sandbox HEAD ${sandboxHead.slice(0, 8)}`;
   const status = await git('git', ['status', '--porcelain'], cwd, {});
   if (status.kind !== 'completed' || status.exitCode !== 0) return 'host gates not run: cannot read the host worktree status';
-  return status.output.trim() === '' ? null : 'host gates not run: the host worktree has uncommitted changes';
+  const lines = status.output.split('\n').map((l) => l.trimEnd()).filter((l) => l !== '');
+  if (lines.length === 0) return null;
+  const shown = lines.slice(0, MAX_DIRTY_PATHS).map((l) => `\`${l}\``).join(', ');
+  const more = lines.length > MAX_DIRTY_PATHS ? ` +${lines.length - MAX_DIRTY_PATHS} more` : '';
+  return `host gates not run: the host worktree has uncommitted changes: ${shown}${more}`.slice(0, MAX_GATE_SUMMARY_CHARS);
 }
 
 async function headOf(run: GateProcessRunner, cwd: string): Promise<string | null> {

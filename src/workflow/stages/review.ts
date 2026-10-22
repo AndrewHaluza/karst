@@ -10,6 +10,7 @@ import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
 import { finishProcessRun } from '../../store/processRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
+import { escalatedRefusalReason, hostRefusalRepeats } from '../gates/hostRefusalRepeat.js';
 import { nowIso } from '../../model/time.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
@@ -287,10 +288,14 @@ export async function runReview(
         args: entry.identity.args,
         // v46: a bounded excerpt of what the failing gate printed — the data a
         // fix session (or `karst context`) reads back instead of the log.
+        // A refused host gate has no exit code; its reason is kept so the next
+        // run can tell a repeated refusal from a new one.
         summary:
-          entry.result.exitCode !== null && entry.result.exitCode !== 0
-            ? summarizeGateFailure(entry.result.output)
-            : null,
+          entry.result.hostRefused === true
+            ? entry.result.output
+            : entry.result.exitCode !== null && entry.result.exitCode !== 0
+              ? summarizeGateFailure(entry.result.output)
+              : null,
       })),
     );
   };
@@ -738,14 +743,17 @@ export async function runReview(
   const crashNotes = crashes.map((c) => `review findings lane failed: ${c}`);
 
   if (outcome.kind === 'blocked') {
+    const reason = entries.some((e) => e.result.hostRefused === true)
+      ? escalatedRefusalReason(outcome.reason, hostRefusalRepeats(store, opts.ticketId, 'review', evidence.runId), opts.cwd)
+      : outcome.reason;
     return finish(
       {
         kind: 'blocked',
         blocker: outcome.blocker,
-        reason: outcome.reason,
+        reason,
         ...(outcome.park ? { park: outcome.park } : {}),
       },
-      [outcome.reason, ...crashNotes],
+      [reason, ...crashNotes],
     );
   }
   return finish({ kind: 'verdict', verdict: outcome.verdict }, [

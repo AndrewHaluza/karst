@@ -10,6 +10,7 @@ import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js
 import type { GateRunInput } from '../../store/gateRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
+import { escalatedRefusalReason, hostRefusalRepeats } from '../gates/hostRefusalRepeat.js';
 import { nowIso } from '../../model/time.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
 import {
@@ -405,10 +406,14 @@ export async function runUat(
         args: entry.identity.args,
         // v46: a bounded excerpt of what the failing gate printed — the data a
         // fix session (or `karst context`) reads back instead of the log.
+        // A refused host gate has no exit code; its reason is kept so the next
+        // run can tell a repeated refusal from a new one.
         summary:
-          entry.result.exitCode !== null && entry.result.exitCode !== 0
-            ? summarizeGateFailure(entry.result.output)
-            : null,
+          entry.result.hostRefused === true
+            ? entry.result.output
+            : entry.result.exitCode !== null && entry.result.exitCode !== 0
+              ? summarizeGateFailure(entry.result.output)
+              : null,
       })),
     );
   };
@@ -677,9 +682,10 @@ export async function runUat(
           }`),
   );
   if (outcome.kind === 'blocked') {
-    return finish({ kind: 'blocked', blocker: outcome.blocker, reason: outcome.reason }, [
-      outcome.reason,
-    ]);
+    const reason = entries.some((e) => e.result.hostRefused === true)
+      ? escalatedRefusalReason(outcome.reason, hostRefusalRepeats(store, opts.ticketId, 'uat', evidence.runId), opts.cwd)
+      : outcome.reason;
+    return finish({ kind: 'blocked', blocker: outcome.blocker, reason }, [reason]);
   }
   // A failed gate verdict is decided and closed exactly as before — the Tester
   // never runs, because it only ever runs after the required gates PASS.
