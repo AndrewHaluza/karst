@@ -21,8 +21,10 @@ export interface BridgeRegistry {
   /**
    * Re-attach the dirs of open tickets, remove those of closed/unknown ones.
    * With `owned`, an open ticket outside it (another window's) is left alone.
+   * `keep`: closed tickets whose sandbox is still listed: their dir stays until
+   * the sandbox is verifiably removed.
    */
-  sweep(openTicketIds: ReadonlySet<number>, owned?: ReadonlySet<number>): Promise<BridgeSweepResult>;
+  sweep(openTicketIds: ReadonlySet<number>, owned?: ReadonlySet<number>, keep?: ReadonlySet<number>): Promise<BridgeSweepResult>;
   /** A sync just succeeded: re-run this ticket's transiently failed marker, if any (arch:AC-34). */
   retryPending(ticketId: number): Promise<void>;
   /** The ticket's queued done marker (reason, attempt, next retry), for the Sandbox panel. */
@@ -79,15 +81,14 @@ export function createBridgeRegistry(deps: BridgeRegistryDeps): BridgeRegistry {
   const detachAll = async (): Promise<void> => {
     await Promise.all([...live.keys()].map((id) => detach(id)));
   };
-  const sweep: BridgeRegistry['sweep'] = async (open, owned) => {
+  const sweep: BridgeRegistry['sweep'] = async (open, owned, keep) => {
     const reattached: number[] = [];
     const removed: number[] = [];
     for (const id of await listBridgeTicketIds(deps.root)) {
       try {
         if (!open.has(id)) {
-          // Accepted even if the closed ticket's sandbox still exists: its events
-          // are moot (a marker for a non-current stage is rejected; hooks for a
-          // closed ticket carry no signal).
+          // A closed ticket's events are moot, but its dir goes only with its sandbox (arch:AC-37).
+          if (keep?.has(id)) continue;
           await dispose(id);
           removed.push(id);
         } else if (!owned || owned.has(id)) {
