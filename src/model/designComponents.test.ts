@@ -80,24 +80,24 @@ describe('design system components', () => {
     expect(rulesFor('.k-btn--ghost').length).toBeGreaterThan(0);
   });
 
-  it('reports success on a row-shaped control as a wash, never a badge (UI-R13)', () => {
-    // The button-shaped success flash is a check glyph in the leading slot plus
-    // a --k-success border. On a ROW — a sidebar ticket, a diff file — that
-    // glyph is auto-placed into the row's own grid: it wrapped the path onto a
-    // second line and landed beside the status letter as "M ✓", inside a green
-    // box, for every click. The outcome still has to be visible (UI-R13), so
-    // the row variant keeps a flash and makes it the row's own highlight.
-    // Only the rules the row variant OWNS — `rulesFor` would also return the
-    // `:not(.k-btn--row)` exclusions, which mention --k-success by design.
+  it('gives a row no success or spinner treatment (UI-R13)', () => {
     const row = (CSS.match(/^\.k-btn--row[^{}]*\{[^}]*\}/gm) ?? []).join('\n');
-    expect(row, 'the row variant has no success rule').toContain('.k-btn--row.is-success');
-    expect(row, 'the row flash is not the shared selection wash').toContain('var(--k-surface-selected)');
-    expect(row, 'the row still grows a check badge').toContain('content:none');
-    expect(row, 'the row still recolours its border').not.toContain('var(--k-success)');
-    // Scoped off at the source, not overridden after the fact: a later
-    // `border-color` override would need a value, and any value it picked would
-    // be wrong for one of the variants a row composes with.
-    expect(CSS, 'the badge treatment still reaches rows').toContain('.k-btn.is-success:not(.k-btn--row)');
+    expect(row).not.toContain('.is-success');
+    expect(CSS).toContain('.k-btn.is-success:not(.k-btn--row)');
+    expect(CSS).toContain('.k-btn.is-spinning::before{');
+  });
+
+  it('draws the spinner only from .is-spinning, never from aria-busy (400ms show-delay)', () => {
+    expect(CSS).not.toMatch(/\[aria-busy="true"\]::(before|after)/);
+    expect(CSS).toContain('.k-btn--slot:not(.k-btn--row)::before');
+  });
+
+  it('keeps .is-success a tier-3 check: no colour or border change', () => {
+    const rules = CSS.match(/[^{}]*\.is-success[^{}]*\{[^}]*\}/g) ?? [];
+    for (const r of rules) {
+      expect(r).not.toContain('var(--k-success)');
+      expect(r).not.toMatch(/border-color|color:var/);
+    }
   });
 
   it('keeps a row from shifting on click (UI-R12)', () => {
@@ -115,7 +115,7 @@ describe('design system components', () => {
     // scoped to `.rowopen` — never here on `.k-btn--row`, or the diffs view
     // would show a busy row with no spinner and a hidden status letter.
     const busy = rulesFor('.k-btn');
-    expect(busy, 'the generic spinner rule is gone').toContain('.k-btn[aria-busy="true"]::before{');
+    expect(busy, 'the generic spinner rule is gone').toContain('.k-btn.is-spinning::before{');
     expect(CSS, 'the DS suppresses the row spinner').not.toContain('.k-btn--row[aria-busy="true"]::before{content:none}');
   });
 
@@ -141,5 +141,25 @@ describe('design system components', () => {
     const closes = (CSS.match(/\}/g) ?? []).length;
     expect(opens).toBe(closes);
     expect(CSS).not.toContain(';;');
+  });
+});
+
+describe('webview CSS success overrides (tier 3 only)', () => {
+  it('no webview.html defines an .is-success rule — only the shared primitives do', async () => {
+    const { readdirSync, readFileSync, existsSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const uiDir = join(__dirname, '..', 'ui');
+    const offenders: string[] = [];
+    for (const dir of readdirSync(uiDir)) {
+      const file = join(uiDir, dir, 'webview.html');
+      if (!existsSync(file)) continue;
+      const html = readFileSync(file, 'utf8');
+      const css = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+        .map((m) => m[1] ?? '')
+        .join('\n')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+      for (const m of css.matchAll(/[^{}<>;]*\.is-success[^{}]*\{/g)) offenders.push(`${dir}: ${m[0].trim()}`);
+    }
+    expect(offenders).toEqual([]);
   });
 });

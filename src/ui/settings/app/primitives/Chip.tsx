@@ -26,7 +26,7 @@ export interface ChipProps {
 }
 
 export function Chip({ tone = 'neutral', children, name }: ChipProps) {
-  const className = tone === 'success' ? 'k-chip is-success' : 'k-chip';
+  const className = tone === 'success' ? 'k-chip k-chip--success' : 'k-chip';
   return (
     <span className={className} data-chip={name}>
       {children}

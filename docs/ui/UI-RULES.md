@@ -376,6 +376,22 @@ Pending is entered locally on activation rather than after the host result.
 Pure navigation/handoff that immediately opens the resulting VS Code surface does
 not require an artificial spinner.
 
+Click feedback has three tiers, chosen per action (`karstAction(el, send, { tier })`
+in the vanilla runtime; `useHostMutation` in React). `mutation` is the default, so a
+quieter tier is always an explicit opt-in:
+
+| Tier | For | At press | Reply > 400ms | Settle |
+|---|---|---|---|---|
+| `view` | view state, navigation (set-range, set-tab, open-dashboard, dismiss, refresh) | selection / `aria-pressed` moves; `aria-busy`, no disable | region progress line + dimmed data | nothing; failure reverts selection + error toast |
+| `mutation` (default) | host mutations (kill-server, measure-disk, create-manifest, attach-pick) | `aria-busy` + duplicate-click guard | spinner in the reserved leading icon slot | nothing; the result is the changed domain state |
+| `confirm` | action with no other visible result (copy-hash) | as `mutation` | as `mutation` | icon morphs to a check in place for 1.2s + role=status tip |
+
+The spinner is never visible before 400ms (a fast reply never flashes one) and,
+once visible, stays at least 500ms. `.is-success` is tier 3 only.
+
+The visible spinner is delayed 400ms and held 500ms once shown; `aria-busy` is set
+at activation regardless.
+
 **Verification:** RUNTIME
 
 **Check:** qualifying operations have a runtime test proving pending begins
@@ -414,6 +430,12 @@ Prefer the strongest existing home:
 1. changed domain state;
 2. inline/local result;
 3. toast.
+
+Success has no presentation of its own on the control: no green border, no
+checkmark. The only exception is tier 3 (`confirm`, an action with no other
+visible result), which shows an in-place check for 1.2s plus a role=status tip.
+A failure never passes through that presentation (UI-R15) and its error toast
+stays until dismissed.
 
 **Verification:** RUNTIME
 
@@ -536,6 +558,10 @@ Pending/result UI must not create a layout change that moves the activation
 target or neighboring primary controls enough to disrupt continued interaction.
 
 Avoid unnecessary accessible-name changes during the action.
+
+The spinner renders in a reserved leading icon slot (`.k-btn--slot`), so width and
+label stay fixed through idle→pending→settled; the tier-3 check morphs in the same
+slot.
 
 Label changes are allowed when intentional and accessible; they are not
 categorically forbidden.

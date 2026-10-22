@@ -147,6 +147,7 @@ export const DESIGN_TOKENS: Readonly<Record<string, string>> = {
   '--k-dur-spin': '900ms',
   '--k-dur-flash-copy': '1200ms',
   '--k-dur-flash-done': '2400ms',
+  '--k-dur-progress': '1200ms',
   '--k-ease-standard': 'cubic-bezier(.2,0,.2,1)',
   '--k-ease-out': 'cubic-bezier(0,0,.2,1)',
 

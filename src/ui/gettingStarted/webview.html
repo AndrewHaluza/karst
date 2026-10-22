@@ -207,9 +207,9 @@
         }
       });
 
-      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId));
+      karstAction(document.getElementById('recheck'), (requestId) => post('recheck-deps', requestId), { tier: 'view' });
       karstAction(document.getElementById('report-issue'), (requestId) => post('report-issue', requestId));
-      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId));
+      karstAction(document.getElementById('dismiss'), (requestId) => post('dismiss', requestId), { tier: 'view' });
       post('request-state');
     </script>
   </body>

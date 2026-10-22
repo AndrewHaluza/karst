@@ -169,7 +169,7 @@ describe('design system async runtime', () => {
     expect(sent).toHaveLength(1);
   });
 
-  it('leaves pending and flashes success on an ok result (UI-R13)', () => {
+  it('leaves pending on an ok result with no success presentation (UI-R13)', () => {
     const h = load();
     const btn = fakeEl();
     let id = '';
@@ -183,21 +183,6 @@ describe('design system async runtime', () => {
     expect(btn.attrs.has('aria-busy')).toBe(false);
     expect(btn.disabled).toBe(false);
     expect(h.karstIsPending(btn)).toBe(false);
-    expect(btn.classes.has('is-success')).toBe(true);
-  });
-
-  it('clears the success flash so it never becomes the resting state', () => {
-    const h = load();
-    const btn = fakeEl();
-    let id = '';
-    h.karstAction(btn, (r) => {
-      id = r;
-    });
-    btn.click();
-    h.karstSettle(id, true);
-
-    h.advance(3000);
-
     expect(btn.classes.has('is-success')).toBe(false);
   });
 
@@ -349,5 +334,136 @@ describe('design system async runtime', () => {
     a.click();
     b.click();
     expect(new Set(ids).size).toBe(2);
+  });
+
+  describe('click feedback tiers', () => {
+    const click = (h: Harness, opts?: unknown) => {
+      const btn = fakeEl();
+      btn.classes.add('k-btn');
+      let id = '';
+      h.karstAction(btn, (r) => (id = r), opts);
+      btn.click();
+      return { btn, id: () => id };
+    };
+
+    it('fast reply: aria-busy is set at once but a spinner never shows', () => {
+      const h = load();
+      const { btn, id } = click(h);
+      expect(btn.attrs.get('aria-busy')).toBe('true');
+      expect(btn.classes.has('is-spinning')).toBe(false);
+      h.advance(399);
+      expect(btn.classes.has('is-spinning')).toBe(false);
+      h.karstSettle(id(), true);
+      h.advance(2000);
+      expect(btn.classes.has('is-spinning')).toBe(false);
+      expect(btn.attrs.has('aria-busy')).toBe(false);
+    });
+
+    it('slow reply: spinner shows after 400ms and stays at least 500ms', () => {
+      const h = load();
+      const { btn, id } = click(h);
+      h.advance(400);
+      expect(btn.classes.has('is-spinning')).toBe(true);
+      h.advance(100);
+      h.karstSettle(id(), true); // reply 100ms after the spinner appeared
+      expect(btn.classes.has('is-spinning')).toBe(true);
+      expect(btn.attrs.get('aria-busy')).toBe('true');
+      h.advance(399);
+      expect(btn.classes.has('is-spinning')).toBe(true);
+      h.advance(1);
+      expect(btn.classes.has('is-spinning')).toBe(false);
+      expect(btn.attrs.has('aria-busy')).toBe(false);
+      expect(btn.disabled).toBe(false);
+    });
+
+    it('reserves the leading icon slot on bind for mutation, not for view', () => {
+      const h = load();
+      expect(click(h).btn.classes.has('k-btn--slot')).toBe(true);
+      expect(click(h, { tier: 'view' }).btn.classes.has('k-btn--slot')).toBe(false);
+    });
+
+    it('double click sends one request in every tier', () => {
+      for (const tier of ['view', 'mutation', 'confirm']) {
+        const h = load();
+        const btn = fakeEl();
+        const sent: string[] = [];
+        h.karstAction(btn, (r) => sent.push(r), { tier });
+        btn.click();
+        btn.click();
+        expect(sent, tier).toHaveLength(1);
+      }
+    });
+
+    it('a failure never passes through success presentation (UI-R15)', () => {
+      for (const tier of ['view', 'mutation', 'confirm']) {
+        const h = load();
+        const { btn, id } = click(h, { tier });
+        h.advance(450);
+        h.karstSettle(id(), false, 'boom');
+        h.advance(5000);
+        expect(btn.classes.has('is-success'), tier).toBe(false);
+        expect(h.toastRoot()?.children.some((c) => c.classes.has('k-toast--error'))).toBe(true);
+      }
+    });
+
+    it('view tier: not disabled, selection moves on press and reverts on failure', () => {
+      const h = load();
+      const a = fakeEl();
+      const b = fakeEl();
+      (a.setAttribute as (k: string, v: string) => void)('aria-pressed', 'true');
+      (b.setAttribute as (k: string, v: string) => void)('aria-pressed', 'false');
+      const parent = { children: [a, b] };
+      a.parentNode = parent;
+      b.parentNode = parent;
+      let id = '';
+      h.karstAction(b, (r) => (id = r), { tier: 'view' });
+      b.click();
+      expect(b.disabled).toBe(false);
+      expect(b.attrs.get('aria-busy')).toBe('true');
+      expect(b.attrs.get('aria-pressed')).toBe('true');
+      expect(a.attrs.get('aria-pressed')).toBe('false');
+      h.karstSettle(id, false, 'nope');
+      expect(a.attrs.get('aria-pressed')).toBe('true');
+      expect(b.attrs.get('aria-pressed')).toBe('false');
+    });
+
+    it('view tier: slow reply shows a region progress line, not a button spinner', () => {
+      const h = load();
+      const region = fakeEl('section');
+      const btn = fakeEl();
+      btn.closest = () => region;
+      let id = '';
+      h.karstAction(btn, (r) => (id = r), { tier: 'view' });
+      btn.click();
+      h.advance(399);
+      expect(region.classes.has('is-loading')).toBe(false);
+      h.advance(1);
+      expect(region.classes.has('is-loading')).toBe(true);
+      expect(btn.classes.has('is-spinning')).toBe(false);
+      h.karstSettle(id, true);
+      h.advance(500);
+      expect(region.classes.has('is-loading')).toBe(false);
+      expect(btn.classes.has('is-success')).toBe(false);
+    });
+
+    it('confirm tier: in-place check for 1.2s plus a role=status tip', () => {
+      const h = load();
+      const { btn, id } = click(h, { tier: 'confirm' });
+      h.karstSettle(id(), true, 'Copied');
+      expect(btn.classes.has('is-success')).toBe(true);
+      expect(h.toastRoot()?.children.some((c) => c.textContent === 'Copied')).toBe(true);
+      h.advance(1199);
+      expect(btn.classes.has('is-success')).toBe(true);
+      h.advance(1);
+      expect(btn.classes.has('is-success')).toBe(false);
+    });
+
+    it('watchdog still reports unknown, not failed (UI-R14)', () => {
+      const h = load();
+      const { btn } = click(h);
+      h.advance(PENDING_WATCHDOG_MS);
+      expect(btn.attrs.has('aria-busy')).toBe(false);
+      expect(h.toastRoot()?.children.some((c) => c.classes.has('k-toast--warning'))).toBe(true);
+    });
   });
 });

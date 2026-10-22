@@ -215,7 +215,7 @@
       `<button type="button" class="k-chip" data-range="${esc(r.id)}" aria-pressed="${r.id === state.rangeId}">${esc(r.label)}</button>`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-range]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }));
+      karstAction(btn, (requestId) => post({ type: 'set-range', range: btn.dataset.range, requestId }), { tier: 'view' });
     }
   };
 
@@ -228,7 +228,7 @@
       `<button type="button" class="k-chip" data-tab="${esc(t.id)}" aria-pressed="${t.id === state.tab}">${esc(t.label)}</button>`,
     ).join('');
     for (const btn of wrap.querySelectorAll('[data-tab]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }));
+      karstAction(btn, (requestId) => post({ type: 'set-tab', tab: btn.dataset.tab, requestId }), { tier: 'view' });
     }
   };
 
@@ -310,7 +310,7 @@
       return `<th${cls}${sorted}><button type="button" class="k-btn k-btn--link" data-sort="${esc(c.sort)}">${esc(c.label)}</button></th>`;
     }).join('');
     for (const btn of thead.querySelectorAll('[data-sort]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-sort', sort: btn.dataset.sort, requestId }));
+      karstAction(btn, (requestId) => post({ type: 'set-sort', sort: btn.dataset.sort, requestId }), { tier: 'view' });
     }
 
     const tbody = el('tbody');
@@ -330,7 +330,7 @@
       '</tr>';
     }).join('');
     for (const btn of tbody.querySelectorAll('[data-ticket]')) {
-      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }));
+      karstAction(btn, (requestId) => post({ type: 'open-dashboard', ticketId: Number(btn.dataset.ticket), requestId }), { tier: 'view' });
     }
 
     const p = state.page;
@@ -349,7 +349,7 @@
       `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${prevOffset}" title="${prevTitle}"${p.hasPrev ? '' : ' disabled'}>Previous</button>` +
       `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-page="${nextOffset}" title="${nextTitle}"${p.hasNext ? '' : ' disabled'}>Next</button>`;
     for (const btn of pager.querySelectorAll('[data-page]')) {
-      karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }));
+      karstAction(btn, (requestId) => post({ type: 'set-page', offset: Number(btn.dataset.page), requestId }), { tier: 'view' });
     }
   };
 
