@@ -18,6 +18,13 @@ describe('seedStore', () => {
     expect(t?.stageCurrent).toBe('uat');
     expect(stageBlock(store, id!, 'uat')?.kind).toBe('boot-failed');
   });
+  it('seeds the launch draft with its repo selected', () => {
+    const store = openStore(':memory:');
+    seedStore(store, fixtureSpec('launch-draft'));
+    const t = getTicketByKey(store, 'FIX-LAUNCH');
+    expect(t?.stageCurrent).toBe('scope');
+    expect(t?.selectedRepos).toEqual(['app']);
+  });
   it('seeds the mid-stage ticket at impl', () => {
     const store = openStore(':memory:');
     seedStore(store, fixtureSpec('ticket-mid-stage'));

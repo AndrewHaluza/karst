@@ -7,7 +7,7 @@ import { resolveInsideCheckout } from './args.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
-const FIXTURES = ['empty', 'ticket-mid-stage', 'blocked'];
+const FIXTURES = ['empty', 'ticket-mid-stage', 'blocked', 'launch-draft'];
 const version = process.env.UAT_VSCODE_VERSION ?? '1.126.0';
 const cachePath = resolve(process.env.UAT_VSCODE_CACHE ?? join(repoRoot, '.vscode-test'));
 
@@ -101,7 +101,8 @@ const launchDir = join(root, 'launch');
 mkdirSync(launchDir, { recursive: true });
 // The dependency gate probes `<cli> --version` before any session opens. Launch
 // mode never runs the real CLI, so no-op shims satisfy the probe; the stub is
-// what actually runs.
+// what actually runs. VS Code re-resolves PATH from a login shell unless it
+// believes it was launched from the CLI (VSCODE_CLI=1), which would drop the shims.
 const shimDir = join(root, 'shims');
 if (launchMode) {
   mkdirSync(shimDir, { recursive: true });
@@ -140,7 +141,7 @@ try {
     extensionTestsEnv: {
       KARST_FAKE_CORE: launchMode ? 'launch' : '1',
       ...(launchMode
-        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}` }
+        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}`, VSCODE_CLI: '1' }
         : {}),
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,

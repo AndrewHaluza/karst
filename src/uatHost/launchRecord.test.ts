@@ -36,6 +36,14 @@ describe('buildLaunchRecord', () => {
 });
 
 describe('parseLaunches / normalizeLaunch', () => {
+  it('strips the scratch dir and hook settings suffix', () => {
+    const r = normalizeLaunch({
+      provider: 'claude', envKeys: [], cwd: '/tmp/karst-uat-host-C9Rotl/w',
+      argv: ['/tmp/karst-uat-host-C9Rotl/karst-hooks.38825.1491f08a4102678c.settings.json'],
+    });
+    expect(r.cwd).toBe('/tmp/karst-uat-host-<run>/w');
+    expect(r.argv).toEqual(['/tmp/karst-uat-host-<run>/karst-hooks.<id>.settings.json']);
+  });
   it('skips blank and torn lines', () => {
     const good = JSON.stringify({ provider: 'codex', argv: [], envKeys: [], cwd: '/w' });
     expect(parseLaunches(`${good}\n\n{"provider"\n`)).toHaveLength(1);

@@ -5,6 +5,9 @@ export const ARGV_INLINE_MAX = 512;
 const HEAD_CHARS = 200;
 const SPILL_POINTER = /Your full kickoff brief is in (.+?); read it completely/;
 const WORKSPACE_HASH = /workspace-[0-9a-f]{8}/g;
+/** Per-run scratch dir (`mkdtemp`) and the hook settings file's pid + hash suffix. */
+const RUN_DIR = /karst-uat-host-[A-Za-z0-9]{6}/g;
+const HOOKS_FILE = /karst-hooks\.\d+\.[0-9a-f]+/g;
 
 export type ArgvEntry = string | { len: number; sha256: string; head: string };
 export interface SpillEvidence { len: number; sha256: string }
@@ -64,7 +67,7 @@ export function parseLaunches(text: string): LaunchRecord[] {
 
 /** The per-run workspace hash varies between runs; evidence must be stable. */
 export function normalizeLaunch(rec: LaunchRecord): LaunchRecord {
-  const clean = (s: string) => s.replace(WORKSPACE_HASH, 'workspace-<hash>');
+  const clean = (s: string) => s.replace(WORKSPACE_HASH, 'workspace-<hash>').replace(RUN_DIR, 'karst-uat-host-<run>').replace(HOOKS_FILE, 'karst-hooks.<id>');
   return {
     ...rec,
     cwd: clean(rec.cwd),
