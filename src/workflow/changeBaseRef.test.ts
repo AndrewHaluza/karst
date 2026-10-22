@@ -229,6 +229,27 @@ describe('changeBaseRef — same base', () => {
     expect(row).toEqual({ base_ref: 'develop', needs_force_push: 1 });
   });
 
+  it('still re-targets the PR and words the note when the sandbox recreate fails after a base change', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status)
+         VALUES (?, ?, 7, 'https://example/7', 'open')`,
+      )
+      .run(ticketId, repoPath);
+    const gh = async () => ({ stdout: '', stderr: '', exitCode: 0 });
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'epic/checkout',
+      git: gitWithHeads('h1', 'h2'), gh,
+      afterRewrite: async () => { throw new Error('docker down'); },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.prRetarget).toMatchObject({ ok: true, number: 7 });
+    expect(r.reason).toBe('rebased, but recreating the sandbox failed: docker down');
+    expect(describeChangeBaseRef(r)).toContain('PR #7 re-targeted.');
+    expect(describeChangeBaseRef(r)).toContain('recreating the sandbox failed: docker down.');
+  });
+
   it('reports already up to date when nothing moved', async () => {
     const { store, manifest: m, ticketId, repoPath } = seed();
     let recreated = 0;

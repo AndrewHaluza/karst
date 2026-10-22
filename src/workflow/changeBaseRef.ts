@@ -141,19 +141,15 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
     .run(toBase, rebased, ticketId, repoPath);
   clearMergeCheck(store, ticketId, repoPath);
 
+  // A failed sandbox recreate is reported, never allowed to skip the PR re-target
+  // below: the branch and base_ref already moved, so the PR must follow.
+  let reason = '';
   if (rebased && opts.afterRewrite) {
     try {
       await opts.afterRewrite();
     } catch (err) {
       const why = err instanceof Error ? err.message : String(err);
-      return {
-        ok: true,
-        fromBase,
-        toBase,
-        rebase,
-        prRetarget: null,
-        reason: `rebased, but recreating the sandbox failed: ${why}`,
-      };
+      reason = `rebased, but recreating the sandbox failed: ${why}`;
     }
   }
 
@@ -161,7 +157,7 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
     debug?.(`[runtime] change base ${repoPath}: branch rewritten — force push armed`);
   }
 
-  if (sameBase) return { ok: true, fromBase, toBase, rebase, prRetarget: null, reason: '' };
+  if (sameBase) return { ok: true, fromBase, toBase, rebase, prRetarget: null, reason };
 
   let prRetarget: (PrEditAttempt & { number: number }) | null = null;
   const pr = store.db
@@ -179,7 +175,7 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
     );
   }
 
-  return { ok: true, fromBase, toBase, rebase, prRetarget, reason: '' };
+  return { ok: true, fromBase, toBase, rebase, prRetarget, reason };
 }
 
 /**
@@ -210,5 +206,6 @@ export function describeChangeBaseRef(result: ChangeBaseRefResult): string {
     );
   }
   parts.push('Merge check cleared.');
+  if (result.reason) parts.push(`${result.reason}.`);
   return parts.join(' ');
 }
