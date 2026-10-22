@@ -553,6 +553,51 @@ describe('usageLimitParkOps', () => {
       });
       expect(warn).toHaveBeenCalledWith('This usage limit was already handled.');
     });
+
+    it('refreshes a user-stopped retry instead of reporting it as already handled', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const warn = vi.fn();
+      const info = vi.fn();
+      const redrive = vi.fn();
+      const refresh = vi.fn();
+      const adapterFor = vi.fn();
+      await handleUsageLimitRetry({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        notify: { info, warn, error: vi.fn() },
+        redrive,
+        refresh,
+        adapterFor,
+        runExclusive: (async () => ({ kind: 'stopped' })) as unknown as ExclusiveRunner,
+      });
+
+      expect(info).toHaveBeenCalledWith('The re-run was stopped.');
+      expect(warn).not.toHaveBeenCalledWith('This usage limit was already handled.');
+      // The stopped run opened/closed rows: the panel must see them.
+      expect(refresh).toHaveBeenCalledWith(ticket.id);
+      // A Stop is deliberate — never redrive it.
+      expect(redrive).not.toHaveBeenCalled();
+      expect(adapterFor).not.toHaveBeenCalled();
+    });
   });
 
   describe('handleUsageLimitDismiss', () => {
