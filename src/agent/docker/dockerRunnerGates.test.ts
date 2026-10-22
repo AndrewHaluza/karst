@@ -59,7 +59,7 @@ describe('docker runner: gates and ports (arch:AC-32)', () => {
     await runner.runGate!('npm', ['test'], '/w/t7', { signal: ac.signal });
     const argv = gateProcess.mock.calls[0]![1];
     const gateName = `${names.container}-gate-r1`;
-    expect(argv.slice(0, 6)).toEqual(['run', '--rm', '--name', gateName, '--network', names.network]);
+    expect(argv.slice(0, 7)).toEqual(['run', '--rm', '--init', '--name', gateName, '--network', names.network]);
     expect(argv).toEqual(expect.arrayContaining(['--cap-drop', 'ALL', 'KARST_EVIDENCE_DIR=/karst-bridge/7', '--workdir', '/work/repo']));
     expect(argv.slice(-2)).toEqual(['npm', 'test']);
     expect(argv.join(' ')).not.toMatch(/--privileged|docker\.sock|--publish/);

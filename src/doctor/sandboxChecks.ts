@@ -12,7 +12,12 @@ export interface SandboxCheckInput {
   readonly sandboxCount: number;
   /** Approximate bytes used by this project's sandboxes; undefined when unknown. */
   readonly diskBytes: number | undefined;
+  /** The Docker VM's total memory; undefined when unknown or docker is not selected. */
+  readonly dockerMemBytes?: number | undefined;
 }
+
+/** A VM below this OOM-kills `npm ci` once a couple of Playwright containers run beside it. */
+export const DOCKER_MEM_WARN_BYTES = 8 * 2 ** 30;
 
 /**
  * Status of every SELECTED sandbox backend plus sandbox count and disk use
@@ -22,6 +27,7 @@ export interface SandboxCheckInput {
 export function checkSandboxBackends(input: SandboxCheckInput): DoctorCheck[] {
   if (input.selected.length === 0) return [];
   const out: DoctorCheck[] = input.selected.map((backend) => backendCheck(backend, backend === 'sbx' ? input.sbx : input.docker));
+  if (input.selected.includes('docker') && input.dockerMemBytes !== undefined) out.push(memoryCheck(input.dockerMemBytes));
   if (input.sandboxCount > 0) out.push(diskCheck(input.sandboxCount, input.diskBytes));
   return out;
 }
@@ -36,6 +42,20 @@ function backendCheck(backend: 'sbx' | 'docker', status: BackendStatus): DoctorC
         detail: `${backend} backend unavailable: sessions run prompted on host (${status.reason})`,
         fix: { tier: 'report', summary: `${backend} backend unavailable`, nextStep: status.reason },
       };
+}
+
+function memoryCheck(bytes: number): DoctorCheck {
+  const gb = (bytes / 2 ** 30).toFixed(1);
+  const low = bytes < DOCKER_MEM_WARN_BYTES;
+  return {
+    id: 'tools.docker-memory',
+    area: 'tools',
+    status: low ? 'warn' : 'ok',
+    detail: `Docker VM memory ${gb} GB`,
+    ...(low
+      ? { fix: { tier: 'report' as const, summary: 'Docker VM has under 8 GB: sandbox setup can be OOM-killed (exit 137)', nextStep: 'raise Docker Desktop → Settings → Resources → Memory to 8 GB or more' } }
+      : {}),
+  };
 }
 
 function diskCheck(count: number, bytes: number | undefined): DoctorCheck {

@@ -1,23 +1,36 @@
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
+import { ClaudeUsageClient, type ClaudeUsageApiDeps } from './claudeUsage.js';
+import type { QuotaKnown, QuotaReader, QuotaSnapshot, QuotaWindow } from './types.js';
 
 /**
- * Claude quota reader — the statusline telemetry payload (`arch:AC-29`).
+ * Claude quota reader — the statusline telemetry payload (`arch:AC-29`) with an
+ * OPT-IN OAuth usage API fallback (D185).
  *
  * Claude Code delivers runtime stats (including `rate_limits`: the 5-hour and
  * 7-day windows) on stdin to a configured `statusLine` command. A karst-managed
  * statusline wrapper caches that payload to a local JSON file, and this reader
- * reads the cache. Zero model requests; no credentials are read here.
+ * reads the cache first — local, live and credential-free.
  *
- * The verdict is deliberately `partial` (`arch:AC-29`): with no cache (no
- * Claude session has run since the wrapper was configured) the core reads as
- * `unknown`, never as 0%.
+ * Only when the cache is MISSING or STALE and `quota.claudeOauthUsageApi` is ON
+ * does it fall back to `claudeUsage.ts` (the OAuth usage endpoint). The consent
+ * check happens on every read, so toggling the setting applies without a
+ * reload. Every API failure keeps the last good value (cache or an earlier API
+ * snapshot) or reports `unknown` with the reason — never an error, never a
+ * fabricated 0%.
  */
 
 const SOURCE = 'Claude statusline telemetry';
+const API_SOURCE = 'Claude OAuth usage API';
 const RELATIVE_CACHE = join('cache', 'quota.json');
+
+/**
+ * How old the statusline cache may be before the API fallback may answer. It
+ * mirrors the QuotaService's poll interval: a cache younger than one poll is
+ * this cycle's data, so no network call is made.
+ */
+export const CLAUDE_CACHE_FRESH_MS = 5 * 60_000;
 
 /** The Claude config root: `CLAUDE_CONFIG_DIR` override, else `<home>/.claude`. */
 export function claudeConfigDir(env?: NodeJS.ProcessEnv, home: string = homedir()): string {
@@ -79,32 +92,49 @@ export interface ClaudeQuotaDeps {
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  /**
+   * The opt-in OAuth usage API fallback. Absent (or its `enabled()` false)
+   * keeps the reader cache-only, exactly as before D185.
+   */
+  usageApi?: ClaudeUsageApiDeps;
+  /** Override the cache freshness window (tests). */
+  cacheFreshMs?: number;
+}
+
+/** The statusline cache plus the age the freshness check needs. */
+interface CacheRead {
+  snapshot: QuotaSnapshot;
+  /** Epoch ms of the cache write, or null when the file is absent/unstattable. */
+  mtimeMs: number | null;
 }
 
 /**
- * Read Claude quota from the cached statusline payload, if present. Async: this
- * runs on the extension host's event loop, so no synchronous file I/O.
+ * Read the D183 statusline cache. `readAt` is the DATA's age, not the read's:
+ * the cache is only rewritten when a Claude session runs, so a stale cache must
+ * read as stale — an expired window must not drive the amber badge or the
+ * launch warning.
  */
-export async function readClaudeQuota(deps: ClaudeQuotaDeps = {}): Promise<QuotaSnapshot> {
+async function readStatuslineCache(deps: ClaudeQuotaDeps, now: Date): Promise<CacheRead> {
   const core = 'claude' as const;
-  const now = deps.now?.() ?? new Date();
   const cachePath = join(claudeConfigDir(deps.env, deps.homeDir ?? homedir()), RELATIVE_CACHE);
   let raw: string;
   try {
     raw = await readFile(cachePath, 'utf8');
   } catch {
     return {
-      core,
-      state: 'unknown',
-      reason: `no Claude statusline quota cache (${cachePath})`,
+      snapshot: {
+        core,
+        state: 'unknown',
+        reason: `no Claude statusline quota cache (${cachePath})`,
+      },
+      mtimeMs: null,
     };
   }
-  // `readAt` is the DATA's age, not the read's: the cache is only rewritten when
-  // a Claude session runs, so a stale cache must read as stale — an expired
-  // window must not drive the amber badge or the launch warning.
   let dataAt = now;
+  let mtimeMs: number | null = null;
   try {
-    dataAt = new Date((await stat(cachePath)).mtimeMs);
+    mtimeMs = (await stat(cachePath)).mtimeMs;
+    dataAt = new Date(mtimeMs);
   } catch {
     // vanished between the read and the stat — keep `now`
   }
@@ -112,20 +142,91 @@ export async function readClaudeQuota(deps: ClaudeQuotaDeps = {}): Promise<Quota
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return { core, state: 'unknown', reason: 'the Claude quota cache could not be parsed' };
+    return {
+      snapshot: { core, state: 'unknown', reason: 'the Claude quota cache could not be parsed' },
+      mtimeMs,
+    };
   }
   const windows = parseClaudeRateLimits(parsed);
   if (windows.length === 0) {
     return {
-      core,
-      state: 'unknown',
-      reason: 'the Claude quota cache carries no rate-limit windows',
+      snapshot: {
+        core,
+        state: 'unknown',
+        reason: 'the Claude quota cache carries no rate-limit windows',
+      },
+      mtimeMs,
     };
   }
-  return { core, state: 'ok', windows, source: SOURCE, readAt: dataAt.toISOString() };
+  return {
+    snapshot: { core, state: 'ok', windows, source: SOURCE, readAt: dataAt.toISOString() },
+    mtimeMs,
+  };
+}
+
+/**
+ * Build the reader body. State is CLOSED OVER so the service's factory keeps the
+ * last good snapshot and the usage client's 429 backoff across polls; a plain
+ * `readClaudeQuota()` call starts clean.
+ */
+function createClaudeQuotaRead(deps: ClaudeQuotaDeps): () => Promise<QuotaSnapshot> {
+  const now = deps.now ?? (() => new Date());
+  const usageApi = deps.usageApi;
+  const client =
+    usageApi === undefined
+      ? undefined
+      : new ClaudeUsageClient({
+          ...usageApi,
+          configDir: claudeConfigDir(deps.env, deps.homeDir ?? homedir()),
+          now,
+        });
+  let lastGood: QuotaKnown | undefined;
+
+  return async (): Promise<QuotaSnapshot> => {
+    const at = now();
+    const cache = await readStatuslineCache(deps, at);
+    const fresh =
+      cache.mtimeMs !== null &&
+      at.getTime() - cache.mtimeMs <= (deps.cacheFreshMs ?? CLAUDE_CACHE_FRESH_MS);
+    if (
+      client === undefined ||
+      usageApi?.enabled() !== true ||
+      (cache.snapshot.state === 'ok' && fresh)
+    ) {
+      if (cache.snapshot.state === 'ok') lastGood = cache.snapshot;
+      return cache.snapshot;
+    }
+
+    const result = await client.read();
+    if (result.state === 'ok') {
+      lastGood = {
+        core: 'claude',
+        state: 'ok',
+        windows: result.windows,
+        source: API_SOURCE,
+        readAt: at.toISOString(),
+      };
+      return lastGood;
+    }
+    // A failed call never blanks a value we already showed: the statusline
+    // cache wins (it is still provider data), then the last API/cache snapshot.
+    return cache.snapshot.state === 'ok'
+      ? cache.snapshot
+      : (lastGood ?? { core: 'claude', state: 'unknown', reason: result.reason });
+  };
+}
+
+/**
+ * Read Claude quota once: the statusline cache first, the opt-in API when the
+ * cache is missing/stale. Async: this runs on the extension host's event loop,
+ * so no synchronous file I/O.
+ */
+export async function readClaudeQuota(deps: ClaudeQuotaDeps = {}): Promise<QuotaSnapshot> {
+  return createClaudeQuotaRead(deps)();
 }
 
 /** The `QuotaReader` the service registers for Claude. */
 export function claudeQuotaReader(deps: ClaudeQuotaDeps = {}): QuotaReader {
-  return { core: 'claude', read: () => readClaudeQuota(deps) };
+  const read = createClaudeQuotaRead(deps);
+  return { core: 'claude', read: () => read() };
 }

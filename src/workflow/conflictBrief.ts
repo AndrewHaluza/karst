@@ -65,13 +65,15 @@ export function renderConflictBrief(input: ConflictBriefInput): string {
   }
 
   if (input.sandboxed) {
+    const ref = `refs/karst/base/${input.baseRef}`;
     return [
       ...header,
-      `This ticket runs in a sandbox with no access to origin. The host merges \`${input.baseRef}\` into the worktree and refreshes your clone; resolve in the working tree:`,
-      '1. Resolve every conflict, keeping BOTH sides\' intent — read the surrounding code first.',
-      '2. Run the repository\'s build and tests before committing.',
-      '3. Commit the merge in the working tree. Do not run `git fetch` or `git push`.',
-      '4. Emit the `fix` marker; the host syncs your commits out and pushes the branch.',
+      `This ticket runs in a sandbox with no access to origin. The host ships \`${input.baseRef}\` into your clone as the read-only ref \`${ref}\` (refreshed on every sync while the conflict is open); merge it yourself:`,
+      `1. \`git merge --no-ff ${ref}\``,
+      '2. Resolve every conflict, keeping BOTH sides\' intent — read the surrounding code first.',
+      '3. Before committing, run the repository\'s gate scripts that run in the sandbox (docs check, typecheck, unit tests) and fix what the merge broke.',
+      '4. Commit the merge. Do not run `git fetch` or `git push`.',
+      '5. Emit the `fix` marker; the host syncs your commits out and the normal review/UAT gates run before anything is pushed.',
       '',
       'Do not rebase and do not force-push: the branch is already published under an open PR.',
       'If the right resolution is genuinely ambiguous, stop and ask rather than guessing.',

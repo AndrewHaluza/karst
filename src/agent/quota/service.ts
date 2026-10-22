@@ -105,6 +105,15 @@ export interface DefaultQuotaReadersDeps {
   homeDir?: string;
   env?: NodeJS.ProcessEnv;
   now?: () => Date;
+  /**
+   * Live consent for the OPT-IN Claude OAuth usage API fallback (D185). Absent
+   * means OFF, the default; the closure is re-read on every poll, so a Settings
+   * toggle reaches the reader without a reload.
+   */
+  claudeOauthUsageApi?: () => boolean;
+  /** Test seams for the API fallback (production uses the platform defaults). */
+  fetchFn?: typeof fetch;
+  platform?: NodeJS.Platform;
   /** Both default to `${XDG_DATA_HOME:-~/.local/share}/opencode/auth.json`. */
   opencodeAuthPath?: string;
   opencode2AuthPath?: string;
@@ -127,7 +136,16 @@ export function defaultQuotaReaders(deps: DefaultQuotaReadersDeps = {}): QuotaRe
   // default here keeps the reader usable without a host binding.
   const opencode2Auth = deps.opencode2AuthPath ?? opencodeAuthPath(env, homeDir);
   return [
-    claudeQuotaReader({ homeDir, env, now }),
+    claudeQuotaReader({
+      homeDir,
+      env,
+      now,
+      usageApi: {
+        enabled: () => deps.claudeOauthUsageApi?.() === true,
+        ...(deps.fetchFn !== undefined ? { fetchFn: deps.fetchFn } : {}),
+        ...(deps.platform !== undefined ? { platform: deps.platform } : {}),
+      },
+    }),
     codexQuotaReader({ homeDir, env, now }),
     unsupportedQuotaReader('antigravity'),
     opencodeQuotaReader({

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { QuotaService, defaultQuotaReaders } from './service.js';
@@ -186,5 +186,74 @@ describe('defaultQuotaReaders', () => {
     } finally {
       rmSync(codexHome, { recursive: true, force: true });
     }
+  });
+
+  describe('Claude usage API consent wiring (D185)', () => {
+    const NOW = new Date('2026-01-01T00:00:00.000Z');
+
+    function staleClaudeCache(): string {
+      const configDir = mkdtempSync(join(tmpdir(), 'karst-quota-api-'));
+      mkdirSync(join(configDir, 'cache'), { recursive: true });
+      const cachePath = join(configDir, 'cache', 'quota.json');
+      writeFileSync(
+        cachePath,
+        JSON.stringify({ rate_limits: { five_hour: { used_percentage: 90, resets_at: 1746540000 } } }),
+      );
+      const old = new Date(NOW.getTime() - 10 * 60_000);
+      utimesSync(cachePath, old, old);
+      writeFileSync(
+        join(configDir, '.credentials.json'),
+        JSON.stringify({ claudeAiOauth: { accessToken: 'test-token' } }),
+      );
+      return configDir;
+    }
+
+    function apiFetch(): typeof fetch {
+      return vi.fn(async () =>
+        new Response(JSON.stringify({ five_hour: { utilization: 0.42, resetsAt: 1746540000 } }), {
+          status: 200,
+        }),
+      ) as unknown as typeof fetch;
+    }
+
+    it('stays cache-only while the consent closure is absent (default OFF)', async () => {
+      const configDir = staleClaudeCache();
+      try {
+        const fetchFn = apiFetch();
+        const readers = defaultQuotaReaders({
+          homeDir: '/nope',
+          env: { CLAUDE_CONFIG_DIR: configDir },
+          now: () => NOW,
+          platform: 'linux',
+          fetchFn,
+        });
+        const snap = await readers.find((r) => r.core === 'claude')!.read();
+        expect(snap).toMatchObject({ state: 'ok', source: 'Claude statusline telemetry' });
+        expect(fetchFn).not.toHaveBeenCalled();
+      } finally {
+        rmSync(configDir, { recursive: true, force: true });
+      }
+    });
+
+    it('uses the API when the closure is ON and the cache is stale', async () => {
+      const configDir = staleClaudeCache();
+      try {
+        const fetchFn = apiFetch();
+        const readers = defaultQuotaReaders({
+          homeDir: '/nope',
+          env: { CLAUDE_CONFIG_DIR: configDir },
+          now: () => NOW,
+          platform: 'linux',
+          fetchFn,
+          claudeOauthUsageApi: () => true,
+        });
+        const snap = await readers.find((r) => r.core === 'claude')!.read();
+        expect(snap).toMatchObject({ state: 'ok', source: 'Claude OAuth usage API' });
+        expect(snap.state === 'ok' && snap.windows[0]!.usedPct).toBe(42);
+        expect(fetchFn).toHaveBeenCalledOnce();
+      } finally {
+        rmSync(configDir, { recursive: true, force: true });
+      }
+    });
   });
 });

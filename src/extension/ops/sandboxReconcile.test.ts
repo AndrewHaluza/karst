@@ -30,4 +30,14 @@ describe('runSandboxReconcile', () => {
     await expect(runSandboxReconcile({ ...base, inventory: async () => { throw new Error('boom'); } })).resolves.toBeUndefined();
     expect(logError).toHaveBeenCalledWith('karst: sandbox reconcile failed', expect.any(Error));
   });
+
+  it('reports what the stray sweep returns and survives its failure', async () => {
+    const info: string[] = [];
+    const base = { inventory: async () => ({ sandboxes: [], errors: [] }), live: () => [], owns: () => true, clearSession: () => {}, info: (m: string) => info.push(m) };
+    await runSandboxReconcile({ ...base, logError: () => {}, sweepStrays: async () => ['karst: removed 1 stray sandbox resource(s) of closed tickets'] });
+    expect(info).toContain('karst: removed 1 stray sandbox resource(s) of closed tickets');
+    const errors: string[] = [];
+    await expect(runSandboxReconcile({ ...base, logError: (m) => errors.push(m), sweepStrays: async () => { throw new Error('x'); } })).resolves.toBeUndefined();
+    expect(errors).toHaveLength(1);
+  });
 });

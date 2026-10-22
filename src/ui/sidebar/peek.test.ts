@@ -164,6 +164,36 @@ describe('buildPeek — the expanded mini-dashboard summary', () => {
     ]);
   });
 
+  it('an awaiting ship with failing CI offers Send CI failure to agent', () => {
+    expect(
+      buildPeek(
+        input({
+          stageCurrent: 'ship',
+          current: stage({ stageKey: 'ship', status: 'passed' }),
+          mergeGate: { kind: 'awaiting', repos: ['web', 'api'] },
+          ciFailingRepos: ['web'],
+        }),
+      ),
+    ).toMatchObject({
+      title: 'CI failing on web',
+      detail: '2 pull requests awaiting merge',
+      next: { kind: 'send-ci-failure', label: 'Send CI failure to agent' },
+    });
+  });
+
+  it('an awaiting ship with no failing CI keeps waiting (no next)', () => {
+    const p = buildPeek(
+      input({
+        stageCurrent: 'ship',
+        current: stage({ stageKey: 'ship', status: 'passed' }),
+        mergeGate: { kind: 'awaiting', repos: ['web'] },
+        ciFailingRepos: [],
+      }),
+    );
+    expect(p.next).toBeNull();
+    expect(p.title).toBe('1 pull request awaiting merge');
+  });
+
   it('a ship waiting on its PRs states how many are unmerged', () => {
     expect(
       buildPeek(

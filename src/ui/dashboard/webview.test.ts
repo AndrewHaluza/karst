@@ -147,6 +147,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/Build this worktree and open its extension in a new dev window/);
   });
 
+  it('primary base button reads "Rebase onto <base>" when the typed base is the current one', () => {
+    expect(HTML).toContain("'Rebase onto ' + esc(current) : 'Change base'");
+    expect(HTML).toContain("primary.textContent = same ? 'Rebase onto ' + cur : 'Change base'");
+  });
+
   it('renders a base-branch control on the scope card and posts change-base-ref', () => {
     // The label always shows: the worktree's own baseRef, or the manifest
     // default when unset — never an empty cell.
@@ -2833,9 +2838,15 @@ function bootPreviewHarness(opts: PreviewHarnessOptions = {}): PreviewHarness {
     // target that is not inside those elements. The node carries the minimal
     // element surface the delegated action handler touches (pending state,
     // disabled, preventDefault).
-    click: (sel: string, dataset: Record<string, string>, pathSelectors: string[] = []) => {
+    click: (sel: string, attrs: Record<string, string>, pathSelectors: string[] = []) => {
+      // Real DOM semantics: `data-foo-bar` surfaces as dataset.fooBar, never
+      // as a dashed key; the raw attribute is read through getAttribute.
+      const dataset = Object.fromEntries(
+        Object.entries(attrs).map(([k, v]) => [k.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase()), v]),
+      );
       const node = {
         dataset,
+        getAttribute: (n: string) => (n.startsWith('data-') ? (attrs[n.slice(5)] ?? null) : null),
         closest: (s: string) => (s === sel ? node : null),
         setAttribute: () => {},
         removeAttribute: () => {},
@@ -4524,13 +4535,56 @@ describe('ship CI actions (executed in a VM)', () => {
 
   it('offers each item alone, and posts once while pending', () => {
     const h = bootPreviewHarness();
-    h.receive({ type: 'state', state: shipWithCi({ ciFailure: { available: true } }) });
+    h.receive({ type: 'state', state: shipWithCi({ ciFailure: { available: true, repos: [] } }) });
     h.click('[data-stage-menu]', { 'stage-menu': 'ship' });
     expect(h.htmlOf('inside')).toContain('Send CI failure to agent');
     expect(h.htmlOf('inside')).not.toContain('Rebase on base');
     h.click('[data-act]', { act: 'send-ci-failure' });
     h.click('[data-act]', { act: 'send-ci-failure' });
     expect(h.posted).toEqual([{ type: 'send-ci-failure' }]);
+  });
+
+  describe('visible CI line on the PR row', () => {
+    const prWith = (state: 'failing' | 'pending' | 'passing', status = 'open') => ({
+      ...renderStateFor('ship').prs[0]!,
+      repo: '/wt/web', repoDisplay: 'web', number: 42, url: 'https://github.com/o/r/pull/42', status,
+      checks: {
+        state, label: state, title: state, detailsLabel: state === 'failing' ? '2 failing checks' : '',
+        failing: state === 'failing'
+          ? [{ name: 'build', url: 'https://x.test/run/1' }, { name: 'lint', url: null }] : [],
+      },
+    });
+    const boot = (pr: ReturnType<typeof prWith>, ci: { available: boolean; repos: string[] }) => {
+      const h = bootPreviewHarness();
+      h.receive({ type: 'state', state: shipWithCi({ prs: [pr] as never, ciFailure: ci }) });
+      return h;
+    };
+
+    it('failing + available: names the checks and offers a button that posts once', () => {
+      const h = boot(prWith('failing'), { available: true, repos: ['/wt/web'] });
+      const html = h.htmlOf('prs');
+      expect(html).toContain('CI failing — 2 checks');
+      expect(html).toContain('data-act="send-ci-failure"');
+      expect(html).toContain('Open this check run">build</a>');
+      h.click('[data-act]', { act: 'send-ci-failure' });
+      h.click('[data-act]', { act: 'send-ci-failure' });
+      expect(h.posted).toEqual([{ type: 'send-ci-failure' }]);
+      expect(h.htmlOf('prs')).toContain('aria-busy="true"');
+    });
+
+    it('failing + unavailable: the line stays, the button does not', () => {
+      const html = boot(prWith('failing'), { available: false, repos: [] }).htmlOf('prs');
+      expect(html).toContain('CI failing — 2 checks');
+      expect(html).not.toContain('data-act="send-ci-failure"');
+    });
+
+    it('pending reads CI running with no button; passing and merged render nothing', () => {
+      const pending = boot(prWith('pending'), { available: false, repos: [] }).htmlOf('prs');
+      expect(pending).toContain('CI running');
+      expect(pending).not.toContain('send-ci-failure');
+      expect(boot(prWith('passing'), { available: false, repos: [] }).htmlOf('prs')).not.toContain('mg-ci');
+      expect(boot(prWith('failing', 'merged'), { available: true, repos: ['/wt/web'] }).htmlOf('prs')).not.toContain('mg-ci');
+    });
   });
 
   it('rebase item posts once and the next push re-arms it', () => {

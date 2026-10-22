@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { openStore } from '../store/db.js';
-import { createTicket } from '../store/tickets.js';
+import { createTicket, setAgentState } from '../store/tickets.js';
 import { manifest, stack } from '../manifest/fixtures.js';
 import { setMergeCheck } from '../store/mergeChecks.js';
 import type { GitRunner } from '../integrations/git.js';
-import { changeBaseRef } from './changeBaseRef.js';
+import { changeBaseRef, describeChangeBaseRef } from './changeBaseRef.js';
 
 function fixtureManifest() {
   return manifest(stack());
@@ -195,5 +195,102 @@ describe('changeBaseRef', () => {
     expect(worktreeUpdates).toHaveLength(1);
     expect(worktreeUpdates[0]).toMatch(/base_ref/);
     expect(worktreeUpdates[0]).toMatch(/needs_force_push/);
+  });
+});
+
+describe('changeBaseRef — same base', () => {
+  function gitWithHeads(before: string, after: string): GitRunner {
+    let rebased = false;
+    return async (args) => {
+      if (args[0] === 'rebase') rebased = true;
+      if (args[0] === 'rev-parse' && args[1] === 'HEAD') {
+        return { stdout: rebased ? after : before, stderr: '', exitCode: 0 };
+      }
+      return { stdout: args[0] === 'status' ? '' : 'abc', stderr: '', exitCode: 0 };
+    };
+  }
+
+  it('rebases onto the latest base and arms the force push', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    let recreated = 0;
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'develop',
+      git: gitWithHeads('h1', 'h2'),
+      afterRewrite: async () => { recreated++; },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.rebase!.outcome).toBe('rebased');
+    expect(r.prRetarget).toBeNull();
+    expect(recreated).toBe(1);
+    expect(describeChangeBaseRef(r)).toBe('Rebased onto the latest develop.');
+    const row = store.db
+      .prepare('SELECT base_ref, needs_force_push FROM worktrees WHERE ticket_id = ?')
+      .get(ticketId) as { base_ref: string; needs_force_push: number };
+    expect(row).toEqual({ base_ref: 'develop', needs_force_push: 1 });
+  });
+
+  it('still re-targets the PR and words the note when the sandbox recreate fails after a base change', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    store.db
+      .prepare(
+        `INSERT INTO prs (ticket_id, repo, number, url, status)
+         VALUES (?, ?, 7, 'https://example/7', 'open')`,
+      )
+      .run(ticketId, repoPath);
+    const gh = async () => ({ stdout: '', stderr: '', exitCode: 0 });
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'epic/checkout',
+      git: gitWithHeads('h1', 'h2'), gh,
+      afterRewrite: async () => { throw new Error('docker down'); },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.prRetarget).toMatchObject({ ok: true, number: 7 });
+    expect(r.reason).toBe('rebased, but recreating the sandbox failed: docker down');
+    expect(describeChangeBaseRef(r)).toContain('PR #7 re-targeted.');
+    expect(describeChangeBaseRef(r)).toContain('recreating the sandbox failed: docker down.');
+  });
+
+  it('reports already up to date when nothing moved', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    let recreated = 0;
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'develop',
+      git: gitWithHeads('h1', 'h1'),
+      afterRewrite: async () => { recreated++; },
+    });
+    expect(r.ok).toBe(true);
+    expect(r.rebase!.outcome).toBe('already-based');
+    expect(recreated).toBe(0);
+    expect(describeChangeBaseRef(r)).toBe('Already up to date with develop.');
+  });
+
+  it('says base unchanged when rebase is off', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'develop', rebase: false, git: cleanGit,
+    });
+    expect(r.ok).toBe(true);
+    expect(r.rebase).toBeNull();
+    expect(describeChangeBaseRef(r)).toBe('Base unchanged (develop).');
+  });
+
+  it('refuses while an agent is running', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    setAgentState(store, ticketId, 'running');
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'develop', git: gitWithHeads('h1', 'h2'),
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/agent is working/);
+  });
+
+  it('refuses when the sandbox holds unsynced commits', async () => {
+    const { store, manifest: m, ticketId, repoPath } = seed();
+    const r = await changeBaseRef({
+      store, manifest: m, ticketId, repoPath, toBase: 'develop', git: cleanGit,
+      sandboxUnsynced: async () => true,
+    });
+    expect(r.ok).toBe(false);
+    expect(r.reason).toMatch(/sandbox has commits/);
   });
 });

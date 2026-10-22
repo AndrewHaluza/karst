@@ -8,6 +8,7 @@ import {
   renderMap02,
   renderRegions,
   replaceRegion,
+  resolveDepcruiseBin,
   srcEntries,
   validateLayers,
 } from './archGraph.mjs';
@@ -43,6 +44,26 @@ const layers = {
   exec: ['runtime'],
   core: ['model', 'store'],
 };
+
+describe('resolveDepcruiseBin', () => {
+  it('walks up to the ancestor node_modules a linked worktree inherits', () => {
+    const want = '/main/node_modules/dependency-cruiser/bin/dependency-cruiser.mjs';
+    const found = resolveDepcruiseBin('/main/.karst/worktrees/t1/scripts', (path) => path === want);
+    expect(found).toBe(want);
+  });
+
+  it('prefers the nearest node_modules over an ancestor', () => {
+    const local = '/main/.karst/worktrees/t1/node_modules/dependency-cruiser/bin/dependency-cruiser.mjs';
+    const found = resolveDepcruiseBin('/main/.karst/worktrees/t1', () => true);
+    expect(found).toBe(local);
+  });
+
+  it('names the missing install when no ancestor carries it', () => {
+    expect(() => resolveDepcruiseBin('/main/scripts', () => false)).toThrow(
+      /not installed in \/main\/scripts or any ancestor/,
+    );
+  });
+});
 
 describe('validateLayers', () => {
   it('fails every unassigned top-level src entry', () => {

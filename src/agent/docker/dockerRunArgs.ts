@@ -36,6 +36,22 @@ export function userArgs(user: LinuxUser | undefined): string[] {
 export const HARDENING = ['--cap-drop', 'ALL', '--security-opt', 'no-new-privileges'];
 
 /**
+ * Docker's own init as PID 1 (tini). Without it PID 1 is the agent, the gate or
+ * `sleep infinity` — none of which reap. A descendant that outlives its
+ * process-group kill then reparents to PID 1 and sits there as a ZOMBIE:
+ * `process.kill(pid, 0)` keeps answering "alive", so `killTree`'s contract and
+ * every "is that process gone?" check in the repo's own suites read a corpse as
+ * a survivor (the sandbox gate suite fails on the process-tree, port and
+ * supervisor cases). `--init` reaps them.
+ *
+ * Liveness, not hardening, so it is deliberately NOT part of `HARDENING`: only
+ * containers that HOST repo processes need it (the interactive session, the
+ * one-shot gate, the UAT service container). The throwaway `git`/`chown`
+ * one-shots do not.
+ */
+export const REAPER = ['--init'];
+
+/**
  * A `--mount type=bind` value. `--mount` is comma-separated, so a host path
  * holding `,` (or a newline) could inject mount options: refused, the caller
  * fails closed with the reason.
@@ -117,7 +133,7 @@ export function interactiveRunArgs(input: InteractiveArgsInput): string[] {
       ? ['--mount', bindMount(input.bridgeDir, `${SANDBOX_BRIDGE_MOUNT_ROOT}/${input.ticketId}`, false)]
       : [];
   return [
-    'run', '--interactive', '--tty', '--rm', '--name', input.names.container,
+    'run', '--interactive', '--tty', '--rm', ...REAPER, '--name', input.names.container,
     '--network', input.names.network, ...HARDENING,
     ...volumeMounts(input.names), ...auth, ...bridge, ...userArgs(input.user),
     ...envArgs(input.env), '--workdir', CONTAINER_REPO,
@@ -170,7 +186,7 @@ export function gateRunArgs(
 ): string[] {
   const envFlags = Object.entries(env).flatMap(([k, v]) => ['--env', `${k}=${v}`]);
   return [
-    'run', '--rm', '--name', runName, '--network', names.network, ...HARDENING,
+    'run', '--rm', ...REAPER, '--name', runName, '--network', names.network, ...HARDENING,
     ...volumeMounts(names), ...userArgs(user),
     ...envFlags, ...PROXY_ENV.flatMap((e) => ['--env', e]), '--workdir', CONTAINER_REPO,
     OPENCODE_IMAGE, command, ...args,
@@ -189,7 +205,7 @@ export function serviceContainerName(names: DockerNames): string {
  */
 export function serviceRunArgs(names: DockerNames, user: LinuxUser | undefined): string[] {
   return [
-    'run', '-d', '--name', serviceContainerName(names), '--network', names.network,
+    'run', '-d', ...REAPER, '--name', serviceContainerName(names), '--network', names.network,
     '--network-alias', names.container, ...HARDENING,
     ...volumeMounts(names), ...userArgs(user),
     ...PROXY_ENV.flatMap((e) => ['--env', e]), '--workdir', CONTAINER_REPO,

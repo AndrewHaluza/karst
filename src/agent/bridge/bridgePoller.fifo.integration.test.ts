@@ -21,7 +21,7 @@ describe.skipIf(process.platform === 'win32')('bridgePoller with a planted FIFO'
   it('refuses a FIFO without blocking, and stop() still resolves', async () => {
     await run('mkfifo', [file]);
     const lines: string[] = [];
-    const p = createBridgePoller({ file, stateFile, intervalMs: 5, onLine: (l) => lines.push(l), debug: (m) => logs.push(m) });
+    const p = createBridgePoller({ file, stateFile, intervalMs: 5, onLine: (l) => { lines.push(l); }, debug: (m) => logs.push(m) });
     await p.pollOnce();
     p.start();
     await p.stop();

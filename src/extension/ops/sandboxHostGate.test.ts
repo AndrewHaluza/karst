@@ -91,6 +91,20 @@ describe('ticketHostGate (arch:AC-36)', () => {
     expect((out as { message: string }).message).toContain('uncommitted');
   });
 
+  it('names the dirty paths with their porcelain codes', async () => {
+    const t = setup({ listed: box('running'), status: '?? .uat-scripts/\n M a.ts\n' });
+    const out = await t.run('true', [], process.cwd(), {});
+    expect((out as { message: string }).message).toContain('`?? .uat-scripts/`, ` M a.ts`');
+  });
+
+  it('lists the first 5 dirty paths and counts the rest', async () => {
+    const status = Array.from({ length: 8 }, (_, i) => `?? f${i}.ts`).join('\n');
+    const t = setup({ listed: box('running'), status });
+    const msg = ((await t.run('true', [], process.cwd(), {})) as { message: string }).message;
+    expect(msg).toContain('`?? f4.ts` +3 more');
+    expect(msg).not.toContain('f5.ts');
+  });
+
   it('logs why a gate ran on the host or was refused', async () => {
     const synced = setup({ listed: box('running') });
     await synced.run('true', [], process.cwd(), {});

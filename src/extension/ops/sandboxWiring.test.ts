@@ -86,6 +86,17 @@ describe('makeSandboxWiring with a backend and fake processes', () => {
     return { projectId, a, b, gone, proc, dockerProc };
   }
 
+  it('removeDoneMerged removes the sandbox of a done+merged ticket and leaves an unmerged done one', async () => {
+    const { projectId, a, b, proc, dockerProc } = live();
+    store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id IN (?, ?)").run(a, b);
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number, merged_at) VALUES (?, ?, ?, ?)').run(a, 'r', 1, '2026-01-01');
+    store.db.prepare('INSERT INTO prs (ticket_id, repo, number) VALUES (?, ?, ?)').run(b, 'r', 2);
+    const { w } = wiring({ backendOn: () => true, projectRoot: () => ROOT, projectId: () => projectId, proc, dockerProc });
+    await w.removeDoneMerged();
+    const rms = proc.calls.filter((c) => c.args[0] === 'rm').map((c) => c.args.join(' '));
+    expect(rms).toEqual([expect.stringContaining(sbxName({ projectRoot: ROOT, ticketId: a, core: 'claude' }))]);
+  });
+
   it('palette command target (F5): an argument passes through untouched', async () => {
     const { w } = wiring();
     await expect(w.commandTarget(42, 'sync')).resolves.toBe(42);

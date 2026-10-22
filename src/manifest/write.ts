@@ -237,9 +237,9 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Same seam: Save must not drop the opt-in analysis block.
     analysis: manifest.analysis,
     // Same seam, same failure mode: the Agents tab owns `quota` (warn threshold
-    // and the opt-in global Claude statusline install), and an explicit save
-    // must never drop the block. Always written (the validator defaults it),
-    // like `archiveDoneAfterDays`.
+    // and the opt-in Claude statusline install / usage-API fallback), and an
+    // explicit save must never drop the block. Always written (the validator
+    // defaults it), like `archiveDoneAfterDays`.
     quota: manifest.quota,
     review: manifest.review,
     // Same seam, same failure mode: the Agents tab owns `processes`, and an

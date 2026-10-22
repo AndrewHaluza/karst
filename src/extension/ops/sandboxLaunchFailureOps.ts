@@ -13,6 +13,8 @@ export interface SandboxLaunchFailureInput {
   readonly notify: Notify;
   /** Marks the ticket needs-you (`agent_state='not-started'`, the dashboard's "session did not start"). */
   readonly markNotStarted: (ticketId: number) => void;
+  /** Removes the half-built sandbox a failed create leaves behind (guarded; keeps it when it holds unsynced commits). */
+  readonly removeSandbox?: () => Promise<unknown>;
 }
 
 export const LAUNCH_FAILURE_FILE = 'sandbox-launch-failure.txt';
@@ -38,6 +40,7 @@ export function sandboxLaunchFailureOptions(input: SandboxLaunchFailureInput): {
       } catch (e) {
         input.warn(`[session] ticket ${input.ticketLabel} could not store the launch failure: ${String(e)}`);
       }
+      void input.removeSandbox?.().catch((e: unknown) => input.warn(`[session] ticket ${input.ticketLabel} could not remove the half-built sandbox: ${String(e)}`));
       input.notify.warn(
         `Karst: ${input.ticketLabel} ${info.runner} sandbox launch failed (exit ${info.exitCode}). ` +
           `Retry, or set agentBackends.${input.core}=host. Details in the Karst log.`,

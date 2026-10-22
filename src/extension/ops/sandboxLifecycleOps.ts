@@ -1,4 +1,3 @@
-import { dirname } from 'node:path';
 import { listProjectSandboxes, type ProjectSandbox, type SandboxInventory } from '../../agent/sandboxInventory.js';
 import { SBX_CORES } from '../../agent/sbx/sbxRunner.js';
 import { NODE_SBX_PROCESS } from '../../agent/sbx/sbxProcess.js';
@@ -23,6 +22,9 @@ export interface SandboxLifecycleDeps extends SandboxSyncDeps {
   /** `undefined` until the hook endpoint is bound; no bridge dir to remove then. */
   readonly bridges?: { dispose(ticketId: number): Promise<void>; retryPending?(ticketId: number): Promise<void> };
   readonly openSyncDiff: (target: SandboxSyncTarget) => Promise<void>;
+  /** The recorded host worktree of a ticket (orphan cleanup's remote step); `undefined` = no record. */
+  readonly worktreeOf?: (ticketId: number) => string | undefined;
+  readonly debug?: (message: string) => void;
 }
 
 export type BackendKind = 'host' | 'sbx' | 'docker';
@@ -78,9 +80,10 @@ async function confirmUnsynced(deps: SandboxLifecycleDeps, target: SandboxSyncTa
 }
 
 /**
- * Remove a ticket's sandbox after syncing it (archive, provider switch). A
- * missing sandbox is a no-op; an unsynced one is removed only on the user's
- * explicit choice. `false` = the caller must not go on (blocked or failed).
+ * Remove every sandbox of a ticket (any core, any backend) after syncing each
+ * (archive, provider switch, hard delete). No sandbox is a no-op; an unsynced
+ * one is removed only on the user's explicit choice. `false` = the caller must
+ * not go on (blocked or failed).
  */
 export async function removeSandboxGuarded(
   deps: SandboxLifecycleDeps,
@@ -88,30 +91,21 @@ export async function removeSandboxGuarded(
   /** `skipSync`: the commits already reached the host another way (carry), so the pre-remove sync would only fail as diverged. */
   opts: { readonly skipSync?: boolean } = {},
 ): Promise<boolean> {
-  if (backendKindOf(target.core) === 'host') return true;
+  const inv = await inventoryOf(deps);
+  const boxes = inv.sandboxes.filter((s) => s.ticketId === target.ticketId);
+  // A failed listing proves nothing gone: fall back to the ticket's current core.
+  if (boxes.length === 0 && backendKindOf(target.core) !== 'host' && inv.errors.length > 0) {
+    boxes.push({ runner: 'sbx', name: '', ticketId: target.ticketId, core: target.core!, state: 'stopped' });
+  }
+  if (boxes.length === 0) return true;
   if (!deps.owns(target.ticketId)) {
     deps.notify.warn(`Karst: ${target.ticketLabel} is owned by another window; its sandbox was left alone.`);
     return false;
   }
-  const inv = await inventoryOf(deps);
-  const live = inv.sandboxes.some((s) => s.ticketId === target.ticketId && s.core === target.core);
-  if (!live && inv.errors.length === 0) return true;
-  // A non-host core always has a sandbox runner with sync + dispose.
-  const runner = sandboxRunnerFor(deps, target.core, target.ticketId)!;
-  const branch = target.worktree?.branch;
-  const ref = { hostWorktreePath: target.worktree?.path ?? dirname(deps.projectRoot), branch: branch ?? '' };
-  const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
-  if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
-    deps.notify.warn(`Karst: kept the sandbox of ${target.ticketLabel}.`);
-    return false;
+  for (const box of boxes) {
+    if (!(await removeOneGuarded(deps, { ...target, core: box.core }, box, opts))) return false;
   }
   try {
-    const removal = await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
-    if (!removal.ok) {
-      // Keep the bridge dir and clone record: the Remove affordance retries against them.
-      await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}); it and its evidence dir were kept. Remove it again to retry.`);
-      return false;
-    }
     await deps.bridges?.dispose(target.ticketId);
   } catch (err) {
     await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
@@ -119,6 +113,39 @@ export async function removeSandboxGuarded(
   }
   deps.notify.info(`Karst: ${target.ticketLabel} sandbox removed.`);
   return true;
+}
+
+async function removeOneGuarded(
+  deps: SandboxLifecycleDeps,
+  target: SandboxSyncTarget,
+  box: ProjectSandbox,
+  opts: { readonly skipSync?: boolean },
+): Promise<boolean> {
+  const branch = target.worktree?.branch;
+  const ref = { hostWorktreePath: target.worktree?.path ?? '', branch: branch ?? '' };
+  try {
+    if (box.invalidCore) {
+      await removeInvalidCoreSandbox(deps, box);
+      return true;
+    }
+    const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
+    if (!runner) return true;
+    const synced = opts.skipSync ? { ok: true as const } : branch ? await runner.sync!(ref) : { ok: false as const, reason: 'no worktree branch to sync into' };
+    if (!synced.ok && !(await confirmUnsynced(deps, target, synced.reason))) {
+      deps.notify.warn(`Karst: kept the sandbox of ${target.ticketLabel}.`);
+      return false;
+    }
+    const removal = await removeRunner(deps, runner, ref, (s) => s.ticketId === target.ticketId && s.core === target.core);
+    if (!removal.ok) {
+      // Keep the bridge dir and clone record: the Remove affordance retries against them.
+      await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed (${disposeFailures(removal)}); it and its evidence dir were kept. Remove it again to retry.`);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    await deps.notify.error(`Karst: removing the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
+    return false;
+  }
 }
 
 /**
@@ -140,6 +167,37 @@ export async function stopSandboxOp(deps: SandboxLifecycleDeps, target: SandboxS
     deps.notify.warn(`Karst: stopping the sandbox for ${target.ticketLabel} failed: ${message(err)}`);
     return false;
   }
+}
+
+/**
+ * Ticket done (arch:AC-37): merged → the work is on the remote, so remove the
+ * sandbox (guarded, verified, no pre-sync); unmerged → sync + stop only.
+ */
+export async function onDoneOp(deps: SandboxLifecycleDeps, target: SandboxSyncTarget, merged: boolean): Promise<boolean> {
+  if (!merged) return stopSandboxOp(deps, target);
+  return removeSandboxGuarded(deps, target, { skipSync: true });
+}
+
+/**
+ * Backfill: sandboxes of done+merged tickets that survived (stopped at done
+ * before this rule, or a failed removal). Removed by name, so a sandbox whose
+ * bridge dir / clone record is already gone is still cleaned up.
+ */
+export async function removeDoneMergedSandboxes(
+  deps: SandboxLifecycleDeps,
+  doneMerged: ReadonlySet<number>,
+  targetOf: (ticketId: number, core: string) => SandboxSyncTarget,
+  debug: (m: string) => void = () => {},
+): Promise<number> {
+  const inv = await inventoryOf(deps);
+  let removed = 0;
+  for (const box of inv.sandboxes) {
+    if (box.invalidCore === true || !doneMerged.has(box.ticketId) || !deps.owns(box.ticketId)) continue;
+    const target = targetOf(box.ticketId, box.core);
+    if (target.worktree === undefined) debug(`karst: ${target.ticketLabel} has no clone record; removing sandbox ${box.name} by name, skipping the git remote step`);
+    if (await removeSandboxGuarded(deps, target, { skipSync: true })) removed += 1;
+  }
+  return removed;
 }
 
 /**
@@ -255,9 +313,11 @@ export async function cleanupOrphansOp(deps: SandboxLifecycleDeps, liveTicketIds
     try {
       if (o.invalidCore) await removeInvalidCoreSandbox(deps, o);
       else {
-        const removal = await removeRunner(deps, sandboxRunnerFor(deps, o.core, o.ticketId)!, { hostWorktreePath: dirname(deps.projectRoot), branch: '' }, (s) => s.name === o.name);
+        const removal = await removeRunner(deps, sandboxRunnerFor(deps, o.core, o.ticketId)!, { hostWorktreePath: deps.worktreeOf?.(o.ticketId) ?? '', branch: '' }, (s) => s.name === o.name);
         if (!removal.ok) throw new Error(disposeFailures(removal));
+        if (!deps.worktreeOf?.(o.ticketId)) deps.debug?.(`sandbox orphan ${o.name}: no recorded worktree, skipped the host remote step`);
       }
+      await deps.bridges?.dispose(o.ticketId);
       removed += 1;
     } catch (err) {
       deps.notify.warn(`Karst: removing orphan sandbox ${o.name} failed: ${message(err)}`);

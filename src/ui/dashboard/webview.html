@@ -1511,6 +1511,10 @@
   .mg .mgdot{width:var(--k-space-4);height:var(--k-space-4);border-radius:var(--k-radius-circle);flex:none}
   .mg-clean .mgdot{background:var(--k-success)}
   .mg-conflicted .mgdot{background:var(--k-danger)}
+  .mg-ci .mgdot{background:var(--k-warning)}
+  .mg-ci-failing .mgdot{background:var(--k-danger)}
+  .mg-ci-failing .mgtext{color:var(--k-danger)}
+  .mg-ci .pck-row{margin-left:var(--k-space-6);overflow-wrap:anywhere}
   /* A check that ERRORED is a fault, not a neutral pending state: every
      `unknown` verdict carries a `reason` (git failed, git too old, no base ref),
      so it reads red like a conflict — shape (hollow ring vs filled dot) keeps
@@ -4017,7 +4021,7 @@
       + `cut from the right commit.</div>`
       + `<div class="wbaseformacts">`
       + `<button type="button" class="k-btn k-btn--secondary k-btn--sm" data-act="toggle-base-form" data-repo="${esc(repo)}">Cancel</button>`
-      + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}">Change base</button>`
+      + `<button type="button" class="k-btn k-btn--primary k-btn--sm" data-act="change-base-ref" data-repo="${esc(repo)}" data-base-current="${esc(current)}">${rebaseOn && draft.trim() === current ? 'Rebase onto ' + esc(current) : 'Change base'}</button>`
       + `</div></div>`;
   }
 
@@ -4221,6 +4225,37 @@
     return `<details class="pcks"><summary>${esc(p.checks.detailsLabel)}</summary>${rows}</details>`;
   }
 
+  // The CI line under a PR row, mirroring `mergeLine`. The host's availability
+  // (`state.ciFailure.repos`, from `ciFailureState`) decides the button; this file
+  // only places it. A failing rollup the host refuses (in-flight / landed) still
+  // names the failure, without the button. Pending reads 'CI running'; anything
+  // else renders nothing.
+  function ciLine(p) {
+    if (!p.checks || p.status === 'merged') return '';
+    if (p.checks.state === 'pending') {
+      return `<div class="mgwrap mg-ci"><div class="mg"><span class="mgdot" aria-hidden="true"></span>`
+        + `<span class="mgtext">CI running</span></div></div>`;
+    }
+    if (p.checks.state !== 'failing') return '';
+    const n = p.checks.failing.length;
+    const ci = (lastState && lastState.ciFailure) || { available: false, repos: [] };
+    const offer = ci.available && ci.repos.includes(p.repo);
+    const busy = !!ciFailureRequestId;
+    const act = !offer ? ''
+      : busy
+        ? `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" aria-busy="true" disabled`
+          + ` title="Fetching the failing logs">Send CI failure to agent</button>`
+        : `<button type="button" class="k-btn k-btn--secondary k-btn--sm mgbtn" data-act="send-ci-failure"`
+          + ` title="Send the failing CI log to the agent — UAT and Review will run again">Send CI failure to agent</button>`;
+    const names = p.checks.failing.map((c) => (
+      `<div class="pck-row">` + (c.url
+        ? `<a href="#" data-act="open-pr" data-url="${esc(c.url)}" title="Open this check run">${esc(c.name)}</a>`
+        : `<span>${esc(c.name)}</span>`) + `</div>`
+    )).join('');
+    return `<div class="mgwrap mg-ci mg-ci-failing"><div class="mg"><span class="mgdot" aria-hidden="true"></span>`
+      + `<span class="mgtext">CI failing — ${n} ${n === 1 ? 'check' : 'checks'}</span>${act}</div>${names}</div>`;
+  }
+
   function renderPrs(prs, mergeChecks) {
     const byRepo = {};
     for (const m of (mergeChecks || [])) byRepo[m.repo] = m;
@@ -4281,6 +4316,7 @@
       + `<span class="pacts">${p.dismissedLabel ? `<span class="pstamp">${esc(p.dismissedLabel)}</span>` : ''}${dismissButton(p)}${mergeButton(p)}</span></div>`
       + prMetaLine(p)
       + prChecksDetails(p)
+      + ciLine(p)
       + mergeLine(byRepo[p.repo])
       + prComments(p)
       + `</div>`;
@@ -5827,9 +5863,7 @@
     // selects) — this is the only place it is handled.
     const menuBtn = e.target.closest('[data-stage-menu]');
     if (menuBtn) {
-      // Read the dashed dataset key exactly as the attribute is written — the
-      // harness (and any caller) must not need a camelCase guess.
-      const stage = menuBtn.dataset['stage-menu'];
+      const stage = menuBtn.getAttribute('data-stage-menu');
       stageMenuStage = stageMenuStage === null ? stage : null;
       render(lastState);
       return;
@@ -6371,6 +6405,12 @@
     const input = e.target.closest('[data-base-input]');
     if (!input) return;
     baseFormDraft[input.dataset.baseInput] = input.value;
+    const primary = document.querySelector('[data-act="change-base-ref"][data-repo="' + CSS.escape(input.dataset.baseInput) + '"]');
+    if (primary) {
+      const cur = primary.dataset.baseCurrent || '';
+      const same = baseFormRebase[input.dataset.baseInput] !== false && input.value.trim() === cur;
+      primary.textContent = same ? 'Rebase onto ' + cur : 'Change base';
+    }
   });
 
   // The inside ledger's disclosure state. A process row IS a native

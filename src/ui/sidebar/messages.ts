@@ -29,6 +29,7 @@ export type SidebarWebviewMessage =
   | { type: 'delete'; ticketId: number }
   | { type: 'create-follow-up'; ticketId: number }
   | { type: 'resolve-conflicts'; ticketId: number; repo: string }
+  | { type: 'send-ci-failure'; ticketId: number }
   // Planning sessions carry a `sessionId`, never a `ticketId`: a session is not a ticket.
   | { type: 'plan-create' }
   | { type: 'plan-open'; sessionId: number }
@@ -81,6 +82,7 @@ export interface SidebarActions {
   delete(ticketId: number): void | Promise<void>;
   createFollowUp(ticketId: number): void | Promise<void>;
   resolveConflicts(ticketId: number, repo: string): void | Promise<void>;
+  sendCiFailure(ticketId: number): void | Promise<void>;
   planCreate(): void | Promise<void>;
   planOpen(sessionId: number): void | Promise<void>;
   planArchive(sessionId: number): void | Promise<void>;
@@ -136,6 +138,7 @@ export function parseSidebarMessage(raw: unknown): SidebarWebviewMessage | null 
     case 'unarchive':
     case 'delete':
     case 'create-follow-up':
+    case 'send-ci-failure':
       return id ? ({ type: m.type, ticketId: m.ticketId as number } as SidebarWebviewMessage) : null;
     case 'resolve-conflicts':
       return id && typeof m.repo === 'string'
@@ -190,6 +193,8 @@ export function routeSidebarAction(msg: SidebarWebviewMessage, actions: SidebarA
       return actions.delete(msg.ticketId);
     case 'create-follow-up':
       return actions.createFollowUp(msg.ticketId);
+    case 'send-ci-failure':
+      return actions.sendCiFailure(msg.ticketId);
     case 'resolve-conflicts':
       return actions.resolveConflicts(msg.ticketId, msg.repo);
     case 'plan-create':

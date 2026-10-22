@@ -78,7 +78,7 @@ interface WorktreeRow {
   pr_number: number | null;
 }
 
-function preShipState(store: Store, ticketId: number, stage: StageKey): RebaseState {
+export function preShipState(store: Store, ticketId: number, stage: StageKey): RebaseState {
   const ticket = getTicket(store, ticketId);
   const runInFlight = latestStageRun(store, ticketId, stage)?.status === 'running';
   const cell = getStage(store, ticketId, stage);

@@ -12,6 +12,7 @@ import { sbxName } from '../../agent/sbx/sbxName.js';
 import { NODE_SBX_PROCESS, type SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import { sbxCloneDir } from '../../agent/sbx/sbxClone.js';
 import { createSbxSessionRunner, SBX_CORES } from '../../agent/sbx/sbxRunner.js';
+import { dockerKillContext } from '../../agent/backendProbe.js';
 import { listProjectSandboxes, type ProjectSandbox } from '../../agent/sandboxInventory.js';
 import type { SandboxChannel } from '../../workflow/messageDelivery.js';
 import { assertNoSandboxResumeOnHost } from '../../agent/sandboxResumeGuard.js';
@@ -26,7 +27,7 @@ import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js'
 import { isServing } from '../../runtime/health.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
-import { clearSetupState, provisionTicketSandbox } from './sandboxSetupOp.js';
+import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, provisionTicketSandbox } from './sandboxSetupOp.js';
 import type { Notify } from './notify.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
@@ -225,6 +226,9 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
   readonly manifest: () => Manifest | undefined;
   readonly onError: (err: unknown) => void;
   readonly notify?: Notify;
+  /** Re-run setup's tail: clear the sandbox-setup block and re-drive the stage. */
+  readonly redriveAfterSetup?: (ticketId: number) => void;
+  readonly openFile?: (path: string) => void;
   /** The two-way sync before a `sandbox: host` gate (`ensureInSync`); lazy because the sync wiring is built after these bindings. */
   readonly ensureInSync?: (ticketId: number) => Promise<EnsureSyncResult>;
   /** The host itself stopped this ticket's sandbox after an accepted marker (arch:AC-37): host gates still run. */
@@ -296,12 +300,20 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     /** arch:AC-36: run the repos' `sandbox.setup` inside the sandbox; refused = a reason, notified once. Host ticket / no notify seam = ok. */
     provision: async (ticketId: number, opts: { readonly signal?: AbortSignal; readonly background?: boolean } = {}) => {
       // `ticketGateProcess` falls back to the HOST runner without a sandbox: never run a setup there.
-      if (!input.notify || !(await resolveTicketSandbox(deps, ticketId)).listed) return { ok: true as const };
+      const { notify } = input;
+      if (!notify || !(await resolveTicketSandbox(deps, ticketId)).listed) return { ok: true as const };
       return provisionTicketSandbox({
         manifest: input.manifest, worktrees: (id) => listWorktreesByTicket(input.store, id), gateProcess: (id) => ticketGateProcess(deps, id),
         bridgeOf: (id) => deps.bridgeOf?.(id), ticketLabel: (id) => { try { return getTicket(input.store, id).key ?? String(id); } catch { return String(id); } },
-        notify: input.notify, ...(input.debug ? { debug: input.debug } : {}),
+        notify,
+        actions: {
+          rerun: async (id) => { await bindings.rerunSetup(id); input.redriveAfterSetup?.(id); },
+          openLog: (path) => input.openFile?.(path),
+          memoryHelp: () => notify.info(DOCKER_MEMORY_HELP_TEXT),
+        },
+        ...(input.debug ? { debug: input.debug } : {}),
         windowOf: (id) => ticketSandboxRunner(deps, id)?.runner,
+        killContextOf: (id) => { return backendForCore(deps.backends(), deps.coreOf(id) ?? '') === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined; },
         turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },
       }, ticketId, opts);
     },
