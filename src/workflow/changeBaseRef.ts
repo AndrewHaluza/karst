@@ -1,11 +1,14 @@
 import type { Store } from '../store/db.js';
 import type { Manifest } from '../manifest/types.js';
+import type { StageKey } from '../model/types.js';
 import type { GitRunner } from '../integrations/git.js';
 import type { GhRunner, PrEditAttempt } from '../integrations/github.js';
 import { updatePrBase } from '../integrations/github.js';
 import { rebaseWorktreeOntoBase, type RebaseResult } from '../runtime/rebaseWorktree.js';
 import { clearMergeCheck } from '../store/mergeChecks.js';
 import { resolveTicketBaseRef } from './baseRef.js';
+import { preShipState } from './rebaseState.js';
+import { getTicket } from '../store/tickets.js';
 
 export interface ChangeBaseRefOpts {
   store: Store;
@@ -19,6 +22,10 @@ export interface ChangeBaseRefOpts {
   git: GitRunner;
   gh?: GhRunner;
   debug?: (line: string) => void;
+  /** Runs after a branch rewrite so a sandbox clone is recreated from the rebased branch. */
+  afterRewrite?: () => Promise<void>;
+  /** True when the sandbox clone holds commits the host branch lacks: refuses a rebase that would drop them. */
+  sandboxUnsynced?: () => Promise<boolean>;
 }
 
 export interface ChangeBaseRefResult {
@@ -48,7 +55,7 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
   if (toBase === '') {
     return { ok: false, fromBase, toBase, rebase: null, prRetarget: null, reason: 'a base branch name is required' };
   }
-  if (toBase === fromBase) {
+  if (toBase === fromBase && opts.rebase === false) {
     return { ok: true, fromBase, toBase, rebase: null, prRetarget: null, reason: '' };
   }
 
@@ -67,10 +74,41 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
   }
 
   debug?.(`[runtime] change base ${repoPath}: ${fromBase} -> ${toBase}`);
+  const sameBase = toBase === fromBase;
+
+  // Same base: the branch is rebased under no running agent, exactly like the
+  // stage-menu "Rebase on base" (in-flight / landed refusals are shared).
+  if (sameBase) {
+    const guard = preShipState(store, ticketId, getTicket(store, ticketId).stageCurrent as StageKey);
+    if (!guard.available && (guard.reason === 'in-flight' || guard.reason === 'landed')) {
+      const reason =
+        guard.reason === 'in-flight'
+          ? 'an agent is working on this ticket — rebase when it is idle'
+          : 'the ticket has already landed — nothing to rebase';
+      return { ok: false, fromBase, toBase, rebase: null, prRetarget: null, reason };
+    }
+  }
 
   let rebase: RebaseResult | null = null;
   if (opts.rebase !== false) {
-    rebase = await rebaseWorktreeOntoBase({ git, cwd: row.path, fromBase, toBase, debug });
+    if (opts.sandboxUnsynced && (await opts.sandboxUnsynced())) {
+      return {
+        ok: false,
+        fromBase,
+        toBase,
+        rebase: null,
+        prRetarget: null,
+        reason: 'the sandbox has commits the host branch lacks — sync or carry them first',
+      };
+    }
+    rebase = await rebaseWorktreeOntoBase({
+      git,
+      cwd: row.path,
+      fromBase,
+      toBase,
+      debug,
+      latest: sameBase,
+    });
     if (rebase.outcome !== 'rebased' && rebase.outcome !== 'already-based') {
       debug?.(`[runtime] change base ${repoPath}: refused — ${rebase.outcome}`);
       return { ok: false, fromBase, toBase, rebase, prRetarget: null, reason: rebase.reason };
@@ -91,6 +129,8 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
   // leave a flag some earlier change already armed exactly as it found it —
   // only `takeForcePushLease`/`armForcePushLease` (ship's push) ever clear it.
   const rebased = rebase?.outcome === 'rebased' ? 1 : 0;
+  // Same base: base_ref is unchanged, so only the force-push flag is armed and
+  // the PR is not re-targeted.
   store.db
     .prepare(
       `UPDATE worktrees
@@ -101,9 +141,27 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
     .run(toBase, rebased, ticketId, repoPath);
   clearMergeCheck(store, ticketId, repoPath);
 
+  if (rebased && opts.afterRewrite) {
+    try {
+      await opts.afterRewrite();
+    } catch (err) {
+      const why = err instanceof Error ? err.message : String(err);
+      return {
+        ok: true,
+        fromBase,
+        toBase,
+        rebase,
+        prRetarget: null,
+        reason: `rebased, but recreating the sandbox failed: ${why}`,
+      };
+    }
+  }
+
   if (rebased) {
     debug?.(`[runtime] change base ${repoPath}: branch rewritten — force push armed`);
   }
+
+  if (sameBase) return { ok: true, fromBase, toBase, rebase, prRetarget: null, reason: '' };
 
   let prRetarget: (PrEditAttempt & { number: number }) | null = null;
   const pr = store.db
@@ -132,7 +190,13 @@ export async function changeBaseRef(opts: ChangeBaseRefOpts): Promise<ChangeBase
  * rewrite reads the same from both.
  */
 export function describeChangeBaseRef(result: ChangeBaseRefResult): string {
-  if (result.toBase === result.fromBase) return `Already based on ${result.toBase}.`;
+  if (result.toBase === result.fromBase) {
+    if (result.rebase === null) return `Base unchanged (${result.toBase}).`;
+    const note = result.reason ? ` ${result.reason}.` : '';
+    return result.rebase.outcome === 'rebased'
+      ? `Rebased onto the latest ${result.toBase}.${note}`
+      : `Already up to date with ${result.toBase}.`;
+  }
   const parts: string[] = [
     result.rebase?.outcome === 'rebased'
       ? `Rebased onto ${result.toBase}.`

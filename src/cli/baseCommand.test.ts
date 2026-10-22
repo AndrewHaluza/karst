@@ -291,6 +291,35 @@ describe('runBaseCommand', () => {
       expect(wt.needs_force_push).toBe(1);
     });
 
+    it('same-base set with --rebase prints the rebase outcome', async () => {
+      const t = createTicket(store, { key: 'T-1', title: 'Ticket', projectId: 1 });
+      addWorktree(t.id, '/repos/api', '/wt/T-1/api', 'karst/T-1', 'develop');
+      let head = 'h1';
+      const git: GitRunner = async (args) => {
+        if (args[0] === 'rebase') head = 'h2';
+        return { stdout: args[0] === 'rev-parse' && args[1] === 'HEAD' ? head : '', stderr: '', exitCode: 0 };
+      };
+      const out = await runBaseCommand(
+        store,
+        fixtureManifest,
+        ['base', 'set', 'api', 'develop', '--rebase', '--ticket', 'T-1'],
+        { git },
+      );
+      expect(out).toBe('Rebased onto the latest develop.');
+    });
+
+    it('same-base set without --rebase says base unchanged', async () => {
+      const t = createTicket(store, { key: 'T-1', title: 'Ticket', projectId: 1 });
+      addWorktree(t.id, '/repos/api', '/wt/T-1/api', 'karst/T-1', 'develop');
+      const out = await runBaseCommand(
+        store,
+        fixtureManifest,
+        ['base', 'set', 'api', 'develop', '--ticket', 'T-1'],
+        { git: fakeGit },
+      );
+      expect(out).toBe('Base unchanged (develop).');
+    });
+
     it('resets a sub-task back to parent branch post-spin', async () => {
       const parent = createTicket(store, { key: 'P-1', title: 'Parent', projectId: 1 });
       addWorktree(parent.id, '/repos/api', '/wt/P-1/api', 'karst/P-1', 'main');

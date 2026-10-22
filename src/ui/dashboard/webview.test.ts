@@ -147,6 +147,11 @@ describe('dashboard webview.html', () => {
     expect(HTML).toMatch(/Build this worktree and open its extension in a new dev window/);
   });
 
+  it('primary base button reads "Rebase onto <base>" when the typed base is the current one', () => {
+    expect(HTML).toContain("'Rebase onto ' + esc(current) : 'Change base'");
+    expect(HTML).toContain("primary.textContent = same ? 'Rebase onto ' + cur : 'Change base'");
+  });
+
   it('renders a base-branch control on the scope card and posts change-base-ref', () => {
     // The label always shows: the worktree's own baseRef, or the manifest
     // default when unset — never an empty cell.
