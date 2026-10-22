@@ -21,6 +21,8 @@ describe('deriveNpmScript', () => {
     expect(deriveNpmScript('npm', ['run', '-w', 'web', 'build'])).toBeNull();
     expect(deriveNpmScript('npm', ['run', '--workspace=web', 'build'])).toBeNull();
     expect(deriveNpmScript('npm', ['run', '--prefix', 'web', 'build'])).toBeNull();
+    expect(deriveNpmScript('pnpm', ['--dir', 'web', 'run', 'build'])).toBeNull();
+    expect(deriveNpmScript('pnpm', ['run', '-d', 'web', 'build'])).toBeNull();
   });
   it('derives nothing for yarn, whose run also launches bins', () => {
     expect(deriveNpmScript('yarn', ['run', 'tsc'])).toBeNull();

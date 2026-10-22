@@ -615,7 +615,10 @@ export async function runUat(
       scriptsAvailable: (script, derived) =>
         scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
       baseRef: stageBaseRef,
-      baseDefinesScript: (script) => baseDefinesScript(git, target.path, stageBaseRef, script),
+      // No manifest means no real base ref: HEAD is the branch itself, so skip the lookup.
+      ...(opts.manifest
+        ? { baseDefinesScript: (script: string) => baseDefinesScript(git, target.path, stageBaseRef, script) }
+        : {}),
       onGateStart: opts.onGateStart,
       onGateOutput: opts.onGateOutput,
       onDebug: opts.debug,

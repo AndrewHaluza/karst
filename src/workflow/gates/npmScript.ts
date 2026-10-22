@@ -2,7 +2,7 @@ import type { GitRunner } from '../../integrations/git.js';
 
 /** Flags that retarget another package or directory: the script then lives somewhere karst does not look. */
 const RETARGETING_FLAGS: ReadonlySet<string> = new Set([
-  '-w', '--workspace', '--workspaces', '-ws', '--prefix', '-C', '--cwd', '--filter', '-F', '-r', '--recursive',
+  '-w', '--workspace', '--workspaces', '-ws', '--prefix', '-C', '--cwd', '--filter', '-F', '--dir', '-d', '-r', '--recursive',
 ]);
 
 /** Flags that consume the next argument as their value (`--flag value`); the value is not the script name. */
