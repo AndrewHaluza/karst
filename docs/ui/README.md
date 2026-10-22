@@ -17,6 +17,8 @@ read a whole file.
 0. **Prototype linked?** Open it and list its regions (`data-region` names), their
    order and stacking. They are binding (`ui:UI-R39`).
 1. **Group L** — `UI-RULES.md` `ui:UI-R39`..`ui:UI-R48`: layout and placement.
+   Below 700 px (split editor groups, down to the 320 px floor) also read **group E**
+   (`ui:UI-R49`..`ui:UI-R56`) and `RESPONSIVE-DENSITY.md` (tiers `ui:RD-TIERS`, ladders `ui:RD-LADDERS`).
 2. **Rules for the touched controls** — the other `UI-RULES.md` blocks, plus
    `UI-INVARIANTS.md` keys that apply.
 3. **Layout primitives** — `DESIGN-SYSTEM.md` `ui:LAYOUT-PRIMITIVES`, then the
@@ -36,6 +38,7 @@ END_DOC_BLOCK: [@ui:README-ORDER]
 | Doc | Read when |
 |---|---|
 | `UI-RULES.md` | Always: group L first, then rules for the controls you touch |
+| `RESPONSIVE-DENSITY.md` | Any width-dependent layout; collapse ladders, tiers, backlog. Evidence in `responsive-audit/README.md`, visual in `RESPONSIVE-DENSITY-EXAMPLE.html` |
 | `DESIGN-SYSTEM.md` | Tokens, primitives, layout primitives |
 | `STYLE-GUIDE.md` | Composition choices; `ui:SG-25` is the review checklist |
 | `UI-INVARIANTS.md` | Rationale, title keys, React views, Getting Started |

@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Responsive density example</title>
+<style>
+/* Tokens: same names as DESIGN-SYSTEM; values are the dark-theme defaults. */
+:root{
+  --k-space-1:2px;--k-space-2:4px;--k-space-3:6px;--k-space-4:8px;--k-space-5:10px;--k-space-6:12px;--k-space-7:16px;--k-space-8:24px;--k-space-9:32px;
+  --k-text-xs:11px;--k-text-sm:12px;--k-text-md:13px;--k-hit-min:24px;--k-border-w:1px;--k-radius-md:4px;--k-radius-lg:6px;
+  --k-bg:#1e1e1e;--k-surface:#252526;--k-text:#cccccc;--k-text-dim:#9d9d9d;--k-border:#3c3c3c;--k-focus:#007fd4;
+  --k-primary:#0e639c;--k-primary-text:#fff;--k-danger:#f14c4c;--k-running:#3794ff;--k-success:#4b9f5a;
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){:root:not([data-theme=dark]){
+  --k-bg:#fff;--k-surface:#f3f3f3;--k-text:#333;--k-text-dim:#6b6b6b;--k-border:#d0d0d0;--k-primary:#0e639c;color-scheme:light}}
+body{margin:0;background:var(--k-bg);color:var(--k-text);font:var(--k-text-md)/1.45 system-ui,sans-serif}
+main{max-width:1240px;margin:0 auto;padding:var(--k-space-7)}
+h1{font-size:18px;margin:0 0 var(--k-space-4)}
+h2{font-size:14px;margin:var(--k-space-8) 0 var(--k-space-4)}
+p.note{color:var(--k-text-dim);margin:var(--k-space-3) 0 var(--k-space-6);max-width:75ch}
+code{font:12px ui-monospace,monospace}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:var(--k-space-7);align-items:start}
+.frame{border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-lg);padding:var(--k-space-3);background:var(--k-bg);overflow:hidden}
+.frame>h3{margin:0 0 var(--k-space-3);font-size:var(--k-text-xs);color:var(--k-text-dim);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.frame img{display:block;max-width:100%;height:auto;border:var(--k-border-w) solid var(--k-border)}
+.tier-box{margin-block:var(--k-space-4)}
+.tier-box>label{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
+/* ---- after-state: dashboard ticket view (real class names) ---- */
+.region{container-type:inline-size;border:var(--k-border-w) dashed var(--k-border);padding:var(--k-space-4);background:var(--k-bg)}
+.region[data-w="1000"]{width:1000px;max-width:100%}
+.region[data-w="700"]{width:700px;max-width:100%}
+.region[data-w="500"]{width:500px;max-width:100%}
+.region[data-w="360"]{width:360px;max-width:100%}
+.region[data-w="320"]{width:320px;max-width:100%}
+
+.k-btn{display:inline-flex;align-items:center;gap:var(--k-space-2);min-height:var(--k-hit-min);min-width:var(--k-hit-min);padding:0 var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface);color:var(--k-text);font:inherit;cursor:pointer;box-sizing:border-box}
+.k-btn:focus-visible{outline:2px solid var(--k-focus);outline-offset:1px}
+.k-btn.primary{background:var(--k-primary);color:var(--k-primary-text);border-color:transparent}
+.k-btn.danger{color:var(--k-danger)}
+.k-ico{width:14px;height:14px;flex:none;display:inline-block;border-radius:2px;background:currentColor;opacity:.8}
+.k-agent-core{display:inline-flex;align-items:center;gap:var(--k-space-2);min-width:0;color:var(--k-running)}
+.k-agent-core .name,.k-agent-core .model{white-space:nowrap}
+.k-agent-core .model::before{content:"· ";color:var(--k-text-dim)}
+.k-agent-core .model-short{display:none}
+
+header.top{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--k-space-4) var(--k-space-6);align-items:center}
+.ticketTitle{margin:0;font-size:16px;line-height:1.3;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;min-width:0}
+.ticketTitle .tid{font-weight:700;margin-right:var(--k-space-3);white-space:nowrap}
+.headerActions{display:flex;align-items:center;gap:var(--k-space-3);min-width:0}
+.k-act .lbl{display:inline}
+
+/* ladder: action row (priority hides, ⋯ shows) */
+.k-actions .more{display:inline-flex}
+.k-actions .k-act[data-priority="3"]{display:inline-flex}
+@container (max-width:999px){ .k-actions .k-act[data-priority="3"]{display:none} }
+@container (max-width:699px){ .k-actions .k-act[data-priority="2"] .lbl{display:none} }
+@container (max-width:399px){ .k-actions .k-act[data-priority="2"]{display:none} }
+.k-actions .more{display:none}
+@container (max-width:999px){ .k-actions .more{display:inline-flex} }
+.menu-hint{font-size:var(--k-text-xs);color:var(--k-text-dim)}
+
+/* ladder: core identity */
+@container (max-width:999px){ .k-agent-core .model-long{display:none} .k-agent-core .model-short{display:inline} }
+@container (max-width:699px){ .k-agent-core .model{display:none} }
+@container (max-width:399px){ .k-agent-core .name{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)} }
+
+/* ladder: header wraps at narrow */
+@container (max-width:699px){ header.top{grid-template-columns:minmax(0,1fr)} }
+
+/* ladder: time */
+time.k-time::after{content:attr(data-abs)}
+@container (max-width:999px){ time.k-time::after{content:attr(data-abs-short)} }
+@container (max-width:699px){ time.k-time::after{content:attr(data-rel)} }
+@container (max-width:399px){ time.k-time::after{content:attr(data-rel-short)} }
+
+/* ladder: numbers */
+.k-num::after{content:attr(data-wide)}
+@container (max-width:999px){ .k-num::after{content:attr(data-mid)} }
+@container (max-width:699px){ .k-num::after{content:attr(data-narrow)} }
+@container (max-width:399px){ .k-num::after{content:attr(data-tight)} }
+
+/* stage rail */
+.stepper{display:flex;gap:var(--k-space-3);margin-block:var(--k-space-5);align-items:center;flex-wrap:wrap}
+.step{display:inline-flex;align-items:center;gap:var(--k-space-2);font-size:var(--k-text-xs);color:var(--k-text-dim)}
+.step i{width:8px;height:8px;border-radius:50%;background:var(--k-border);display:inline-block}
+.step.done i{background:var(--k-success)}
+.step.cur{color:var(--k-text);font-weight:600}
+.step.cur i{background:var(--k-running)}
+.step .full{display:inline}.step .short{display:none}
+@container (max-width:699px){ .step:not(.cur) .full,.step:not(.cur) .short{display:none} .step.cur .full{display:none} .step.cur .short{display:inline} }
+.stage-line{display:none;font-size:var(--k-text-xs);color:var(--k-text-dim)}
+@container (max-width:399px){ .stage-line{display:block} .step.cur .short{display:none} }
+
+/* #inside session row */
+.session-head{display:grid;grid-template-columns:20px auto minmax(0,1fr) auto;gap:var(--k-space-4);align-items:center;padding:var(--k-space-4);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-md);background:var(--k-surface)}
+.session-head .sid{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.session-head .meta{display:flex;gap:var(--k-space-4);align-items:center;white-space:nowrap}
+.glyph{color:var(--k-running)}
+@container (max-width:699px){
+  .session-head{grid-template-columns:20px minmax(0,1fr) auto}
+  .session-head .k-agent-core{grid-column:2;grid-row:2}
+}
+@container (max-width:399px){
+  .session-head{grid-template-columns:20px minmax(0,1fr)}
+  .session-head .meta{grid-column:2;flex-wrap:wrap;white-space:normal}
+  .session-head .k-agent-core{grid-column:2}
+}
+.k-path{display:flex;min-width:0}
+.k-path-head{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.k-path-tail{flex:none;white-space:nowrap}
+.legend{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-4)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Responsive density — before / after</h1>
+  <p class="note">Spec: <code>RESPONSIVE-DENSITY.md</code>. Evidence: <code>responsive-audit/README.md</code>. <strong>Before</strong> = real dashboard screenshots (<code>responsive-audit/dashboard-running/&lt;width&gt;.png</code>, dark, scenario <em>running</em>). <strong>After</strong> = the spec'd dashboard ticket view per tier, rendered with real class names (<code>.k-agent-core</code>, <code>.k-btn</code>, <code>.ticketTitle</code>, <code>.headerActions</code>, <code>.stepper</code>, <code>.session-head</code>) and <code>--k-*</code> tokens. Each box below is its own <code>container-type:inline-size</code> region, so the page window width does not matter: the ladder follows the box. This page demonstrates the ladders in CSS only; the shipped primitives (<code>ui:RD-PRIMITIVES</code>) render them from the same container width.</p>
+
+  <h2>Before: real views</h2>
+  <div class="pair">
+    <div class="frame"><h3>1212 px — 1 group (ok)</h3><img src="responsive-audit/dashboard-running/1212.png" alt="Dashboard at 1212 px"></div>
+    <div class="frame"><h3>600 px — title collapses to “A…”, session row overlaps</h3><img src="responsive-audit/dashboard-running/600.png" alt="Dashboard at 600 px"></div>
+    <div class="frame"><h3>400 px — session row one character per line</h3><img src="responsive-audit/dashboard-running/400.png" alt="Dashboard at 400 px"></div>
+    <div class="frame"><h3>320 px — sideways scroll (natural min 382)</h3><img src="responsive-audit/dashboard-running/320.png" alt="Dashboard at 320 px"></div>
+  </div>
+
+  <h2>After: spec'd ticket view per tier</h2>
+
+  <div class="tier-box"><label>wide · container 1000 px</label>
+  <div class="region" data-w="1000">
+    <header class="top">
+      <h1 class="ticketTitle"><span class="tid">T942017</span>FEAT-142 Add per-repo base branch override to the worktree picker</h1>
+      <div class="headerActions k-actions">
+        <button class="k-btn k-act" data-priority="1" aria-label="Switch agent"><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span></button>
+        <button class="k-btn k-act" data-priority="2" aria-label="Pause"><span class="k-ico"></span><span class="lbl">Pause</span></button>
+        <button class="k-btn k-act" data-priority="3" aria-label="Open worktree"><span class="k-ico"></span><span class="lbl">Open worktree</span></button>
+        <button class="k-btn more" aria-label="More actions" aria-haspopup="menu"><span class="k-ico"></span></button>
+      </div>
+    </header>
+    <div class="stepper"><span class="step done"><i></i><span class="full">PLANNING</span></span><span class="step cur"><i></i><span class="full">IMPLEMENTATION</span><span class="short">IMPL</span></span><span class="step"><i></i><span class="full">REVIEW</span></span><span class="step"><i></i><span class="full">SHIP</span></span><span class="stage-line">IMPL · 3/7</span></div>
+    <div class="session-head"><span class="glyph" aria-label="running">●</span><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span><span class="sid">session k-9f2e</span><span class="meta"><span class="k-num" title="1,234,567 tokens" data-wide="1,234,567 tok" data-mid="1.2M tok" data-narrow="1.2M" data-tight="Σ 1.2M"></span><time class="k-time" datetime="2026-10-23T12:05:09Z" title="2026-10-23 12:05:09 UTC" data-abs="2026-10-23 12:05" data-abs-short="Oct 23, 12:05" data-rel="2h ago" data-rel-short="2h"></time></span></div>
+    <div class="legend">core: icon + name + model · time: absolute · tokens exact · actions: all labelled</div>
+  </div></div>
+
+  <div class="tier-box"><label>mid · container 700 px</label>
+  <div class="region" data-w="700">
+    <header class="top">
+      <h1 class="ticketTitle"><span class="tid">T942017</span>FEAT-142 Add per-repo base branch override to the worktree picker</h1>
+      <div class="headerActions k-actions">
+        <button class="k-btn k-act" data-priority="1" aria-label="Switch agent"><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span></button>
+        <button class="k-btn k-act" data-priority="2" aria-label="Pause"><span class="k-ico"></span><span class="lbl">Pause</span></button>
+        <button class="k-btn k-act" data-priority="3" aria-label="Open worktree"><span class="k-ico"></span><span class="lbl">Open worktree</span></button>
+        <button class="k-btn more" aria-label="More actions" aria-haspopup="menu"><span class="k-ico"></span></button>
+      </div>
+    </header>
+    <div class="stepper"><span class="step done"><i></i><span class="full">PLANNING</span></span><span class="step cur"><i></i><span class="full">IMPLEMENTATION</span><span class="short">IMPL</span></span><span class="step"><i></i><span class="full">REVIEW</span></span><span class="step"><i></i><span class="full">SHIP</span></span></div>
+    <div class="session-head"><span class="glyph" aria-label="running">●</span><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span><span class="sid">session k-9f2e</span><span class="meta"><span class="k-num" title="1,234,567 tokens" data-wide="1,234,567 tok" data-mid="1.2M tok" data-narrow="1.2M" data-tight="Σ 1.2M"></span><time class="k-time" datetime="2026-10-23T12:05:09Z" title="2026-10-23 12:05:09 UTC" data-abs="2026-10-23 12:05" data-abs-short="Oct 23, 12:05" data-rel="2h ago" data-rel-short="2h"></time></span></div>
+    <div class="legend">mid: model shortened (<code>Opus 4.1</code>) · date short · tokens <code>1.2M tok</code> · priority-3 action → ⋯</div>
+  </div></div>
+
+  <div class="tier-box"><label>narrow · container 500 px</label>
+  <div class="region" data-w="500">
+    <header class="top">
+      <h1 class="ticketTitle"><span class="tid">T942017</span>FEAT-142 Add per-repo base branch override to the worktree picker</h1>
+      <div class="headerActions k-actions">
+        <button class="k-btn k-act" data-priority="1" aria-label="Switch agent: Claude Code · Claude Opus 4.1" title="Claude Code · Claude Opus 4.1"><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span></button>
+        <button class="k-btn k-act" data-priority="2" aria-label="Pause" title="Pause"><span class="k-ico"></span><span class="lbl">Pause</span></button>
+        <button class="k-btn k-act" data-priority="3" aria-label="Open worktree"><span class="k-ico"></span><span class="lbl">Open worktree</span></button>
+        <button class="k-btn more" aria-label="More actions" aria-haspopup="menu"><span class="k-ico"></span></button>
+      </div>
+    </header>
+    <div class="stepper"><span class="step done"><i></i><span class="full">PLANNING</span></span><span class="step cur"><i></i><span class="full">IMPLEMENTATION</span><span class="short">IMPL</span></span><span class="step"><i></i><span class="full">REVIEW</span></span><span class="step"><i></i><span class="full">SHIP</span></span></div>
+    <div class="session-head"><span class="glyph" aria-label="running">●</span><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span><span class="sid">session k-9f2e</span><span class="meta"><span class="k-num" title="1,234,567 tokens" data-wide="1,234,567 tok" data-mid="1.2M tok" data-narrow="1.2M" data-tight="Σ 1.2M"></span><time class="k-time" datetime="2026-10-23T12:05:09Z" title="2026-10-23 12:05:09 UTC" data-abs="2026-10-23 12:05" data-abs-short="Oct 23, 12:05" data-rel="2h ago" data-rel-short="2h"></time></span></div>
+    <div class="legend">narrow: header stacks (title first) · core = icon + name · secondary action icon-only · time <code>2h ago</code> · tokens <code>1.2M</code> · stage rail labels only the current stage (<code>IMPL</code>)</div>
+  </div></div>
+
+  <div class="tier-box"><label>tight · container 360 px</label>
+  <div class="region" data-w="360">
+    <header class="top">
+      <h1 class="ticketTitle"><span class="tid">T942017</span>FEAT-142 Add per-repo base branch override to the worktree picker</h1>
+      <div class="headerActions k-actions">
+        <button class="k-btn k-act" data-priority="1" aria-label="Switch agent: Claude Code · Claude Opus 4.1" title="Claude Code · Claude Opus 4.1"><span class="k-agent-core"><span class="k-ico"></span><span class="name">Claude Code</span><span class="model"><span class="model-long">Claude Opus 4.1</span><span class="model-short">Opus 4.1</span></span></span></button>
+        <button class="k-btn k-act" data-priority="2" aria-label="Pause"><span class="k-ico"></span><span class="lbl">Pause</span></button>
+        <button class="k-btn k-act" data-priority="3" aria-label="Open worktree"><span class="k-ico"></span><span class="lbl">Open worktree</span></button>
+        <button class="k-btn more" aria-label="More actions" aria-haspopup="menu"><span class="k-ico"></span></button>
+      </div>
+    </header>
+    <div class="stepper"><span class="step done"><i></i><span class="full">PLANNING</span></span><span class="step cur"><i></i><span class="full">IMPLEMENTATION</span><span class="short">IMPL</span></span><span class="step"><i></i><span class="full">REVIEW</span></span><span class="step"><i></i><span class="full">SHIP</span></span><span class="stage-line">IMPL · 3/7</span></div>
+    <div class="session-head"><span class="glyph" aria-label="running">●</span><span class="sid">session k-9f2e</span><span class="meta"><span class="k-agent-core" title="Claude Code · Claude Opus 4.1" aria-label="Claude Code"><span class="k-ico"></span><span class="name">Claude Code</span></span><span class="k-num" title="1,234,567 tokens" data-wide="1,234,567 tok" data-mid="1.2M tok" data-narrow="1.2M" data-tight="Σ 1.2M"></span><time class="k-time" datetime="2026-10-23T12:05:09Z" title="2026-10-23 12:05:09 UTC" data-abs="2026-10-23 12:05" data-abs-short="Oct 23, 12:05" data-rel="2h ago" data-rel-short="2h"></time></span></div>
+    <div class="legend">tight: core icon-only (name stays as accessible name, tooltip <code>Claude Code · Claude Opus 4.1</code>) · primary + ⋯ only · time <code>2h</code> · session row is two lines, never one character per line · dots + <code>IMPL · 3/7</code> stage line</div>
+  </div></div>
+
+  <h2>Path, middle ellipsis (tight)</h2>
+  <div class="region" data-w="320">
+    <div class="k-path" title="src/ui/dashboard/subdir/another/webview.html"><span class="k-path-head" dir="ltr">src/ui/dashboard/subdir/another/</span><span class="k-path-tail">webview.html</span></div>
+    <div class="legend">file name never truncated; head ellipsises; full path in tooltip and <code>aria-label</code>.</div>
+  </div>
+</main>
+</body>
+</html>
