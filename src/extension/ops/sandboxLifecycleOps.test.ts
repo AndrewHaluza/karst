@@ -3,7 +3,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import type { ProjectSandbox, SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
-  backendKindOf, cleanupOrphansOp, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
+  backendKindOf, cleanupOrphansOp, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
@@ -375,5 +375,38 @@ describe('idleSandboxes', () => {
   it('exactly at the threshold is not idle; unknown ticket is never idle', () => {
     expect(idleSandboxes(inv, [{ id: 1, updatedAtMs: H, sessionOpen: false }], () => true, 3 * H, 2 * H)).toEqual([]);
     expect(idleSandboxes({ sandboxes: [box(9)], errors: [] }, tickets, () => true, 3 * H, 2 * H)).toEqual([]);
+  });
+});
+
+describe('onDoneOp (arch:AC-37)', () => {
+  it('merged → removes the sandbox without a pre-sync and drops the bridge dir', async () => {
+    const { d, acted } = deps();
+    await expect(onDoneOp(d, target, true)).resolves.toBe(true);
+    expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(true);
+    expect(acted().some((l) => l.includes('bundle'))).toBe(false);
+    expect(d.bridges.dispose).toHaveBeenCalledWith(7);
+  });
+  it('unmerged → stop only, never rm', async () => {
+    const { d, acted } = deps();
+    await onDoneOp(d, target, false);
+    expect(acted().some((l) => l.startsWith('sbx stop'))).toBe(true);
+    expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(false);
+    expect(d.bridges.dispose).not.toHaveBeenCalled();
+  });
+});
+
+describe('removeDoneMergedSandboxes', () => {
+  const targetOf = (id: number, core: string) => ({ ticketId: id, ticketLabel: `T-${id}`, core, worktree: undefined });
+  it('removes by name a done+merged ticket sandbox that has no clone record; others stay', async () => {
+    const { d, acted } = deps();
+    const debug = vi.fn();
+    await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf, debug)).resolves.toBe(1);
+    expect(acted().filter((l) => l.startsWith('sbx rm'))).toEqual([expect.stringContaining(name(7))]);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('no clone record'));
+  });
+  it("leaves another window's ticket alone", async () => {
+    const { d, acted } = deps({ owns: () => false });
+    await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf)).resolves.toBe(0);
+    expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(false);
   });
 });

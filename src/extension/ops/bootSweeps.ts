@@ -300,6 +300,8 @@ export interface BridgeSweepDeps {
   readonly bridges: Pick<BridgeRegistry, 'sweep'>;
   /** Tickets whose session this window owns: only those are re-attached. */
   readonly owned: ReadonlySet<number>;
+  /** Tickets whose sandbox is still listed: their dirs are kept. */
+  readonly sandboxTicketIds?: () => Promise<ReadonlySet<number>>;
   readonly info: (message: string) => void;
   readonly logError: (message: string, err: unknown) => void;
 }
@@ -313,7 +315,8 @@ export interface BridgeSweepDeps {
  */
 export async function runBridgeSweep(deps: BridgeSweepDeps): Promise<void> {
   try {
-    const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), deps.owned);
+    const keep = deps.sandboxTicketIds ? await deps.sandboxTicketIds() : undefined;
+    const { reattached, removed } = await deps.bridges.sweep(openBridgeTicketIds(deps.store), deps.owned, keep);
     if (reattached.length > 0) deps.info(`karst: re-attached sandbox evidence bridge(s) for ticket(s) ${reattached.join(', ')}`);
     if (removed.length > 0) deps.info(`karst: removed sandbox evidence bridge(s) of closed ticket(s) ${removed.join(', ')}`);
   } catch (err) {

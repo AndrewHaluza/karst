@@ -5,6 +5,7 @@ import { parseDbTimeMs } from '../../doctor/applyFixes.js';
 import { STUCK_IDLE_MINUTES } from '../../doctor/stuckCheck.js';
 import { getTicket, listTickets, setSessionId } from '../../store/tickets.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { doneMergedTicketIds, isDoneMerged } from '../../store/doneMerged.js';
 import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
@@ -17,7 +18,7 @@ import { carrySandboxOp } from './sandboxCarryOp.js';
 import { recreateSandboxNoSync, sandboxHasUnsynced } from './sandboxRebaseOps.js';
 import { runSandboxReconcile } from './bootSweeps.js';
 import {
-  cleanupOrphansOp, idleSandboxes, inventoryOf, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
+  cleanupOrphansOp, idleSandboxes, inventoryOf, onDoneOp, removeDoneMergedSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp, type Choose, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
 export interface SandboxWiringInput {
@@ -112,7 +113,9 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   const clearSession = (id: number): void => setSessionId(w.store, id, null, null);
   const liveTickets = () => {
     const projectId = w.projectId();
-    return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null);
+    // A done+merged ticket is not live: a sandbox it still has is an orphan to clean up (arch:AC-37).
+    const merged = doneMergedTicketIds(w.store);
+    return projectId === undefined ? [] : listTickets(w.store, { projectId }).filter((t) => t.archivedAt === null && !merged.has(t.id));
   };
   /** The target with its core read from the runners' listing (sessionProvider is only a hint: null after a reload). */
   const resolved = async (ticketId: number, projectRoot: string): Promise<SandboxSyncTarget> => {
@@ -257,7 +260,27 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
       await disposeSandboxOp({ notify: w.notify, bridges: w.bridges(), projectRoot }, t);
     },
     beforeArchive: async (ticketId: number): Promise<boolean> => { const d = deps(); return d ? removeSandboxGuarded(d, await resolved(ticketId, d.projectRoot)) : true; },
-    onDone: (ticketId: number): void => { const d = deps(); if (d) void resolved(ticketId, d.projectRoot).then((t) => stopSandboxOp(d, t)).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
+    /** Done: merged → remove (verified), else stop only (arch:AC-37). */
+    onDone: (ticketId: number): void => { const d = deps(); if (d) void resolved(ticketId, d.projectRoot).then((t) => onDoneOp(d, t, isDoneMerged(w.store, ticketId))).catch((err: unknown) => w.logError('karst: sandbox stop on done failed', err)); },
+    /** Activation backfill: remove sandboxes that done+merged tickets still hold. Never throws. */
+    removeDoneMerged: async (): Promise<void> => {
+      const d = deps();
+      if (!d || w.projectId() === undefined) return;
+      try {
+        const n = await removeDoneMergedSandboxes(d, doneMergedTicketIds(w.store), (id, core) => ({ ...target(id), core }), w.info);
+        if (n > 0) w.info(`karst: removed ${n} sandbox(es) of done+merged ticket(s)`);
+      } catch (err) {
+        w.logError('karst: removing sandboxes of done+merged tickets failed', err);
+      }
+    },
+    /** Tickets whose sandbox is still listed: the bridge sweep keeps their dirs. */
+    sandboxTicketIds: async (): Promise<ReadonlySet<number>> => {
+      const d = deps();
+      if (!d) return new Set();
+      const inv = await inventoryOf(d);
+      for (const e of inv.errors) w.info(`karst: sandbox listing: ${e}`);
+      return new Set(inv.sandboxes.map((b) => b.ticketId));
+    },
     onProviderSwitch: async (ticketId: number, newCore: string): Promise<boolean> => {
       const d = deps();
       return d ? switchProviderOp({ ...d, clearSession }, await resolved(ticketId, d.projectRoot), newCore) : true;
