@@ -39,10 +39,11 @@ if (process.argv.includes('--inner-run-tests')) {
 }
 
 const fixture = argValue('--fixture');
+const fixtureFileArg = argValue('--fixture-file');
 const scriptArg = argValue('--script');
 const outArg = argValue('--out');
-if (!fixture || !FIXTURES.includes(fixture) || Boolean(scriptArg) !== Boolean(outArg)) {
-  console.error(`usage: run.mjs --fixture <${FIXTURES.join('|')}> [--script <steps.json> --out <dir>]`);
+if (Boolean(fixture) === Boolean(fixtureFileArg) || (fixture && !FIXTURES.includes(fixture)) || Boolean(scriptArg) !== Boolean(outArg)) {
+  console.error(`usage: run.mjs (--fixture <${FIXTURES.join('|')}> | --fixture-file <fixture.json>) [--script <steps.json> --out <dir>]`);
   process.exit(2);
 }
 // Probe only when a script is given; the flag is what registers the command in the host.
@@ -51,6 +52,15 @@ if (!fixture || !FIXTURES.includes(fixture) || Boolean(scriptArg) !== Boolean(ou
 // nothing to cite. Resolve (and refuse) before the env below is built.
 let probeScriptPath;
 let probeOutPath;
+let fixtureFilePath;
+if (fixtureFileArg) {
+  try {
+    fixtureFilePath = resolveInsideCheckout(fixtureFileArg, repoRoot);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(2);
+  }
+}
 if (scriptArg) {
   try {
     probeScriptPath = resolveInsideCheckout(scriptArg, repoRoot);
@@ -110,7 +120,7 @@ try {
   // Electron ABI the extension host will use (arch:ABI-01).
   const prep = spawnSync(
     vscodeExecutablePath,
-    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), '--fixture', fixture, '--root', join(root, 'fixture'), '--db', dbPath],
+    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), ...(fixtureFilePath ? ['--fixture-file', fixtureFilePath] : ['--fixture', fixture]), '--root', join(root, 'fixture'), '--db', dbPath],
     { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8' },
   );
   if (prep.status !== 0) throw new Error(`prepare failed (${prep.status}): ${prep.stderr}`);

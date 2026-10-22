@@ -1,0 +1,11 @@
+{
+  "tickets": [
+    {
+      "key": "FIX-STRANDED",
+      "title": "Fixture: uat running with no runs for the attempt",
+      "stageCurrent": "uat",
+      "worktree": true,
+      "stages": [{ "stageKey": "uat", "status": "running", "attempt": 1 }]
+    }
+  ]
+}

@@ -7,7 +7,9 @@ export type WaitCondition =
 export type Step =
   | { type: 'command'; command: string; args?: unknown[]; timeoutMs?: number }
   | { type: 'wait'; for: WaitCondition; timeoutMs?: number }
-  | { type: 'snapshot'; label?: string };
+  | { type: 'snapshot'; label?: string }
+  /** Deactivate + activate the extension in the same host, so boot sweeps run against the seeded state. */
+  | { type: 'restart'; timeoutMs?: number };
 
 export const DEFAULT_STEP_TIMEOUT_MS = 10_000;
 export const MAX_STEP_TIMEOUT_MS = 60_000;
@@ -60,6 +62,8 @@ export function parseSteps(json: unknown): Step[] {
         return { type: 'wait', for: parseCondition(raw['for'], at), ...withTimeout };
       case 'snapshot':
         return { type: 'snapshot', ...(typeof raw['label'] === 'string' ? { label: raw['label'] } : {}) };
+      case 'restart':
+        return { type: 'restart', ...withTimeout };
       default:
         throw new Error(`${at}: unknown step type "${String(raw['type'])}"`);
     }

@@ -14,7 +14,7 @@ const git = (args: string[], cwd?: string): void => {
   execFileSync('git', args, { cwd, env: GIT_ENV, stdio: 'pipe' });
 };
 
-export function buildWorkspace(root: string): Workspace {
+export function buildWorkspace(root: string, provider?: string): Workspace {
   const remoteDir = join(root, 'remote.git');
   const workspaceDir = join(root, 'workspace');
   const repoDir = join(workspaceDir, 'repo');
@@ -28,6 +28,6 @@ export function buildWorkspace(root: string): Workspace {
   git(['remote', 'add', 'origin', remoteDir], repoDir);
   git(['push', '-u', 'origin', 'main'], repoDir);
   mkdirSync(join(workspaceDir, '.karst'), { recursive: true });
-  writeFileSync(manifestPath, manifestText(repoDir));
+  writeFileSync(manifestPath, manifestText(repoDir, provider));
   return { workspaceDir, repoDir, remoteDir, manifestPath };
 }
