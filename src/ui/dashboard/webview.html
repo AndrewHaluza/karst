@@ -11,6 +11,9 @@
   /*KARST_AGENT_CSS*/
   /*KARST_AGENT_PICKER_CSS*/
   /*KARST_SERVER_LOGS_VIEW_CSS*/
+  /*KARST_DASHBOARD_APP_CSS*/
+
+  #root{display:contents}
 
   :root{
     /* Status colors come from the shared ramp (--k-pending|running|attention|
@@ -1278,6 +1281,7 @@
   /* ≤699 stacks label-above-value (UI-R43): a two-column grid at a narrow page
      width would crush the value column to nothing. */
   @media (max-width: 699px){
+    .grid{grid-template-columns:1fr}
     #inside .sp-row{grid-template-columns:minmax(0,1fr);gap:var(--k-border-w)}
     #inside .sp-label{text-transform:none}
   }
@@ -2123,6 +2127,8 @@
   <div class="fault blocked hidden" id="blocked"></div>
 </div>
 
+<div id="root"></div>
+
 <div class="grid">
   <!-- The sub-tasks this ticket delegated (design NDL-70 §8). Rendered only
        while it has sub-tasks OR can still gain one (host-derived
@@ -2135,8 +2141,6 @@
     <div class="pbody" id="subtasks"></div>
   </div>
   <div class="panel svpanel"><div class="phead">Servers<span class="count" id="srvCount"></span><span class="pops" id="srvOps"></span></div><div class="pbody" id="servers"></div></div>
-  <!-- Sandbox backend (arch:AC-32): where this ticket's session runs. Hidden for a host project. -->
-  <div class="panel hidden" id="sandboxPanel" data-region="sandbox"><div class="phead">Sandbox<span class="pops" id="sandboxOps"></span></div><div class="pbody" id="sandboxBody"></div></div>
   <!-- The count is a direct child of .phead, like every other panel's: nested in
        a wrapper its `margin-left:auto` had nothing to push against, so it read
        as "Worktrees2" and the button sat wherever the text ended. -->
@@ -2212,6 +2216,9 @@
   // globals; every control posts through a typed `karstSend.<name>(...)`
   // sender, so a renamed message field is a tsc error instead of a silent drop.
   /*KARST_WEBVIEW_SEND_DASHBOARD*/
+
+  // Dashboard React app bundle (phase 1 foundation).
+  /*KARST_DASHBOARD_APP*/
 
   // Single source for the copy-confirmation toast text — two call sites show
   // it (a floating toast and an inline button label), and both must say the
@@ -4029,22 +4036,11 @@
       + `</div></div>`;
   }
 
-  // Sandbox card: the configured placement (backend, workspace mode, network) and the
-  // actions on this ticket's sandbox. Remove is guarded host-side (syncs first, asks
-  // before dropping unsynced commits). Absent for a host project.
+  // Sandbox strip (V1, React): rendered into #root by the dashboard React app.
   function renderSandbox(sb) {
-    el('sandboxPanel').classList.toggle('hidden', !sb);
-    if (!sb) return;
-    el('sandboxBody').innerHTML = `<div class="sub"><strong>${esc(sb.backend)}</strong> · ${esc(sb.core)} · workspace: ${esc(sb.workspace)} · network: ${esc(sb.network)}</div>`
-      + (sb.note ? `<div class="sub">${esc(sb.note)} — runs prompted on the host.</div>` : '');
-    el('sandboxOps').innerHTML = sb.actions
-      ? iact('sandbox-sync', null, 'Sync sandbox commits into the worktree', 'refresh')
-        + iact('sandbox-diff', null, 'Show what a sync would bring in', 'git-compare')
-        + iact('sandbox-stop', null, 'Stop the sandbox (kept for the next open)', 'player-stop')
-        + iact('sandbox-stash-update', null, 'Stash sandbox changes and update from the host', 'archive')
-        + iact('sandbox-remove', null, 'Remove the sandbox', 'trash')
-        + (sb.carry ? iact('sandbox-carry', null, 'Carry sandbox commits onto host branch', 'corner-down-right') : '')
-      : '';
+    const p = el('sandboxPanel');
+    if (!p) return;
+    p.classList.toggle('hidden', !sb);
   }
 
   function renderWorktrees(wts) {
