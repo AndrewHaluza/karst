@@ -817,7 +817,7 @@ describe('runReview', () => {
   });
 
   it('tells the gate runner which scripts the repository actually defines', async () => {
-    let available: ((script: string) => boolean) | undefined;
+    let available: ((script: string, derived: boolean) => boolean) | undefined;
     await runReview(
       store,
       { ticketId: id, cwd: '/wt/web', artifactDir },
@@ -831,8 +831,8 @@ describe('runReview', () => {
         },
       }),
     );
-    expect(available?.('lint')).toBe(true);
-    expect(available?.('e2e')).toBe(false);
+    expect(available?.('lint', false)).toBe(true);
+    expect(available?.('e2e', false)).toBe(false);
   });
 
   it('surfaces the changes of every target it reviewed, and records that as evidence', async () => {

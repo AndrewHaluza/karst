@@ -1,4 +1,5 @@
 import type { BlockerKind } from '../../model/types.js';
+import { deriveNpmScript } from './npmScript.js';
 import type { ScriptProbe } from './probe.js';
 
 export type GateKind = 'script' | 'command';
@@ -32,6 +33,8 @@ export interface ResolvedGate {
   args: readonly string[];
   /** The package.json script this needs, or null for a command gate. */
   script: string | null;
+  /** True when `script` was derived from a command gate's `npm run <name>` rather than declared as `kind: script`. */
+  derivedScript?: true;
   /**
    * True when the caller NAMED this gate. A configured gate whose script is
    * absent is a failure — the config names a question the repo cannot answer. A
@@ -49,11 +52,14 @@ export type GateResolution =
 function resolveDeclared(gate: DeclaredGate): ResolvedGate {
   if (gate.kind === 'command') {
     // Spawned without a shell, so there is no quoting surface to get wrong.
+    const args = gate.args ?? [];
+    const derived = deriveNpmScript(gate.command!, args);
     return {
       name: gate.name,
       command: gate.command!,
-      args: gate.args ?? [],
-      script: null,
+      args,
+      script: derived,
+      ...(derived !== null ? { derivedScript: true as const } : {}),
       required: true,
       ...hostMark(gate),
     };

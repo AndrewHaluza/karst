@@ -15,6 +15,8 @@ import { nowIso } from '../../model/time.js';
 import { collapseDiagnostic } from '../../model/diagnosticText.js';
 import { summarizeGateFailure } from '../../model/gateSummary.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { baseDefinesScript } from '../gates/npmScript.js';
+import { resolveTicketBaseRef } from '../baseRef.js';
 import { defaultGitRunner, type GitRunner } from '../../integrations/git.js';
 import { probeScripts, type ScriptProbe } from '../gates/probe.js';
 import { runGateList } from '../gates/runList.js';
@@ -459,6 +461,9 @@ export async function runReview(
     }
 
     const scripts = scriptProbe.kind === 'ok' ? scriptProbe.scripts : {};
+    const stageBaseRef = opts.manifest
+      ? resolveTicketBaseRef(store, opts.ticketId, target.repo, opts.manifest)
+      : 'HEAD';
     opts.debug?.(
       `[gate] review ticket ${opts.ticketId}: target ${label} — ${resolution.gates.length} gate(s)` +
         (resolution.skipped.length > 0 ? `, ${resolution.skipped.length} disabled` : ''),
@@ -466,7 +471,13 @@ export async function runReview(
     const run = await runGates(resolution.gates, target.path, {
       signal: opts.signal,
       now,
-      scriptsAvailable: (script) => scripts[script] !== undefined,
+      scriptsAvailable: (script, derived) =>
+        scriptProbe.kind === 'ok' ? scripts[script] !== undefined : derived,
+      baseRef: stageBaseRef,
+      // No manifest means no real base ref: HEAD is the branch itself, so skip the lookup.
+      ...(opts.manifest
+        ? { baseDefinesScript: (script: string) => baseDefinesScript(git, target.path, stageBaseRef, script) }
+        : {}),
       onGateStart: opts.onGateStart,
       onGateOutput: opts.onGateOutput,
       onDebug: opts.debug,

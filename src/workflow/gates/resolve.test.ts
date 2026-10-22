@@ -169,3 +169,15 @@ describe('resolveGates sandbox mark (arch:AC-36)', () => {
     expect('sandbox' in r.gates[1]!).toBe(false);
   });
 });
+
+describe('resolveGates: command gate derives its npm script', () => {
+  it('sets script + derivedScript for npm run -s x -- --check', () => {
+    const res = resolveGates(
+      { kind: 'ok', scripts: {} },
+      [{ name: 'docs-graph', kind: 'command', command: 'npm', args: ['run', '-s', 'docs:graph', '--', '--check'] }],
+      [],
+    );
+    if (res.kind !== 'gates') throw new Error('expected gates');
+    expect(res.gates[0]).toMatchObject({ script: 'docs:graph', derivedScript: true });
+  });
+});
