@@ -21,7 +21,7 @@ How a ticket's worktree is cut, named, and cleaned up, and how the servers and c
 - in: @arch:ST-00, @arch:WORKTREES-ROW — SQLite registry owns worktree rows, port allocations, and server tracking.
 - in: @arch:STAGEMACH, @arch:UAT-SERVICES — stage lifecycle triggers worktree creation, spins services for test/impl, and cleans up on completion.
 - out: @arch:BASEBRANCH, @arch:ENVOVR — worktree rows and ticket env overrides feed rebase and process environment layering.
-- out: @arch:GH-01, @arch:SHIP-EXCLUDE — branch conventions, unstageable generated paths, and force-with-lease push safety feed ship and PR creation.
+- out: @arch:GH-00, @arch:SHIP-EXCLUDE — branch conventions, unstageable generated paths, and force-with-lease push safety feed ship and PR creation.
 - out: @arch:MAP-01 — runtime process supervisor and worktree operations participate in the core architecture layers.
 
 ### Flow

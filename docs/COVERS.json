@@ -175,11 +175,29 @@
   "src/extension/ops/worktreeSpecs.ts": [
     "arch:WT-00"
   ],
+  "src/integrations/git.ts": [
+    "arch:GH-00"
+  ],
+  "src/integrations/github*.ts": [
+    "arch:GH-00"
+  ],
+  "src/integrations/github.ts#fetchPrDetail": [
+    "arch:GH-03"
+  ],
+  "src/integrations/github.ts#mergePr": [
+    "arch:GH-04"
+  ],
+  "src/integrations/prChecks.ts": [
+    "arch:GH-00"
+  ],
   "src/model/artifacts.ts": [
     "arch:SHELF"
   ],
   "src/model/bulletinRelevance.ts": [
     "arch:BULLETIN"
+  ],
+  "src/model/mergeCheckView.ts#mergeOpStatus": [
+    "arch:GH-03"
   ],
   "src/model/ticketMessaging.ts#checkMessaging": [
     "arch:CLI-11"
@@ -308,13 +326,23 @@
     "arch:CLI-15"
   ],
   "src/store/bulletinNotes.ts#recordTicketMerged": [
-    "arch:BULLETIN"
+    "arch:BULLETIN",
+    "arch:GH-03"
   ],
   "src/store/fixDeliveries.ts#upsertFixDelivery": [
     "arch:V77"
   ],
   "src/store/graph/**": [
     "arch:GRAPHRUN"
+  ],
+  "src/store/mergeChecks.ts": [
+    "arch:GH-00"
+  ],
+  "src/store/mergeChecks.ts#getMergeCheck": [
+    "arch:GH-05"
+  ],
+  "src/store/mergeChecks.ts#listMergeChecksByTicket": [
+    "arch:GH-05"
   ],
   "src/store/metrics/index.ts#UNAVAILABLE_METRICS": [
     "arch:CLI-07"
@@ -328,11 +356,29 @@
   "src/store/planningSessions.ts": [
     "arch:PLANNING"
   ],
+  "src/store/prFeedback.ts": [
+    "arch:GH-00"
+  ],
+  "src/store/prs.ts": [
+    "arch:GH-00"
+  ],
+  "src/store/prs.ts#CURRENT_PR_ORDER": [
+    "arch:GH-05"
+  ],
+  "src/store/prs.ts#dismissPr": [
+    "arch:GH-06"
+  ],
+  "src/store/prs.ts#updatePrDetail": [
+    "arch:GH-03"
+  ],
   "src/store/schema.sql": [
     "arch:SCHEMA-CHECK"
   ],
   "src/store/schemaVersion.ts#SCHEMA_VERSION": [
     "arch:SCHEMA-CHECK"
+  ],
+  "src/store/shipRuns.ts": [
+    "arch:GH-00"
   ],
   "src/store/stageBlocks.ts#parkGateStage": [
     "arch:V82"
@@ -371,6 +417,12 @@
   "src/template/transforms.ts#applyTransforms": [
     "arch:PLACEHOLDER"
   ],
+  "src/ui/worktreePath.ts#PathContext": [
+    "arch:GH-07"
+  ],
+  "src/ui/worktreePath.ts#repoDisplayPath": [
+    "arch:GH-07"
+  ],
   "src/workflow/artifactConventions.ts#validateArtifactTemplate": [
     "arch:RENDERERS"
   ],
@@ -384,8 +436,41 @@
   "src/workflow/conventionContext.ts#resolveRepoConventions": [
     "arch:RENDERERS"
   ],
+  "src/workflow/dismissPr.ts": [
+    "arch:GH-00"
+  ],
+  "src/workflow/dismissPr.ts#dismissTicketPr": [
+    "arch:GH-06"
+  ],
+  "src/workflow/dismissPr.ts#undismissTicketPr": [
+    "arch:GH-06"
+  ],
   "src/workflow/gates/capabilityGap.ts": [
     "arch:GATE-CAPABILITY"
+  ],
+  "src/workflow/merge*.ts": [
+    "arch:GH-00"
+  ],
+  "src/workflow/mergeCheck.ts#checkMergeable": [
+    "arch:GH-02"
+  ],
+  "src/workflow/mergeCheck.ts#parseConflictedPaths": [
+    "arch:GH-02"
+  ],
+  "src/workflow/mergeGate.ts#mergeGateState": [
+    "arch:GH-06"
+  ],
+  "src/workflow/mergePr.ts#mergeTicketPr": [
+    "arch:GH-04"
+  ],
+  "src/workflow/mergeSync.ts#syncMergeChecks": [
+    "arch:GH-05"
+  ],
+  "src/workflow/mergedNothingNew.ts": [
+    "arch:GH-00"
+  ],
+  "src/workflow/pr*.ts": [
+    "arch:GH-00"
   ],
   "src/workflow/review/aggregate.ts#gatesOutcomeBeforeFindings": [
     "arch:GATE-CAPABILITY"
@@ -393,6 +478,9 @@
   "src/workflow/stages/scope.ts#confirmScope": [
     "arch:BASE-PULL",
     "arch:ENTRIES"
+  ],
+  "src/workflow/stages/ship*.ts": [
+    "arch:GH-00"
   ],
   "src/workflow/stages/subtask.ts#createSubtask": [
     "arch:CLI-09"
