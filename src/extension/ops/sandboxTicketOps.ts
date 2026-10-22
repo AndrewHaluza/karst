@@ -27,7 +27,7 @@ import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js'
 import { isServing } from '../../runtime/health.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
 import { getTicket } from '../../store/tickets.js';
-import { clearSetupState, provisionTicketSandbox } from './sandboxSetupOp.js';
+import { clearSetupState, DOCKER_MEMORY_HELP_TEXT, provisionTicketSandbox } from './sandboxSetupOp.js';
 import type { Notify } from './notify.js';
 import type { EnsureSyncResult } from './sandboxSyncOps.js';
 import { ticketHostGate } from './sandboxHostGate.js';
@@ -226,6 +226,9 @@ export interface TicketSandboxBindingsInput extends Omit<TicketSandboxDeps, 'bri
   readonly manifest: () => Manifest | undefined;
   readonly onError: (err: unknown) => void;
   readonly notify?: Notify;
+  /** Re-run setup's tail: clear the sandbox-setup block and re-drive the stage. */
+  readonly redriveAfterSetup?: (ticketId: number) => void;
+  readonly openFile?: (path: string) => void;
   /** The two-way sync before a `sandbox: host` gate (`ensureInSync`); lazy because the sync wiring is built after these bindings. */
   readonly ensureInSync?: (ticketId: number) => Promise<EnsureSyncResult>;
   /** The host itself stopped this ticket's sandbox after an accepted marker (arch:AC-37): host gates still run. */
@@ -301,7 +304,13 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
       return provisionTicketSandbox({
         manifest: input.manifest, worktrees: (id) => listWorktreesByTicket(input.store, id), gateProcess: (id) => ticketGateProcess(deps, id),
         bridgeOf: (id) => deps.bridgeOf?.(id), ticketLabel: (id) => { try { return getTicket(input.store, id).key ?? String(id); } catch { return String(id); } },
-        notify: input.notify, ...(input.debug ? { debug: input.debug } : {}),
+        notify: input.notify,
+        actions: {
+          rerun: async (id) => { await bindings.rerunSetup(id); input.redriveAfterSetup?.(id); },
+          openLog: (path) => input.openFile?.(path),
+          memoryHelp: () => input.notify?.info(DOCKER_MEMORY_HELP_TEXT),
+        },
+        ...(input.debug ? { debug: input.debug } : {}),
         windowOf: (id) => ticketSandboxRunner(deps, id)?.runner,
         killContextOf: (id) => { const core = deps.coreOf(id); return core !== null && backendForCore(deps.backends(), core) === 'docker' ? () => dockerKillContext(deps.dockerProc) : undefined; },
         turnActive: (id) => { try { return getTicket(input.store, id).agentState === 'running'; } catch { return false; } },

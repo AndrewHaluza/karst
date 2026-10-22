@@ -187,4 +187,45 @@ describe('clearSetupState', () => {
   it('tolerates a missing state dir', async () => {
     await expect(clearSetupState(bridgePaths(join(tmpdir(), 'no-such-root-x'), 7))).resolves.toBeUndefined();
   });
+
+  describe('failure buttons', () => {
+    const withButtons = (exit: number, pick: string | undefined) => {
+      const r = rig({ setup: 'npm ci', exit });
+      const calls: string[] = [];
+      const offered: string[][] = [];
+      const deps: TicketSetupDeps = {
+        ...r.deps, sleep: async () => undefined,
+        notify: { ...r.deps.notify, errorActions: async (_m, a) => { offered.push([...a]); return pick; } },
+        actions: { rerun: async (id) => { calls.push(`rerun ${id}`); }, openLog: (p) => { calls.push(`log ${p}`); }, memoryHelp: () => { calls.push('help'); } },
+      };
+      return { r, deps, calls, offered };
+    };
+    const settle = () => new Promise((res) => setTimeout(res, 5));
+
+    it('a kill offers Re-run setup, Show setup log and Docker memory help', async () => {
+      const x = withButtons(137, undefined);
+      await provisionTicketSandbox(x.deps, 7);
+      expect(x.offered).toEqual([['Re-run setup', 'Show setup log', 'Docker memory help']]);
+    });
+
+    it('another failure offers no memory help', async () => {
+      const x = withButtons(1, undefined);
+      await provisionTicketSandbox(x.deps, 7);
+      expect(x.offered).toEqual([['Re-run setup', 'Show setup log']]);
+    });
+
+    it('Re-run setup re-runs and re-drives; Show setup log opens the log; help explains', async () => {
+      const a = withButtons(1, 'Re-run setup');
+      await provisionTicketSandbox(a.deps, 7); await settle();
+      expect(a.calls).toEqual(['rerun 7']);
+      resetSetupLocks();
+      const b = withButtons(1, 'Show setup log');
+      await provisionTicketSandbox(b.deps, 7); await settle();
+      expect(b.calls).toEqual([`log ${b.r.paths.setupLogFile}`]);
+      resetSetupLocks();
+      const c = withButtons(137, 'Docker memory help');
+      await provisionTicketSandbox(c.deps, 7); await settle();
+      expect(c.calls).toEqual(['help']);
+    });
+  });
 });
