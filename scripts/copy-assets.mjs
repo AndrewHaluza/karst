@@ -43,6 +43,7 @@ const assets = [
   // into dist/ like every other runtime asset.
   'ui/dashboard/webviewSend.webview.js',
   'ui/dashboard/app.webview.js',
+  'ui/dashboard/app.webview.css',
   // The settings React app bundle (NDL-126 §1) — same generation, same
   // mirroring, same "edit the SOURCE, never the dist/ copy" rule. Since phase 4
   // the settings sender is folded into this bundle (`main.tsx` imports

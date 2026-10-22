@@ -67,6 +67,9 @@ export const TABLER_STROKE = 2;
  * needs to change for a new glyph to be usable everywhere.
  */
 export const TABLER_ICONS: Record<string, string> = {
+  box:
+    '<path d="M12 3l8 4.5l0 9l-8 4.5l-8 -4.5l0 -9l8 -4.5"/>' +
+    '<path d="M12 12l8 -4.5"/><path d="M12 12l0 9"/><path d="M12 12l-8 -4.5"/>',
   bulb:
     '<path d="M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7"/>' +
     '<path d="M9 16a5 5 0 1 1 6 0a3.5 3.5 0 0 0 -1 3a2 2 0 0 1 -4 0a3.5 3.5 0 0 0 -1 -3"/>' +

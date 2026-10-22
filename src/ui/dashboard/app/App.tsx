@@ -8,9 +8,19 @@
  */
 import { useEffect } from 'react';
 import { pageHostBridge, type DashboardHostBridge } from './hostBridge.js';
-import { DashboardAppProvider } from './DashboardAppContext.js';
+import { DashboardAppProvider, useDashboard } from './DashboardAppContext.js';
+import { SandboxStrip } from './SandboxStrip.js';
 
 const READY_ATTR = ['data', 'karst', 'ready'].join('-');
+
+function DashboardSlices() {
+  const { state, bridge } = useDashboard();
+  return (
+    <div data-karst-dashboard-app="true" data-testid="dashboard-app-root">
+      <SandboxStrip sandbox={state?.sandbox ?? null} send={bridge.send} />
+    </div>
+  );
+}
 
 export function App({ bridge = pageHostBridge() }: { bridge?: DashboardHostBridge }) {
   useEffect(() => {
@@ -19,9 +29,7 @@ export function App({ bridge = pageHostBridge() }: { bridge?: DashboardHostBridg
 
   return (
     <DashboardAppProvider bridge={bridge}>
-      <div data-karst-dashboard-app="true" data-testid="dashboard-app-root">
-        {/* Dashboard React slices mount here (e.g. V1 sandbox strip in T739) */}
-      </div>
+      <DashboardSlices />
     </DashboardAppProvider>
   );
 }

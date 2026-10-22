@@ -290,6 +290,36 @@ export async function pumpRenderRealm(handle: RenderHandle): Promise<void> {
   await new Promise((resolve) => handle.window.setTimeout(resolve, 0));
 }
 
+export const WORK_HORIZON_MS = 500;
+export const QUIESCE_BUDGET_MS = 5_000;
+
+/**
+ * Drain the render realm's scheduled timer queue until it quiesces.
+ *
+ * React commits asynchronously through the realm's timer queue (jsdom has no
+ * MessageChannel or setImmediate). Pumping until two consecutive empty horizon
+ * checks guarantees React's commit and effects have completed.
+ */
+export async function drainReactWork(handle: RenderHandle): Promise<void> {
+  const start = Date.now();
+  let emptyPumps = 0;
+  for (;;) {
+    await pumpRenderRealm(handle);
+    if (handle.pendingWorkTimers(WORK_HORIZON_MS) === 0) {
+      emptyPumps += 1;
+      if (emptyPumps >= 2) return;
+    } else {
+      emptyPumps = 0;
+    }
+    if (Date.now() - start > QUIESCE_BUDGET_MS) {
+      throw new Error(
+        `drainReactWork: the app realm did not quiesce within ${QUIESCE_BUDGET_MS}ms — ` +
+          `${handle.pendingWorkTimers(WORK_HORIZON_MS)} timer(s) still due within ${WORK_HORIZON_MS}ms`,
+      );
+    }
+  }
+}
+
 /**
  * Async render for views that set data-karst-ready after React commits.
  * For settings: waits for the flag by draining the render realm's scheduled
