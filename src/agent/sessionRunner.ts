@@ -57,6 +57,8 @@ export interface SandboxTicketRef {
 /** `stashMessage`: park the clone's uncommitted work with `git stash push -u -m <it>` before refreshing (never discarded). */
 export interface RefreshOptions {
   readonly stashMessage?: string;
+  /** A conflict is open: bundle `origin/<baseRef>` too, so the clone gets `refs/karst/base/<baseRef>` to merge (arch:AC-39). */
+  readonly baseRef?: string;
 }
 
 export type SyncResult =

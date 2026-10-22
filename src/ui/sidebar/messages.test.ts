@@ -105,6 +105,7 @@ describe('routeSidebarAction', () => {
       delete: vi.fn(),
       createFollowUp: vi.fn(),
       resolveConflicts: vi.fn(),
+      sendCiFailure: vi.fn(),
       planCreate: vi.fn(),
       planOpen: vi.fn(),
       planArchive: vi.fn(),
@@ -124,6 +125,7 @@ describe('routeSidebarAction', () => {
     routeSidebarAction({ type: 'create' }, a);
     routeSidebarAction({ type: 'create-follow-up', ticketId: 12 }, a);
     routeSidebarAction({ type: 'resolve-conflicts', ticketId: 12, repo: 'api' }, a);
+    routeSidebarAction({ type: 'send-ci-failure', ticketId: 13 }, a);
     routeSidebarAction({ type: 'open-resources' }, a);
     routeSidebarAction({ type: 'open-token-usage' }, a);
 
@@ -135,6 +137,7 @@ describe('routeSidebarAction', () => {
     expect(a.create).toHaveBeenCalledOnce();
     expect(a.createFollowUp).toHaveBeenCalledWith(12);
     expect(a.resolveConflicts).toHaveBeenCalledWith(12, 'api');
+    expect(a.sendCiFailure).toHaveBeenCalledWith(13);
     expect(a.openResources).toHaveBeenCalledOnce();
     expect(a.openTokenUsage).toHaveBeenCalledOnce();
   });

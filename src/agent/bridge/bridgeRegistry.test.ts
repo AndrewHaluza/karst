@@ -102,6 +102,14 @@ describe('bridgeRegistry', () => {
     expect(await exists(p.dir)).toBe(false);
   });
 
+  it('sweep keeps the dir of a closed ticket whose sandbox is still listed', async () => {
+    const p = bridgePaths(root, 9);
+    await ensureBridgeDir(p);
+    const reg = createBridgeRegistry({ root, build: () => fakeAttachment() });
+    expect(await reg.sweep(new Set(), undefined, new Set([9]))).toEqual({ reattached: [], removed: [] });
+    expect(await exists(p.dir)).toBe(true);
+  });
+
   it('sweep leaves an open ticket another window owns alone (neither attached nor removed)', async () => {
     const p = bridgePaths(root, 5);
     await ensureBridgeDir(p);

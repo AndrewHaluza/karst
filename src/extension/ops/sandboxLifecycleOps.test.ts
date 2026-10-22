@@ -3,7 +3,7 @@ import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
 import { sbxName } from '../../agent/sbx/sbxName.js';
 import type { ProjectSandbox, SandboxInventory } from '../../agent/sandboxInventory.js';
 import {
-  backendKindOf, cleanupOrphansOp, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
+  backendKindOf, cleanupOrphansOp, onDoneOp, removeDoneMergedSandboxes, idleSandboxes, reconcileSandboxes, removeSandboxGuarded, stopSandboxOp, switchProviderOp,
   CANCEL, OPEN_SYNC_DIFF, REMOVE_ANYWAY, REMOVE_ORPHANS, type SandboxLifecycleDeps,
 } from './sandboxLifecycleOps.js';
 
@@ -122,11 +122,13 @@ describe('removeSandboxGuarded', () => {
   });
 
   it('host core → no-op; non-owner window → refused', async () => {
-    const { d, proc } = deps();
+    const { d, proc } = deps({ inv: [box(8)] });
     await expect(removeSandboxGuarded(d, { ...target, core: 'agy' })).resolves.toBe(true);
+    expect(proc.calls.filter((c) => c.args[0] === 'rm')).toEqual([]);
+    proc.calls.length = 0;
     const other = deps({ owns: () => false });
     await expect(removeSandboxGuarded(other.d, target)).resolves.toBe(false);
-    expect([...proc.calls, ...other.proc.calls]).toEqual([]);
+    expect([...proc.calls, ...other.proc.calls].filter((c) => c.args[0] !== 'ls' && c.args[0] !== 'ps')).toEqual([]);
   });
 
   it('dispose failure is reported, not thrown', async () => {
@@ -230,6 +232,24 @@ describe('cleanupOrphansOp', () => {
     expect(lines()).toContain(`sbx rm --force ${name(8)}`);
     expect(lines().some((l) => l.includes(name(7)))).toBe(false);
   });
+  it('runs the remote step in the recorded worktree and disposes the bridge dir', async () => {
+    const { d, lines } = deps({ choose: vi.fn(async () => REMOVE_ORPHANS), worktreeOf: (id) => `/wt/${id}` });
+    await cleanupOrphansOp(d, new Set([7]));
+    expect(lines().some((l) => l.endsWith(`-C /wt/8 remote remove sandbox-${name(8)}`))).toBe(true);
+    expect(d.bridges!.dispose).toHaveBeenCalledWith(8);
+  });
+  it('no recorded worktree: skips the remote step with a debug line, never git in the project parent', async () => {
+    const debug = vi.fn();
+    const { d, lines } = deps({ choose: vi.fn(async () => REMOVE_ORPHANS), debug });
+    await cleanupOrphansOp(d, new Set([7]));
+    expect(lines().some((l) => l.includes('remote remove'))).toBe(false);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining(name(8)));
+  });
+  it('a failed removal keeps the bridge dir', async () => {
+    const { d } = deps({ choose: vi.fn(async () => REMOVE_ORPHANS), answers: { [`sbx rm --force ${name(8)}`]: { code: 1, stderr: 'daemon down' } } });
+    await cleanupOrphansOp(d, new Set([7]));
+    expect(d.bridges!.dispose).not.toHaveBeenCalled();
+  });
   it('cancel removes nothing; none → info', async () => {
     const { d, acted } = deps();
     await expect(cleanupOrphansOp(d, new Set([7]))).resolves.toBe(0);
@@ -291,10 +311,18 @@ describe('lifecycle edge cases', () => {
     expect(lines().some((l) => l.endsWith('-C /wt merge --ff-only FETCH_HEAD'))).toBe(true);
   });
 
-  it('a docker sandbox is matched by core too', async () => {
-    const { d, acted } = deps({ inv: [box(7, 'opencode')] });
+  it('removes the ticket\'s sandbox of ANOTHER core and backend too, not only the current core', async () => {
+    const { d, lines } = deps({ inv: [box(7, 'opencode'), box(7, 'codex'), box(8)] });
     await expect(removeSandboxGuarded(d, target)).resolves.toBe(true);
-    expect(acted()).toEqual([]);
+    expect(lines().some((l) => l.startsWith('docker rm') && l.includes(name(7, 'opencode')))).toBe(true);
+    expect(lines()).toContain(`sbx rm --force ${name(7, 'codex')}`);
+    expect(lines().some((l) => l.includes(name(8)) && l.includes('rm'))).toBe(false);
+  });
+
+  it('a host-core ticket still gets a leftover sandbox of its old core removed', async () => {
+    const { d, lines } = deps({ inv: [box(7)] });
+    await expect(removeSandboxGuarded(d, { ...target, core: 'agy', worktree: undefined }, { skipSync: true })).resolves.toBe(true);
+    expect(lines()).toContain(`sbx rm --force ${name(7)}`);
   });
 
   it('no worktree branch → asks, remove anyway disposes against the project dir', async () => {
@@ -303,7 +331,7 @@ describe('lifecycle edge cases', () => {
     await expect(removeSandboxGuarded(d, { ...target, worktree: undefined })).resolves.toBe(true);
     expect(choose.mock.calls[0]![0]).toBe(
       'Karst: the sandbox of T-7 has commits that could not be synced (no worktree branch to sync into). Removing it loses them.');
-    expect(lines().some((l) => l.endsWith(`-C /p remote remove sandbox-${name(7)}`))).toBe(true);
+    expect(lines().some((l) => l.includes('remote remove'))).toBe(false);
     expect(lines().some((l) => l.includes('fetch'))).toBe(false);
     expect(notify.info).toHaveBeenCalledWith('Karst: T-7 sandbox removed.');
   });
@@ -375,5 +403,38 @@ describe('idleSandboxes', () => {
   it('exactly at the threshold is not idle; unknown ticket is never idle', () => {
     expect(idleSandboxes(inv, [{ id: 1, updatedAtMs: H, sessionOpen: false }], () => true, 3 * H, 2 * H)).toEqual([]);
     expect(idleSandboxes({ sandboxes: [box(9)], errors: [] }, tickets, () => true, 3 * H, 2 * H)).toEqual([]);
+  });
+});
+
+describe('onDoneOp (arch:AC-37)', () => {
+  it('merged → removes the sandbox without a pre-sync and drops the bridge dir', async () => {
+    const { d, acted } = deps();
+    await expect(onDoneOp(d, target, true)).resolves.toBe(true);
+    expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(true);
+    expect(acted().some((l) => l.includes('bundle'))).toBe(false);
+    expect(d.bridges.dispose).toHaveBeenCalledWith(7);
+  });
+  it('unmerged → stop only, never rm', async () => {
+    const { d, acted } = deps();
+    await onDoneOp(d, target, false);
+    expect(acted().some((l) => l.startsWith('sbx stop'))).toBe(true);
+    expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(false);
+    expect(d.bridges.dispose).not.toHaveBeenCalled();
+  });
+});
+
+describe('removeDoneMergedSandboxes', () => {
+  const targetOf = (id: number, core: string) => ({ ticketId: id, ticketLabel: `T-${id}`, core, worktree: undefined });
+  it('removes by name a done+merged ticket sandbox that has no clone record; others stay', async () => {
+    const { d, acted } = deps();
+    const debug = vi.fn();
+    await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf, debug)).resolves.toBe(1);
+    expect(acted().filter((l) => l.startsWith('sbx rm'))).toEqual([expect.stringContaining(name(7))]);
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('no clone record'));
+  });
+  it("leaves another window's ticket alone", async () => {
+    const { d, acted } = deps({ owns: () => false });
+    await expect(removeDoneMergedSandboxes(d, new Set([7]), targetOf)).resolves.toBe(0);
+    expect(acted().some((l) => l.startsWith('sbx rm'))).toBe(false);
   });
 });

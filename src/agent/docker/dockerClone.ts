@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
+import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
 import type { DiffResult, RefreshOptions, SyncResult } from '../sessionRunner.js';
 import { OPENCODE_IMAGE } from './dockerImage.js';
@@ -180,12 +180,18 @@ export async function diffFromClone(ctx: CloneContext, input: CloneInput): Promi
 export async function refreshClone(ctx: CloneContext, input: CloneInput, refreshOpts?: RefreshOptions): Promise<SyncResult> {
   try {
     return await withTemp(ctx.temp, async (dir): Promise<SyncResult> => {
-      const bundled = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'bundle', 'create', join(dir, 'in.bundle'), input.branch]);
+      const base = refreshOpts?.baseRef;
+      if (base && !isSafeBaseRef(base)) return { ok: false, reason: `refusing to ship base ref ${JSON.stringify(base)}` };
+      if (base) {
+        const got = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'fetch', 'origin', `+refs/heads/${base}:${hostBaseRef(base)}`]);
+        if (got.code !== 0) return { ok: false, reason: `git fetch origin ${base} failed: ${detail(got)}` };
+      }
+      const bundled = await ctx.proc.run('git', ['-C', input.hostWorktreePath, 'bundle', 'create', join(dir, 'in.bundle'), input.branch, ...(base ? [hostBaseRef(base)] : [])]);
       if (bundled.code !== 0) return { ok: false, reason: `git bundle create ${input.branch} failed: ${detail(bundled)}` };
       const run = await ctx.proc.run(DOCKER_BIN, helper(
         ctx,
         [...volumeMounts(ctx.names), '--mount', bindMount(dir, BUNDLE_DIR, true)],
-        ['sh', '-c', `cd ${CONTAINER_REPO}\n${refreshOpts?.stashMessage ? STASH_REFRESH_SCRIPT : REFRESH_SCRIPT}`, 'karst-refresh', input.branch, `${BUNDLE_DIR}/in.bundle`, ...(refreshOpts?.stashMessage ? [refreshOpts.stashMessage] : [])],
+        ['sh', '-c', `cd ${CONTAINER_REPO}\n${refreshOpts?.stashMessage ? STASH_REFRESH_SCRIPT : REFRESH_SCRIPT}`, 'karst-refresh', ...refreshArgs(input.branch, `${BUNDLE_DIR}/in.bundle`, refreshOpts)],
       ));
       return refreshOutcome(run.code, run.stdout, run.stderr, input.branch);
     });

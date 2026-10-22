@@ -411,7 +411,7 @@ describe('SessionManager', () => {
       expect(lines).toEqual([`docker (${names.container})`]);
       expect(modes).toEqual(['sandboxed (runner: docker, autonomous)']);
       expect(terminals[0]!.shellPath).toBe('docker');
-      expect(terminals[0]!.shellArgs.slice(0, 6)).toEqual(['run', '--interactive', '--tty', '--rm', '--name', names.container]);
+      expect(terminals[0]!.shellArgs.slice(0, 7)).toEqual(['run', '--interactive', '--tty', '--rm', '--init', '--name', names.container]);
       for (const flag of ['--privileged', '--auto', '--yolo', '--dangerously-skip-permissions']) {
         expect(terminals[0]!.shellArgs).not.toContain(flag);
       }

@@ -801,7 +801,9 @@ export function buildDashboardState(
     sendBack,
     rerunGate,
     prFeedbackFix,
-    ciFailure: ciFailure.available ? { available: true } : { available: false },
+    ciFailure: ciFailure.available
+      ? { available: true, repos: ciFailure.prs.map((p) => p.repo) }
+      : { available: false, repos: [] },
     rebase: rebase.available ? { available: true, stage: ticket.stageCurrent ?? undefined } : { available: false },
     deliver: undelivered
       ? { available: true, notOnPr: undelivered.hostAhead + undelivered.sandboxAhead, inSandbox: undelivered.sandboxAhead }

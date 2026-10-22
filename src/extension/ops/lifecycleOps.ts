@@ -25,6 +25,8 @@ export interface LifecycleOpsDeps {
     graphBytesRoot: string | undefined;
     artifactsRoot: string;
   };
+  /** Remove every sandbox of the ticket (all cores/backends) before the rows go; `false` = refused, keep the ticket. */
+  readonly removeSandboxes?: (ticketId: number) => Promise<boolean>;
   readonly openEdit: (id: number) => void;
   readonly refresh: () => void;
   readonly reloadManifest: () => Promise<void>;
@@ -49,6 +51,12 @@ export async function deleteTicketOp(deps: LifecycleOpsDeps, ticketId: number): 
   // ticket and all its child rows.
   if (!(await deps.confirm(`Permanently delete "${label}"? This cannot be undone.`, 'Delete'))) return;
   try {
+    if (deps.removeSandboxes && !(await deps.removeSandboxes(ticketId))) {
+      const message = `Karst did not delete "${label}": its sandbox could not be removed. Resolve that and delete again.`;
+      deps.log.warn(message);
+      await deps.notify.error(message);
+      return;
+    }
     // Keep or purge the ticket's captured artifact history. Purge skips the final
     // sweep: capturing files only to delete them would be wasted work.
     const purge = deps.artifacts !== undefined && (await deps.confirm(

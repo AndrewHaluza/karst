@@ -15,7 +15,7 @@ import { disposeResult, disposeStep, type DisposeResult, type DisposeStep } from
 import { removeSbxClone } from './sbxClone.js';
 import { withoutHostOnlyEnv } from '../cliEnv.js';
 import { ensureXferDir, withXfer } from '../xfer.js';
-import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, refreshOutcome } from '../cloneRefresh.js';
+import { REFRESH_SCRIPT, STASH_REFRESH_SCRIPT, hostBaseRef, isSafeBaseRef, refreshArgs, refreshOutcome } from '../cloneRefresh.js';
 import { BEHIND_SUMMARY, classifyCloneRelation } from '../cloneSyncClass.js';
 import { parseNames, SBX_BIN } from './sbxPreflight.js';
 import type { SbxProcess } from './sbxProcess.js';
@@ -181,10 +181,16 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
         const xfer = await ensureXferDir(opts.evidenceDir);
         const file = join(xfer.dir, 'in.bundle');
         await rm(file, { force: true });
-        const made = await git(ticket.hostWorktreePath, ['bundle', 'create', '-q', file, ticket.branch]);
+        const base = refreshOpts?.baseRef;
+        if (base && !isSafeBaseRef(base)) return { ok: false, reason: `refusing to ship base ref ${JSON.stringify(base)}` };
+        if (base) {
+          const got = await git(ticket.hostWorktreePath, ['fetch', 'origin', `+refs/heads/${base}:${hostBaseRef(base)}`]);
+          if (got.code !== 0) return { ok: false, reason: `git fetch origin ${base} failed: ${got.stderr.trim()}` };
+        }
+        const made = await git(ticket.hostWorktreePath, ['bundle', 'create', '-q', file, ticket.branch, ...(base ? [hostBaseRef(base)] : [])]);
         if (made.code !== 0) return { ok: false, reason: `git bundle create ${ticket.branch} failed: ${made.stderr.trim()}` };
         await xfer.verified('in.bundle');
-        const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', refreshOpts?.stashMessage ? STASH_REFRESH_SCRIPT : REFRESH_SCRIPT, 'karst-refresh', ticket.branch, file, ...(refreshOpts?.stashMessage ? [refreshOpts.stashMessage] : [])], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
+        const out = await opts.proc.run(SBX_BIN, ['exec', opts.name, '--', 'sh', '-c', refreshOpts?.stashMessage ? STASH_REFRESH_SCRIPT : REFRESH_SCRIPT, 'karst-refresh', ...refreshArgs(ticket.branch, file, refreshOpts)], opts.cloneDir ? { cwd: opts.cloneDir } : undefined);
         await rm(file, { force: true });
         return refreshOutcome(out.code, out.stdout, out.stderr, ticket.branch);
       } catch (err) {
@@ -211,7 +217,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // A failed rm keeps the clone, the remote and the known name: the sandbox may still hold unsynced commits and a retry needs them.
       if (rm.status === 'failed') return disposeResult([rm]);
       // A missing remote is fine: `sbx rm` usually removes it already.
-      await git(ticket.hostWorktreePath, ['remote', 'remove', remote]);
+      if (ticket.hostWorktreePath) await git(ticket.hostWorktreePath, ['remote', 'remove', remote]);
       const steps: DisposeStep[] = [rm];
       if (opts.cloneDir) {
         try {

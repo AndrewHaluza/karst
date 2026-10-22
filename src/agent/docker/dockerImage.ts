@@ -23,7 +23,7 @@ export const PLAYWRIGHT_VERSION = '1.63.0';
  * environment — so a host rebuilds instead of reusing the image it already
  * has (the preflight only builds a tag it cannot find).
  */
-export const OPENCODE_IMAGE_REVISION = 'r2';
+export const OPENCODE_IMAGE_REVISION = 'r3';
 
 const SEMVER = /^\d+\.\d+\.\d+$/;
 

@@ -23,6 +23,7 @@ import { checkWiring } from '../doctor/wiringChecks.js';
 import { parseDoctorArea, renderDoctorText, runDoctor } from '../doctor/run.js';
 import { checkSandboxBackends } from '../doctor/sandboxChecks.js';
 import { probeBackends, probeDockerDisk, type BackendProbes } from '../agent/backendProbe.js';
+import { doneMergedTicketIds } from '../store/doneMerged.js';
 import { checkSandboxOrphans } from '../doctor/sandboxOrphanCheck.js';
 import { listProjectSandboxes, type SandboxInventory } from '../agent/sandboxInventory.js';
 import { NODE_SBX_PROCESS } from '../agent/sbx/sbxProcess.js';
@@ -153,7 +154,8 @@ const listSandboxesNode: ListSandboxes = (projectRoot) =>
 /** Orphans: this project's sandboxes whose ticket is not live (arch:AC-32). Only with a sandbox backend. */
 async function sandboxOrphanChecks(store: Store, manifestPath: string | undefined, manifest: Manifest | undefined, list: ListSandboxes): Promise<DoctorCheck[]> {
   if (manifestPath === undefined || manifest?.agentBackends === undefined) return [];
-  const live = new Set((store.db.prepare('SELECT id FROM tickets WHERE archived_at IS NULL').all() as { id: number }[]).map((r) => r.id));
+  const merged = doneMergedTicketIds(store);
+  const live = new Set((store.db.prepare('SELECT id FROM tickets WHERE archived_at IS NULL').all() as { id: number }[]).map((r) => r.id).filter((id) => !merged.has(id)));
   const inv = await list(manifestPath);
   return checkSandboxOrphans(inv.sandboxes.filter((s) => !live.has(s.ticketId)));
 }

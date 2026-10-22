@@ -21,7 +21,8 @@ export interface BridgePollerOptions {
   /** Lives OUTSIDE the sandbox-mounted dir. */
   readonly stateFile: string;
   readonly intervalMs: number;
-  readonly onLine: (line: string) => void;
+  /** May be async: a poll never saves the offset before the line's durability work settles. */
+  readonly onLine: (line: string) => void | Promise<void>;
   readonly debug?: (message: string) => void;
 }
 
@@ -179,7 +180,7 @@ export function createBridgePoller(opts: BridgePollerOptions): BridgePoller {
       buf = buf.subarray(nl + 1);
       if (line.length === 0) continue;
       try {
-        opts.onLine(line);
+        await opts.onLine(line);
       } catch (err) {
         log(`onLine threw: ${err instanceof Error ? err.message : String(err)}`);
       }

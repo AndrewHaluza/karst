@@ -7,7 +7,7 @@ import { LAUNCH_FAILURE_FILE, sandboxLaunchFailureOptions } from './sandboxLaunc
 let root: string | undefined;
 afterEach(() => root && rmSync(root, { recursive: true, force: true }));
 
-function setup() {
+function setup(removeSandbox?: () => Promise<unknown>) {
   root = mkdtempSync(join(tmpdir(), 'karst-lf-'));
   const captureDir = join(root, 'artifacts', 'T704');
   const warns: string[] = [];
@@ -18,6 +18,7 @@ function setup() {
     warn: (l) => warns.push(l),
     notify: { info: () => undefined, warn: (m) => notified.push(m), error: () => Promise.resolve() },
     markNotStarted: (id) => marked.push(id),
+    ...(removeSandbox ? { removeSandbox } : {}),
   });
   return { captureDir, warns, notified, marked, opts };
 }
@@ -38,5 +39,19 @@ describe('sandboxLaunchFailureOptions', () => {
     expect(readFileSync(join(captureDir, LAUNCH_FAILURE_FILE), 'utf8')).toBe(`${line}\n`);
     expect(notified[0]).toContain('agentBackends.claude=host');
     expect(notified[0]).toContain('Retry');
+  });
+
+  it('removes the half-built sandbox a failed launch leaves behind', () => {
+    let removed = 0;
+    const { opts } = setup(async () => { removed += 1; });
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'failed to inject network proxy' });
+    expect(removed).toBe(1);
+  });
+
+  it('a failing removal is logged, never thrown', async () => {
+    const { warns, opts } = setup(async () => { throw new Error('daemon down'); });
+    opts.onSandboxLaunchFailed({ runner: 'sbx', exitCode: 1, tail: 'x' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(warns.some((w) => w.includes('half-built sandbox') && w.includes('daemon down'))).toBe(true);
   });
 });

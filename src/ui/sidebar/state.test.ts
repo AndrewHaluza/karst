@@ -380,6 +380,37 @@ describe('buildSidebarState', () => {
     expect(row.peek.next).toBeNull();
   });
 
+  it('a ship with failing stored CI offers Send CI failure and stays in current', () => {
+    const t = createTicket(store, { key: 'S-2', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'ship', { status: 'passed' });
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?,?,?,?)').run(t.id, 'api', '/w/api', 'b');
+    const checks = JSON.stringify({ state: 'failing', total: 2, passed: 1, failed: 1, pending: 0, failedShown: 1, failing: [{ name: 'build', url: null }] });
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?,?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open', checks);
+
+    const { sections } = buildSidebarState(store, { facets: ['all'], filter: '' });
+    expect(sections.awaitingReview).toEqual([]);
+    const row = sections.current[0]!;
+    expect(row.peek.title).toBe('CI failing on api');
+    expect(row.peek.next).toEqual({ kind: 'send-ci-failure', label: 'Send CI failure to agent' });
+  });
+
+  it('a ship with pending stored CI stays a plain wait', () => {
+    const t = createTicket(store, { key: 'S-3', title: 'ship' });
+    store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);
+    setStage(store, t.id, 'ship', { status: 'passed' });
+    store.db.prepare('INSERT INTO worktrees (ticket_id, repo, path, branch) VALUES (?,?,?,?)').run(t.id, 'api', '/w/api', 'b');
+    const checks = JSON.stringify({ state: 'pending', total: 1, passed: 0, failed: 0, pending: 1, failedShown: 0, failing: [] });
+    store.db
+      .prepare('INSERT INTO prs (ticket_id, repo, number, url, status, checks) VALUES (?,?,?,?,?,?)')
+      .run(t.id, 'api', 1, 'https://github.com/x/pull/1', 'open', checks);
+
+    const row = buildSidebarState(store, { facets: ['all'], filter: '' }).sections.awaitingReview[0]!;
+    expect(row.peek.next).toBeNull();
+  });
+
   it('a conflicted ship names the conflict and offers Resolve conflicts', () => {
     const t = createTicket(store, { key: 'S-1', title: 'ship' });
     store.db.prepare("UPDATE tickets SET stage_current = 'ship' WHERE id = ?").run(t.id);

@@ -24,7 +24,7 @@ export interface SandboxInventory {
 
 const CORES_BY_RUNNER: Record<SandboxRunnerKind, readonly string[]> = { sbx: SBX_CORES, docker: DOCKER_CORES };
 
-function projectPrefix(projectRoot: string): string {
+export function projectPrefix(projectRoot: string): string {
   return `karst-${createHash('sha256').update(projectRoot).digest('hex').slice(0, 8)}-`;
 }
 

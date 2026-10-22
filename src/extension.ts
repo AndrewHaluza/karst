@@ -881,6 +881,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
     },
+    // Peek CTA "Send CI failure to agent": the dashboard's own action (availability and confirm re-derived from the store), bound per ticket.
+    sendCiFailure: (id) => void sendCiFailureAction({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); showStatusFor(id); } }),
     // Acks at once (UI-R13/R14): the input box is not the action — the new
     // Planning row arriving is the result, and a cancelled box adds none.
     planCreate: () => void vscode.window.showInputBox({ prompt: 'What do you want to plan?', ignoreFocusOut: true })
@@ -1266,7 +1268,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
   sandboxLife = makeSandboxWiring({ // arch:AC-32
-    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
+    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
@@ -2709,7 +2711,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentManifest()?.quota?.warnThresholdPct ?? DEFAULT_QUOTA_WARN_THRESHOLD_PCT;
   let onQuotaChange: (snapshots: QuotaSnapshot[]) => void = () => {};
   const quotaService = new QuotaService({
-    readers: defaultQuotaReaders({ opencode2AuthPath: join(context.globalStorageUri.fsPath, 'opencode2', 'data', 'opencode', 'auth.json') }),
+    readers: defaultQuotaReaders({ claudeOauthUsageApi: () => currentManifest()?.quota?.claudeOauthUsageApi === true, opencode2AuthPath: join(context.globalStorageUri.fsPath, 'opencode2', 'data', 'opencode', 'auth.json') }),
     debug: (message) => logger.debug(message),
     onDidChange: (snapshots) => onQuotaChange(snapshots),
   });
@@ -3491,7 +3493,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return project ? join(context.globalStorageUri.fsPath, 'graph', project.slug) : undefined;
   };
   const lifecycleDeps: LifecycleOpsDeps = {
-    store: localStore,
+    store: localStore, removeSandboxes: (id) => sandboxLife.beforeArchive(id),
     notify,
     log: { debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) },
     confirm: async (message, confirmLabel) => {
@@ -3902,7 +3904,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
-  await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
+  await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -5682,7 +5684,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (event) => dashboard.postInsideProgress(ticketId, event),
     );
     if (getTicket(localStore, ticketId).stageCurrent === 'done') {
-      sandboxLife.onDone(ticketId); // done → stop, never remove
+      sandboxLife.onDone(ticketId); // done → merged: remove, else stop (arch:AC-37)
       await pushDoneStatus(ticketId, warn);
     }
     provider.refresh();
@@ -6338,7 +6340,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
@@ -6601,7 +6603,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...launchBackend.options, // AC-32
-            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started') }) : {}), // AC-32 launch failure
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started'), removeSandbox: () => sandboxLife.remove(ticketId) }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

@@ -238,6 +238,16 @@ describe('createSbxSessionRunner.refresh', () => {
     expect(proc.calls[1]!.opts).toEqual({ cwd: '/p/clone' });
     expect(lines.some((l) => l.startsWith('git') && l.includes('/p/clone'))).toBe(false);
   });
+  it('fetches origin/<base> on the host and bundles it with the branch', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'karst-refresh-'));
+    const proc = withBundleFile();
+    const runner = createSbxSessionRunner({ proc, core: 'claude', name: NAME, existing: [], cloneDir: '/p/clone', evidenceDir: dir });
+    await runner.refresh!(ticket, { baseRef: 'develop' });
+    const lines = proc.calls.map(text);
+    expect(lines[0]).toContain(`${G} fetch origin +refs/heads/develop:refs/remotes/origin/develop`);
+    expect(lines[1]).toContain(`bundle create -q ${dir}/xfer/in.bundle feat/x refs/remotes/origin/develop`);
+    expect(lines[2]).toMatch(new RegExp(`karst-refresh feat/x ${dir}/xfer/in.bundle  develop$`));
+  });
   it('recreates a symlinked xfer/', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'karst-refresh-'));
     symlinkSync(tmpdir(), join(dir, 'xfer'));
