@@ -2,7 +2,8 @@ export type WaitCondition =
   | { ticketStage: { key: string; stage: string } }
   | { notification: string }
   | { log: string }
-  | { webviewMessage: string };
+  | { webviewMessage: string }
+  | { launch: { provider?: string } };
 
 export type Step =
   | { type: 'command'; command: string; args?: unknown[]; timeoutMs?: number }
@@ -29,6 +30,14 @@ function parseCondition(v: unknown, at: string): WaitCondition {
   if (k === 'notification' || k === 'log' || k === 'webviewMessage') {
     if (typeof val !== 'string' || val === '') throw new Error(`${at}: ${k} needs a non-empty string`);
     return { [k]: val } as WaitCondition;
+  }
+  if (k === 'launch') {
+    if (!isObj(val)) throw new Error(`${at}: launch needs an object`);
+    const provider = val['provider'];
+    if (provider !== undefined && (typeof provider !== 'string' || provider === '')) {
+      throw new Error(`${at}: launch.provider must be a non-empty string`);
+    }
+    return { launch: provider === undefined ? {} : { provider } };
   }
   throw new Error(`${at}: unknown wait condition "${k}"`);
 }

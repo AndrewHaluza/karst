@@ -7,6 +7,7 @@ import { CodexAdapter } from './codex.js';
 import { OpencodeAdapter } from './opencode.js';
 import { Opencode2Adapter } from './opencode2.js';
 import { FAKE_CORE_ENV, FakeAdapter } from './fakeCore.js';
+import { STUB_AGENT_ENV, wrapLaunchStub } from './launchStub.js';
 
 // Pure provider facts live in `provider.ts` so read-only consumers can use the
 // precedence rule without importing the adapters (and their process spawns).
@@ -36,9 +37,15 @@ function warnFakeCoreOnce(): void {
  * Resolve the adapter for a validated provider.
  */
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
-  if (process.env[FAKE_CORE_ENV] === '1') {
+  const mode = process.env[FAKE_CORE_ENV];
+  if (mode === '1') {
     warnFakeCoreOnce();
     return new FakeAdapter();
+  }
+  const stub = process.env[STUB_AGENT_ENV];
+  if (mode === 'launch' && stub) {
+    warnFakeCoreOnce();
+    return wrapLaunchStub(provider, FACTORIES[provider](), stub);
   }
   return FACTORIES[provider]();
 }

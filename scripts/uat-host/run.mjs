@@ -40,6 +40,8 @@ if (process.argv.includes('--inner-run-tests')) {
 
 const fixture = argValue('--fixture');
 const scriptArg = argValue('--script');
+const providerArg = argValue('--provider') ?? 'claude';
+const launchMode = process.argv.includes('--launch-mode');
 const outArg = argValue('--out');
 if (!fixture || !FIXTURES.includes(fixture) || Boolean(scriptArg) !== Boolean(outArg)) {
   console.error(`usage: run.mjs --fixture <${FIXTURES.join('|')}> [--script <steps.json> --out <dir>]`);
@@ -95,6 +97,8 @@ function killGroup(pid) {
 }
 
 const root = mkdtempSync(join(tmpdir(), 'karst-uat-host-'));
+const launchDir = join(root, 'launch');
+mkdirSync(launchDir, { recursive: true });
 let code = 1;
 try {
   const userData = join(root, 'user-data');
@@ -110,7 +114,7 @@ try {
   // Electron ABI the extension host will use (arch:ABI-01).
   const prep = spawnSync(
     vscodeExecutablePath,
-    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), '--fixture', fixture, '--root', join(root, 'fixture'), '--db', dbPath],
+    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), '--fixture', fixture, '--root', join(root, 'fixture'), '--provider', providerArg, '--db', dbPath],
     { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8' },
   );
   if (prep.status !== 0) throw new Error(`prepare failed (${prep.status}): ${prep.stderr}`);
@@ -122,7 +126,10 @@ try {
     extensionDevelopmentPath: repoRoot,
     extensionTestsPath: join(here, 'testRunner.cjs'),
     extensionTestsEnv: {
-      KARST_FAKE_CORE: '1',
+      KARST_FAKE_CORE: launchMode ? 'launch' : '1',
+      ...(launchMode
+        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir }
+        : {}),
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,
       ...probeEnv,

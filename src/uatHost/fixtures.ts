@@ -53,12 +53,12 @@ export function fixtureSpec(name: FixtureName): FixtureSpec {
   return { name, tickets: SPECS[name] };
 }
 
-export function manifestText(repoPath: string): string {
+export function manifestText(repoPath: string, provider = 'claude'): string {
   return [
     'host: 127.0.0.1',
     'portRange: [4000, 4100]',
     'baselineBranch: main',
-    'agentProvider: claude',
+    `agentProvider: ${provider}`,
     'repositories:',
     '  app:',
     `    repoPath: ${repoPath}`,

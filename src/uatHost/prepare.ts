@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isKnownProvider } from '../agent/provider.js';
 import { openStore } from '../store/db.js';
 import { fixtureSpec, isFixtureName } from './fixtures.js';
 import { seedStore } from './seed.js';
@@ -17,8 +18,13 @@ if (!isFixtureName(fixture)) {
   console.error(`uat-host prepare: unknown fixture "${fixture}"`);
   process.exit(2);
 }
+const providerArg = process.argv.includes('--provider') ? flag('provider') : 'claude';
+if (!isKnownProvider(providerArg)) {
+  console.error(`uat-host prepare: unknown provider "${providerArg}"`);
+  process.exit(2);
+}
 const dbPath = flag('db');
-const ws = buildWorkspace(flag('root'));
+const ws = buildWorkspace(flag('root'), providerArg);
 mkdirSync(dirname(dbPath), { recursive: true });
 const store = openStore(dbPath);
 const ids = seedStore(store, fixtureSpec(fixture));

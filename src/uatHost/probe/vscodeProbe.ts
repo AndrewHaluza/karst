@@ -5,6 +5,7 @@ import { ProbeRecorder } from './recorder.js';
 import type { ProbeHost } from './runner.js';
 import { runProbeScript, type ProbeRunArgs } from './session.js';
 import { readTickets } from './storeEvidence.js';
+import { readLaunches } from './launchEvidence.js';
 
 // Thin vscode binding (not loadable under vitest). Logic lives in the sibling
 // vscode-free modules. Every entry point is a no-op unless KARST_UAT_PROBE=1.
@@ -98,6 +99,7 @@ export function registerProbeCommand(
       return {
         tickets: scope?.tickets === false ? [] : readTickets(store),
         sidebar: { lastMessage: sidebar?.lastMessage ?? null },
+        launches: scope?.launches === false ? [] : readLaunches(),
         ...view,
       };
     },
