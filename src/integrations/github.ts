@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { GH_DEPENDENCY, renderMissingDependency } from '../runtime/deps.js';
-import { BoundedOutput } from '../runtime/boundedOutput.js';
+import { BoundedOutput, TailOutput } from '../runtime/boundedOutput.js';
 import { killTree } from '../runtime/processTree.js';
 import { normalizeComments, type PrComment } from '../model/prComments.js';
 import { normalizeChecks, normalizeMergeBlock } from './prChecks.js';
@@ -16,9 +16,11 @@ export interface GhResult {
   stdout: string;
   exitCode: number;
   stderr?: string;
+  /** Set only by a `keep-tail` run whose stdout overflowed the cap. */
+  truncated?: boolean;
 }
 
-export type GhRunner = (args: string[], cwd: string) => Promise<GhResult>;
+export type GhRunner = (args: string[], cwd: string, options?: GhRunnerOptions) => Promise<GhResult>;
 
 export interface OpenPrOpts {
   cwd: string;
@@ -74,6 +76,12 @@ export interface GhRunnerOptions {
   timeoutMs?: number;
   maxOutputBytes?: number;
   terminationGraceMs?: number;
+  /**
+   * `refuse` (default): keep the head and fail a successful run that overflowed,
+   * because a JSON caller must never parse a partial answer. `keep-tail`: free
+   * text only — keep the last bytes, succeed, and flag `truncated`.
+   */
+  truncation?: 'refuse' | 'keep-tail';
 }
 
 /**
@@ -95,7 +103,10 @@ export const defaultGhRunnerAsync = (
     const timeoutMs = options.timeoutMs ?? GH_TIMEOUT_MS;
     const maxOutputBytes = options.maxOutputBytes ?? GH_MAX_OUTPUT_BYTES;
     const terminationGraceMs = options.terminationGraceMs ?? GH_TERMINATION_GRACE_MS;
-    const stdout = new BoundedOutput(Math.max(0, maxOutputBytes));
+    const keepTail = options.truncation === 'keep-tail';
+    const stdout = keepTail
+      ? new TailOutput(Math.max(0, maxOutputBytes))
+      : new BoundedOutput(Math.max(0, maxOutputBytes));
     const stderr = new BoundedOutput(Math.max(0, maxOutputBytes));
     let settled = false;
     let timedOut = false;
@@ -110,17 +121,18 @@ export const defaultGhRunnerAsync = (
       resolve(result);
     };
     const outcome = (status: number | null, error?: Error & { code?: string }): GhResult => {
-      const truncated = stdout.truncated || stderr.truncated;
+      const truncated = (keepTail ? false : stdout.truncated) || stderr.truncated;
       const truncationFailure =
         truncated && status === 0
           ? 'refusing truncated gh output because it may contain an incomplete protocol response'
           : '';
-      return toGhResult({
+      const result = toGhResult({
         stdout: stdout.render(),
         stderr: stderr.render(truncationFailure),
         status: truncationFailure ? 1 : status,
         error,
       });
+      return keepTail && stdout.truncated ? { ...result, truncated: true } : result;
     };
 
     let child: ReturnType<typeof spawn>;

@@ -71,6 +71,19 @@ describe('fetchCheckLog', () => {
     expect(r).toEqual({ kind: 'log', name: 'build', text: 'fail: x' });
     expect(calls[1]).toEqual(['run', 'view', '123', '--log-failed', '--job', '456']);
   });
+  it('truncated log → excerpt notes the cut and keeps the tail error', async () => {
+    const calls: unknown[] = [];
+    const gh: GhRunner = async (args, _cwd, options) => {
+      calls.push(options);
+      return args.includes('--log-failed')
+        ? { stdout: 'b\ts\t2026-01-01T00:00:00Z error: boom', exitCode: 0, truncated: true }
+        : ok('{"status":"completed","jobs":[]}');
+    };
+    const r = await fetchCheckLog(gh, '/w', { name: 'build', url: URL_JOB });
+    expect(r).toEqual({ kind: 'log', name: 'build', text: '[log truncated: kept last 1024 KiB of a larger log]\nerror: boom' });
+    expect(calls[0]).toBeUndefined();
+    expect(calls[1]).toEqual({ truncation: 'keep-tail', maxOutputBytes: 1024 * 1024 });
+  });
   it('in-progress run → pending note with failed step names', async () => {
     const jobs = { status: 'in_progress', jobs: [{ name: 'b', steps: [{ name: 'Test', conclusion: 'failure' }, { name: 'Lint', conclusion: 'success' }] }] };
     const { gh, calls } = run([ok(JSON.stringify(jobs))]);
