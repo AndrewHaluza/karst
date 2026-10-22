@@ -1,7 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { vi, describe, expect, it } from 'vitest';
 import { manifest, runnableRepo, dependsOn } from '../../manifest/fixtures.js';
 import { selectReviewTargets, type ReviewWorktree, type ReviewTarget } from './targets.js';
 import type { GitRunner } from '../../integrations/git.js';
+
+// Fixture worktree paths are fake; stub the existence check.
+vi.mock('./pathExists.js', () => ({ worktreePathExists: () => true }));
 
 const worktrees: ReviewWorktree[] = [
   { repo: '/repos/api', path: '/wt/api', baseRef: 'develop' },
