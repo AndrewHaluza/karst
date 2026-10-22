@@ -23,7 +23,7 @@ schema. `MAP-03` is the enforceable version of the old
 `model-store-workflow-layering.md` prose.
 
 ### Connections
-- in: @arch:SQLITE (store), @arch:STAGEMACH (stage graph), @arch:AC-01 (agent cores), @arch:ENTRIES (worktrees), @arch:CLI-01 (CLI), @arch:GH-01 (GitHub), @arch:PROFILE (manifest/settings), @arch:APP-01 (approaches), @arch:DIAG-01 (diagnostics), @arch:DBG-01 (debug logging), @arch:METRICS (prompt metrics), @arch:IDS-01 (ids), @arch:ABI-01 (native addon), @arch:UATHOST-01 (UAT host), @arch:ADR-01 (impl exit condition)
+- in: @arch:SQLITE (store), @arch:STAGEMACH (stage graph), @arch:AC-01 (agent cores), @arch:ENTRIES (worktrees), @arch:CLI-00 (CLI), @arch:GH-01 (GitHub), @arch:PROFILE (manifest/settings), @arch:APP-01 (approaches), @arch:DIAG-01 (diagnostics), @arch:DBG-01 (debug logging), @arch:METRICS (prompt metrics), @arch:IDS-01 (ids), @arch:ABI-01 (native addon), @arch:UATHOST-01 (UAT host), @arch:ADR-01 (impl exit condition)
 - out: @arch:MAP-01, @arch:MAP-02, @arch:MAP-03, @arch:MAP-04
 
 ### Flow
