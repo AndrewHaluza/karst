@@ -170,6 +170,37 @@ export async function stopSandboxOp(deps: SandboxLifecycleDeps, target: SandboxS
 }
 
 /**
+ * Ticket done (arch:AC-37): merged → the work is on the remote, so remove the
+ * sandbox (guarded, verified, no pre-sync); unmerged → sync + stop only.
+ */
+export async function onDoneOp(deps: SandboxLifecycleDeps, target: SandboxSyncTarget, merged: boolean): Promise<boolean> {
+  if (!merged) return stopSandboxOp(deps, target);
+  return removeSandboxGuarded(deps, target, { skipSync: true });
+}
+
+/**
+ * Backfill: sandboxes of done+merged tickets that survived (stopped at done
+ * before this rule, or a failed removal). Removed by name, so a sandbox whose
+ * bridge dir / clone record is already gone is still cleaned up.
+ */
+export async function removeDoneMergedSandboxes(
+  deps: SandboxLifecycleDeps,
+  doneMerged: ReadonlySet<number>,
+  targetOf: (ticketId: number, core: string) => SandboxSyncTarget,
+  debug: (m: string) => void = () => {},
+): Promise<number> {
+  const inv = await inventoryOf(deps);
+  let removed = 0;
+  for (const box of inv.sandboxes) {
+    if (box.invalidCore === true || !doneMerged.has(box.ticketId) || !deps.owns(box.ticketId)) continue;
+    const target = targetOf(box.ticketId, box.core);
+    if (target.worktree === undefined) debug(`karst: ${target.ticketLabel} has no clone record; removing sandbox ${box.name} by name, skipping the git remote step`);
+    if (await removeSandboxGuarded(deps, target, { skipSync: true })) removed += 1;
+  }
+  return removed;
+}
+
+/**
  * The ticket's core changed. The old core's sandbox is synced and removed
  * (guarded) and the stored provider session id
  * dropped, so a foreign id never reaches a different core.

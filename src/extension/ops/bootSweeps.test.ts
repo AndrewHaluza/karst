@@ -8,7 +8,7 @@ function setup() {
   const open = createTicket(store, { key: 'K-1', title: 'o' }).id;
   const done = createTicket(store, { key: 'K-2', title: 'd' }).id;
   store.db.prepare("UPDATE tickets SET stage_current = 'done' WHERE id = ?").run(done);
-  return { store, open, info: vi.fn(), logError: vi.fn() };
+  return { store, open, done, info: vi.fn(), logError: vi.fn() };
 }
 
 describe('runBridgeSweep', () => {
@@ -18,10 +18,17 @@ describe('runBridgeSweep', () => {
     const sweep = vi.fn(async () => ({ reattached: [s.open, 12], removed: [9, 10] }));
     await runBridgeSweep({ store: s.store, bridges: { sweep }, owned, info: s.info, logError: s.logError });
     expect(sweep).toHaveBeenCalledTimes(1);
-    expect(sweep).toHaveBeenCalledWith(new Set([s.open]), owned);
+    expect(sweep).toHaveBeenCalledWith(new Set([s.open]), owned, undefined);
     expect(s.info).toHaveBeenCalledWith(`karst: re-attached sandbox evidence bridge(s) for ticket(s) ${s.open}, 12`);
     expect(s.info).toHaveBeenCalledWith('karst: removed sandbox evidence bridge(s) of closed ticket(s) 9, 10');
     expect(s.logError).not.toHaveBeenCalled();
+  });
+
+  it('passes the tickets whose sandbox is still listed so their dirs are kept', async () => {
+    const s = setup();
+    const sweep = vi.fn(async () => ({ reattached: [], removed: [] }));
+    await runBridgeSweep({ store: s.store, bridges: { sweep }, owned: new Set(), sandboxTicketIds: async () => new Set([s.done]), info: s.info, logError: s.logError });
+    expect(sweep).toHaveBeenCalledWith(new Set([s.open]), new Set(), new Set([s.done]));
   });
 
   it('is silent when there is nothing to report', async () => {

@@ -3904,7 +3904,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     notifyFailure: (id, m, diverged, gaveUp) => { void (diverged ? vscode.window.showErrorMessage(m, 'Open sync diff').then((c) => { if (c) void sandboxLife.diff(id); }) : gaveUp ? vscode.window.showErrorMessage(m, 'Retry now').then((c) => { if (c) void bridges?.retryNow(id); }) : vscode.window.showWarningMessage(m)); },
     hookDispatch: { notify: notifyHook, shouldApplyState: shouldApplyHookState, sessionProviderFor, recorder: hookChannelRecorder, debug: (m) => logger.debug(m), tracker: turnTracker },
     cli: () => ({ ...cliEntryAndManifest(context), dbPath }) }) });
-  await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
+  await sandboxLife.removeDoneMerged(); await runBridgeSweep({ store: localStore, bridges, owned: ownedSessionTickets, sandboxTicketIds: () => sandboxLife.sandboxTicketIds(), info: (m) => logger.info(m), logError }); void sandboxLife.reconcile(); context.subscriptions.push(sandboxLife.startIdleSweep());
 
   // Graph coordinator wiring (Slice 3 Task 2) — wiring only, all logic lives
   // in the coordinator modules. The coordinator gets its OWN connection with
@@ -5684,7 +5684,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       (event) => dashboard.postInsideProgress(ticketId, event),
     );
     if (getTicket(localStore, ticketId).stageCurrent === 'done') {
-      sandboxLife.onDone(ticketId); // done → stop, never remove
+      sandboxLife.onDone(ticketId); // done → merged: remove, else stop (arch:AC-37)
       await pushDoneStatus(ticketId, warn);
     }
     provider.refresh();
