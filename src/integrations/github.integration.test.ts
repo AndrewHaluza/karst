@@ -181,6 +181,21 @@ describe.runIf(process.platform !== 'win32')('defaultGhRunnerAsync (POSIX fixtur
     expect(result.stderr).toContain('refusing truncated gh output');
   });
 
+  it('keep-tail keeps the last bytes, exits 0 and flags truncated', async () => {
+    const cwd = installFakeGh(`process.stdout.write('a\\n'.repeat(100) + 'LAST-ERROR\\n');`);
+
+    const result = await defaultGhRunnerAsync(['run', 'view'], cwd, {
+      maxOutputBytes: 40,
+      timeoutMs: 1_000,
+      truncation: 'keep-tail',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.truncated).toBe(true);
+    expect(result.stdout.endsWith('LAST-ERROR\n')).toBe(true);
+    expect(Buffer.byteLength(result.stdout)).toBeLessThanOrEqual(40);
+  });
+
   it('clears its deadline after ordinary completion', async () => {
     const cwd = installFakeGh(`process.stdout.write('ok');`);
     const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout');
