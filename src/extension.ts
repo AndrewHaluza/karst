@@ -370,6 +370,7 @@ import { mergeTicketPr } from './workflow/mergePr.js';
 import { dismissTicketPr, undismissTicketPr } from './workflow/dismissPr.js';
 import { nowIso } from './model/time.js';
 import { settleShipGates } from './workflow/mergeGate.js';
+import { settleMergedNothingNew } from './workflow/mergedNothingNew.js';
 import { integrateAndReleaseParent, isIntegrating, releaseLandedSubtask } from './workflow/subtaskIntegration.js';
 import { autoArchiveDoneTickets } from './store/doneArchive.js';
 import { sweepArtifactRetention } from './artifacts/retention.js';
@@ -3294,7 +3295,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     logger,
     buildBaselineRowsLoader({ store: localStore, manifest: currentManifest, storageRoot: baselineReviewRoot(context.globalStorageUri.fsPath) }),
     storedArtifacts.load,
-    makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner),
+    makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync),
   );
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),
@@ -5765,6 +5766,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       try {
         landed = settleShipGates(localStore, { projectId: project.id }, (message) =>
           logger.debug(message),
+        );
+        // Ship waiting on Confirm while its PR merged with nothing new: pass it
+        // so Confirm stops offering a duplicate PR.
+        landed.push(
+          ...(await settleMergedNothingNew(
+            { store: localStore, git: defaultGitRunner, gh: defaultGhRunnerAsync },
+            { projectId: project.id },
+            (message) => logger.debug(message),
+          )),
         );
         // A landed sub-task releases its parent: integrate the child's work into
         // the parent's branch, then re-derive the parent's gate. This is the

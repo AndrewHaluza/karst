@@ -2704,6 +2704,80 @@ setTimeout(() => {
     });
   });
 
+  // FIX-A-PR-MERGED-WHILE-SHIP-WAITS: a PR merged while ship waited for Confirm.
+  // The branch is already landed; shipping it again opened a duplicate PR.
+  describe('merged PR with nothing new on the branch', () => {
+    const MERGED_HEAD = 'c0ffee1';
+    function seedMergedPr(repo: string): void {
+      store.db
+        .prepare("INSERT INTO prs (ticket_id, repo, number, url, status) VALUES (?, ?, 703, 'u', 'merged')")
+        .run(id, repo);
+    }
+    /** gh that re-probes the merged PR's head and counts `pr create`. */
+    function ghMergedAt(oid: string): { gh: GhRunner; created: () => number } {
+      let created = 0;
+      const gh: GhRunner = async (args) => {
+        if (args.includes('headRefOid')) return { stdout: `${oid}\n`, stderr: '', exitCode: 0 };
+        if (args[1] === 'view') return { stdout: '', stderr: 'no pull requests found', exitCode: 1 };
+        created++;
+        return { stdout: `https://github.com/o/r/pull/${created}`, stderr: '', exitCode: 0 };
+      };
+      return { gh, created: () => created };
+    }
+    /** git whose HEAD is `head`; `git diff --quiet <merged> HEAD` exits `mergedDiff`. */
+    function gitAt(head: string, mergedDiff: number): { git: GitRunner; calls: string[][] } {
+      const calls: string[][] = [];
+      const git: GitRunner = async (args) => {
+        calls.push(args);
+        if (args[0] === 'rev-parse' && args[1] === 'HEAD') return { stdout: `${head}\n`, stderr: '', exitCode: 0 };
+        if (args[0] === 'diff') {
+          return { stdout: '', stderr: '', exitCode: args.includes(MERGED_HEAD) ? mergedDiff : 1 };
+        }
+        return { stdout: '', stderr: '', exitCode: 0 };
+      };
+      return { git, calls };
+    }
+
+    it('does not push or open a PR when HEAD is the merged head, and the ticket reaches done', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMergedPr('/repo/frontend');
+      const { gh, created } = ghMergedAt(MERGED_HEAD);
+      const { git, calls } = gitAt(MERGED_HEAD, 1);
+
+      const res = await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      expect(created()).toBe(0);
+      expect(calls.some((c) => c[0] === 'push')).toBe(false);
+      expect(res.prs).toEqual([]);
+      expect(listPrsByTicket(store, id)).toHaveLength(1);
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    it('also lands when HEAD differs but there is no content difference from the merged head', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMergedPr('/repo/frontend');
+      const { gh, created } = ghMergedAt(MERGED_HEAD);
+      const { git } = gitAt('beef002', 0);
+
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      expect(created()).toBe(0);
+      expect(getTicket(store, id).stageCurrent).toBe('done');
+    });
+
+    it('opens a fresh PR when the branch carries new content after the merge', async () => {
+      seedWorktree(store, id, '/repo/frontend', join(dir, 'fe'));
+      seedMergedPr('/repo/frontend');
+      const { gh, created } = ghMergedAt(MERGED_HEAD);
+      const { git } = gitAt('beef002', 1);
+
+      await shipTicket(store, { ticketId: id }, gh, fakeAdapter(), git);
+
+      expect(created()).toBe(1);
+      expect(getTicket(store, id).stageCurrent).toBe('ship');
+    });
+  });
+
   // The guard on the tail transition (only advance when still AT ship) is not
   // enough on its own: the head `setStage(..., 'ship', {status:'running', ...})`
   // ran unconditionally, so a re-run past ship would leave the `ship` row stuck

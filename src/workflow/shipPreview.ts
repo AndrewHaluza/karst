@@ -1,4 +1,6 @@
 import { getTicket } from '../store/tickets.js';
+import { probeMergedNothingNew } from './mergedNothingNew.js';
+import type { GhRunner } from '../integrations/github.js';
 import { listWorktreesByTicket, type WorktreeView } from '../store/dashboard.js';
 import type { Store } from '../store/db.js';
 import type { AgentProvider, ArtifactConventions, Manifest } from '../manifest/types.js';
@@ -43,6 +45,8 @@ export type ShipPreviewRepoStatus =
   | 'nothing-to-commit'
   /** A live PR already exists for this repo; ship would skip it. */
   | 'already-shipped'
+  /** The repo's current PR merged and the branch adds nothing; ship would skip it. */
+  | 'already-merged'
   /** The repo's deny scan refuses it; ship would park the repo. */
   | 'blocked';
 
@@ -227,6 +231,8 @@ interface RepoContext {
   store: Store;
   manifest: Manifest | undefined;
   git: GitRunner;
+  /** Re-probes a merged PR's head; without it a merged repo previews as before. */
+  gh?: GhRunner;
   ticketId: number;
   key: string;
   title: string;
@@ -311,6 +317,25 @@ async function loadRepo(ctx: RepoContext, wt: WorktreeView): Promise<ShipPreview
     }
     if (live) base.prNumber = live.number;
 
+    // Mirrors ship: a merged current PR with nothing new on the branch is not
+    // shipped again. A dirty worktree is new work, so it is checked first.
+    if (!live && ctx.gh) {
+      const dirty = await git(['status', '--porcelain'], wt.path, opts);
+      if (dirty.exitCode === 0 && dirty.stdout.trim() === '') {
+        const landed = await probeMergedNothingNew(
+          { store, git, gh: ctx.gh },
+          ctx.ticketId,
+          wt.repo,
+          wt.path,
+        );
+        if (landed) {
+          base.status = 'already-merged';
+          base.prNumber = landed.number;
+          return base;
+        }
+      }
+    }
+
     const status = await git(['status', '--porcelain', '-uall'], wt.path, opts);
     if (status.exitCode !== 0) {
       throw new Error(status.stderr.trim() || `git status exited ${status.exitCode}`);
@@ -367,6 +392,7 @@ export function makeShipPreviewLoader(
   store: Store,
   manifest: () => Manifest | undefined,
   git: GitRunner,
+  gh?: GhRunner,
 ): ShipPreviewLoader {
   return async (ticketId, signal) => {
     const ticket = getTicket(store, ticketId);
@@ -376,6 +402,7 @@ export function makeShipPreviewLoader(
       store,
       manifest: manifest(),
       git,
+      ...(gh ? { gh } : {}),
       ticketId,
       key,
       title,

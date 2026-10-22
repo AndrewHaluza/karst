@@ -3389,6 +3389,7 @@
     if (r.error) return `<span class="sp-badge">${karstIcon('circle-x', 14)}<span>not read</span></span>`;
     if (r.status === 'blocked') return `<span class="sp-badge sp-badge--danger">${karstIcon('circle-x', 14)}<span>blocked</span></span>`;
     if (r.status === 'already-shipped') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>PR open — skipped</span></span>`;
+    if (r.status === 'already-merged') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>merged — nothing to ship</span></span>`;
     if (r.status === 'will-commit') return `<span class="sp-badge sp-badge--ok">${karstIcon('circle-check', 14)}<span>will commit</span></span>`;
     return `<span class="sp-badge">${karstIcon('check', 14)}<span>nothing to commit</span></span>`;
   }
@@ -3414,6 +3415,9 @@
     } else if (r.status === 'already-shipped') {
       rows.push(`<div class="sp-row"><span class="sp-label">Status</span>`
         + `<span class="sp-value">PR #${esc(String(r.prNumber == null ? '?' : r.prNumber))} open — skipped</span></div>`);
+    } else if (r.status === 'already-merged') {
+      rows.push(`<div class="sp-row"><span class="sp-label">Status</span>`
+        + `<span class="sp-value">merged in #${esc(String(r.prNumber == null ? '?' : r.prNumber))} — nothing to ship</span></div>`);
     } else if (r.status === 'nothing-to-commit' && !r.error) {
       // Never a verdict on a failed read: `r.error` renders its own row below.
       const text = r.changedFromBase ? 'nothing to commit — agent committed its work' : 'no changes from base';
