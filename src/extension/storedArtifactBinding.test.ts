@@ -68,14 +68,14 @@ describe('createStoredArtifactBinding', () => {
     expect(v.openTextDocument).toHaveBeenCalledWith(uri);
     expect(v.setTextDocumentLanguage).toHaveBeenCalledWith({ u: uri }, 'diff');
     expect(v.showTextDocument).toHaveBeenCalledWith({ u: uri }, { preview: true });
-    await b.showReadOnly('x', 'T');
+    await b.showReadOnly('x', 'T', undefined);
     expect(v.uriFrom).toHaveBeenLastCalledWith({ scheme: 'karst-artifact', path: '/x', query: '2' });
     expect(v.setTextDocumentLanguage).toHaveBeenCalledTimes(1);
   });
 
   it('keeps allowed title characters', async () => {
     const b = createStoredArtifactBinding(deps);
-    await b.showReadOnly('Ab_9.@ -', 't');
+    await b.showReadOnly('Ab_9.@ -', 't', undefined);
     expect(v.uriFrom).toHaveBeenCalledWith(expect.objectContaining({ path: '/Ab_9.@ -' }));
   });
 
@@ -101,7 +101,7 @@ describe('createStoredArtifactBinding', () => {
 
   it('dispose releases provider, emitter and clears served docs', async () => {
     const b = createStoredArtifactBinding(deps);
-    await b.showReadOnly('t', 'X');
+    await b.showReadOnly('t', 'X', undefined);
     const uri = v.uriFrom.mock.results[0]!.value;
     b.dispose();
     expect(v.disposed.sort()).toEqual(['emitter', 'provider']);
