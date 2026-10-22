@@ -16,6 +16,7 @@ Measured evidence for [`../RESPONSIVE-DENSITY.md`](../RESPONSIVE-DENSITY.md). Ev
 - Re-run: `node tests/visual/serve.mjs &` then `npx tsx docs/ui/responsive-audit/capture.ts`.
 - Dashboard targets are the six scenario fixtures (`pending running passed failed waiting exhausted`). `running` is the reference "ticket view".
 - Caveats: (1) the dashboard has **no `data-region` landmarks** except `sandbox`/`ship-preview`; the "region" column below names the panel (`#inside`, `.svpanel`, …) instead — adding landmarks is backlog item B1. (2) Off-canvas drawers (`.tdDrawer*`, `#drawerBody`) report as `overflow-viewport`: they are translated off-screen by design, not defects. (3) `.sr`/`.sr-only` clips are visually-hidden text, not defects. (4) Fixture PR/URL strings (`fixture:https://…`) are longer than real ones only slightly; paths and titles are the same lengths as production.
+END_DOC_BLOCK: [@ui:RA-METHOD]
 
 ## [@ui:RA-SUMMARY] Summary: page-level sideways scroll and natural minimum
 
@@ -45,6 +46,7 @@ Findings that change the starting hypotheses (the planning mock assumed breakage
 5. **Usage/resources fail only at 320** (338 px), through `.panel` + `.stats` `repeat(auto-fit,minmax(calc(var(--k-space-9) * 5),1fr))` rounding plus a fixed-width table (`table` 405 px at 400, 507 px for resources) clipped by `overflow-x`.
 6. **Settings is the healthiest page**: no sideways scroll at any width; failures are clipped controls (`input.k-input` 24 px wide at 320) and long ellipsised names.
 7. **Agent-core identity (UI-R10c)** is the dominant width consumer on the dashboard: `Claude Code · Claude Opus 4.1` is 192 px (`span.agent-id`/`span.agent-core`) and appears in the header, session row, timeline and PR rows.
+END_DOC_BLOCK: [@ui:RA-SUMMARY]
 
 ## [@ui:RA-DASH] Dashboard (`src/ui/dashboard/webview.html`, 6872 lines, 13 grids, 108 `white-space:nowrap`)
 

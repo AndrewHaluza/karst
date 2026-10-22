@@ -14,7 +14,7 @@ Goal: every webview usable at 320 px (floor) with 3–4 editor groups on a 14" l
 | Key | Topic |
 |---|---|
 | `ui:RD-TIERS` | Container tiers and how a region declares them |
-| `ui:RD-LADDERS` | Collapse ladder per shared element |
+| `ui:RD-LADDERS`, `ui:RD-LADDERS2` | Collapse ladder per shared element (2nd: tables, tabs, forms, drawers, toasts) |
 | `ui:RD-NEVER` | Never-collapse list |
 | `ui:RD-A11Y` | Icon-only accessibility contract |
 | `ui:RD-VIEWS` | Per-view region tables |
@@ -132,6 +132,10 @@ Audit: already abbreviates to `IMPL` at 600/400; the tight text line is new.
 
 Implementation: CSS-only two-span trick is rejected; use one text node split by `pathParts()` (head, tail) rendered as `<span class="k-path"><span class="k-path-head">src/ui/dashboard/</span><span class="k-path-tail">webview.html</span></span>` with head `overflow:hidden; text-overflow:ellipsis; flex:0 1 auto; min-width:0` and tail `flex:none`. No duplicated content.
 
+END_DOC_BLOCK: [@ui:RD-LADDERS]
+
+## [@ui:RD-LADDERS2] Collapse ladders (exact), continued: tables, tabs, forms, drawers, toasts
+
 ### Tables → stacked cards
 
 | Tier | Form |
@@ -173,7 +177,7 @@ A closed drawer must not extend `scrollWidth` (audit: ticket-data drawer visible
 ### Toasts
 
 wide/mid: bottom-right, max 360 px. narrow: bottom, 92vw. tight: bottom full width, single line + ellipsis, action ≤ 1, `role="status"`, no auto-dismiss when it carries an action.
-END_DOC_BLOCK: [@ui:RD-LADDERS]
+END_DOC_BLOCK: [@ui:RD-LADDERS2]
 
 ## [@ui:RD-NEVER] Never-collapse list
 
