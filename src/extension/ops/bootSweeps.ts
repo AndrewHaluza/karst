@@ -366,6 +366,8 @@ export interface SandboxReconcileDeps {
   readonly clearSession: (ticketId: number) => void;
   readonly info: (message: string) => void;
   readonly logError: (message: string, err: unknown) => void;
+  /** Stray clone dirs / docker volumes, networks, proxies: removes those of closed tickets, returns report lines. */
+  readonly sweepStrays?: (inv: SandboxInventory) => Promise<readonly string[]>;
 }
 
 /**
@@ -382,6 +384,7 @@ export async function runSandboxReconcile(deps: SandboxReconcileDeps): Promise<R
     if (r.stopped.length > 0) deps.info(`karst: sandbox(es) stopped for ticket(s) ${r.stopped.join(', ')}: restarted on open`);
     if (r.missing.length > 0) deps.info(`karst: sandbox(es) missing for ticket(s) ${r.missing.join(', ')}: next open starts a fresh session`);
     for (const c of checkSandboxOrphans(r.orphans)) deps.info(`karst: ${c.detail} — ${c.fix?.tier === 'report' ? c.fix.nextStep : ''}`);
+    for (const line of (await deps.sweepStrays?.(inv)) ?? []) deps.info(line);
     return r;
   } catch (err) {
     deps.logError('karst: sandbox reconcile failed', err);
