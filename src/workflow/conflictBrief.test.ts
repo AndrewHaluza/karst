@@ -82,4 +82,11 @@ describe('renderConflictBrief sandboxed', () => {
     expect(out).toContain('Do not run `git fetch` or `git push`');
     expect(out).not.toContain('git fetch origin main');
   });
+  it('names the shipped base ref and runs the gate scripts before the commit', () => {
+    const out = renderConflictBrief({ ticketLabel: 'K-1', repo: 'r', worktreePath: '/w', branch: 'b', baseRef: 'develop', files: [], prUrl: null, sandboxed: true });
+    expect(out).toContain('`git merge --no-ff refs/karst/base/develop`');
+    expect(out).toContain('docs check, typecheck, unit tests');
+    expect(out.indexOf('gate scripts')).toBeLessThan(out.indexOf('Commit the merge'));
+    expect(out).not.toContain('host merges');
+  });
 });

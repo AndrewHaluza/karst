@@ -11,6 +11,32 @@ export const HOST_AHEAD_MARKER = 'karst-host-ahead';
 export const STASHED_MARKER = 'karst-stashed';
 
 const REFRESH_HEAD = "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'";
+/** Where the clone keeps the shipped base branch: karst-owned, force-updated, never a branch the agent checks out. */
+export const BASE_REF_PREFIX = 'refs/karst/base/';
+
+/** The host-side ref the base is bundled from (`git fetch origin` writes it). */
+export function hostBaseRef(baseRef: string): string {
+  return `refs/remotes/origin/${baseRef}`;
+}
+
+/** A base ref reaches git argv and a sandbox `sh` script: refuse anything but plain branch-name characters. */
+export function isSafeBaseRef(baseRef: string): boolean {
+  return /^[A-Za-z0-9_][A-Za-z0-9._/-]*$/.test(baseRef) && !baseRef.includes('..');
+}
+
+/** `$4` (when set) is the base branch: force-update `refs/karst/base/$4` from the bundle BEFORE the branch fetch, so FETCH_HEAD stays the branch. */
+const BASE_FETCH = `[ -z "$4" ] || git fetch -q "$2" "+${hostBaseRef('$4')}:${BASE_REF_PREFIX}$4" || exit 1`;
+
+/**
+ * Positional args after the script name: `<branch> <bundle> [<stash>]`, plus `<stash|''> <baseRef>`
+ * when a base ref rides in the bundle. Without a base ref the argv is unchanged.
+ */
+export function refreshArgs(branch: string, bundle: string, opts: { stashMessage?: string; baseRef?: string } | undefined): string[] {
+  const stash = opts?.stashMessage;
+  if (opts?.baseRef) return [branch, bundle, stash ?? '', opts.baseRef];
+  return stash ? [branch, bundle, stash] : [branch, bundle];
+}
+
 const REFRESH_TAIL = [
   'git fetch -q "$2" "refs/heads/$1" || exit 1',
   'git merge-base --is-ancestor HEAD FETCH_HEAD || exit 4',
@@ -25,6 +51,7 @@ const REFRESH_TAIL = [
  */
 export const REFRESH_SCRIPT = [
   REFRESH_HEAD,
+  BASE_FETCH,
   'git fetch -q "$2" "refs/heads/$1" || exit 1',
   `if [ -n "$(git status --porcelain)" ]; then echo "${HOST_AHEAD_MARKER} $(git rev-list --count HEAD..FETCH_HEAD)"; git status --short; git diff HEAD | head -c 20000; exit 3; fi`,
   ...REFRESH_TAIL.slice(1),
@@ -36,6 +63,7 @@ export const REFRESH_SCRIPT = [
  */
 export const STASH_REFRESH_SCRIPT = [
   REFRESH_HEAD,
+  BASE_FETCH,
   // Everything that can refuse runs BEFORE the stash, so a refusal leaves the clone untouched.
   ...REFRESH_TAIL.slice(0, 2),
   `if [ -n "$(git status --porcelain)" ]; then git stash push -u -m "$3" >/dev/null || exit 5; echo ${STASHED_MARKER}; fi`,

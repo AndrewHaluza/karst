@@ -5,6 +5,7 @@ import { parseDbTimeMs } from '../../doctor/applyFixes.js';
 import { STUCK_IDLE_MINUTES } from '../../doctor/stuckCheck.js';
 import { getTicket, listTickets, setSessionId } from '../../store/tickets.js';
 import { listWorktreesByTicket } from '../../store/dashboard.js';
+import { listMergeChecksByTicket } from '../../store/mergeChecks.js';
 import type { SbxProcess } from '../../agent/sbx/sbxProcess.js';
 import type { DockerProcess } from '../../agent/docker/dockerProcess.js';
 import type { Notify } from './notify.js';
@@ -61,7 +62,15 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
   /** Tickets whose last refused sync was a host rewrite (rebase/amend): the only ones offered "Carry sandbox commits". */
   const rewrittenTickets = new Set<number>();
   const onRewritten = (id: number, rewritten: boolean): void => { if (rewritten) rewrittenTickets.add(id); else rewrittenTickets.delete(id); };
-  const syncTrack = { onRewritten, ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}) };
+  /** A recorded conflict's base branch: the refresh bundle carries it while the conflict is open (arch:AC-39). */
+  const conflictBaseRef = (ticketId: number): string | null => {
+    const worktrees = listWorktreesByTicket(w.store, ticketId);
+    for (const c of listMergeChecksByTicket(w.store, ticketId)) {
+      if (c.state === 'conflicted') return c.baseRef ?? worktrees.find((wt) => wt.repo === c.repo)?.baseRef ?? null;
+    }
+    return null;
+  };
+  const syncTrack = { onRewritten, conflictBaseRef, ...(w.bridgeDirOf ? { evidenceDirOf: w.bridgeDirOf } : {}) };
   const target = (ticketId: number): SandboxSyncTarget => {
     const t = getTicket(w.store, ticketId);
     const worktrees = listWorktreesByTicket(w.store, ticketId);

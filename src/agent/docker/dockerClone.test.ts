@@ -181,6 +181,20 @@ describe('refreshClone', () => {
     expect(l[1]).toContain('feat/x /bundle/in.bundle');
     expect(temp.removed).toEqual(['/tmp/k1']);
   });
+  it('ships origin/<base> in the bundle and force-updates refs/karst/base/<base> in the clone', async () => {
+    const proc = fakeDockerProcess();
+    await refreshClone(ctx(proc, fakeTemp()), input, { baseRef: 'develop' });
+    const l = lines(proc);
+    expect(l[0]).toBe('git -C /w t fetch origin +refs/heads/develop:refs/remotes/origin/develop');
+    expect(l[1]).toBe('git -C /w t bundle create /tmp/k1/in.bundle feat/x refs/remotes/origin/develop');
+    expect(l[2]).toContain('feat/x /bundle/in.bundle  develop');
+    expect(l[2]).toContain('refs/karst/base/$4');
+  });
+  it('refuses an unsafe base ref and a failed base fetch', async () => {
+    expect(await refreshClone(ctx(fakeDockerProcess()), input, { baseRef: '--upload-pack=x' })).toMatchObject({ ok: false, reason: expect.stringContaining('refusing') });
+    const proc = fakeDockerProcess({ 'git -C /w t fetch': { code: 1, stderr: 'no net' } });
+    expect(await refreshClone(ctx(proc), input, { baseRef: 'develop' })).toEqual({ ok: false, reason: 'git fetch origin develop failed: no net' });
+  });
   it('reports uncommitted work in the clone with its diff', async () => {
     const proc = fakeDockerProcess({ 'docker run': { code: 3, stdout: ' M a.ts\n' } });
     const r = await refreshClone(ctx(proc), input);
