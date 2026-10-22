@@ -19,7 +19,7 @@ function hostFor(fixture: (typeof FIXTURE_NAMES)[number], rec: ProbeRecorder): P
   return {
     execute: async (c) => { rec.logLine(`ran ${c}`); },
     restart: async () => undefined,
-    snapshot: () => ({ tickets: readTickets(store), sidebar: { lastMessage: null }, ...rec.view() }),
+    snapshot: () => ({ tickets: readTickets(store), sidebar: { lastMessage: null }, launches: [], ...rec.view() }),
   };
 }
 

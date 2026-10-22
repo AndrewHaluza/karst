@@ -19,6 +19,9 @@ describe('fixtures', () => {
     expect(FIXTURE_NAMES.every(isFixtureName)).toBe(true);
     expect(isFixtureName('nope')).toBe(false);
   });
+  it('manifestText takes the provider', () => {
+    expect(manifestText('/w/repo', 'codex')).toContain('agentProvider: codex');
+  });
   it('manifestText points the only repo at the given path', () => {
     const text = manifestText('/w/repo');
     expect(text).toContain('repoPath: /w/repo');

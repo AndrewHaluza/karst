@@ -119,7 +119,8 @@ describe('MARKER_EMIT', () => {
   const reply = (events: string, body: object): void => {
     // Answer as the host would: watch the events file, write results/<seq>.json.
     const timer = setInterval(() => {
-      if (!existsSync(events)) return;
+      // The writer may have created the file but not flushed a line yet.
+      if (!existsSync(events) || !readFileSync(events, 'utf8').endsWith('\n')) return;
       const seq = (lines(events).at(-1) as { seq?: string } | undefined)?.seq;
       if (!seq) return;
       mkdirSync(join(events, '..', 'results'), { recursive: true });
