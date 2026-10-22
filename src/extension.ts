@@ -3493,8 +3493,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return project ? join(context.globalStorageUri.fsPath, 'graph', project.slug) : undefined;
   };
   const lifecycleDeps: LifecycleOpsDeps = {
-    store: localStore,
-    removeSandboxes: (id) => sandboxLife.beforeArchive(id),
+    store: localStore, removeSandboxes: (id) => sandboxLife.beforeArchive(id),
     notify,
     log: { debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) },
     confirm: async (message, confirmLabel) => {
