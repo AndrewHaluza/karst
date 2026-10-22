@@ -19,6 +19,7 @@ a fake agent core and drive it with a JSON steps script
 (`docs/arch/uat-host.md`, `arch:UATHOST-01`, `arch:UATHOST-02`):
 
     npm run uat:host:docker -- --fixture <name> --script <steps.json> --out <dir>
+    npm run uat:host:docker -- --fixture-file <fixture.json> --script <steps.json> --out <dir>
 
 Use `uat:host:docker` — the Docker harness. Plain `uat:host` runs on the
 host, not in Docker, and needs a built `dist/` (a missing one fails with
@@ -27,7 +28,17 @@ failure is yours to avoid, not a harness outage.
 
 - Pick the closest predefined fixture: `empty` (no tickets),
   `ticket-mid-stage` (FIX-MID, impl running), `blocked` (FIX-BLOCKED,
-  uat blocked `boot-failed`). Do not invent fixtures.
+  uat blocked `boot-failed`).
+- When no built-in fixture has the state a criterion needs (a stranded
+  stage, a stage run with no process or gate rows, a recovery round),
+  write a fixture file under `.karst/uat-scratch/` and pass it with
+  `--fixture-file`. It is data, never code: `tickets[]` (`key`, `title`,
+  `stageCurrent`, optional `stages[]`, `archived`, `worktree`, `rows`) and
+  an optional `provider`; unknown keys are refused. Model it on
+  `scripts/uat-host/samples/stranded-uat.fixture.json`
+  (`arch:UATHOST-02`). To run a boot sweep against that state, add a
+  `{"type":"restart"}` step. "Harness unavailable" is still not a verdict:
+  report what you could not reach, never a pass.
 - `--out` MUST be a relative path inside the checkout (e.g.
   `.uat-out/<criterion>`). The container bind-mounts only the repo root,
   so evidence written to a temp dir outside it is silently lost and

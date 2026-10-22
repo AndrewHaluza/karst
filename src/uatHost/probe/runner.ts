@@ -20,6 +20,8 @@ export interface SnapshotScope {
 }
 export interface ProbeHost {
   execute(command: string, args: unknown[]): Promise<unknown>;
+  /** Deactivate and re-activate the extension; resolves once activation has returned. */
+  restart(): Promise<void>;
   /** No scope means the full snapshot (evidence); `tickets: false` skips the store read. */
   snapshot(scope?: SnapshotScope): Snapshot;
 }
@@ -67,10 +69,12 @@ async function withTimeout<T>(p: Promise<T>, ms: number): Promise<{ timedOut: tr
 async function runStep(step: Step, opts: RunOptions, budgetMs: number): Promise<Omit<StepResult, 'index' | 'type'>> {
   const timeoutMs = Math.min(budgetMs, 'timeoutMs' in step && step.timeoutMs ? step.timeoutMs : DEFAULT_STEP_TIMEOUT_MS);
   if (step.type === 'snapshot') return { status: 'pass' };
-  if (step.type === 'command') {
+  if (step.type === 'command' || step.type === 'restart') {
+    const label = step.type === 'restart' ? 'restart' : step.command;
     try {
-      const r = await withTimeout(opts.host.execute(step.command, step.args ?? []), timeoutMs);
-      return 'timedOut' in r ? { status: 'timeout', detail: `${step.command} exceeded ${timeoutMs}ms` } : { status: 'pass' };
+      const run = step.type === 'restart' ? opts.host.restart() : opts.host.execute(step.command, step.args ?? []);
+      const r = await withTimeout(run, timeoutMs);
+      return 'timedOut' in r ? { status: 'timeout', detail: `${label} exceeded ${timeoutMs}ms` } : { status: 'pass' };
     } catch (err) {
       return { status: 'fail', detail: err instanceof Error ? err.message : String(err) };
     }

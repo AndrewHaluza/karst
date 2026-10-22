@@ -1,0 +1,8 @@
+{
+  "steps": [
+    { "type": "wait", "for": { "log": "Karst activated" }, "timeoutMs": 20000 },
+    { "type": "snapshot", "label": "before-restart" },
+    { "type": "restart", "timeoutMs": 30000 },
+    { "type": "snapshot", "label": "after-restart" }
+  ]
+}

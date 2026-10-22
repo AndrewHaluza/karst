@@ -28,6 +28,7 @@ describe('parseSteps', () => {
       { type: 'snapshot', label: 'l' },
     ]);
     expect(parseSteps([{ type: 'snapshot' }])).toEqual([{ type: 'snapshot' }]);
+    expect(parseSteps([{ type: 'restart', timeoutMs: 999_999 }])).toEqual([{ type: 'restart', timeoutMs: 60_000 }]);
   });
   it.each([
     [{}, 'non-empty'],
@@ -98,6 +99,7 @@ describe('conditionMet', () => {
 describe('runSteps', () => {
   const mkHost = (over: Partial<ProbeHost> = {}): ProbeHost => ({
     execute: async () => undefined,
+    restart: async () => undefined,
     snapshot: empty,
     ...over,
   });
@@ -158,5 +160,26 @@ describe('runSteps', () => {
   it('enforces the total script timeout', async () => {
     const { results } = await run([{ type: 'snapshot' }, { type: 'snapshot' }], mkHost(), { totalTimeoutMs: -1 });
     expect(results).toEqual([{ index: 0, type: 'snapshot', status: 'timeout', detail: 'script total timeout exceeded' }]);
+  });
+
+  it('restart calls the host, then later steps see the restarted state', async () => {
+    const calls: string[] = [];
+    const host = mkHost({
+      restart: async () => { calls.push('restart'); },
+      execute: async (c) => { calls.push(c); },
+    });
+    const { results } = await run([{ type: 'restart' }, { type: 'command', command: 'after' }], host);
+    expect(calls).toEqual(['restart', 'after']);
+    expect(results.map((r) => [r.type, r.status])).toEqual([['restart', 'pass'], ['command', 'pass']]);
+  });
+  it('a failing restart fails the step and stops the run', async () => {
+    const host = mkHost({ restart: async () => { throw new Error('activate blew up'); } });
+    const { results } = await run([{ type: 'restart' }, { type: 'snapshot' }], host);
+    expect(results).toEqual([{ index: 0, type: 'restart', status: 'fail', detail: 'activate blew up' }]);
+  });
+  it('a hung restart times out and names itself', async () => {
+    const host = mkHost({ restart: () => new Promise<void>(() => undefined) });
+    const { results } = await run([{ type: 'restart', timeoutMs: 20 }], host);
+    expect(results[0]).toMatchObject({ status: 'timeout', detail: 'restart exceeded 20ms' });
   });
 });

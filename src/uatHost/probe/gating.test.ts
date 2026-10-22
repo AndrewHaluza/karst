@@ -10,7 +10,7 @@ describe('probe is absent without KARST_UAT_PROBE=1', () => {
   const binding = read('src', 'uatHost', 'probe', 'vscodeProbe.ts');
 
   it('installs nothing and registers nothing without the gate', () => {
-    expect(binding).toMatch(/if \(!probeEnabled\(env\)\) return undefined;\s*const rec = new ProbeRecorder\(\);\s*patchNotifications/);
+    expect(binding).toMatch(/if \(!probeEnabled\(env\)\) return undefined;\s*(\/\/[^\n]*\s*)?if \(installed\) return installed;\s*const rec = new ProbeRecorder\(\);\s*installed = rec;\s*patchNotifications/);
     expect(binding).toMatch(/if \(!rec\) return;\s*const host/);
     expect(binding.match(/registerCommand\(/g)).toHaveLength(1);
   });
@@ -18,7 +18,7 @@ describe('probe is absent without KARST_UAT_PROBE=1', () => {
   it('is the only registration of the probe command, reached only through the binding', () => {
     const ext = read('src', 'extension.ts');
     expect(ext).toContain('const probeRecorder = installProbeRecorder();');
-    expect(ext).toContain('registerProbeCommand(context, probeRecorder, localStore);');
+    expect(ext).toContain('registerProbeCommand(context, probeRecorder, () => store!,');
     expect(ext).not.toContain(PROBE_COMMAND);
   });
 

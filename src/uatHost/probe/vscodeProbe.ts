@@ -11,6 +11,7 @@ import { readTickets } from './storeEvidence.js';
 
 const VIEW_PREFIX = 'view:';
 let nextId = 0;
+let installed: ProbeRecorder | undefined;
 
 function wrapWebview(rec: ProbeRecorder, id: string, webview: vscode.Webview): void {
   const post = webview.postMessage.bind(webview);
@@ -75,28 +76,47 @@ function patchOutputChannel(rec: ProbeRecorder): void {
 /** Call first in activate(): starts recording what the host shows. Returns undefined without the flag. */
 export function installProbeRecorder(env: Record<string, string | undefined> = process.env): ProbeRecorder | undefined {
   if (!probeEnabled(env)) return undefined;
+  // A `restart` step re-runs activate() in the same host: patch vscode.window once, not twice.
+  if (installed) return installed;
   const rec = new ProbeRecorder();
+  installed = rec;
   patchNotifications(rec);
   patchWebviews(rec);
   patchOutputChannel(rec);
   return rec;
 }
 
+/** The extension's own lifecycle, handed in so a `restart` step can bounce it without this module importing it. */
+export interface HostLifecycle {
+  deactivate(): Promise<void>;
+  activate(): Promise<void>;
+}
+
 /** Registers the one probe command. The recorder doubles as the gate: absent means nothing registers. */
 export function registerProbeCommand(
   context: vscode.ExtensionContext,
   rec: ProbeRecorder | undefined,
-  store: Store,
+  /** Read live: a restart replaces the extension's store. */
+  getStore: () => Store,
+  lifecycle: HostLifecycle,
 ): void {
   if (!rec) return;
   const host: ProbeHost = {
     execute: async (command, args) => { await vscode.commands.executeCommand(command, ...args); },
+    // deactivate() leaves context.subscriptions to VS Code; drain them here so activate() can re-register.
+    restart: async () => {
+      await lifecycle.deactivate();
+      for (const d of context.subscriptions.splice(0)) {
+        try { d.dispose(); } catch { /* a disposable that throws must not strand the restart */ }
+      }
+      await lifecycle.activate();
+    },
     snapshot: (scope) => {
       const view = rec.view();
       const sidebar = view.webviews.find((w) => w.id.startsWith(VIEW_PREFIX));
       // A wait that is not about tickets must not read the store on every poll.
       return {
-        tickets: scope?.tickets === false ? [] : readTickets(store),
+        tickets: scope?.tickets === false ? [] : readTickets(getStore()),
         sidebar: { lastMessage: sidebar?.lastMessage ?? null },
         ...view,
       };
