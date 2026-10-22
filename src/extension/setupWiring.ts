@@ -175,8 +175,11 @@ export function createSetupFeature(deps: SetupWiringDeps): SetupFeature {
       } catch {
         /* the outbox dir is created on launch too */
       }
-      commands.registerCommand('karst.setupAgent', () =>
-        void setup.create().catch((e) => deps.logError('setup: create failed', e)),
+      // Owned by context so a `restart` probe step (which drains subscriptions) can re-register it.
+      context.subscriptions.push(
+        commands.registerCommand('karst.setupAgent', () =>
+          void setup.create().catch((e) => deps.logError('setup: create failed', e)),
+        ),
       );
       try {
         watcher = fsWatch(setupRoot, { recursive: true }, scheduleScan);
