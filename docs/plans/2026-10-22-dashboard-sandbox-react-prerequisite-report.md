@@ -65,10 +65,14 @@ Inspection of the repository confirms that the dashboard webview has **not** yet
 
 ---
 
-## 4. Follow-up Review (T739 · DASHBOARD-SANDBOX-AS-A-FULL-fu1)
+## 4. Prerequisite Resolution & Implementation (DASHBOARD-SANDBOX-AS-A-FULL-fu1)
 
-Follow-up ticket `DASHBOARD-SANDBOX-AS-A-FULL-fu1` was opened to evaluate execution of this prerequisite report:
-1. Re-verified that the dashboard webview has not been migrated to React; `src/ui/dashboard/webview.html` remains the active vanilla v3.0 implementation.
-2. In adherence to `@ui:REACT-VIEWS`, no modifications have been made to `src/ui/dashboard/webview.html`.
-3. Verified all existing unit and render integration tests (`sandboxView.test.ts`, `sandboxCard.render.integration.test.ts`) continue to pass cleanly.
-4. Confirmed that implementation of the V1 full-width strip must remain blocked until the React migration prerequisite lands.
+1. **Prerequisite Landed:** Sub-ticket `T740 · DASHBOARD-SANDBOX-AS-A-FULL-fu1-s1` (PR #702) landed the React migration Phase 1 foundation for the dashboard webview:
+   - Configured esbuild bundling for `src/ui/dashboard/app/main.tsx` into `src/ui/dashboard/app.webview.js` and `app.webview.css`.
+   - Added `#root` mount container directly above `.grid` in `src/ui/dashboard/webview.html`.
+   - Implemented `DashboardAppContext` and `hostBridge` for typed React slices.
+2. **V1 Implementation Shipped:** With the prerequisite satisfied:
+   - Variant V1 full-width placement strip is implemented in React (`src/ui/dashboard/app/SandboxStrip.tsx`).
+   - Retains all facts (backend, canonical core identity, workspace mode, network policy) and labelled actions (Sync, Diff, Stop, Carry to host, Remove...).
+   - Restores the 2x2 grid layout (Servers and Worktrees share row 1, Pull requests spans row 2).
+   - Covered by unit tests (`SandboxStrip.test.tsx`, `App.test.tsx`) and full DOM render integration tests (`sandboxCard.render.integration.test.ts`).

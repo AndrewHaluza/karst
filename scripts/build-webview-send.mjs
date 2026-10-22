@@ -39,6 +39,13 @@ export const WEBVIEW_BUNDLE_ENTRIES = [
     output: 'src/ui/dashboard/webviewSend.webview.js',
   },
   {
+    input: 'src/ui/dashboard/app/main.tsx',
+    output: 'src/ui/dashboard/app.webview.js',
+    jsx: 'automatic',
+    define: { 'process.env.NODE_ENV': '"production"' },
+    minifyFromProd: true,
+  },
+  {
     input: 'src/ui/settings/app/main.tsx',
     output: 'src/ui/settings/app.webview.js',
     jsx: 'automatic',
