@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -99,6 +99,18 @@ function killGroup(pid) {
 const root = mkdtempSync(join(tmpdir(), 'karst-uat-host-'));
 const launchDir = join(root, 'launch');
 mkdirSync(launchDir, { recursive: true });
+// The dependency gate probes `<cli> --version` before any session opens. Launch
+// mode never runs the real CLI, so no-op shims satisfy the probe; the stub is
+// what actually runs.
+const shimDir = join(root, 'shims');
+if (launchMode) {
+  mkdirSync(shimDir, { recursive: true });
+  for (const cli of ['claude', 'codex', 'agy', 'opencode']) {
+    const shim = join(shimDir, cli);
+    writeFileSync(shim, '#!/bin/sh\nexit 0\n');
+    chmodSync(shim, 0o755);
+  }
+}
 let code = 1;
 try {
   const userData = join(root, 'user-data');
@@ -128,7 +140,7 @@ try {
     extensionTestsEnv: {
       KARST_FAKE_CORE: launchMode ? 'launch' : '1',
       ...(launchMode
-        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir }
+        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}` }
         : {}),
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,

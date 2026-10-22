@@ -27,10 +27,10 @@ const FACTORIES: Record<AgentProvider, () => AgentAdapter> = {
 
 let fakeCoreWarned = false;
 // No injected debug seam exists in this module, so a single console.warn per process.
-function warnFakeCoreOnce(): void {
+function warnFakeCoreOnce(mode: string): void {
   if (fakeCoreWarned) return;
   fakeCoreWarned = true;
-  console.warn(`karst: ${FAKE_CORE_ENV}=1, fake agent core is active (no real agent runs).`);
+  console.warn(`karst: ${FAKE_CORE_ENV}=${mode}, fake agent core is active (no real agent runs).`);
 }
 
 /**
@@ -39,12 +39,12 @@ function warnFakeCoreOnce(): void {
 export function resolveAdapter(provider: AgentProvider): AgentAdapter {
   const mode = process.env[FAKE_CORE_ENV];
   if (mode === '1') {
-    warnFakeCoreOnce();
+    warnFakeCoreOnce(mode);
     return new FakeAdapter();
   }
   const stub = process.env[STUB_AGENT_ENV];
   if (mode === 'launch' && stub) {
-    warnFakeCoreOnce();
+    warnFakeCoreOnce(mode);
     return wrapLaunchStub(provider, FACTORIES[provider](), stub);
   }
   return FACTORIES[provider]();
