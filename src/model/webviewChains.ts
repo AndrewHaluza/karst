@@ -29,6 +29,7 @@ import { injectAgentPicker } from './agentPicker.js';
 import { injectServerLogsView } from './serverLogsView.js';
 import { injectWebviewSend } from './webviewSendInjector.js';
 import { injectSettingsApp } from './settingsAppInjector.js';
+import { injectDashboardApp } from './dashboardAppInjector.js';
 
 export const WEBVIEW_NAMES = [
   'dashboard',
@@ -73,7 +74,7 @@ const DS_AGENT_PALETTE: Chain = (html) =>
 const DS_PALETTE_SERVER_LOGS: Chain = (html) => injectServerLogsView(DS_PALETTE(html));
 
 export const WEBVIEW_CHAINS: Record<WebviewName, Chain> = {
-  dashboard: (html) => injectDashboardSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html)),
+  dashboard: (html) => injectDashboardApp(injectDashboardSend(DS_PALETTE_PROVIDER_AGENT_PICKER(html))),
   // The switch-over (NDL-126 §8.4): `webview.html` now carries the
   // `/*KARST_SETTINGS_APP*/` marker, so `injectSettingsApp` is live and the
   // React app becomes the settings implementation. The settings sender bundle

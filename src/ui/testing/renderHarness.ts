@@ -307,9 +307,9 @@ export async function pumpRenderRealm(handle: RenderHandle): Promise<void> {
 export async function renderWebviewReady(name: WebviewName, opts?: { nonce?: string }): Promise<RenderHandle> {
   const handle = renderWebview(name, opts);
 
-  // Only settings uses React; only it should set data-karst-ready.
+  // React webviews: settings and dashboard wait for data-karst-ready when #root is present.
   // For other views, sync render is complete.
-  if (name !== 'settings') return handle;
+  if (name !== 'settings' && name !== 'dashboard') return handle;
 
   // Check if React app is injected (marked by #root element).
   // If not, vanilla view is active — return sync render immediately.

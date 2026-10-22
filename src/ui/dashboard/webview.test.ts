@@ -67,6 +67,12 @@ function containerBlock(w: string): string {
  * or a selection round trip that fails in a real webview. Those need F5.
  */
 describe('dashboard webview.html', () => {
+  it('carries the React foundation: #root anchor and injector markers', () => {
+    expect(HTML).toContain('<div id="root"></div>');
+    expect(HTML).toContain('/*KARST_DASHBOARD_APP*/');
+    expect(HTML).toContain('/*KARST_DASHBOARD_APP_CSS*/');
+  });
+
   it('renders the header ship action from state.ship, never a Now sentence', () => {
     expect(HTML).toMatch(/function renderShip\(state\)[\s\S]*?state\.ship/);
     expect(HTML).not.toContain('id="now"');
