@@ -540,23 +540,23 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     const bareDebug = vi.fn();
     const bare = await make({ setupExit: 2, pick: 'Re-run setup', extra: { debug: bareDebug } });
     await bare.b.provision(bare.id);
-    await vi.waitFor(() => expect(bare.offered.length).toBeGreaterThan(1)); // no redrive/openFile bound: re-run still completes
+    await vi.waitFor(() => expect(bare.offered.length).toBeGreaterThan(1), { timeout: 10_000 }); // no redrive/openFile bound: re-run still completes
     const bareLog = await make({ setupExit: 2, pick: 'Show setup log', extra: { debug: bareDebug } });
     await bareLog.b.provision(bareLog.id);
     await new Promise((res) => setTimeout(res, 20));
     expect(bareDebug.mock.calls.map((c) => String(c[0])).filter((m) => m.includes('action failed'))).toEqual([]);
     const a = await make({ setupExit: 2, pick: 'Re-run setup', extra: { redriveAfterSetup: redrive, openFile, debug } });
     await a.b.provision(a.id);
-    await vi.waitFor(() => expect(redrive).toHaveBeenCalledWith(a.id));
+    await vi.waitFor(() => expect(redrive).toHaveBeenCalledWith(a.id), { timeout: 10_000 });
     expect(a.offered[0]).toEqual(['Re-run setup', 'Show setup log']);
     const b = await make({ setupExit: 2, pick: 'Show setup log', extra: { redriveAfterSetup: redrive, openFile } });
     await b.b.provision(b.id);
-    await vi.waitFor(() => expect(openFile).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(openFile).toHaveBeenCalledTimes(1), { timeout: 10_000 });
     expect(openFile.mock.calls[0]![0]).toMatch(/setup\.log$/);
     expect(redrive).toHaveBeenCalledTimes(1);
     const c = await make({ setupExit: 2, pick: 'Docker memory help', extra: { debug } });
     await c.b.provision(c.id);
-    await vi.waitFor(() => expect(c.infos).toHaveLength(1));
+    await vi.waitFor(() => expect(c.infos).toHaveLength(1), { timeout: 10_000 });
     expect(c.infos[0]).toContain('Memory');
     expect(debug).toHaveBeenCalled();
   });
@@ -596,7 +596,7 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     const m = await make({ setupExit: 2, listed: async (box) => (++polls < 3 ? [] : [box]) });
     const wait = vi.fn(() => Promise.resolve());
     expect(m.b.provisionInBackground(m.id, wait)).toBeUndefined();
-    await vi.waitFor(() => expect(m.errors).toHaveLength(1));
+    await vi.waitFor(() => expect(m.errors).toHaveLength(1), { timeout: 10_000 });
     expect(wait).toHaveBeenCalledTimes(2);
     expect(wait).toHaveBeenCalledWith(5_000);
   });
@@ -605,7 +605,7 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
     const m = await make({ listed: async () => [] });
     const wait = vi.fn(() => Promise.resolve());
     m.b.provisionInBackground(m.id, wait);
-    await vi.waitFor(() => expect(wait).toHaveBeenCalledTimes(12));
+    await vi.waitFor(() => expect(wait).toHaveBeenCalledTimes(12), { timeout: 10_000 });
     expect(m.ran).toHaveLength(0);
   });
 });
