@@ -173,10 +173,21 @@ jobs:
       # Blocking gate (CI-MAKE-MUTATION-SCORE-JOB): the score is global
       # across src/extension/**, but it is a contract. No `continue-on-error`
       # here — a run below thresholds.break (85) exits 1 and fails the job.
+      # Incremental: Stryker re-tests only mutants whose source or covering
+      # tests changed since the cached run, and reuses the rest. Reused results
+      # still count, so the score stays global. Restore the newest cache from
+      # any run (restore-keys); save a fresh one per commit.
+      - name: Restore the Stryker incremental cache
+        uses: actions/cache@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-incremental-${{ github.sha }}
+          restore-keys: stryker-incremental-
+
       - name: Run Stryker
         id: stryker
         # Local config is silent (html+json only); CI wants the per-file table in the log.
-        run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json
+        run: npm run test:mutation -- --logLevel info --reporters clear-text,html,json --incremental --incrementalFile reports/stryker-incremental.json
 
       # The changed-file list powers the inline annotations, so compute it
       # before the report. `|| true` (and the `if: always()`) keep a diff
