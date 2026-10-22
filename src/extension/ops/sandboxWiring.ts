@@ -1,3 +1,5 @@
+import { findStrays, removeStrays } from './sandboxStrays.js';
+import { NODE_DOCKER_PROCESS } from '../../agent/docker/dockerProcess.js';
 import { createSandboxSessionEnder } from './sandboxSessionEnd.js';
 import { readClonedWorktree } from '../../agent/clonedWorktree.js';
 import type { Store } from '../../store/db.js';
@@ -34,6 +36,7 @@ export interface SandboxWiringInput {
   readonly openSyncDiff: (ticketId: number) => Promise<void>;
   /** Opens a unified diff in a read-only editor. */
   readonly showDiff: (title: string, diff: string) => Promise<void>;
+  readonly debug?: (m: string) => void;
   readonly info: (m: string) => void;
   readonly logError: (m: string, err: unknown) => void;
   /** A ticket's terminal/session is open (never stopped under it). */
@@ -84,6 +87,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     return {
       notify: w.notify, projectRoot, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}), choose: w.choose, owns: controls, ...(bridges ? { bridges } : {}),
       openSyncDiff: (t) => w.openSyncDiff(t.ticketId),
+      worktreeOf: (id) => { try { return target(id).worktree?.path; } catch { return undefined; } },
+      debug: w.debug,
     };
   };
   /** Dashboard Stop / Remove: explicit user actions, independent of the configured backend (ownership and the unsynced-commit guard still apply). */
@@ -295,6 +300,18 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
           return inventory;
         },
         live: liveTickets, owns: controls, clearSession, info: w.info, logError: w.logError,
+        sweepStrays: async (inv) => {
+          const sd = { projectRoot: d.projectRoot, docker: d.dockerProc ?? NODE_DOCKER_PROCESS, liveTicketIds: new Set(liveTickets().map((t) => t.id)) };
+          const strays = await findStrays(sd, inv);
+          const failed = await removeStrays(sd, strays);
+          const kept = strays.filter((s) => !s.removable).map((s) => `${s.kind} ${s.name}`);
+          const removed = strays.filter((s) => s.removable).length - failed.length;
+          return [
+            ...(removed > 0 ? [`karst: removed ${removed} stray sandbox resource(s) of closed tickets`] : []),
+            ...failed.map((f) => `karst: could not remove stray ${f}`),
+            ...(kept.length > 0 ? [`karst: stray sandbox resource(s) of open tickets left alone: ${kept.join(', ')}`] : []),
+          ];
+        },
       });
     },
     /** Stop (never remove) running sandboxes idle past the stuck threshold (arch:AC-32). */

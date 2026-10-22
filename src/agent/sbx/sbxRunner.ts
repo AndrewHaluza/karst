@@ -217,7 +217,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
       // A failed rm keeps the clone, the remote and the known name: the sandbox may still hold unsynced commits and a retry needs them.
       if (rm.status === 'failed') return disposeResult([rm]);
       // A missing remote is fine: `sbx rm` usually removes it already.
-      await git(ticket.hostWorktreePath, ['remote', 'remove', remote]);
+      if (ticket.hostWorktreePath) await git(ticket.hostWorktreePath, ['remote', 'remove', remote]);
       const steps: DisposeStep[] = [rm];
       if (opts.cloneDir) {
         try {

@@ -1268,7 +1268,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   });
   context.subscriptions.push({ dispose: artifactCapture.dispose });
   sandboxLife = makeSandboxWiring({ // arch:AC-32
-    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), logError,
+    store: localStore, notify: vscodeNotify, owned: ownedSessionTickets, bridges: () => bridges, launchIdFor: (id) => recoveryLifecycle.currentLaunchId(id), sessionOpen: (id) => sessions.isOpen(id), info: (m) => logger.info(m), debug: (m) => logger.debug(m), logError,
     choose: (m, choices) => Promise.resolve(vscode.window.showWarningMessage(m, { modal: true }, ...choices.filter((c) => c !== 'Cancel'))),
     projectRoot: () => cliEntryAndManifest(context).manifestPath, backendOn: () => currentManifest()?.agentBackends !== undefined,
     projectId: () => currentProject()?.id, bridgeDirOf: (id) => sandboxB?.deps.bridgeOf?.(id)?.dir, reopen: async (id) => { await vscode.commands.executeCommand('karst.openSession', id); },
@@ -3493,7 +3493,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     return project ? join(context.globalStorageUri.fsPath, 'graph', project.slug) : undefined;
   };
   const lifecycleDeps: LifecycleOpsDeps = {
-    store: localStore,
+    store: localStore, removeSandboxes: (id) => sandboxLife.beforeArchive(id),
     notify,
     log: { debug: (m) => logger.debug(m), warn: (m) => logger.warn(m) },
     confirm: async (message, confirmLabel) => {
@@ -6340,7 +6340,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       // Identity and runner come first: a sandboxed agent gets sandbox instructions, not the host CLI ones (AC-34).
       const identity = resolveLaunchIdentity(currentManifest() ?? emptyManifest(), t, options.assignment, modelCatalog);
       const launchProvider = identity.provider;
-      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: currentManifest()?.agentBackends, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
+      const fallback = await launchWithoutSilentHostFallback({ ticketLabel: t.key ?? String(ticketId), wantsSandbox: wantsSandboxBackend(currentManifest()?.agentBackends, launchProvider, t.agentBackend), hasSandbox: async () => sandboxB?.hasSandbox(ticketId) ?? false, launch: () => resolveLaunchBackend({ backends: cliLit.manifest ? currentManifest()?.agentBackends : undefined, ticketOverride: t.agentBackend, warn: (m) => vscodeNotify.warn(m), core: launchProvider, projectRoot: cliLit.manifest ?? wt.path, worktreeCount: listWorktreesByTicket(localStore, ticketId).length, ticketId, ticketLabel: t.key ?? String(ticketId), info: (m) => logger.info(m), worktree: wt, debug: (m) => logger.debug(m), ...(bridges ? { bridgeFor: bridges.attach } : {}), hostPorts: sandboxB?.hostPorts(ticketId) ?? [], syncExisting: () => sandboxLife.ensureInSync(ticketId) }, (core) => sandboxB?.remember(ticketId, core)), ...hostFallbackPrompts(vscode.window), removeSandbox: async () => { await sandboxLife.remove(ticketId); return !(await (sandboxB?.hasSandbox(ticketId) ?? false)); }, }); if (fallback.kind === 'cancelled') return; const launchBackend = fallback.backend;
       const cliTok = launchTokens(cliLit);
       // A sandbox has no karst MCP server and no host CLI: it finishes through the bridge's emit-marker (AC-34).
       const sandboxed = launchBackend.sandboxed; if (sandboxed) sandboxB?.provisionInBackground(ticketId); // AC-36: deps in the background, never blocks the session
@@ -6603,7 +6603,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             debug: (message: string) => logger.debug(message),
             sandbox: currentManifest()?.agentSandbox === true, onSandboxMode: (line: string) => logger.info(`[session] ticket ${t.key ?? ticketId} agent mode: ${line}`), // AC-31
             ...launchBackend.options, // AC-32
-            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started') }) : {}), // AC-32 launch failure
+            ...(currentManifest()?.agentBackends ? sandboxLaunchFailureOptions({ ticketId, ticketLabel: t.key ?? String(ticketId), core: launchProvider, captureDir: join(context.globalStorageUri.fsPath, 'artifacts', t.key ?? String(ticketId)), warn: (m) => logger.warn(m), notify: vscodeNotify, markNotStarted: (id) => setAgentState(localStore, id, 'not-started'), removeSandbox: () => sandboxLife.remove(ticketId) }) : {}), // AC-32 launch failure
           },
           // Record the session manager's active provider/model snapshot, so a
           // later fix recovery reads the identity that ACTUALLY launched this

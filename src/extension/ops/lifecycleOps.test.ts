@@ -99,6 +99,21 @@ describe('deleteTicketOp', () => {
     expect(d.refresh).toHaveBeenCalled();
   });
 
+  it('removes the ticket sandboxes before deleting rows', async () => {
+    const removeSandboxes = vi.fn().mockResolvedValue(true);
+    const d = makeDeps({ removeSandboxes });
+    await deleteTicketOp(d, 1);
+    expect(removeSandboxes).toHaveBeenCalledWith(1);
+    expect(removeSandboxes.mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(deleteTicketPermanently).mock.invocationCallOrder[0]!);
+  });
+
+  it('a sandbox that cannot be removed refuses the delete', async () => {
+    const d = makeDeps({ removeSandboxes: vi.fn().mockResolvedValue(false) });
+    await deleteTicketOp(d, 1);
+    expect(deleteTicketPermanently).not.toHaveBeenCalled();
+    expect(d.notify.error).toHaveBeenCalledWith(expect.stringContaining('sandbox could not be removed'));
+  });
+
   describe('artifact history keep/purge', () => {
     const artifacts = () => ({
       mirrorGraph: vi.fn().mockResolvedValue(undefined),
