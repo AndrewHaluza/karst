@@ -1,7 +1,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeDockerProcess } from '../../agent/docker/fakeDockerProcess.js';
 import { dockerNames } from '../../agent/docker/dockerNames.js';
 import { fakeSbxProcess } from '../../agent/sbx/fakeSbxProcess.js';
@@ -562,10 +562,18 @@ describe('bindings.provision / provisionInBackground (arch:AC-36)', () => {
   });
 
   /** Advance the fake clock until `p` settles (the 60 s kill-retry delay is armed after some awaits). */
+  // A timed-out test must not leak fake timers into the next one (it made the next test's waitFor hang).
+  afterEach(() => { vi.useRealTimers(); });
+
   const tick = async <T>(p: Promise<T>): Promise<T> => {
     let done = false;
     void p.finally(() => { done = true; });
-    for (let i = 0; i < 200 && !done; i++) await vi.advanceTimersByTimeAsync(1000);
+    // Yield a real macrotask each round (setImmediate is not faked) so a slow CI worker can finish
+    // the real async work that schedules the retry timer before the next advance.
+    for (let i = 0; i < 200 && !done; i++) {
+      await new Promise<void>((r) => setImmediate(r));
+      await vi.advanceTimersByTimeAsync(1000);
+    }
     return p;
   };
 
