@@ -1,6 +1,6 @@
 # Prerequisite Report: Dashboard React Migration (DASHBOARD-SANDBOX-AS-A-FULL)
 
-- **Ticket:** DASHBOARD-SANDBOX-AS-A-FULL (T735)
+- **Ticket:** DASHBOARD-SANDBOX-AS-A-FULL (T735) / DASHBOARD-SANDBOX-AS-A-FULL-fu1 (T739)
 - **Title:** Dashboard: Sandbox as a full-width placement strip above the grid (V1)
 - **Date:** 2026-10-22
 - **Verdict:** STOP AND REPORT (Prerequisite Not Landed)
@@ -62,3 +62,13 @@ Inspection of the repository confirms that the dashboard webview has **not** yet
    Scope and execute a dedicated ticket to migrate `src/ui/dashboard` to React (following the `src/ui/settings/app` reference architecture with 100% behavioral and baseline parity).
 2. **Execute DASHBOARD-SANDBOX-AS-A-FULL Post-Migration:**
    Once the dashboard's React foundation is landed, implement variant V1 (full-width placement strip above the grid with labelled actions, wrapping facts, and danger treatment on Remove) as a component within `src/ui/dashboard/app/`.
+
+---
+
+## 4. Follow-up Review (T739 · DASHBOARD-SANDBOX-AS-A-FULL-fu1)
+
+Follow-up ticket `DASHBOARD-SANDBOX-AS-A-FULL-fu1` was opened to evaluate execution of this prerequisite report:
+1. Re-verified that the dashboard webview has not been migrated to React; `src/ui/dashboard/webview.html` remains the active vanilla v3.0 implementation.
+2. In adherence to `@ui:REACT-VIEWS`, no modifications have been made to `src/ui/dashboard/webview.html`.
+3. Verified all existing unit and render integration tests (`sandboxView.test.ts`, `sandboxCard.render.integration.test.ts`) continue to pass cleanly.
+4. Confirmed that implementation of the V1 full-width strip must remain blocked until the React migration prerequisite lands.
