@@ -10,6 +10,9 @@ import type { GitRunner } from '../../integrations/git.js';
 import { openStore } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 
+// Fixture worktree paths are fake; stub the existence check (path-handling tests inject their own).
+vi.mock('./pathExists.js', () => ({ worktreePathExists: () => true }));
+
 /** Unwraps the `targets` arm, failing loudly if the selection came back unavailable. */
 function targetsOf(selection: Awaited<ReturnType<typeof selectReviewTargets>>): ReviewTarget[] {
   if (selection.kind !== 'targets') {
@@ -48,6 +51,49 @@ function dirty(...paths: string[]): GitRunner {
     exitCode: 0,
   });
 }
+
+describe('selectReviewTargets worktree path handling', () => {
+  const exists = (path: string): boolean => path !== '/gone/app' && path !== '/wt/api';
+
+  it('skips an unmapped worktree without probing it, and still plans the mapped repo', async () => {
+    const calls: string[] = [];
+    const debug: string[] = [];
+    const git: GitRunner = async (args, cwd) => {
+      calls.push(cwd);
+      return { stdout: '', stderr: '', exitCode: args[0] === 'diff' && cwd === '/wt/web' ? 1 : 0 };
+    };
+    const selection = await selectReviewTargets(
+      project,
+      [
+        { repo: '/repos/app', path: '/gone/app', baseRef: 'develop' },
+        { repo: '/repos/web', path: '/wt/web', baseRef: 'develop' },
+      ],
+      git,
+      { pathExists: exists, debug: (m) => debug.push(m) },
+    );
+    expect(calls).not.toContain('/gone/app');
+    expect(targetsOf(selection).map((t) => t.path)).toEqual(['/wt/web']);
+    expect(selection).toMatchObject({ unmapped: ['/repos/app'] });
+    expect(debug).toContain('[gate] targets: skipped unmapped worktree /gone/app (repo /repos/app)');
+  });
+
+  it('names a missing mapped worktree path and never calls git', async () => {
+    const git = vi.fn<GitRunner>(async () => ({ stdout: '', stderr: '', exitCode: 0 }));
+    const selection = await selectReviewTargets(
+      project,
+      [{ repo: '/repos/api', path: '/wt/api', baseRef: 'develop' }],
+      git,
+      { pathExists: exists },
+    );
+    expect(selection).toEqual({
+      kind: 'unavailable',
+      blocker: 'capability-missing',
+      reason:
+        'worktree path does not exist: /wt/api (repo api) — recreate the worktree or remove the stale row (karst doctor)',
+    });
+    expect(git).not.toHaveBeenCalled();
+  });
+});
 
 describe('selectReviewTargets', () => {
   it('selects nothing when no repository changed and no relation is affected', async () => {

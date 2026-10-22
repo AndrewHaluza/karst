@@ -1,10 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { vi, describe, expect, it } from 'vitest';
 import { openStore, type Store } from '../../store/db.js';
 import { createTicket } from '../../store/tickets.js';
 import { setDisabledGates } from '../../store/ticketGates.js';
 import { manifest, repo, svc } from '../../manifest/fixtures.js';
 import type { GitRunner } from '../../integrations/git.js';
 import { buildGateOptionsLoader } from './gateOptions.js';
+
+// Fixture worktree paths are fake; stub the existence check (path-handling tests inject their own).
+vi.mock('../../workflow/gates/pathExists.js', () => ({ worktreePathExists: () => true }));
 
 // Every repo reports a change, so affected-set selection is not what is under
 // test here — `gates/targets.test.ts` owns that. Mirrors review/targets.test.ts's

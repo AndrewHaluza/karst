@@ -1,9 +1,12 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
 import { assertTicketHasChanges } from './emptyWorkGuard.js';
 import { manifest, repo } from '../manifest/fixtures.js';
 import type { GitRunner } from '../integrations/git.js';
 import { openStore, type Store } from '../store/db.js';
 import { createTicketFlow } from './stages/create.js';
+
+// Fixture worktree paths are fake; stub the existence check (path-handling tests inject their own).
+vi.mock('./gates/pathExists.js', () => ({ worktreePathExists: () => true }));
 
 const ok = (stdout = '') => ({ exitCode: 0, stdout, stderr: '' });
 

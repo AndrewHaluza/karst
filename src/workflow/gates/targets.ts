@@ -4,6 +4,7 @@ import type { BlockerKind } from '../../model/types.js';
 import type { Store } from '../../store/db.js';
 import { resolveBaselineBranchForPath } from '../../manifest/baselineBranch.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
+import { worktreePathExists } from './pathExists.js';
 import { canonicalPath } from '../../runtime/pathScope.js';
 import { isRunnable, resolveTarget, unitsOf } from '../../manifest/runnable.js';
 
@@ -303,6 +304,8 @@ export interface SelectReviewTargetsOptions {
    * unless the manifest's `debug` flag is on).
    */
   debug?: (message: string) => void;
+  /** Worktree-path existence check; defaults to `worktreePathExists`. */
+  pathExists?: (path: string) => boolean;
 }
 
 /**
@@ -335,7 +338,24 @@ export async function selectReviewTargets(
   );
   for (const worktree of worktrees) {
     const names = namesByPath.get(canonicalPath(worktree.repo)) ?? [];
-    if (names.length === 0) unmapped.push(worktree.repo);
+    if (names.length === 0) {
+      // No manifest name → can neither contribute a changed name nor become a
+      // target, so probing it can only fail the whole selection for nothing.
+      unmapped.push(worktree.repo);
+      options?.debug?.(
+        `[gate] targets: skipped unmapped worktree ${worktree.path} (repo ${worktree.repo})`,
+      );
+      continue;
+    }
+    // A missing cwd makes spawn report ENOENT on the binary ("spawn git
+    // ENOENT"), which reads as "git not installed" — name the real cause.
+    if (!(options?.pathExists ?? worktreePathExists)(worktree.path)) {
+      const reason =
+        `worktree path does not exist: ${worktree.path} (repo ${names.join(', ')}) — ` +
+        `recreate the worktree or remove the stale row (karst doctor)`;
+      options?.debug?.(`[gate] targets: ${reason}`);
+      return { kind: 'unavailable', blocker: 'capability-missing', reason };
+    }
     const base =
       options?.store && options.ticketId !== undefined
         ? resolveTicketBaseRef(options.store, options.ticketId, worktree.repo, manifest)
@@ -357,7 +377,7 @@ export async function selectReviewTargets(
     }
     options?.debug?.(
       `[gate] targets: worktree '${worktree.path}' ${probe.changed ? 'CHANGED' : 'unchanged'} ` +
-        `against '${base}'${names.length ? ` (names: ${names.join(', ')})` : ''}`,
+        `against '${base}' (names: ${names.join(', ')})`,
     );
     if (probe.changed) {
       for (const name of names) changed.add(name);
