@@ -188,14 +188,102 @@ function apCoreOptionsHtml(cores, current, inheritLabel) {
   return out;
 }
 
+/** One model row: name + variant, capability chips, free tag, saved tag. */
+function apModelItemHtml(m, saved, tags) {
+  var sel = m.id === saved;
+  var p = apParseModelId(m.id, m.label);
+  var variant = p.variant ? '<span class="ap-variant"> ' + apEsc(p.variant) + '</span>' : '';
+  var free = p.free ? '<span class="ap-free">free</span>' : '';
+  // The full id lives in the row's title and data attribute (UI-R44) — the old
+  // second line repeated the name the user had just read.
+  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
+    + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '"'
+    + ' data-ap-full="' + apEsc(m.id) + '" title="' + apEsc(m.id) + '">'
+    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(p.model) + variant + '</div>'
+    + apModelTagsHtml(tags)
+    + '</div>'
+    + free
+    + (sel ? '<span class="ap-model-tag">saved</span>' : '')
+    + '</div>';
+}
+
+/** Group models by route, then by vendor — first-appearance order, stable. */
+function apModelGroups(models) {
+  var groups = [];
+  var byRoute = {};
+  for (var i = 0; i < models.length; i++) {
+    var p = apParseModelId(models[i].id, models[i].label);
+    var rk = 'r:' + (p.route || '');
+    var g = byRoute[rk];
+    if (!g) {
+      g = { route: p.route || '', vendors: [], byVendor: {} };
+      byRoute[rk] = g;
+      groups.push(g);
+    }
+    var vk = 'v:' + (p.vendor || '');
+    var v = g.byVendor[vk];
+    if (!v) { v = { vendor: p.vendor || '', models: [] }; g.byVendor[vk] = v; g.vendors.push(v); }
+    v.models.push(models[i]);
+  }
+  return groups;
+}
+
+/** The rows for a set of models, grouped route → vendor; `skip` drops ids already shown. */
+function apModelListHtml(models, saved, routes, skip, tagsOf) {
+  var groups = apModelGroups(models);
+  var named = groups.length > 1 || (groups.length === 1 && groups[0].route !== '');
+  var out = '';
+  for (var gi = 0; gi < groups.length; gi++) {
+    var g = groups[gi];
+    if (named) {
+      out += '<div class="ap-group-label" role="presentation">'
+        + apRouteIconHtml(g.route, routes)
+        + '<span>' + apEsc(apRouteName(routes, g.route)) + '</span></div>';
+    }
+    for (var vi = 0; vi < g.vendors.length; vi++) {
+      var v = g.vendors[vi];
+      if (v.vendor) out += '<div class="ap-group-sub" role="presentation">' + apEsc(v.vendor) + '</div>';
+      for (var mi = 0; mi < v.models.length; mi++) {
+        var m = v.models[mi];
+        if (skip && skip[m.id]) continue;
+        out += apModelItemHtml(m, saved, tagsOf ? tagsOf(m.id) : undefined);
+      }
+    }
+  }
+  return out;
+}
+
+/** The catalog rows a search query keeps: model, vendor, route id, route name, full id. */
+function apFilterModels(models, routes, q) {
+  var out = [];
+  for (var i = 0; i < models.length; i++) {
+    var p = apParseModelId(models[i].id, models[i].label);
+    var hay = (String(models[i].label || '') + ' ' + String(models[i].id || '') + ' '
+      + p.route + ' ' + p.vendor + ' ' + apRouteName(routes, p.route)).toLowerCase();
+    if (hay.indexOf(q) >= 0) out.push(models[i]);
+  }
+  return out;
+}
+
 /** Model options for the selected core: inherit row (when labeled) then models. */
-function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
+function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, routes, query) {
   var list = (catalog && catalog[provider]) || [];
+  var q = String(query === null || query === undefined ? '' : query).trim().toLowerCase();
+  var tagsOf = function (id) { return apTags(catalog, provider, id); };
+  if (q) {
+    var hits = apFilterModels(list, routes, q);
+    if (!hits.length) {
+      return list.length
+        ? '<div class="ap-empty">No models match "' + apEsc(query) + '".</div>'
+        : '<div class="ap-empty">No models listed for this core.</div>';
+    }
+    return apModelListHtml(hits, saved, routes, {}, tagsOf);
+  }
   var out = '';
   if (inheritLabel) {
     out += '<div class="ap-model-item' + (saved ? '' : ' active') + '" role="option" tabindex="0"'
       + ' data-ap-model="" aria-selected="' + (saved ? 'false' : 'true') + '">'
-      + '<div><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
+      + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(inheritLabel) + '</div></div></div>';
   }
   if (list.length === 0) {
     out += '<div class="ap-empty">No models listed for this core.</div>';
@@ -203,11 +291,7 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
     // The "Last used" group: models the user actually used recently, newest
     // first, up to 5, rendered BEFORE the full list. Only ids still in the
     // catalog render — a recent id that left the catalog is not a dead option.
-    // A recently used model that IS the current selection draws its saved/active
-    // tag inside the group, exactly like it would in the flat list. When the
-    // recent set already covers the WHOLE catalog (a provider with few models),
-    // the header is omitted — a "Last used" label over a list that is all one
-    // group adds noise, not structure.
+    // When the recent set already covers the WHOLE catalog, the header is omitted.
     var recent = [];
     var recentSet = {};
     var recentList = recentIds || [];
@@ -223,47 +307,23 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds) {
       }
     }
     if (recent.length > 0 && recent.length < list.length) {
-      out += '<div class="ap-group-label">Last used</div>';
+      out += '<div class="ap-group-label" role="presentation">Last used</div>';
     }
     for (var k = 0; k < recent.length; k++) {
-      out += apModelItemHtml(recent[k], saved, apTags(catalog, provider, recent[k].id));
+      out += apModelItemHtml(recent[k], saved, tagsOf(recent[k].id));
     }
-    for (var j = 0; j < list.length; j++) {
-      if (recentSet[list[j].id]) continue;
-      var m = list[j];
-      var sel = m.id === saved;
-      var mTags = apTags(catalog, provider, m.id);
-      out += '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
-        + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
-        + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
-        + '<div class="ap-model-sub">' + apEsc(m.id) + '</div>'
-        + apModelTagsHtml(mTags)
-        + '</div>'
-        + (sel ? '<span class="ap-model-tag">saved</span>' : '')
-        + '</div>';
-    }
+    out += apModelListHtml(list, saved, routes, recentSet, tagsOf);
   }
   if (saved && list.length > 0 && !list.some(function (m) { return m.id === saved; })) {
-    out += '<div class="ap-group-label">Saved model (unavailable)</div>'
+    out += '<div class="ap-group-label" role="presentation">Saved model (unavailable)</div>'
       + '<div class="ap-model-item active" role="option" tabindex="0" data-ap-model="'
-      + apEsc(saved) + '" aria-selected="true"><div><div class="ap-model-name">'
+      + apEsc(saved) + '" aria-selected="true" data-ap-full="' + apEsc(saved)
+      + '" title="' + apEsc(saved) + '"><div class="ap-model-main"><div class="ap-model-name">'
       + apEsc(saved) + '</div></div></div>';
   }
   return out;
 }
 
-/** One model row — shared by the "Last used" group and the full list. */
-function apModelItemHtml(m, saved, tags) {
-  var sel = m.id === saved;
-  return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
-    + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '">'
-    + '<div><div class="ap-model-name">' + apEsc(m.label) + '</div>'
-    + '<div class="ap-model-sub">' + apEsc(m.id) + '</div>'
-    + apModelTagsHtml(tags)
-    + '</div>'
-    + (sel ? '<span class="ap-model-tag">saved</span>' : '')
-    + '</div>';
-}
 
 /**
  * A clipping trigger label points at its trigger (UI-R44). The describedby exists to satisfy
@@ -277,6 +337,19 @@ function apTriggerLabelHtml(inner, triggerId) {
 /** Compact core trigger name: caption plus the full core label. */
 function apCoreTriggerName(caption, coreName) {
   return coreName ? caption + ': ' + coreName : caption;
+}
+
+/** The model menu's chrome: search, scroll area, and the full-id footer (UI-R44). */
+function apModelMenuHtml() {
+  return '<div class="ap-search"><input type="text" placeholder="Search models…"'
+    + ' aria-label="Search models" data-ap-search /></div>'
+    + '<div class="ap-scroll" data-ap-list="model"></div>'
+    + '<div class="ap-menu-foot" aria-live="polite" data-ap-foot></div>';
+}
+
+/** The open menu's active row, if any. */
+function apActiveOption(shell) {
+  return shell ? shell.querySelector('[role="option"].active') : null;
 }
 
 /** Per-page counter for unique picker trigger ids. */
@@ -383,8 +456,7 @@ function mountAgentPicker(root, opts) {
     + '<div class="ap-shell" data-ap-shell="model">'
     + '<button type="button" class="ap-trigger" id="' + apId + '-model" data-ap-trigger="model"' + (compact ? ' aria-label="' + apEsc(labelModel) + '"' : '') + ' aria-haspopup="listbox" aria-expanded="false"></button>'
     + '<div class="ap-menu" data-ap-menu="model" role="listbox" hidden>'
-    + '<div class="ap-search"><input type="text" placeholder="Search models…" aria-label="Search models" data-ap-search /></div>'
-    + '<div class="ap-scroll" data-ap-list="model"></div>'
+    + apModelMenuHtml()
     + '</div></div></div>'
     + '<div class="ap-field ap-effort-field" data-ap-effort-field hidden>'
     + '<label class="ap-label">' + apEsc(labelEffort) + '</label>'
@@ -414,11 +486,9 @@ function mountAgentPicker(root, opts) {
   function renderModel() {
     var modelTrigger = $('[data-ap-trigger="model"]');
     var modelMenu = $('[data-ap-menu="model"]');
-    modelMenu.innerHTML = '<div class="ap-search"><input type="text" placeholder="Search models…"'
-      + ' aria-label="Search models" data-ap-search /></div>'
-      + '<div class="ap-scroll" data-ap-list="model"></div>';
+    modelMenu.innerHTML = apModelMenuHtml();
     $('[data-ap-list="model"]').innerHTML = apModelOptionsHtml(
-      catalog, state.core, state.model, labels().model, recent[state.core],
+      catalog, state.core, state.model, labels().model, recent[state.core], routes,
     );
     var coreLabel = modelLabel();
     var coreTrigger = $('[data-ap-trigger="core"]');
@@ -484,6 +554,30 @@ function mountAgentPicker(root, opts) {
 
   function emit() { if (typeof onChange === 'function') onChange({ core: state.core, model: state.model, effort: state.effort }); }
 
+  /** Point the footer at the keyboard-active row's full id (UI-R44). */
+  function syncMenuFoot(shell) {
+    if (!shell) return;
+    var foot = shell.querySelector('[data-ap-foot]');
+    if (!foot) return;
+    var active = apActiveOption(shell);
+    foot.textContent = active ? (active.getAttribute('data-ap-full') || '') : '';
+  }
+
+  /** Move the keyboard-active row by one; headings are not options, so they are skipped. */
+  function moveActive(shell, delta) {
+    var items = shell.querySelectorAll('[role="option"]');
+    if (!items.length) return;
+    var current = apActiveOption(shell);
+    var idx = -1;
+    for (var i = 0; i < items.length; i++) if (items[i] === current) { idx = i; break; }
+    var next = idx < 0 ? (delta > 0 ? 0 : items.length - 1) : idx + delta;
+    if (next < 0) next = 0;
+    if (next > items.length - 1) next = items.length - 1;
+    for (var j = 0; j < items.length; j++) items[j].classList.toggle('active', j === next);
+    if (items[next].scrollIntoView) items[next].scrollIntoView({ block: 'nearest' });
+    syncMenuFoot(shell);
+  }
+
   function setDisabled(on) {
     disabled = !!on;
     var triggers = root.querySelectorAll('[data-ap-trigger]');
@@ -505,8 +599,13 @@ function mountAgentPicker(root, opts) {
     if (kind === 'core') renderCoreActive();
     if (kind === 'model') {
       var list = $('[data-ap-list="model"]');
-      var first = list && list.querySelector('[role="option"]');
+      var opts = list ? list.querySelectorAll('[role="option"]') : [];
+      var selected = list ? list.querySelector('[role="option"][aria-selected="true"]') : null;
+      var first = selected || (opts.length ? opts[0] : null);
       if (first) first.classList.add('active');
+      var search = menu.querySelector('[data-ap-search]');
+      if (search && search.focus) search.focus();
+      syncMenuFoot(shell);
     }
   }
 
@@ -580,29 +679,35 @@ function mountAgentPicker(root, opts) {
   root.addEventListener('input', function (e) {
     var search = e.target && e.target.getAttribute && e.target.getAttribute('data-ap-search');
     if (search === null) return;
-    var q = (e.target.value || '').trim().toLowerCase();
     var listEl = $('[data-ap-list="model"]');
     if (!listEl) return;
-    if (!q) { listEl.innerHTML = apModelOptionsHtml(catalog, state.core, state.model, labels().model, recent[state.core]); return; }
-    var list = (catalog && catalog[state.core]) || [];
-    var out = '';
-    for (var i = 0; i < list.length; i++) {
-      var hay = (list[i].label + ' ' + list[i].id).toLowerCase();
-      if (hay.indexOf(q) >= 0) {
-        out += '<div class="ap-model-item" role="option" tabindex="0" data-ap-model="'
-          + apEsc(list[i].id) + '"><div><div class="ap-model-name">' + apEsc(list[i].label)
-          + '</div><div class="ap-model-sub">' + apEsc(list[i].id) + '</div>'
-          + apModelTagsHtml(apTags(catalog, state.core, list[i].id))
-          + '</div></div>';
-      }
-    }
-    if (!out) out = '<div class="ap-empty">No models match "' + apEsc(e.target.value) + '".</div>';
-    listEl.innerHTML = out;
+    listEl.innerHTML = apModelOptionsHtml(
+      catalog, state.core, state.model, labels().model, recent[state.core], routes, e.target.value,
+    );
+    var items = listEl.querySelectorAll('[role="option"]');
+    for (var i = 0; i < items.length; i++) items[i].classList.remove('active');
+    if (items.length) items[0].classList.add('active');
+    syncMenuFoot($('[data-ap-shell="model"]'));
   });
 
   root.addEventListener('keydown', function (e) {
-    if (e.key !== 'Escape') return;
-    while (AP_MENU_STACK.length) closeMenu(AP_MENU_STACK[AP_MENU_STACK.length - 1], true);
+    if (e.key === 'Escape') {
+      while (AP_MENU_STACK.length) closeMenu(AP_MENU_STACK[AP_MENU_STACK.length - 1], true);
+      return;
+    }
+    var shell = AP_MENU_STACK.length ? AP_MENU_STACK[AP_MENU_STACK.length - 1] : null;
+    if (!shell) return;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      moveActive(shell, e.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      var active = apActiveOption(shell);
+      if (!active) return;
+      e.preventDefault();
+      active.click();
+    }
   });
 
   document.addEventListener('click', function (e) {

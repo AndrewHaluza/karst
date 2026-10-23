@@ -566,6 +566,99 @@ describe('route identity in the closed control', () => {
   });
 });
 
+describe('route → vendor grouping and the full-id footer', () => {
+  const fns = load() as {
+    apModelOptionsHtml: (
+      c: unknown, p: string, saved: string, inherit: string,
+      recent?: string[], routes?: unknown, query?: string,
+    ) => string;
+  };
+  const routes = {
+    opencode: { name: 'OpenCode Zen', badge: 'Z', iconSvg: '' },
+    'opencode-go': { name: 'OpenCode Go', badge: 'Go', iconSvg: '' },
+    openrouter: { name: 'OpenRouter', badge: '', iconSvg: '' },
+  };
+  const mixed = {
+    opencode2: [
+      { id: 'opencode/big-pickle-free', label: 'big-pickle-free' },
+      { id: 'opencode-go/space-bunny#high', label: 'Space Bunny', efforts: ['high'] },
+      { id: 'openrouter/mancer/weaver', label: 'weaver' },
+      { id: 'openrouter/liquid/lfm-2.5-2.6b:free', label: 'LFM 2.5 2.6B' },
+    ],
+  };
+
+  it('heads each route group with its icon and name, then each vendor', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
+    const zen = out.indexOf('OpenCode Zen');
+    const go = out.indexOf('OpenCode Go');
+    const or = out.indexOf('OpenRouter');
+    expect(zen).toBeGreaterThan(-1);
+    expect(zen).toBeLessThan(go);
+    expect(go).toBeLessThan(or);
+    expect(out).toContain('class="ap-group-sub" role="presentation">mancer<');
+    expect(out).toContain('class="ap-group-sub" role="presentation">liquid<');
+    expect(out).toContain('class="ap-route"');
+  });
+
+  it('adds no route heading when every model is unrouted', () => {
+    const out = fns.apModelOptionsHtml(catalog, 'claude', '', '');
+    expect(out).not.toContain('ap-group-label');
+  });
+
+  it('drops the duplicate full-id line and puts it in the row title instead', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
+    expect(out).not.toContain('ap-model-sub');
+    expect(out).toContain('title="openrouter/mancer/weaver"');
+    expect(out).toContain('data-ap-full="openrouter/mancer/weaver"');
+  });
+
+  it('shows the variant and the free tag on the row', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('<span class="ap-variant"> high</span>');
+    expect(out).toContain('<span class="ap-free">free</span>');
+  });
+
+  it('filters on the model name, the vendor, the route id, the route name and the full id', () => {
+    const byVendor = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'mancer');
+    expect(byVendor).toContain('data-ap-model="openrouter/mancer/weaver"');
+    expect(byVendor).not.toContain('space-bunny');
+    const byRouteName = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'opencode go');
+    expect(byRouteName).toContain('data-ap-model="opencode-go/space-bunny#high"');
+    expect(byRouteName).not.toContain('weaver');
+    const byFullId = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'liquid/lfm');
+    expect(byFullId).toContain('data-ap-model="openrouter/liquid/lfm-2.5-2.6b:free"');
+  });
+
+  it('reports no match for a filter that hits nothing', () => {
+    expect(fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes, 'zzz'))
+      .toContain('No models match "zzz".');
+  });
+
+  it('keeps the saved-unavailable row reachable with its full id', () => {
+    const out = fns.apModelOptionsHtml(mixed, 'opencode2', 'gone/model', '', undefined, routes);
+    expect(out).toContain('Saved model (unavailable)');
+    expect(out).toContain('data-ap-full="gone/model"');
+  });
+
+  it('ships the footer, arrow-key, Enter and focus-on-open wiring', () => {
+    expect(js).toContain('data-ap-foot');
+    expect(js).toContain('aria-live="polite"');
+    expect(js).toContain('function moveActive(');
+    expect(js).toContain('function syncMenuFoot(');
+    expect(js).toContain("'ArrowDown'");
+    expect(js).toContain("'Enter'");
+    expect(js).toContain('data-ap-search]');
+    expect(js).toContain('.focus()');
+  });
+
+  it('pins the footer and sub-heading styles with tokens', () => {
+    const css = agentPickerCss();
+    expect(css).toMatch(/\.ap-group-sub\{[^}]*color:var\(--k-text-faint\)/);
+    expect(css).toMatch(/\.ap-menu-foot\{[^}]*border-top:var\(--k-border-w\) solid var\(--k-border\)/);
+    expect(css).toMatch(/\.ap-menu-foot\{[^}]*text-overflow:ellipsis/);
+  });
+});
+
 describe('agentPickerCss', () => {  it('defines the picker primitives with token-only values', () => {
     const css = agentPickerCss();
     expect(css).toContain('.ap{');

@@ -42,8 +42,14 @@
 .ap-model-item:hover{background:var(--k-surface-hover);color:var(--k-text)}
 .ap-model-item.active,.ap-model-item[aria-selected="true"]{background:var(--k-surface-hover);color:var(--k-text)}
 .ap-model-item .ap-model-name{font-weight:500;font-size:var(--k-text-base)}
-.ap-model-item .ap-model-sub{font-size:var(--k-text-xs);color:var(--k-text-dim);margin-top:var(--k-space-1)}
 .ap-model-item .ap-model-tag{font-size:var(--k-text-2xs);color:var(--k-text-faint);flex:0 0 auto}
+.ap-model-main{min-width:0}
+/* Menu grouping (route → vendor) and the UI-R44 full-id footer. The footer is
+   OUTSIDE the scroll area, so it stays pinned (UI-R38) and announces the
+   keyboard-active row's full id. */
+.ap-group-sub{padding:0 var(--k-space-4) var(--k-space-1);color:var(--k-text-faint);font-size:var(--k-text-2xs)}
+.ap-menu-foot{padding:var(--k-space-2) var(--k-space-4);border-top:var(--k-border-w) solid var(--k-border);
+  color:var(--k-text-dim);font-size:var(--k-text-2xs);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ap-model-tags{display:flex;flex-wrap:wrap;gap:var(--k-space-1);margin-top:var(--k-space-2)}
 .ap-tag{font-size:var(--k-text-2xs);line-height:1;color:var(--k-text-dim);border:var(--k-border-w) solid var(--k-border);border-radius:var(--k-radius-sm);padding:var(--k-space-1) var(--k-space-2);white-space:nowrap}
 .ap-empty{padding:var(--k-space-4);color:var(--k-text-faint);font-size:var(--k-text-sm);text-align:center}
