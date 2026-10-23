@@ -126,6 +126,39 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
     setCompare(preset);
   };
 
+  const compareSlot =
+    names.length > 1 ? (
+      <div className="agents-tgroup agents-compare-bar" role="group" aria-label="Compare">
+        <Field
+          label="Compare"
+          control={{
+            kind: 'select',
+            name: 'agents-compare',
+            value: compare ?? '',
+            options: [{ value: '', label: 'None' }, ...names.filter((n) => n !== preset).map((n) => ({ value: n, label: n }))],
+            onChange: (value) => setCompare(value === '' ? null : value),
+          }}
+        />
+        {compare !== null ? (
+          <>
+            <span className="agents-summary" role="status">
+              {differs.length} of {roles.length} roles differ
+            </span>
+            <Field
+              label="Only show differences"
+              control={{ kind: 'checkbox', name: 'agents-only-diffs', checked: onlyDiffs, onChange: setOnlyDiffs }}
+            />
+            <Button variant="ghost" size="lg" onClick={swap}>
+              Swap A/B
+            </Button>
+          </>
+        ) : null}
+        <Button variant="ghost" size="lg" aria-pressed={showMatrix} onClick={() => setShowMatrix((v) => !v)}>
+          Show all presets
+        </Button>
+      </div>
+    ) : null;
+
   return (
     <div className="agents-roles">
       <PresetToolbar
@@ -137,39 +170,8 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
         roleLabelOf={roleLabelOf}
         onSelect={setPicked}
         edit={edit}
+        compareSlot={compareSlot}
       />
-
-      {names.length > 1 ? (
-        <div className="agents-compare-bar">
-          <Field
-            label="Compare with"
-            control={{
-              kind: 'select',
-              name: 'agents-compare',
-              value: compare ?? '',
-              options: [{ value: '', label: '—' }, ...names.filter((n) => n !== preset).map((n) => ({ value: n, label: n }))],
-              onChange: (value) => setCompare(value === '' ? null : value),
-            }}
-          />
-          {compare !== null ? (
-            <>
-              <span className="agents-summary" role="status">
-                {differs.length} of {roles.length} roles differ
-              </span>
-              <Field
-                label="Only show differences"
-                control={{ kind: 'checkbox', name: 'agents-only-diffs', checked: onlyDiffs, onChange: setOnlyDiffs }}
-              />
-              <Button variant="ghost" size="sm" onClick={swap}>
-                Swap A/B
-              </Button>
-            </>
-          ) : null}
-          <Button variant="secondary" size="sm" aria-pressed={showMatrix} onClick={() => setShowMatrix((v) => !v)}>
-            All presets
-          </Button>
-        </div>
-      ) : null}
 
       {showMatrix && names.length > 0 ? (
         <PresetMatrix

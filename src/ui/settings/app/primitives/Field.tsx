@@ -26,6 +26,8 @@ export interface SelectOption {
 interface CommonControl {
   disabled?: boolean;
   name?: string;
+  /** Explicit screen reader description on the control element (UI-R25). */
+  ariaDescription?: string;
   /**
    * Extra class on the control ELEMENT itself (not the `.k-field` shell), for a
    * layout class the section's own CSS already styles — e.g. the matrix's
@@ -314,6 +316,7 @@ function renderControl(
     name: control.name,
     disabled: control.disabled,
     'aria-describedby': wiring.describedBy,
+    'aria-description': control.ariaDescription,
     'aria-invalid': wiring.invalid || undefined,
   };
   switch (control.kind) {

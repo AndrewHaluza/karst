@@ -10,13 +10,13 @@
 #section-agents .agents-tab {
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-bottom: calc(2 * var(--k-border-w)) solid transparent;
   color: var(--vscode-foreground);
   cursor: pointer;
   padding: var(--k-space-2) var(--k-space-3);
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--k-space-2);
 }
 
 #section-agents .agents-tab.is-active {
@@ -26,10 +26,10 @@
 
 #section-agents .agents-dirty-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--k-link);
+  width: var(--k-space-4);
+  height: var(--k-space-4);
+  border-radius: var(--k-radius-circle);
+  background: var(--k-warning);
 }
 
 #section-agents .agents-unsaved {
@@ -38,7 +38,7 @@
   gap: var(--k-space-2);
   padding: var(--k-space-2) var(--k-space-3);
   margin-bottom: var(--k-space-3);
-  border: var(--k-border-w) solid var(--k-link);
+  border: var(--k-border-w) solid var(--k-warning);
   border-radius: var(--k-radius-md);
 }
 
@@ -47,8 +47,33 @@
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
-  gap: var(--k-space-2);
+  gap: var(--k-space-4) var(--k-space-6);
   margin-bottom: var(--k-space-3);
+}
+
+#section-agents .agents-tgroup {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--k-space-2);
+  align-items: flex-end;
+}
+
+#section-agents .agents-tgroup--end {
+  margin-left: auto;
+}
+
+#section-agents .agents-tgroup--end .k-btn--danger {
+  border-color: transparent;
+}
+#section-agents .agents-tgroup--end .k-btn--danger:hover:not(:disabled) {
+  border-color: var(--k-danger);
+}
+
+#section-agents .agents-tgroup select,
+#section-agents .agents-tgroup input,
+#section-agents .agents-toolbar select,
+#section-agents .agents-toolbar-row select {
+  min-height: var(--k-control-h-lg);
 }
 
 #section-agents .agents-fault {
@@ -140,10 +165,6 @@
   border-left-color: var(--k-link);
 }
 
-#section-agents .agents-row.is-shared {
-  background: var(--k-surface-hover);
-}
-
 #section-agents .agents-row.is-inherited .agents-cell-picker .ap-field {
   opacity: 0.65;
 }
@@ -180,11 +201,11 @@
 
 #section-agents .agents-change-dot {
   display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
+  width: var(--k-space-4);
+  height: var(--k-space-4);
+  border-radius: var(--k-radius-circle);
   background: var(--k-link);
-  margin-right: 6px;
+  margin-right: var(--k-space-2);
 }
 
 #section-agents .agents-cell-role { display: flex; align-items: center; gap: var(--k-space-2); }
@@ -224,7 +245,7 @@
 /* Agent profiles: list + detail; stacked under 800px with a Back button. */
 #section-agents .agents-profiles {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: calc(var(--k-space-9) * 10) minmax(0, 1fr);
   gap: var(--k-space-4);
 }
 #section-agents .agents-item {
@@ -244,7 +265,7 @@
 #section-agents .agents-item.is-selected { border-left-color: var(--k-link); background: var(--k-surface-selected); }
 #section-agents .agents-group-title { font-weight: 600; margin: var(--k-space-3) 0 var(--k-space-1); }
 #section-agents .agents-detail-head { display: flex; align-items: center; gap: var(--k-space-2); }
-#section-agents .agents-detail-name { font-size: 1.1em; font-weight: 600; }
+#section-agents .agents-detail-name { font-size: var(--k-text-lg); font-weight: 600; }
 #section-agents .agents-used-by { display: flex; flex-wrap: wrap; align-items: center; gap: var(--k-space-1); }
 #section-agents .agents-readonly {
   font-family: var(--vscode-editor-font-family, monospace);
@@ -252,7 +273,7 @@
   padding: var(--k-space-3);
   border: var(--k-border-w) solid var(--vscode-panel-border, var(--k-border));
   border-radius: var(--k-radius-md);
-  max-height: 420px;
+  max-height: calc(var(--k-control-h-lg) * 14);
   overflow: auto;
 }
 #section-agents .agents-text-foot { display: flex; align-items: center; gap: var(--k-space-2); margin-top: var(--k-space-2); }

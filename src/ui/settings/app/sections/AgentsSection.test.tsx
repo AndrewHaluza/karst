@@ -146,7 +146,7 @@ describe('Agents page — roles table', () => {
 
   it('Clear drops the preset value so the role inherits the Default row', () => {
     mount();
-    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear' }));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: 'Clear override' }));
     expect(row('planning').querySelector('[data-source]')!.getAttribute('data-source')).toBe('default');
     expect(pickerOf('planning').value.core).toBe('opencode');
   });
@@ -171,7 +171,7 @@ describe('Agents page — compare', () => {
     const { probe } = mount();
     fireEvent.change(document.querySelector('[name="agents-compare"]')!, { target: { value: 'B' } });
     expect(screen.getByRole('status').textContent).toBe('2 of 11 roles differ');
-    fireEvent.click(within(row('planning')).getByText('← Copy from B'));
+    fireEvent.click(within(row('planning')).getByRole('button', { name: /Copy from B/ }));
     expect(draftOf(probe).agentPresets!.A!.slots.planning).toEqual({ provider: 'antigravity', model: 'gemini-3.8-flash-medium' });
     expect(draftOf(probe).agentPresets!.B).toEqual(BASE.agentPresets!.B);
     expect(window.location.hash).toContain('compare=B');
@@ -364,7 +364,7 @@ describe('Agents page — roles table layout markup', () => {
     expect(r.querySelector('.agents-cell-switch')!.children).toHaveLength(0);
     const slot = r.querySelector('.agents-slot')!;
     expect(slot.getAttribute('aria-hidden')).toBe('true');
-    expect(slot.nextElementSibling!.getAttribute('aria-label')).toBe('Clear');
+    expect(slot.nextElementSibling!.getAttribute('aria-label')).toBe('Clear override');
   });
 
   it('the profile open button uses the file icon and names the profile', () => {

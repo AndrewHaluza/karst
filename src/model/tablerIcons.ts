@@ -171,6 +171,23 @@ export const TABLER_ICONS: Record<string, string> = {
   trash:
     '<path d="M4 7l16 0"/><path d="M10 11l0 6"/><path d="M14 11l0 6"/>' +
     '<path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2 -2l1 -12"/><path d="M9 7v-3a1 1 0 0 1 1 -1h4a1 1 0 0 1 1 1v3"/>',
+  share:
+    '<path d="M6 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/>' +
+    '<path d="M18 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/>' +
+    '<path d="M18 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/>' +
+    '<path d="M8.7 10.7l6.6 -3.4"/>' +
+    '<path d="M8.7 13.3l6.6 3.4"/>',
+  link:
+    '<path d="M10 14a3.5 3.5 0 0 0 5 0l4 -4a3.5 3.5 0 0 0 -5 -5l-.5 .5"/>' +
+    '<path d="M14 10a3.5 3.5 0 0 0 -5 0l-4 4a3.5 3.5 0 0 0 5 5l.5 -.5"/>',
+  'stack-2':
+    '<path d="M12 4l-8 4l8 4l8 -4l-8 -4"/>' +
+    '<path d="M4 12l8 4l8 -4"/>' +
+    '<path d="M4 16l8 4l8 -4"/>',
+  'arrow-left':
+    '<path d="M5 12l14 0"/>' +
+    '<path d="M5 12l6 6"/>' +
+    '<path d="M5 12l6 -6"/>',
 };
 
 /** Default render size in CSS px for `karstIcon()` (16px toolbar baseline). */
