@@ -11,6 +11,7 @@
 - **Re-run & Merge:** For `review`, re-runs the parked target through `runFindingsLane` (or review lane), merges with `kept_outcome` (JSON of sibling target outcomes), and aggregates. For `uat`, re-runs the target through `runUatTester`, merges with sibling observations, and aggregates. For ops (classify/intent/codePointers/suggest/improve), re-runs the specific op.
 - **Dismiss:** For stage blocks, creates its own stage run via `openStageRun`, builds a `RecoveryTrigger` with `triggerKind: 'usage-limit-dismissed'`, `sourceProcessRunId: null`, and calls `commitGateOutcome` with a failed verdict, routing the result through driver/driveTicket branching. For op parks, simply resolves the park row as `'dismissed'`.
 - **UI:** Blocked banner in dashboard (`stateTypes.ts`, `webview.html`) renders 'Pick agent/model…', 'Retry same', and 'Dismiss' for `usage-limit` blocks. Blocked notification (`BLOCKS_NOTIFY_PARENT`) and error notification for classify ops offer the same actions.
+  - **Rule deviation (accepted 2026-10-23):** both surfaces are vanilla views, which `ui:REACT-VIEWS` otherwise keeps bug-fix-only. The ticket owner accepted the deviation because a `usage-limit` block is non-resumable and no other surface reaches the action; see the recorded exception in `docs/ui/UI-INVARIANTS.md`. It expires with each view's migration.
 
 **Tech Stack:** TypeScript (ESM, `.js` imports), vitest, in-memory SQLite (`openStore(':memory:')`), better-sqlite3.
 

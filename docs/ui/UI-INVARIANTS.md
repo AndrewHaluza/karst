@@ -133,6 +133,18 @@ removes nothing from v3.0, and applies to every React view. Views not yet
 migrated stay vanilla v3.0: bug fixes only, and a feature there means migrating
 the view first, as a separate change.
 
+**Recorded exception (T690, 2026-10-23):** D159's usage-limit park actions
+('Pick agent/model…', 'Retry same', 'Dismiss') are a feature on two vanilla
+views — the dashboard's blocked banner and the ticket form's op-park error — and
+the ticket owner approved the deviation with the trade-off stated. The
+alternative was a feature nobody could reach: a `usage-limit` block is
+non-resumable (`resumeBlockedStage` refuses it) and no other surface offers the
+action, so shipping the host half without these buttons would leave the ticket
+parked with no way to act. The exception is scoped to those three actions on
+those two surfaces and expires with each view's migration: whichever view moves
+to React must re-home its park actions in the React app, never carry the vanilla
+buttons across.
+
 Three invariants the original investigators learned the hard way, now load-bearing:
 
 - **One app, one mount.** The injector chain mounts the app into `#root`; the
