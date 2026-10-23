@@ -23,7 +23,9 @@ import { defineConfig, devices } from '@playwright/test';
  * mcr.microsoft.com/playwright:v1.63.0-noble image. A bare `npm run test:visual`
  * on macOS is a local smoke run; its diffs are not authoritative.
  *
- * CI runs the same image in .github/workflows/ci.yml's `visual` job (advisory).
+ * CI runs the same image in .github/workflows/ci.yml's `visual` job. Pre-existing
+ * diff failures there are advisory, but a pull request's own added/changed
+ * baseline that fails its own screenshot fails the job (scripts/visual-sweep-gate.mjs).
  */
 export default defineConfig({
   testDir: 'tests/visual',

@@ -239,7 +239,13 @@ jobs:
     container: mcr.microsoft.com/playwright:v1.63.0-noble
     timeout-minutes: 20
     steps:
+      # Depth 2, not the default 1: on a pull_request the checkout is the merge
+      # commit, and scripts/visual-sweep-gate.mjs diffs HEAD^1..HEAD (the base
+      # tip against the merge) to learn which baselines THIS PR added or
+      # changed. Their failures are blocking; everyone else's stay advisory.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       # No actions/setup-node here on purpose: the Playwright image ships its
       # own Node, and layering setup-node over a container image is a known
@@ -278,11 +284,13 @@ jobs:
       # check that cries wolf gets ignored. The uploaded report makes every
       # diff inspectable in the meantime.
       #
-      # Advisory covers TEST FAILURES only — hence no `continue-on-error`
-      # here. scripts/visual-sweep-gate.mjs exits non-zero when the run
-      # produced zero executed tests (a webServer/startup crash), so a sweep
-      # that never ran is a red step on a red job instead of the green
-      # conclusion/outcome split that hid it (NDL-218).
+      # Advisory covers PRE-EXISTING TEST FAILURES only — hence no
+      # `continue-on-error` here. scripts/visual-sweep-gate.mjs fails the job
+      # for two things a settling suite must never excuse: a run that produced
+      # zero executed tests (a webServer/startup crash; NDL-218), and, on a
+      # pull request, a baseline the PR itself added or changed that does not
+      # match its own screenshot (#769 — how 9 sandbox-recorded baselines
+      # landed on develop and stayed red).
       - name: Run the visual sweep
         id: visual
         run: |
@@ -301,7 +309,7 @@ jobs:
             echo '## Visual regression'
             echo
             echo "Sweep step outcome: \`${{ steps.visual.outcome }}\`"
-            echo "Playwright exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (advisory for test failures; the gate fails the job only when zero tests ran)"
+            echo "Playwright exit code: \`${{ steps.visual.outputs.playwright-exit-code }}\` (pre-existing screenshot diffs are advisory; the gate fails the job when zero tests ran or when this PR's own added/changed baseline fails)"
             echo
             if [ -f tests/visual/.results.json ]; then
               executed="$(node -e "const s = require('./tests/visual/.results.json').stats || {}; console.log((s.expected || 0) + (s.unexpected || 0) + (s.flaky || 0))" 2>/dev/null || echo 0)"
