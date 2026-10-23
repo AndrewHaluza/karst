@@ -71,7 +71,11 @@
 .ap-mono{width:16px;height:16px;display:inline-flex;align-items:center;justify-content:center;
   border-radius:var(--k-radius-sm);background:hsl(var(--ap-hue,220) 55% 45%);color:var(--k-bg);
   font-size:var(--k-text-2xs);font-weight:600;text-transform:uppercase}
-.ap-mstack{display:flex;flex-direction:column;justify-content:center;flex:1 1 auto;min-width:0;line-height:1.2}
+.ap-mstack{display:flex;flex-direction:column;justify-content:center;flex:1 1 auto;min-width:0;line-height:1.15}
+/* Two lines must fit the ONE control height every host shares (D108 aligned
+   Core | Model | Effort): the stacked trigger tightens its block padding so its
+   content stays under --k-control-h-lg instead of growing the control ~4px. */
+.ap-trigger:has(.ap-mstack){padding-top:var(--k-space-1);padding-bottom:var(--k-space-1)}
 .ap-mname,.ap-mvendor{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ap-mvendor{font-size:var(--k-text-2xs);color:var(--k-text-dim)}
 .ap-variant{color:var(--k-text-faint);font-size:var(--k-text-2xs)}

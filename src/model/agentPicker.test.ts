@@ -552,6 +552,8 @@ describe('route identity in the closed control', () => {
     expect(css).toContain('.ap-mstack{display:flex;flex-direction:column');
     expect(css).toMatch(/\.ap-mname,\.ap-mvendor\{[^}]*text-overflow:ellipsis/);
     expect(css).toMatch(/\.ap-free\{[^}]*flex:none/);
+    // The stacked trigger keeps the one shared control height (D108 alignment).
+    expect(css).toMatch(/\.ap-trigger:has\(\.ap-mstack\)\{[^}]*padding-top:var\(--k-space-1\)/);
     expect(css).toContain('.ap-shell[data-ap-shell="model"]{container-type:inline-size}');
     expect(css).toContain('@container (max-width: 130px){.ap-free{display:none}}');
   });

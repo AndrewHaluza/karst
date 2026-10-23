@@ -275,6 +275,29 @@ const gettingStartedVariants = (): Variant[] => {
   ];
 };
 
+/**
+ * The routed-model catalog the `routed-model` variant seeds: a gateway with a
+ * vendor segment (OpenRouter), a vendor-less subscription route (OpenCode Go),
+ * a `:free` suffix and a `-free` suffix — the id shapes the picker must read.
+ */
+const ROUTED_MODEL_CATALOG = {
+  claude: [{ id: 'claude-sonnet-5', label: 'Sonnet 5', providers: ['claude'], efforts: ['low', 'medium', 'high'] }],
+  codex: [],
+  antigravity: [],
+  opencode: [],
+  opencode2: [
+    {
+      id: 'opencode-go/deepseek-v4.1-flash',
+      label: 'OpenCode Go \u00b7 DeepSeek v4.1 Flash',
+      providers: ['opencode2'],
+      efforts: ['low', 'high', 'max'],
+    },
+    { id: 'openrouter/mancer/weaver', label: 'weaver', providers: ['opencode2'] },
+    { id: 'openrouter/liquid/lfm-2.5-2.6b:free', label: 'LFM 2.5 2.6B', providers: ['opencode2'] },
+    { id: 'opencode/big-pickle-free', label: 'big-pickle-free', providers: ['opencode2'] },
+  ],
+};
+
 const ticketFormVariants = (): Variant[] => {
   const base = MINIMAL_TICKET_FORM;
   const withState = (patch: Record<string, unknown>): ViewCorpus => stateMessage({ ...base, ...patch });
@@ -314,6 +337,33 @@ const ticketFormVariants = (): Variant[] => {
       withState({ ...edit, key: 'FEAT-'.concat('9'.repeat(40)), title: LONG_TITLE, description: `${LONG_TITLE}. `.repeat(40) }),
     ),
     variant('ticketForm', 'edit', () => withState(edit)),
+    // T777: the shared picker's routed-model stack — the route mark, the model
+    // name over its gateway vendor, and the `free` tag. Seeded in the TICKET
+    // FORM because its full-page baseline is the only picker host whose picker
+    // sits inside the captured area: the Agents Roles table lives in an
+    // internal scroll region below the settings page's 720px crop, so an
+    // agents-* baseline can never show it.
+    variant(
+      'ticketForm',
+      'routed-model',
+      () =>
+        withState({
+          ...edit,
+          title: 'Route the picker through OpenRouter',
+          description: 'A multi-provider model id, read at a glance.',
+          agentProviders: ['claude', 'codex', 'antigravity', 'opencode', 'opencode2'],
+          selectedAgentProvider: 'opencode2',
+          defaultAgentProvider: 'opencode2',
+          selectedModel: 'openrouter/mancer/weaver',
+          defaultModel: 'opencode-go/deepseek-v4.1-flash',
+          selectedEffort: null,
+          defaultEffort: null,
+          modelCatalog: ROUTED_MODEL_CATALOG,
+          recentModels: {},
+          sessionOpen: false,
+        }),
+      { themes: ALL_THEMES },
+    ),
     variant('ticketForm', 'attachments', () =>
       withState({
         ...edit,
