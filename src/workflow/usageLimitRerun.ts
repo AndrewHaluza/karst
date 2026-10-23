@@ -1,5 +1,5 @@
 import type { Store } from '../store/db.js';
-import type { StageRunResult, StageKey, BlockerKind } from '../model/types.js';
+import type { StageRunResult } from '../model/types.js';
 import type { Manifest, AgentProvider } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
@@ -10,69 +10,22 @@ import {
 } from '../store/usageLimitParks.js';
 import { usageLimitReason } from '../agent/cliFailure.js';
 import { openGateRun } from './gates/evidence.js';
-import { commitGateOutcome, type RecoveryTriggerInput } from './gates/commit.js';
-import { closeStageRun } from '../store/stageRuns.js';
-import { defaultGitRunner, type GitRunner } from '../integrations/git.js';
+import { commitGateOutcome } from './gates/commit.js';
+import type { GitRunner } from '../integrations/git.js';
 import type { ReviewArtifacts } from './review/conformance.js';
 import { capForGate, type GateStageKey } from './fixAttempts.js';
 import { nowIso } from '../model/time.js';
 import { stageAttempt } from '../store/stages.js';
 import { runReview } from './stages/review.js';
-import { runUat } from './stages/uat.js';
+import { runUat, type UatSpin, type UatStopServers } from './stages/uat.js';
 import { parseUatKeptOutcome } from './uat/keptOutcome.js';
-import { join } from 'node:path';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import {
-  listWorktreesByTicket,
-  listServersByTicket,
-  type WorktreeView,
-} from '../store/dashboard.js';
-import { runnableSubset, unitsOfRepos } from '../manifest/runnable.js';
-import { SpinCancelledError } from '../runtime/spin.js';
-import type { UatSpin, UatStopServers } from './stages/uat.js';
-import {
-  runFindingsLane,
-  type FindingsLaneTarget,
-  type FindingsProcessInput,
-} from './review/findingsLane.js';
-import { listFindings, findingsForAttempt, type FindingInput } from '../store/reviewFindings.js';
-import {
-  aggregateReview,
-  DEFAULT_REVIEW_FINDINGS,
-  DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
-  uatIdentitiesFrom,
-  FINDINGS_FAILURE_PREFIX,
-  gateEntriesFrom,
-  type AggregateEntry,
-  type FindingsLaneOutcome,
-} from './review/aggregate.js';
 import { listGateRuns, type GateRun } from '../store/gateRuns.js';
 import { parkGateStage } from '../store/stageBlocks.js';
-import {
-  aggregateUat,
-  reviewIdentitiesFrom,
-  type AggregateOutcome,
-} from './uat/aggregate.js';
-import { finishProcessRun, listProcessRuns, setProcessRunResultKind } from '../store/processRuns.js';
-import { collapseDiagnostic } from '../model/diagnosticText.js';
-import {
-  runUatTester,
-  countBlockingObservations,
-} from './uat/tester.js';
-import { testerTargets } from './stages/uat.js';
-import { listUatFindings, recordUatFindings, type UatFindingInput } from '../store/uatFindings.js';
-import { getTicket } from '../store/tickets.js';
-import {
-  runTesterVerifier,
-  TESTER_VERIFIER_FAILURE_PREFIX,
-  TESTER_OBSERVATIONS_FAILURE_PREFIX,
-  type TesterGateRunner,
-} from './uat/testerVerifier.js';
-import { laneTargetsToAsk, type KeptTarget } from './usageLimitKept.js';
-import { parseReviewKeptOutcome, mergeReviewKeptOutcome } from './review/keptOutcome.js';
-import { targetTree, unresolvedTargets } from './rerunTargets.js';
-import { latestBaselineDecisions } from '../store/baselineDecisions.js';
-import { unapprovedBaselines } from './gates/baselineReview.js';
+import { laneTargetsToAsk } from './usageLimitKept.js';
+import { parseReviewKeptOutcome } from './review/keptOutcome.js';
+import type { TesterGateRunner } from './uat/testerVerifier.js';
+import { join } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { detectTicketBaselines } from './gates/baselineReviewTicket.js';
 
 export interface DismissParkOptions {
@@ -305,116 +258,6 @@ type ClaimedRerunOptions = RerunParkOptions & {
   adapter: AgentAdapter;
   assignment: ProcessAssignmentSnapshot;
 };
-
-/**
- * Park the stage on a block that is decided BEFORE the lane runs: a target with
- * no registered worktree (`nothing-to-run`), or a UAT baseline the user has not
- * approved (`baseline-review`, `capability-missing` when git cannot answer).
- *
- * Committed as a BLOCK through the shared outcome writer, never run against a
- * guessed tree: the one-shot was spent and the stage is left with an actionable,
- * resumable reason instead of a review/UAT of the wrong checkout wearing the
- * target's name.
- */
-function commitBlockedRerun(args: {
-  store: Store;
-  ticketId: number;
-  stageKey: GateStageKey;
-  runAt: string;
-  artifactDir: string;
-  stageRunId: number;
-  lane: 'review' | 'uat';
-  blocker?: 'nothing-to-run' | 'baseline-review' | 'capability-missing';
-  reason: string;
-  now: () => string;
-  debug?: (m: string) => void;
-}): StageRunResult {
-  const artifactPath = args.artifactDir
-    ? join(args.artifactDir, `${args.lane}-ticket-${args.ticketId}-${args.stageRunId}.log`)
-    : '';
-  if (artifactPath) {
-    mkdirSync(args.artifactDir, { recursive: true });
-    writeFileSync(artifactPath, `! ${args.reason}\n`);
-  }
-  return commitGateOutcome(args.store, {
-    ticketId: args.ticketId,
-    stageKey: args.stageKey,
-    runAt: args.runAt,
-    artifactPath,
-    gates: [],
-    outcome: { kind: 'blocked', blocker: args.blocker ?? 'nothing-to-run', reason: args.reason },
-    stageRunId: args.stageRunId,
-    now: args.now,
-    debug: args.debug,
-  });
-}
-
-/**
- * Commit a parked UAT run's own gate outcome when it is not a pass/bypass.
- *
- * The stage never reaches its Tester with a gate that blocked or failed, so a
- * re-run must not either. The verdict's causal source is `gates` (no AI process
- * ran), exactly like the stage's `recoveryTriggerFor`, so the fix round is
- * attributed to the gates and not to a Tester that never spoke.
- */
-function commitParkedGateOutcome(args: {
-  store: Store;
-  parkRow: UsageLimitParkRow;
-  stageKey: GateStageKey;
-  runAt: string;
-  artifactDir: string;
-  stageRunId: number;
-  manifest: Manifest | undefined;
-  gateOutcome: AggregateOutcome;
-  now: () => string;
-  debug?: (m: string) => void;
-}): StageRunResult {
-  const artifactPath = args.artifactDir
-    ? join(args.artifactDir, `uat-ticket-${args.parkRow.ticketId}-${args.stageRunId}.log`)
-    : '';
-  const decided =
-    args.gateOutcome.kind === 'blocked'
-      ? args.gateOutcome.reason
-      : args.gateOutcome.verdict.kind === 'failed'
-        ? (args.gateOutcome.verdict.reason ?? 'gates failed')
-        : 'gates did not pass';
-  if (artifactPath) {
-    mkdirSync(args.artifactDir, { recursive: true });
-    writeFileSync(
-      artifactPath,
-      `! re-run parked uat: the parked run's gates decided before the Tester\n! ${decided}\n`,
-    );
-  }
-  const failedVerdict =
-    args.gateOutcome.kind === 'verdict' && args.gateOutcome.verdict.kind === 'failed'
-      ? args.gateOutcome.verdict
-      : null;
-  return commitGateOutcome(args.store, {
-    ticketId: args.parkRow.ticketId,
-    stageKey: args.stageKey,
-    runAt: args.runAt,
-    artifactPath,
-    gates: [],
-    outcome: args.gateOutcome,
-    stageRunId: args.stageRunId,
-    recoveryTrigger: failedVerdict
-      ? {
-          sourceProcessId: 'gates',
-          sourceStageRunId: args.stageRunId,
-          sourceProcessRunId: null,
-          triggerKind: 'gate-failure',
-          triggerDetail: failedVerdict.reason ?? 'uat gates failed',
-          maxRounds: capForGate(
-            'uat',
-            args.manifest?.uat?.maxFixAttempts,
-            args.manifest?.review?.maxFixAttempts,
-          ),
-        }
-      : undefined,
-    now: args.now,
-    debug: args.debug,
-  });
-}
 
 /**
  * The gate rows that decided the ticket's CURRENT attempt.
