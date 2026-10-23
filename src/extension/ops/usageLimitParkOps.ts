@@ -214,6 +214,16 @@ export async function handleUsageLimitPick(deps: UsageLimitPickDeps): Promise<vo
     notifyStopped(deps, result);
     return;
   }
+  if (result.kind === 'blocked') {
+    // The re-run parked again (still out of quota, boot-failed, nothing to
+    // run). Redriving here is the very failure the block exists to prevent:
+    // the driver's only block filter is the sweep's, so `shouldStartDriver`
+    // would run the WHOLE stage again — every gate, the service spin and the
+    // Tester — on a ticket the user has not unblocked. Only the panel needs
+    // the new park.
+    deps.refresh(deps.ticketId);
+    return;
+  }
 
   deps.redrive(deps.ticketId);
   deps.refresh(deps.ticketId);
@@ -282,6 +292,12 @@ export async function handleUsageLimitRetry(deps: UsageLimitRetryDeps): Promise<
   }
   if (result.kind === 'stopped') {
     notifyStopped(deps, result);
+    return;
+  }
+  if (result.kind === 'blocked') {
+    // Same rule as Pick: a re-run that parked again must never redrive the
+    // whole stage (see `handleUsageLimitPick`).
+    deps.refresh(deps.ticketId);
     return;
   }
 

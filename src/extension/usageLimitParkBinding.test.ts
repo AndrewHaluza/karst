@@ -50,6 +50,8 @@ import { openStore } from '../store/db.js';
 import { insertOpenPark, listOpenParks, listParks } from '../store/usageLimitParks.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
 import { setStage, getStage } from '../store/stages.js';
+import { openStageRun } from '../store/stageRuns.js';
+import { recordGateRun } from '../store/gateRuns.js';
 import { updateTicketFields } from '../store/tickets.js';
 import { transition } from '../workflow/machine.js';
 
@@ -174,9 +176,42 @@ describe('createUsageLimitParkBinding', () => {
     const store = openStore(':memory:');
     const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
     registerWorktree(store, ticket.id);
+    // The re-run's passed verdict advances the ticket: it must BE at review.
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' });
     // The intent reaches the re-run's prompt ONLY through the artifacts loader
     // — with the default one, the conformance block appears.
     updateTicketFields(store, ticket.id, { intent: 'THE INTENT' });
+    // The re-run re-asks the LANE and reuses the parked run's gate evidence; a
+    // park with no gate rows would re-park `nothing-to-run` (R3), which is not
+    // the passing path these fixtures mean to exercise.
+    const runAt = '2026-10-14T00:00:00.000Z';
+    const stageRunId = openStageRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt,
+      startedAt: runAt,
+    });
+    recordGateRun(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      attempt: 0,
+      runAt,
+      stageRunId,
+      gates: [
+        {
+          gateName: 'lint (repo)',
+          exitCode: 0,
+          startedAt: runAt,
+          endedAt: runAt,
+          repo: 'repo',
+          command: 'npm',
+          args: ['run', 'lint'],
+        },
+      ],
+    });
     setStage(store, ticket.id, 'review', {
       blockedKind: 'usage-limit',
       blockedReason: 'out of credits',
@@ -191,6 +226,7 @@ describe('createUsageLimitParkBinding', () => {
       provider: 'claude',
       model: 'claude-3-7-sonnet',
       detail: 'out of credits',
+      stageRunId,
       keptOutcome: null,
     });
     return { store, ticket };
@@ -207,6 +243,10 @@ describe('createUsageLimitParkBinding', () => {
       adapterFor: vi.fn().mockReturnValue(fakeAdapter),
       artifactDirFor: (id) => `/tmp/karst-artifacts/${id}`,
       cwd: () => '/tmp',
+      // The host names both service seams (they are required): a raw host
+      // default is what booted a host stack under a sandboxed ticket.
+      spin: mockedSpinTicket,
+      stopServers: mockedStopTicketServers,
       ...extra,
     });
   }
@@ -340,7 +380,7 @@ describe('createUsageLimitParkBinding', () => {
     expect(mockedRunProcess).toHaveBeenCalled();
   });
 
-  it('defaults the service spin/stop seams for a UAT re-run', async () => {
+  it('boots and reaps a UAT re-run through the HOST-provided service seams', async () => {
     const store = openStore(':memory:');
     const ticket = createTicketFlow(store, { key: 'TEST-SPIN', title: 'UAT ticket' });
     registerWorktree(store, ticket.id);
@@ -372,21 +412,26 @@ describe('createUsageLimitParkBinding', () => {
       uat: { testerObservations: { blockingSeverity: 'none' } },
     } as unknown as Manifest;
 
+    // The HOST's seams — for a sandboxed ticket they boot the sandbox stack
+    // (parent synced first) and reap it through the sandbox's own bookkeeping.
+    // The binding must use exactly these, never a raw host fallback.
+    const spin = vi.fn().mockResolvedValue({ ok: true });
+    const stopServers = vi.fn().mockResolvedValue(undefined);
     const actions = binding(store, ticket.id, {
       manifest: () => manifest,
       git: failingGit,
       adapterFor: vi.fn().mockReturnValue(uatAdapter),
+      spin: spin as unknown as Parameters<typeof createUsageLimitParkBinding>[0]['spin'],
+      stopServers:
+        stopServers as unknown as Parameters<typeof createUsageLimitParkBinding>[0]['stopServers'],
     }).forTicket(ticket.id);
     await actions.usageLimitPick(ticket.id, 'uat');
 
-    expect(mockedSpinTicket).toHaveBeenCalledWith(
-      store,
-      manifest,
-      ticket.id,
-      ['repo'],
-      expect.anything(),
-    );
-    expect(mockedStopTicketServers).toHaveBeenCalledWith(store, ticket.id);
+    expect(spin).toHaveBeenCalledWith(store, manifest, ticket.id, ['repo'], expect.anything());
+    expect(stopServers).toHaveBeenCalledWith(store, ticket.id);
+    // The raw host defaults must not be reached when the host passed its own.
+    expect(mockedSpinTicket).not.toHaveBeenCalled();
+    expect(mockedStopTicketServers).not.toHaveBeenCalled();
   });
 
   it('threads the stage context pointer into a UAT re-run prompt', async () => {

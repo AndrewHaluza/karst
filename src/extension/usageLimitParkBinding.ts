@@ -12,8 +12,6 @@ import { runProcess } from '../workflow/gates/run.js';
 import type { ReviewArtifacts } from '../workflow/review/conformance.js';
 import type { TesterGateRunner } from '../workflow/uat/testerVerifier.js';
 import type { UatSpin, UatStopServers } from '../workflow/stages/uat.js';
-import { spinTicket } from '../runtime/spin.js';
-import { stopTicketServers } from '../runtime/supervisor.js';
 import type { Notify } from './ops/notify.js';
 import {
   makeUsageLimitParkActions,
@@ -106,11 +104,14 @@ export interface UsageLimitParkBindingDeps {
   /** The composed `karst context` prefix the UAT Tester prompt may name. */
   contextCommand?: string;
   /**
-   * The service spin/stop seams (D155). Default to the real implementations so
-   * a UAT re-run exercises a live app exactly like the stage; a test overrides.
+   * The service spin/stop seams (D155, REQUIRED). A UAT re-run must boot and
+   * reap the SAME environment the stage does: for a sandboxed ticket that is
+   * the sandbox (parent synced first), never the host worktree. Leaving these
+   * to a raw `spinTicket`/`stopTicketServers` default is what shipped a host
+   * stack under a sandboxed ticket, so the host must name both seams.
    */
-  spin?: UatSpin;
-  stopServers?: UatStopServers;
+  spin: UatSpin;
+  stopServers: UatStopServers;
   debug?: (msg: string) => void;
 }
 
@@ -122,8 +123,6 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
   // unchanged; a test overrides them.
   const git = deps.git ?? defaultGitRunner;
   const runVerifier = deps.runVerifier ?? runProcess;
-  const spin = deps.spin ?? spinTicket;
-  const stopServers = deps.stopServers ?? stopTicketServers;
   const loadArtifacts =
     deps.loadArtifacts ??
     makeReviewArtifactsBinding({
@@ -163,8 +162,8 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
         loadArtifacts,
         runVerifier,
         contextCommand: deps.contextCommand,
-        spin,
-        stopServers,
+        spin: deps.spin,
+        stopServers: deps.stopServers,
         debug: deps.debug,
       }),
   };

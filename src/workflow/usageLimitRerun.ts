@@ -3,7 +3,12 @@ import type { StageRunResult, StageKey, BlockerKind } from '../model/types.js';
 import type { Manifest, AgentProvider } from '../manifest/types.js';
 import type { AgentAdapter } from '../agent/adapter.js';
 import type { ProcessAssignmentSnapshot } from '../agent/processAssignment.js';
-import { claimUsageLimitPark, type UsageLimitParkRow } from '../store/usageLimitParks.js';
+import {
+  claimUsageLimitPark,
+  reopenUsageLimitPark,
+  type UsageLimitParkRow,
+} from '../store/usageLimitParks.js';
+import { usageLimitReason } from '../agent/cliFailure.js';
 import { openGateRun } from './gates/evidence.js';
 import { commitGateOutcome, type RecoveryTriggerInput } from './gates/commit.js';
 import { closeStageRun } from '../store/stageRuns.js';
@@ -553,24 +558,41 @@ export async function rerunParkedStage(opts: RerunParkOptions): Promise<RerunPar
     return { kind: 'stopped', alreadyHandled: true };
   }
 
-  // 2. Build the adapter ONLY after the claim. The host hands a factory so the
-  // override (and its injected resilient/instrumented chain) exists for this
-  // one run and never for a loser.
-  const adapter = opts.adapter ?? opts.buildAdapter?.(opts.provider, opts.model);
-  if (!adapter) {
-    throw new Error('usage-limit re-run: no adapter was provided');
-  }
-  const claimed: ClaimedRerunOptions = {
-    ...opts,
-    adapter,
-    assignment: assignmentFor(opts.resolveAssignment, stageKey, opts.provider, opts.model),
+  // A claim is not a verdict. If this run ends without one (a Stop, an adapter
+  // that could not be built, a throw before the lane reports), put the park and
+  // its block back, or the user is left with no banner, no control, and no run
+  // standing in for the parked lane.
+  const restore = (): void => {
+    reopenUsageLimitPark(store, parkRow.id, {
+      reason: usageLimitReason(opts.provider, opts.model),
+      at: now(),
+    });
   };
 
-  if (parkRow.lane === 'review' || stageKey === 'review') {
-    return rerunReviewParkedStage(claimed, { stageKey, runAt, now });
-  }
+  try {
+    // 2. Build the adapter ONLY after the claim. The host hands a factory so the
+    // override (and its injected resilient/instrumented chain) exists for this
+    // one run and never for a loser.
+    const adapter = opts.adapter ?? opts.buildAdapter?.(opts.provider, opts.model);
+    if (!adapter) {
+      throw new Error('usage-limit re-run: no adapter was provided');
+    }
+    const claimed: ClaimedRerunOptions = {
+      ...opts,
+      adapter,
+      assignment: assignmentFor(opts.resolveAssignment, stageKey, opts.provider, opts.model),
+    };
 
-  return rerunUatParkedStage(claimed, { stageKey, runAt, now });
+    const result =
+      parkRow.lane === 'review' || stageKey === 'review'
+        ? await rerunReviewParkedStage(claimed, { stageKey, runAt, now })
+        : await rerunUatParkedStage(claimed, { stageKey, runAt, now });
+    if (result.kind === 'stopped') restore();
+    return result;
+  } catch (err) {
+    restore();
+    throw err;
+  }
 }
 
 async function rerunReviewParkedStage(

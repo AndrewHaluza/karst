@@ -9,6 +9,7 @@ import {
   listOpenParks,
   listParks,
   recordUsageLimitOpPark,
+  reopenUsageLimitPark,
   resolveOpenParks,
 } from './usageLimitParks.js';
 import { UsageLimitError } from '../agent/cliFailure.js';
@@ -363,6 +364,75 @@ describe('usage_limit_parks', () => {
       expect(res.claimed).toBe(true);
       expect(res.park?.resolution).toBe('dismiss');
       expect(listOpenParks(store, ticketId)).toHaveLength(0);
+    });
+  });
+
+  describe('reopenUsageLimitPark', () => {
+    it('re-opens a claimed stage-block park and re-blocks its stage', () => {
+      setStage(store, ticketId, 'review', {
+        status: 'running',
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-13T10:00:00.000Z',
+      });
+      const parkId = insertOpenPark(store, payload('out of credits'));
+      claimUsageLimitPark(store, parkId, 'pick', '2026-10-13T12:00:00.000Z');
+      expect(stageBlock(store, ticketId, 'review')).toBeNull();
+
+      // The run that claimed it never reached a verdict: put it back.
+      const reopened = reopenUsageLimitPark(store, parkId, {
+        reason: 'usage limit — claude claude-sonnet-5',
+        at: '2026-10-13T12:05:00.000Z',
+      });
+
+      expect(reopened).toBe(true);
+      const open = listOpenParks(store, ticketId);
+      expect(open).toHaveLength(1);
+      expect(open[0]?.id).toBe(parkId);
+      expect(open[0]?.resolution).toBeNull();
+      expect(open[0]?.resolvedAt).toBeNull();
+      expect(stageBlock(store, ticketId, 'review')).toEqual({
+        kind: 'usage-limit',
+        reason: 'usage limit — claude claude-sonnet-5',
+        at: '2026-10-13T12:05:00.000Z',
+      });
+    });
+
+    it('falls back to the park diagnostic when no reason is given', () => {
+      setStage(store, ticketId, 'review', { blockedKind: 'usage-limit', blockedReason: 'x' });
+      const parkId = insertOpenPark(store, payload('monthly quota exceeded'));
+      claimUsageLimitPark(store, parkId, 'retry', '2026-10-13T12:00:00.000Z');
+
+      reopenUsageLimitPark(store, parkId, { at: '2026-10-13T12:05:00.000Z' });
+
+      expect(stageBlock(store, ticketId, 'review')?.reason).toBe('monthly quota exceeded');
+    });
+
+    it('re-opens an OP park without touching any stage block', () => {
+      const parkId = insertOpenPark(store, {
+        ticketId,
+        stage: 'scope',
+        kind: 'op',
+        lane: 'classify',
+        target: null,
+        provider: 'claude',
+        model: null,
+        detail: 'quota exceeded',
+        keptOutcome: null,
+        parkedAt: '2026-10-13T10:00:00.000Z',
+      });
+      claimUsageLimitPark(store, parkId, 'dismiss', '2026-10-13T12:00:00.000Z');
+
+      expect(reopenUsageLimitPark(store, parkId)).toBe(true);
+      expect(listOpenParks(store, ticketId)).toHaveLength(1);
+      expect(stageBlock(store, ticketId, 'scope')).toBeNull();
+    });
+
+    it('leaves a park that is still open alone', () => {
+      const parkId = insertOpenPark(store, payload('still open'));
+
+      expect(reopenUsageLimitPark(store, parkId)).toBe(false);
+      expect(listOpenParks(store, ticketId)).toHaveLength(1);
     });
   });
 });

@@ -11,7 +11,7 @@ import {
   listParks,
   type UsageLimitParkRow,
 } from '../store/usageLimitParks.js';
-import { parkGateStage } from '../store/stageBlocks.js';
+import { parkGateStage, stageBlock } from '../store/stageBlocks.js';
 import { listStageRuns, openStageRun } from '../store/stageRuns.js';
 import { listRecoveryRounds, openRecoveryRound, attachRevalidationStageRun } from '../store/recoveryRounds.js';
 import { getTicket, updateTicketFields } from '../store/tickets.js';
@@ -890,6 +890,55 @@ describe('rerunParkedStage', () => {
     });
 
     expect(res).toEqual({ kind: 'stopped', alreadyHandled: true });
+  });
+
+  it('a claim whose adapter cannot be built is put back, not consumed', async () => {
+    const ticket = createTicketFlow(store, { key: 'TEST-ADAPTER-THROW', title: 'Test adapter throw' });
+    transition(store, ticket.id, 'scope', { kind: 'passed' });
+    transition(store, ticket.id, 'impl', { kind: 'passed' });
+    transition(store, ticket.id, 'uat', { kind: 'passed' }); // -> review
+
+    parkGateStage(store, {
+      ticketId: ticket.id,
+      stageKey: 'review',
+      kind: 'usage-limit',
+      reason: 'anthropic out of quota',
+      runAt: '2026-10-13T10:00:00.000Z',
+      gates: [],
+      stageRunId: null,
+      park: {
+        provider: 'anthropic',
+        model: 'claude-3-7-sonnet',
+        lane: 'review',
+        target: 'repo',
+        detail: 'Monthly quota exceeded',
+        keptOutcome: null,
+      },
+    });
+    const park = listOpenParks(store, ticket.id)[0]!;
+
+    await expect(
+      rerunParkedStage({
+        store,
+        parkRow: park,
+        provider: 'codex',
+        model: 'gpt-4o',
+        buildAdapter: () => {
+          throw new Error('no adapter for that park');
+        },
+        cwd: '/wt/repo',
+        artifactDir,
+        now: () => '2026-10-13T10:10:00.000Z',
+      }),
+    ).rejects.toThrow('no adapter for that park');
+
+    // The claim must not survive a run that never reached a verdict: the row is
+    // open and the stage blocked again, so Pick/Retry are still offered.
+    expect(listOpenParks(store, ticket.id).map((p) => p.id)).toEqual([park.id]);
+    expect(stageBlock(store, ticket.id, 'review')).toMatchObject({
+      kind: 'usage-limit',
+      reason: 'usage limit — codex gpt-4o',
+    });
   });
 
   it('re-runs review and commits failed verdict when findings meet blockingSeverity', async () => {
@@ -2382,6 +2431,12 @@ describe('rerunParkedStage', () => {
     );
     expect(newRun?.status).toBe('finished');
     expect(newRun?.outcome).toBe('stopped');
+    // No verdict was reached, so the claim must not consume the park: the row
+    // is open again and the stage is blocked, keeping Pick/Retry available.
+    const reopened = listOpenParks(store, ticket.id);
+    expect(reopened).toHaveLength(1);
+    expect(reopened[0]?.id).toBe(park.id);
+    expect(stageBlock(store, ticket.id, 'review')).toMatchObject({ kind: 'usage-limit' });
   });
 
   it('uat re-run that stops closes the stage run it opened', async () => {
@@ -2454,6 +2509,9 @@ describe('rerunParkedStage', () => {
     });
 
     expect(res).toEqual({ kind: 'stopped' });
+    // A Stop reaches the lane before a verdict: the park stays usable.
+    expect(listOpenParks(store, ticket.id).map((p) => p.id)).toEqual([park.id]);
+    expect(stageBlock(store, ticket.id, 'uat')).toMatchObject({ kind: 'usage-limit' });
     const newRun = listStageRuns(store, ticket.id).find(
       (r) => r.stageKey === 'uat' && r.id !== parkedRunId,
     );

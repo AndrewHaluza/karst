@@ -2988,7 +2988,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     withDriverRun: driverLockedRun(driver), // same single-flight lock + Stop signal as a stage run
     adapterFor: (provider, model) => instrument(resolveAdapter(provider), provider),
     assignmentFor: (ticketId, stageKey, provider, model) => processFor(ticketId, stageKey === 'review' ? 'review' : 'uat-tester', { provider, model })?.assignment,
-    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)),
+    artifactDirFor: (ticketId) => join(context.globalStorageUri.fsPath, 'artifacts', String(ticketId)), spin: withSandboxSpin(() => sandboxB?.deps, spinTicket, (id) => sandboxLife.syncParentOf(id)), stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)), // D155: a parked UAT re-run boots inside the SANDBOX, exactly like the stage (never a host stack under a sandbox row)
     cwd: () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '', debug: (m) => logger.debug(m), contextCommand: buildCliContextPrefix(launchTokens(cliLiteral(context, dbPath))), // same tier-1 pointer as the stage
   });
   const dashboard: DashboardManager = new DashboardManager(

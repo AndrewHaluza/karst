@@ -13,6 +13,8 @@ import { openStore } from '../../store/db.js';
 import { insertOpenPark, listOpenParks, listParks, claimUsageLimitPark } from '../../store/usageLimitParks.js';
 import { createTicketFlow as createTicketFlowBase } from '../../workflow/stages/create.js';
 import { setStage, getStage } from '../../store/stages.js';
+import { openStageRun } from '../../store/stageRuns.js';
+import { recordGateRun } from '../../store/gateRuns.js';
 import { transition } from '../../workflow/machine.js';
 import { updateTicketFields } from '../../store/tickets.js';
 import type { ModelCatalog } from '../../agent/modelCatalog.js';
@@ -25,6 +27,50 @@ function setWorktreePath(store: Store, ticketId: number, path: string): void {
   store.db
     .prepare('UPDATE worktrees SET path = ? WHERE ticket_id = ? AND repo = ?')
     .run(path, ticketId, 'repo');
+}
+
+/**
+ * The re-run stands in for the parked stage's LANE: it reads the gate evidence
+ * that run already produced. A park with no gate rows re-parks
+ * `blocked: nothing-to-run` (R3 — it asked nothing), which is correct but is
+ * not the passing path these fixtures mean to exercise. Seed one green gate on
+ * a fresh stage run and point the park at it.
+ */
+/** The re-run's passed verdict advances the ticket: it must BE at review. */
+function advanceToReview(store: Store, ticketId: number): void {
+  transition(store, ticketId, 'scope', { kind: 'passed' });
+  transition(store, ticketId, 'impl', { kind: 'passed' });
+  transition(store, ticketId, 'uat', { kind: 'passed' });
+}
+
+function seedGateEvidence(store: Store, ticketId: number): number {
+  const runAt = '2026-10-14T00:00:00.000Z';
+  const stageRunId = openStageRun(store, {
+    ticketId,
+    stageKey: 'review',
+    attempt: 0,
+    runAt,
+    startedAt: runAt,
+  });
+  recordGateRun(store, {
+    ticketId,
+    stageKey: 'review',
+    attempt: 0,
+    runAt,
+    stageRunId,
+    gates: [
+      {
+        gateName: 'lint (repo)',
+        exitCode: 0,
+        startedAt: runAt,
+        endedAt: runAt,
+        repo: 'repo',
+        command: 'npm',
+        args: ['run', 'lint'],
+      },
+    ],
+  });
+  return stageRunId;
 }
 
 /**
@@ -155,6 +201,8 @@ describe('usageLimitParkOps', () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
       setWorktreePath(store, ticket.id, '/tmp');
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -169,6 +217,7 @@ describe('usageLimitParkOps', () => {
         provider: 'claude',
         model: 'claude-3-7-sonnet',
         detail: 'out of credits',
+        stageRunId,
         keptOutcome: JSON.stringify({
           kind: 'ok',
           findings: [],
@@ -266,6 +315,8 @@ describe('usageLimitParkOps', () => {
     it('runs the re-run under the driver single-flight wrapper with its Stop signal', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -280,6 +331,7 @@ describe('usageLimitParkOps', () => {
         provider: 'claude',
         model: 'claude-3-7-sonnet',
         detail: 'out of credits',
+        stageRunId,
         keptOutcome: null,
       });
 
@@ -402,6 +454,53 @@ describe('usageLimitParkOps', () => {
       expect(redrive).not.toHaveBeenCalled();
     });
 
+    it('refreshes but never redrives when the re-run parks again', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const redrive = vi.fn();
+      const refresh = vi.fn();
+      await handleUsageLimitPick({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        catalog: fakeCatalog,
+        notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        pickCore: vi.fn().mockResolvedValue({ id: 'codex', label: 'Codex' }),
+        pickModel: vi.fn().mockResolvedValue({ model: 'gpt-4o', label: 'GPT-4o' }),
+        redrive,
+        refresh,
+        adapterFor: vi.fn(),
+        // The picked core was ALSO out of quota: the lane parked again.
+        runExclusive: (async () => ({
+          kind: 'blocked',
+          blocker: 'usage-limit',
+          reason: 'out of credits',
+        })) as unknown as ExclusiveRunner,
+      });
+
+      // The panel must show the park the re-run just recorded...
+      expect(refresh).toHaveBeenCalledWith(ticket.id);
+      // ...but redriving would run the WHOLE stage again on a blocked ticket.
+      expect(redrive).not.toHaveBeenCalled();
+    });
+
     it('does not refresh when the park was already handled by another window', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
@@ -448,6 +547,8 @@ describe('usageLimitParkOps', () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
       setWorktreePath(store, ticket.id, '/tmp');
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -462,6 +563,7 @@ describe('usageLimitParkOps', () => {
         provider: 'claude',
         model: 'claude-3-7-sonnet',
         detail: 'out of credits',
+        stageRunId,
         keptOutcome: JSON.stringify({
           kind: 'ok',
           findings: [],
@@ -597,6 +699,47 @@ describe('usageLimitParkOps', () => {
       // A Stop is deliberate — never redrive it.
       expect(redrive).not.toHaveBeenCalled();
       expect(adapterFor).not.toHaveBeenCalled();
+    });
+
+    it('refreshes but never redrives when a retry parks again', async () => {
+      const store = openStore(':memory:');
+      const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      setStage(store, ticket.id, 'review', {
+        blockedKind: 'usage-limit',
+        blockedReason: 'out of credits',
+        blockedAt: '2026-10-14T00:00:00Z',
+      });
+      insertOpenPark(store, {
+        ticketId: ticket.id,
+        stage: 'review',
+        kind: 'stage-block',
+        lane: 'review',
+        target: 'repo',
+        provider: 'claude',
+        model: 'claude-3-7-sonnet',
+        detail: 'out of credits',
+        keptOutcome: null,
+      });
+
+      const redrive = vi.fn();
+      const refresh = vi.fn();
+      await handleUsageLimitRetry({
+        store,
+        ticketId: ticket.id,
+        stageKey: 'review',
+        notify: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+        redrive,
+        refresh,
+        adapterFor: vi.fn(),
+        runExclusive: (async () => ({
+          kind: 'blocked',
+          blocker: 'usage-limit',
+          reason: 'out of credits',
+        })) as unknown as ExclusiveRunner,
+      });
+
+      expect(refresh).toHaveBeenCalledWith(ticket.id);
+      expect(redrive).not.toHaveBeenCalled();
     });
   });
 
@@ -1192,6 +1335,8 @@ describe('usageLimitParkOps', () => {
     it('delegates makeUsageLimitParkActions to handlers', async () => {
       const store = openStore(':memory:');
       const ticket = createTicketFlow(store, { key: 'TEST-1', title: 'Test ticket' });
+      advanceToReview(store, ticket.id);
+      const stageRunId = seedGateEvidence(store, ticket.id);
       setStage(store, ticket.id, 'review', {
         blockedKind: 'usage-limit',
         blockedReason: 'out of credits',
@@ -1206,6 +1351,7 @@ describe('usageLimitParkOps', () => {
         provider: 'claude',
         model: 'claude-3-7-sonnet',
         detail: 'out of credits',
+        stageRunId,
         keptOutcome: null,
       });
 

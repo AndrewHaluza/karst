@@ -400,6 +400,52 @@ export function claimUsageLimitPark(
   }
 }
 
+/**
+ * Undo a claim whose re-run ended WITHOUT a verdict (a Stop, or a failure
+ * before the lane could report). The claim exists to keep two windows from
+ * running the same lane, not to promise a verdict: consuming the park on a run
+ * that never reported would take away the user's only recovery control — the
+ * banner is gone, the stage is unblocked, and no run stands in for it.
+ *
+ * One transaction: null the row's resolution, then re-block a `stage-block`
+ * park's stage through `setStage` (single writer). `setStage`'s own clear seam
+ * is a no-op here because the stage's prior blocked kind is NULL. A row that is
+ * still open (never claimed, or already re-opened) is left alone; returns false.
+ */
+export function reopenUsageLimitPark(
+  store: Store,
+  parkId: number,
+  opts: { reason?: string; at?: string } = {},
+): boolean {
+  const at = opts.at ?? nowIso();
+  const apply = store.db.transaction((): boolean => {
+    const raw = store.db
+      .prepare(
+        `UPDATE usage_limit_parks
+         SET resolved_at = NULL, resolution = NULL
+         WHERE id = ? AND resolved_at IS NOT NULL
+         RETURNING *`,
+      )
+      .get(parkId) as RawParkRow | undefined;
+
+    if (!raw) {
+      return false;
+    }
+
+    const park = rowToPark(raw);
+    if (park.kind === 'stage-block' && park.stage !== null) {
+      setStage(store, park.ticketId, park.stage as StageKey, {
+        blockedKind: 'usage-limit',
+        blockedReason: opts.reason ?? park.detail,
+        blockedAt: at,
+      });
+    }
+    return true;
+  });
+
+  return apply();
+}
+
 /** Every park (open and resolved) for a ticket, newest first. */
 export function listParks(store: Store, ticketId: number): UsageLimitParkRow[] {
   const rows = store.db
