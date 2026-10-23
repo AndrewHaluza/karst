@@ -6,7 +6,8 @@ import type { Manifest } from '../../manifest/types.js';
 import type { AgentAdapter } from '../../agent/adapter.js';
 import type { HeadlessOutputChunk } from '../../agent/headlessSpawn.js';
 import type { ProcessAssignmentSnapshot } from '../../agent/processAssignment.js';
-import { listGateRuns, type GateRunInput } from '../../store/gateRuns.js';
+import { listGateRuns, type GateRun, type GateRunInput } from '../../store/gateRuns.js';
+import { findingsForAttempt, type Finding } from '../../store/reviewFindings.js';
 import { finishProcessRun } from '../../store/processRuns.js';
 import { commitGateOutcome, type RunOutcome, type RecoveryTriggerInput } from '../gates/commit.js';
 import { openGateRun } from '../gates/evidence.js';
@@ -30,13 +31,18 @@ import {
   aggregateReview,
   malformedPackageJsonEntry,
   uatIdentitiesFrom,
+  gateEntriesFrom,
   DEFAULT_REQUIRE_INDEPENDENT_SIGNAL,
+  DEFAULT_REVIEW_FINDINGS,
   FINDINGS_FAILURE_PREFIX,
   type AggregateEntry,
+  type FindingsLaneOutcome,
 } from '../review/aggregate.js';
 import { planAndRunFindingsLane } from '../review/findingsLane.js';
 import type { ReviewArtifacts } from '../review/conformance.js';
 import type { WarnFn } from '../review/findings.js';
+import { mergeReviewKeptOutcome } from '../review/keptOutcome.js';
+import { targetTree, unresolvedTargets } from '../rerunTargets.js';
 
 /**
  * Review stage — orchestration only.
@@ -66,7 +72,24 @@ import type { WarnFn } from '../review/findings.js';
  */
 export type OpenDiff = (ticketId: number, cwd: string) => void;
 
+/**
+ * A usage-limit one-shot re-run of the parked review lane. With it the stage
+ * asks only `targets`, runs no deterministic gate (the parked attempt's rows
+ * are the aggregate's inputs), merges the sibling targets the earlier park
+ * kept, and runs the findings lane with the picked process. Verdict, process
+ * run closing, artifact and commit are the stage's own.
+ */
+export interface ReviewRerun {
+  targets: readonly string[];
+  previousGateRuns: readonly GateRun[];
+  keptTargets: readonly { repo: string; status?: string }[];
+  priorKeptOutcome: string | null;
+  process: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
+}
+
 export interface RunReviewOpts {
+  /** Re-run only the parked lane targets with a one-shot process. */
+  rerun?: ReviewRerun;
   ticketId: number;
   /** The ticket's primary worktree; used only when no manifest is supplied. */
   cwd: string;
@@ -195,9 +218,10 @@ export async function runReview(
     debug: opts.debug,
   });
 
-  const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
+  const rerun = opts.rerun;
+  const worktrees = opts.manifest || rerun ? listWorktreesByTicket(store, opts.ticketId) : [];
 
-  const entries: AggregateEntry[] = [];
+  const entries: AggregateEntry[] = rerun ? gateEntriesFrom(rerun.previousGateRuns) : [];
   const sections: string[] = [];
   // Tracked so the outcome below can record whether the changes surface
   // genuinely opened — never assumed from "the loop ran", since only a real
@@ -258,9 +282,13 @@ export async function runReview(
    * the run id that closes the open `stage_runs` row.
    */
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
-    mkdirSync(opts.artifactDir, { recursive: true });
-    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
-    writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    // A host with no artifact directory configured passes '' — `mkdirSync('')` throws.
+    let artifactPath = '';
+    if (opts.artifactDir) {
+      mkdirSync(opts.artifactDir, { recursive: true });
+      artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
+      writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    }
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,
       stageKey: 'review',
@@ -302,7 +330,27 @@ export async function runReview(
     );
   };
 
-  const planned = opts.manifest
+  // A re-run never plans: it asks exactly the parked lane's targets, and never
+  // substitutes `cwd` for a repository the ticket has no worktree row for.
+  if (rerun && opts.signal?.aborted) {
+    return finish({ kind: 'stopped' }, ['stopped before the re-run asked anything']);
+  }
+  const unresolved = rerun ? unresolvedTargets(worktrees, rerun.targets, opts.cwd) : [];
+  const planned = rerun
+    ? unresolved.length > 0
+      ? {
+          kind: 'unavailable' as const,
+          blocker: 'nothing-to-run' as const,
+          reason:
+            `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
+            'so there is no tree to review — re-scope the ticket',
+        }
+      : {
+          kind: 'targets' as const,
+          targets: rerun.targets.map((repo) => ({ repo, path: targetTree(worktrees, repo, opts.cwd)!.path, names: [] })),
+          unmapped: [],
+        }
+    : opts.manifest
     ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId }, opts.debug)
     : {
         kind: 'targets' as const,
@@ -361,7 +409,7 @@ export async function runReview(
     return finish({ kind: 'verdict', verdict: { kind: 'passed' } }, [note]);
   }
 
-  for (const target of targets) {
+  for (const target of rerun ? [] : targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path, opts.debug);
     const resolution = resolveReviewGates(
@@ -552,7 +600,7 @@ export async function runReview(
 
   // The Review AI process (Task 8) carries its own adapter; absent, the lane
   // falls back to the plain findings adapter (or capability-missing).
-  const reviewProcess = deps.reviewProcess;
+  const reviewProcess = rerun?.process ?? deps.reviewProcess;
   const findingsAdapter = reviewProcess?.adapter ?? deps.findingsAdapter;
 
   // `worktrees.base_ref` per repository path, so the findings prompt can name
@@ -573,9 +621,13 @@ export async function runReview(
     opts.debug?.(`[gate] review ticket ${opts.ticketId}: artifacts unavailable (${String(err)})`);
   }
 
+  // Read the sibling findings BEFORE the lane runs: the lane persists its own
+  // as they land, so reading afterwards would double them.
+  const existingFindings = rerun ? findingsForAttempt(store, opts.ticketId, evidence.attempt) : [];
+
   // Resolves the config default, and (spec §8.14) skips the AI call entirely
   // when R3/R4/R5 already decided the run — see `planAndRunFindingsLane`.
-  const { outcome: findingsLane, blockingSeverity } = await planAndRunFindingsLane({
+  const { outcome: laneRan, blockingSeverity } = await planAndRunFindingsLane({
     entries,
     targets: targets.map((t) => ({
       repo: t.repo,
@@ -583,7 +635,11 @@ export async function runReview(
       baseRef: baseRefByRepo.get(t.repo) ?? null,
       branch: branchByRepo.get(t.repo) ?? null,
     })),
-    findingsConfig: opts.manifest?.review?.findings,
+    // A re-run fills a partial `findings` block from the defaults, as the
+    // re-run always did; the stage reads the block as given.
+    findingsConfig: rerun
+      ? { ...DEFAULT_REVIEW_FINDINGS, ...(opts.manifest?.review?.findings ?? {}) }
+      : opts.manifest?.review?.findings,
     artifacts,
     adapter: findingsAdapter,
     ticketId: opts.ticketId,
@@ -623,6 +679,9 @@ export async function runReview(
     openChanges: opts.manifest?.review?.openChanges,
     git,
   });
+  const findingsLane = rerun
+    ? mergeRerunLane(laneRan, rerun, existingFindings)
+    : laneRan;
   // Captured here — before the verdict exists — so the trigger below names the
   // exact process run that produced a blocking verdict, when it is the lane's.
   findingsProcessRunId =
@@ -771,4 +830,44 @@ export async function runReview(
     ...outcome.warnings,
     ...crashNotes,
   ]);
+}
+
+/**
+ * The lane outcome a re-run aggregates: the sibling findings and unreadable
+ * targets the earlier park kept joined to the fresh ones, the target count over
+ * both, and a second quota stop still naming the earlier park's siblings.
+ */
+function mergeRerunLane(
+  lane: FindingsLaneOutcome,
+  rerun: ReviewRerun,
+  existing: readonly Finding[],
+): FindingsLaneOutcome {
+  if (lane.kind === 'usage-limited') {
+    return { ...lane, keptOutcome: mergeReviewKeptOutcome(lane.keptOutcome, rerun.priorKeptOutcome) };
+  }
+  if (lane.kind !== 'ran') return lane;
+  const asked = new Set(rerun.targets);
+  const siblingUnreadable = rerun.keptTargets
+    .filter((t) => !asked.has(t.repo) && t.status === 'unreadable')
+    .map((t) => t.repo);
+  const unreadable = [...(lane.unreadable ?? []), ...siblingUnreadable];
+  return {
+    kind: 'ran',
+    findings: [
+      ...existing.map((f) => ({
+        severity: f.severity,
+        repo: f.repo,
+        file: f.file,
+        line: f.line,
+        title: f.title,
+        detail: f.detail,
+        source: f.source,
+      })),
+      ...lane.findings,
+    ],
+    crashes: lane.crashes,
+    unreadable: unreadable.length > 0 ? unreadable : undefined,
+    targetCount: new Set([...rerun.keptTargets.map((t) => t.repo), ...rerun.targets]).size,
+    processRunId: lane.processRunId,
+  };
 }
