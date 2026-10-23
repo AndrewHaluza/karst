@@ -282,9 +282,13 @@ export async function runReview(
    * the run id that closes the open `stage_runs` row.
    */
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
-    mkdirSync(opts.artifactDir, { recursive: true });
-    const artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
-    writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    // A host with no artifact directory configured passes '' — `mkdirSync('')` throws.
+    let artifactPath = '';
+    if (opts.artifactDir) {
+      mkdirSync(opts.artifactDir, { recursive: true });
+      artifactPath = join(opts.artifactDir, `review-ticket-${opts.ticketId}-${evidence.runId}.log`);
+      writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    }
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,
       stageKey: 'review',

@@ -1,3 +1,4 @@
+import type { Manifest } from '../manifest/types.js';
 import type { WorktreeView } from '../store/dashboard.js';
 
 /** A target's tree, as the parked run recorded it (or the primary `cwd`). */
@@ -33,4 +34,16 @@ export function unresolvedTargets(
   cwd: string,
 ): string[] {
   return repos.filter((repo) => targetTree(worktrees, repo, cwd) === null);
+}
+
+/**
+ * Every manifest entry backed by this worktree path. The UAT stage derives the
+ * same list while planning; the re-run has a store row's repoPath, so it maps
+ * back to the names `unitsOf` needs to find the target's running services.
+ */
+export function manifestNamesFor(manifest: Manifest | undefined, repoPath: string): string[] {
+  if (!manifest?.repositories) return [];
+  return Object.entries(manifest.repositories)
+    .filter(([, def]) => def.repoPath === repoPath)
+    .map(([name]) => name);
 }

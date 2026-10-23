@@ -18,7 +18,7 @@ import {
   listWorktreesByTicket,
   type ServerView,
 } from '../../store/dashboard.js';
-import { listGateRuns } from '../../store/gateRuns.js';
+import { listGateRuns, type GateRun } from '../../store/gateRuns.js';
 import { listProcessRuns, setProcessRunResultKind } from '../../store/processRuns.js';
 import { baseDefinesScript } from '../gates/npmScript.js';
 import { resolveTicketBaseRef } from '../baseRef.js';
@@ -60,6 +60,11 @@ import {
   type GateIdentity,
 } from '../uat/aggregate.js';
 import { SpinCancelledError, type SpinResult } from '../../runtime/spin.js';
+import { gateEntriesFrom } from '../review/aggregate.js';
+import { targetTree, unresolvedTargets, manifestNamesFor } from '../rerunTargets.js';
+import { mergeUatKeptOutcome, type UatKeptTarget } from '../uat/keptOutcome.js';
+import { combinedBlocking, persistSiblingObservations } from '../uat/rerunObservations.js';
+import type { UatFindingInput } from '../../store/uatFindings.js';
 
 /**
  * UAT stage — orchestration only.
@@ -75,7 +80,25 @@ import { SpinCancelledError, type SpinResult } from '../../runtime/spin.js';
  * attempt — nothing about the code was learned.
  */
 
+/**
+ * A usage-limit one-shot re-run of the parked UAT lane. With it the stage asks
+ * only `targets`, runs no deterministic gate (the parked attempt's rows are the
+ * aggregate's inputs, so `aggregateUat` alone still produces `bypassed` and the
+ * zero-ran block), counts and persists the sibling observations the earlier
+ * park kept, and runs the Tester with the picked process. Baseline review,
+ * services, verifier, threshold, verdict and commit are the stage's own.
+ */
+export interface UatRerun {
+  targets: readonly string[];
+  previousGateRuns: readonly GateRun[];
+  siblingObservations: readonly UatFindingInput[];
+  siblingTargets: readonly UatKeptTarget[];
+  tester: { assignment: ProcessAssignmentSnapshot; adapter: AgentAdapter };
+}
+
 export interface RunUatOpts {
+  /** Re-run only the parked lane targets with a one-shot Tester. */
+  rerun?: UatRerun;
   ticketId: number;
   /** The ticket's primary worktree; used only when no manifest is supplied. */
   cwd: string;
@@ -311,9 +334,11 @@ export async function runUat(
     debug: opts.debug,
   });
 
-  const worktrees = opts.manifest ? listWorktreesByTicket(store, opts.ticketId) : [];
+  const rerun = opts.rerun;
+  const tester = rerun?.tester ?? deps.tester;
+  const worktrees = opts.manifest || rerun ? listWorktreesByTicket(store, opts.ticketId) : [];
 
-  const entries: AggregateEntry[] = [];
+  const entries: AggregateEntry[] = rerun ? gateEntriesFrom(rerun.previousGateRuns) : [];
   // Read once, from review's latest RECORDED batch (Task 10) — not a fixed
   // gate list, since `review.gates` is configurable (Task 9) and only what
   // review actually invoked can prove the overlap this warns about.
@@ -328,7 +353,9 @@ export async function runUat(
   // from them: a row's `gateName` is repo-decorated ("test (web)") because that
   // is what identifies an invocation, and the block reason already parenthesizes
   // the list — reusing it there nests the parentheses.
-  const skippedNames: string[] = [];
+  const skippedNames: string[] = rerun
+    ? rerun.previousGateRuns.filter((r) => r.skipped).map((r) => r.gateName)
+    : [];
   // Set when the Tester runs: the process run the verifier failure is
   // attributed to (Task 8). Null until then, so a plain gate failure — or a
   // run that never reached the Tester — names no process.
@@ -376,9 +403,13 @@ export async function runUat(
   let verdictPassed = false;
   const finish = (outcome: RunOutcome, notes: readonly string[] = []): StageRunResult => {
     verdictPassed = outcome.kind === 'verdict' && outcome.verdict.kind === 'passed';
-    mkdirSync(opts.artifactDir, { recursive: true });
-    const artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}-${evidence.runId}.log`);
-    writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    // A host with no artifact directory configured passes '' — `mkdirSync('')` throws.
+    let artifactPath = '';
+    if (opts.artifactDir) {
+      mkdirSync(opts.artifactDir, { recursive: true });
+      artifactPath = join(opts.artifactDir, `uat-ticket-${opts.ticketId}-${evidence.runId}.log`);
+      writeFileSync(artifactPath, [...notes.map((note) => `! ${note}`), ...sections].join('\n\n'));
+    }
     return commitGateOutcome(store, {
       ticketId: opts.ticketId,
       stageKey: 'uat',
@@ -420,7 +451,28 @@ export async function runUat(
     );
   };
 
-  const planned = opts.manifest
+  // A re-run never plans: it asks exactly the parked lane's targets, and never
+  // tests another repository's checkout under a target's name.
+  const unresolved = rerun ? unresolvedTargets(worktrees, rerun.targets, opts.cwd) : [];
+  const planned = rerun
+    ? unresolved.length > 0
+      ? {
+          kind: 'unavailable' as const,
+          blocker: 'nothing-to-run' as const,
+          reason:
+            `${unresolved.join(', ')}: no worktree is registered for this ticket, ` +
+            'so there is no tree to test — re-scope the ticket',
+        }
+      : {
+          kind: 'targets' as const,
+          targets: rerun.targets.map((repo) => ({
+            repo,
+            path: targetTree(worktrees, repo, opts.cwd)!.path,
+            names: manifestNamesFor(opts.manifest, repo),
+          })),
+          unmapped: [],
+        }
+    : opts.manifest
     ? await planTargets(opts.manifest, worktrees, git, { store, ticketId: opts.ticketId }, opts.debug)
     : {
         kind: 'targets' as const,
@@ -488,7 +540,7 @@ export async function runUat(
   const baselineReviewOn = (opts.manifest?.uat?.baselineReview?.paths.length ?? 0) > 0;
   const uatAttempt = stageAttempt(store, opts.ticketId, 'uat');
   let fingerprint: string | null = null;
-  if (baselineReviewOn && opts.manifest) {
+  if (baselineReviewOn && opts.manifest && !rerun) {
     fingerprint = await (deps.fingerprint ?? fingerprintTicket)(
       store, opts.manifest, opts.ticketId, targets, { git },
     );
@@ -499,7 +551,7 @@ export async function runUat(
       (skipGates ? 'unchanged since the gates passed, skipping the gate list' : 'running the gate list'),
   );
 
-  for (const target of skipGates ? [] : targets) {
+  for (const target of skipGates || rerun ? [] : targets) {
     const label = target.names.join(', ') || target.repo;
     const scriptProbe = probe(target.path, opts.debug);
     const resolution = resolveTargetGates(scriptProbe, opts.manifest?.uat, target.names, disabledNames, opts.debug);
@@ -674,7 +726,7 @@ export async function runUat(
     }
   }
 
-  const outcome: ReturnType<typeof aggregateUat> = skipGates
+  const outcome: ReturnType<typeof aggregateUat> = skipGates && !rerun
     ? { kind: 'verdict', verdict: { kind: 'passed' }, warnings: [] }
     : aggregateUat(
     entries,
@@ -763,7 +815,7 @@ export async function runUat(
   let spinHot: string[] = [];
   // BOTH seams must be present: a spin with no way to stop would leak the
   // stack it started, so an absent stop disables the capability entirely.
-  if (deps.tester && spinFn && stopFn && spinManifest !== undefined) {
+  if (tester && spinFn && stopFn && spinManifest !== undefined) {
     const hot = runnableSubset(spinManifest, ticket.selectedRepos);
     if (hot.length > 0) {
       const running = new Set(
@@ -801,7 +853,7 @@ export async function runUat(
     // `uat.testerObservations.blockingSeverity` applied below. At its default
     // `'none'` the observations are advisory and this gate verdict decides.
     let testerResult: TesterRunResult | null = null;
-    if (deps.tester) {
+    if (tester) {
       // Source fields: `Ticket.description` / `intent` — the ticket's done-when
       // criteria (Prompt 17). The ticket was read once, above, via the existing
       // accessor: no new injected dependency, no `vscode` import (host-agnostic
@@ -816,8 +868,8 @@ export async function runUat(
             worktrees,
             listServersByTicket(store, opts.ticketId),
           ),
-          assignment: deps.tester.assignment,
-          adapter: deps.tester.adapter,
+          assignment: tester.assignment,
+          adapter: tester.adapter,
           stageRunId: evidence.runId,
           attempt: evidence.attempt,
           signal: opts.signal,
@@ -861,6 +913,9 @@ export async function runUat(
     }
     if (testerResult?.kind === 'interrupted') {
       return finish({ kind: 'stopped' }, ['tester interrupted before it finished']);
+    }
+    if (rerun) {
+      persistSiblingObservations(store, opts.ticketId, testerRunId, rerun.siblingObservations, now());
     }
     if (testerResult?.kind === 'execution-failed') {
       // Advisory absence, exactly like review's lane: a failed AI call must not
@@ -918,7 +973,9 @@ export async function runUat(
             lane: 'uat',
             target: testerResult.target,
             detail: testerResult.detail,
-            keptOutcome: testerResult.keptOutcome,
+            keptOutcome: rerun
+              ? mergeUatKeptOutcome(testerResult.keptOutcome, rerun.siblingObservations, rerun.siblingTargets)
+              : testerResult.keptOutcome,
           },
         },
         [reason, testerResult.detail],
@@ -972,13 +1029,23 @@ export async function runUat(
     // same way the verifier's failure is: a failed verdict whose reason carries
     // the shared prefix, which `recoveryTriggerFor` reads to attribute the
     // recovery round to `sourceProcessId: 'tester'`.
-    if (
-      (testerResult?.kind === 'observed' || testerResult?.kind === 'partial') &&
-      testerResult.blocking > 0
-    ) {
-      const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${testerResult.blockingSummary ?? `${testerResult.blocking} blocking`}`;
+    // A re-run also counts the sibling observations the earlier park kept.
+    const counted = rerun
+      ? combinedBlocking(
+          store,
+          opts.ticketId,
+          testerRunId,
+          testerResult,
+          rerun.siblingObservations,
+          opts.manifest?.uat?.testerObservations?.blockingSeverity ?? 'none',
+        )
+      : testerResult?.kind === 'observed' || testerResult?.kind === 'partial'
+        ? testerResult
+        : { blocking: 0, blockingSummary: undefined };
+    if (counted.blocking > 0) {
+      const reason = `${TESTER_OBSERVATIONS_FAILURE_PREFIX}${counted.blockingSummary ?? `${counted.blocking} blocking`}`;
       opts.debug?.(
-        `[gate] uat ticket ${opts.ticketId}: gates passed but ${testerResult.blocking} tester ` +
+        `[gate] uat ticket ${opts.ticketId}: gates passed but ${counted.blocking} tester ` +
           `observation(s) are at or above the configured blocking severity — failing uat`,
       );
       return finish({ kind: 'verdict', verdict: { kind: 'failed', reason } }, outcome.warnings);
