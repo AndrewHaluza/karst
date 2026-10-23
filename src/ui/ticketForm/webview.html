@@ -2289,8 +2289,13 @@
   // UI-R11/R12: the re-run takes minutes and the park is claimed by the FIRST
   // click. A second click would post again and be answered with the false
   // "This usage limit was already handled." — so the three buttons go inert
-  // until the host replaces this error area (resolved, or an error).
+  // until the host replaces this error area (resolved, or an error) or reports
+  // that the picker was cancelled (nothing claimed, so they arm again).
   let usageLimitPending = false;
+  function rearmUsageLimitButtons() {
+    usageLimitPending = false;
+    for (const btn of el('err').querySelectorAll('[data-act]')) btn.disabled = false;
+  }
   el('err').addEventListener('click', function (e) {
     const target = e.target.closest && e.target.closest('[data-act]');
     if (!target) return;
@@ -2501,6 +2506,7 @@
         else showErr(msg.message);
         break;
       case 'usage-limit-park-resolved': clearErr(); break;
+      case 'usage-limit-park-cancelled': rearmUsageLimitButtons(); break;
       case 'busy': setBusy(msg.what, msg.on); break;
       case 'action-result': karstSettle(msg.requestId, msg.ok, msg.message); break;
       case 'provider-ticket-created': {

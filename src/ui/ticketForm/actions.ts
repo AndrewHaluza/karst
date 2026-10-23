@@ -1494,7 +1494,12 @@ export function buildTicketFormActions(
         return;
       }
       const picked = await deps.pickUsageLimitAgentModel(park.provider, park.model);
-      if (!picked) return; // cancelled
+      if (!picked) {
+        // Cancelled: nothing was claimed, so the page must re-arm the buttons
+        // it disabled on click (or a cancel would leave them inert forever).
+        ctx.post({ type: 'usage-limit-park-cancelled' });
+        return;
+      }
       if (!claimUsageLimitPark(deps.store, parkId, 'pick').claimed) {
         ctx.post({ type: 'error', message: 'This usage limit was already handled.' });
         return;

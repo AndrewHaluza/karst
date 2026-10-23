@@ -40,12 +40,19 @@ vi.mock('../runtime/supervisor.js', async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   stopTicketServers: mockedStopTicketServers,
 }));
+// A pass-through spy on the conformance loader: the binding builds it once, so
+// the test can read the options it was handed (the `projectId` fallback).
+vi.mock('./reviewArtifactsBinding.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./reviewArtifactsBinding.js')>();
+  return { ...actual, makeReviewArtifactsBinding: vi.fn(actual.makeReviewArtifactsBinding) };
+});
 
 import {
   createUsageLimitParkBinding,
   driverLockedRun,
   makeUsageLimitAgentModelPicker,
 } from './usageLimitParkBinding.js';
+import { makeReviewArtifactsBinding } from './reviewArtifactsBinding.js';
 import { openStore } from '../store/db.js';
 import { insertOpenPark, listOpenParks, listParks } from '../store/usageLimitParks.js';
 import { createTicketFlow } from '../workflow/stages/create.js';
@@ -365,8 +372,20 @@ describe('createUsageLimitParkBinding', () => {
     );
   });
 
-  it('defaults the git runner to the production seam', async () => {
-    const { store, ticket } = setup();
+  it('reads conformance artifacts through the current project when the ticket has none', () => {
+    const store = openStore(':memory:');
+    const ticket = createTicketFlow(store, { key: 'TEST-PROJECT', title: 'Project fallback' });
+
+    // NO `loadArtifacts` seam: the binding builds the default loader, which the
+    // STAGE hands `currentProject()?.id` — a re-run must not silently judge the
+    // change with no spec/plan while the stage it replaces had both.
+    binding(store, ticket.id, { projectId: () => 77 });
+
+    const options = vi.mocked(makeReviewArtifactsBinding).mock.calls.at(-1)?.[0];
+    expect(options?.fallbackProjectId()).toBe(77);
+  });
+
+  it('defaults the git runner to the production seam', async () => {    const { store, ticket } = setup();
     showQuickPick.mockResolvedValueOnce({ id: 'codex', label: 'Codex' });
     showQuickPick.mockResolvedValueOnce({ model: 'gpt-4o', label: 'GPT-4o', description: 'gpt-4o' });
 

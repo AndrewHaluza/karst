@@ -101,6 +101,13 @@ export interface UsageLimitParkBindingDeps {
   git?: GitRunner;
   /** Test seam; defaults to a loader over `artifactDirFor`'s parent. */
   loadArtifacts?: (ticketId: number) => Promise<ReviewArtifacts | undefined>;
+  /**
+   * The project to read conformance artifacts from when the ticket has none of
+   * its own (`tickets.project_id` NULL). The STAGE resolves it through
+   * `currentProject()`, so a re-run that omitted it would judge the change with
+   * no spec/plan while the stage it replaces had both.
+   */
+  projectId?: () => number | undefined;
   /** Test seam; defaults to the real host gate runner (`runProcess`). */
   runVerifier?: TesterGateRunner;
   /** The composed `karst context` prefix the UAT Tester prompt may name. */
@@ -151,7 +158,7 @@ export function createUsageLimitParkBinding(deps: UsageLimitParkBindingDeps) {
       registry: deps.store,
       artifactsRoot: dirname(deps.artifactDirFor(0)),
       manifest: deps.manifest,
-      fallbackProjectId: () => undefined,
+      fallbackProjectId: deps.projectId ?? (() => undefined),
     });
   const runExclusive = (ticketId: number): ExclusiveRunner =>
     deps.withDriverRun

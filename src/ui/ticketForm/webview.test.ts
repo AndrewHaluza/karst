@@ -77,6 +77,10 @@ describe('ticket-form webview.html', () => {
     expect(HTML).toMatch(/function showErr\(msg\) \{ usageLimitPending = false;/);
     expect(HTML).toMatch(/function showUsageLimitErr\(msg, parkId\) \{\n {4}usageLimitPending = false;/);
     expect(HTML).toMatch(/function clearErr\(\) \{ usageLimitPending = false;/);
+    // A cancelled picker claimed nothing: the host says so and the buttons arm
+    // again, instead of staying disabled forever.
+    expect(HTML).toMatch(/case 'usage-limit-park-cancelled': rearmUsageLimitButtons\(\); break;/);
+    expect(HTML).toMatch(/function rearmUsageLimitButtons\(\) \{/);
   });
 
   it('gates Phase 2 on the title alone, whatever the provider — the key is never required', () => {

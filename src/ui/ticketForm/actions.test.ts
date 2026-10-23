@@ -929,6 +929,25 @@ describe('buildTicketFormActions', () => {
     expect(listOpenParks(store, t.id)).toHaveLength(0);
   });
 
+  it('a cancelled Pick claims nothing and re-arms the page buttons (D159)', async () => {
+    const t = createTicket(store, { key: 'T-K11-PICK-CANCEL', title: 't' });
+    const parkId = await parkSuggestOnQuota(t.id);
+    deps.adapter = fakeAdapter();
+
+    // Escape on the QuickPick: no provider/model comes back.
+    deps.pickUsageLimitAgentModel = vi.fn(async () => undefined);
+    const ctx = mkCtx(t.id);
+    const actions = buildTicketFormActions(deps)(ctx);
+
+    await actions.usageLimitParkPick(parkId);
+
+    // The park is still open for a later attempt, and the page is told to
+    // re-arm the buttons it disabled on click — otherwise a cancel would leave
+    // them inert forever.
+    expect(listOpenParks(store, t.id)).toHaveLength(1);
+    expect(ctx.posted.at(-1)).toEqual({ type: 'usage-limit-park-cancelled' });
+  });
+
   it('a suggest re-run whose repo is gone does not leak its one-shot override (D159)', async () => {
     const t = createTicket(store, { key: 'T-K11-LEAK', title: 't' });
     const parkId = await parkSuggestOnQuota(t.id); // target 'fe'
