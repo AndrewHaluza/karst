@@ -20,6 +20,8 @@ export interface IconButtonProps
   danger?: boolean;
   /** The action is in flight (UI-R11); exposes `aria-busy`. */
   busy?: boolean;
+  /** Visible spinner (tier 2): pass `useHostMutation().spinning`. */
+  spinning?: boolean;
   className?: string;
   /** The decorative glyph. */
   children: ReactNode;
@@ -29,13 +31,14 @@ export function IconButton({
   label,
   danger = false,
   busy = false,
+  spinning = false,
   disabled = false,
   className,
   type = 'button',
   children,
   ...rest
 }: IconButtonProps) {
-  const classes = ['k-iconbtn', danger ? 'k-iconbtn--danger' : null, className]
+  const classes = ['k-iconbtn', danger ? 'k-iconbtn--danger' : null, spinning ? 'is-spinning' : null, className]
     .filter((c): c is string => Boolean(c))
     .join(' ');
   return (

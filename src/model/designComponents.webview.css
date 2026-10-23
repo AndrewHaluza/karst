@@ -37,38 +37,39 @@
 .k-btn:active:not(:disabled){transform:scale(.96)}
 .k-btn:disabled{opacity:.45;cursor:default}
 .k-btn[aria-busy="true"]{cursor:progress}
-.k-btn[aria-busy="true"]::before{
-  content:"";flex:none;
+/* Click feedback tiers (UI-R11, SG-19). aria-busy is set at once but draws
+   nothing: the spinner is `.is-spinning`, added by the runtime only after the
+   show-delay (SPINNER_DELAY_MS) and kept for SPINNER_MIN_VISIBLE_MS. It lives in a leading slot (`.k-btn--slot`,
+   reserved at bind time) so the control never changes width or label (UI-R18). */
+.k-btn--slot:not(.k-btn--row)::before{
+  content:"";flex:none;box-sizing:border-box;visibility:hidden;
   width:var(--k-spinner-size);height:var(--k-spinner-size);
-  border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
-  border-radius:var(--k-radius-circle);
+  border:var(--k-spinner-w) solid transparent;border-radius:var(--k-radius-circle)}
+.k-btn.is-spinning::before{
+  content:"";flex:none;box-sizing:border-box;
+  width:var(--k-spinner-size);height:var(--k-spinner-size);border-radius:var(--k-radius-circle);border:var(--k-spinner-w) solid;
+  visibility:visible;border-top-color:transparent;
   animation:k-spin var(--k-dur-spin) linear infinite}
-.k-btn.is-success:not(.k-btn--row){color:var(--k-success);border-color:var(--k-success)}
+/* Tier 3 (confirm) ONLY: the spinner slot morphs to a check in place. No border
+   or colour change, no layout shift. Never a success treatment for tiers 1-2. */
 .k-btn.is-success:not(.k-btn--row)::before{
-  content:"\2713";flex:none;border:0;animation:none;width:auto;height:auto}
+  content:"\2713";visibility:visible;border:0;animation:none;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:var(--k-spinner-size);line-height:1}
+/* Tier 1 (view): a thin progress line at the top of the data region + dimmed data. */
+[data-region].is-loading{position:relative}
+[data-region].is-loading::before{
+  content:"";position:absolute;top:0;left:0;right:0;height:var(--k-spinner-w);z-index:1;
+  background:var(--k-link);transform-origin:left;animation:k-progress var(--k-dur-progress) ease-in-out infinite}
+[data-region].is-loading > *{opacity:.6}
 
 /* The ROW modifier — composed WITH a variant (`k-btn--ghost k-btn--row`), never
-   instead of one. It says "this control is a row in a list", and the only thing
-   it changes is how the row reports success.
-
-   The button-shaped flash is a check glyph in the leading slot plus a
-   --k-success border. A row is not button-shaped: it is full-width, often its
-   own grid, and its content is the data. So the glyph was auto-placed into that
-   grid — landing beside the diff view's status letter, which read as "M ✓", and
-   pushing the path onto a second line — while the border boxed the whole row
-   green. Every click on a list item or a file row animated that in and out.
-
-   Success still has to be VISIBLE (UI-R13), and for these rows it is a handoff:
-   an editor or a panel opens, and the flash only has to say "that one". So it
-   becomes the row's own highlight — the same wash the platform uses for a
-   selected row — which is a state a row already has a vocabulary for.
-
-   Scoped off at the source above rather than overridden here: an override would
-   need a border-color VALUE, and a row composes with ghost (hairline), link (no
-   border) and secondary, which do not share one. */
+   instead of one. It says "this control is a row in a list": full-width, often
+   its own grid. A row reserves no spinner slot and has no success treatment at
+   all (UI-R13): opening an editor or panel IS the result. When a slow reply
+   makes it spin, the generic `.is-spinning::before` applies and a view may
+   re-position it locally. */
 .k-btn--row{justify-content:flex-start;width:100%;text-align:left}
-.k-btn--row.is-success{background:var(--k-surface-selected)}
-.k-btn--row.is-success::before{content:none}
 /* Rows are full-width list items — the button scale effect (designed for
    compact controls) shifts the entire row on click. Suppress it. Must keep
    the :not(:disabled) to match the generic rule's specificity or it loses. */
@@ -87,14 +88,15 @@
 .k-iconbtn:active:not(:disabled){transform:scale(.96)}
 .k-iconbtn:disabled{opacity:.45;cursor:default}
 .k-iconbtn[aria-busy="true"]{cursor:progress}
-.k-iconbtn[aria-busy="true"] > *{visibility:hidden}
-.k-iconbtn[aria-busy="true"]::after{
+.k-iconbtn.is-spinning > *{visibility:hidden}
+.k-iconbtn.is-spinning::after{
   content:"";position:absolute;
   width:var(--k-spinner-size);height:var(--k-spinner-size);
   border:var(--k-spinner-w) solid currentColor;border-top-color:transparent;
   border-radius:var(--k-radius-circle);
   animation:k-spin var(--k-dur-spin) linear infinite}
-.k-iconbtn.is-success{color:var(--k-success)}
+.k-iconbtn.is-success > *{visibility:hidden}
+.k-iconbtn.is-success::after{content:"\2713";position:absolute}
 .k-link{color:var(--k-link);text-decoration:none;border-radius:var(--k-radius-xs)}
 .k-link:hover{color:var(--k-link-active);text-decoration:underline}
 .k-link:active{color:var(--k-link-active)}
@@ -148,7 +150,7 @@ button.k-chip{cursor:pointer}
 .k-chip:active{transform:scale(.96)}
 .k-chip:disabled{opacity:.45;cursor:default}
 .k-chip[aria-busy="true"]{cursor:progress}
-.k-chip.is-success{border-color:var(--k-success);color:var(--k-success)}
+.k-chip--success{border-color:var(--k-success);color:var(--k-success)}
 .k-chip.is-warning{border-color:var(--k-attention);color:var(--k-attention)}
 .k-chip.is-danger{border-color:var(--k-danger);color:var(--k-danger)}
 .k-id{
@@ -164,6 +166,7 @@ button.k-chip{cursor:pointer}
 .k-dot--passed{background:var(--k-passed)}
 .k-dot--failed{background:var(--k-failed)}
 @keyframes k-spin{to{transform:rotate(360deg)}}
+@keyframes k-progress{0%{transform:scaleX(0)}100%{transform:scaleX(1)}}
 .k-spinner{
   display:inline-block;flex:none;
   width:var(--k-spinner-size);height:var(--k-spinner-size);
@@ -213,8 +216,8 @@ button.k-chip{cursor:pointer}
 @media (prefers-reduced-motion: reduce){
   .k-btn,.k-iconbtn,.k-input,.k-chip,.k-switch,.k-switch-track,
   .k-switch-track::after,.k-drawer,.k-toast{transition:none}
-  .k-spinner,.k-btn[aria-busy="true"]::before,.k-iconbtn[aria-busy="true"]::after,
-  .k-toast{animation:none}
+  .k-spinner,.k-btn.is-spinning::before,.k-iconbtn.is-spinning::after,
+  [data-region].is-loading::before,.k-toast{animation:none}
   .k-btn:active:not(:disabled),.k-iconbtn:active:not(:disabled),
   .k-chip:active,.k-switch:active .k-switch-track{transform:none}
 }

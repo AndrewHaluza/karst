@@ -14,7 +14,7 @@ const NON_VIEW_BASELINES = new Set(['status-primitives.png']);
 
 const allVariants = WEBVIEW_NAMES.flatMap((view) => VARIANTS[view].map((variant) => ({ view, variant })));
 
-describe('variant registry coverage (ui:UI-R49)', () => {
+describe('variant registry coverage (ui:UI-R57)', () => {
   it('has a registry entry for every webview', () => {
     for (const view of WEBVIEW_NAMES) expect(VARIANTS[view]?.length, view).toBeGreaterThan(0);
   });

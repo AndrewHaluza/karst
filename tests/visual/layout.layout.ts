@@ -1,7 +1,7 @@
 /**
  * Layout-sanity gate (project `layout`): opens EVERY settings route at each
  * LAYOUT_WIDTHS with the `realistic` corpus, plus every other registered view x
- * variant (tests/visual/variants.ts, ui:UI-R49), runs checks a–h
+ * variant (tests/visual/variants.ts, ui:UI-R57), runs checks a–h
  * (src/ui/layout/layoutChecks.ts) and writes one shard per route x width. These
  * tests NEVER fail on geometry — the ledger verdict lives in layout.teardown.ts —
  * so a harness error is the only way they go red. No screenshots, no baselines.

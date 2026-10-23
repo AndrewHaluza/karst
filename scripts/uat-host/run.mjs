@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,7 @@ import { resolveInsideCheckout } from './args.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
-const FIXTURES = ['empty', 'ticket-mid-stage', 'blocked'];
+const FIXTURES = ['empty', 'ticket-mid-stage', 'blocked', 'launch-draft'];
 const version = process.env.UAT_VSCODE_VERSION ?? '1.126.0';
 const cachePath = resolve(process.env.UAT_VSCODE_CACHE ?? join(repoRoot, '.vscode-test'));
 
@@ -41,6 +41,8 @@ if (process.argv.includes('--inner-run-tests')) {
 const fixture = argValue('--fixture');
 const fixtureFileArg = argValue('--fixture-file');
 const scriptArg = argValue('--script');
+const providerArg = argValue('--provider');
+const launchMode = process.argv.includes('--launch-mode');
 const outArg = argValue('--out');
 if (Boolean(fixture) === Boolean(fixtureFileArg) || (fixture && !FIXTURES.includes(fixture)) || Boolean(scriptArg) !== Boolean(outArg)) {
   console.error(`usage: run.mjs (--fixture <${FIXTURES.join('|')}> | --fixture-file <fixture.json>) [--script <steps.json> --out <dir>]`);
@@ -105,6 +107,21 @@ function killGroup(pid) {
 }
 
 const root = mkdtempSync(join(tmpdir(), 'karst-uat-host-'));
+const launchDir = join(root, 'launch');
+mkdirSync(launchDir, { recursive: true });
+// The dependency gate probes `<cli> --version` before any session opens. Launch
+// mode never runs the real CLI, so no-op shims satisfy the probe; the stub is
+// what actually runs. VS Code re-resolves PATH from a login shell unless it
+// believes it was launched from the CLI (VSCODE_CLI=1), which would drop the shims.
+const shimDir = join(root, 'shims');
+if (launchMode) {
+  mkdirSync(shimDir, { recursive: true });
+  for (const cli of ['claude', 'codex', 'agy', 'opencode']) {
+    const shim = join(shimDir, cli);
+    writeFileSync(shim, '#!/bin/sh\nexit 0\n');
+    chmodSync(shim, 0o755);
+  }
+}
 let code = 1;
 try {
   const userData = join(root, 'user-data');
@@ -120,7 +137,7 @@ try {
   // Electron ABI the extension host will use (arch:ABI-01).
   const prep = spawnSync(
     vscodeExecutablePath,
-    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), ...(fixtureFilePath ? ['--fixture-file', fixtureFilePath] : ['--fixture', fixture]), '--root', join(root, 'fixture'), '--db', dbPath],
+    [join(repoRoot, 'dist', 'uat-host', 'prepare.js'), ...(fixtureFilePath ? ['--fixture-file', fixtureFilePath] : ['--fixture', fixture]), ...(providerArg ? ['--provider', providerArg] : []), '--root', join(root, 'fixture'), '--db', dbPath],
     { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, encoding: 'utf8' },
   );
   if (prep.status !== 0) throw new Error(`prepare failed (${prep.status}): ${prep.stderr}`);
@@ -132,7 +149,10 @@ try {
     extensionDevelopmentPath: repoRoot,
     extensionTestsPath: join(here, 'testRunner.cjs'),
     extensionTestsEnv: {
-      KARST_FAKE_CORE: '1',
+      KARST_FAKE_CORE: launchMode ? 'launch' : '1',
+      ...(launchMode
+        ? { KARST_UAT_STUB_AGENT: join(repoRoot, 'dist', 'uat-host', 'stubAgent.js'), KARST_UAT_LAUNCH_DIR: launchDir, PATH: `${shimDir}:${process.env.PATH}`, VSCODE_CLI: '1' }
+        : {}),
       UAT_EXPECT_TICKETS: String(tickets),
       UAT_DB_PATH: dbPath,
       ...probeEnv,

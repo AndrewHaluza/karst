@@ -4,7 +4,7 @@ import { finishProcessRun, openProcessRun } from '../store/processRuns.js';
 import { openRecoveryRound } from '../store/recoveryRoundsWrite.js';
 import { setStage } from '../store/stages.js';
 import { closeStageRun, openStageRun } from '../store/stageRuns.js';
-import { archiveTicket, createTicket, setStageCurrent } from '../store/tickets.js';
+import { archiveTicket, createTicket, setStageCurrent, updateTicketFields } from '../store/tickets.js';
 import type { FixtureSpec, RowSeeds } from './fixtures.js';
 
 const AT = '2026-01-01T00:00:00.000Z';
@@ -42,6 +42,7 @@ export function seedStore(store: Store, spec: FixtureSpec): number[] {
   return spec.tickets.map((seed) => {
     const ticket = createTicket(store, { key: seed.key, title: seed.title });
     setStageCurrent(store, ticket.id, seed.stageCurrent);
+    if (seed.selectedRepos) updateTicketFields(store, ticket.id, { selectedRepos: seed.selectedRepos });
     for (const s of seed.stages) setStage(store, ticket.id, s.stageKey, s.patch);
     if (seed.worktree) {
       store.db

@@ -206,7 +206,7 @@ export function writeFixtures(outDir: string = OUT_DIR): void {
           }
         }
       }
-      // One page per registered variant (ui:UI-R49).
+      // One page per registered variant (ui:UI-R57).
       for (const v of VARIANTS[view]) {
         const html = buildFixture(view, theme, v.corpus().messages);
         writeFileSync(join(themeDir, fixtureFile(view, v.id)), html, 'utf8');

@@ -1,5 +1,6 @@
 import type { Step, WaitCondition } from './steps.js';
 import { DEFAULT_STEP_TIMEOUT_MS } from './steps.js';
+import type { LaunchRecord } from '../launchRecord.js';
 
 export interface TicketEvidence {
   key: string;
@@ -13,10 +14,12 @@ export interface Snapshot {
   webviews: Array<{ id: string; viewType: string; title: string; messageCount: number; lastMessage: unknown }>;
   notifications: Array<{ level: string; message: string }>;
   logTail: string[];
+  launches: LaunchRecord[];
 }
 /** A wait that cannot change from a ticket/stage row must not read the store every poll. */
 export interface SnapshotScope {
   tickets?: boolean;
+  launches?: boolean;
 }
 export interface ProbeHost {
   execute(command: string, args: unknown[]): Promise<unknown>;
@@ -49,6 +52,7 @@ export function conditionMet(c: WaitCondition, s: Snapshot): boolean {
   }
   if ('notification' in c) return s.notifications.some((n) => n.message.includes(c.notification));
   if ('log' in c) return s.logTail.some((l) => l.includes(c.log));
+  if ('launch' in c) return s.launches.some((l) => c.launch.provider === undefined || l.provider === c.launch.provider);
   return s.webviews.some((w) => stringify(w.lastMessage).includes(c.webviewMessage))
     || stringify(s.sidebar.lastMessage).includes(c.webviewMessage);
 }
@@ -81,7 +85,7 @@ async function runStep(step: Step, opts: RunOptions, budgetMs: number): Promise<
   }
   const deadline = Date.now() + timeoutMs;
   // Only a ticketStage wait can be moved by the store, so only it pays for the read.
-  const scope: SnapshotScope = { tickets: 'ticketStage' in step.for };
+  const scope: SnapshotScope = { tickets: 'ticketStage' in step.for, launches: 'launch' in step.for };
   for (;;) {
     if (conditionMet(step.for, opts.host.snapshot(scope))) return { status: 'pass' };
     if (Date.now() >= deadline) return { status: 'timeout', detail: `wait ${stringify(step.for)} not met in ${timeoutMs}ms` };

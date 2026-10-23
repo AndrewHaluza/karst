@@ -117,6 +117,27 @@ describe('KARST_FAKE_CORE', () => {
     expect(String(warn.mock.calls[0]?.[0])).toContain('fake agent core');
     warn.mockRestore();
   });
+  it('launch mode keeps the real command but swaps the executable for the stub', () => {
+    vi.stubEnv('KARST_FAKE_CORE', 'launch');
+    vi.stubEnv('KARST_UAT_STUB_AGENT', '/d/stubAgent.js');
+    const a = resolveAdapter('claude');
+    expect(a).not.toBeInstanceOf(FakeAdapter);
+    const cmd = a.buildInteractiveCommand({ cwd: '/wt', initialPrompt: 'hi' });
+    expect(cmd.command).toBe('node');
+    expect(cmd.args.slice(0, 2)).toEqual(['/d/stubAgent.js', 'claude']);
+    expect(cmd.args[3]).toBe('--');
+    expect(cmd.args).toContain('hi');
+  });
+  it('launch mode keeps runHeadless fake', async () => {
+    vi.stubEnv('KARST_FAKE_CORE', 'launch');
+    vi.stubEnv('KARST_UAT_STUB_AGENT', '/d/stubAgent.js');
+    expect((await resolveAdapter('codex').runHeadless({} as never)).raw).toContain('fake core');
+  });
+  it('launch mode without a stub path falls through to the real adapter', () => {
+    vi.stubEnv('KARST_FAKE_CORE', 'launch');
+    vi.stubEnv('KARST_UAT_STUB_AGENT', '');
+    expect(resolveAdapter('claude')).toBeInstanceOf(ClaudeAdapter);
+  });
   it('is off by default', () => {
     vi.stubEnv('KARST_FAKE_CORE', '');
     expect(resolveAdapter('claude')).toBeInstanceOf(ClaudeAdapter);

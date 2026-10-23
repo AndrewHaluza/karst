@@ -4,7 +4,7 @@ import { ProbeRecorder, normalizeLogLine } from './recorder.js';
 import { conditionMet, runSteps, type ProbeHost, type Snapshot, type SnapshotScope } from './runner.js';
 import { parseSteps } from './steps.js';
 
-const empty = (): Snapshot => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [] });
+const empty = (): Snapshot => ({ tickets: [], sidebar: { lastMessage: null }, webviews: [], notifications: [], logTail: [], launches: [] });
 
 describe('probeEnabled', () => {
   it('is on only for KARST_UAT_PROBE=1', () => {
@@ -94,6 +94,20 @@ describe('conditionMet', () => {
     expect(conditionMet({ webviewMessage: '"n":7' }, s)).toBe(true);
     expect(conditionMet({ webviewMessage: 'absent' }, s)).toBe(false);
   });
+  it('matches a launch by provider, or any launch when none is named', () => {
+    const l = { ...s, launches: [{ provider: 'codex', argv: [], envKeys: [], cwd: '/w' }] };
+    expect(conditionMet({ launch: {} }, l)).toBe(true);
+    expect(conditionMet({ launch: { provider: 'codex' } }, l)).toBe(true);
+    expect(conditionMet({ launch: { provider: 'claude' } }, l)).toBe(false);
+    expect(conditionMet({ launch: {} }, s)).toBe(false);
+  });
+  it('parses launch waits and refuses a bad provider', () => {
+    expect(parseSteps([{ type: 'wait', for: { launch: { provider: 'claude' } } }]))
+      .toEqual([{ type: 'wait', for: { launch: { provider: 'claude' } } }]);
+    expect(parseSteps([{ type: 'wait', for: { launch: {} } }])).toEqual([{ type: 'wait', for: { launch: {} } }]);
+    expect(() => parseSteps([{ type: 'wait', for: { launch: { provider: '' } } }])).toThrow(/launch.provider/);
+    expect(() => parseSteps([{ type: 'wait', for: { launch: 'x' } }])).toThrow(/launch needs an object/);
+  });
 });
 
 describe('runSteps', () => {
@@ -123,13 +137,18 @@ describe('runSteps', () => {
     const scopes: Array<SnapshotScope | undefined> = [];
     await run([{ type: 'wait', for: { log: 'x' } }],
       mkHost({ snapshot: (scope) => { scopes.push(scope); return { ...empty(), logTail: ['x'] }; } }));
-    expect(scopes[0]).toEqual({ tickets: false });
+    expect(scopes[0]).toEqual({ tickets: false, launches: false });
     expect(scopes.at(-1)).toBeUndefined(); // evidence snapshot is unscoped (full)
 
     const ticketScopes: Array<SnapshotScope | undefined> = [];
     await run([{ type: 'wait', for: { ticketStage: { key: 'A', stage: 'impl' } }, timeoutMs: 20 }],
       mkHost({ snapshot: (scope) => { ticketScopes.push(scope); return empty(); } }));
-    expect(ticketScopes).toContainEqual({ tickets: true });
+    expect(ticketScopes).toContainEqual({ tickets: true, launches: false });
+
+    const launchScopes: Array<SnapshotScope | undefined> = [];
+    await run([{ type: 'wait', for: { launch: {} }, timeoutMs: 20 }],
+      mkHost({ snapshot: (scope) => { launchScopes.push(scope); return empty(); } }));
+    expect(launchScopes).toContainEqual({ tickets: false, launches: true });
   });
   it('reports a throwing command as fail and stops', async () => {
     const { results, evidence } = await run(

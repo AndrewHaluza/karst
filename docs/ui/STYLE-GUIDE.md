@@ -654,6 +654,21 @@ The design system owns how pending/result state looks.
 
 The application owns how the host and webview communicate that state.
 
+### Tiers
+
+Click feedback has three tiers, chosen per action (`karstAction(el, send, { tier })`
+in the vanilla runtime; `useHostMutation` in React). `mutation` is the default, so a
+quieter tier is always an explicit opt-in:
+
+| Tier | For | At press | Reply > 400ms | Settle |
+|---|---|---|---|---|
+| `view` | view state, navigation (set-range, set-tab, open-dashboard, dismiss, refresh) | selection / `aria-pressed` moves; `aria-busy`, no disable | region progress line + dimmed data | nothing; failure reverts selection + error toast |
+| `mutation` (default) | host mutations (kill-server, measure-disk, create-manifest, attach-pick) | `aria-busy` + duplicate-click guard | spinner in the reserved leading icon slot | nothing; the result is the changed domain state |
+| `confirm` | action with no other visible result (copy-hash) | as `mutation` | as `mutation` | icon morphs to a check in place for 1.2s + role=status tip |
+
+The spinner is never visible before 400ms (a fast reply never flashes one) and,
+once visible, stays at least 500ms. `.is-success` is tier 3 only.
+
 ### Pending
 
 For an in-flight host mutation or long-running external operation whose result is
@@ -667,7 +682,9 @@ not immediately visible:
 
 Prefer the actual changed domain state as confirmation.
 
-Use transient success feedback only when the changed state itself is not obvious.
+Use transient success feedback only when the changed state itself is not obvious,
+and then only as the tier-3 in-place check plus a role=status tip (1.2s); never a
+green border.
 
 ### Failure
 
@@ -711,7 +728,7 @@ Save
 
 Solutions include:
 
-- reserve an icon/status slot;
+- reserve an icon/status slot (the spinner appears only after 400ms and stays 500ms; the tier-3 check reuses the slot);
 - preserve the control width;
 - display status adjacent to the control;
 - use the changed domain state instead of injecting a glyph.

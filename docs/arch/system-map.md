@@ -226,6 +226,7 @@ flowchart LR
   store --> model
   store --> runtimeAssetsRoot_ts
   store --> template
+  uatHost --> agent
   uatHost --> model
   uatHost --> store
   ui --> agent

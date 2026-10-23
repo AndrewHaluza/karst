@@ -5,7 +5,7 @@ import { WEBVIEW_NAMES } from '../../src/model/webviewChains.js';
 
 /**
  * Full-page screenshot baselines: every registered variant of every webview
- * (tests/visual/variants.ts, ui:UI-R49), in the theme projects the variant
+ * (tests/visual/variants.ts, ui:UI-R57), in the theme projects the variant
  * declares. A variant outside the running project's theme list is skipped, so
  * the matrix is: populated variants in dark/light/hc, every other variant in dark
  * (split documented in ui:VISUAL-VARIANTS). variants.test.ts fails when a

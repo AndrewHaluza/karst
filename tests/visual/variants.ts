@@ -1,5 +1,5 @@
 /**
- * The variant registry (ui:UI-R49, ui:VISUAL-VARIANTS): every webview in
+ * The variant registry (ui:UI-R57, ui:VISUAL-VARIANTS): every webview in
  * WEBVIEW_NAMES maps to the variants it declares, and every variant carries
  * (a) its corpus builder, (b) the baseline name and theme projects the sweep
  * records, and (c) the layout-gate target that opens it at every LAYOUT_WIDTHS
@@ -44,7 +44,7 @@ export type ViewId = WebviewName;
 export const ALL_THEMES: readonly string[] = ['dark', 'light', 'hc'];
 export const DARK_ONLY: readonly string[] = ['dark'];
 
-/** Variants every view must declare (ui:UI-R49). */
+/** Variants every view must declare (ui:UI-R57). */
 export const MANDATORY_VARIANTS = ['populated', 'empty', 'loading', 'error', 'long-content'] as const;
 
 export interface Variant {

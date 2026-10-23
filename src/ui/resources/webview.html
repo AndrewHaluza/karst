@@ -555,7 +555,7 @@
     } else if (msg.type === 'action-result') karstSettle(msg.requestId, msg.ok, msg.message);
   });
 
-  karstAction(el('refreshBtn'), (requestId) => post({ type: 'refresh', requestId }));
+  karstAction(el('refreshBtn'), (requestId) => post({ type: 'refresh', requestId }), { tier: 'view' });
   karstAction(el('measureBtn'), (requestId) => post({ type: 'measure-disk', requestId }));
 
   // The host pushes on open, but a webview that was restored (or reloaded)
