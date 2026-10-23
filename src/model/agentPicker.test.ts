@@ -605,6 +605,27 @@ describe('route → vendor grouping and the full-id footer', () => {
     expect(out).not.toContain('ap-group-label');
   });
 
+  it('drops a curated label prefix that repeats the route heading', () => {
+    const labelled = {
+      opencode2: [{ id: 'opencode-go/mimo-v2.5', label: 'OpenCode Go \u00b7 MiMo v2.5' }],
+    };
+    const out = fns.apModelOptionsHtml(labelled, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('>MiMo v2.5<');
+    expect(out).not.toContain('OpenCode Go \u00b7 MiMo v2.5');
+  });
+
+  it('keeps a label that does not repeat the route, and a raw id unchanged', () => {
+    const curated = {
+      opencode2: [
+        { id: 'opencode-go/space-bunny', label: 'Space Bunny' },
+        { id: 'openrouter/mancer/weaver', label: 'openrouter/mancer/weaver' },
+      ],
+    };
+    const out = fns.apModelOptionsHtml(curated, 'opencode2', '', '', undefined, routes);
+    expect(out).toContain('>Space Bunny<');
+    expect(out).toContain('>weaver<');
+  });
+
   it('drops the duplicate full-id line and puts it in the row title instead', () => {
     const out = fns.apModelOptionsHtml(mixed, 'opencode2', '', '', undefined, routes);
     expect(out).not.toContain('ap-model-sub');

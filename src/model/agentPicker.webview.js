@@ -75,6 +75,22 @@ function apRouteName(routes, route) {
   return meta && meta.name ? meta.name : (route || '');
 }
 
+/**
+ * The model's display name. A curated catalog label often repeats its gateway
+ * ("OpenCode Go · MiMo v2.5"); under the route heading that prefix is noise, so
+ * a leading "<route name> · " (or "<route id> · ") is dropped. Any other label
+ * — and every raw id — renders unchanged.
+ */
+function apModelName(parsed, routes) {
+  var name = parsed.model || '';
+  var prefixes = [apRouteName(routes, parsed.route), parsed.route];
+  for (var i = 0; i < prefixes.length; i++) {
+    var prefix = prefixes[i];
+    if (prefix && name.indexOf(prefix + ' \u00b7 ') === 0) return name.slice(prefix.length + 3);
+  }
+  return name;
+}
+
 /** Stable hue (0-359) for a route's monogram — same id, same colour, always. */
 function apRouteHue(route) {
   var s = String(route || '');
@@ -104,22 +120,23 @@ function apRouteIconHtml(route, routes) {
  * vendor. Both lines clip with an ellipsis and point at the trigger, whose
  * accessible name carries the full text (UI-R44).
  */
-function apModelStackHtml(parsed, triggerId) {
+function apModelStackHtml(parsed, triggerId, routes) {
   var variant = parsed.variant ? '<span class="ap-variant"> ' + apEsc(parsed.variant) + '</span>' : '';
   var vendor = parsed.vendor
     ? '<span class="ap-mvendor" aria-describedby="' + apEsc(triggerId) + '">' + apEsc(parsed.vendor) + '</span>'
     : '';
   return '<span class="ap-mstack">'
     + '<span class="ap-mname" aria-describedby="' + apEsc(triggerId) + '">'
-    + apEsc(parsed.model) + variant + '</span>'
+    + apEsc(apModelName(parsed, routes)) + variant + '</span>'
     + vendor
     + '</span>';
 }
 
 /** The trigger's accessible name for a routed model: model, vendor, route, full id. */
 function apRoutedTriggerName(caption, parsed, routes) {
+  var name = apModelName(parsed, routes);
   var via = ' via ' + apRouteName(routes, parsed.route);
-  var who = parsed.vendor ? parsed.model + ', ' + parsed.vendor + via : parsed.model + via;
+  var who = parsed.vendor ? name + ', ' + parsed.vendor + via : name + via;
   return caption + ': ' + who + ' \u2014 ' + parsed.id + (parsed.free ? ', free' : '');
 }
 
@@ -189,7 +206,7 @@ function apCoreOptionsHtml(cores, current, inheritLabel) {
 }
 
 /** One model row: name + variant, capability chips, free tag, saved tag. */
-function apModelItemHtml(m, saved, tags) {
+function apModelItemHtml(m, saved, tags, routes) {
   var sel = m.id === saved;
   var p = apParseModelId(m.id, m.label);
   var variant = p.variant ? '<span class="ap-variant"> ' + apEsc(p.variant) + '</span>' : '';
@@ -199,7 +216,7 @@ function apModelItemHtml(m, saved, tags) {
   return '<div class="ap-model-item' + (sel ? ' active' : '') + '" role="option" tabindex="0"'
     + ' data-ap-model="' + apEsc(m.id) + '" aria-selected="' + (sel ? 'true' : 'false') + '"'
     + ' data-ap-full="' + apEsc(m.id) + '" title="' + apEsc(m.id) + '">'
-    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(p.model) + variant + '</div>'
+    + '<div class="ap-model-main"><div class="ap-model-name">' + apEsc(apModelName(p, routes)) + variant + '</div>'
     + apModelTagsHtml(tags)
     + '</div>'
     + free
@@ -246,7 +263,7 @@ function apModelListHtml(models, saved, routes, skip, tagsOf) {
       for (var mi = 0; mi < v.models.length; mi++) {
         var m = v.models[mi];
         if (skip && skip[m.id]) continue;
-        out += apModelItemHtml(m, saved, tagsOf ? tagsOf(m.id) : undefined);
+        out += apModelItemHtml(m, saved, tagsOf ? tagsOf(m.id) : undefined, routes);
       }
     }
   }
@@ -310,7 +327,7 @@ function apModelOptionsHtml(catalog, provider, saved, inheritLabel, recentIds, r
       out += '<div class="ap-group-label" role="presentation">Last used</div>';
     }
     for (var k = 0; k < recent.length; k++) {
-      out += apModelItemHtml(recent[k], saved, tagsOf(recent[k].id));
+      out += apModelItemHtml(recent[k], saved, tagsOf(recent[k].id), routes);
     }
     out += apModelListHtml(list, saved, routes, recentSet, tagsOf);
   }
@@ -504,7 +521,7 @@ function mountAgentPicker(root, opts) {
     var parsed = apParseModelId(state.model, coreLabel);
     if (parsed.route) {
       modelTrigger.innerHTML = apRouteIconHtml(parsed.route, routes)
-        + apModelStackHtml(parsed, apId + '-model')
+        + apModelStackHtml(parsed, apId + '-model', routes)
         + (parsed.free ? '<span class="ap-free">free</span>' : '')
         + '<span class="chev" aria-hidden="true"></span>';
       var stackName = apRoutedTriggerName(labelModel, parsed, routes);
