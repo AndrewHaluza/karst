@@ -91,6 +91,25 @@ END_DOC_BLOCK: [@arch:AC-08]
 The kickoff has ONE argv backstop on the seam (`agent/kickoffSpill.ts`, T722/D151): a kickoff whose UTF-8 length exceeds `KICKOFF_ARGV_MAX_BYTES` (100 KiB; Linux `MAX_ARG_STRLEN` is 128 KiB) is written in full to `<runtimeDir>/kickoff/karst-kickoff-<launch>-<rand>.md` and replaced by the short positional pointer `Your full kickoff brief is in <path>; read it completely before doing anything else.` The runtime dir is `cwd/.karst/kickoff` on the host and the mounted bridge dir in a sandbox (the pointer names `runDir`, never the host path); the file is a fresh name per launch, and only a worktree-local file is returned as an `ownedPath` (`/.karst/kickoff/` is an `OWNED_PREFIXES` entry). Every core's interactive path applies it — claude after `--`, codex after `--`/the resume id, opencode and opencode2 on `--prompt`, agy on `-i`. Opencode's RESUME path is the declared exception: it already writes the kickoff to a JSON file named by `KARST_KICKOFF_FILE`, so it cannot carry an oversized argv entry and does not spill twice. A kickoff at or under the threshold is returned byte-for-byte unchanged (same argv, same prompt hash, same cache). This is a positional/prompt guard, NOT the instruction layer: the body never moves into the kickoff file (`AC-09`).
 END_DOC_BLOCK: [@arch:AC-41]
 
+## [@arch:AC-42] Interactive usage-limit detection and the persisted switch
+
+An interactive impl/fix/planning/setup session that hits its provider usage limit parks (D160, after D158/D159) and offers **Pick agent/model…**, **Retry same**, **Dismiss**. Code: `agent/interactiveQuota.ts` (detector), `extension/ops/interactiveUsageLimitOps.ts` (park), `…Actions.ts` (actions, prompt loop), `extension/interactiveUsageLimitBinding.ts` (vscode binding).
+
+| core | signal | verdict |
+|---|---|---|
+| opencode, opencode2 | `session.error` hook `message`, handed to `onSessionError` (observation only; agent_state is unchanged) | detected |
+| claude | transcript tail (`claudeTranscriptWatch` tick, no new timer): the LAST entry has `isApiErrorMessage: true` | detected |
+| codex | bridge forwards no provider-error event | no change |
+| agy | no hook channel; the conversation-DB watch carries run status, no error text | no change |
+
+- Only provider-authored error text is a candidate, and the verdict is `isQuotaExhausted` (`QUOTA_PHRASES`), never the broad `LIMIT_PHRASES`. Agent prose that says "rate limit" never parks.
+- Row: `kind='interactive'`, `lane`/`target` NULL, `stage` = the ticket's current stage (NULL for planning/setup, where `session_id` keeps two sessions on one ticket apart). No stage block. A repeated signal while the row is open upserts it and does not re-offer.
+- **Exception to D159's one-shot rule.** An interactive Pick IS a persisted session switch: it runs `applyAgentSwitchSelection`, whose `deps.persist` writes provider/model to the ticket, exactly as the header switch does. Headless re-runs stay one-shot.
+- **Claim AFTER the switch.** Only outcome `switched` claims the row (`switched:<core>/<model>`). `stale`, `unavailable`, `cancelled` and `launch-failed` leave it open and the prompt asks again. A second window whose claim finds zero rows does nothing further.
+- **Retry same** bypasses `applyAgentSwitchSelection` (no confirm, no persist): dispose the session, `karst.openSession` on the same core/model, then claim `retry`.
+- The switch launches `allowResume: false`, so a switched core never resumes. Context carries only through the kickoff seed (`seed.kickoff` / `seed.instructions` composed in the `karst.openSession` launch) that every fresh launch uses.
+END_DOC_BLOCK: [@arch:AC-42]
+
 ## [@arch:AC-09] The instruction layer rides each core's OWN system/developer channel, never the first user message
 
 Karst's standing rules are one body, written to `<sessionDir>/karst-instructions.md` and exported to the child as `KARST_INSTRUCTIONS` (`agent/instructions.ts`, `agent/cliEnv.ts`). Each adapter DECLARES how it delivers that layer per launch path — `AgentAdapter.instructions` (`agent/adapter.ts`), an `InstructionDelivery { interactive, headless, acp }` whose values are `native-file` (the core's own system/developer channel reads the written file), `pointer` (a one-line kickoff/developer pointer names `$KARST_INSTRUCTIONS` and the body stays on disk), `fallback` (a solo-agent launch keeps the rules in the kickoff alongside the persona), or `n/a` (not wired yet). The BODY never rides argv as text; the conformance suite asserts the declared channel against real argv, that resume re-attaches the layer without duplicating the kickoff, and that no core inlines the body.

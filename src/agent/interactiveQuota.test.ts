@@ -7,6 +7,8 @@ describe('interactive quota detector', () => {
     expect(quotaTextFromHook({ hook_event_name: 'Stop', message: 'usage limit' })).toBeNull();
     expect(quotaTextFromHook({ hook_event_name: 'session.error', message: 5 })).toBeNull();
     expect(quotaTextFromHook({ hook_event_name: 'session.error', message: '' })).toBeNull();
+    expect(quotaTextFromHook({ hook_event_name: 'session.error' })).toBeNull();
+    expect(quotaTextFromHook({ message: 'insufficient_quota' })).toBeNull();
   });
 
   it('claude entry counts only when isApiErrorMessage is true', () => {
@@ -17,6 +19,12 @@ describe('interactive quota detector', () => {
     expect(quotaTextFromClaudeEntry(entry(true))).toBe('Claude usage limit reached');
     expect(quotaTextFromClaudeEntry(entry(false))).toBeNull();
     expect(quotaTextFromClaudeEntry('x')).toBeNull();
+    expect(quotaTextFromClaudeEntry(null)).toBeNull();
+    expect(quotaTextFromClaudeEntry({ isApiErrorMessage: true })).toBeNull();
+    expect(quotaTextFromClaudeEntry({ isApiErrorMessage: true, message: { content: [{ type: 'text', text: '  ' }, 7] } })).toBeNull();
+    expect(
+      quotaTextFromClaudeEntry({ isApiErrorMessage: true, message: { content: [{ text: 'a' }, { text: 'b' }] } }),
+    ).toBe('a\nb');
     expect(quotaTextFromClaudeEntry({ isApiErrorMessage: true, message: { content: 'str' } })).toBeNull();
   });
 
