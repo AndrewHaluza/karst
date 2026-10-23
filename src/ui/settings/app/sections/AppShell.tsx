@@ -46,6 +46,7 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
     state,
     section,
     setSection,
+    runLeaveGuard,
     isDirty,
     errorSection,
     valid,
@@ -155,16 +156,28 @@ export function AppShell({ children }: { readonly children: ReactNode }) {
   const saving = save.pending;
   const saveBlocked = !valid || !dirty || saving || !state.hydrated;
 
-  const requestSection = useCallback(
+  // The plain switch, after every gate has had its say.
+  const switchSection = useCallback(
     (target: SettingsSection) => {
-      if (target === section) return;
       if (!dirty) {
         goTo(target);
         return;
       }
       setPendingSection(target);
     },
-    [section, dirty, goTo],
+    [dirty, goTo],
+  );
+
+  const requestSection = useCallback(
+    (target: SettingsSection) => {
+      if (target === section) return;
+      // The shown section's own leave guard runs first: it may hold edits that
+      // live outside the manifest draft (the Agents page's profile buffers) and
+      // has to block this switch until they are saved or discarded.
+      if (runLeaveGuard(() => switchSection(target))) return;
+      switchSection(target);
+    },
+    [section, runLeaveGuard, switchSection],
   );
 
   const saveNow = useCallback(() => {

@@ -5,6 +5,7 @@
  * prevents duplicate activation).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createRef } from 'react';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { Button } from './Button.js';
 
@@ -60,6 +61,14 @@ describe('Button', () => {
   it('leaves aria-busy off an idle button', () => {
     render(<Button>Save</Button>);
     expect(screen.getByRole('button', { name: 'Save' }).hasAttribute('aria-busy')).toBe(false);
+  });
+
+  it('hands the rendered button to a ref so a caller can move focus to it', () => {
+    const ref = createRef<HTMLButtonElement>();
+    render(<Button ref={ref}>Save</Button>);
+    expect(ref.current).toBe(screen.getByRole('button', { name: 'Save' }));
+    ref.current?.focus();
+    expect(document.activeElement).toBe(ref.current);
   });
 
   it('reserves the icon slot when spinning is controlled, and spins only on request', () => {

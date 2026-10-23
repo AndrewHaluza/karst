@@ -33,15 +33,30 @@ export interface ProfilesTabProps {
   /** Edited text by profile name; absent = untouched. */
   readonly buffers: Readonly<Record<string, string>>;
   readonly setBuffer: (name: string, text: string | null) => void;
+  /**
+   * Bumped by the page when a resolved unsaved-bar move must land focus on the
+   * item the route now selects. The list owns its item refs, so focus is moved
+   * here rather than by a DOM query from above (R-X5).
+   */
+  readonly focusTick?: number;
 }
 
 const isDirty = (entry: ProfileEntry, buffers: Readonly<Record<string, string>>): boolean =>
   entry.editable && buffers[entry.id] !== undefined && buffers[entry.id] !== (entry.text ?? '');
 
-export function ProfilesTab({ route, navigate, buffers, setBuffer }: ProfilesTabProps) {
+export function ProfilesTab({ route, navigate, buffers, setBuffer, focusTick }: ProfilesTabProps) {
   const { state, edit, send, setSection } = useSettingsApp();
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The item refs the page's unsaved-bar focus request lands on.
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const lastFocusTick = useRef(focusTick ?? 0);
+  useEffect(() => {
+    const tick = focusTick ?? 0;
+    if (tick === lastFocusTick.current) return;
+    lastFocusTick.current = tick;
+    if (route.selected !== undefined) itemRefs.current[route.selected]?.focus();
+  }, [focusTick, route.selected]);
 
   const labels = useMemo(
     () => Object.fromEntries((state.processAssignments ?? []).map((v) => [v.key, v.roleLabel])),
@@ -132,6 +147,9 @@ export function ProfilesTab({ route, navigate, buffers, setBuffer }: ProfilesTab
               <button
                 key={entry.id}
                 type="button"
+                ref={(el) => {
+                  itemRefs.current[entry.id] = el;
+                }}
                 className={`agents-item${entry.id === selected?.id ? ' is-selected' : ''}`}
                 aria-current={entry.id === selected?.id ? 'true' : undefined}
                 onClick={() => navigate({ tab: 'profiles', selected: entry.id })}

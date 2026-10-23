@@ -19,9 +19,9 @@ import { NO_INHERIT, usePickerInputs } from './usePickerInputs.js';
 import { pinKeyOf, type EffectiveRole, type RoleValue } from './rolesModel.js';
 
 export const SOURCE_TEXT: Readonly<Record<EffectiveRole['source'], { chip: string; label: string; why: string }>> = {
-  pin: { chip: 'pinned', label: 'Pinned', why: 'Pinned: the same in all presets, and it beats the preset.' },
+  pin: { chip: 'pinned', label: 'Pinned', why: 'Pinned — the same in all presets, and it beats the preset.' },
   preset: { chip: 'preset', label: 'Preset', why: 'From the selected preset.' },
-  default: { chip: 'default', label: 'Karst default', why: "No preset value and no pin: uses Karst's built-in default." },
+  default: { chip: 'default', label: 'Karst default', why: "No preset value and no pin — uses Karst's built-in default." },
 };
 
 /** The Source cell chip. A Karst default carries the mark and a screen-reader label. */
@@ -35,12 +35,16 @@ function SourceCell({ source }: { readonly source: EffectiveRole['source'] }) {
           <span aria-hidden="true">{t.chip}</span>
           <span className="sr-only">{t.label}</span>
         </Chip>
+        {/* The reason stays reachable without a pointer (UI-R19, R22): `title` is
+            supplemental, never the only carrier. */}
+        <span className="sr-only">{t.why}</span>
       </span>
     );
   }
   return (
     <span title={t.why} data-source={source}>
       <Chip tone={source === 'pin' ? 'success' : 'neutral'}>{t.chip}</Chip>
+      <span className="sr-only">{t.why}</span>
     </span>
   );
 }

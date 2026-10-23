@@ -8,7 +8,7 @@
  * construction; `aria-busy` is what keeps "loading" distinguishable from a
  * plain "unavailable" button (UI-R17).
  */
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'text';
 export type ButtonSize = 'sm' | 'md' | 'lg';
@@ -37,6 +37,12 @@ export interface ButtonProps
   spinning?: boolean;
   className?: string;
   children: ReactNode;
+  /**
+   * The rendered `<button>`, so a caller can move focus to it (e.g. the unsaved
+   * bar landing on Save). React 19 passes `ref` as an ordinary prop to a
+   * function component, so no `forwardRef` wrapper is needed.
+   */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 export function Button({
@@ -48,6 +54,7 @@ export function Button({
   className,
   type = 'button',
   children,
+  ref,
   ...rest
 }: ButtonProps) {
   const classes = ['k-btn', VARIANT_CLASS[variant], SIZE_CLASS[size], spinning === undefined ? null : 'k-btn--slot', spinning ? 'is-spinning' : null, className]
@@ -56,6 +63,7 @@ export function Button({
   return (
     <button
       {...rest}
+      ref={ref}
       type={type}
       className={classes}
       disabled={disabled || busy}

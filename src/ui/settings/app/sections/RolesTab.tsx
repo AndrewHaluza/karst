@@ -13,7 +13,7 @@ import { Field } from '../primitives/Field.js';
 import { AgentPickerIsland } from './AgentPickerIsland.js';
 import { PresetToolbar } from './PresetToolbar.js';
 import { PresetMatrix } from './PresetMatrix.js';
-import { CompareRow, RoleRow } from './RoleRows.js';
+import { CompareRow, RoleRow, SOURCE_TEXT } from './RoleRows.js';
 import { NO_INHERIT, usePickerInputs } from './usePickerInputs.js';
 import { activePresetName, presetNames } from './presetDraft.js';
 import type { AgentsRoute } from './agentsRoute.js';
@@ -50,6 +50,15 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
 
   const [onlyDiffs, setOnlyDiffs] = useState(false);
   const [showMatrix, setShowMatrix] = useState(false);
+  // The last draft action (pin / unpin / clear): a status-line message tied to
+  // the selection it was made under, so moving on supersedes it without an
+  // effect adjusting state (R-X4).
+  const [announced, setAnnounced] = useState<{
+    readonly text: string;
+    readonly forSelection: string | undefined;
+  } | null>(null);
+  const announcement =
+    announced !== null && announced.forSelection === route.selected ? announced.text : null;
 
   const roles = useMemo(
     () => (state.host?.presetGroups ?? []).flatMap((g) => g.rows.map((r) => ({ ...r, group: g.label }))),
@@ -79,6 +88,17 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
     [draft, preset, compare, capabilities],
   );
   const visible = compare !== null && onlyDiffs ? roles.filter((r) => differs.includes(r.capability)) : roles;
+
+  // The status line under the table: the selected row's Source reason in words
+  // (the chip's `title` is supplemental, never the only carrier — UI-R19, R22),
+  // or the last draft action, which is visible as well as announced (UI-R27, R28).
+  const selectedRole =
+    route.selected === undefined ? undefined : roles.find((r) => r.capability === route.selected);
+  const selectedWhy =
+    selectedRole === undefined || preset === null
+      ? null
+      : `${selectedRole.label}: ${SOURCE_TEXT[effectiveRole(draft, preset, selectedRole.capability).source].why}`;
+  const statusText = announcement ?? selectedWhy ?? '';
 
   // The per-core subscription-quota warn threshold. Blankable like
   // `archiveDoneAfterDays`: anything outside 1–100 clears the block (which then
@@ -243,9 +263,27 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
               flash={flash === cap}
               sharesProfile={sharing.includes(cap)}
               onChange={(value) => edit((d) => writeRole(d, preset, cap, value))}
-              onPin={() => edit((d) => pinRole(d, preset, cap))}
-              onUnpin={() => edit((d) => unpinRole(d, cap))}
-              onClear={() => edit((d) => clearRole(d, preset, cap))}
+              onPin={() => {
+                edit((d) => pinRole(d, preset, cap));
+                setAnnounced({
+                  text: `${role.label} pinned: same agent in every preset.`,
+                  forSelection: route.selected,
+                });
+              }}
+              onUnpin={() => {
+                edit((d) => unpinRole(d, cap));
+                setAnnounced({
+                  text: `${role.label} unpinned: uses the preset value.`,
+                  forSelection: route.selected,
+                });
+              }}
+              onClear={() => {
+                edit((d) => clearRole(d, preset, cap));
+                setAnnounced({
+                  text: `${role.label} cleared: uses Karst's default.`,
+                  forSelection: route.selected,
+                });
+              }}
               onProfile={(name) => edit((d) => setRoleProfile(d, cap, name))}
               onEnabled={(on) => edit((d) => setRoleEnabled(d, cap, on))}
               onOpenProfile={(name) =>
@@ -254,6 +292,10 @@ export function RolesTab({ route, navigate }: RolesTabProps) {
             />
           );
         })}
+      </div>
+
+      <div className="agents-status" role="status">
+        {statusText}
       </div>
 
       <div className="agents-default" data-region="default">
