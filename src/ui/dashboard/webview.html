@@ -1676,19 +1676,28 @@
     background:var(--k-surface-hover);border-bottom:var(--k-border-w) solid var(--k-border);
     border-top:var(--k-border-w) solid var(--k-border);text-align:left;
     font-size:var(--k-text-2xs);font-weight:var(--k-weight-semibold);text-transform:uppercase;
-    color:var(--k-text-faint);white-space:normal}
-  .svpanel tr.srvgroup .gcount{margin-left:var(--k-space-2);color:var(--k-text-dim);
-    font-variant-numeric:tabular-nums}
-  .svpanel tr.srvgroup .gnote{margin-left:var(--k-space-4);font-weight:var(--k-weight-normal);
-    text-transform:none}
+    color:var(--k-text-dim);white-space:normal}
+  /* A flex row, not inline spans: a wrapped inline element's bounding box spans
+     every line it broke across, which reads as an overlap to the layout gate
+     (and visually collides at narrow widths). Flex items wrap as boxes. */
+  .svpanel tr.srvgroup .gwrap{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:var(--k-space-2)}
+  .svpanel tr.srvgroup .gcount{font-variant-numeric:tabular-nums}
+  .svpanel tr.srvgroup .gnote{font-weight:var(--k-weight-normal);text-transform:none}
   /* The shared row's meta line WRAPS (UI-R44): the branch and "shared with" text
      are the row's whole meaning, so they are never ellipsised. Only the name
-     ellipsises, and its cell carries the full value as a title. */
-  .svpanel td.c-name .srvmeta{display:block;font-size:var(--k-text-sm);color:var(--k-text-dim);
+     ellipsises, and its cell carries the full value as a title. Flex, not inline
+     spans: a wrapped inline element's bounding box spans every line it broke
+     across, which the layout gate reads as an overlap (and which collides in a
+     narrow column). */
+  .svpanel td.c-name .srvmeta{display:flex;flex-wrap:wrap;align-items:baseline;
+    gap:var(--k-space-2);font-size:var(--k-text-sm);color:var(--k-text-dim);
     line-height:1.45;white-space:normal;overflow-wrap:anywhere}
-  .svpanel td.c-name .srvmeta .srvbranch{margin-right:var(--k-space-2)}
+  .svpanel td.c-name .srvmeta .srvbranch{flex:0 1 auto;min-width:0;
+    white-space:normal;overflow-wrap:anywhere}
+  .svpanel td.c-name .srvmeta .srvnote{min-width:0}
   .svpanel td.c-addr .offword{font-style:normal;color:var(--k-text-dim)}
-  .svpanel .srvnone{font-size:var(--k-text-sm);font-style:italic;color:var(--k-text-faint)}
+  .svpanel .srvnone{font-size:var(--k-text-sm);font-style:italic;color:var(--k-text-dim)}
 
   /* Narrow COMPACTS, it does not restack: one service stays one line, which is
      the whole point of this design. 400px cannot be a token: @container
@@ -4036,10 +4045,10 @@
 
   /** One group's caption row: name, count and where its rows run. */
   function serverGroupHead(label, count, note) {
-    return `<tr class="srvgroup"><th colspan="5" scope="colgroup">`
+    return `<tr class="srvgroup"><th colspan="5" scope="colgroup"><div class="gwrap">`
       + `<span class="gname">${label}</span>`
       + `<span class="gcount">${count}</span>`
-      + `<span class="gnote">${note}</span></th></tr>`;
+      + `<span class="gnote">${note}</span></div></th></tr>`;
   }
 
   function renderServers(state) {
