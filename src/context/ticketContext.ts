@@ -20,6 +20,7 @@ import { attachmentPath } from '../attachments/paths.js';
 import type { Store } from '../store/db.js';
 import { STAGE_KEYS, type StageKey } from '../model/types.js';
 import type { Severity } from '../manifest/types.js';
+import { getPlacement, placementLine } from '../store/placement.js';
 import { listAttachments } from '../store/attachments.js';
 import { landedBlockerOutcomes, renderBlockerOutcome, type BlockerOutcome } from '../store/blockerOutcome.js';
 import { unreadCount } from '../store/ticketMessages.js';
@@ -312,6 +313,8 @@ export interface TicketContext {
   approach: string | null;
   agent: string | null;
   selectedRepos: string[];
+  /** Where the ticket runs, from the recorded placement (arch:AC-32); null when none is recorded. */
+  placement: string | null;
   worktrees: TicketContextWorktree[];
   servers: TicketContextServer[];
   prs: TicketContextPr[];
@@ -576,6 +579,7 @@ export function buildTicketContext(
     paused: t.pausedAt !== null,
     pausedAt: t.pausedAt,
     selectedRepos: t.selectedRepos,
+    placement: placementLine(getPlacement(store, ticketId)),
     worktrees: listWorktreesByTicket(store, ticketId).map((w) => {
       let source: 'override' | 'parent' | 'manifest' | undefined;
       if (w.baseRef) {
@@ -893,6 +897,8 @@ export function renderTicketContext(
   // One section, not two. The old render emitted a bare name list AND a richer
   // "## Services" list, so a repository appeared twice and a non-runnable one
   // appeared in the first with no hint it would never start.
+  if (operational && ctx.placement) parts.push(`## Placement\n${ctx.placement}`);
+
   if (operational && ctx.repos.length > 0) {
     const rows = ctx.repos.map((r) => {
       if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
@@ -1100,6 +1106,7 @@ function renderTesterContext(
     const rows = ctx.attachments.map((a) => `- ${a.kind}: ${a.path} — "${a.name}"`).join('\n');
     parts.push(`## Attachments\n${bound(rows, SEED_BUDGETS.attachments)}`);
   }
+  if (ctx.placement) parts.push(`## Placement\n${ctx.placement}`);
   if (ctx.repos.length > 0) {
     const rows = ctx.repos.map((r) => {
       if (r.unknown) return `- ${r.name}: (not in karst.yml)`;
