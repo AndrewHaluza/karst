@@ -102,6 +102,18 @@ describe('runConflictBriefCommand', () => {
     expect(out).toContain('/repos/web');
   });
 
+  // Review T768: the hint is a correction, not a local-store dump.
+  it('caps the recorded-repo list and counts the rest', () => {
+    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    for (let i = 1; i <= 7; i += 1) conflict(store, t.id, `/repos/r${i}`, []);
+
+    const out = runConflictBriefCommand(store, { key: 'PROJ-1', repo: 'extention' });
+
+    expect(out).toContain('/repos/r5');
+    expect(out).not.toContain('/repos/r6');
+    expect(out).toContain('(+2 more)');
+  });
+
   // A repo with a clean verdict is not a hint — it would send the agent at a
   // record that says there is nothing to merge.
   it('does not list repos whose recorded verdict is not conflicted', () => {

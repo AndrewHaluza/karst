@@ -10,8 +10,9 @@
  * Async because the environment comes from the runners' LISTING, not from a
  * path helper: `bridgeOf` names a bridge path for every ticket whenever the
  * bridge root exists, which handed host tickets (T758, T765) the sandbox brief.
- * A listing that cannot answer (no CLI, `ENOENT` as 127, a failed listing)
- * still reads as "no sandbox" here; arch:AC-39 makes it tri-state.
+ * A listing that cannot answer (no CLI, `ENOENT` as 127, a failed listing, a
+ * rejected probe) still reads as "no sandbox" here; arch:AC-39 makes it
+ * tri-state.
  *
  * The STORE decides whether the conflict still exists — `repo` arrived in a
  * webview message, and a stale panel can name one that has since gone, so a
@@ -29,7 +30,11 @@ export interface ResolveConflictInput {
 }
 
 export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
-  const sandboxed = (await input.hasSandbox()) ?? false;
+  // A probe that REJECTS is the same case as one that answers `undefined`: the
+  // listing could not say, so it reads as "no sandbox". Without the catch the
+  // rejection escaped (both call sites start the click with `void`): no brief,
+  // no session, no toast, only an unhandled rejection in the host log.
+  const sandboxed = (await input.hasSandbox().catch(() => undefined)) ?? false;
   const brief = input.briefFor(sandboxed);
   if (brief === null) {
     input.notify(

@@ -40,6 +40,23 @@ describe('resolveConflictClick', () => {
     expect(briefFor).toHaveBeenCalledWith(false);
   });
 
+  // Both call sites start the click with `void`, so a rejected probe used to
+  // vanish: no brief, no session, no toast. A probe that cannot answer is the
+  // documented "no sandbox" case, and the click must still deliver.
+  it('still delivers the host brief when the probe rejects', async () => {
+    const { input, briefFor, deliver, notify } = click({
+      hasSandbox: async () => {
+        throw new Error('runner listing failed');
+      },
+    });
+
+    await expect(resolveConflictClick(input)).resolves.toBeUndefined();
+
+    expect(briefFor).toHaveBeenCalledWith(false);
+    expect(deliver).toHaveBeenCalledWith('BRIEF', '/repos/api');
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it('delivers the brief with the repo the click named', async () => {
     const { input, deliver, notify } = click();
 

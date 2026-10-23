@@ -84,15 +84,20 @@ export function runConflictBriefCommand(store: Store, parsed: ParsedConflictBrie
  * Append the recorded conflicted repo(s) so the agent corrects its own argument.
  *
  * Read-only: no git probe, no store write. With no recorded conflict the caller
- * gets today's exact line unchanged.
+ * gets today's exact line unchanged. The list is capped: a correction needs the
+ * repo that exists, not an unbounded local-store dump in the reply.
  */
+const MAX_RECORDED_REPOS = 5;
+
 function withRecordedRepos(store: Store, ticketId: number, line: string): string {
   const recorded = listMergeChecksByTicket(store, ticketId).filter((c) => c.state === 'conflicted');
   if (recorded.length === 0) return line;
-  const named = recorded.map((c) => `${c.repo} (base ${c.baseRef ?? 'unknown'})`).join(', ');
+  const shown = recorded.slice(0, MAX_RECORDED_REPOS);
+  const named = shown.map((c) => `${c.repo} (base ${c.baseRef ?? 'unknown'})`).join(', ');
+  const rest = recorded.length - shown.length;
   return [
     line,
-    `Recorded conflicts: ${named}.`,
+    `Recorded conflicts: ${named}${rest > 0 ? ` (+${rest} more)` : ''}.`,
     'Pass the repo exactly as recorded.',
   ].join('\n');
 }
