@@ -278,6 +278,9 @@ export class DashboardManager {
       stageLogReader,
       agentLogReader,
       serverLogsReader,
+      // Shared rows' Logs action opens this same combined view, so its data
+      // arrives from the SAME provider the state uses (D203).
+      (id) => this.sharedServersFor(id).map((s) => ({ service: s.service, logPath: s.logPath })),
     );
   }
 
