@@ -307,10 +307,14 @@ describe('worktreeServers', () => {
 
     // Linux publishes a removed cwd as `<path> (deleted)` — direct evidence
     // about THIS process, and what the incident was diagnosed from.
-    it("takes the OS's `(deleted)` answer as proof, even where the path reads as present", () => {
+    it("takes the OS's `(deleted)` answer as proof, even where the path reads as present", async () => {
       const present = join(dir, 'worktrees', 'abc');
       mkdirSync(present, { recursive: true });
-      const id = insert({ repo: 'frontend', cwd: present, pid: 4242 });
+      // A real child: the reap really signals its pid, and a made-up pid (4242) may belong to a
+      // stranger on a CI runner (EPERM -> 'kill-failed').
+      const child = spawnIdle();
+      spawned.push(child);
+      const id = insert({ repo: 'frontend', cwd: present, pid: child.pid! });
 
       const reaped = reapStaleServers(store, {
         facts: attributingFacts({
@@ -320,6 +324,7 @@ describe('worktreeServers', () => {
       });
 
       expect(reaped.map((r) => [r.id, r.outcome])).toEqual([[id, 'killed']]);
+      await waitUntilDead(child.pid!);
     });
 
     it('leaves a live process whose cwd the OS reports as present', () => {
