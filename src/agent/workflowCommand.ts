@@ -290,8 +290,9 @@ export function renderFixCommand(input: {
 
 /**
  * Render the markdown body for the generated resolve-conflict command. The
- * `$ARGUMENTS` grammar is `<key> <repo>`, the first two whitespace-delimited
- * tokens. Returns BODY ONLY (no frontmatter).
+ * `$ARGUMENTS` grammar is `<key> <repo>`: the key is the first token and the
+ * repo is the rest of the line, one argument even when it holds a space (the
+ * seed double-quotes such a path). Returns BODY ONLY (no frontmatter).
  */
 export function renderResolveConflictCommand(input: {
   contextCommand: string;
@@ -301,7 +302,7 @@ export function renderResolveConflictCommand(input: {
 }): string {
   const { contextCommand, conflictBriefCommand, guideCommand, mcp } = input;
   const grammarParagraph =
-    'The first two whitespace-delimited tokens in `$ARGUMENTS` are `<key>` (a ticket key or `T<n>` id) and `<repo>`. ' +
+    '`$ARGUMENTS` is `<key> <repo>`: the first whitespace-delimited token is `<key>` (a ticket key or `T<n>` id) and the rest of the line is `<repo>` — ONE argument, even when the path contains a space (such a path arrives double-quoted). ' +
     (mcp
       ? `Call the karst MCP tool \`conflict-brief\` with { key: "<key>", repo: "<repo>" } FIRST (if the tool is not available, run \`${conflictBriefCommand} <key> <repo>\`)`
       : `Run \`${conflictBriefCommand} <key> <repo>\` FIRST`) +

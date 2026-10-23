@@ -17,6 +17,7 @@ import { describeStoreOpenFailure } from './extension/storeOpenFailure.js';
 import { ticketIdArg } from './extension/ops/args.js';
 import { warnBaseNotPulled as warnBaseNotPulledOp } from './extension/ops/baseNotPulled.js';
 import { spinRepoPicks, servicesOnlyArg } from './extension/ops/spinPicks.js';
+import { resolveConflictClick, makeSessionHandOff } from './extension/ops/conflictResolveOps.js';
 import { compileExpertSpend, graphRecoveryRefusalNotice, graphRefusalHandling, parkGraphLaunchFailure, projectMaxReplans } from './extension/ops/graphRecovery.js';
 import { graphLaunchIdentity } from './extension/ops/graphLaunchIdentity.js';
 import type { Notify } from './extension/ops/notify.js';
@@ -869,18 +870,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // seeded with the brief (never drop the brief on an open terminal).
     resolveConflicts: (id, repo) => {
       if (!guardCapability('sessions', id)) return;
-      const brief = buildConflictBrief(localStore, id, repo, sandboxB?.deps.bridgeOf?.(id) !== undefined);
-      if (!brief) {
-        void vscode.window.showInformationMessage(
-          `No merge conflict is recorded for "${repo}" on ticket ${formatId('ticket', id)} — nothing to resolve.`,
-        );
-        return;
-      }
-      if (sessions.nudge(id, brief)) {
-        sessions.focusSession(id);
-        return;
-      }
-      void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief });
+      void resolveConflictClick({
+        repo, label: formatId('ticket', id),
+        hasSandbox: () => sandboxB?.hasSandbox(id) ?? Promise.resolve(false),
+        briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
+        notify: (message) => void vscode.window.showInformationMessage(message),
+        deliver: (brief) => {
+          if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
+          void vscode.commands.executeCommand('karst.openSession', id, { seedPrompt: brief, seedRepo: repo });
+        },
+      });
     },
     // Peek CTA "Send CI failure to agent": the dashboard's own action (availability and confirm re-derived from the store), bound per ticket.
     sendCiFailure: (id) => void sendCiFailureAction({ ...ciHost(id), store: localStore, ticketId: id, logError, debug: (m) => logger.debug(m), drive: () => maybeDrive(id, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(id); showStatusFor(id); } }),
@@ -3020,18 +3019,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // launch one seeded with the brief instead of the ticket's own context.
         // A graph ticket is never nudged from here: the graph coordinator owns
         // its sessions (entry-point matrix, Slice 3 Task 7).
-        (prompt) => {
-          if (nudgeSurface(localStore.db, ticketId) === 'no-op') {
-            return;
-          }
-          if (sessions.nudge(ticketId, prompt)) {
-            sessions.focusSession(ticketId);
-            return;
-          }
-          void vscode.commands.executeCommand('karst.openSession', ticketId, {
-            seedPrompt: prompt,
-          });
-        },
+        makeSessionHandOff({
+          isGraphTicket: () => nudgeSurface(localStore.db, ticketId) === 'no-op',
+          nudge: (prompt) => sessions.nudge(ticketId, prompt),
+          focus: () => sessions.focusSession(ticketId),
+          open: (seedPrompt, seedRepo) => void vscode.commands.executeCommand('karst.openSession', ticketId, { seedPrompt, seedRepo }),
+        }),
         () => {
           // Manifest-gated (`diffsInSourceControl`, OFF by default): the ticket's
           // changed files render in the IDE's Source Control view instead of the
@@ -6485,7 +6478,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         // A caller with one specific job for this session (the merge brief
         // behind "Resolve conflicts") wins over every composed seed below.
         seed = composeConflictSeed({
-          ticketKey: formatTicketRef(ticketId, t.key),
+          // Args are `<key> <repo>` (arch:AC-20): one key token, never `T758 · KEY`.
+          keyToken: t.key?.trim() || formatId('ticket', ticketId),
+          ...(options.seedRepo ? { repo: options.seedRepo } : {}),
           conflictBrief: options.seedPrompt,
           ...(materialized.entryInvocations?.['resolve-conflict']
             ? { invocation: materialized.entryInvocations['resolve-conflict'] }
@@ -8034,7 +8029,7 @@ function makeDashboardActions(
   // terminal, else launch one seeded with it. A conflict brief handed to
   // `openSession` alone would be dropped whenever a session is already up —
   // openSession only focuses an existing terminal.
-  handOffToSession: (prompt: string) => void,
+  handOffToSession: (prompt: string, repo: string) => void,
   // Open the host-owned, whole-ticket changes explorer. The dashboard action
   // carries no path because this closure already owns the ticket id.
   showChanges: () => void,
@@ -8448,16 +8443,13 @@ function makeDashboardActions(
     // left by a button click is a state nobody asked for.
     resolveConflicts: (repo) => {
       if (!guardCapability('sessions', ticketId)) return;
-      // The store decides whether there is a conflict — the repo arrived in a
-      // webview message, and a stale panel can name one that has since gone.
-      const brief = buildConflictBrief(store, ticketId, repo, sandboxB?.deps.bridgeOf?.(ticketId) !== undefined);
-      if (!brief) {
-        void vscode.window.showInformationMessage(
-          `No merge conflict is recorded for "${repo}" on ticket ${formatId('ticket', ticketId)} — nothing to resolve.`,
-        );
-        return;
-      }
-      handOffToSession(brief);
+      void resolveConflictClick({
+        repo, label: formatId('ticket', ticketId),
+        hasSandbox: () => sandboxB?.hasSandbox(ticketId) ?? Promise.resolve(false),
+        briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
+        notify: (message) => void vscode.window.showInformationMessage(message),
+        deliver: (brief, hit) => handOffToSession(brief, hit),
+      });
     },
     // Merge one repo's PR, from the ship stage.
     //

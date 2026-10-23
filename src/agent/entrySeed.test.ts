@@ -147,14 +147,15 @@ describe('composeConflictSeed', () => {
 
   it('prepends exactly the invocation and keeps the conflict brief short in the kickoff', () => {
     const seed = composeConflictSeed({
-      ticketKey: 'PROJ-9',
+      keyToken: 'PROJ-9',
+      repo: '/repos/frontend',
       conflictBrief: 'Resolve merge conflict in repo frontend.',
       invocation: '/karst:resolve-conflict',
       markerInstruction: 'RUN THE MARKER',
       factsContext: FACTS,
     });
     expect(seed.kickoff).toBe(
-      '/karst:resolve-conflict PROJ-9\n\nResolve merge conflict in repo frontend.',
+      '/karst:resolve-conflict PROJ-9 /repos/frontend\n\nResolve merge conflict in repo frontend.',
     );
     expect(seed.instructions).toContain('## Worktrees & branches');
     expect(seed.instructions).toContain('RUN THE MARKER');
@@ -162,9 +163,41 @@ describe('composeConflictSeed', () => {
     expect(seed.instructions ?? '').not.toContain('## Services');
   });
 
+  // The command grammar is `<key> <repo>` (arch:AC-20). The display ref
+  // `T758 · KEY` puts a `·` in the argument position, and the agent reads the
+  // key first and guesses the repo — T758/T765 both resolved the wrong repo.
+  it('carries the single-token key and the exact repo, never the display separator', () => {
+    const seed = composeConflictSeed({
+      keyToken: 'T758',
+      repo: '/Users/nd/Work/projects/karst/',
+      conflictBrief: 'Resolve merge conflict.',
+      invocation: '/karst:resolve-conflict',
+    });
+    const first = seed.kickoff.split('\n')[0]!;
+    expect(first).toBe('/karst:resolve-conflict T758 /Users/nd/Work/projects/karst/');
+    expect(first).not.toContain('·');
+  });
+
+  // A recorded repo path is the contract and can contain a space (a project
+  // directory with a space in its name). Unquoted, the positional `<key> <repo>`
+  // grammar (arch:AC-20) reads it as several arguments, so the agent hands
+  // `conflict-brief` a repo that matches no merge check.
+  it('keeps a repo path containing a space one argument token', () => {
+    const seed = composeConflictSeed({
+      keyToken: 'T768',
+      repo: '/Users/nd/My Projects/karst/',
+      conflictBrief: 'Resolve merge conflict.',
+      invocation: '/karst:resolve-conflict',
+    });
+    const first = seed.kickoff.split('\n')[0]!;
+    expect(first).toBe('/karst:resolve-conflict T768 "/Users/nd/My Projects/karst/"');
+    // Three unquoted words would be three arguments; the quoted form is two.
+    expect(first.split('"').filter((_, i) => i % 2 === 0).join('').trim().split(/\s+/)).toHaveLength(2);
+  });
+
   it('inlines into the kickoff when no invocation is materialized', () => {
     const seed = composeConflictSeed({
-      ticketKey: 'PROJ-9',
+      keyToken: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict.',
       markerInstruction: 'RUN THE MARKER',
       factsContext: FACTS,
@@ -177,7 +210,7 @@ describe('composeConflictSeed', () => {
 
   it('inlines into the kickoff on a solo fallback core', () => {
     const seed = composeConflictSeed({
-      ticketKey: 'PROJ-9',
+      keyToken: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict.',
       invocation: '/karst:resolve-conflict',
       markerInstruction: 'RUN THE MARKER',
@@ -190,7 +223,7 @@ describe('composeConflictSeed', () => {
 
   it('keeps the slash command as the first token of the kickoff', () => {
     const seed = composeConflictSeed({
-      ticketKey: 'PROJ-9',
+      keyToken: 'PROJ-9',
       conflictBrief: 'Resolve merge conflict.',
       invocation: '/karst:resolve-conflict',
     });
