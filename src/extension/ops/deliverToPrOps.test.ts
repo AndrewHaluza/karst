@@ -129,10 +129,46 @@ describe('deliverToPr', () => {
     expect(r.calls).toEqual([]);
     expect(r.errors[0]).toMatch(/agent is working/);
   });
+  it('an agent turn that starts while verify runs stops before the push', async () => {
+    let active = false;
+    const r = deliverRig({ agentActive: () => active, verify: async () => { active = true; return null; } });
+    await deliverToPr(r.deps);
+    expect(r.calls).toEqual(['sync']);
+    expect(r.errors[0]).toMatch(/agent is working/);
+  });
   it('a failed ship push is reported and skips the re-probe', async () => {
     const r = deliverRig({ runShip: async () => { throw new Error('push rejected'); } });
     await deliverToPr(r.deps);
     expect(r.calls).toEqual(['sync']);
     expect(r.errors).toEqual(['Deliver to PR failed: push rejected']);
+  });
+});
+
+describe('deliverToPr verify step', () => {
+  const base = (over: Partial<DeliverDeps>): DeliverDeps => ({
+    targets: () => OPEN,
+    agentActive: () => false,
+    ensureSynced: async () => ({ ok: true }),
+    blocked: async () => undefined,
+    runShip: async () => undefined,
+    reprobe: async () => undefined,
+    info: () => undefined,
+    error: () => undefined,
+    logError: () => undefined,
+    afterServerChange: () => undefined,
+    ...over,
+  });
+  it('a verify reason stops before the push and is returned', async () => {
+    const runShip = vi.fn();
+    const out = await deliverToPr(base({ verify: async () => 'nope', runShip }));
+    expect(runShip).not.toHaveBeenCalled();
+    expect(out).toEqual({ kind: 'refused', reason: 'nope' });
+  });
+  it('delivered outcome after a push', async () => {
+    expect(await deliverToPr(base({ verify: async () => null }))).toEqual({ kind: 'delivered' });
+  });
+  it('blocked sync outcome', async () => {
+    const out = await deliverToPr(base({ ensureSynced: async () => ({ ok: false, reason: 'x', diverged: false }) }));
+    expect(out).toEqual({ kind: 'blocked', reason: 'x' });
   });
 });
