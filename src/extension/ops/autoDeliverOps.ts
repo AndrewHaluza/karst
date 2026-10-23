@@ -55,6 +55,7 @@ export async function verifyMergeResolved(git: Git, cwd: string, round: Resolved
   if (status.stdout.trim() !== '') return 'the worktree has uncommitted changes';
   if (round.files.length > 0) {
     const markers = await git(cwd, ['grep', '-lE', MARKER_RE, 'HEAD', '--', ...round.files]);
+    if (markers.code !== 0 && markers.code !== 1) return 'could not scan the resolved files for conflict markers';
     if (markers.code === 0 && markers.stdout.trim() !== '') {
       return `conflict markers remain in ${markers.stdout.trim().split('\n').map((l) => l.replace(/^HEAD:/, '')).join(', ')}`;
     }
@@ -97,8 +98,14 @@ export async function autoDeliverAfterConflict(d: AutoDeliverDeps): Promise<void
           return unfinished;
         }
         const failed = await d.runGates(targets.prs);
-        if (failed !== null) d.error(`Resolved merge not delivered: a ship-stage gate failed — ${failed}`);
-        return failed;
+        if (failed !== null) {
+          d.error(`Resolved merge not delivered: a ship-stage gate failed — ${failed}`);
+          return failed;
+        }
+        // The gates ran for a while: confirm the tree they checked is still the finished merge.
+        const changed = await d.verifyMerge(pr, round);
+        if (changed !== null) d.error(`conflict resolve did not finish: ${changed}`);
+        return changed;
       },
     });
     if (outcome.kind === 'delivered') d.rounds.disarm(d.ticketId);

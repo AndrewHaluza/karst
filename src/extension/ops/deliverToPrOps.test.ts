@@ -129,6 +129,13 @@ describe('deliverToPr', () => {
     expect(r.calls).toEqual([]);
     expect(r.errors[0]).toMatch(/agent is working/);
   });
+  it('an agent turn that starts while verify runs stops before the push', async () => {
+    let active = false;
+    const r = deliverRig({ agentActive: () => active, verify: async () => { active = true; return null; } });
+    await deliverToPr(r.deps);
+    expect(r.calls).toEqual(['sync']);
+    expect(r.errors[0]).toMatch(/agent is working/);
+  });
   it('a failed ship push is reported and skips the re-probe', async () => {
     const r = deliverRig({ runShip: async () => { throw new Error('push rejected'); } });
     await deliverToPr(r.deps);

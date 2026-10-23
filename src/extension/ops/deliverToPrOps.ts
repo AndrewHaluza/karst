@@ -149,6 +149,8 @@ async function run(d: DeliverDeps): Promise<DeliverOutcome> {
   if (d.agentActive()) return d.error(BUSY), SKIPPED;
   const refusal = d.verify ? await d.verify() : null;
   if (refusal !== null) return { kind: 'refused', reason: refusal };
+  // The gates can take minutes: a turn may have started, and what they checked is no longer what would be pushed.
+  if (d.verify && d.agentActive()) return d.error(BUSY), SKIPPED;
   await d.runShip();
   await d.reprobe();
   d.info('Delivered the ticket branch to the open pull request.');

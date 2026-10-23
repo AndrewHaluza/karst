@@ -67,7 +67,7 @@ describe('autoDeliverAfterConflict', () => {
       runGates: async (all) => { gated = all.length; return null; },
     });
     await autoDeliverAfterConflict(deps);
-    expect(verified).toEqual(['/wt']);
+    expect(verified).toEqual(['/wt', '/wt']);
     expect(gated).toBe(2);
     expect(log).toContain('status:Delivering resolved merge to PR #7…');
   });
@@ -112,6 +112,14 @@ describe('autoDeliverAfterConflict', () => {
     expect(runShip).not.toHaveBeenCalled();
     expect(log.some((l) => l.startsWith('error:') && l.includes('typecheck failed'))).toBe(true);
     expect(rounds.armed(1)).not.toBeNull();
+  });
+
+  it('pushes nothing when the tree changes while the gates run', async () => {
+    let calls = 0;
+    const { deps, log } = rig({ verifyMerge: async () => (++calls === 2 ? 'the worktree has uncommitted changes' : null) });
+    await autoDeliverAfterConflict(deps);
+    expect(log).not.toContain('ship');
+    expect(log).toContain('error:conflict resolve did not finish: the worktree has uncommitted changes');
   });
 
   it('blocked sync (unknown CLI) pushes nothing and surfaces the reason', async () => {
@@ -176,7 +184,10 @@ describe('verifyMergeResolved', () => {
     expect(await verifyMergeResolved(g, '/wt', { repo: 'r', baseSha: null, files: [] })).toBeNull();
     expect(calls).toEqual(['status']);
   });
-  it('ignores a grep hit with empty output and a failing grep', async () => {
+  it('a grep error is not read as no markers', async () => {
+    expect(await verifyMergeResolved(git({ 'grep -lE ^(<<<<<<< |>>>>>>> ) HEAD -- a.ts': { code: 128, stdout: '' } }), '/wt', ROUND)).toBe('could not scan the resolved files for conflict markers');
+  });
+  it('ignores a grep hit with empty output and a no-match grep', async () => {
     expect(await verifyMergeResolved(git({ 'grep -lE ^(<<<<<<< |>>>>>>> ) HEAD -- a.ts': { code: 0, stdout: '\n' } }), '/wt', ROUND)).toBeNull();
     expect(await verifyMergeResolved(git({ 'grep -lE ^(<<<<<<< |>>>>>>> ) HEAD -- a.ts': { code: 1, stdout: 'HEAD:a.ts' } }), '/wt', ROUND)).toBeNull();
   });
