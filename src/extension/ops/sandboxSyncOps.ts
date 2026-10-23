@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
@@ -275,6 +276,12 @@ function baseOpts(deps: SandboxSyncDeps, ticketId: number): { baseRef?: string }
 async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<EnsureSyncResult> {
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
   if (!runner?.sync) return { ok: true };
+  // A host ticket on a sandbox-capable core has no sandbox: nothing to sync, never spawn the CLI for it.
+  if (!(await runner.hasSandbox?.().catch(() => false))) {
+    if (!(await hasSandboxEvidence(deps, target))) return { ok: true };
+    const cli = runner.kind === 'sbx' ? 'sbx' : 'docker';
+    return { ok: false, reason: `the ${runner.kind} sandbox was not found: is the ${cli} CLI on the extension host PATH and running? Its commits were not synced.`, diverged: false };
+  }
   if (!target.worktree?.branch) return { ok: false, reason: 'no worktree branch to sync into', diverged: false };
   try {
     const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
@@ -291,6 +298,14 @@ async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promi
   } catch (err) {
     return { ok: false, reason: `sandbox sync failed: ${message(err)}`, diverged: false };
   }
+}
+
+/** Proof the ticket once had a sandbox, for when the CLI cannot say: its sbx clone dir, or a recorded synced head. */
+async function hasSandboxEvidence(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<boolean> {
+  if (isSbxCore(target.core) && existsSync(sbxCloneDir(deps.projectRoot, sbxName({ projectRoot: deps.projectRoot, ticketId: target.ticketId, core: target.core })))) return true;
+  const dir = deps.evidenceDirOf?.(target.ticketId);
+  if (!dir || !target.worktree) return false;
+  return (await readHostHead(hostHeadFileFor(dir), target.worktree.path)) !== undefined;
 }
 
 const SHA = /^[0-9a-f]{40,64}$/;
