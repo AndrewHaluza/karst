@@ -404,6 +404,21 @@ describe('makeSandboxWiring.ensureInSync (F12 choke point)', () => {
   });
 });
 
+describe('makeSandboxWiring.ensureSynced', () => {
+  it('is a no-op without a sandbox backend: no CLI is spawned', async () => {
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc });
+    await expect(w.ensureSynced(id)).resolves.toEqual({ ok: true });
+    expect(proc.calls).toEqual([]);
+  });
+  it('with a backend it does probe the CLI', async () => {
+    const proc = fakeSbxProcess();
+    const { w } = wiring({ proc, backendOn: () => true });
+    await w.ensureSynced(id);
+    expect(proc.calls.length).toBeGreaterThan(0);
+  });
+});
+
 describe('makeSandboxWiring assertInSync / syncParentOf', () => {
   it('assertInSync resolves when there is nothing to sync', async () => {
     const { w } = wiring();

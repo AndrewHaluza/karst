@@ -1,3 +1,5 @@
+import type { SandboxProbe } from '../../agent/sessionRunner.js';
+
 /**
  * The two decisions behind a "Resolve conflicts" click, shared by the ticket
  * dashboard and the sidebar mini-dashboard. Both are host-agnostic: the caller
@@ -11,8 +13,9 @@
  * path helper: `bridgeOf` names a bridge path for every ticket whenever the
  * bridge root exists, which handed host tickets (T758, T765) the sandbox brief.
  * A listing that cannot answer (no CLI, `ENOENT` as 127, a failed listing, a
- * rejected probe) still reads as "no sandbox" here; arch:AC-39 makes it
- * tri-state.
+ * rejected probe) is `unknown` (arch:AC-39): no brief is picked, the user is told
+ * why. Falling back to the host brief would send a possibly sandboxed ticket's
+ * agent at the wrong environment.
  *
  * The STORE decides whether the conflict still exists — `repo` arrived in a
  * webview message, and a stale panel can name one that has since gone, so a
@@ -23,18 +26,20 @@ export interface ResolveConflictInput {
   readonly repo: string;
   /** The ticket label for the "nothing to resolve" message. */
   readonly label: string;
-  readonly hasSandbox: () => Promise<boolean | undefined>;
+  readonly probeSandbox: () => Promise<SandboxProbe>;
   readonly briefFor: (sandboxed: boolean) => string | null;
   readonly notify: (message: string) => void;
   readonly deliver: (brief: string, repo: string) => void;
 }
 
 export async function resolveConflictClick(input: ResolveConflictInput): Promise<void> {
-  // A probe that REJECTS is the same case as one that answers `undefined`: the
-  // listing could not say, so it reads as "no sandbox". Without the catch the
-  // rejection escaped (both call sites start the click with `void`): no brief,
-  // no session, no toast, only an unhandled rejection in the host log.
-  const sandboxed = (await input.hasSandbox().catch(() => undefined)) ?? false;
+  // A probe that REJECTS cannot say either: unknown, never "no sandbox".
+  const probe = await input.probeSandbox().catch((err: unknown): SandboxProbe => ({ state: 'unknown', reason: err instanceof Error ? err.message : String(err) }));
+  if (probe.state === 'unknown') {
+    input.notify(`Could not tell whether ticket ${input.label} runs in a sandbox, so no conflict brief was sent: ${probe.reason}. Make sure the sbx/docker CLI is on the PATH of the VS Code extension host.`);
+    return;
+  }
+  const sandboxed = probe.state === 'present';
   const brief = input.briefFor(sandboxed);
   if (brief === null) {
     input.notify(

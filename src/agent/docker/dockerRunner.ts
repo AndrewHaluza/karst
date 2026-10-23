@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { autonomousLaunch } from '../autonomousLaunch.js';
 import { runProcess } from '../../workflow/gates/run.js';
-import type { GateProcessRunner, PlacedInteractiveLaunch, RefreshOptions, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
+import type { GateProcessRunner, PlacedInteractiveLaunch, RefreshOptions, SandboxProbe, SandboxTicketRef, SessionRunner } from '../sessionRunner.js';
 import { EVIDENCE_DIR_ENV } from '../sbx/sbxRunner.js';
 import { disposeResult, disposeStep, type DisposeResult } from '../disposeResult.js';
 import { listRelayPorts, publishRelay, removeAllRelays, unpublishRelay } from './dockerPorts.js';
@@ -129,7 +129,8 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       return (await opts.proc.run(DOCKER_BIN, serviceRunArgs(opts.names, opts.user))).code === 0;
     },
     // The clone volume is the sandbox: it outlives the interactive container.
-    hasSandbox: async () => (await opts.proc.run(DOCKER_BIN, ['volume', 'inspect', opts.names.repoVolume])).code === 0,
+    hasSandbox: async () => (await probeVolume(opts.proc, opts.names.repoVolume)).state === 'present',
+    probeSandbox: () => probeVolume(opts.proc, opts.names.repoVolume),
     publishPort: (m) => publishRelay(opts.proc, opts.names, m),
     unpublishPort: (m) => unpublishRelay(opts.proc, opts.names, m),
     listPorts: () => listRelayPorts(opts.proc, opts.names),
@@ -157,6 +158,14 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
       return disposeResult(steps);
     },
   };
+}
+
+/** `docker volume inspect`: only docker's own "No such volume" is absent; a missing CLI or a down daemon is unknown. */
+async function probeVolume(proc: DockerProcess, volume: string): Promise<SandboxProbe> {
+  const out = await proc.run(DOCKER_BIN, ['volume', 'inspect', volume]);
+  if (out.code === 0) return { state: 'present' };
+  if (out.code !== 127 && /no such volume/i.test(out.stderr)) return { state: 'absent' };
+  return { state: 'unknown', reason: out.code === 127 ? `\`docker\` was not found on the PATH (${out.stderr.trim()})` : `\`docker volume inspect\` exited ${out.code}: ${out.stderr.trim()}` };
 }
 
 async function containerRunning(proc: DockerProcess, container: string): Promise<boolean> {

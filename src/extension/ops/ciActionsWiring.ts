@@ -126,7 +126,7 @@ export interface DeliverHost {
   /** Ship's push with `deliverToOpenPr` (the saga seam). */
   readonly runShip: () => Promise<void>;
   /** The sync blocker prompt (Open sync diff / Carry). */
-  readonly blocked: (reason: string, rewritten: boolean) => Promise<void>;
+  readonly blocked: (reason: string, rewritten: boolean, cliUnknown?: boolean) => Promise<void>;
   readonly tracker: UndeliveredTracker;
 }
 
@@ -183,7 +183,12 @@ export function deliverBlockedPrompt(
   warn: (message: string, ...actions: string[]) => PromiseLike<string | undefined>,
   openDiff: () => Promise<unknown>,
 ): DeliverHost['blocked'] {
-  return async (reason, rewritten) => {
+  return async (reason, rewritten, cliUnknown) => {
+    // The sandbox CLI cannot run from this extension host: a sync diff cannot help, fix the PATH.
+    if (cliUnknown) {
+      await warn(`Deliver to PR stopped: ${reason} Put the CLI on the PATH of the VS Code extension host (start VS Code from a shell that has it), then retry. Nothing was pushed.`);
+      return;
+    }
     const hint = rewritten ? ' Use "Carry sandbox commits onto host branch" on the dashboard.' : '';
     const pick = await warn(`Deliver to PR stopped: the sandbox is not in sync (${reason}). Nothing was pushed.${hint}`, 'Open sync diff');
     if (pick === 'Open sync diff') await openDiff();

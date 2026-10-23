@@ -194,3 +194,14 @@ describe('deliverBlockedPrompt', () => {
     expect(open).not.toHaveBeenCalled();
   });
 });
+
+describe('deliverBlockedPrompt: sandbox CLI unknown (arch:AC-39)', () => {
+  it('names the PATH problem and offers no sync diff', async () => {
+    const open = vi.fn(async () => {});
+    const warn = vi.fn(async (_m: string, ..._a: string[]) => 'Open sync diff' as string | undefined);
+    await deliverBlockedPrompt(warn, open)('sbx CLI not runnable from the extension host: x.', false, true);
+    expect(warn.mock.calls[0]![0]).toMatch(/sbx CLI not runnable.*PATH.*Nothing was pushed/);
+    expect(warn.mock.calls[0]!.slice(1)).toEqual([]);
+    expect(open).not.toHaveBeenCalled();
+  });
+});

@@ -89,7 +89,7 @@ export interface DeliverDeps {
   /** Sandbox → host, fast-forward only. */
   readonly ensureSynced: () => Promise<EnsureSyncResult>;
   /** The existing sync blocker (Open sync diff / Carry); nothing is pushed. */
-  readonly blocked: (reason: string, rewritten: boolean) => Promise<void>;
+  readonly blocked: (reason: string, rewritten: boolean, cliUnknown?: boolean) => Promise<void>;
   /** Ship's push with `deliverToOpenPr`, saga-recorded. */
   readonly runShip: () => Promise<void>;
   /** Re-probe the PRs (@arch:GH-03). */
@@ -123,7 +123,7 @@ async function run(d: DeliverDeps): Promise<void> {
     return targets.reason === 'in-flight' ? d.error('Deliver to PR: another ship run is in flight; try when idle.') : d.info(NOT_AVAILABLE);
   }
   const synced = await d.ensureSynced();
-  if (!synced.ok) return d.blocked(synced.reason, synced.rewritten === true);
+  if (!synced.ok) return synced.unknown === true ? d.blocked(synced.reason, false, true) : d.blocked(synced.reason, synced.rewritten === true);
   // The sync can take a while: a turn or a ship run may have started meanwhile.
   if (d.agentActive()) return d.error(BUSY);
   await d.runShip();

@@ -195,6 +195,8 @@ export function makeSandboxWiring(w: SandboxWiringInput) {
     },
     /** The choke point before any host step that reads a sandboxed ticket's worktree, incl. the done marker (arch:AC-32). */
     ensureSynced: async (ticketId: number) => {
+      // Like ensureInSync: a project with no sandbox backend has nothing to sync, so never spawn a CLI for it.
+      if (!w.backendOn()) return { ok: true as const };
       const { t, projectRoot } = await manual(ticketId);
       return ensureSandboxSynced({ notify: w.notify, projectRoot, ...syncTrack, ...(w.proc ? { proc: w.proc } : {}), ...(w.dockerProc ? { dockerProc: w.dockerProc } : {}) }, t);
     },

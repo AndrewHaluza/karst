@@ -1,3 +1,4 @@
+import type { SandboxProbe } from '../../agent/sessionRunner.js';
 import { describe, it, expect, vi } from 'vitest';
 import { resolveConflictClick, makeSessionHandOff } from './conflictResolveOps.js';
 
@@ -9,7 +10,7 @@ function click(over: Partial<Parameters<typeof resolveConflictClick>[0]> = {}) {
     input: {
       repo: '/repos/api',
       label: 'T7',
-      hasSandbox: async () => false,
+      probeSandbox: async (): Promise<SandboxProbe> => ({ state: 'absent' }),
       briefFor,
       notify,
       deliver,
@@ -23,38 +24,47 @@ function click(over: Partial<Parameters<typeof resolveConflictClick>[0]> = {}) {
 
 describe('resolveConflictClick', () => {
   it('passes the runners’ sandbox answer to the brief builder', async () => {
-    const hasSandbox = vi.fn(async () => true);
-    const { input, briefFor } = click({ hasSandbox });
+    const probeSandbox = vi.fn(async (): Promise<SandboxProbe> => ({ state: 'present' }));
+    const { input, briefFor } = click({ probeSandbox });
 
     await resolveConflictClick(input);
 
-    expect(hasSandbox).toHaveBeenCalledTimes(1);
+    expect(probeSandbox).toHaveBeenCalledTimes(1);
     expect(briefFor).toHaveBeenCalledWith(true);
   });
 
-  it('treats an undefined probe answer as no sandbox', async () => {
-    const { input, briefFor } = click({ hasSandbox: async () => undefined });
+  it('absent reads as the host brief', async () => {
+    const { input, briefFor } = click({ probeSandbox: async () => ({ state: 'absent' }) });
 
     await resolveConflictClick(input);
 
     expect(briefFor).toHaveBeenCalledWith(false);
   });
 
-  // Both call sites start the click with `void`, so a rejected probe used to
-  // vanish: no brief, no session, no toast. A probe that cannot answer is the
-  // documented "no sandbox" case, and the click must still deliver.
-  it('still delivers the host brief when the probe rejects', async () => {
+  // arch:AC-39: a probe that cannot tell must not fall back to the host brief.
+  it('an unknown probe picks no brief and shows the reason', async () => {
+    const { input, briefFor, deliver, notify } = click({ probeSandbox: async () => ({ state: 'unknown', reason: 'sbx ls failed: spawn sbx ENOENT' }) });
+
+    await resolveConflictClick(input);
+
+    expect(briefFor).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('sbx ls failed: spawn sbx ENOENT'));
+  });
+
+  // Both call sites start the click with `void`: a rejected probe must still surface, as unknown.
+  it('a rejected probe is unknown: no brief, a message, no rejection', async () => {
     const { input, briefFor, deliver, notify } = click({
-      hasSandbox: async () => {
+      probeSandbox: async () => {
         throw new Error('runner listing failed');
       },
     });
 
     await expect(resolveConflictClick(input)).resolves.toBeUndefined();
 
-    expect(briefFor).toHaveBeenCalledWith(false);
-    expect(deliver).toHaveBeenCalledWith('BRIEF', '/repos/api');
-    expect(notify).not.toHaveBeenCalled();
+    expect(briefFor).not.toHaveBeenCalled();
+    expect(deliver).not.toHaveBeenCalled();
+    expect(notify).toHaveBeenCalledWith(expect.stringContaining('runner listing failed'));
   });
 
   it('delivers the brief with the repo the click named', async () => {

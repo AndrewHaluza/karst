@@ -221,3 +221,14 @@ describe('host-only env never enters the container (F2, arch:AC-33)', () => {
     for (const k of ['KARST_BRIDGE_DIR', 'KARST_TICKET', 'KARST_TICKET_ID', 'KARST_LAUNCH_ID', 'KARST_PROVIDER']) expect(placed.env).toHaveProperty(k);
   });
 });
+
+describe('createDockerSessionRunner.probeSandbox (arch:AC-39)', () => {
+  it('present on exit 0, absent only on "No such volume", unknown otherwise', async () => {
+    const mk = (answer: { code: number; stderr?: string }) => createDockerSessionRunner({ proc: fakeDockerProcess({ 'docker volume inspect': answer }), core: 'opencode', names: dockerNames({ projectRoot: '/p', ticketId: 7, core: 'opencode' }), user: undefined });
+    await expect(mk({ code: 0 }).probeSandbox!()).resolves.toEqual({ state: 'present' });
+    await expect(mk({ code: 1, stderr: 'Error: No such volume: x' }).probeSandbox!()).resolves.toEqual({ state: 'absent' });
+    await expect(mk({ code: 127, stderr: 'spawn docker ENOENT' }).probeSandbox!()).resolves.toMatchObject({ state: 'unknown', reason: expect.stringContaining('not found on the PATH') });
+    await expect(mk({ code: 1, stderr: 'Cannot connect to the Docker daemon' }).probeSandbox!()).resolves.toMatchObject({ state: 'unknown' });
+    await expect(mk({ code: 1, stderr: 'Cannot connect' }).hasSandbox!()).resolves.toBe(false);
+  });
+});

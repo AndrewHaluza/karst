@@ -21,7 +21,7 @@ import { allowBaselineHostPorts, baselineHostPorts, ticketBaselineKeys } from '.
 import { resetSandboxServices, reverifySandboxServices, stopAllTicketServers, type ReverifyResult } from '../../agent/sandboxServices.js';
 import { createUserUatGate } from '../../agent/userUatGate.js';
 import { unitByKey } from '../../manifest/runnable.js';
-import type { SessionRunner } from '../../agent/sessionRunner.js';
+import type { SandboxProbe, SessionRunner } from '../../agent/sessionRunner.js';
 import type { SandboxServiceContext } from '../../runtime/startService.js';
 import { runProcess, type GateProcessRunner } from '../../workflow/gates/run.js';
 import { isServing } from '../../runtime/health.js';
@@ -102,15 +102,19 @@ export interface ResolvedTicketSandbox {
   readonly found: TicketSandbox | undefined;
   /** The listed sandbox that proves this ticket HAS one (absent when only the hint matched). */
   readonly listed: ProjectSandbox | undefined;
+  /** Why the listing could not answer (CLI missing, daemon down); set means an unlisted ticket is NOT proven sandbox-free. */
+  readonly listingError?: string;
 }
 
 /** The ticket's sandbox from the listing first, `sessionProvider` as the hint (F4). Never throws. */
 export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: number): Promise<ResolvedTicketSandbox> {
   const hint = deps.coreOf(ticketId);
   let listed: ProjectSandbox | undefined;
+  let listingError: string | undefined;
   if (deps.inventory) {
     const all = await deps.inventory(ticketId).catch((err: unknown) => {
-      deps.debug?.(`[sandbox] ticket ${ticketId}: listing failed (${err instanceof Error ? err.message : String(err)}); using the session provider`);
+      listingError = err instanceof Error ? err.message : String(err);
+      deps.debug?.(`[sandbox] ticket ${ticketId}: listing failed (${listingError}); using the session provider`);
       return [] as readonly ProjectSandbox[];
     });
     listed = pickTicketSandbox(all, ticketId, hint, (m) => deps.debug?.(`[sandbox] ${m}`));
@@ -123,7 +127,7 @@ export async function resolveTicketSandbox(deps: TicketSandboxDeps, ticketId: nu
   } catch (err) {
     deps.debug?.(`[sandbox] ticket ${ticketId}: no runner for core ${String(core)} (${err instanceof Error ? err.message : String(err)})`);
   }
-  return { found, listed };
+  return { found, listed, ...(listingError !== undefined ? { listingError } : {}) };
 }
 
 /** The services context, only when the sandbox exists. */
@@ -242,9 +246,16 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     ...input,
     // The listing's answer wins over the (possibly null) session provider for every sync reader too.
     coreOf: (ticketId) => cores.get(ticketId) ?? input.coreOf(ticketId),
-    inventory: input.inventory ?? (async (ticketId) => (await listProjectSandboxes({
-      projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
-    })).sandboxes),
+    inventory: input.inventory ?? (async (ticketId) => {
+      const inv = await listProjectSandboxes({
+        projectRoot: input.projectRoot(ticketId), sbx: input.proc ?? NODE_SBX_PROCESS, docker: input.dockerProc ?? NODE_DOCKER_PROCESS,
+      });
+      // A configured runner that could not list may be the one holding this ticket's sandbox: not "none" (arch:AC-39).
+      const wanted = selectedSandboxBackends(input.backends());
+      const failed = inv.errors.filter((e) => wanted.some((kind) => e.startsWith(`${kind} `)));
+      if (failed.length > 0 && !inv.sandboxes.some((b) => b.ticketId === ticketId)) throw new Error(failed.join('; '));
+      return inv.sandboxes;
+    }),
     proxyScript: input.proxyScript ?? join(DOCKER_ASSETS_DIR, 'allowlist-proxy.mjs'),
     hostPortsOf: (ticketId) => { const m = input.manifest(); return m ? baselineHostPorts(m, ticketBaselineKeys(input.store, ticketId)) : []; },
     remember: (ticketId, core) => { if (core === null) cores.delete(ticketId); else cores.set(ticketId, core); },
@@ -264,6 +275,12 @@ export function createTicketSandboxBindings(input: TicketSandboxBindingsInput) {
     },
     /** Does the runners' listing show a sandbox for this ticket? (false when it cannot tell: no backend, listing failed) */
     hasSandbox: async (ticketId: number): Promise<boolean> => (await resolveTicketSandbox(deps, ticketId)).listed !== undefined,
+    /** The tri-state behind it: a listing that failed (no CLI, daemon down) and found no sandbox is `unknown`, never `absent` (arch:AC-39). */
+    probeSandbox: async (ticketId: number): Promise<SandboxProbe> => {
+      const { listed, listingError } = await resolveTicketSandbox(deps, ticketId);
+      if (listed) return { state: 'present' };
+      return listingError !== undefined ? { state: 'unknown', reason: listingError } : { state: 'absent' };
+    },
     /** Record (or clear, `null`) the core whose sandbox serves a ticket: set at launch, read back by the sync callers. */
     remember: (ticketId: number, core: string | null) => deps.remember?.(ticketId, core),
     /**
