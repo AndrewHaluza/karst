@@ -1330,12 +1330,11 @@ async function rerunUatParkedStage(
       );
     }
 
-    // Calculate the blocking count across newly observed findings and the sibling
-    // observations the earlier park kept. The siblings are NOT re-inserted into
-    // `uat_findings`: they were recorded by the run that made them and still read
-    // back from the store, so writing them again under this run's process would
-    // duplicate every row across runs. They are only counted here — the verdict
-    // must not discard a blocking observation a partner target already reported.
+    // Calculate the blocking count across newly observed findings and the
+    // sibling observations the earlier park kept. The verdict must not discard a
+    // blocking observation a partner target already reported, even though no
+    // gate asked it again — and the siblings are persisted below (deduped),
+    // because a quota-stopped Tester never reached its own write.
     let combinedBlocking = 0;
     let combinedSummary: string | undefined;
     {
