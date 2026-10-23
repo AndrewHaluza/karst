@@ -26,6 +26,7 @@ import { deleteTicketOp, createFollowUpTicketOp, createSubtaskOp, detachSubtaskO
 import { attentionPicks, facetPicks, resolveFacetPicks } from './extension/ops/pickers.js';
 import { makePrSyncLoop } from './extension/ops/prSyncLoop.js';
 import { createUndeliveredTracker } from './extension/ops/deliverToPrOps.js';
+import { conflictRounds, armConflictRound } from './extension/ops/autoDeliverOps.js';
 import { makePrFeedbackDeps } from './extension/ops/prFeedbackSync.js';
 import { makeDependencyOps } from './extension/ops/dependencyOps.js';
 import { runBootSweeps, runBridgeSweep } from './extension/ops/bootSweeps.js';
@@ -37,7 +38,7 @@ import { makeMailDeliveryWiring } from './extension/ops/mailDeliveryWiring.js';
 import { makeFixDeliveryWiring, FIX_DELIVERY_INTERVAL_MS } from './extension/ops/fixDeliveryWiring.js';
 import { resumeStrandedShips } from './extension/ops/strandedShip.js';
 import { addressPrFeedback } from './extension/ops/prFeedbackAction.js';
-import { deliverToPrAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
+import { deliverToPrAction, autoDeliverAction, rebaseOnBaseAction, refreshUndeliveredForShipTickets, deliverBlockedPrompt, sendCiFailureAction, type CiActionsInput, type CiHost } from './extension/ops/ciActionsWiring.js';
 import { toWorktreeSpecs } from './extension/ops/worktreeSpecs.js';
 import { resolveStageLogPath } from './extension/ops/stageLogArtifact.js';
 import { fixBriefForTicket } from './extension/ops/fixBriefForTicket.js';
@@ -875,6 +876,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         repo, label: formatId('ticket', id),
         probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
+        arm: (r) => armConflictRound(localStore, conflictRounds, id, r),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief) => {
           if (sessions.nudge(id, brief)) { sessions.focusSession(id); return; }
@@ -3873,6 +3875,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Store news (a session turned amber, a run closed), not an action's answer.
     dashboard.pushStoreState(ticketId);
     maybeDrive(ticketId, 'hook');
+    if ((payload.hook_event_name === 'Stop' || payload.hook_event_name === 'session.idle') && conflictRounds.armed(ticketId) !== null) {
+      const gate = { uat: currentManifest()?.uat, runProcess: sandboxB?.gateProcessFor(ticketId), hostProcess: sandboxB?.hostGateFor(ticketId)?.(), debug: (m: string) => logger.debug(m) };
+      const input: CiActionsInput = { ...ciHost(ticketId), store: localStore, ticketId, logError, debug: gate.debug, drive: () => maybeDrive(ticketId, 'stage-resume'), afterServerChange: () => { provider.refresh(); dashboard.pushState(ticketId); showStatusFor(ticketId); } };
+      void autoDeliverAction(input, { key: formatId('ticket', ticketId), gate, status: (m) => void vscode.window.setStatusBarMessage(m, 15_000), log: (m) => logger.info(m) }).catch((e: unknown) => logError('auto-deliver after conflict resolve failed', e));
+    }
   };
   const shouldApplyHookState = (ticketId: number, payload: HookPayload): boolean =>
     shouldApplySessionHookState(sessions, recoveryLifecycle, ticketId, payload);
@@ -8461,6 +8468,7 @@ function makeDashboardActions(
         repo, label: formatId('ticket', ticketId),
         probeSandbox: () => sandboxB?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
+        arm: (r) => armConflictRound(store, conflictRounds, ticketId, r),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief, hit) => handOffToSession(brief, hit),
       });

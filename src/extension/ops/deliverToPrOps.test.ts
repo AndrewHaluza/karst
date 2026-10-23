@@ -136,3 +136,32 @@ describe('deliverToPr', () => {
     expect(r.errors).toEqual(['Deliver to PR failed: push rejected']);
   });
 });
+
+describe('deliverToPr verify step', () => {
+  const base = (over: Partial<DeliverDeps>): DeliverDeps => ({
+    targets: () => OPEN,
+    agentActive: () => false,
+    ensureSynced: async () => ({ ok: true }),
+    blocked: async () => undefined,
+    runShip: async () => undefined,
+    reprobe: async () => undefined,
+    info: () => undefined,
+    error: () => undefined,
+    logError: () => undefined,
+    afterServerChange: () => undefined,
+    ...over,
+  });
+  it('a verify reason stops before the push and is returned', async () => {
+    const runShip = vi.fn();
+    const out = await deliverToPr(base({ verify: async () => 'nope', runShip }));
+    expect(runShip).not.toHaveBeenCalled();
+    expect(out).toEqual({ kind: 'refused', reason: 'nope' });
+  });
+  it('delivered outcome after a push', async () => {
+    expect(await deliverToPr(base({ verify: async () => null }))).toEqual({ kind: 'delivered' });
+  });
+  it('blocked sync outcome', async () => {
+    const out = await deliverToPr(base({ ensureSynced: async () => ({ ok: false, reason: 'x', diverged: false }) }));
+    expect(out).toEqual({ kind: 'blocked', reason: 'x' });
+  });
+});
