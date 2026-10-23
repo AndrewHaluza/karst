@@ -1257,6 +1257,56 @@ git commit -m "test(visual): re-record the agents baselines for the routed-model
 
 ---
 
+## Verification (recorded after implementation)
+
+The `agents-*` baselines did **not** move, and that is correct: they are
+1280×720 full-page shots of a settings page whose Roles table lives in an
+internal scroll region below that crop, so no `agents-*` image can show the
+picker. Visual evidence is therefore recorded where the picker IS inside the
+captured area — the ticket form's full-page baseline (1280×1119):
+
+- `tests/visual/variants.ts` — new `ticketForm/routed-model` variant (seeded
+  with an OpenRouter 3-segment id, an OpenCode Go id, a `:free` id and a
+  `-free` id), themes dark/light/hc.
+- New baselines: `tests/visual/__baselines__/{dark,light,hc}/ticketForm--routed-model.png`
+  (approved by the user 2026-10-24 before recording).
+- Layout ledger: the new variant is a layout route, so its 15 template
+  failures already carried by every sibling ticket-form route
+  (`ticketForm/edit`, `/empty`, `/populated`) were backfilled verbatim —
+  **0 unmatched (width, check, selector) keys**, the #722 precedent that proves
+  no new bug was accepted.
+
+Gate results on the final code:
+
+| Command | Result |
+| --- | --- |
+| `npm run -s typecheck` / `lint:react` / `docs:lint` / `docs:graph -- --check` | exit 0 |
+| `npm run -s test:unit` | 872 files, 15 034 tests pass |
+| `npm run -s test:layout:docker` | 424 pass, exit 0, ledger verdict green |
+| `npm run -s test:visual:docker` | 1 253 pass, 0 fail, 449 skipped |
+
+Deviations from the plan above, made during implementation and reviewed here:
+
+1. `apModelName(parsed, routes)` — a curated label that repeats the route
+   heading ("OpenCode Go · MiMo v2.5") renders without the prefix, because the
+   heading already names the gateway. Raw ids and non-matching labels are
+   untouched.
+2. The menu footer **wraps** (`overflow-wrap:anywhere`) instead of ellipsizing:
+   a clipped footer is reported by layout check (d) as clipped text with no
+   reachable full form (UI-R44).
+3. `.ap-trigger:has(.ap-mstack)` tightens block padding and `.ap-mstack` uses
+   `line-height:1.15`, so the two-line trigger stays inside
+   `--k-control-h-lg`. Without it the routed Model control was ~34px against a
+   30px Core control, breaking the D108 Core | Model | Effort alignment.
+4. The route badge sits inline beside the mark (not absolutely positioned):
+   at the mark's corner it overlapped the group-heading text.
+5. `apMarkActive(items, index)` is the single highlight helper, and
+   `apModelListHtml` drops a route group whose every row moved into "Last used"
+   — the two review findings (one row highlighted, no heading over nothing).
+
+
+---
+
 ## Self-review
 
 **Spec coverage**
