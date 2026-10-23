@@ -17,8 +17,37 @@
   "scripts/docsKeys.mjs": [
     "arch:DOC-01"
   ],
+  "scripts/install-local.sh": [
+    "arch:ABI-00",
+    "arch:ABI-01"
+  ],
   "scripts/nativeToolchain.mjs": [
     "arch:GATE-CAPABILITY"
+  ],
+  "scripts/package-remote.sh": [
+    "arch:ABI-00",
+    "arch:ABI-01"
+  ],
+  "scripts/rebuild-better-sqlite3.mjs": [
+    "arch:ABI-00"
+  ],
+  "scripts/rebuild-better-sqlite3.mjs#addonAbi": [
+    "arch:ABI-02"
+  ],
+  "scripts/rebuild-better-sqlite3.mjs#assertLoadableUnderNode": [
+    "arch:ABI-02"
+  ],
+  "scripts/rebuild-better-sqlite3.mjs#ensureAddonFor": [
+    "arch:ABI-02"
+  ],
+  "scripts/rebuild-better-sqlite3.mjs#materializeLocalCopyIfNeeded": [
+    "arch:ABI-03"
+  ],
+  "scripts/stage-vsix.mjs": [
+    "arch:ABI-00"
+  ],
+  "scripts/stage-vsix.mjs#placeAddon": [
+    "arch:ABI-01"
   ],
   "src/agent/cliEnv.ts#cliTokensFor": [
     "arch:CLI-10"
@@ -328,6 +357,9 @@
   "src/store/bulletinNotes.ts#recordTicketMerged": [
     "arch:BULLETIN",
     "arch:GH-03"
+  ],
+  "src/store/db.ts": [
+    "arch:ABI-00"
   ],
   "src/store/fixDeliveries.ts#upsertFixDelivery": [
     "arch:V77"
