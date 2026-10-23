@@ -267,6 +267,29 @@ describe('dispatchHook', () => {
     expect(getTicket(store, id).agentState).toBe('none');
   });
 
+  it('hands a session.error to onSessionError without changing agent state', () => {
+    const id = ticketAt();
+    const seen: Array<[number, string | undefined]> = [];
+    dispatchHook(
+      store,
+      { hook_event_name: 'session.error', cwd: WT, session_id: 'ses_1', message: 'insufficient_quota' },
+      undefined, undefined, undefined, undefined, undefined, undefined,
+      (ticketId, payload) => seen.push([ticketId, payload.message]),
+    );
+    expect(seen).toEqual([[id, 'insufficient_quota']]);
+    expect(getTicket(store, id).agentState).toBe('none');
+  });
+
+  it('does not call onSessionError for other events or stale generations', () => {
+    ticketAt();
+    const spy = vi.fn();
+    dispatchHook(store, { hook_event_name: 'session.idle', cwd: WT, session_id: 'ses_1' },
+      undefined, undefined, undefined, undefined, undefined, undefined, spy);
+    dispatchHook(store, { hook_event_name: 'session.error', cwd: WT, session_id: 'ses_1', message: 'x' },
+      undefined, () => false, undefined, undefined, undefined, undefined, spy);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   // opencode's plugin posts `permission.asked` at prompt time, but the session
   // RESOLVES and keeps processing — and opencode has no PostToolUse or
   // UserPromptSubmit to flip the amber back. The resolution event is the only

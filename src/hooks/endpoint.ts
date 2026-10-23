@@ -130,6 +130,8 @@ export interface HookEndpointOptions {
    * and never persists.
    */
   tracker?: TurnTracker;
+  /** D160: a provider `session.error` for an admitted ticket (observation only). */
+  onSessionError?: (ticketId: number, payload: HookPayload) => void;
   /**
    * The mail reply channel (MAILBOX-DELIVERY-PER-CORE-PUSH): when supplied, a
    * hook that was ADMITTED (known worktree + current generation) and asks for a
@@ -403,6 +405,7 @@ export function startHookEndpoint(
               options.recorder,
               options.debug,
               options.tracker,
+              options.onSessionError,
             );
           } catch (err) {
             observe('dispatch-failed', payload.hook_event_name);

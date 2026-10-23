@@ -23,7 +23,7 @@ import { UsageLimitError } from '../agent/cliFailure.js';
  *   unless the call site names the specific op (`'analysis'`/`'suggest'`), which
  *   D159's re-run dispatches on — and which keeps two different ops at one stage
  *   from collapsing into a single open row.
- * - `interactive`: reserved for the interactive-detection part (D160).
+ * - `interactive`: written by `extension/ops/interactiveUsageLimitOps.ts` (D160, arch:AC-42).
  *
  * At most ONE open park per `(ticket_id, stage, kind, lane, target, session_id)`
  * — an expression partial unique index enforces it and `insertOpenPark` upserts
