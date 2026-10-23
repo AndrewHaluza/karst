@@ -1,12 +1,11 @@
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import type { GateProcessRunner } from '../workflow/gates/run.js';
+import { blockedHostsFromOutput, blockedSuffix, failedTail, npmDebugLogPath, quoteLine } from './sandboxSetupDiagnose.js';
 import type { SetupWindow } from './sessionRunner.js';
 
 /** How long a setup (or a wait on one) may take before the gate list is refused. */
 export const SETUP_BOUND_MS = 15 * 60_000;
-/** Lines of failed setup output kept in `logs/setup.log` and the refusal reason. */
-export const SETUP_LOG_LINES = 40;
 /** Wait before the single automatic retry of a killed (exit 137) setup. */
 export const KILL_RETRY_DELAY_MS = 60_000;
 const POLL_MS = 5_000;
@@ -108,19 +107,12 @@ async function writeState(file: string, state: SetupState): Promise<void> {
   await rename(tmp, file);
 }
 
-const tail = (text: string): string => text.split('\n').filter((l) => l.trim() !== '').slice(-SETUP_LOG_LINES).join('\n');
-
 async function fingerprintOf(deps: SetupDeps, req: SetupRequest): Promise<string | SetupResult> {
   const out = await deps.runGate('sh', ['-c', FINGERPRINT_SH, FINGERPRINT_JS, req.setup], req.cwd, { signal: req.signal });
   const hash = out.kind === 'completed' && out.exitCode === 0 ? (out.stdout ?? out.output).trim() : '';
   if (/^[0-9a-f]{64}$/.test(hash)) return hash;
   return { ok: false, reason: `sandbox dependencies not provisioned: could not fingerprint the lockfiles in the sandbox (${out.output.trim().slice(0, 200) || out.kind})` };
 }
-
-const BLOCKED_HOST = /(?:ENOTFOUND|EAI_AGAIN|ECONNREFUSED|getaddrinfo \w+)\s+([a-z0-9][a-z0-9.-]*\.[a-z]{2,})/i;
-
-/** The host a failed download names (DNS or refused connection = the proxy/policy blocked it), if any. */
-const blockedHost = (body: string): string | undefined => BLOCKED_HOST.exec(body)?.[1];
 
 /**
  * docker only: with an agent turn live the window cannot open (it recreates the proxy). Record `deferred` and
@@ -155,7 +147,7 @@ async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string)
     return { ok: false, reason: `sandbox dependencies not provisioned: could not open the setup network window: ${opened.reason}` };
   }
   try {
-    return await runSetupCommand(deps, req, fingerprint);
+    return await runSetupCommand(deps, req, fingerprint, opened);
   } finally {
     await opened?.close().catch((err: unknown) => deps.debug?.(`[sandbox] closing the setup network window failed: ${err instanceof Error ? err.message : String(err)}`));
   }
@@ -163,14 +155,6 @@ async function runSetup(deps: SetupDeps, req: SetupRequest, fingerprint: string)
 
 /** SIGKILL (exit 137, the OOM killer) or a signal kill: likely transient memory pressure. */
 const isKill = (exitCode: number | null): boolean => exitCode === 137;
-
-/** The last line worth quoting: an error line, else a non-warning line; warn-only output is not quoted. */
-export function quoteLine(body: string): string {
-  const lines = body.split('\n').filter((l) => l.trim() !== '');
-  const isWarn = (l: string): boolean => /\bwarn(ing)?\b/i.test(l.slice(0, 30));
-  const err = [...lines].reverse().find((l) => /npm error|ERR!|\bError:/i.test(l));
-  return err ?? [...lines].reverse().find((l) => !isWarn(l)) ?? '';
-}
 
 async function classify(deps: SetupDeps, why: string, exitCode: number | null): Promise<string> {
   if (isKill(exitCode)) {
@@ -187,7 +171,7 @@ const abortableDelay = (deps: SetupDeps, signal: AbortSignal | undefined, ms: nu
   return Promise.race([sleep(ms), new Promise<void>((r) => signal.addEventListener('abort', () => r(), { once: true }))]);
 };
 
-async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: string, retried = false): Promise<SetupResult> {
+async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: string, window: SetupWindow | undefined, retried = false): Promise<SetupResult> {
   const now = deps.now ?? Date.now;
   const script = `echo $$ > ${PID_FILE}; exec sh -c "$0"`;
   const out = await deps.runGate('sh', ['-c', script, req.setup], req.cwd, { signal: req.signal, timeoutMs: deps.boundMs ?? SETUP_BOUND_MS });
@@ -209,20 +193,58 @@ async function runSetupCommand(deps: SetupDeps, req: SetupRequest, fingerprint: 
       await rm(deps.stateFile, { force: true }).catch(() => undefined);
       return { ok: false, reason: 'sandbox dependencies not provisioned: setup was stopped' };
     }
-    return runSetupCommand(deps, req, fingerprint, true);
+    return runSetupCommand(deps, req, fingerprint, window, true);
   }
   const raw = out.kind === 'completed' ? `exit ${exitCode}` : out.kind === 'timedOut' ? 'timed out' : out.message;
   const why = await classify(deps, raw, exitCode);
-  const body = tail(out.output);
-  deps.debug?.(`[sandbox] setup failed (${why}):\n${body}`);
+  const body = failedTail(out.output);
+  // Both reads need the sandbox / window alive: this runs before the caller's `finally` closes the window.
+  const denied = await deniedBy(window);
+  const blocked = blockedSuffix(denied ?? [], blockedHostsFromOutput(out.output), req.hosts ?? []);
+  const npmLog = deps.logFile ? await copyNpmDebugLog(deps, req, out.output) : undefined;
+  deps.debug?.(`[sandbox] setup failed (${why}${blocked}):\n${body}`);
   if (deps.logFile) {
     await mkdir(dirname(deps.logFile), { recursive: true });
-    await writeFile(deps.logFile, `${why}\n${req.setup}\n${body}\n`, 'utf8').catch(() => undefined);
+    const extra = `${blocked ? `${blocked.slice(2)}\n` : ''}${npmLog ? `npm debug log: ${npmLog}\n` : ''}`;
+    await writeFile(deps.logFile, `${why}\n${req.setup}\n${extra}${body}\n`, 'utf8').catch(() => undefined);
   }
   await writeState(deps.stateFile, { fingerprint, status: 'failed', exitCode, at: now() });
   const last = quoteLine(body);
-  const blocked = blockedHost(body);
-  return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (${why})${blocked ? `, blocked host ${blocked}` : ''}${last ? `: ${last}` : ''}` };
+  return { ok: false, reason: `sandbox dependencies not provisioned: setup \`${req.setup}\` failed (${why})${blocked}${last ? `: ${last}` : ''}` };
+}
+
+/** Best-effort: the hosts the window's proxy refused (docker); an error is no hosts. */
+async function deniedBy(window: SetupWindow | undefined): Promise<string[]> {
+  try {
+    return window?.ok ? (await window.deniedHosts?.()) ?? [] : [];
+  } catch {
+    return [];
+  }
+}
+
+const NPM_DEBUG_LOG_FILE = 'setup-npm-debug.log';
+const NPM_DEBUG_LOG_LINES = 2000;
+const NPM_DEBUG_LOG_BYTES = 1024 * 1024;
+
+/**
+ * Best-effort: copy npm's debug log (named in the failed output) out of the sandbox, which is lost when it is
+ * removed, to `<bridge dir>/logs/setup-npm-debug.log`. Returns the sandbox path on success; a failure is a debug line.
+ */
+async function copyNpmDebugLog(deps: SetupDeps, req: SetupRequest, output: string): Promise<string | undefined> {
+  const path = npmDebugLogPath(output);
+  if (!path || !deps.logFile) return undefined;
+  try {
+    const script = `tail -n ${NPM_DEBUG_LOG_LINES} "$0" | tail -c ${NPM_DEBUG_LOG_BYTES}`;
+    const out = await deps.runGate('sh', ['-c', script, path], req.cwd, { signal: req.signal });
+    if (out.kind !== 'completed' || out.exitCode !== 0) throw new Error(out.kind === 'completed' ? `exit ${out.exitCode}` : out.kind);
+    const dir = dirname(deps.logFile);
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, NPM_DEBUG_LOG_FILE), out.stdout ?? out.output, 'utf8');
+    return path;
+  } catch (err) {
+    deps.debug?.(`[sandbox] copying the npm debug log ${path} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }
 
 /** Run under the per-ticket lock; a second caller waits on it instead of starting another. */

@@ -22,7 +22,7 @@ import {
   type LinuxUser,
   rewritePaths,
 } from './dockerRunArgs.js';
-import { DOCKER_ALLOWLIST, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
+import { deniedHostsFromLog, DOCKER_ALLOWLIST, startProxySidecar, stopProxySidecar } from './proxySidecar.js';
 
 export interface DockerRunnerOptions {
   readonly proc: DockerProcess;
@@ -117,10 +117,19 @@ export function createDockerSessionRunner(opts: DockerRunnerOptions): SessionRun
     setupWindow: async (hosts) => {
       if (!opts.proxy) return { ok: false, reason: 'docker: no proxy script to recreate the allowlist proxy with' };
       const spec = { proxy: opts.names.proxy, network: opts.names.network, scriptPath: opts.proxy.script, ...(opts.proxy.hostPorts ? { hostPorts: opts.proxy.hostPorts } : {}) };
+      const since = new Date().toISOString();
       const opened = await startProxySidecar(opts.proc, { ...spec, allow: [...DOCKER_ALLOWLIST, ...hosts.map((h) => h.replace(/^\*\./, ''))] });
       // A failed open may leave a half-built proxy: put the baseline back before reporting.
       if (!opened.ok) { await startProxySidecar(opts.proc, spec); return opened; }
-      return { ok: true, close: async () => { await startProxySidecar(opts.proc, spec); } };
+      const deniedHosts = async (): Promise<string[]> => {
+        try {
+          const logs = await opts.proc.run(DOCKER_BIN, ['logs', '--since', since, opts.names.proxy]);
+          return logs.code === 0 ? deniedHostsFromLog(`${logs.stdout}\n${logs.stderr}`) : [];
+        } catch {
+          return [];
+        }
+      };
+      return { ok: true, close: async () => { await startProxySidecar(opts.proc, spec); }, deniedHosts };
     },
     canHostServices: async () => {
       if (await containerRunning(opts.proc, opts.names.container)) return true;

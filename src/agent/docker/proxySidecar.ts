@@ -88,3 +88,10 @@ export async function startProxySidecar(proc: DockerProcess, spec: SidecarSpec):
 export async function stopProxySidecar(proc: DockerProcess, proxy: string): Promise<DisposeStep> {
   return disposeStep('proxy', await proc.run(DOCKER_BIN, ['rm', '--force', proxy]));
 }
+
+/** The distinct hosts of the proxy's `DENY <host:port>` lines (a log line has no payload). */
+export function deniedHostsFromLog(log: string): string[] {
+  const hosts = new Set<string>();
+  for (const m of log.matchAll(/^DENY (\S+?)(?::\d+)?\s*$/gm)) if (m[1]) hosts.add(m[1].toLowerCase());
+  return [...hosts];
+}
