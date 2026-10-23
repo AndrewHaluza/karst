@@ -88,11 +88,11 @@ function measure(page: Page) {
 }
 
 const browser = await chromium.launch();
-const ONLY = process.argv[2] ? new RegExp(process.argv[2]) : null;
+const ONLY = process.argv[2] ?? null;
 const prior = existsSync(join(OUT, 'measurements.json')) ? JSON.parse(readFileSync(join(OUT, 'measurements.json'), 'utf8')) : {};
 const results: Record<string, Record<string, unknown>> = ONLY ? prior : {};
 for (const t of targets) {
-  if (ONLY && !ONLY.test(t.name)) continue;
+  if (ONLY && !t.name.includes(ONLY)) continue;
   const ctx = await browser.newContext({ colorScheme: t.theme, deviceScaleFactor: 1, locale: 'en-US', timezoneId: 'UTC' });
   const page = await ctx.newPage();
   // tsx's keepNames wraps arrows in __name(); the page has no such helper.

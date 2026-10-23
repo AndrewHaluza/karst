@@ -13,7 +13,7 @@ Measured evidence for [`../RESPONSIVE-DENSITY.md`](../RESPONSIVE-DENSITY.md). Ev
 - Widths **1212 / 600 / 400 / 320** (14" MBP with 1–4 editor groups). A fifth **200 px probe** (not screenshotted) reads the page's natural `scrollWidth`: the minimum width the layout can reach before the page scrolls sideways.
 - Dark theme for every target; **light** variants for `dashboard-running` and `sidebar` (`*-light/`). Geometry is theme-independent; light is there to eyeball contrast.
 - Screenshots: `<target>/<width>.png` (full page). Raw numbers: `measurements.json` (per width: page `scrollWidth`, every element that overflows the viewport or clips its content, with selector / `data-region` / box).
-- Re-run: `node tests/visual/serve.mjs &` then `npx tsx docs/ui/responsive-audit/capture.ts`.
+- Re-run: `node tests/visual/serve.mjs &` then `npx tsx docs/ui/responsive-audit/capture.ts [name-substring]`.
 - Dashboard targets are the six scenario fixtures (`pending running passed failed waiting exhausted`). `running` is the reference "ticket view".
 - Caveats: (1) the dashboard has **no `data-region` landmarks** except `sandbox`/`ship-preview`; the "region" column below names the panel (`#inside`, `.svpanel`, …) instead — adding landmarks is backlog item B1. (2) Off-canvas drawers (`.tdDrawer*`, `#drawerBody`) report as `overflow-viewport`: they are translated off-screen by design, not defects. (3) `.sr`/`.sr-only` clips are visually-hidden text, not defects. (4) Fixture PR/URL strings (`fixture:https://…`) are longer than real ones only slightly; paths and titles are the same lengths as production.
 END_DOC_BLOCK: [@ui:RA-METHOD]
