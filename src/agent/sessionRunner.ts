@@ -96,7 +96,12 @@ export type StepOutcome = { readonly ok: true } | { readonly ok: false; readonly
 export type { GateProcessRunner };
 
 export type SetupWindow =
-  | { readonly ok: true; readonly close: () => Promise<void> }
+  | {
+      readonly ok: true;
+      readonly close: () => Promise<void>;
+      /** docker: the distinct hosts the window proxy refused so far (its `DENY` log); best-effort. Read BEFORE `close`, which recreates the proxy. */
+      readonly deniedHosts?: () => Promise<string[]>;
+    }
   | { readonly ok: false; readonly reason: string };
 
 export interface SessionRunner {

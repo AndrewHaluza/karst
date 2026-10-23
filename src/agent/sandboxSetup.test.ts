@@ -91,6 +91,49 @@ describe('ensureSandboxSetup', () => {
     expect(r.setups()).toHaveLength(1);
   });
 
+  it('quotes the real error, not npm trailer, and keeps the npm debug log', async () => {
+    const log = '/home/node/.npm/_logs/2026-10-23T10_00_00_000Z-debug-0.log';
+    const out = ['gyp http GET https://nodejs.org/dl/headers.tar.gz', 'gyp ERR! stack Error: Request was cancelled', 'npm error code 1', `npm error A complete log of this run can be found in: ${log}`].join('\n');
+    const r = rig((a) => {
+      if (fingerprinting(a)) return done(HASH);
+      if (a[1]?.startsWith('tail -n 2000')) return a[2] === log ? done('debug line 1\ndebug line 2\n') : done('', 1);
+      return done(out, 1);
+    });
+    const res = await ensureSandboxSetup(r.deps, req);
+    const reason = res.ok ? '' : res.reason;
+    expect(reason).toContain('gyp ERR! stack Error: Request was cancelled');
+    expect(reason).not.toContain('A complete log');
+    expect(reason).toContain('blocked host(s) nodejs.org (add to sandbox.setupHosts)');
+    expect(readFileSync(join(r.dir, 'logs', 'setup-npm-debug.log'), 'utf8')).toBe('debug line 1\ndebug line 2\n');
+    const lines = readFileSync(r.deps.logFile!, 'utf8').split('\n');
+    expect(lines[0]).toBe('exit 1');
+    expect(lines).toContain(`npm debug log: ${log}`);
+  });
+
+  it('a failed npm debug log copy is a debug line only', async () => {
+    const debug = vi.fn();
+    const r = rig((a) => {
+      if (fingerprinting(a)) return done(HASH);
+      if (a[1]?.startsWith('tail -n 2000')) throw new Error('sandbox gone');
+      return done('npm error Error: boom\nnpm error A complete log of this run can be found in: /h/.npm/_logs/x-debug-0.log', 1);
+    }, { debug });
+    const res = await ensureSandboxSetup(r.deps, req);
+    expect(res).toMatchObject({ ok: false });
+    expect(existsSync(join(r.dir, 'logs', 'setup-npm-debug.log'))).toBe(false);
+    expect(readFileSync(r.deps.logFile!, 'utf8')).not.toContain('npm debug log:');
+    expect(debug).toHaveBeenCalledWith(expect.stringContaining('copying the npm debug log'));
+  });
+
+  it('keeps the last 120 lines of a failed setup without silly / http fetch noise', async () => {
+    const out = Array.from({ length: 200 }, (_, i) => (i % 2 ? `npm http fetch GET 200 https://r/${i}` : `line ${i}`)).join('\n');
+    const r = rig((a) => (fingerprinting(a) ? done(HASH) : done(out, 1)));
+    await ensureSandboxSetup(r.deps, req);
+    const log = readFileSync(r.deps.logFile!, 'utf8');
+    expect(log).not.toContain('http fetch');
+    expect(log).toContain('line 198');
+    expect(log).toContain('line 0');
+  });
+
   it('refuses when the fingerprint cannot be computed', async () => {
     const r = rig(() => done('node: not found', 127));
     expect(await ensureSandboxSetup(r.deps, req)).toMatchObject({ ok: false });
