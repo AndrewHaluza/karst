@@ -59,14 +59,45 @@ describe('buildDashboardState', () => {
     ]);
     expect(state.servers).toHaveLength(1);
     expect(state.servers[0]!.port).toBe(5173);
+    expect(state.sharedServers).toEqual([]);
     expect(state.worktrees).toEqual([]);
     expect(state.prs).toEqual([]);
     // No evidence → no artifacts section (spec §4.1: absence, never empty).
     expect(state.artifacts).toEqual([]);
   });
 
-  it('resolves the PR repo to its manifest NAME and stamps adaptively', () => {
+  it('places the injected shared services beside the ticket rows', () => {
     const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
+    const shared = {
+      id: 5,
+      service: 'api',
+      status: 'running' as const,
+      host: 'localhost',
+      port: 4000,
+      logPath: '/tmp/api.log',
+      container: null,
+      baseBranch: 'develop',
+      checkoutPath: '/repo/.karst/baseline/api',
+      sharedWith: 'no other live tickets',
+      missingReason: null,
+      dependents: [],
+    };
+
+    const state = buildDashboardState(
+      store, t.id,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      undefined, undefined, undefined, undefined, undefined,
+      () => [shared],
+    );
+
+    expect(state.sharedServers).toEqual([shared]);
+    // `servers` keeps its own meaning: the shared half never leaks into it.
+    expect(state.servers).toEqual([]);
+  });
+
+  it('resolves the PR repo to its manifest NAME and stamps adaptively', () => {    const t = createTicket(store, { key: 'PROJ-1', title: 'thing' });
     setStage(store, t.id, 'ship', { status: 'passed' });
     store.db
       .prepare(

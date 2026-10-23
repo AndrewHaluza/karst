@@ -1047,6 +1047,9 @@ export function renderStateFor(stage: InsideStageKey): DashboardState {
       graphFast: null,
     },
     servers: [],
+    // The neutral envelope has no shared services either: this fixture exercises
+    // the Inside component, and Task 8's corpus adds the shared rows.
+    sharedServers: [],
     hasRunnableRepos: false,
     worktrees: [],
     prs: [],

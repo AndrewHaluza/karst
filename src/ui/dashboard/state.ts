@@ -3,6 +3,7 @@ import type { Store } from '../../store/db.js';
 import { getProposalForTicket } from '../../store/planningProposals.js';
 import { getTicket, listSubtasks } from '../../store/tickets.js';
 import { listServersByTicket } from '../../store/dashboard.js';
+import type { SharedServerView } from '../../store/sharedServers.js';
 import type { AgentProvider, Severity, TicketProvider } from '../../manifest/types.js';
 import { providerTicketUrl } from '../../integrations/ticketUrl.js';
 import { buildStepper, displayStatus, type StepperCell } from '../../model/stepper.js';
@@ -226,6 +227,14 @@ export function buildDashboardState(
     review?: Severity | 'none';
     tester?: Severity | 'none';
   },
+  /**
+   * The shared services this ticket consumes (`store/sharedServers.ts`). Built
+   * host-side because it needs the manifest and the live store; injected for
+   * the same reason as `serviceNames` — this builder never reads the manifest.
+   * Absent → no shared rows, exactly the pre-feature panel.
+   * Appended LAST so every existing positional caller keeps its argument positions.
+   */
+  sharedServersFor: (ticketId: number) => SharedServerView[] = () => [],
 ): DashboardState {
   const ticket = getTicket(store, ticketId); // throws on unknown id
   // The parent relationship for the dashboard's secondary metadata line. A
@@ -737,6 +746,9 @@ export function buildDashboardState(
       rewritten: agentContext.sandboxRewritten?.(ticket.id) ?? false,
     }),
     servers: serverRows,
+    // The read-only half of the stack. Kept OUT of `servers` so no action that
+    // already means "this ticket's services" silently widens to a shared one.
+    sharedServers: sharedServersFor(ticketId),
     // Drives whether "Start servers" is offered at all. A ticket scoping only
     // non-runnable repositories can never have a server, so presenting a live
     // Start button there is a dead affordance dressed as an available action.
