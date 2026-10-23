@@ -1281,6 +1281,18 @@ describe('dashboard webview.html', () => {
     expect(html).not.toContain('data-act="open-server" data-id="22"');
   });
 
+  it('posts open-resources when Manage is clicked on a shared row', () => {
+    // A rendered data-act no SEND_BY_ACT entry resolves to is a button that
+    // acknowledges nothing and posts nothing — the exact dead end the review
+    // caught. Click it through the real delegated handler, not the map source.
+    const h = bootPreviewHarness();
+    h.receive({ type: 'state', state: sharedServersState() });
+
+    h.click('[data-act]', { act: 'open-resources' });
+
+    expect(h.posted.at(-1)).toMatchObject({ type: 'open-resources' });
+  });
+
   it('keeps every lifecycle control off the shared rows', () => {
     const h = bootPreviewHarness();
     h.receive({ type: 'state', state: sharedServersState() });
@@ -1321,8 +1333,7 @@ describe('dashboard webview.html', () => {
     expect(header).toContain('data-act="stop-servers"');
   });
 
-  it('offers Logs on a shared row only when it has a log file', () => {
-    const h = bootPreviewHarness();
+  it('offers Logs on a shared row only when it has a log file', () => {    const h = bootPreviewHarness();
     h.receive({ type: 'state', state: sharedServersState() });
     const html = h.htmlOf('servers');
 
