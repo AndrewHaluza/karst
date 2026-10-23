@@ -390,6 +390,9 @@ describe('writeManifest', () => {
         // Same reason: absent diffsInSourceControl would round-trip regardless of
         // the overlay, so the populated manifest pins the explicit value.
         diffsInSourceControl: true,
+        // Non-default on purpose: absent defaults to 'ask', so the populated
+        // manifest pins an explicit non-default value to prove the overlay.
+        stopServersOnDone: 'auto',
         // Non-default on purpose, same reason as archiveDoneAfterDays.
         subtasks: { maxConcurrentPerParent: 0, maxConcurrentTotal: 9 },
         // Non-default on purpose: the loader defaults an absent quota block, so

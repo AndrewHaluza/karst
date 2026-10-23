@@ -71,6 +71,8 @@ CREATE TABLE IF NOT EXISTS tickets (
   env_overrides     TEXT,                 -- JSON {"*":{"K":"v"},"api":{"K":"v"}}; NULL = nothing overridden
   -- v52 task pause timestamp (kept in sync with migrations.ts v52 ALTER):
   paused_at         TEXT,                 -- soft pause timestamp; NULL = active, non-null = execution paused
+  -- v87 servers-stop-on-done state (kept in sync with migrations.ts v87 ALTER):
+  servers_on_done   TEXT,                 -- 'asked' | 'stopped' | 'kept' | 'auto' | 'off'; NULL = not evaluated/done
   created_at        TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
 );

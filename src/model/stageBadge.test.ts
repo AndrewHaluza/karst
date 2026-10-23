@@ -45,6 +45,7 @@ function ticket(
     autostartStarting: false,
     autostartClaimedAt: null,
     priority: null,
+    serversOnDone: null,
     stages: stageCurrent
       ? [
           {

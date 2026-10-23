@@ -184,6 +184,12 @@ quota:
 # qualify. Off by default; dead tabs stay until you close them.
 # closeDoneTerminalsWithTicket: false
 
+# What happens to a ticket's services when the ticket reaches done (Settings →
+# General). 'ask' (default): prompt once per ticket — Stop servers / Keep
+# running / Always stop. 'auto': stop without asking and announce it. 'off':
+# leave them running until archive.
+# stopServersOnDone: ask
+
 # Show a ticket's changed files in the IDE's Source Control view — collapsible
 # groups per worktree and per commit — instead of the "Ticket changes" panel
 # (Settings → General). Clicking a file opens the same diff either way. Off by

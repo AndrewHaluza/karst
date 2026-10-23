@@ -43,6 +43,7 @@ const PROTECTED_FIELDS = [
   'agentBackends',
   'closeDoneTerminalsWithTicket',
   'diffsInSourceControl',
+  'stopServersOnDone',
   'uat',
   'analysis',
   'review',

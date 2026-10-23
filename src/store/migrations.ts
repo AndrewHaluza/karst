@@ -2723,5 +2723,15 @@ function migrateLocked(db: Database): void {
     }
   }
 
+  if (current < 87) {
+    // v87: `tickets.servers_on_done` — records the state of servers-stop-on-done
+    // prompt/action ('asked' | 'stopped' | 'kept' | 'auto' | 'off').
+    // No backfill: an already-done ticket is never prompted retroactively.
+    const cols87 = ticketColumns(db);
+    if (cols87.size > 0 && !cols87.has('servers_on_done')) {
+      db.exec('ALTER TABLE tickets ADD COLUMN servers_on_done TEXT');
+    }
+  }
+
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
 }

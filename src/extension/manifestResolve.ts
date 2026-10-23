@@ -170,5 +170,6 @@ export function emptyManifest(): Manifest {
     agentProvider: 'claude',
     archiveDoneAfterDays: DEFAULT_ARCHIVE_DONE_AFTER_DAYS,
     subtasks: { ...DEFAULT_SUBTASK_LIMITS },
+    stopServersOnDone: 'ask',
   };
 }

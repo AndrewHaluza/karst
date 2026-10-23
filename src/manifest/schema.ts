@@ -1,4 +1,4 @@
-import { CHAIN_EDGES } from './types.js';
+import { CHAIN_EDGES, DEFAULT_STOP_SERVERS_ON_DONE } from './types.js';
 import { allowedBackends, BACKEND_CORES, type AgentBackends, type BackendCore, type CoreBackend } from '../agent/backendChoices.js';
 import type {
   Manifest,
@@ -9,6 +9,7 @@ import type {
   WorkflowPhase,
   AgentDef,
   WorktreePathDisplay,
+  StopServersOnDone,
   TicketingConfig,
   AgentProvider,
   ArtifactConventions,
@@ -535,6 +536,17 @@ function validateDiffsInSourceControl(raw: unknown): boolean | undefined {
   return raw;
 }
 
+export { DEFAULT_STOP_SERVERS_ON_DONE } from './types.js';
+
+/** Parse `stopServersOnDone` (default 'ask'); only three legal values. */
+function validateStopServersOnDone(raw: unknown): StopServersOnDone {
+  if (raw === undefined) return DEFAULT_STOP_SERVERS_ON_DONE;
+  if (raw !== 'ask' && raw !== 'auto' && raw !== 'off') {
+    throw new ManifestError("stopServersOnDone must be 'ask', 'auto', or 'off'");
+  }
+  return raw;
+}
+
 /**
  * Parse the project `id`. Must be a string when present; blank/whitespace
  * normalizes to undefined so a cleared field falls back to the path-derived
@@ -754,6 +766,7 @@ export function validateManifest(raw: unknown): Manifest {
       raw.closeDoneTerminalsWithTicket,
     ),
     diffsInSourceControl: validateDiffsInSourceControl(raw.diffsInSourceControl),
+    stopServersOnDone: validateStopServersOnDone(raw.stopServersOnDone),
     uat: validateUat(raw.uat),
     analysis: validateAnalysis(raw.analysis),
     quota: validateQuota(raw.quota),

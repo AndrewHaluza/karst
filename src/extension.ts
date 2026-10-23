@@ -114,6 +114,7 @@ import {
   type TerminalIdentity,
 } from './ui/terminalIdentity.js';
 import { closeTerminalsOnTicketCompleted } from './extension/ops/completeTicketOps.js';
+import { maybeStopServersOnDone, type ServerLifecycleDeps } from './extension/ops/serverLifecycle.js';
 import { closeDoneTerminalsOf, type DoneTerminalProbe } from './ui/doneTerminals.js';
 import { TerminalDashboardBinder } from './ui/bind/binder.js';
 import {
@@ -2978,6 +2979,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     confirm: async (title, detail, action) => (await vscode.window.showWarningMessage(title, { modal: true, detail }, action)) === action,
     info: (m) => void vscode.window.showInformationMessage(m), error: (m) => void vscode.window.showErrorMessage(m),
   });
+  let serverLifecycleDeps!: ServerLifecycleDeps;
   const dashboard: DashboardManager = new DashboardManager(
     localStore,
     makeDashboardPanelHost(context, brandIcon, (m) => logger.warn(m), logger),
@@ -2998,6 +3000,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         (ticketId) => prDescriptionProcess(ticketId),
         () => {
           closeTerminalsOnTicketCompleted(currentManifest, (id) => closeTicketTerminals(id, 'ticket-completed'), logger, logError, ticketId);
+          void maybeStopServersOnDone(serverLifecycleDeps, ticketId);
           return pushDoneStatus(ticketId, true);
         },
         // Live Ship rides the generic inside-progress union (Finding 12): the
@@ -3296,6 +3299,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     storedArtifacts.load,
     makeShipPreviewLoader(localStore, currentManifest, defaultGitRunner, defaultGhRunnerAsync),
   );
+  serverLifecycleDeps = {
+    store: localStore, manifest: currentManifest,
+    stopServers: (s, id) => (sandboxB ? sandboxB.stopTicket(s, id) : stopTicketServers(s, id)),
+    notify: vscodeNotify, writeManifest, manifestPath: () => manifestPathOrThrow(), logError,
+    afterServerChange: () => { provider.refresh(); dashboard.pushAll(); },
+  };
   const liveness = createLivenessLoop({
     store: localStore, openPanelCount: () => dashboard.openCount(),
     refresh: () => { provider.refresh(); dashboard.pushAll(); }, logError,
@@ -3669,7 +3678,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           // routine `info` progress lines or (absent this) the invisible
           // extension-host console.
           warn: (message) => logger.warn(message),
-          onTicketDone: () => void subtaskAutostart.sweep(),
+          onTicketDone: (id) => {
+            void subtaskAutostart.sweep();
+            void maybeStopServersOnDone(serverLifecycleDeps, id ?? ticketId);
+          },
         },
         ticketId,
       );
@@ -5775,6 +5787,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             logger.debug(message),
           );
           void pushDoneStatus(id, false);
+          void maybeStopServersOnDone(serverLifecycleDeps, id);
         }
       } catch (e) {
         // Bookkeeping over state that is already stored: the next tick retries.
@@ -7981,6 +7994,7 @@ const vscodeNotify: Notify = {
   info: (m) => void vscode.window.showInformationMessage(m),
   warn: (m) => void vscode.window.showWarningMessage(m),
   error: async (m) => { await vscode.window.showErrorMessage(m); }, errorActions: async (m, actions) => vscode.window.showErrorMessage(m, ...actions),
+  infoActions: async (m, actions) => vscode.window.showInformationMessage(m, ...actions),
 };
 
 function makeDashboardActions(

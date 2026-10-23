@@ -677,4 +677,27 @@ describe('extension activation', () => {
       /onDidChangeConfiguration\(\(e\) => \{[\s\S]{0,400}?provider\.setEdge\(resolveEdgeSide\(\)\);/,
     );
   });
+
+  // A ticket reaching done has merged, so its services keep running unless
+  // stopped. All three done entry points (driver, onTicketCompleted from merge/dismiss,
+  // and the background PR sweep) must invoke maybeStopServersOnDone.
+  it('invokes maybeStopServersOnDone on all three paths that can enter done', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'extension.ts'),
+      'utf8',
+    );
+
+    // 1. driveTicket's onTicketDone
+    expect(source).toMatch(
+      /onTicketDone:\s*\(id\)\s*=>\s*\{[\s\S]{0,100}?void maybeStopServersOnDone\(serverLifecycleDeps,\s*id \?\? ticketId\);/,
+    );
+    // 2. onTicketCompleted (makeDashboardActions completedTicket closure)
+    expect(source).toMatch(
+      /closeTerminalsOnTicketCompleted\([\s\S]{0,150}?void maybeStopServersOnDone\(serverLifecycleDeps,\s*ticketId\);/,
+    );
+    // 3. background PR sweep's settleShipGates landed loop
+    expect(source).toMatch(
+      /for\s*\(const id of landed\)\s*\{[\s\S]{0,250}?void maybeStopServersOnDone\(serverLifecycleDeps,\s*id\);/,
+    );
+  });
 });

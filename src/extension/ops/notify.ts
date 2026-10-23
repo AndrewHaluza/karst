@@ -12,4 +12,6 @@ export interface Notify {
   error(message: string): Promise<void>;
   /** Error with buttons: resolves to the chosen label, or undefined when dismissed. */
   errorActions?(message: string, actions: readonly string[]): Promise<string | undefined>;
+  /** Info with buttons: resolves to the chosen label, or undefined when dismissed. */
+  infoActions?(message: string, actions: readonly string[]): Promise<string | undefined>;
 }

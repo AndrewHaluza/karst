@@ -200,6 +200,8 @@ export function writeManifest(path: string, manifest: Manifest): void {
     // Optional: written when set, dropped when cleared, so it falls back to
     // "diffs open in the changes webview panel".
     diffsInSourceControl: manifest.diffsInSourceControl,
+    // Optional: written when set, dropped when cleared, falls back to 'ask'.
+    stopServersOnDone: manifest.stopServersOnDone,
     // Merge modeled convention fields over the raw block so future/unmodeled
     // nested keys survive Settings saves. Each modeled child is assigned even
     // when absent so clearing one field drops its stale raw value. Clearing the

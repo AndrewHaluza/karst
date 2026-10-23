@@ -122,6 +122,14 @@ export interface Ticket {
   priority: string | null;
   /** Task execution pause timestamp; `null` = active, non-null = execution paused. */
   pausedAt: string | null;
+  /** State of servers-stop-on-done handling (v87); null = not evaluated / pre-v87 ticket. */
+  serversOnDone: ServersOnDoneState | null;
+}
+
+export type ServersOnDoneState = 'asked' | 'stopped' | 'kept' | 'auto' | 'off';
+
+export function isServersOnDoneState(val: unknown): val is ServersOnDoneState {
+  return val === 'asked' || val === 'stopped' || val === 'kept' || val === 'auto' || val === 'off';
 }
 
 export interface TicketWithStages extends Ticket {
@@ -165,6 +173,7 @@ interface TicketRow {
   autostart_claimed_at?: string | null;
   priority: string | null;
   paused_at: string | null;
+  servers_on_done?: string | null;
 }
 
 /**
@@ -245,6 +254,7 @@ function rowToTicket(r: TicketRow): Ticket {
     autostartClaimedAt: r.autostart_claimed_at ?? null,
     priority: r.priority,
     pausedAt: r.paused_at ?? null,
+    serversOnDone: isServersOnDoneState(r.servers_on_done) ? r.servers_on_done : null,
   };
 }
 
@@ -889,6 +899,20 @@ export function unpauseTicket(store: Store, ticketId: number): void {
   store.db
     .prepare("UPDATE tickets SET paused_at = NULL, updated_at = datetime('now') WHERE id = ?")
     .run(ticketId);
+}
+
+/**
+ * Record the servers-stop-on-done state ('asked' | 'stopped' | 'kept' | 'auto' | 'off').
+ * Idempotency barrier so the done paths cannot double-prompt or double-stop.
+ */
+export function setTicketServersOnDone(
+  store: Store,
+  ticketId: number,
+  state: ServersOnDoneState,
+): void {
+  store.db
+    .prepare("UPDATE tickets SET servers_on_done = ?, updated_at = datetime('now') WHERE id = ?")
+    .run(state, ticketId);
 }
 
 /** Related tables keyed by `ticket_id`, cleared on hard-delete (no FK cascade).
