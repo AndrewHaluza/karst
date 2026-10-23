@@ -24,6 +24,8 @@ const assets = [
   'model/icons/agent/codex.svg',
   'model/icons/agent/antigravity-cli.svg',
   'model/icons/agent/opencode.svg',
+  'model/icons/route/opencode.svg',
+  'model/icons/route/openrouter.svg',
   // Webview CSS/JS that lives as a real sibling source file (see
   // agentPicker.ts/designComponents.ts/designRuntime.ts/tablerIcons.ts) rather
   // than a TS template-literal string; read at runtime via `readFileSync(join(HERE, …))`
