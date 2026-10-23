@@ -872,7 +872,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       if (!guardCapability('sessions', id)) return;
       void resolveConflictClick({
         repo, label: formatId('ticket', id),
-        hasSandbox: () => sandboxB?.hasSandbox(id) ?? Promise.resolve(false),
+        probeSandbox: () => sandboxB?.probeSandbox(id) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(localStore, id, repo, sandboxed),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief) => {
@@ -8445,7 +8445,7 @@ function makeDashboardActions(
       if (!guardCapability('sessions', ticketId)) return;
       void resolveConflictClick({
         repo, label: formatId('ticket', ticketId),
-        hasSandbox: () => sandboxB?.hasSandbox(ticketId) ?? Promise.resolve(false),
+        probeSandbox: () => sandboxB?.probeSandbox(ticketId) ?? Promise.resolve({ state: 'absent' as const }),
         briefFor: (sandboxed) => buildConflictBrief(store, ticketId, repo, sandboxed),
         notify: (message) => void vscode.window.showInformationMessage(message),
         deliver: (brief, hit) => handOffToSession(brief, hit),

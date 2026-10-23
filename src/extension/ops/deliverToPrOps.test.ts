@@ -75,7 +75,7 @@ function deliverRig(over: Partial<DeliverDeps> = {}) {
     targets: () => OPEN,
     agentActive: () => false,
     ensureSynced: async () => { calls.push('sync'); return { ok: true }; },
-    blocked: async (reason, rewritten) => { calls.push(`blocked:${reason}:${rewritten}`); },
+    blocked: async (reason, rewritten, cliUnknown) => { calls.push(`blocked:${reason}:${rewritten}${cliUnknown ? ':cli' : ''}`); },
     runShip: async () => { calls.push('ship'); },
     reprobe: async () => { calls.push('reprobe'); },
     info: (m) => infos.push(m),
@@ -116,6 +116,11 @@ describe('deliverToPr', () => {
     const r = deliverRig({ ensureSynced: async () => ({ ok: false, reason: 'not a fast-forward', diverged: true, rewritten: true }) });
     await deliverToPr(r.deps);
     expect(r.calls).toEqual(['blocked:not a fast-forward:true']);
+  });
+  it('an unknown sandbox CLI stops before the push and flags the blocker as a PATH problem', async () => {
+    const r = deliverRig({ ensureSynced: async () => ({ ok: false, reason: 'sbx CLI not runnable', diverged: false, unknown: true }) });
+    await deliverToPr(r.deps);
+    expect(r.calls).toEqual(['blocked:sbx CLI not runnable:false:cli']);
   });
   it('an agent turn that starts during the sync stops before the push', async () => {
     let active = false;

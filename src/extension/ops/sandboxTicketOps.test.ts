@@ -399,6 +399,32 @@ describe('bindings: listing-backed core cache, channel, resume guard (F4/F10/F16
     await expect(b.hasSandbox(8)).resolves.toBe(false);
   });
 
+  it('default listing: only a CONFIGURED runner that fails to list makes the answer unknown', async () => {
+    const { createTicketSandboxBindings } = await import('./sandboxTicketOps.js');
+    const mk = (backends: Record<string, 'sbx' | 'docker'>) => createTicketSandboxBindings({
+      ...deps({ backends: () => backends, coreOf: () => null, proc: fakeSbxProcess({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } }), dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { stdout: '' } }), { pipe: vi.fn() }) }),
+      store: openStore(':memory:'), manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => '/g',
+    });
+    await expect(mk({ claude: 'sbx' }).probeSandbox(7)).resolves.toMatchObject({ state: 'unknown', reason: expect.stringContaining('sbx ls failed') });
+    await expect(mk({ opencode2: 'docker' }).probeSandbox(7)).resolves.toEqual({ state: 'absent' });
+    const own = sbxName({ projectRoot: '/p', ticketId: 7, core: 'claude' });
+    const found = createTicketSandboxBindings({
+      ...deps({ backends: () => ({ claude: 'sbx' }), coreOf: () => null, proc: fakeSbxProcess({ 'sbx ls': { stdout: `NAME\n${own}` } }), dockerProc: Object.assign(fakeSbxProcess({ 'docker ps': { code: 1, stderr: 'daemon down' } }), { pipe: vi.fn() }) }),
+      store: openStore(':memory:'), manifest: () => undefined, onError: vi.fn(), bridgeRoot: () => '/g',
+    });
+    await expect(found.probeSandbox(7)).resolves.toEqual({ state: 'present' });
+    await expect(found.probeSandbox(8)).resolves.toEqual({ state: 'absent' });
+  });
+
+  it('probeSandbox: listed = present, empty listing = absent, a failing listing = unknown (arch:AC-39)', async () => {
+    const b = await make();
+    await expect(b.probeSandbox(7)).resolves.toEqual({ state: 'present' });
+    await expect(b.probeSandbox(8)).resolves.toEqual({ state: 'absent' });
+    const down = await make({}, async () => { throw new Error('sbx ls failed: spawn sbx ENOENT'); });
+    await expect(down.probeSandbox(7)).resolves.toEqual({ state: 'unknown', reason: 'sbx ls failed: spawn sbx ENOENT' });
+    await expect(down.hasSandbox(7)).resolves.toBe(false);
+  });
+
   it('a listing without the ticket forgets the remembered core', async () => {
     const b = await make({}, async () => []);
     b.remember(7, 'opencode2');

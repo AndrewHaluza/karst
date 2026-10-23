@@ -264,3 +264,17 @@ describe('createSbxSessionRunner.refresh', () => {
     expect(await createSbxSessionRunner({ proc: fakeSbxProcess(), core: 'claude', name: NAME, existing: [] }).refresh!(ticket)).toMatchObject({ ok: false });
   });
 });
+
+describe('createSbxSessionRunner.probeSandbox (arch:AC-39)', () => {
+  const runner = (answers: Parameters<typeof fakeSbxProcess>[0]) => createSbxSessionRunner({ proc: fakeSbxProcess(answers), core: 'claude', name: NAME, existing: [] });
+  it('present when listed, absent when ls succeeds without it', async () => {
+    await expect(runner({ 'sbx ls': { stdout: `NAME\n${NAME}` } }).probeSandbox!()).resolves.toEqual({ state: 'present' });
+    await expect(runner({ 'sbx ls': { stdout: 'NAME\nother' } }).probeSandbox!()).resolves.toEqual({ state: 'absent' });
+  });
+  it('exit 127 and any other failing ls are unknown, and hasSandbox stays false', async () => {
+    const missing = runner({ 'sbx ls': { code: 127, stderr: 'spawn sbx ENOENT' } });
+    await expect(missing.probeSandbox!()).resolves.toEqual({ state: 'unknown', reason: '`sbx` was not found on the PATH (spawn sbx ENOENT)' });
+    await expect(missing.hasSandbox!()).resolves.toBe(false);
+    await expect(runner({ 'sbx ls': { code: 1, stderr: 'not signed in' } }).probeSandbox!()).resolves.toEqual({ state: 'unknown', reason: '`sbx ls` exited 1: not signed in' });
+  });
+});

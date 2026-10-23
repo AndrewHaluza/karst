@@ -5,6 +5,7 @@ import type {
   GateProcessRunner,
   PlacedInteractiveLaunch,
   SandboxTicketRef,
+  SandboxProbe,
   SessionRunner,
   SyncResult,
   RefreshOptions,
@@ -72,10 +73,12 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
   const git = (wt: string, args: string[]) => opts.proc.run('git', [...HARDENED_GIT, '-C', wt, ...args], { env: HARDENED_ENV });
   const gateProcess = opts.gateProcess ?? runProcess;
   const sbx = (args: string[]) => opts.proc.run(SBX_BIN, args);
-  const listed = async (): Promise<boolean> => {
+  const probe = async (): Promise<SandboxProbe> => {
     const ls = await sbx(['ls']);
-    return ls.code === 0 && parseNames(ls.stdout).includes(opts.name);
+    if (ls.code !== 0) return { state: 'unknown', reason: ls.code === 127 ? `\`sbx\` was not found on the PATH (${ls.stderr.trim()})` : `\`sbx ls\` exited ${ls.code}: ${ls.stderr.trim()}` };
+    return { state: parseNames(ls.stdout).includes(opts.name) ? 'present' : 'absent' };
   };
+  const listed = async (): Promise<boolean> => (await probe()).state === 'present';
   const evidenceEnv = opts.evidenceDir ? ['--env', `${EVIDENCE_DIR_ENV}=${opts.evidenceDir}`] : [];
   /**
    * Bring the sandbox's branch into the host worktree as FETCH_HEAD. The bundle
@@ -123,6 +126,7 @@ export function createSbxSessionRunner(opts: SbxRunnerOptions): SessionRunner {
     runGate: (command, args, cwd, gateOpts) =>
       gateProcess(SBX_BIN, ['exec', ...evidenceEnv, opts.name, '--', command, ...args], cwd, gateOpts),
     hasSandbox: listed,
+    probeSandbox: probe,
     // `sbx exec` starts a stopped sandbox, so an existing one can host a service.
     canHostServices: listed,
     publishPort: async (m) => {

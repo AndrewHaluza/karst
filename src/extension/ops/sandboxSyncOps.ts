@@ -1,4 +1,3 @@
-import { existsSync } from 'node:fs';
 import { recordClonedWorktree } from '../../agent/clonedWorktree.js';
 import { disposeFailures } from '../../agent/disposeResult.js';
 import { backendForCore, type AgentBackends } from '../../agent/backendChoices.js';
@@ -14,7 +13,7 @@ import { dockerNames } from '../../agent/docker/dockerNames.js';
 import { NODE_DOCKER_PROCESS, type DockerProcess } from '../../agent/docker/dockerProcess.js';
 import { createDockerSessionRunner } from '../../agent/docker/dockerRunner.js';
 import { linuxUser } from '../../agent/docker/resolveDocker.js';
-import { HOST_SESSION_RUNNER, type SessionRunner } from '../../agent/sessionRunner.js';
+import { HOST_SESSION_RUNNER, type SandboxProbe, type SessionRunner } from '../../agent/sessionRunner.js';
 import type { BridgePaths } from '../../agent/bridge/bridgeDir.js';
 import { hostHeadFileFor, readHostHead, recordHostHead } from '../../agent/hostHead.js';
 import { stashMessage } from '../../agent/cloneRefresh.js';
@@ -185,6 +184,11 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
     await deps.notify.error(`Karst: ${target.ticketLabel} has no sandbox (core ${target.core ?? 'unknown'}).`);
     return false;
   }
+  const probe = await probeOf(runner);
+  if (probe.state !== 'present') {
+    await deps.notify.error(probe.state === 'unknown' ? `Karst: sandbox sync for ${target.ticketLabel} failed: ${unknownReason(runner, probe)}` : `Karst: ${target.ticketLabel} has no sandbox to sync.`);
+    return false;
+  }
   const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
   if (!result.ok) {
     const rewritten = /not a fast-forward/i.test(result.reason) && (await isRewritten(deps, { path: target.worktree.path, branch: target.worktree.branch, ticketId: target.ticketId }));
@@ -201,7 +205,7 @@ export async function syncSandboxOp(deps: SandboxSyncDeps, target: SandboxSyncTa
 export type EnsureSyncResult =
   | { readonly ok: true }
   /** `rewritten`: the divergence is a host rebase/amend the sandbox's commits can be carried over (arch:AC-33). */
-  | { readonly ok: false; readonly reason: string; readonly diverged: boolean; readonly rewritten?: boolean };
+  | { readonly ok: false; readonly reason: string; readonly diverged: boolean; readonly rewritten?: boolean; /** The sandbox CLI could not answer (PATH, daemon): a blocker no sync diff can help with. */ readonly unknown?: true };
 
 const syncChains = new Map<number, Promise<unknown>>();
 
@@ -224,10 +228,10 @@ export function ensureSandboxSynced(deps: SandboxSyncDeps, target: SandboxSyncTa
 export function ensureSandboxInSync(deps: SandboxSyncDeps, target: SandboxSyncTarget, opts: { readonly refresh?: boolean } = {}): Promise<EnsureSyncResult> {
   return serialised(target.ticketId, async () => {
     const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
-    // A host ticket in a sandbox-configured project has no sandbox: nothing to sync.
-    if (!runner || !(await runner.hasSandbox?.().catch(() => false))) return { ok: true };
-    const synced = await syncStep(deps, target);
-    if (!synced.ok || opts.refresh === false) return synced;
+    const probe = runner ? await probeOf(runner) : undefined;
+    const synced = await syncStep(deps, target, probe);
+    // A host ticket has no sandbox (the guard in syncStep said ok): nothing to refresh either.
+    if (!runner || !synced.ok || opts.refresh === false || probe?.state !== 'present') return synced;
     if (!runner.refresh || !target.worktree?.branch) return synced;
     try {
       const refreshed = await runner.refresh({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch }, baseOpts(deps, target.ticketId));
@@ -251,10 +255,11 @@ export type StashUpdateResult =
 export function stashSandboxAndUpdate(deps: SandboxSyncDeps, target: SandboxSyncTarget, now: Date = new Date()): Promise<StashUpdateResult> {
   return serialised(target.ticketId, async (): Promise<StashUpdateResult> => {
     const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
-    if (!runner?.refresh || !target.worktree?.branch || !(await runner.hasSandbox?.().catch(() => false))) {
-      return { ok: false, reason: `${target.ticketLabel} has no sandbox to update` };
-    }
-    const synced = await syncStep(deps, target);
+    if (!runner?.refresh || !target.worktree?.branch) return { ok: false, reason: `${target.ticketLabel} has no sandbox to update` };
+    const probe = await probeOf(runner);
+    if (probe.state === 'unknown') return { ok: false, reason: unknownReason(runner, probe) };
+    if (probe.state === 'absent') return { ok: false, reason: `${target.ticketLabel} has no sandbox to update` };
+    const synced = await syncStep(deps, target, probe);
     if (!synced.ok) return { ok: false, reason: synced.reason };
     const stash = stashMessage(target.ticketLabel, now);
     try {
@@ -273,15 +278,14 @@ function baseOpts(deps: SandboxSyncDeps, ticketId: number): { baseRef?: string }
   return baseRef ? { baseRef } : {};
 }
 
-async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<EnsureSyncResult> {
+async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget, known?: SandboxProbe): Promise<EnsureSyncResult> {
   const runner = sandboxRunnerFor(deps, target.core, target.ticketId);
   if (!runner?.sync) return { ok: true };
-  // A host ticket on a sandbox-capable core has no sandbox: nothing to sync, never spawn the CLI for it.
-  if (!(await runner.hasSandbox?.().catch(() => false))) {
-    if (!(await hasSandboxEvidence(deps, target))) return { ok: true };
-    const cli = runner.kind === 'sbx' ? 'sbx' : 'docker';
-    return { ok: false, reason: `the ${runner.kind} sandbox was not found: is the ${cli} CLI on the extension host PATH and running? Its commits were not synced.`, diverged: false };
-  }
+  // The one sync guard: absent = a host ticket (nothing to sync, never spawn the CLI for it);
+  // unknown = the CLI cannot say, so a sandboxed ticket's commits must not be skipped (arch:AC-39).
+  const probe = known ?? (await probeOf(runner));
+  if (probe.state === 'absent') return { ok: true };
+  if (probe.state === 'unknown') return { ok: false, reason: unknownReason(runner, probe), diverged: false, unknown: true };
   if (!target.worktree?.branch) return { ok: false, reason: 'no worktree branch to sync into', diverged: false };
   try {
     const result = await runner.sync({ hostWorktreePath: target.worktree.path, branch: target.worktree.branch });
@@ -300,12 +304,18 @@ async function syncStep(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promi
   }
 }
 
-/** Proof the ticket once had a sandbox, for when the CLI cannot say: its sbx clone dir, or a recorded synced head. */
-async function hasSandboxEvidence(deps: SandboxSyncDeps, target: SandboxSyncTarget): Promise<boolean> {
-  if (isSbxCore(target.core) && existsSync(sbxCloneDir(deps.projectRoot, sbxName({ projectRoot: deps.projectRoot, ticketId: target.ticketId, core: target.core })))) return true;
-  const dir = deps.evidenceDirOf?.(target.ticketId);
-  if (!dir || !target.worktree) return false;
-  return (await readHostHead(hostHeadFileFor(dir), target.worktree.path)) !== undefined;
+/** The runner's tri-state probe; a runner without one falls back to `hasSandbox`, a throw is `unknown`. */
+export async function probeOf(runner: SessionRunner): Promise<SandboxProbe> {
+  try {
+    if (runner.probeSandbox) return await runner.probeSandbox();
+    return (await runner.hasSandbox?.()) ? { state: 'present' } : { state: 'absent' };
+  } catch (err) {
+    return { state: 'unknown', reason: message(err) };
+  }
+}
+
+function unknownReason(runner: SessionRunner, probe: { readonly reason: string }): string {
+  return `${runner.kind} CLI not runnable from the extension host: ${probe.reason}. Its sandbox commits were not synced.`;
 }
 
 const SHA = /^[0-9a-f]{40,64}$/;
